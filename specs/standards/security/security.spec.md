@@ -58,15 +58,6 @@ appropriate security contexts. The CNPG operator enforces non-root execution and
 drops capabilities by default. No database container security configuration is
 needed on the HyperShell side.
 
-### Fleet Isolation
-
-Resources are scoped to fleets via `fleet_id`. All queries MUST include fleet scoping to prevent cross-tenant data access.
-
-#### Scenario: Cross-Fleet Access Prevention
-- GIVEN a user querying gateways for Fleet A
-- WHEN the query does not include `fleet_id` filtering
-- THEN the system SHALL reject the request or apply implicit fleet scoping
-
 ### Gateway Access Isolation
 
 Gateways are scoped by per-gateway RBAC RoleBindings (`gateway:owner`, `gateway:viewer`). All gateway queries MUST filter by the caller's RoleBindings so users can only see and operate on gateways where they have a binding. See [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md) for the scope-aware RBAC model and [`platform/openshell-gateway-keycloak.spec.md`](../../platform/openshell-gateway-keycloak.spec.md) for the Keycloak OIDC role bridge.

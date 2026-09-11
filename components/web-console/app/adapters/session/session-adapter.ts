@@ -15,6 +15,8 @@ export interface BrowserSessionUser {
 
 export interface BrowserSession {
   authenticated: boolean;
+  /** True when the BFF exposes `/auth/session` (OIDC mode). */
+  authEnabled: boolean;
   expiresAt?: number;
   roles: string[];
   user?: BrowserSessionUser;
@@ -24,7 +26,17 @@ export interface SessionGateway {
   getSession(signal?: AbortSignal): Promise<BrowserSession>;
 }
 
-const unauthenticated: BrowserSession = { authenticated: false, roles: [] };
+const noAuthSession: BrowserSession = {
+  authenticated: false,
+  authEnabled: false,
+  roles: [],
+};
+
+const unauthenticatedSession: BrowserSession = {
+  authenticated: false,
+  authEnabled: true,
+  roles: [],
+};
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -36,7 +48,7 @@ function toBrowserSession(body: unknown): BrowserSession {
     body === null ||
     (body as { authenticated?: unknown }).authenticated !== true
   ) {
-    return unauthenticated;
+    return unauthenticatedSession;
   }
   const record = body as {
     expires_at?: unknown;
@@ -67,6 +79,7 @@ function toBrowserSession(body: unknown): BrowserSession {
 
   return {
     authenticated: true,
+    authEnabled: true,
     ...(typeof record.expires_at === "number"
       ? { expiresAt: record.expires_at }
       : {}),
@@ -91,15 +104,15 @@ export function createSessionAdapter(
         });
       } catch {
         // Network failure or absent endpoint (no-auth mode): treat as no session.
-        return unauthenticated;
+        return noAuthSession;
       }
       if (!response.ok) {
-        return unauthenticated;
+        return response.status === 404 ? noAuthSession : unauthenticatedSession;
       }
       try {
         return toBrowserSession(await response.json());
       } catch {
-        return unauthenticated;
+        return unauthenticatedSession;
       }
     },
   };

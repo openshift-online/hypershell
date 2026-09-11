@@ -29,10 +29,10 @@ var Cmd = &cobra.Command{
 	Short: "Apply resources from file or directory",
 	Long: "Apply resources from YAML files or kustomize directories.\n\n" +
 		"Examples:\n" +
-		"  hypershell apply -f resource.yaml\n" +
-		"  hypershell apply -f ./resources/\n" +
-		"  hypershell apply -k ./overlays/prod/\n" +
-		"  hypershell apply -f - < resource.yaml",
+		"  hsctl apply -f resource.yaml\n" +
+		"  hsctl apply -f ./resources/\n" +
+		"  hsctl apply -k ./overlays/prod/\n" +
+		"  hsctl apply -f - < resource.yaml",
 	Args: cobra.NoArgs,
 	RunE: run,
 }
@@ -207,8 +207,6 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 	// Map kind to API path
 	var basePath string
 	switch kind {
-	case "Fleet":
-		basePath = urls.FleetsPath
 	case "Gateway":
 		basePath = urls.GatewaysPath
 	case "GatewayNetwork":

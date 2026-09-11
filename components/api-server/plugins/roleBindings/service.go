@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -35,22 +36,30 @@ func NewRoleBindingService(
 	rbDao RoleBindingDao,
 	roleDao roles.RoleDao,
 	events services.EventService,
+	defaultRoles []string,
 ) RoleBindingService {
+	for _, r := range defaultRoles {
+		if !roles.JWTSyncedRoles[r] {
+			glog.Warningf("RBAC_DEFAULT_ROLES: role %q is not in JWTSyncedRoles and will be ignored; add it to JWTSyncedRoles to make it sync-eligible", r)
+		}
+	}
 	return &sqlRoleBindingService{
-		lockFactory: lockFactory,
-		rbDao:       rbDao,
-		roleDao:     roleDao,
-		events:      events,
+		lockFactory:  lockFactory,
+		rbDao:        rbDao,
+		roleDao:      roleDao,
+		events:       events,
+		defaultRoles: defaultRoles,
 	}
 }
 
 var _ RoleBindingService = &sqlRoleBindingService{}
 
 type sqlRoleBindingService struct {
-	lockFactory db.LockFactory
-	rbDao       RoleBindingDao
-	roleDao     roles.RoleDao
-	events      services.EventService
+	lockFactory  db.LockFactory
+	rbDao        RoleBindingDao
+	roleDao      roles.RoleDao
+	events       services.EventService
+	defaultRoles []string
 }
 
 func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, userID string, gatewayID string) error {
@@ -66,6 +75,11 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 		GatewayID: &gatewayID,
 	}
 
+	// Intentionally no CaptureTraceContext here: this is a server-initiated
+	// binding (created as a side effect of gateway provisioning), not a client
+	// request, so there is no meaningful originating request span to link. The
+	// trace context stays NULL and the resulting reconcile is knowingly
+	// link-less (RTC-01 tolerates NULL trace context).
 	_, createErr := s.rbDao.Create(ctx, rb)
 	if createErr != nil {
 		return createErr
@@ -88,6 +102,16 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string, jwtRoles []string) error {
 	jwtRoleSet := make(map[string]bool)
 	for _, r := range jwtRoles {
+		if roles.JWTSyncedRoles[r] {
+			jwtRoleSet[r] = true
+		}
+	}
+	// Default roles are always merged regardless of what the JWT carries.
+	// They represent the platform's baseline posture: every authenticated
+	// principal receives these capabilities unless explicitly disabled via
+	// RBAC_DEFAULT_ROLES=. Only roles in JWTSyncedRoles participate in the
+	// sync lifecycle (idempotent add, never revoked by JWT absence).
+	for _, r := range s.defaultRoles {
 		if roles.JWTSyncedRoles[r] {
 			jwtRoleSet[r] = true
 		}
@@ -125,6 +149,10 @@ func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string,
 			Scope:  ScopeGlobal,
 			UserID: &userID,
 		}
+		// Intentionally no CaptureTraceContext here: JWT role sync is driven by
+		// the login/token flow, not a client mutation of this resource, so there
+		// is no originating request span worth linking. NULL trace context is a
+		// valid state (RTC-01) and these reconciles are knowingly link-less.
 		if _, createErr := s.rbDao.Create(ctx, rb); createErr != nil {
 			return fmt.Errorf("unable to create binding for role %s: %w", roleName, createErr)
 		}
@@ -194,6 +222,7 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		return nil, errors.Forbidden("platform:admin can only be assigned via Keycloak")
 	}
 
+	rb.CaptureTraceContext(ctx)
 	rb, createErr := s.rbDao.Create(ctx, rb)
 	if createErr != nil {
 		return nil, services.HandleCreateError("RoleBinding", createErr)

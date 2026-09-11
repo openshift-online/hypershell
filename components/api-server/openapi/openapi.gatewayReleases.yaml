@@ -225,12 +225,9 @@ components:
         - type: object
           required:
             - name
-            - fleet_id
             - image
           properties:
             name:
-              type: string
-            fleet_id:
               type: string
             image:
               type: string
@@ -260,8 +257,6 @@ components:
       type: object
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         image:
           type: string

@@ -65,6 +65,64 @@ export function persistTokenSet(
   }
 }
 
+function normalizeRoleName(role: string): string {
+  return role.startsWith("/") ? role.slice(1) : role;
+}
+
+function readStringClaim(
+  claims: Record<string, unknown>,
+  claimName: string,
+): string[] | undefined {
+  const rawRoles = claims[claimName];
+  if (!Array.isArray(rawRoles)) {
+    return undefined;
+  }
+  return rawRoles
+    .filter((role): role is string => typeof role === "string")
+    .map(normalizeRoleName);
+}
+
+function readRealmAccessRoles(claims: Record<string, unknown>): string[] {
+  const realmAccess = claims.realm_access;
+  if (
+    typeof realmAccess !== "object" ||
+    realmAccess === null ||
+    Array.isArray(realmAccess)
+  ) {
+    return [];
+  }
+  const rawRoles = (realmAccess as Record<string, unknown>).roles;
+  if (!Array.isArray(rawRoles)) {
+    return [];
+  }
+  return rawRoles
+    .filter((role): role is string => typeof role === "string")
+    .map(normalizeRoleName);
+}
+
+/**
+ * Reads realm roles from OIDC claims emitted by HyperShell Keycloak.
+ *
+ * The hypershell-frontend client maps realm roles into the top-level `groups`
+ * claim on ID tokens via `oidc-usermodel-realm-role-mapper` (not Keycloak group
+ * paths). Access tokens may also carry `realm_access.roles`. The `roles` claim
+ * is a BFF/session convention when present. Group-path values such as
+ * `/hypershell-admins` are normalized by stripping a leading slash.
+ */
+export function extractRealmRoles(claims: Record<string, unknown>): string[] {
+  const roles = readStringClaim(claims, "roles");
+  if (roles !== undefined) {
+    return roles;
+  }
+
+  const groups = readStringClaim(claims, "groups");
+  if (groups !== undefined) {
+    return groups;
+  }
+
+  return readRealmAccessRoles(claims);
+}
+
 /** Clears both session cookies on terminal authentication failure. */
 export function clearSession(request: {
   session: secureSession.Session;
@@ -223,11 +281,7 @@ export async function registerAuth(
         if (typeof claims.name === "string") {
           request.session.set("name", claims.name);
         }
-        const rawRoles = claims.roles;
-        const roles = Array.isArray(rawRoles)
-          ? rawRoles.filter((r): r is string => typeof r === "string")
-          : [];
-        request.session.set("roles", roles);
+        request.session.set("roles", extractRealmRoles(claims));
       }
 
       request.session.options({ maxAge: config.sessionTtlSeconds });

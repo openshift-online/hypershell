@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/golang/glog"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
@@ -18,6 +17,9 @@ type contextKey string
 
 const ContextUserIDKey contextKey = "rbac_user_id"
 const ContextJWTRolesKey contextKey = "rbac_jwt_roles"
+
+// HypershellAdminRole is the Keycloak realm role that grants dashboard-operator access.
+const HypershellAdminRole = "hypershell-admins"
 
 type UserProvisioner interface {
 	UpsertFromJWT(ctx context.Context, payload *auth.Payload) (userID string, err error)
@@ -49,56 +51,19 @@ func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSynce
 			jwtRoles := extractJWTRoles(r)
 			if len(jwtRoles) > 0 {
 				ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
-				if syncer != nil {
-					if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
-						glog.Warningf("JWT role sync failed for %q: %v", payload.Username, syncErr)
-					}
+			}
+			// Always sync even when jwtRoles is empty: SyncJWTRoles applies
+			// configured default roles (e.g. gateway:creator) so that users with
+			// no Keycloak realm roles still receive their initial bindings.
+			if syncer != nil {
+				if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
+					glog.Warningf("JWT role sync failed for %q: %v", payload.Username, syncErr)
 				}
 			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-}
-
-func extractJWTRoles(r *http.Request) []string {
-	token, err := auth.TokenFromContext(r.Context())
-	if err != nil {
-		return nil
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil
-	}
-
-	realmAccess, ok := claims["realm_access"]
-	if !ok {
-		return nil
-	}
-
-	raMap, ok := realmAccess.(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	rolesRaw, ok := raMap["roles"]
-	if !ok {
-		return nil
-	}
-
-	rolesSlice, ok := rolesRaw.([]interface{})
-	if !ok {
-		return nil
-	}
-
-	result := make([]string, 0, len(rolesSlice))
-	for _, r := range rolesSlice {
-		if s, ok := r.(string); ok {
-			result = append(result, s)
-		}
-	}
-	return result
 }
 
 func GetUserIDFromContext(ctx context.Context) string {
@@ -109,19 +74,32 @@ func GetUserIDFromContext(ctx context.Context) string {
 	return v.(string)
 }
 
+func GetJWTRolesFromContext(ctx context.Context) []string {
+	v := ctx.Value(ContextJWTRolesKey)
+	if v == nil {
+		return nil
+	}
+	roles, ok := v.([]string)
+	if !ok {
+		return nil
+	}
+	return roles
+}
+
+func HasHypershellAdminRole(jwtRoles []string) bool {
+	for _, role := range jwtRoles {
+		if role == HypershellAdminRole {
+			return true
+		}
+	}
+	return false
+}
+
 func HasPlatformAdminRole(ctx context.Context, userID string) bool {
 	if userID == "" {
 		return false
 	}
-	v := ctx.Value(ContextJWTRolesKey)
-	if v == nil {
-		return false
-	}
-	jwtRoles, ok := v.([]string)
-	if !ok {
-		return false
-	}
-	for _, role := range jwtRoles {
+	for _, role := range GetJWTRolesFromContext(ctx) {
 		if role == "platform:admin" {
 			return true
 		}

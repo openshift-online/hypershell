@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	hypershellapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/segmentio/ksuid"
 	"gorm.io/gorm"
@@ -13,8 +14,8 @@ const gatewayNamespacePrefix = "openshell-"
 
 type Gateway struct {
 	api.Meta
+	hypershellapi.TraceMeta
 	Name               string  `json:"name"`
-	FleetId            string  `json:"fleet_id"`
 	ClusterId          string  `json:"cluster_id"`
 	ReleaseId          string  `json:"release_id"`
 	DatabaseId         string  `json:"database_id"`
@@ -60,7 +61,6 @@ func (d *Gateway) BeforeCreate(tx *gorm.DB) error {
 
 type GatewayPatchRequest struct {
 	Name             *string `json:"name,omitempty"`
-	FleetId          *string `json:"fleet_id,omitempty"`
 	ClusterId        *string `json:"cluster_id,omitempty"`
 	ReleaseId        *string `json:"release_id,omitempty"`
 	DatabaseId       *string `json:"database_id,omitempty"`

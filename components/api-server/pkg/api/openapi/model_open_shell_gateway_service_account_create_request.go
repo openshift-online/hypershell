@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */

@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -20,7 +20,6 @@ var _ MappedNullable = &GatewayReleasePatchRequest{}
 // GatewayReleasePatchRequest struct for GatewayReleasePatchRequest
 type GatewayReleasePatchRequest struct {
 	Name            *string `json:"name,omitempty"`
-	FleetId         *string `json:"fleet_id,omitempty"`
 	Image           *string `json:"image,omitempty"`
 	RolloutStrategy *string `json:"rollout_strategy,omitempty"`
 	CanaryPercent   *int32  `json:"canary_percent,omitempty"`
@@ -75,38 +74,6 @@ func (o *GatewayReleasePatchRequest) HasName() bool {
 // SetName gets a reference to the given string and assigns it to the Name field.
 func (o *GatewayReleasePatchRequest) SetName(v string) {
 	o.Name = &v
-}
-
-// GetFleetId returns the FleetId field value if set, zero value otherwise.
-func (o *GatewayReleasePatchRequest) GetFleetId() string {
-	if o == nil || IsNil(o.FleetId) {
-		var ret string
-		return ret
-	}
-	return *o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *GatewayReleasePatchRequest) GetFleetIdOk() (*string, bool) {
-	if o == nil || IsNil(o.FleetId) {
-		return nil, false
-	}
-	return o.FleetId, true
-}
-
-// HasFleetId returns a boolean if a field has been set.
-func (o *GatewayReleasePatchRequest) HasFleetId() bool {
-	if o != nil && !IsNil(o.FleetId) {
-		return true
-	}
-
-	return false
-}
-
-// SetFleetId gets a reference to the given string and assigns it to the FleetId field.
-func (o *GatewayReleasePatchRequest) SetFleetId(v string) {
-	o.FleetId = &v
 }
 
 // GetImage returns the Image field value if set, zero value otherwise.
@@ -281,9 +248,6 @@ func (o GatewayReleasePatchRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Name) {
 		toSerialize["name"] = o.Name
-	}
-	if !IsNil(o.FleetId) {
-		toSerialize["fleet_id"] = o.FleetId
 	}
 	if !IsNil(o.Image) {
 		toSerialize["image"] = o.Image

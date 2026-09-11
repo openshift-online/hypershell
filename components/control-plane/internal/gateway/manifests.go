@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,20 +94,22 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace, co
 	}
 	manifestJSON = strings.ReplaceAll(manifestJSON, "NAMESPACE_PLACEHOLDER", namespace)
 
-	supervisorImage := images.DefaultSupervisorImage()
-	if config.SupervisorImage != "" {
-		supervisorImage = config.SupervisorImage
+	supervisorImage := cmp.Or(config.SupervisorImage, images.DefaultSupervisorImage())
+	if supervisorImage == "" {
+		return nil, errors.New("supervisor image is not configured and no default is available")
 	}
+
 	manifestJSON = strings.ReplaceAll(manifestJSON, "SUPERVISOR_IMAGE_PLACEHOLDER", supervisorImage)
 
 	// Replace SANDBOX_IMAGE_PLACEHOLDER before IMAGE_PLACEHOLDER because the
 	// shorter string is a substring of the longer one.
 	manifestJSON = strings.ReplaceAll(manifestJSON, "SANDBOX_IMAGE_PLACEHOLDER", images.DefaultSandboxImage())
 
-	image := images.DefaultGatewayImage()
-	if config.Image != "" {
-		image = config.Image
+	image := cmp.Or(config.Image, images.DefaultGatewayImage())
+	if image == "" {
+		return nil, errors.New("gateway image is not configured and no default is available")
 	}
+
 	manifestJSON = strings.ReplaceAll(manifestJSON, "IMAGE_PLACEHOLDER", image)
 
 	result := &unstructured.Unstructured{}
@@ -114,6 +118,45 @@ func ApplyManifestToNamespace(manifest *unstructured.Unstructured, namespace, co
 	}
 
 	return result, nil
+}
+
+// RenderGatewayConfigTOML reproduces the gateway.toml artifact deployGateway
+// will write for this gateway, without touching the cluster, so it can be
+// validated before any resource is applied. It renders the openshell-gateway-config
+// ConfigMap through the exact ApplyManifestToNamespace + ApplyConfigOverrides
+// path deployGateway uses, so the validated artifact is the one that would be
+// deployed. See specs/platform/generated-gateway-config-validation.spec.md.
+func RenderGatewayConfigTOML(manifests map[string][]*unstructured.Unstructured, nsConfig NamespaceConfig, images ImageDefaults) (string, error) {
+	resources, ok := manifests["configmap.yaml"]
+	if !ok {
+		return "", fmt.Errorf("configmap.yaml manifest not found")
+	}
+
+	for _, manifest := range resources {
+		if manifest.GetKind() != "ConfigMap" || manifest.GetName() != "openshell-gateway-config" {
+			continue
+		}
+
+		obj, err := ApplyManifestToNamespace(manifest.DeepCopy(), nsConfig.Name, "", nsConfig.Gateway, images)
+		if err != nil {
+			return "", fmt.Errorf("render config manifest substitutions: %w", err)
+		}
+		if err := ApplyConfigOverrides(obj, nsConfig.Gateway, nsConfig.Name); err != nil {
+			return "", fmt.Errorf("render config overrides: %w", err)
+		}
+
+		data, found, err := unstructured.NestedMap(obj.Object, "data")
+		if err != nil || !found {
+			return "", fmt.Errorf("rendered configmap has no data")
+		}
+		toml, ok := data["gateway.toml"].(string)
+		if !ok {
+			return "", fmt.Errorf("rendered configmap has no gateway.toml")
+		}
+		return toml, nil
+	}
+
+	return "", fmt.Errorf("openshell-gateway-config ConfigMap not found in configmap.yaml")
 }
 
 func ApplyConfigOverrides(obj *unstructured.Unstructured, config GatewayConfig, tenantNamespace ...string) error {

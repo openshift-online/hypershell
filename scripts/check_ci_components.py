@@ -9,7 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (ROOT / "components", ROOT / "packages")
 CONFIG_PATH = ROOT / ".github" / "component-paths.json"
-LINT_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "lint.yml"
+CHECKS_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "checks.yml"
+TESTS_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "tests.yml"
+UNIT_TESTS_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "unit-tests.yml"
 
 
 def main() -> int:
@@ -26,9 +28,21 @@ def main() -> int:
         return 1
 
     try:
-        lint_workflow = LINT_WORKFLOW_PATH.read_text(encoding="utf-8")
+        checks_workflow = CHECKS_WORKFLOW_PATH.read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"Unable to read {LINT_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
+        print(f"Unable to read {CHECKS_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
+        return 1
+
+    try:
+        tests_workflow = TESTS_WORKFLOW_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"Unable to read {TESTS_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
+        return 1
+
+    try:
+        unit_tests_workflow = UNIT_TESTS_WORKFLOW_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"Unable to read {UNIT_TESTS_WORKFLOW_PATH.relative_to(ROOT)}: {exc}")
         return 1
 
     source_directories = {
@@ -73,29 +87,85 @@ def main() -> int:
                 f"{directory}/**"
             )
 
-        if lint_job is None:
-            pass
-        elif not isinstance(lint_job, str) or not re.fullmatch(
-            r"[a-z][a-z0-9-]*", lint_job or ""
+        unit_tested = registration.get("unit_tested", False)
+        if not isinstance(unit_tested, bool):
+            errors.append(f"detector entry {component!r} has a non-boolean unit_tested")
+            unit_tested = False
+
+        if lint_job is not None and (
+            not isinstance(lint_job, str)
+            or not re.fullmatch(r"[a-z][a-z0-9-]*", lint_job or "")
         ):
             errors.append(f"detector entry {component!r} has an invalid lint_job")
-            continue
+            lint_job = None
 
-        if lint_job is None:
-            continue
+        if lint_job is not None:
+            # checks.yml is a standalone, independently-triggered workflow
+            # (not called from tests.yml) with its own detect-changes job.
+            # Verify the whole wiring lives there: detector output, lint job,
+            # and the job's gating condition on that same job's output.
+            component_checks = (
+                (
+                    "detector output",
+                    checks_workflow,
+                    CHECKS_WORKFLOW_PATH,
+                    rf"steps\.detect\.outputs\.{re.escape(component)}\b",
+                ),
+                (
+                    "lint job",
+                    checks_workflow,
+                    CHECKS_WORKFLOW_PATH,
+                    rf"(?m)^  {re.escape(lint_job)}:$",
+                ),
+                (
+                    "job condition",
+                    checks_workflow,
+                    CHECKS_WORKFLOW_PATH,
+                    rf"needs\.detect-changes\.outputs\.{re.escape(component)}\b",
+                ),
+            )
+            for description, text, path, pattern in component_checks:
+                if re.search(pattern, text) is None:
+                    errors.append(
+                        f"{component!r} is missing its {description} in "
+                        f"{path.relative_to(ROOT)}"
+                    )
 
-        required_patterns = {
-            "detector output": rf"(?m)^      {re.escape(component)}:.*steps\.detect\.outputs\.{re.escape(component)}.*$",
-            "lint job": rf"(?m)^  {re.escape(lint_job)}:$",
-            "job condition": rf"(?m)^    if:.*needs\.detect-changes\.outputs\.{re.escape(component)}.*$",
-            "summary dependency": rf"(?m)^      - {re.escape(lint_job)}$",
-        }
-        for description, pattern in required_patterns.items():
-            if re.search(pattern, lint_workflow) is None:
-                errors.append(
-                    f"{component!r} is missing its {description} in "
-                    f"{LINT_WORKFLOW_PATH.relative_to(ROOT)}"
-                )
+        if unit_tested:
+            # unit-tests.yml is a reusable workflow called from tests.yml's
+            # `unit` job, so a component's unit-test wiring spans both files:
+            # tests.yml passes the detection output into `unit` as a `with:`
+            # input, unit-tests.yml declares the matching `workflow_call`
+            # input, and some job in unit-tests.yml gates on it (jobs are not
+            # 1:1 with components here -- e.g. test-frontend and test-cli
+            # each cover several -- so this checks that the input is
+            # referenced somewhere, not a specific job name).
+            unit_test_checks = (
+                (
+                    "detection input passed to the unit stage",
+                    tests_workflow,
+                    TESTS_WORKFLOW_PATH,
+                    rf"needs\.detect-changes\.outputs\.{re.escape(component)}\b",
+                ),
+                (
+                    "unit-tests.yml workflow_call input",
+                    unit_tests_workflow,
+                    UNIT_TESTS_WORKFLOW_PATH,
+                    rf"(?m)^      {re.escape(component)}:\s*$",
+                ),
+                (
+                    "unit-tests.yml job condition",
+                    unit_tests_workflow,
+                    UNIT_TESTS_WORKFLOW_PATH,
+                    rf"inputs\.{re.escape(component)}\b",
+                ),
+            )
+            for description, text, path, pattern in unit_test_checks:
+                if re.search(pattern, text) is None:
+                    errors.append(
+                        f"{component!r} is missing its {description} in "
+                        f"{path.relative_to(ROOT)}"
+                    )
 
     for directory in sorted(source_directories - registrations.keys()):
         errors.append(f"{directory} is not registered for component-aware CI")
@@ -108,8 +178,9 @@ def main() -> int:
         for error in errors:
             print(f"- {error}")
         print(
-            "Use the maintain-ci skill and update .github/component-paths.json and "
-            ".github/workflows/lint.yml together."
+            "Use the maintain-ci skill and update .github/component-paths.json, "
+            ".github/workflows/checks.yml, and (for unit_tested components) "
+            ".github/workflows/tests.yml and .github/workflows/unit-tests.yml together."
         )
         return 1
 

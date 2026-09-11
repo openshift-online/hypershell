@@ -19,7 +19,6 @@ var args struct {
 	clusterId       string
 	databaseId      string
 	externalDns     string
-	fleetId         string
 	image           string
 	name            string
 	phase           string
@@ -38,8 +37,8 @@ var Cmd = &cobra.Command{
 	Short: "Create a gateway",
 	Long: "Create a new gateway.\n\n" +
 		"Examples:\n" +
-		"  hypershell create gateway --cluster-id <value> --database-id <value> --external-dns <value> --fleet-id <value> --image <value> --name <value> --phase <value> --release-id <value> --route <value> --server-dns-names <value> --service-type <value> --status <value> --supervisor-image <value> --tls-mode <value> \n" +
-		"  hypershell create gateway --body request.json",
+		"  hsctl create gateway --cluster-id <value> --database-id <value> --external-dns <value> --image <value> --name <value> --phase <value> --release-id <value> --route <value> --server-dns-names <value> --service-type <value> --status <value> --supervisor-image <value> --tls-mode <value> \n" +
+		"  hsctl create gateway --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }
@@ -49,7 +48,6 @@ func init() {
 	fs.StringVar(&args.clusterId, "cluster-id", "", "cluster_id value.")
 	fs.StringVar(&args.databaseId, "database-id", "", "database_id value.")
 	fs.StringVar(&args.externalDns, "external-dns", "", "external_dns value.")
-	fs.StringVar(&args.fleetId, "fleet-id", "", "fleet_id value.")
 	fs.StringVar(&args.image, "image", "", "image value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
 	fs.StringVar(&args.phase, "phase", "", "phase value.")
@@ -92,9 +90,6 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 		if args.externalDns != "" {
 			request["external_dns"] = args.externalDns
-		}
-		if args.fleetId != "" {
-			request["fleet_id"] = args.fleetId
 		}
 		if args.image != "" {
 			request["image"] = args.image

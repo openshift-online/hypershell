@@ -10,7 +10,6 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**FleetId** | **string** |  | 
 **Image** | **string** |  | 
 **RolloutStrategy** | Pointer to **string** |  | [optional] 
 **CanaryPercent** | Pointer to **int32** |  | [optional] 
@@ -21,7 +20,7 @@ Name | Type | Description | Notes
 
 ### NewGatewayRelease
 
-`func NewGatewayRelease(name string, fleetId string, image string, ) *GatewayRelease`
+`func NewGatewayRelease(name string, image string, ) *GatewayRelease`
 
 NewGatewayRelease instantiates a new GatewayRelease object
 This constructor will assign default values to properties that have it defined,
@@ -179,26 +178,6 @@ and a boolean to check if the value has been set.
 `func (o *GatewayRelease) SetName(v string)`
 
 SetName sets Name field to given value.
-
-
-### GetFleetId
-
-`func (o *GatewayRelease) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *GatewayRelease) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *GatewayRelease) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
 
 
 ### GetImage

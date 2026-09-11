@@ -16,7 +16,6 @@ import (
 )
 
 var args struct {
-	fleetId   string
 	gatewayId string
 	roleId    string
 	scope     string
@@ -29,15 +28,14 @@ var Cmd = &cobra.Command{
 	Short: "Create a roleBinding",
 	Long: "Create a new roleBinding.\n\n" +
 		"Examples:\n" +
-		"  hypershell create roleBinding --fleet-id <value> --gateway-id <value> --role-id <value> --scope <value> --user-id <value> \n" +
-		"  hypershell create roleBinding --body request.json",
+		"  hsctl create roleBinding --gateway-id <value> --role-id <value> --scope <value> --user-id <value> \n" +
+		"  hsctl create roleBinding --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }
 
 func init() {
 	fs := Cmd.Flags()
-	fs.StringVar(&args.fleetId, "fleet-id", "", "fleet_id value.")
 	fs.StringVar(&args.gatewayId, "gateway-id", "", "gateway_id value.")
 	fs.StringVar(&args.roleId, "role-id", "", "role_id value.")
 	fs.StringVar(&args.scope, "scope", "", "scope value.")
@@ -66,9 +64,6 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 	} else {
 		request := map[string]interface{}{}
-		if args.fleetId != "" {
-			request["fleet_id"] = args.fleetId
-		}
 		if args.gatewayId != "" {
 			request["gateway_id"] = args.gatewayId
 		}

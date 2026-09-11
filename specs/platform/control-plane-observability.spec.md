@@ -8,7 +8,7 @@
 
 Give the HyperShell control plane distributed tracing and reconcile-level metrics through OpenTelemetry (OTel), so an operator can observe reconcile latency, gRPC watch health, Kubernetes API calls, and failures across the fleet. This specification is the control-plane counterpart to `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `web-console/tracing.spec.md` (HYPERSHELL-27): the API server already produces server spans for inbound HTTP and gRPC requests, and this specification makes the control plane produce spans for the asynchronous reconciliation work that follows.
 
-Correlating a reconcile trace back to the originating user request is intentionally deferred to a follow-up story, because reconciliation is asynchronous: the API writes desired state to PostgreSQL and returns; the control plane observes the change later via a watch stream, possibly after resync, batching, or retries. That correlation is tracked separately.
+Correlating a reconcile trace back to the originating user request is defined by `platform/reconcile-trace-correlation.spec.md`, which adds span links from the reconcile root span to the originating request trace. That specification extends this one and `platform/api-server-observability.spec.md`.
 
 This specification covers the control plane component only. API server instrumentation is defined by `platform/api-server-observability.spec.md`. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs.
 
@@ -131,7 +131,7 @@ When the control plane issues a gRPC call during a reconcile (for example `Updat
 
 ### Requirement: CP-OBS-04 -- Watch Stream Lifecycle Spans
 
-The control plane SHALL create a span for each watch stream connection attempt, wrapping the `connectAndRecv` cycle in `watchLoop`. The span SHALL be named by the resource kind (for example `watch Gateway`, `watch Fleet`) and SHALL cover the lifetime of the stream from connection to disconnection. The span status SHALL reflect the stream outcome: OK on graceful EOF, Error on unexpected disconnection.
+The control plane SHALL create a span for each watch stream connection attempt, wrapping the `connectAndRecv` cycle in `watchLoop`. The span SHALL be named by the resource kind (for example `watch Gateway`, `watch ManagedCluster`) and SHALL cover the lifetime of the stream from connection to disconnection. The span status SHALL reflect the stream outcome: OK on graceful EOF, Error on unexpected disconnection.
 
 When a watch stream disconnects and reconnects, each connection attempt SHALL produce a new span. The reconnection backoff period SHALL NOT be included in the span duration; only the active stream lifetime SHALL be spanned.
 
@@ -199,8 +199,26 @@ The control plane SHALL export OpenTelemetry metrics for reconciliation and watc
 | Metric | Type | Unit | Description |
 |--------|------|------|-------------|
 | `reconcile.duration` | Histogram | `ms` | Latency of a single resource reconciliation |
+| `reconcile.queue.depth` | Observable gauge | `{item}` | Ready resource keys that are waiting for a reconcile worker |
+| `reconcile.queue.wait.duration` | Histogram | `s` | Time from when a resource key becomes ready until a worker starts reconciliation |
+| `gateway.provision.duration` | Histogram | `s` | Time from Gateway creation until its first successful transition to `Running` |
 | `reconcile.errors` | Counter | `{error}` | Count of failed reconciliations |
 | `watch.reconnects` | Counter | `{reconnect}` | Count of watch stream reconnections |
+
+The queue metrics SHALL have a `resource.kind` attribute. They SHALL NOT have a
+resource identifier attribute. Queue depth SHALL include only keys in the ready
+queue. It SHALL exclude work in progress and retries that are in a scheduled
+backoff period.
+
+The queue wait histogram SHALL record one observation when the queue calls
+`Handle` for a resource key. It SHALL start when the key first becomes ready and
+stop when a worker starts the call. Updates that coalesce into the same pending
+key SHALL NOT add observations. A scheduled retry backoff SHALL NOT be part of
+the queue wait duration.
+
+The control plane SHALL record one `gateway.provision.duration` observation only after the Gateway phase update to `Running` succeeds. The initial reconcile path SHALL record a direct transition to `Running`. The health reconcile path SHALL record a delayed transition from `Provisioning` to `Running`. It SHALL NOT record a later recovery from `Degraded` to `Running` as a new provision. The duration SHALL use the `created_at` and `updated_at` values in the stored Gateway that the API server returns. It SHALL ignore missing, invalid, or reversed timestamps. The metric SHALL NOT contain a Gateway identifier. Its explicit bucket boundaries SHALL cover 1 second through 15 minutes.
+
+When exported to Prometheus, the histogram SHALL appear as `gateway_provision_duration_seconds` with standard `_bucket`, `_count`, and `_sum` suffixes. The operational dashboard provision-time feature (`platform/gateway-provision-time.spec.md`) consumes that series through the web-console BFF.
 
 Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT prevent adding one later.
 
@@ -219,6 +237,33 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - WHEN a Gateway reconciliation fails
 - THEN `reconcile.errors` SHALL be incremented
 - AND the sample SHALL be labeled with the resource kind
+
+#### Scenario: Gateway provision duration recorded
+
+- GIVEN a Gateway has a valid creation time
+- AND the Gateway has not reached `Running`
+- WHEN the control plane successfully changes its phase to `Running`
+- THEN `gateway.provision.duration` SHALL record the time from creation to that phase change in seconds
+- AND a later recovery from `Degraded` to `Running` SHALL NOT record another observation
+- AND the metric SHALL NOT contain the Gateway identifier
+
+#### Scenario: Gateway reconcile queue metrics recorded
+
+- GIVEN all Gateway reconcile workers are busy
+- AND another Gateway key is ready in the queue
+- WHEN a worker starts reconciliation for that key
+- THEN `reconcile.queue.depth` SHALL report the ready backlog while the key waits
+- AND `reconcile.queue.wait.duration` SHALL record the time that the key waited
+- AND both metrics SHALL use `resource.kind=Gateway`
+- AND neither metric SHALL contain the Gateway identifier
+
+#### Scenario: Retry backoff excluded from queue wait
+
+- GIVEN a Gateway reconciliation failed
+- AND the queue scheduled a retry after a backoff period
+- WHEN the backoff period ends and a worker starts the retry
+- THEN `reconcile.queue.wait.duration` SHALL measure from the end of the backoff
+- AND it SHALL NOT include the scheduled backoff period
 
 #### Scenario: Watch reconnect metric incremented
 
@@ -260,10 +305,11 @@ When `KIND_JAEGER` is unset, the control plane Deployment SHALL NOT receive a co
 | One span per reconcile Handle() | The reconciler is the unit of work; sub-spans for gRPC and K8s calls nest naturally as children |
 | gRPC client interceptors on the shared connection | Every service client created from the connection inherits instrumentation without per-call changes |
 | otelhttp transport wrapper for client-go | Instruments all Kubernetes API calls transparently without modifying reconciler code |
-| Bounded span names by kind, not resource ID | Keeps Jaeger grouping useful and prevents cardinality explosion across large fleets |
+| Bounded span names by kind, not resource ID | Keeps Jaeger grouping useful and prevents cardinality explosion across large deployments |
 | Resource ID as a span attribute, not a span name | Enables per-trace debugging without inflating the span-name namespace |
+| Queue depth and wait use the shared reconcile queue | One bounded resource-kind label covers each shared reconcile queue without resource identifiers |
 | OTLP/gRPC on port 4317 for the control plane | Matches the API server's transport; the development Jaeger exposes 4317 for OTLP/gRPC |
-| Reconcile-trace to request-trace correlation deferred | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) deserves its own story |
+| Reconcile-trace to request-trace correlation via span links | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) is defined in `platform/reconcile-trace-correlation.spec.md` |
 
 ## Primary Basis
 

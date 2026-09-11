@@ -12,6 +12,13 @@ message ObjectReference {
   google.protobuf.Timestamp updated_at = 3;
   string kind = 4;
   string href = 5;
+  // W3C Trace Context traceparent of the API request that created or last
+  // updated this resource (e.g. "00-{traceID}-{spanID}-{flags}").
+  // Empty when OpenTelemetry is disabled or the resource predates tracing.
+  optional string traceparent = 6;
+  // W3C Trace Context tracestate carrying vendor-specific key-value pairs.
+  // Empty when no vendor state was present on the originating request.
+  optional string tracestate = 7;
 }
 
 message ListMeta {

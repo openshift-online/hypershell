@@ -67,6 +67,7 @@ spec:
             - --api-server-bindaddress=0.0.0.0:8000
             - --grpc-server-bindaddress=0.0.0.0:9000
             - --health-check-server-bindaddress=0.0.0.0:8434
+            - --metrics-server-bindaddress=0.0.0.0:4433
             - --enable-authz=false
             - --enable-jwt=false
             - --db-host-file=/secrets/host
@@ -88,8 +89,19 @@ spec:
             # Plaintext in-cluster gRPC to the control-plane provisioner. A
             # NetworkPolicy restricts port 9443 to this pod; the channel mirrors
             # the sibling control-plane -> api-server watch channel (no mTLS).
+            # Use a cluster-local FQDN. grpc-go's DNS resolver does not apply
+            # kube-DNS search domains, so the short name hypershell-controller
+            # fails even when libc lookup (nc) succeeds. POD_NAMESPACE is this
+            # pod's namespace (downward API), the same source as the
+            # controller's HYPERSHELL_NAMESPACE instance identity. Kubelet
+            # expands $(POD_NAMESPACE) so the dial target tracks the Deployment
+            # namespace without a hardcoded hypershell-system segment.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
-              value: "hypershell-controller:9443"
+              value: "hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443"
             - name: DB_SSLMODE
               value: require
           startupProbe:
@@ -129,6 +141,8 @@ kind: Service
 metadata:
   name: hypershell-api-server
   namespace: hypershell-system
+  labels:
+    app: hypershell-api-server
 spec:
   selector:
     app: hypershell-api-server

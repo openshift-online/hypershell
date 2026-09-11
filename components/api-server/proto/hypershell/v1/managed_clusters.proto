@@ -9,7 +9,8 @@ import "hypershell/v1/common.proto";
 message ManagedCluster {
   ObjectReference metadata = 1;
   string name = 2;
-  string fleet_id = 3;
+  reserved 3;
+  reserved "fleet_id";
   string provider = 4;
   optional string region = 5;
   string kubeconfig_secret = 6;
@@ -19,7 +20,8 @@ message ManagedCluster {
 
 message CreateManagedClusterRequest {
   string name = 1;
-  string fleet_id = 2;
+  reserved 2;
+  reserved "fleet_id";
   string provider = 3;
   optional string region = 4;
   string kubeconfig_secret = 5;
@@ -42,7 +44,8 @@ message GetManagedClusterResponse {
 message UpdateManagedClusterRequest {
   string id = 1;
   optional string name = 2;
-  optional string fleet_id = 3;
+  reserved 3;
+  reserved "fleet_id";
   optional string provider = 4;
   optional string region = 5;
   optional string kubeconfig_secret = 6;

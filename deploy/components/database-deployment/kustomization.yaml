@@ -17,11 +17,11 @@ patches:
         name: hypershell-db
   # The static Deployment does not terminate TLS; switch sslmode from require
   # to disable in both the migrate init container and the api-server container.
-  # DATABASE_PROVIDER is deliberately NOT injected here: unset/empty already
-  # means "deployment" for both the API server and control plane (see
+  # DATABASE_PROVIDER is deliberately NOT injected here: when the pod env var
+  # is absent the control plane defaults to "deployment" (see
   # specs/platform/openshell-gateway-database.spec.md), so this component only
   # needs to swap the CNPG Cluster for the static Deployment above; injecting
-  # the env var explicitly here would be redundant with that default.
+  # the env var explicitly here would be redundant with that pod-level default.
   - target:
       kind: Deployment
       name: hypershell-api-server

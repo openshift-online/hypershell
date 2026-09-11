@@ -5,7 +5,7 @@
 
 ## Overview
 
-The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Fleet resources in the database) into actual Kubernetes resources across managed clusters. It follows the informer-reconciler pattern without depending on controller-runtime.
+The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into actual Kubernetes resources across managed clusters. It follows the informer-reconciler pattern without depending on controller-runtime.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ Managed Clusters (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Fleets, Gateways, GatewayReleases, ManagedClusters, ManagedDatabases, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler.
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, ManagedDatabases, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md).
 
 ### Reconciler
 
@@ -51,12 +51,61 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
 | [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) | Phase lifecycle, workload-readiness gating, continuous health reconciliation |
+| [`gateway-version-selection.spec.md`](./gateway-version-selection.spec.md) | Database-backed version selection: resolving `release_id` to a GatewayRelease image and its precedence over a direct image |
+| [`gateway-release-reconciliation.spec.md`](./gateway-release-reconciliation.spec.md) | GatewayRelease reconciliation: image validation, deterministic release status, change propagation to referencing gateways |
+| [`gateway-network-reconciliation.spec.md`](./gateway-network-reconciliation.spec.md) | GatewayNetwork reconciliation: topology vocabulary, topology/hub coherence and hub-reference validation, deterministic network status write-back |
 
 ### Config
 
 Holds connection configuration for the API server gRPC endpoint, Kubernetes client initialization, and the internal service-account provisioner. The provisioner listens on an in-cluster gRPC port that a NetworkPolicy restricts to the API server pod. The API server does not receive Keycloak administrator credentials.
 
 ## Requirements
+
+### Requirement: Spoke Self-Registration at Startup
+
+Before opening any gRPC watch stream, the control plane SHALL call
+`POST /api/hypershell/v1/managed_clusters/registration` using its OIDC
+`client_credentials` token. The registration endpoint is idempotent; the returned
+`cluster_id` is stable across restarts. The control plane SHALL use this `cluster_id`
+as the cluster filter for `WatchGateways` for the lifetime of the process.
+
+`HYPERSHELL_MANAGED_CLUSTER_NAME` (unique per spoke, set in gitops) is the only
+cluster-identity configuration required. `HYPERSHELL_CLUSTER_ID` SHALL NOT appear in
+gitops -- it is resolved at runtime via registration.
+
+After startup, the control plane SHALL call `/registration` on a regular interval
+(default: 60 seconds) to update `last_seen_at` on the hub. These subsequent calls are
+no-ops for registration data and return the same `cluster_id`. See
+`platform/managed-cluster-registration.spec.md` for full registration semantics.
+
+#### Scenario: Successful startup registration
+
+- GIVEN the spoke service account has `managed-cluster-registrar` in Keycloak
+- AND `HYPERSHELL_MANAGED_CLUSTER_NAME` is set
+- WHEN the control plane starts
+- THEN it calls `POST /managed_clusters/registration` before opening `WatchGateways`
+- AND uses the returned `cluster_id` to filter the watch stream to this cluster's gateways
+
+#### Scenario: Transient failure retried with backoff
+
+- GIVEN the API server is temporarily unreachable at startup
+- WHEN the control plane attempts to register
+- THEN it SHALL retry with exponential backoff
+- AND it SHALL NOT open `WatchGateways` until registration succeeds
+
+#### Scenario: 403 exits immediately
+
+- GIVEN the API server returns 403 (managed-cluster-registrar not assigned in Keycloak)
+- WHEN the control plane attempts to start
+- THEN it SHALL NOT retry and SHALL NOT open `WatchGateways`
+- AND it SHALL log a clear error identifying the missing role and exit
+
+#### Scenario: Re-registration after restart returns same cluster_id
+
+- GIVEN a spoke that previously registered and received `cluster_id: X`
+- WHEN the spoke restarts and calls `/registration` again
+- THEN the response is 200 with the same `cluster_id: X`
+- AND `last_seen_at` is updated on the `ManagedCluster` record
 
 ### Requirement: gRPC Watch Streams
 

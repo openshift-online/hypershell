@@ -43,16 +43,12 @@ func (h *managedDatabaseGRPCHandler) CreateManagedDatabase(ctx context.Context, 
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("fleet_id", req.FleetId, true); err != nil {
-		return nil, err
-	}
 	if err := grpcutil.ValidateStringField("provider", req.Provider, true); err != nil {
 		return nil, err
 	}
 
 	managedDatabase := &ManagedDatabase{
 		Name:             req.Name,
-		FleetId:          req.FleetId,
 		Provider:         req.Provider,
 		Region:           req.Region,
 		Engine:           req.Engine,
@@ -74,11 +70,6 @@ func (h *managedDatabaseGRPCHandler) UpdateManagedDatabase(ctx context.Context, 
 	}
 	if req.Name != nil {
 		if err := grpcutil.ValidateStringField("name", *req.Name, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.FleetId != nil {
-		if err := grpcutil.ValidateStringField("fleet_id", *req.FleetId, false); err != nil {
 			return nil, err
 		}
 	}
@@ -124,9 +115,6 @@ func (h *managedDatabaseGRPCHandler) UpdateManagedDatabase(ctx context.Context, 
 	}
 	if req.Name != nil {
 		managedDatabase.Name = *req.Name
-	}
-	if req.FleetId != nil {
-		managedDatabase.FleetId = *req.FleetId
 	}
 	if req.Provider != nil {
 		managedDatabase.Provider = *req.Provider

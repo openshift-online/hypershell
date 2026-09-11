@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import { normalizeGatewayPlacementClusterIds } from "../application/gateway-placement";
 import type { GatewayRecord } from "../application/gateway-types";
 import {
+  aggregateGatewayDisplayStatusCounts,
+  gatewayPhaseCountsToDisplayStatusCounts,
   gatewayConsoleReadyDeadlineMilliseconds,
   gatewayConsoleUnavailable,
   gatewayNeedsStatusPolling,
   gatewayPlacementBatchQueryKey,
   gatewayStatusPollMilliseconds,
   resolveConsoleWaitStart,
+  resolveGatewayDisplayStatus,
   toGatewayConnection,
 } from "./gateway-data";
 
@@ -319,6 +322,9 @@ describe("gateway presentation data", () => {
   });
 
   it("presents transitional and failed lifecycle phases before health", () => {
+    expect(resolveGatewayDisplayStatus("Provisioning", "Ready")).toBe(
+      "Provisioning",
+    );
     expect(
       toGatewayConnection(
         gateway({ phase: "Provisioning", status: "Ready" }),
@@ -337,6 +343,47 @@ describe("gateway presentation data", () => {
         "Hub cluster",
       ).status,
     ).toBe("Degraded");
+    expect(
+      toGatewayConnection(
+        gateway({ phase: "Running", status: "Healthy" }),
+        "Hub cluster",
+      ).status,
+    ).toBe("Healthy");
+  });
+
+  it("aggregates gateway list rows into dashboard status buckets", () => {
+    expect(
+      aggregateGatewayDisplayStatusCounts([
+        { phase: "Running", status: "Healthy" },
+        { phase: "Running", status: "Healthy" },
+        { phase: "Provisioning", status: "route pending" },
+        { phase: "Degraded", status: "CrashLoopBackOff" },
+        { phase: "Failed", status: "apply error" },
+        { phase: "Running", status: "Degraded" },
+      ]),
+    ).toEqual({
+      degraded: 2,
+      failed: 1,
+      healthy: 2,
+      provisioning: 1,
+    });
+  });
+
+  it("maps Prometheus phase counts into dashboard status buckets", () => {
+    expect(
+      gatewayPhaseCountsToDisplayStatusCounts({
+        Pending: 2,
+        Provisioning: 3,
+        Running: 10,
+        Degraded: 1,
+        Failed: 4,
+      }),
+    ).toEqual({
+      degraded: 1,
+      failed: 4,
+      healthy: 10,
+      provisioning: 5,
+    });
   });
 
   it("keeps a returned cluster identifier for name resolution only", () => {

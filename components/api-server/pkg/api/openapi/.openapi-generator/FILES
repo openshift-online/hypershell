@@ -8,9 +8,6 @@ client.go
 configuration.go
 docs/DefaultAPI.md
 docs/Error.md
-docs/Fleet.md
-docs/FleetList.md
-docs/FleetPatchRequest.md
 docs/Gateway.md
 docs/GatewayCreateRequest.md
 docs/GatewayList.md
@@ -25,6 +22,8 @@ docs/List.md
 docs/ManagedCluster.md
 docs/ManagedClusterList.md
 docs/ManagedClusterPatchRequest.md
+docs/ManagedClusterRegistrationRequest.md
+docs/ManagedClusterRegistrationResponse.md
 docs/ManagedDatabase.md
 docs/ManagedDatabaseList.md
 docs/ManagedDatabasePatchRequest.md
@@ -44,13 +43,12 @@ docs/Role.md
 docs/RoleBinding.md
 docs/RoleBindingList.md
 docs/RoleList.md
+docs/User.md
+docs/UserList.md
 git_push.sh
 go.mod
 go.sum
 model_error.go
-model_fleet.go
-model_fleet_list.go
-model_fleet_patch_request.go
 model_gateway.go
 model_gateway_create_request.go
 model_gateway_list.go
@@ -65,6 +63,8 @@ model_list.go
 model_managed_cluster.go
 model_managed_cluster_list.go
 model_managed_cluster_patch_request.go
+model_managed_cluster_registration_request.go
+model_managed_cluster_registration_response.go
 model_managed_database.go
 model_managed_database_list.go
 model_managed_database_patch_request.go
@@ -84,6 +84,8 @@ model_role.go
 model_role_binding.go
 model_role_binding_list.go
 model_role_list.go
+model_user.go
+model_user_list.go
 response.go
 test/api_default_test.go
 utils.go

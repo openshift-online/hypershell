@@ -22,10 +22,13 @@ import (
 type ServiceLocator func() ManagedClusterService
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
+	dao := NewManagedClusterDao(&env.Database.SessionFactory)
+	RegisterManagedClusterMetrics(dao)
+
 	return func() ManagedClusterService {
 		return NewManagedClusterService(
 			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
-			NewManagedClusterDao(&env.Database.SessionFactory),
+			dao,
 			events.Service(&env.Services),
 		)
 	}
@@ -53,6 +56,7 @@ func init() {
 
 		managedClustersRouter := apiV1Router.PathPrefix("/managed_clusters").Subrouter()
 		managedClustersRouter.HandleFunc("", managedClusterHandler.List).Methods(http.MethodGet)
+		managedClustersRouter.HandleFunc("/registration", managedClusterHandler.Register).Methods(http.MethodPost)
 		managedClustersRouter.HandleFunc("/{id}", managedClusterHandler.Get).Methods(http.MethodGet)
 		managedClustersRouter.HandleFunc("", managedClusterHandler.Create).Methods(http.MethodPost)
 		managedClustersRouter.HandleFunc("/{id}", managedClusterHandler.Patch).Methods(http.MethodPatch)
@@ -93,4 +97,7 @@ func init() {
 	presenters.RegisterKind(&ManagedCluster{}, "ManagedCluster")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationDropFleetId())
+	db.RegisterMigration(migrationAddTraceContext())
+	db.RegisterMigration(migrationAddRegistrationFields())
 }

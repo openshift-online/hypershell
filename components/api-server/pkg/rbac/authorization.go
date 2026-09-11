@@ -66,6 +66,19 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 			return
 		}
 
+		// Registration is JWT-direct: managed-cluster-registrar is checked from the
+		// JWT claim, never from DB role bindings. This runs before the userID gate so
+		// a transient user-provisioning DB failure never produces a fatal non-retryable
+		// 403 that causes the spoke to exit instead of retrying.
+		if strings.HasSuffix(r.URL.Path, "/managed_clusters/registration") && r.Method == http.MethodPost {
+			if hasManagedClusterRegistrar(extractJWTRoles(r)) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
 		userID := GetUserIDFromContext(r.Context())
 		if userID == "" {
 			http.Error(w, "Forbidden", http.StatusForbidden)
@@ -80,8 +93,9 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 
 		resource, resourceID := extractResourceInfo(r)
 		gatewayID := extractGatewayID(r, resource)
+		jwtRoles := GetJWTRolesFromContext(r.Context())
 
-		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings) {
+		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles) {
 			if resource == "service_accounts" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
 			} else {
@@ -116,6 +130,19 @@ func isExemptEndpoint(r *http.Request) bool {
 	return false
 }
 
+// roleManagedClusterRegistrar mirrors roles.RoleManagedClusterRegistrar; kept
+// local to avoid an import cycle with the managedClusters plugin package.
+const roleManagedClusterRegistrar = "managed-cluster-registrar"
+
+func hasManagedClusterRegistrar(jwtRoles []string) bool {
+	for _, role := range jwtRoles {
+		if role == roleManagedClusterRegistrar {
+			return true
+		}
+	}
+	return false
+}
+
 func hasGatewayCreator(bindings []BindingSummary) bool {
 	for _, b := range bindings {
 		if b.RoleName == "gateway:creator" {
@@ -134,7 +161,23 @@ func hasPlatformAdmin(bindings []BindingSummary) bool {
 	return false
 }
 
+func hasUsersInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool {
+	return hasPlatformAdmin(bindings) || HasHypershellAdminRole(jwtRoles)
+}
+
+func hasDashboardInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool {
+	return hasUsersInventoryAccess(bindings, jwtRoles) || hasGatewayCreator(bindings)
+}
+
 func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
+	resource, resourceID = extractResourceInfoFromRoute(r)
+	if resource != "" {
+		return resource, resourceID
+	}
+	return extractResourceInfoFromPath(r.URL.Path)
+}
+
+func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID string) {
 	route := mux.CurrentRoute(r)
 	if route == nil {
 		return "", ""
@@ -166,18 +209,81 @@ func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
 	return resource, ""
 }
 
+func extractResourceInfoFromPath(path string) (resource string, resourceID string) {
+	const prefix = "/api/hypershell/v1/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", ""
+	}
+
+	remainder := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+	if remainder == "" {
+		return "", ""
+	}
+
+	parts := strings.Split(remainder, "/")
+	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/service_accounts") {
+		for i, part := range parts {
+			if part == "service_accounts" && i+1 < len(parts) {
+				return "service_accounts", parts[i+1]
+			}
+		}
+	}
+
+	resource = parts[0]
+	if len(parts) > 1 {
+		resourceID = parts[1]
+	}
+	return resource, resourceID
+}
+
 func extractGatewayID(r *http.Request, resource string) string {
 	if resource == "service_accounts" {
-		return mux.Vars(r)["gateway_id"]
+		if gatewayID := mux.Vars(r)["gateway_id"]; gatewayID != "" {
+			return gatewayID
+		}
+		_, gatewayID := extractGatewayIDFromPath(r.URL.Path)
+		return gatewayID
 	}
 	if resource == "gateways" {
 		vars := mux.Vars(r)
-		return vars["id"]
+		if gatewayID := vars["id"]; gatewayID != "" {
+			return gatewayID
+		}
+		_, gatewayID := extractGatewayIDFromPath(r.URL.Path)
+		return gatewayID
 	}
 	return ""
 }
 
-func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary) bool {
+func extractGatewayIDFromPath(path string) (resource string, gatewayID string) {
+	const prefix = "/api/hypershell/v1/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", ""
+	}
+
+	remainder := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+	parts := strings.Split(remainder, "/")
+	if len(parts) >= 2 && parts[0] == "gateways" {
+		return "gateways", parts[1]
+	}
+	return "", ""
+}
+
+func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary, jwtRoles []string) bool {
+	// JWT-direct: managed-cluster-registrar is never DB-synced; check JWT claim only.
+	if resource == "registration" && method == http.MethodPost {
+		return hasManagedClusterRegistrar(jwtRoles)
+	}
+
+	if resource == "users" {
+		return hasUsersInventoryAccess(bindings, jwtRoles)
+	}
+
+	if (resource == "managed_clusters" || resource == "managed_databases") &&
+		method == http.MethodGet && resourceID == "" {
+		return hasDashboardInventoryAccess(bindings, jwtRoles)
+	}
+
 	if resource == "gateways" && method == http.MethodPost && resourceID == "" {
 		return hasGatewayCreator(bindings)
 	}

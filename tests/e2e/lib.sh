@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # lib.sh - shared e2e test utilities.
 #
-# Provides pass/fail tracking, colored output, retry helpers, and common
-# environment defaults. Sourced by e2e-openshell.sh.
+# Provides pass/fail tracking, colored output, retry helpers, driver
+# selection, and common environment defaults. Sourced by e2e-openshell.sh
+# and e2e-performance.sh.
 
 set -euo pipefail
 
@@ -41,6 +42,8 @@ sep()    { printf "${_DIM}──────────────────
 E2E_PASS=0
 E2E_FAIL=0
 E2E_TESTS=()
+E2E_CURRENT_AREA=""
+E2E_COMPLETED=""
 
 pass() {
   E2E_PASS=$((E2E_PASS + 1))
@@ -59,9 +62,24 @@ show_cmd() {
   sleep "${E2E_PAUSE:-1}"
 }
 
+# e2e_area - announce a numbered test area and record it as the current one,
+# so print_results can name where the run stopped if it never reaches the end.
+e2e_area() {
+  E2E_CURRENT_AREA="$1"
+  bold "$1"
+}
+
 print_results() {
   echo ""
   bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if [[ -z "$E2E_COMPLETED" ]]; then
+    if [[ -n "$E2E_CURRENT_AREA" ]]; then
+      red "⚠ Run aborted during Area ${E2E_CURRENT_AREA} -- later areas did not run and are not reflected below."
+    else
+      red "⚠ Run aborted before any test area started -- no checks ran."
+    fi
+    echo ""
+  fi
   bold "Results: $E2E_PASS passed, $E2E_FAIL failed"
   echo ""
   for t in "${E2E_TESTS[@]}"; do
@@ -92,13 +110,15 @@ retry_until() {
 # --- Environment defaults ---
 
 : "${E2E_NAMESPACE:=openshell-e2e}"
-: "${E2E_GATEWAY_NAME:=e2e-gw}"
+: "${E2E_GATEWAY_NAME:=e2e-gw-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+: "${E2E_MODE:=long}"
 : "${E2E_SANDBOX_TIMEOUT:=120}"
 : "${E2E_PROVISION_TIMEOUT:=180}"
 : "${E2E_GC_TIMEOUT:=180}"
 : "${E2E_ORPHAN_GC_TIMEOUT:=90}"
 : "${E2E_SKIP_CLEANUP:=0}"
 : "${E2E_PAUSE:=1}"
+_E2E_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${OPENSHELL_BIN:=openshell}"
 : "${E2E_KEYCLOAK_NAMESPACE:=keycloak}"
 : "${E2E_OIDC_ISSUER:=https://keycloak.hypershell.localhost/realms/hypershell}"
@@ -134,4 +154,279 @@ e2e_dump_namespace_gc_logs() {
     | grep -E 'namespace gc:|GarbageCollected|recordGCEvent|deleted namespace' \
     | tail -20 \
     | while IFS= read -r line; do dim "    $line"; done || true
+}
+
+# --- E2E_MODE (short | long) ---
+#
+# Each suite step declares a minimum mode. short-tagged steps run in both
+# modes; long-tagged steps run only in long mode. Default is long so existing
+# CI invocations are unchanged. See e2e-testing.spec.md "E2E Short and Long Modes".
+
+e2e_validate_mode() {
+  case "${E2E_MODE}" in
+    short|long) ;;
+    *)
+      red "ERROR: E2E_MODE must be 'short' or 'long' (got '${E2E_MODE}')"
+      exit 1
+      ;;
+  esac
+}
+
+# e2e_step <short|long> - return 0 if the current mode should run this step.
+e2e_step() {
+  local min_mode="${1:?mode tag required}"
+  case "${E2E_MODE}" in
+    long) return 0 ;;
+    short)
+      [[ "${min_mode}" == "short" ]] && return 0
+      return 1
+      ;;
+  esac
+}
+
+e2e_utc_now() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+e2e_utc_stamp() {
+  date -u +%Y%m%dT%H%M%SZ
+}
+
+# List driver names from tests/e2e/drivers/*.sh (basename without .sh).
+e2e_list_available_drivers() {
+  local drivers_dir="${1:-${_E2E_LIB_DIR}/drivers}"
+  if [[ -d "$drivers_dir" ]]; then
+    local f drivers=()
+    for f in "${drivers_dir}"/*.sh; do
+      [[ -f "$f" ]] && drivers+=("$(basename "$f" .sh)")
+    done
+    ((${#drivers[@]} > 0)) && printf '%s\n' "${drivers[@]}"
+  fi
+}
+
+# Print available drivers and exit 1. Used when E2E_INFRA_DRIVER names a
+# missing driver file.
+e2e_die_unknown_driver() {
+  local reason="$1"
+  red "ERROR: ${reason}"
+  echo ""
+  echo "Available drivers:"
+  e2e_list_available_drivers | while read -r d; do echo "  - $d"; done
+  exit 1
+}
+
+# Detects OpenShift by checking whether the current KUBECONFIG context serves
+# the route.openshift.io API group, an API only OpenShift clusters expose.
+# Any other cluster is assumed to be Kind. Prints the driver name to stdout.
+e2e_detect_infra_driver() {
+  local api_versions
+  if ! api_versions=$(kubectl api-versions 2>&1); then
+    red "ERROR: 'kubectl api-versions' failed against the current KUBECONFIG context" >&2
+    red "$api_versions" >&2
+    exit 1
+  fi
+  if echo "$api_versions" | grep -q '^route\.openshift\.io/'; then
+    echo "openshift"
+  else
+    echo "kind"
+  fi
+}
+
+# Auto-detect E2E_INFRA_DRIVER from the current KUBECONFIG context when unset.
+# An explicit E2E_INFRA_DRIVER value is left unchanged.
+e2e_select_infra_driver() {
+  if [[ -z "${E2E_INFRA_DRIVER:-}" ]]; then
+    E2E_INFRA_DRIVER="$(e2e_detect_infra_driver)"
+    dim "  Detected infra driver: ${E2E_INFRA_DRIVER} (from KUBECONFIG context; set E2E_INFRA_DRIVER to override)"
+  fi
+}
+
+# First item id from a HyperShell list JSON on stdin. Optional name match.
+# Usage: echo "$json" | e2e_json_first_id [name]
+e2e_json_first_id() {
+  WANT_NAME="${1:-}" python3 -c "
+import json, sys, os
+name = os.environ.get('WANT_NAME', '')
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+items = data.get('items', []) if isinstance(data, dict) else []
+for it in items:
+    if not name or it.get('name', '') == name:
+        print(it.get('id', '') or '')
+        break
+"
+}
+
+# Look up a gateway by exact name. Sets _GW_ID, _GW_NAMESPACE, _GW_PHASE (empty if missing).
+# Requires API_HOST and api_curl.
+e2e_lookup_gateway_by_name() {
+  local name="${1:?gateway name required}"
+  _GW_ID=""
+  _GW_NAMESPACE=""
+  _GW_PHASE=""
+  local resp
+  resp=$(api_curl "${API_HOST}/api/hypershell/v1/gateways?search=name%3D${name}" 2>/dev/null || true)
+  IFS=$'\t' read -r _GW_ID _GW_NAMESPACE _GW_PHASE <<< "$(echo "$resp" | WANT_NAME="$name" python3 -c "
+import json, sys, os
+name = os.environ['WANT_NAME']
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print('\t\t'); sys.exit(0)
+for gw in data.get('items', []) or []:
+    if gw.get('name', '') == name:
+        print('%s\t%s\t%s' % (gw.get('id',''), gw.get('namespace',''), gw.get('phase','')))
+        break
+else:
+    print('\t\t')
+" 2>/dev/null)" || true
+}
+
+# Discover the seeded cluster, release, and managed-database ids via the API.
+# Sets E2E_CLUSTER_ID, E2E_RELEASE_ID, E2E_DATABASE_ID.
+# Requires API_HOST and api_curl. Never hardcodes ids.
+#
+# Name pins (optional): E2E_SEED_CLUSTER_NAME, E2E_SEED_RELEASE_NAME.
+# On kind these default to the make kind-up seeds (local-kind, dev-release).
+# When a name is unset, the first list item is used - that matches
+# single-seed CI/dev; multi-seed clusters should set the name pins instead
+# of relying on API order.
+e2e_discover_seed_ids() {
+  local clusters releases databases
+  if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]]; then
+    : "${E2E_SEED_CLUSTER_NAME:=local-kind}"
+    : "${E2E_SEED_RELEASE_NAME:=dev-release}"
+  else
+    : "${E2E_SEED_CLUSTER_NAME:=}"
+    : "${E2E_SEED_RELEASE_NAME:=}"
+  fi
+
+  clusters=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters" 2>/dev/null || true)
+  releases=$(api_curl "${API_HOST}/api/hypershell/v1/gateway_releases" 2>/dev/null || true)
+  databases=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
+
+  E2E_CLUSTER_ID=$(echo "$clusters" | e2e_json_first_id "${E2E_SEED_CLUSTER_NAME}")
+  E2E_RELEASE_ID=$(echo "$releases" | e2e_json_first_id "${E2E_SEED_RELEASE_NAME}")
+  E2E_DATABASE_ID=$(echo "$databases" | e2e_json_first_id)
+
+  if [[ -z "${E2E_CLUSTER_ID}" || -z "${E2E_RELEASE_ID}" ]]; then
+    red "ERROR: could not discover seeded cluster/release ids from the API"
+    dim "  cluster=${E2E_SEED_CLUSTER_NAME:-<first>} id=${E2E_CLUSTER_ID:-<empty>}"
+    dim "  release=${E2E_SEED_RELEASE_NAME:-<first>} id=${E2E_RELEASE_ID:-<empty>}"
+    return 1
+  fi
+}
+
+e2e_seed_ids_ready() {
+  [[ -n "${E2E_CLUSTER_ID:-}" && -n "${E2E_RELEASE_ID:-}" ]]
+}
+
+# Fill any missing seed ids from the API. Rediscover when cluster is set but
+# release is not (or the reverse).
+e2e_ensure_seed_ids() {
+  e2e_seed_ids_ready && return 0
+  e2e_discover_seed_ids
+}
+
+# Copy cluster/release/database ids from a gateway JSON object or list.
+# Does not overwrite ids that are already set.
+e2e_apply_seed_ids_from_gateway_json() {
+  local json="${1:-}" name="${2:-}"
+  local parsed
+  parsed=$(echo "$json" | WANT_NAME="$name" python3 -c "
+import json, sys, os
+name = os.environ.get('WANT_NAME', '')
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+obj = data
+if isinstance(data, dict) and 'items' in data:
+    obj = None
+    for it in data.get('items') or []:
+        if not name or it.get('name', '') == name:
+            obj = it
+            break
+if not isinstance(obj, dict):
+    sys.exit(0)
+print('%s\t%s\t%s' % (
+    obj.get('cluster_id', '') or '',
+    obj.get('release_id', '') or '',
+    obj.get('database_id', '') or '',
+))
+" 2>/dev/null || true)
+  local cluster release database
+  IFS=$'\t' read -r cluster release database <<< "$parsed" || true
+  [[ -z "${E2E_CLUSTER_ID:-}" && -n "$cluster" ]] && E2E_CLUSTER_ID="$cluster"
+  [[ -z "${E2E_RELEASE_ID:-}" && -n "$release" ]] && E2E_RELEASE_ID="$release"
+  [[ -z "${E2E_DATABASE_ID:-}" && -n "$database" ]] && E2E_DATABASE_ID="$database"
+}
+
+# Print a gateway create body that reuses the seeded cluster/release/database ids.
+e2e_gateway_create_body() {
+  local name="${1:?gateway name required}"
+  GW_NAME="$name" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
+    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
+    E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
+    E2E_RELEASE_ID="${E2E_RELEASE_ID}" E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" python3 -c "
+import json, os
+body = {
+    'name': os.environ['GW_NAME'],
+    'cluster_id': os.environ['E2E_CLUSTER_ID'],
+    'release_id': os.environ['E2E_RELEASE_ID'],
+    'database_id': os.environ.get('E2E_DATABASE_ID', ''),
+    'oidc': json.dumps({
+        'issuer': os.environ['E2E_OIDC_ISSUER'],
+        'audience': os.environ['E2E_OIDC_CLIENT_ID'],
+        'roles_claim': 'groups',
+        'admin_role': 'hypershell-admins',
+        'user_role': 'hypershell-users'
+    }),
+    'route': json.dumps({'enabled': True})
+}
+print(json.dumps(body))
+"
+}
+
+# Poll until a gateway reports Running, or timeout. Echoes the last phase.
+# Returns 0 on Running, 1 on timeout. Requires API_HOST and api_curl.
+e2e_wait_gateway_running() {
+  local gw_id="${1:?gateway id required}"
+  local timeout="${2:-${E2E_PROVISION_TIMEOUT}}"
+  local deadline=$(($(date +%s) + timeout))
+  local phase=""
+  while [[ $(date +%s) -lt $deadline ]]; do
+    acquire_oidc_token 2>/dev/null || true
+    phase=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${gw_id}" 2>/dev/null | \
+      python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
+    if [[ "$phase" == "Running" ]]; then
+      echo "$phase"
+      return 0
+    fi
+    sleep 5
+  done
+  echo "${phase:-unknown}"
+  return 1
+}
+
+# Parse a gateway create/get JSON. Sets _CREATE_KIND (OK|ERROR|PARSE), _CREATE_ID,
+# _CREATE_NAMESPACE, _CREATE_DATABASE_ID (or error code/reason in the ERROR case).
+e2e_parse_gateway_response() {
+  local json="${1:-}"
+  _CREATE_KIND=""
+  _CREATE_ID=""
+  _CREATE_NAMESPACE=""
+  _CREATE_DATABASE_ID=""
+  IFS=$'\t' read -r _CREATE_KIND _CREATE_ID _CREATE_NAMESPACE _CREATE_DATABASE_ID <<< "$(echo "$json" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('PARSE\t\t\t'); sys.exit(0)
+if d.get('kind') == 'Error':
+    print('ERROR\t%s\t%s\t' % (d.get('code', ''), d.get('reason', ''))); sys.exit(0)
+print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('database_id', '')))
+" 2>/dev/null)" || true
 }

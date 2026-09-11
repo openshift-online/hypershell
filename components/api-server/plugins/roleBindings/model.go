@@ -1,6 +1,7 @@
 package roleBindings
 
 import (
+	hypershellapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"gorm.io/gorm"
 )
@@ -12,6 +13,7 @@ const (
 
 type RoleBinding struct {
 	api.Meta
+	hypershellapi.TraceMeta
 	RoleID    string  `json:"role_id" gorm:"index"`
 	Scope     string  `json:"scope"`
 	UserID    *string `json:"user_id" gorm:"index"`

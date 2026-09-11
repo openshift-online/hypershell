@@ -22,18 +22,21 @@ const (
 )
 
 type ManagedDatabase struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Metadata         *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	Name             string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId          string                 `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
-	Provider         string                 `protobuf:"bytes,4,opt,name=provider,proto3" json:"provider,omitempty"`
-	Region           *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
-	Engine           *string                `protobuf:"bytes,6,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
-	EngineVersion    *string                `protobuf:"bytes,7,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
-	InstanceClass    *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
-	ConnectionSecret *string                `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
-	Status           *string                `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
-	Namespace        string                 `protobuf:"bytes,11,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Metadata      *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Provider      string                 `protobuf:"bytes,4,opt,name=provider,proto3" json:"provider,omitempty"`
+	Region        *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
+	Engine        *string                `protobuf:"bytes,6,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
+	EngineVersion *string                `protobuf:"bytes,7,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
+	InstanceClass *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
+	// For provider "external": the NAMESPACE holding the admin credentials
+	// Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
+	// "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
+	// always named "hypershell-managed-db-credentials".
+	ConnectionSecret *string `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
+	Status           *string `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	Namespace        string  `protobuf:"bytes,11,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -78,13 +81,6 @@ func (x *ManagedDatabase) GetMetadata() *ObjectReference {
 func (x *ManagedDatabase) GetName() string {
 	if x != nil {
 		return x.Name
-	}
-	return ""
-}
-
-func (x *ManagedDatabase) GetFleetId() string {
-	if x != nil {
-		return x.FleetId
 	}
 	return ""
 }
@@ -146,16 +142,19 @@ func (x *ManagedDatabase) GetNamespace() string {
 }
 
 type CreateManagedDatabaseRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId          string                 `protobuf:"bytes,2,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
-	Provider         string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
-	Region           *string                `protobuf:"bytes,4,opt,name=region,proto3,oneof" json:"region,omitempty"`
-	Engine           *string                `protobuf:"bytes,5,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
-	EngineVersion    *string                `protobuf:"bytes,6,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
-	InstanceClass    *string                `protobuf:"bytes,7,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
-	ConnectionSecret *string                `protobuf:"bytes,8,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
-	Status           *string                `protobuf:"bytes,9,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Provider      string                 `protobuf:"bytes,3,opt,name=provider,proto3" json:"provider,omitempty"`
+	Region        *string                `protobuf:"bytes,4,opt,name=region,proto3,oneof" json:"region,omitempty"`
+	Engine        *string                `protobuf:"bytes,5,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
+	EngineVersion *string                `protobuf:"bytes,6,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
+	InstanceClass *string                `protobuf:"bytes,7,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
+	// For provider "external": the NAMESPACE holding the admin credentials
+	// Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
+	// "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
+	// always named "hypershell-managed-db-credentials".
+	ConnectionSecret *string `protobuf:"bytes,8,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
+	Status           *string `protobuf:"bytes,9,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -193,13 +192,6 @@ func (*CreateManagedDatabaseRequest) Descriptor() ([]byte, []int) {
 func (x *CreateManagedDatabaseRequest) GetName() string {
 	if x != nil {
 		return x.Name
-	}
-	return ""
-}
-
-func (x *CreateManagedDatabaseRequest) GetFleetId() string {
-	if x != nil {
-		return x.FleetId
 	}
 	return ""
 }
@@ -386,17 +378,20 @@ func (x *GetManagedDatabaseResponse) GetManagedDatabase() *ManagedDatabase {
 }
 
 type UpdateManagedDatabaseRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name             *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	FleetId          *string                `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3,oneof" json:"fleet_id,omitempty"`
-	Provider         *string                `protobuf:"bytes,4,opt,name=provider,proto3,oneof" json:"provider,omitempty"`
-	Region           *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
-	Engine           *string                `protobuf:"bytes,6,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
-	EngineVersion    *string                `protobuf:"bytes,7,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
-	InstanceClass    *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
-	ConnectionSecret *string                `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
-	Status           *string                `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	Provider      *string                `protobuf:"bytes,4,opt,name=provider,proto3,oneof" json:"provider,omitempty"`
+	Region        *string                `protobuf:"bytes,5,opt,name=region,proto3,oneof" json:"region,omitempty"`
+	Engine        *string                `protobuf:"bytes,6,opt,name=engine,proto3,oneof" json:"engine,omitempty"`
+	EngineVersion *string                `protobuf:"bytes,7,opt,name=engine_version,json=engineVersion,proto3,oneof" json:"engine_version,omitempty"`
+	InstanceClass *string                `protobuf:"bytes,8,opt,name=instance_class,json=instanceClass,proto3,oneof" json:"instance_class,omitempty"`
+	// For provider "external": the NAMESPACE holding the admin credentials
+	// Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
+	// "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
+	// always named "hypershell-managed-db-credentials".
+	ConnectionSecret *string `protobuf:"bytes,9,opt,name=connection_secret,json=connectionSecret,proto3,oneof" json:"connection_secret,omitempty"`
+	Status           *string `protobuf:"bytes,10,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -441,13 +436,6 @@ func (x *UpdateManagedDatabaseRequest) GetId() string {
 func (x *UpdateManagedDatabaseRequest) GetName() string {
 	if x != nil && x.Name != nil {
 		return *x.Name
-	}
-	return ""
-}
-
-func (x *UpdateManagedDatabaseRequest) GetFleetId() string {
-	if x != nil && x.FleetId != nil {
-		return *x.FleetId
 	}
 	return ""
 }
@@ -829,11 +817,10 @@ var File_hypershell_v1_managed_databases_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\n" +
-	"%hypershell/v1/managed_databases.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xf4\x03\n" +
+	"%hypershell/v1/managed_databases.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xe9\x03\n" +
 	"\x0fManagedDatabase\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
-	"\bfleet_id\x18\x03 \x01(\tR\afleetId\x12\x1a\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
 	"\bprovider\x18\x04 \x01(\tR\bprovider\x12\x1b\n" +
 	"\x06region\x18\x05 \x01(\tH\x00R\x06region\x88\x01\x01\x12\x1b\n" +
 	"\x06engine\x18\x06 \x01(\tH\x01R\x06engine\x88\x01\x01\x12*\n" +
@@ -848,10 +835,9 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x0f_engine_versionB\x11\n" +
 	"\x0f_instance_classB\x14\n" +
 	"\x12_connection_secretB\t\n" +
-	"\a_status\"\xa7\x03\n" +
+	"\a_statusJ\x04\b\x03\x10\x04R\bfleet_id\"\x9c\x03\n" +
 	"\x1cCreateManagedDatabaseRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
-	"\bfleet_id\x18\x02 \x01(\tR\afleetId\x12\x1a\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x1b\n" +
 	"\x06region\x18\x04 \x01(\tH\x00R\x06region\x88\x01\x01\x12\x1b\n" +
 	"\x06engine\x18\x05 \x01(\tH\x01R\x06engine\x88\x01\x01\x12*\n" +
@@ -864,34 +850,32 @@ const file_hypershell_v1_managed_databases_proto_rawDesc = "" +
 	"\x0f_engine_versionB\x11\n" +
 	"\x0f_instance_classB\x14\n" +
 	"\x12_connection_secretB\t\n" +
-	"\a_status\"j\n" +
+	"\a_statusJ\x04\b\x02\x10\x03R\bfleet_id\"j\n" +
 	"\x1dCreateManagedDatabaseResponse\x12I\n" +
 	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"+\n" +
 	"\x19GetManagedDatabaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"g\n" +
 	"\x1aGetManagedDatabaseResponse\x12I\n" +
-	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"\xe9\x03\n" +
+	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\"\xcc\x03\n" +
 	"\x1cUpdateManagedDatabaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
-	"\bfleet_id\x18\x03 \x01(\tH\x01R\afleetId\x88\x01\x01\x12\x1f\n" +
-	"\bprovider\x18\x04 \x01(\tH\x02R\bprovider\x88\x01\x01\x12\x1b\n" +
-	"\x06region\x18\x05 \x01(\tH\x03R\x06region\x88\x01\x01\x12\x1b\n" +
-	"\x06engine\x18\x06 \x01(\tH\x04R\x06engine\x88\x01\x01\x12*\n" +
-	"\x0eengine_version\x18\a \x01(\tH\x05R\rengineVersion\x88\x01\x01\x12*\n" +
-	"\x0einstance_class\x18\b \x01(\tH\x06R\rinstanceClass\x88\x01\x01\x120\n" +
-	"\x11connection_secret\x18\t \x01(\tH\aR\x10connectionSecret\x88\x01\x01\x12\x1b\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1f\n" +
+	"\bprovider\x18\x04 \x01(\tH\x01R\bprovider\x88\x01\x01\x12\x1b\n" +
+	"\x06region\x18\x05 \x01(\tH\x02R\x06region\x88\x01\x01\x12\x1b\n" +
+	"\x06engine\x18\x06 \x01(\tH\x03R\x06engine\x88\x01\x01\x12*\n" +
+	"\x0eengine_version\x18\a \x01(\tH\x04R\rengineVersion\x88\x01\x01\x12*\n" +
+	"\x0einstance_class\x18\b \x01(\tH\x05R\rinstanceClass\x88\x01\x01\x120\n" +
+	"\x11connection_secret\x18\t \x01(\tH\x06R\x10connectionSecret\x88\x01\x01\x12\x1b\n" +
 	"\x06status\x18\n" +
-	" \x01(\tH\bR\x06status\x88\x01\x01B\a\n" +
+	" \x01(\tH\aR\x06status\x88\x01\x01B\a\n" +
 	"\x05_nameB\v\n" +
-	"\t_fleet_idB\v\n" +
 	"\t_providerB\t\n" +
 	"\a_regionB\t\n" +
 	"\a_engineB\x11\n" +
 	"\x0f_engine_versionB\x11\n" +
 	"\x0f_instance_classB\x14\n" +
 	"\x12_connection_secretB\t\n" +
-	"\a_status\"j\n" +
+	"\a_statusJ\x04\b\x03\x10\x04R\bfleet_id\"j\n" +
 	"\x1dUpdateManagedDatabaseResponse\x12I\n" +
 	"\x10managed_database\x18\x01 \x01(\v2\x1e.hypershell.v1.ManagedDatabaseR\x0fmanagedDatabase\".\n" +
 	"\x1cDeleteManagedDatabaseRequest\x12\x0e\n" +

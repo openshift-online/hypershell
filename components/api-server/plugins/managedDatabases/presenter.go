@@ -14,7 +14,6 @@ func ConvertManagedDatabase(managedDatabase openapi.ManagedDatabase) *ManagedDat
 		},
 	}
 	c.Name = managedDatabase.Name
-	c.FleetId = managedDatabase.FleetId
 	c.Provider = managedDatabase.Provider
 	c.Region = managedDatabase.Region
 	c.Engine = managedDatabase.Engine
@@ -40,7 +39,6 @@ func PresentManagedDatabase(managedDatabase *ManagedDatabase) openapi.ManagedDat
 		CreatedAt:        openapi.PtrTime(managedDatabase.CreatedAt),
 		UpdatedAt:        openapi.PtrTime(managedDatabase.UpdatedAt),
 		Name:             managedDatabase.Name,
-		FleetId:          managedDatabase.FleetId,
 		Provider:         managedDatabase.Provider,
 		Namespace:        &managedDatabase.Namespace,
 		Region:           managedDatabase.Region,

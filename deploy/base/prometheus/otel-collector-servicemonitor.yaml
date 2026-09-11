@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-collector
+  namespace: hypershell-system
+  labels:
+    app: otel-collector
+    hypershell.redhat.io/prometheus-scrape: "true"
+spec:
+  jobLabel: app
+  selector:
+    matchLabels:
+      app: otel-collector
+  endpoints:
+    - port: prometheus
+      path: /metrics
+      scheme: http
+      interval: 30s

@@ -14,14 +14,20 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// Labels createNamespace stamps on managed namespaces. Gateway namespace garbage
-// collection sweeps managed namespaces whose names match the gateway prefix
-// (openshell-<hex>) and excludes ManagedDatabase namespaces (openshell-db-<hex>).
+// Labels EnsureManagedNamespace stamps on namespaces this control-plane instance
+// owns. Periodic GC selects on the instance label so two HyperShells on one
+// cluster never treat each other's gateway namespaces as orphans.
 const (
 	ManagedByLabel    = "app.kubernetes.io/managed-by"
 	ManagedByValue    = "hypershell-control-plane"
 	ManagedLabel      = "hypershell.redhat.io/managed"
 	ManagedLabelValue = "true"
+	// InstanceLabel identifies which control plane created the namespace. The
+	// value is unique to that controller: the namespace the controller pod
+	// runs in (HYPERSHELL_NAMESPACE, populated from the downward API). Periodic
+	// GC selects on this label so two HyperShells on one cluster never treat
+	// each other's gateways as orphans.
+	InstanceLabel = "hypershell.redhat.io/instance"
 
 	// GatewayNamespacePrefix and DatabaseNamespacePrefix mirror the namespace names
 	// the API server assigns in its BeforeCreate hooks (gatewayNamespacePrefix in
@@ -45,36 +51,78 @@ const (
 	GCEligibleSinceAnnotation = "hypershell.redhat.io/gc-eligible-since"
 )
 
-// ManagedNamespaceSelector selects namespaces created by this control plane.
-var ManagedNamespaceSelector = fmt.Sprintf("%s=%s,%s=%s",
-	ManagedLabel, ManagedLabelValue, ManagedByLabel, ManagedByValue)
+// ManagedNamespaceSelector selects namespaces created by this control-plane
+// instance. An empty instance is an error: listing by the generic management
+// labels alone would treat every other HyperShell on the cluster as an orphan.
+// The returned selector is still a valid Kubernetes label selector that matches
+// nothing, so a caller that ignores the error cannot trigger an HTTP 400 or
+// list every namespace (an empty LabelSelector would).
+func ManagedNamespaceSelector(instance string) (string, error) {
+	if instance == "" {
+		return InstanceLabel + "=no-such-instance", fmt.Errorf("instance identity is empty; refusing to build a managed-namespace selector")
+	}
+	return fmt.Sprintf("%s=%s,%s=%s,%s=%s",
+		ManagedLabel, ManagedLabelValue, ManagedByLabel, ManagedByValue, InstanceLabel, instance), nil
+}
 
-// IsManagedNamespace reports whether a namespace was created and is managed by
-// this control plane, based on the labels createNamespace stamps.
-func IsManagedNamespace(ns *corev1.Namespace) bool {
+// ManagedNamespaceLabels is the label set stamped on namespaces this instance
+// creates and reconciles.
+func ManagedNamespaceLabels(instance string) map[string]string {
+	return map[string]string{
+		ManagedByLabel: ManagedByValue,
+		ManagedLabel:   ManagedLabelValue,
+		InstanceLabel:  instance,
+	}
+}
+
+// hasManagementLabels reports whether ns carries the two generic HyperShell
+// management labels, regardless of which instance created it.
+func hasManagementLabels(ns *corev1.Namespace) bool {
+	if ns == nil {
+		return false
+	}
 	return ns.Labels[ManagedLabel] == ManagedLabelValue &&
 		ns.Labels[ManagedByLabel] == ManagedByValue
 }
 
-// IsGatewayNamespaceForGC reports whether ns is a gateway workload namespace
-// subject to gateway namespace garbage collection. ManagedDatabase CNPG
-// namespaces (openshell-db-*) carry the same management labels but are owned by
-// the ManagedDatabase reconciler. Name-prefix matching keeps pre-existing orphaned
-// gateway namespaces eligible for periodic GC without a label migration.
-func IsGatewayNamespaceForGC(ns *corev1.Namespace) bool {
-	if !IsManagedNamespace(ns) {
+// IsManagedNamespace reports whether a namespace was created and is managed by
+// this control-plane instance, based on the labels EnsureManagedNamespace stamps.
+func IsManagedNamespace(ns *corev1.Namespace, instance string) bool {
+	if instance == "" || !hasManagementLabels(ns) {
 		return false
 	}
-	return strings.HasPrefix(ns.Name, GatewayNamespacePrefix) &&
-		!strings.HasPrefix(ns.Name, DatabaseNamespacePrefix)
+	return ns.Labels[InstanceLabel] == instance
+}
+
+// isGatewayWorkloadName reports whether name is a gateway workload namespace
+// (openshell-<hex>) rather than a ManagedDatabase namespace (openshell-db-<hex>).
+func isGatewayWorkloadName(name string) bool {
+	return strings.HasPrefix(name, GatewayNamespacePrefix) &&
+		!strings.HasPrefix(name, DatabaseNamespacePrefix)
+}
+
+// IsGatewayNamespaceForGC reports whether ns is a gateway workload namespace
+// this control-plane instance owns and that periodic garbage collection may
+// reap. ManagedDatabase CNPG namespaces (openshell-db-*) carry the same
+// management labels but are owned by the ManagedDatabase reconciler. Namespaces
+// owned by a different instance, or lacking this instance's identity label, are
+// never eligible: another HyperShell's live gateways would otherwise look
+// orphaned because they are absent from this instance's API server.
+func IsGatewayNamespaceForGC(ns *corev1.Namespace, instance string) bool {
+	if !IsManagedNamespace(ns, instance) {
+		return false
+	}
+	return isGatewayWorkloadName(ns.Name)
 }
 
 // DeleteManagedNamespace deletes a gateway namespace, best-effort and
-// idempotent. It only deletes namespaces subject to gateway namespace GC (see
-// IsGatewayNamespaceForGC): an unmanaged, non-gateway, or already-absent
-// namespace is treated as a no-op success. It returns deleted=true only when a
-// delete call was issued.
-func DeleteManagedNamespace(ctx context.Context, client kubernetes.Interface, namespace string) (bool, error) {
+// idempotent. It only deletes namespaces this instance is allowed to remove:
+// unmanaged, non-gateway, already-absent, or foreign-instance namespaces are
+// treated as a no-op success. A legacy namespace that carries the two management
+// labels but no instance label MAY be deleted, because this path is keyed to a
+// Gateway from this instance's API server rather than a cluster-wide sweep. It
+// returns deleted=true only when a delete call was issued.
+func DeleteManagedNamespace(ctx context.Context, client kubernetes.Interface, namespace, instance string) (bool, error) {
 	ns, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -83,8 +131,12 @@ func DeleteManagedNamespace(ctx context.Context, client kubernetes.Interface, na
 		}
 		return false, fmt.Errorf("get namespace %s: %w", namespace, err)
 	}
-	if !IsGatewayNamespaceForGC(ns) {
+	if !isGatewayWorkloadName(ns.Name) || !hasManagementLabels(ns) {
 		log.Printf("INFO namespace %s is not a gateway workload namespace, skipping deletion", namespace)
+		return false, nil
+	}
+	if labeled := ns.Labels[InstanceLabel]; labeled != "" && labeled != instance {
+		log.Printf("INFO namespace %s is managed by instance %q, not %q; skipping deletion", namespace, labeled, instance)
 		return false, nil
 	}
 	if ns.DeletionTimestamp != nil {
@@ -98,6 +150,113 @@ func DeleteManagedNamespace(ctx context.Context, client kubernetes.Interface, na
 		return false, fmt.Errorf("delete namespace %s: %w", namespace, err)
 	}
 	log.Printf("INFO deleted namespace %s", namespace)
+	return true, nil
+}
+
+// EnsureManagedNamespace creates namespace if it is absent, and otherwise
+// reconciles the management and instance labels onto it. It refuses to adopt a
+// namespace already labeled as a different control-plane instance. An empty
+// instance is a configuration error: unlabeled namespaces must not be claimed
+// without an identity.
+func EnsureManagedNamespace(ctx context.Context, client kubernetes.Interface, namespace, instance string) error {
+	if instance == "" {
+		return fmt.Errorf("refusing to manage namespace %s without a control-plane instance identity", namespace)
+	}
+	desired := ManagedNamespaceLabels(instance)
+
+	ns, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		created := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: namespace, Labels: desired},
+		}
+		_, err = client.CoreV1().Namespaces().Create(ctx, created, metav1.CreateOptions{})
+		if err == nil {
+			log.Printf("INFO created namespace %s (instance=%s)", namespace, instance)
+			return nil
+		}
+		if !k8serrors.IsAlreadyExists(err) {
+			return fmt.Errorf("create namespace %s: %w", namespace, err)
+		}
+		ns, err = client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get namespace %s after create race: %w", namespace, err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("get namespace %s: %w", namespace, err)
+	}
+
+	if existing := ns.Labels[InstanceLabel]; existing != "" && existing != instance {
+		return fmt.Errorf("namespace %s is managed by instance %q, not %q", namespace, existing, instance)
+	}
+
+	updated := ns.DeepCopy()
+	if updated.Labels == nil {
+		updated.Labels = map[string]string{}
+	}
+	changed := false
+	for k, v := range desired {
+		if updated.Labels[k] != v {
+			updated.Labels[k] = v
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	if _, err := client.CoreV1().Namespaces().Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update namespace %s labels: %w", namespace, err)
+	}
+	return nil
+}
+
+// BackfillInstanceLabel stamps this instance's identity label onto an existing
+// managed gateway namespace that predates the label, so periodic GC -- which
+// selects on hypershell.redhat.io/instance -- can observe it once its Gateway is
+// deleted. It is the startup reclaim path for legacy namespaces this instance
+// still owns per its API server, and is deliberately narrower than
+// EnsureManagedNamespace so it is safe to run against a shared cluster:
+//
+//   - It never creates a namespace. An absent namespace is a no-op success; the
+//     gateway reconciler creates it when the Gateway is next reconciled.
+//   - It only touches namespaces that already carry BOTH management labels, i.e.
+//     namespaces this control plane created. A namespace lacking them is left
+//     untouched even if a Gateway records its name.
+//   - It never overwrites a foreign instance label; a namespace already claimed
+//     by another HyperShell is left untouched.
+//
+// The label is applied with a merge patch so a concurrent reconcile writing other
+// labels is not clobbered. It returns labeled=true only when it stamped the label.
+func BackfillInstanceLabel(ctx context.Context, client kubernetes.Interface, namespace, instance string) (bool, error) {
+	if instance == "" {
+		return false, fmt.Errorf("refusing to backfill namespace %s without a control-plane instance identity", namespace)
+	}
+	ns, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			// Nothing to reclaim; the reconciler creates and labels it when the
+			// Gateway next provisions. Never create it here.
+			return false, nil
+		}
+		return false, fmt.Errorf("get namespace %s: %w", namespace, err)
+	}
+	if !hasManagementLabels(ns) {
+		// Not a namespace this control plane created. Refuse to claim it even
+		// though a Gateway records its name, so a mis-recorded namespace field can
+		// never adopt an unrelated namespace.
+		log.Printf("INFO namespace %s lacks HyperShell management labels; not backfilling instance label", namespace)
+		return false, nil
+	}
+	if existing := ns.Labels[InstanceLabel]; existing != "" {
+		if existing != instance {
+			log.Printf("INFO namespace %s is managed by instance %q, not %q; not backfilling instance label", namespace, existing, instance)
+		}
+		return false, nil
+	}
+	patch := fmt.Appendf(nil, `{"metadata":{"labels":{%q:%q}}}`, InstanceLabel, instance)
+	if _, err := client.CoreV1().Namespaces().Patch(ctx, namespace, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
+		return false, fmt.Errorf("backfill instance label on namespace %s: %w", namespace, err)
+	}
+	log.Printf("INFO backfilled instance label %s=%s onto legacy namespace %s", InstanceLabel, instance, namespace)
 	return true, nil
 }
 

@@ -14,7 +14,6 @@ func ConvertManagedCluster(managedCluster openapi.ManagedCluster) *ManagedCluste
 		},
 	}
 	c.Name = managedCluster.Name
-	c.FleetId = managedCluster.FleetId
 	c.Provider = managedCluster.Provider
 	c.Region = managedCluster.Region
 	c.KubeconfigSecret = managedCluster.KubeconfigSecret
@@ -31,18 +30,28 @@ func ConvertManagedCluster(managedCluster openapi.ManagedCluster) *ManagedCluste
 
 func PresentManagedCluster(managedCluster *ManagedCluster) openapi.ManagedCluster {
 	reference := presenters.PresentReference(managedCluster.ID, managedCluster)
-	return openapi.ManagedCluster{
+	result := openapi.ManagedCluster{
 		Id:               reference.Id,
 		Kind:             reference.Kind,
 		Href:             reference.Href,
 		CreatedAt:        openapi.PtrTime(managedCluster.CreatedAt),
 		UpdatedAt:        openapi.PtrTime(managedCluster.UpdatedAt),
 		Name:             managedCluster.Name,
-		FleetId:          managedCluster.FleetId,
 		Provider:         managedCluster.Provider,
 		Region:           managedCluster.Region,
 		KubeconfigSecret: managedCluster.KubeconfigSecret,
 		Status:           managedCluster.Status,
 		ApiServerUrl:     managedCluster.ApiServerUrl,
+	}
+	if managedCluster.OIDCSubject != "" {
+		result.OidcSubject = &managedCluster.OIDCSubject
+	}
+	result.LastSeenAt = managedCluster.LastSeenAt
+	return result
+}
+
+func PresentRegistrationResponse(clusterID string) openapi.ManagedClusterRegistrationResponse {
+	return openapi.ManagedClusterRegistrationResponse{
+		ClusterId: clusterID,
 	}
 }

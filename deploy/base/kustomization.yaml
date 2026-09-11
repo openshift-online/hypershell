@@ -6,5 +6,6 @@ resources:
   - controller.yaml
   - controller-rbac.yaml
   - web-console.yaml
+  - prometheus/
   - certificates/
   - networkpolicies.yaml

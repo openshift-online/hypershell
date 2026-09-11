@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -69,7 +68,7 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 
 		username := auth.GetUsernameFromContext(ctx)
 		if isManagedDatabaseTombstoneReplay(ctx, info.FullMethod) {
-			// Historical tombstones are fleet-unscoped control-plane recovery data.
+			// Historical tombstones are control-plane recovery data.
 			// Unlike the ordinary live watch, replay is never available through role
 			// bindings or the no-allowlist fallback.
 			if len(config.ServiceAccounts) == 0 || !isServiceAccount(username, config.ServiceAccounts) {
@@ -199,57 +198,20 @@ func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, sync
 
 	ctx = context.WithValue(ctx, ContextUserIDKey, userID)
 
+	jwtRoles := extractJWTRolesFromContext(ctx)
+	if len(jwtRoles) > 0 {
+		ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
+	}
+	// Always sync even when jwtRoles is empty: SyncJWTRoles applies
+	// configured default roles (e.g. gateway:creator) so that users with
+	// no Keycloak realm roles still receive their initial bindings.
 	if syncer != nil {
-		jwtRoles := extractJWTRolesFromContext(ctx)
-		if len(jwtRoles) > 0 {
-			ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
-			if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
-				glog.Warningf("gRPC JWT role sync failed for %q: %v", username, syncErr)
-			}
+		if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
+			glog.Warningf("gRPC JWT role sync failed for %q: %v", username, syncErr)
 		}
 	}
 
 	return ctx
-}
-
-func extractJWTRolesFromContext(ctx context.Context) []string {
-	token, err := auth.TokenFromContext(ctx)
-	if err != nil {
-		return nil
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil
-	}
-
-	realmAccess, ok := claims["realm_access"]
-	if !ok {
-		return nil
-	}
-
-	raMap, ok := realmAccess.(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	rolesRaw, ok := raMap["roles"]
-	if !ok {
-		return nil
-	}
-
-	rolesSlice, ok := rolesRaw.([]interface{})
-	if !ok {
-		return nil
-	}
-
-	result := make([]string, 0, len(rolesSlice))
-	for _, r := range rolesSlice {
-		if s, ok := r.(string); ok {
-			result = append(result, s)
-		}
-	}
-	return result
 }
 
 type wrappedServerStream struct {

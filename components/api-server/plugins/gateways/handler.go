@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
@@ -40,6 +41,18 @@ type gatewayHandler struct {
 	ownerLookup      GatewayOwnerLookup
 }
 
+// validateGatewayPhaseValue rejects a phase outside the canonical vocabulary. An
+// absent or empty phase is accepted so the field stays optional.
+func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
+	if phase == nil || *phase == "" {
+		return nil
+	}
+	if !gatewayhealth.IsValidPhase(*phase) {
+		return errors.Validation("phase %q is not a valid gateway phase; allowed: %v", *phase, gatewayhealth.PhaseStrings())
+	}
+	return nil
+}
+
 func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup) *gatewayHandler {
 	return &gatewayHandler{
 		gateway:          gateway,
@@ -58,6 +71,9 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			gatewayModel := ConvertGateway(gateway)
+			if phaseErr := validateGatewayPhaseValue(gatewayModel.Phase); phaseErr != nil {
+				return nil, phaseErr
+			}
 			gatewayModel, err := h.gateway.Create(ctx, gatewayModel)
 			if err != nil {
 				return nil, err
@@ -95,9 +111,6 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.Name != nil {
 				found.Name = *patch.Name
 			}
-			if patch.FleetId != nil {
-				found.FleetId = *patch.FleetId
-			}
 			if patch.ClusterId != nil {
 				found.ClusterId = *patch.ClusterId
 			}
@@ -119,6 +132,9 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				found.Status = patch.Status
 			}
 			if patch.Phase != nil {
+				if phaseErr := validateGatewayPhaseValue(patch.Phase); phaseErr != nil {
+					return nil, phaseErr
+				}
 				found.Phase = patch.Phase
 			}
 			if patch.Image != nil {
@@ -315,4 +331,16 @@ func (h gatewayHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	handlers.HandleDelete(w, r, cfg, http.StatusNoContent)
+}
+
+func (h gatewayHandler) MetricsGateways(w http.ResponseWriter, r *http.Request) {
+	counts, svcErr := h.gateway.CountByPhase(r.Context())
+	if svcErr != nil {
+		http.Error(w, svcErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{"counts": counts}); err != nil {
+		glog.Errorf("Failed to encode gateway metrics response: %v", err)
+	}
 }

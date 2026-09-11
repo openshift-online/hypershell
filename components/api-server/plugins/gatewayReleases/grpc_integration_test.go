@@ -53,7 +53,6 @@ func TestGRPCGatewayReleaseCRUD(t *testing.T) {
 
 	createReq := &pb.CreateGatewayReleaseRequest{
 		Name:            "TestName",
-		FleetId:         "TestFleetId",
 		Image:           "TestImage",
 		RolloutStrategy: func() *string { s := "TestRolloutStrategy"; return &s }(),
 		CanaryPercent:   func() *int32 { v := int32(42); return &v }(),
@@ -74,7 +73,6 @@ func TestGRPCGatewayReleaseCRUD(t *testing.T) {
 	updateReq := &pb.UpdateGatewayReleaseRequest{
 		Id:              gatewayReleaseID,
 		Name:            func() *string { s := "UpdatedName"; return &s }(),
-		FleetId:         func() *string { s := "UpdatedFleetId"; return &s }(),
 		Image:           func() *string { s := "UpdatedImage"; return &s }(),
 		RolloutStrategy: func() *string { s := "UpdatedRolloutStrategy"; return &s }(),
 		CanaryPercent:   func() *int32 { v := int32(99); return &v }(),

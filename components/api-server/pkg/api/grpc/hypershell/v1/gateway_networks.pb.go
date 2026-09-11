@@ -25,7 +25,6 @@ type GatewayNetwork struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Metadata      *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId       string                 `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
 	Topology      *string                `protobuf:"bytes,4,opt,name=topology,proto3,oneof" json:"topology,omitempty"`
 	TunnelMode    *string                `protobuf:"bytes,5,opt,name=tunnel_mode,json=tunnelMode,proto3,oneof" json:"tunnel_mode,omitempty"`
 	HubGatewayId  *string                `protobuf:"bytes,6,opt,name=hub_gateway_id,json=hubGatewayId,proto3,oneof" json:"hub_gateway_id,omitempty"`
@@ -78,13 +77,6 @@ func (x *GatewayNetwork) GetName() string {
 	return ""
 }
 
-func (x *GatewayNetwork) GetFleetId() string {
-	if x != nil {
-		return x.FleetId
-	}
-	return ""
-}
-
 func (x *GatewayNetwork) GetTopology() string {
 	if x != nil && x.Topology != nil {
 		return *x.Topology
@@ -116,7 +108,6 @@ func (x *GatewayNetwork) GetStatus() string {
 type CreateGatewayNetworkRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	FleetId       string                 `protobuf:"bytes,2,opt,name=fleet_id,json=fleetId,proto3" json:"fleet_id,omitempty"`
 	Topology      *string                `protobuf:"bytes,3,opt,name=topology,proto3,oneof" json:"topology,omitempty"`
 	TunnelMode    *string                `protobuf:"bytes,4,opt,name=tunnel_mode,json=tunnelMode,proto3,oneof" json:"tunnel_mode,omitempty"`
 	HubGatewayId  *string                `protobuf:"bytes,5,opt,name=hub_gateway_id,json=hubGatewayId,proto3,oneof" json:"hub_gateway_id,omitempty"`
@@ -158,13 +149,6 @@ func (*CreateGatewayNetworkRequest) Descriptor() ([]byte, []int) {
 func (x *CreateGatewayNetworkRequest) GetName() string {
 	if x != nil {
 		return x.Name
-	}
-	return ""
-}
-
-func (x *CreateGatewayNetworkRequest) GetFleetId() string {
-	if x != nil {
-		return x.FleetId
 	}
 	return ""
 }
@@ -333,7 +317,6 @@ type UpdateGatewayNetworkRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name          *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	FleetId       *string                `protobuf:"bytes,3,opt,name=fleet_id,json=fleetId,proto3,oneof" json:"fleet_id,omitempty"`
 	Topology      *string                `protobuf:"bytes,4,opt,name=topology,proto3,oneof" json:"topology,omitempty"`
 	TunnelMode    *string                `protobuf:"bytes,5,opt,name=tunnel_mode,json=tunnelMode,proto3,oneof" json:"tunnel_mode,omitempty"`
 	HubGatewayId  *string                `protobuf:"bytes,6,opt,name=hub_gateway_id,json=hubGatewayId,proto3,oneof" json:"hub_gateway_id,omitempty"`
@@ -382,13 +365,6 @@ func (x *UpdateGatewayNetworkRequest) GetId() string {
 func (x *UpdateGatewayNetworkRequest) GetName() string {
 	if x != nil && x.Name != nil {
 		return *x.Name
-	}
-	return ""
-}
-
-func (x *UpdateGatewayNetworkRequest) GetFleetId() string {
-	if x != nil && x.FleetId != nil {
-		return *x.FleetId
 	}
 	return ""
 }
@@ -749,11 +725,10 @@ var File_hypershell_v1_gateway_networks_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_gateway_networks_proto_rawDesc = "" +
 	"\n" +
-	"$hypershell/v1/gateway_networks.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xc5\x02\n" +
+	"$hypershell/v1/gateway_networks.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xba\x02\n" +
 	"\x0eGatewayNetwork\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
-	"\bfleet_id\x18\x03 \x01(\tR\afleetId\x12\x1f\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
 	"\btopology\x18\x04 \x01(\tH\x00R\btopology\x88\x01\x01\x12$\n" +
 	"\vtunnel_mode\x18\x05 \x01(\tH\x01R\n" +
 	"tunnelMode\x88\x01\x01\x12)\n" +
@@ -762,10 +737,9 @@ const file_hypershell_v1_gateway_networks_proto_rawDesc = "" +
 	"\t_topologyB\x0e\n" +
 	"\f_tunnel_modeB\x11\n" +
 	"\x0f_hub_gateway_idB\t\n" +
-	"\a_status\"\x96\x02\n" +
+	"\a_statusJ\x04\b\x03\x10\x04R\bfleet_id\"\x8b\x02\n" +
 	"\x1bCreateGatewayNetworkRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
-	"\bfleet_id\x18\x02 \x01(\tR\afleetId\x12\x1f\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
 	"\btopology\x18\x03 \x01(\tH\x00R\btopology\x88\x01\x01\x12$\n" +
 	"\vtunnel_mode\x18\x04 \x01(\tH\x01R\n" +
 	"tunnelMode\x88\x01\x01\x12)\n" +
@@ -774,28 +748,26 @@ const file_hypershell_v1_gateway_networks_proto_rawDesc = "" +
 	"\t_topologyB\x0e\n" +
 	"\f_tunnel_modeB\x11\n" +
 	"\x0f_hub_gateway_idB\t\n" +
-	"\a_status\"f\n" +
+	"\a_statusJ\x04\b\x02\x10\x03R\bfleet_id\"f\n" +
 	"\x1cCreateGatewayNetworkResponse\x12F\n" +
 	"\x0fgateway_network\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayNetworkR\x0egatewayNetwork\"*\n" +
 	"\x18GetGatewayNetworkRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"c\n" +
 	"\x19GetGatewayNetworkResponse\x12F\n" +
-	"\x0fgateway_network\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayNetworkR\x0egatewayNetwork\"\xc6\x02\n" +
+	"\x0fgateway_network\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayNetworkR\x0egatewayNetwork\"\xa9\x02\n" +
 	"\x1bUpdateGatewayNetworkRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1e\n" +
-	"\bfleet_id\x18\x03 \x01(\tH\x01R\afleetId\x88\x01\x01\x12\x1f\n" +
-	"\btopology\x18\x04 \x01(\tH\x02R\btopology\x88\x01\x01\x12$\n" +
-	"\vtunnel_mode\x18\x05 \x01(\tH\x03R\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1f\n" +
+	"\btopology\x18\x04 \x01(\tH\x01R\btopology\x88\x01\x01\x12$\n" +
+	"\vtunnel_mode\x18\x05 \x01(\tH\x02R\n" +
 	"tunnelMode\x88\x01\x01\x12)\n" +
-	"\x0ehub_gateway_id\x18\x06 \x01(\tH\x04R\fhubGatewayId\x88\x01\x01\x12\x1b\n" +
-	"\x06status\x18\a \x01(\tH\x05R\x06status\x88\x01\x01B\a\n" +
+	"\x0ehub_gateway_id\x18\x06 \x01(\tH\x03R\fhubGatewayId\x88\x01\x01\x12\x1b\n" +
+	"\x06status\x18\a \x01(\tH\x04R\x06status\x88\x01\x01B\a\n" +
 	"\x05_nameB\v\n" +
-	"\t_fleet_idB\v\n" +
 	"\t_topologyB\x0e\n" +
 	"\f_tunnel_modeB\x11\n" +
 	"\x0f_hub_gateway_idB\t\n" +
-	"\a_status\"f\n" +
+	"\a_statusJ\x04\b\x03\x10\x04R\bfleet_id\"f\n" +
 	"\x1cUpdateGatewayNetworkResponse\x12F\n" +
 	"\x0fgateway_network\x18\x01 \x01(\v2\x1d.hypershell.v1.GatewayNetworkR\x0egatewayNetwork\"-\n" +
 	"\x1bDeleteGatewayNetworkRequest\x12\x0e\n" +

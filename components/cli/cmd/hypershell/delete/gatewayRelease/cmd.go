@@ -20,8 +20,8 @@ var Cmd = &cobra.Command{
 	Short: "Delete a gatewayRelease",
 	Long: "Delete a gatewayRelease by ID.\n\n" +
 		"Examples:\n" +
-		"  hypershell delete gatewayRelease 2abc123\n" +
-		"  hypershell delete gatewayRelease 2abc123 --yes",
+		"  hsctl delete gatewayRelease 2abc123\n" +
+		"  hsctl delete gatewayRelease 2abc123 --yes",
 	Args: cobra.ExactArgs(1),
 	RunE: run,
 }

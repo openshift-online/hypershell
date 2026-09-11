@@ -18,6 +18,7 @@ type UserDao interface {
 	Upsert(ctx context.Context, user *User) (*User, error)
 	FindByIDs(ctx context.Context, ids []string) (UserList, error)
 	All(ctx context.Context) (UserList, error)
+	CountRegistered(ctx context.Context) (int64, error)
 }
 
 var _ UserDao = &sqlUserDao{}
@@ -111,4 +112,13 @@ func (d *sqlUserDao) All(ctx context.Context) (UserList, error) {
 		return nil, err
 	}
 	return users, nil
+}
+
+func (d *sqlUserDao) CountRegistered(ctx context.Context) (int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var count int64
+	if err := g2.Model(&User{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
 }

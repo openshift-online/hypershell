@@ -39,6 +39,10 @@ type GatewayDao interface {
 	SetGatewayVersion(ctx context.Context, id, version string) (resulting string, err error)
 
 	CountByPhase(ctx context.Context) (map[string]int64, error)
+
+	// SumActiveSandboxCount returns the fleet-wide sum of active_sandbox_count
+	// across live gateways, treating NULL as zero.
+	SumActiveSandboxCount(ctx context.Context) (int64, error)
 }
 
 // sandboxCountRow captures the gateway identity and count returned by the
@@ -282,4 +286,15 @@ func (d *sqlGatewayDao) CountByPhase(ctx context.Context) (map[string]int64, err
 		counts[r.Phase] = r.Count
 	}
 	return counts, nil
+}
+
+func (d *sqlGatewayDao) SumActiveSandboxCount(ctx context.Context) (int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var total int64
+	if err := g2.Model(&Gateway{}).
+		Select("COALESCE(SUM(COALESCE(active_sandbox_count, 0)), 0)").
+		Scan(&total).Error; err != nil {
+		return 0, err
+	}
+	return total, nil
 }

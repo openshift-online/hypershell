@@ -12,3 +12,18 @@ spec:
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: hypershell-web-console
+  namespace: hypershell-system
+spec:
+  to:
+    kind: Service
+    name: hypershell-web-console
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

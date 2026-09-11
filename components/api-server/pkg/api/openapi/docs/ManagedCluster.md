@@ -10,18 +10,19 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**FleetId** | **string** |  | 
 **Provider** | **string** |  | 
 **Region** | Pointer to **string** |  | [optional] 
 **KubeconfigSecret** | **string** |  | 
 **Status** | Pointer to **string** |  | [optional] 
 **ApiServerUrl** | Pointer to **string** |  | [optional] 
+**OidcSubject** | Pointer to **string** | OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable. | [optional] [readonly] 
+**LastSeenAt** | Pointer to **time.Time** | Timestamp of the most recent registration call. Updated on every POST /registration. | [optional] [readonly] 
 
 ## Methods
 
 ### NewManagedCluster
 
-`func NewManagedCluster(name string, fleetId string, provider string, kubeconfigSecret string, ) *ManagedCluster`
+`func NewManagedCluster(name string, provider string, kubeconfigSecret string, ) *ManagedCluster`
 
 NewManagedCluster instantiates a new ManagedCluster object
 This constructor will assign default values to properties that have it defined,
@@ -181,26 +182,6 @@ and a boolean to check if the value has been set.
 SetName sets Name field to given value.
 
 
-### GetFleetId
-
-`func (o *ManagedCluster) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *ManagedCluster) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *ManagedCluster) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
-
-
 ### GetProvider
 
 `func (o *ManagedCluster) GetProvider() string`
@@ -315,6 +296,56 @@ SetApiServerUrl sets ApiServerUrl field to given value.
 `func (o *ManagedCluster) HasApiServerUrl() bool`
 
 HasApiServerUrl returns a boolean if a field has been set.
+
+### GetOidcSubject
+
+`func (o *ManagedCluster) GetOidcSubject() string`
+
+GetOidcSubject returns the OidcSubject field if non-nil, zero value otherwise.
+
+### GetOidcSubjectOk
+
+`func (o *ManagedCluster) GetOidcSubjectOk() (*string, bool)`
+
+GetOidcSubjectOk returns a tuple with the OidcSubject field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetOidcSubject
+
+`func (o *ManagedCluster) SetOidcSubject(v string)`
+
+SetOidcSubject sets OidcSubject field to given value.
+
+### HasOidcSubject
+
+`func (o *ManagedCluster) HasOidcSubject() bool`
+
+HasOidcSubject returns a boolean if a field has been set.
+
+### GetLastSeenAt
+
+`func (o *ManagedCluster) GetLastSeenAt() time.Time`
+
+GetLastSeenAt returns the LastSeenAt field if non-nil, zero value otherwise.
+
+### GetLastSeenAtOk
+
+`func (o *ManagedCluster) GetLastSeenAtOk() (*time.Time, bool)`
+
+GetLastSeenAtOk returns a tuple with the LastSeenAt field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetLastSeenAt
+
+`func (o *ManagedCluster) SetLastSeenAt(v time.Time)`
+
+SetLastSeenAt sets LastSeenAt field to given value.
+
+### HasLastSeenAt
+
+`func (o *ManagedCluster) HasLastSeenAt() bool`
+
+HasLastSeenAt returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

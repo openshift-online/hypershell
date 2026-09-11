@@ -9,6 +9,111 @@
 # operations start background processes (e.g. a gateway port-forward) that must
 # survive in the parent shell, which a $() subshell would orphan and kill.
 
+# Kind uses locally issued certificates. Other drivers may override this seam
+# while reusing the production OIDC and role-assignment behavior below.
+
+# Auto-detect container engine (docker or podman) if not explicitly set.
+if [[ -z "${CONTAINER_ENGINE:-}" ]]; then
+  if command -v podman &>/dev/null; then
+    export CONTAINER_ENGINE=podman
+  elif command -v docker &>/dev/null; then
+    export CONTAINER_ENGINE=docker
+  fi
+fi
+
+# Kind's self-signed CA is not in the system trust store. Instruct the
+# openshell CLI to skip TLS verification for gateway connections. curl already
+# uses -sk (insecure) for all driver requests; this extends the same treatment
+# to the openshell binary.
+export OPENSHELL_GATEWAY_INSECURE=true
+
+# Force IPv4 and remap *.hypershell.localhost:443 to the cloud-provider-kind
+# envoy ephemeral port. Two problems motivate this:
+#   1. DNS stub returns both 127.0.0.1 and ::1 for *.localhost; the envoy proxy
+#      only binds IPv4, so curl must prefer IPv4 (--ipv4).
+#   2. Without sudo, iptables cannot redirect port 443 to the ephemeral port
+#      (typically 32768). curl's --connect-to lets us rewrite the TCP target at
+#      the connection layer while keeping the SNI as the original hostname, so
+#      the envoy proxy can route by hostname as normal.
+_KINDCCM_PORT="${_KINDCCM_PORT:-}"
+# _KINDCCM_GW_PORT: IPv4-only socat port used exclusively for the openshell CLI
+# gateway endpoint. curl requests use _KINDCCM_PORT directly (--ipv4 already
+# prevents IPv6). The socat forwarder is started lazily by discover_gateway_endpoint.
+_KINDCCM_GW_PORT="${_KINDCCM_GW_PORT:-}"
+_KINDCCM_SOCAT_PID="${_KINDCCM_SOCAT_PID:-}"
+_kind_discover_port() {
+  if [[ -z "${_KINDCCM_PORT}" ]]; then
+    local proxy_container
+    proxy_container=$(${CONTAINER_ENGINE:-docker} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
+    if [[ -n "$proxy_container" ]]; then
+      _KINDCCM_PORT=$(${CONTAINER_ENGINE:-docker} port "${proxy_container}" 443 2>/dev/null \
+        | head -1 | grep -oE '[0-9]+$' || true)
+    fi
+  fi
+}
+# _kind_gw_port - return an IPv4-only port for the openshell CLI gateway endpoint.
+# The openshell CLI (Rust/hyper) prefers IPv6 for *.gw.localhost and does NOT
+# fall back after a TLS RST (Docker's IPv6 NAT is unreliable on some kernels).
+# We front the envoy port with a socat listener bound to 127.0.0.1 only: ::1
+# then gets ECONNREFUSED and hyper retries on 127.0.0.1. curl is unaffected
+# because it already uses --ipv4. Sets _KINDCCM_GW_PORT.
+_kind_start_gw_socat() {
+  [[ -n "${_KINDCCM_GW_PORT}" ]] && return
+  _kind_discover_port
+  local raw_port="${_KINDCCM_PORT}"
+  # When sudo set up iptables (port 443 redirected), socat isn't needed:
+  # the openshell CLI can reach port 443 directly on IPv4 and IPv6 doesn't
+  # matter because port 443 is forwarded by the kernel.
+  if [[ -z "${raw_port}" || "${raw_port}" == "443" ]]; then
+    _KINDCCM_GW_PORT="${raw_port:-443}"
+    return
+  fi
+  if ! command -v socat &>/dev/null; then
+    # socat unavailable; fall back to the raw port and accept that IPv6 may fail.
+    _KINDCCM_GW_PORT="${raw_port}"
+    return
+  fi
+  local socat_port
+  socat_port=$(python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); p=s.getsockname()[1]; s.close(); print(p)" 2>/dev/null)
+  if [[ -z "${socat_port}" ]]; then
+    _KINDCCM_GW_PORT="${raw_port}"
+    return
+  fi
+  socat TCP4-LISTEN:"${socat_port}",bind=127.0.0.1,reuseaddr,fork \
+    TCP4:127.0.0.1:"${raw_port}" &>/dev/null &
+  _KINDCCM_SOCAT_PID=$!
+  _KINDCCM_GW_PORT="${socat_port}"
+}
+_driver_curl() {
+  # Try direct HTTPRoute access first. This works in most setups where the
+  # routes are directly accessible on port 443 (docker, podman, or iptables-
+  # forwarded 443). If direct access fails (connection refused/timeout), fall
+  # back to port-remapping via the ephemeral kindccm-gw port.
+  local output status
+  output=$(curl -sk --ipv4 "$@" 2>&1)
+  status=$?
+
+  # If direct access failed due to connection error, try port-remapping
+  if [[ $status -eq 7 ]]; then
+    _kind_discover_port
+    local connect_args=()
+    if [[ -n "${_KINDCCM_PORT}" && "${_KINDCCM_PORT}" != "443" ]]; then
+      connect_args+=(
+        --connect-to "api.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+        --connect-to "keycloak.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+        --connect-to "console.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+        --connect-to "health.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+        --connect-to "observability.hypershell.localhost:443:127.0.0.1:${_KINDCCM_PORT}"
+      )
+      output=$(curl -sk --ipv4 "${connect_args[@]}" "$@" 2>&1)
+      status=$?
+    fi
+  fi
+
+  echo "$output"
+  return $status
+}
+
 # discover_api_host - find the HyperShell API server base URL.
 # Sets _DISCOVER_API_HOST to the gateway HTTPS route for the API server. There
 # is no HTTP/port-forward fallback: the HTTPS HTTPRoute is the only supported
@@ -26,11 +131,13 @@ discover_api_host() {
 
   local url="https://${host}"
   local code
-  code=$(curl -sk --connect-timeout 5 -o /dev/null -w '%{http_code}' \
+  code=$(_driver_curl --connect-timeout 5 -o /dev/null -w '%{http_code}' \
     "${url}/api/hypershell/v1/gateways" 2>/dev/null || true)
+
   # Any HTTP response (401 unauthenticated, 200, 404, ...) proves the route
   # reaches the API server. "000" means the connection never completed -- route
   # not programmed, 443->LB mapping down, or the api-server pod not serving.
+  # _driver_curl handles port remapping transparently when iptables is unavailable.
   if [[ -z "$code" || "$code" == "000" ]]; then
     red "  API route ${url} is not reachable (no HTTP response)"
     red "  Verify: Gateway Programmed, api-server pod Ready, and 443->LB mapping active"
@@ -38,6 +145,30 @@ discover_api_host() {
   fi
 
   _DISCOVER_API_HOST="${url}"
+}
+
+# discover_console_host - find the HyperShell web console (BFF) base URL.
+# Sets _DISCOVER_CONSOLE_HOST to the gateway HTTPS route for the web console.
+discover_console_host() {
+  _DISCOVER_CONSOLE_HOST=""
+  local host
+  host=$(kubectl get httproute -A -o jsonpath='{range .items[*]}{.spec.hostnames[0]}{"\n"}{end}' 2>/dev/null \
+    | grep -m1 'console\.hypershell\.localhost' || true)
+  if [[ -z "$host" ]]; then
+    red "  No HTTPRoute with hostname console.hypershell.localhost found"
+    return 1
+  fi
+
+  local url="https://${host}"
+  local code
+  code=$(_driver_curl --connect-timeout 5 -o /dev/null -w '%{http_code}' \
+    "${url}/auth/session" 2>/dev/null || true)
+  if [[ -z "$code" || "$code" == "000" ]]; then
+    red "  Console route ${url} is not reachable (no HTTP response)"
+    return 1
+  fi
+
+  _DISCOVER_CONSOLE_HOST="${url}"
 }
 
 # discover_gateway_endpoint - find the gateway gRPC endpoint.
@@ -64,7 +195,12 @@ discover_gateway_endpoint() {
         -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}' 2>/dev/null \
         | grep -c 'Programmed=True' || true)
       if [[ "${gw_programmed:-0}" -ge 1 ]]; then
-        _DISCOVER_GW_ENDPOINT="https://${grpc_host}:443"
+        _kind_start_gw_socat
+        if [[ -n "${_KINDCCM_GW_PORT}" && "${_KINDCCM_GW_PORT}" != "443" ]]; then
+          _DISCOVER_GW_ENDPOINT="https://${grpc_host}:${_KINDCCM_GW_PORT}"
+        else
+          _DISCOVER_GW_ENDPOINT="https://${grpc_host}:443"
+        fi
         return
       fi
     fi
@@ -87,7 +223,7 @@ discover_gateway_endpoint() {
 # audience mapper, and the gateway's Envoy validates aud == that client. A token
 # from the shared frontend client is rejected with InvalidAudience, so gateway and
 # CLI calls must mint tokens against the per-gateway client.
-acquire_oidc_token() {
+_driver_acquire_oidc_token() {
   _OIDC_ACCESS_TOKEN=""
   local username="${1:-${E2E_OIDC_USERNAME}}"
   local password="${2:-${E2E_OIDC_PASSWORD}}"
@@ -95,7 +231,7 @@ acquire_oidc_token() {
 
   local token_endpoint="${E2E_OIDC_ISSUER}/protocol/openid-connect/token"
   local response
-  response=$(curl -sk -X POST "${token_endpoint}" \
+  response=$(_driver_curl -X POST "${token_endpoint}" \
     -d "grant_type=password" \
     -d "client_id=${client_id}" \
     -d "username=${username}" \
@@ -110,6 +246,57 @@ acquire_oidc_token() {
   fi
 }
 
+acquire_oidc_token() {
+  _driver_acquire_oidc_token "$@"
+}
+
+: "${E2E_GATEWAY_NAMESPACE_GC_INTERVAL:=30s}"
+: "${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD:=30s}"
+_GC_TIMING_PATCHED=""
+
+# _patch_namespace_gc_timing / _restore_namespace_gc_timing - shared
+# implementation for configure_namespace_gc_timing / restore_namespace_gc_timing.
+# Kind deploys the same manifests as production (deploy/base/), so it also runs
+# with production namespace-GC defaults (5m sweep / 10m grace) -- too slow for
+# the e2e orphan-GC assertion (area 11a) to wait out. Rather than bake e2e-only
+# timing into any deploy overlay, every driver patches the controller
+# deployment to a short interval/grace period for the duration of the run and
+# restores it afterward. Drivers that need to resolve their own namespace
+# first (e.g. OpenShift) override the public functions and delegate here.
+_patch_namespace_gc_timing() {
+  local cli="$1" namespace="$2"
+  dim "  Shortening controller namespace GC timing for e2e (interval=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}, grace=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD})..."
+  if ! "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
+      "GATEWAY_NAMESPACE_GC_INTERVAL=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}" \
+      "GATEWAY_NAMESPACE_GC_GRACE_PERIOD=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD}" >/dev/null; then
+    red "  Failed to patch hypershell-controller namespace GC timing"
+    return 1
+  fi
+  _GC_TIMING_PATCHED=1
+  if ! "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=120s >/dev/null; then
+    red "  hypershell-controller did not roll out after GC timing patch"
+    return 1
+  fi
+}
+
+_restore_namespace_gc_timing() {
+  local cli="$1" namespace="$2"
+  [[ -n "$_GC_TIMING_PATCHED" ]] || return 0
+  dim "  Restoring controller namespace GC timing to deployment defaults..."
+  "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
+    GATEWAY_NAMESPACE_GC_INTERVAL- GATEWAY_NAMESPACE_GC_GRACE_PERIOD- >/dev/null 2>&1 || true
+  "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=120s >/dev/null 2>&1 || true
+  _GC_TIMING_PATCHED=""
+}
+
+configure_namespace_gc_timing() {
+  _patch_namespace_gc_timing kubectl "${E2E_HS_NAMESPACE}"
+}
+
+restore_namespace_gc_timing() {
+  _restore_namespace_gc_timing kubectl "${E2E_HS_NAMESPACE}"
+}
+
 # _kc_base / _kc_realm - derive the Keycloak base URL and realm from the issuer.
 # E2E_OIDC_ISSUER is "<base>/realms/<realm>".
 _kc_base() { echo "${E2E_OIDC_ISSUER%/realms/*}"; }
@@ -122,7 +309,7 @@ _kc_admin_token() {
   _KC_ADMIN_TOKEN=""
   local base response
   base="$(_kc_base)"
-  response=$(curl -sk -X POST "${base}/realms/master/protocol/openid-connect/token" \
+  response=$(_driver_curl -X POST "${base}/realms/master/protocol/openid-connect/token" \
     -d "grant_type=password" \
     -d "client_id=admin-cli" \
     -d "username=${E2E_KC_ADMIN_USER}" \
@@ -156,7 +343,7 @@ assign_gateway_client_role() {
   fi
 
   local client_uuid user_uuid role_json
-  client_uuid=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  client_uuid=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/clients?clientId=${client_id}" 2>/dev/null \
     | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
   if [[ -z "$client_uuid" ]]; then
@@ -164,7 +351,7 @@ assign_gateway_client_role() {
     return 1
   fi
 
-  user_uuid=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  user_uuid=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/users?username=${username}&exact=true" 2>/dev/null \
     | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
   if [[ -z "$user_uuid" ]]; then
@@ -172,7 +359,7 @@ assign_gateway_client_role() {
     return 1
   fi
 
-  role_json=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  role_json=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/clients/${client_uuid}/roles/${role}" 2>/dev/null || true)
   local role_id role_name
   role_id=$(echo "$role_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
@@ -183,7 +370,7 @@ assign_gateway_client_role() {
   fi
 
   local code
-  code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST \
+  code=$(_driver_curl -o /dev/null -w '%{http_code}' -X POST \
     -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
     "${base}/admin/realms/${realm}/users/${user_uuid}/role-mappings/clients/${client_uuid}" \
@@ -214,7 +401,7 @@ assign_realm_role() {
   fi
 
   local user_uuid role_json
-  user_uuid=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  user_uuid=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/users?username=${username}&exact=true" 2>/dev/null \
     | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
   if [[ -z "$user_uuid" ]]; then
@@ -222,7 +409,7 @@ assign_realm_role() {
     return 1
   fi
 
-  role_json=$(curl -sk -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+  role_json=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     "${base}/admin/realms/${realm}/roles/${role}" 2>/dev/null || true)
   local role_id role_name
   role_id=$(echo "$role_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
@@ -233,7 +420,7 @@ assign_realm_role() {
   fi
 
   local code
-  code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST \
+  code=$(_driver_curl -o /dev/null -w '%{http_code}' -X POST \
     -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
     "${base}/admin/realms/${realm}/users/${user_uuid}/role-mappings/realm" \
@@ -306,7 +493,7 @@ acquire_gateway_token_with_role() {
 # (-s silent, -k insecure for the gateway's self-signed cert) and forwards any
 # additional arguments to curl.
 api_curl() {
-  curl -sk -H "Authorization: Bearer ${_OIDC_ACCESS_TOKEN}" "$@"
+  _driver_curl -H "Authorization: Bearer ${_OIDC_ACCESS_TOKEN}" "$@"
 }
 
 # get_cluster_domain - return the base domain for gateway DNS names.

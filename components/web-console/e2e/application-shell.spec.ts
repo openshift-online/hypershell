@@ -6,7 +6,6 @@ const gateway = {
   created_at: "2026-08-10T14:30:00Z",
   database_id: "database-1",
   external_dns: "gateway.example.test",
-  fleet_id: "",
   href: "/api/hypershell/v1/gateways/openshell-gateway-test",
   id: "openshell-gateway-test",
   kind: "Gateway",
@@ -23,7 +22,6 @@ const gateway = {
 const managedCluster = {
   api_server_url: "https://api.east.example.test",
   created_at: null,
-  fleet_id: "fleet-1",
   href: "/api/hypershell/v1/managed_clusters/cluster-east",
   id: "cluster-east",
   kind: "ManagedCluster",
@@ -475,7 +473,6 @@ test("provisions a gateway on an existing managed cluster", async ({
         created_at: null,
         database_id: "",
         external_dns: "",
-        fleet_id: "",
         href: "/api/hypershell/v1/gateways/gateway-1",
         id: "gateway-1",
         kind: "Gateway",
@@ -537,7 +534,6 @@ test("provisions a gateway on an existing managed cluster", async ({
   expect(requestBody).toEqual({
     cluster_id: "cluster-east",
     database_id: "",
-    fleet_id: "",
     name: "team-gateway",
     release_id: "",
     route: '{"enabled":true}',

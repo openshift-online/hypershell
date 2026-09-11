@@ -5,7 +5,6 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | Pointer to **string** |  | [optional] 
-**FleetId** | Pointer to **string** |  | [optional] 
 **ClusterId** | Pointer to **string** |  | [optional] 
 **ReleaseId** | Pointer to **string** |  | [optional] 
 **DatabaseId** | Pointer to **string** | Server-owned placement field; values supplied through PATCH are ignored | [optional] 
@@ -65,31 +64,6 @@ SetName sets Name field to given value.
 `func (o *GatewayPatchRequest) HasName() bool`
 
 HasName returns a boolean if a field has been set.
-
-### GetFleetId
-
-`func (o *GatewayPatchRequest) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *GatewayPatchRequest) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *GatewayPatchRequest) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
-
-### HasFleetId
-
-`func (o *GatewayPatchRequest) HasFleetId() bool`
-
-HasFleetId returns a boolean if a field has been set.
 
 ### GetClusterId
 

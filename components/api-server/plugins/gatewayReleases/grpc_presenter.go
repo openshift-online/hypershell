@@ -8,14 +8,15 @@ import (
 func gatewayReleaseToProto(d *GatewayRelease) *pb.GatewayRelease {
 	return &pb.GatewayRelease{
 		Metadata: &pb.ObjectReference{
-			Id:        d.ID,
-			CreatedAt: timestamppb.New(d.CreatedAt),
-			UpdatedAt: timestamppb.New(d.UpdatedAt),
-			Kind:      "GatewayRelease",
-			Href:      "/api/hypershell/v1/gateway_releases/" + d.ID,
+			Id:          d.ID,
+			CreatedAt:   timestamppb.New(d.CreatedAt),
+			UpdatedAt:   timestamppb.New(d.UpdatedAt),
+			Kind:        "GatewayRelease",
+			Href:        "/api/hypershell/v1/gateway_releases/" + d.ID,
+			Traceparent: d.Traceparent,
+			Tracestate:  d.Tracestate,
 		},
 		Name:            d.Name,
-		FleetId:         d.FleetId,
 		Image:           d.Image,
 		RolloutStrategy: d.RolloutStrategy,
 		CanaryPercent: func() *int32 {

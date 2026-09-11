@@ -5,23 +5,28 @@
 # Proves the full path: HyperShell API -> control plane -> gateway provisioning
 # -> openshell CLI -> sandbox pod creation + interaction.
 #
-# The E2E_INFRA_DRIVER environment variable selects the infrastructure driver.
-# Each driver (tests/e2e/drivers/<driver>.sh) implements a fixed set of
-# functions that abstract infrastructure-specific operations.
+# The infrastructure driver is auto-detected from the current KUBECONFIG
+# context: a cluster that serves the route.openshift.io API group is
+# OpenShift, otherwise Kind is assumed. Set E2E_INFRA_DRIVER to override
+# detection. Each driver (tests/e2e/drivers/<driver>.sh) implements a fixed
+# set of functions that abstract infrastructure-specific operations.
 #
 # Usage:
-#   E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-openshell.sh
+#   bash tests/e2e/e2e-openshell.sh
+#   OPENSHIFT_NAMESPACE=my-env E2E_INFRA_DRIVER=openshift \
+#     bash tests/e2e/e2e-openshell.sh   # override detection
 #
 # Environment variables:
-#   E2E_INFRA_DRIVER      (required) Infra driver: kind, openshift (follow-up)
+#   E2E_INFRA_DRIVER      Infra driver override: kind, openshift (default: auto-detected)
 #   E2E_NAMESPACE          Namespace for e2e resources (default: openshell-e2e)
-#   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw)
+#   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw-<random8hex>, unique per run)
+#   E2E_MODE               Run depth: long (default, every step) or short (essential steps)
 #   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 120)
 #   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 180)
 #   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
 #   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 90)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
-#   DATABASE_PROVIDER      Database provider: deployment or cnpg (default: deployment)
+#   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: external)
 #   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 set -euo pipefail
@@ -33,44 +38,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
 # --- Database provider selection ---
+# external = stand-in server in a separate namespace simulating a cloud-managed
+#            external DB (default: unset/empty DATABASE_PROVIDER means external)
 # deployment = plain Kubernetes Deployment + PVC + Service (no CNPG operator,
-#              default: unset/empty DATABASE_PROVIDER means deployment, see
-#              specs/platform/openshell-gateway-database.spec.md)
+#              see specs/platform/openshell-gateway-database.spec.md)
 # cnpg = CloudNativePG operator (CRDs: Cluster, Database, DatabaseRole)
-DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
+DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 
 # --- Driver selection and validation ---
 
-list_available_drivers() {
-  local drivers_dir="${SCRIPT_DIR}/drivers"
-  if [[ -d "$drivers_dir" ]]; then
-    for f in "${drivers_dir}"/*.sh; do
-      [[ -f "$f" ]] && basename "$f" .sh
-    done
-  fi
-}
-
-if [[ -z "${E2E_INFRA_DRIVER:-}" ]]; then
-  red "ERROR: E2E_INFRA_DRIVER is not set."
-  echo ""
-  echo "Available drivers:"
-  list_available_drivers | while read -r d; do echo "  - $d"; done
-  exit 1
-fi
+e2e_validate_mode
+e2e_select_infra_driver
 
 DRIVER_FILE="${SCRIPT_DIR}/drivers/${E2E_INFRA_DRIVER}.sh"
 if [[ ! -f "$DRIVER_FILE" ]]; then
-  red "ERROR: Unknown driver '${E2E_INFRA_DRIVER}'. Driver file not found: ${DRIVER_FILE}"
-  echo ""
-  echo "Available drivers:"
-  list_available_drivers | while read -r d; do echo "  - $d"; done
-  exit 1
+  e2e_die_unknown_driver "Unknown driver '${E2E_INFRA_DRIVER}'. Driver file not found: ${DRIVER_FILE}"
 fi
 
 # shellcheck source=drivers/kind.sh
 source "$DRIVER_FILE"
 
-REQUIRED_FUNCTIONS=(discover_api_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl)
+REQUIRED_FUNCTIONS=(discover_api_host discover_console_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl configure_namespace_gc_timing restore_namespace_gc_timing)
 for fn in "${REQUIRED_FUNCTIONS[@]}"; do
   if ! declare -f "$fn" >/dev/null 2>&1; then
     red "ERROR: Driver '${E2E_INFRA_DRIVER}' does not implement required function: ${fn}"
@@ -99,6 +87,7 @@ fi
 # --- Cleanup trap ---
 
 cleanup() {
+  restore_namespace_gc_timing || true
   if [[ -n "${SB_CREATE_PID:-}" ]]; then
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true
@@ -114,7 +103,9 @@ cleanup() {
     kill "$E2E_GW_PF_PID" 2>/dev/null || true
     wait "$E2E_GW_PF_PID" 2>/dev/null || true
   fi
-  if [[ "$E2E_SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
+  # Short mode never deletes the supplied/reused gateway: checkpoints and
+  # canary runs must leave it standing. E2E_SKIP_CLEANUP also preserves it.
+  if [[ "$E2E_MODE" != "short" && "$E2E_SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
     dim "  Cleaning up gateway ${GW_NAME}..."
     # JWT is enforced, so the DELETE needs a bearer token. The token acquired
     # earlier may have expired during provisioning, so refresh best-effort before
@@ -122,8 +113,25 @@ cleanup() {
     acquire_oidc_token 2>/dev/null || true
     api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
   fi
+  # Runs on every exit path -- a fatal exit 1 mid-run included -- so the
+  # summary always prints, and print_results itself notes when E2E_COMPLETED
+  # was never set (i.e. the run aborted before reaching the results section).
+  print_results
 }
 trap cleanup EXIT
+
+# --- Namespace GC timing ---
+# Long mode seeds a synthetic orphan namespace later and waits for the periodic
+# reaper to collect it (see area 11a); on drivers whose deployment runs with
+# production GC defaults, that wait can't complete in time unless shortened
+# first. Done once up front, before any gateway is created, so the controller
+# restart this can trigger doesn't land mid-reconciliation.
+if e2e_step long; then
+  if ! configure_namespace_gc_timing; then
+    red "ERROR: Could not configure namespace GC timing for the e2e run"
+    exit 1
+  fi
+fi
 
 # --- Discover API host via driver ---
 
@@ -152,6 +160,7 @@ printf '  %s\n' "10. Platform admin RBAC verification"
 printf '  %s\n' "11. Gateway deletion + namespace garbage collection"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
+dim  "  Mode:              ${E2E_MODE}"
 dim  "  Database provider: ${DB_PROVIDER}"
 dim  "  HyperShell API:    ${API_HOST}"
 dim  "  Gateway name:      ${GW_NAME}"
@@ -166,7 +175,7 @@ sep
 # ── 1. infrastructure validation + OIDC verification ─────────────────────
 
 echo ""
-bold "1. Infrastructure Validation + OIDC Verification"
+e2e_area "1. Infrastructure Validation + OIDC Verification"
 echo ""
 
 # Acquire a token for authenticated API calls
@@ -179,9 +188,10 @@ else
   exit 1
 fi
 
+if e2e_step long; then
 # Verify: unauthenticated API requests return 401
-show_cmd "curl -sk -o /dev/null -w '%{http_code}' ${API_HOST}/api/hypershell/v1/gateways (no auth)"
-UNAUTH_STATUS=$(curl -sk -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
+show_cmd "curl -s -o /dev/null -w '%{http_code}' ${API_HOST}/api/hypershell/v1/gateways (driver TLS policy, no auth)"
+UNAUTH_STATUS=$(_driver_curl -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
 if [[ "$UNAUTH_STATUS" == "401" ]]; then
   pass "API server rejects unauthenticated requests (401)"
 else
@@ -189,7 +199,7 @@ else
 fi
 
 # Verify: authenticated API requests return 200
-show_cmd "curl -sk -H 'Authorization: Bearer ...' ${API_HOST}/api/hypershell/v1/gateways"
+show_cmd "curl -s -H 'Authorization: Bearer ...' ${API_HOST}/api/hypershell/v1/gateways (driver TLS policy)"
 AUTH_STATUS=$(api_curl -o /dev/null -w '%{http_code}' "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
 if [[ "$AUTH_STATUS" == "200" ]]; then
   pass "API server accepts authenticated requests (200)"
@@ -198,9 +208,13 @@ else
 fi
 
 # Verify: BFF /auth/session returns unauthenticated
-CONSOLE_HOST="${API_HOST/api./console.}"
-show_cmd "curl -sk ${CONSOLE_HOST}/auth/session"
-SESSION_RESP=$(curl -sk "${CONSOLE_HOST}/auth/session" 2>/dev/null || true)
+if ! discover_console_host; then
+  fail_test "Could not discover HyperShell web console host"
+  exit 1
+fi
+CONSOLE_HOST="${_DISCOVER_CONSOLE_HOST}"
+show_cmd "curl -s ${CONSOLE_HOST}/auth/session (driver TLS policy)"
+SESSION_RESP=$(_driver_curl "${CONSOLE_HOST}/auth/session" 2>/dev/null || true)
 SESSION_AUTH=$(echo "${SESSION_RESP}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('authenticated',''))" 2>/dev/null || true)
 if [[ "$SESSION_AUTH" == "False" ]]; then
   pass "BFF /auth/session returns authenticated: false"
@@ -209,8 +223,8 @@ else
 fi
 
 # Verify: BFF /auth/login redirects to Keycloak with PKCE
-show_cmd "curl -sk -o /dev/null -w '%{redirect_url}' ${CONSOLE_HOST}/auth/login"
-LOGIN_REDIRECT=$(curl -sk -o /dev/null -w '%{redirect_url}' "${CONSOLE_HOST}/auth/login" 2>/dev/null || true)
+show_cmd "curl -s -o /dev/null -w '%{redirect_url}' ${CONSOLE_HOST}/auth/login (driver TLS policy)"
+LOGIN_REDIRECT=$(_driver_curl -o /dev/null -w '%{redirect_url}' "${CONSOLE_HOST}/auth/login" 2>/dev/null || true)
 if echo "${LOGIN_REDIRECT}" | grep -q 'code_challenge_method=S256'; then
   pass "BFF /auth/login redirects to IdP with PKCE"
 else
@@ -261,7 +275,7 @@ if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
     fail_test "CloudNativePG CRDs not found"
   fi
 else
-  dim "  CNPG checks skipped (DATABASE_PROVIDER=deployment)"
+  dim "  CNPG checks skipped (DATABASE_PROVIDER=${DB_PROVIDER})"
 fi
 
 show_cmd "$CLI get deployment agent-sandbox-controller -n agent-sandbox-system"
@@ -318,12 +332,13 @@ if [[ "${NP_COUNT:-0}" -ge 4 ]]; then
 else
   fail_test "Expected at least 4 NetworkPolicies, found ${NP_COUNT:-0}"
 fi
+fi
 sep
 
 # ── 2. gateway provisioning ────────────────────────────────────────────────
 
 echo ""
-bold "2. Gateway Provisioning via HyperShell API"
+e2e_area "2. Gateway Provisioning via HyperShell API"
 echo ""
 
 # JWT enforcement means every gateway CRUD call below needs a bearer token.
@@ -365,9 +380,10 @@ for gw in data.get('items', []):
         break
 " 2>/dev/null || true)
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
+  e2e_apply_seed_ids_from_gateway_json "$EXISTING_GW" "$GW_NAME"
 else
   # database_id is a required request property but its value is server-owned.
-  # CNPG placement resolves the fleet's sole ManagedDatabase; deployment
+  # CNPG placement resolves the sole ManagedDatabase; deployment
   # placement ignores the empty placeholder and creates a new dedicated one.
   show_cmd "api_curl ${API_HOST}/api/hypershell/v1/managed_databases"
   E2E_MD_RESP=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
@@ -383,59 +399,22 @@ for item in data.get('items', []):
 " 2>/dev/null || true)
 
   if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-    IFS=$'\t' read -r E2E_FLEET_ID E2E_DATABASE_ID <<< "$(echo "$E2E_MD_RESP" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-items = data.get('items', [])
-if items:
-    print('%s\t%s' % (items[0].get('fleet_id',''), items[0].get('id','')))
-else:
-    print('\t')
-" 2>/dev/null)" || true
-    if [[ -z "$E2E_FLEET_ID" || -z "$E2E_DATABASE_ID" ]]; then
-      fail_test "Could not discover CNPG fleet_id or database_id from ManagedDatabase API"
+    E2E_DATABASE_ID=$(echo "$E2E_MD_RESP" | e2e_json_first_id)
+    if [[ -z "$E2E_DATABASE_ID" ]]; then
+      fail_test "Could not discover CNPG database_id from ManagedDatabase API"
       exit 1
     fi
   else
-    show_cmd "api_curl ${API_HOST}/api/hypershell/v1/fleets"
-    E2E_FLEET_ID=$(api_curl "${API_HOST}/api/hypershell/v1/fleets" 2>/dev/null | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-items = data.get('items', [])
-print(items[0].get('id', '') if items else '')
-" 2>/dev/null || true)
     E2E_DATABASE_ID=""
-    if [[ -z "$E2E_FLEET_ID" ]]; then
-      fail_test "Could not discover fleet_id for deployment database placement"
-      exit 1
-    fi
   fi
-  dim "  Using fleet_id=${E2E_FLEET_ID}; database_id is assigned by ${DB_PROVIDER} placement"
+  if ! e2e_ensure_seed_ids; then
+    fail_test "Could not discover seeded cluster/release ids"
+    exit 1
+  fi
+  dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; database_id is assigned by ${DB_PROVIDER} placement"
 
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, database_id: <placement placeholder>, oidc: ...}'"
-  GW_CREATE_BODY=$(GW_NAME="$GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
-    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
-    E2E_FLEET_ID="$E2E_FLEET_ID" E2E_DATABASE_ID="$E2E_DATABASE_ID" python3 -c "
-import json, os
-body = {
-    'name': os.environ['GW_NAME'],
-    'fleet_id': os.environ['E2E_FLEET_ID'],
-    'cluster_id': 'e2e-cluster',
-    'release_id': 'e2e-release',
-    'database_id': os.environ['E2E_DATABASE_ID'],
-    'oidc': json.dumps({
-        'issuer': os.environ['E2E_OIDC_ISSUER'],
-        'audience': os.environ['E2E_OIDC_CLIENT_ID'],
-        'roles_claim': 'groups',
-        'admin_role': 'hypershell-admins',
-        'user_role': 'hypershell-users'
-    }),
-    'route': json.dumps({
-        'enabled': True
-    })
-}
-print(json.dumps(body))
-")
+  GW_CREATE_BODY=$(e2e_gateway_create_body "$GW_NAME")
   CREATE_RESPONSE=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Content-Type: application/json" \
     -d "${GW_CREATE_BODY}" 2>/dev/null || true)
@@ -521,8 +500,9 @@ dim "  Gateway namespace: ${GW_NAMESPACE}"
 
 # Seed a synthetic orphaned managed namespace for periodic GC. Created here so
 # steps 3–10 run while the reaper sweeps; step 11 only validates (no extra wait
-# if the reaper already ran during the suite).
-if [[ "$E2E_SKIP_CLEANUP" != "1" ]]; then
+# if the reaper already ran during the suite). Long-only: short mode does not
+# exercise the periodic reaper.
+if e2e_step long && [[ "$E2E_SKIP_CLEANUP" != "1" ]]; then
   ORPHAN_NS="openshell-e2e-orphan-$(date +%s)"
   ORPHAN_ELIGIBLE_SINCE=$(e2e_gc_eligible_since_backdate 3)
   dim "  Seeding periodic GC orphan namespace: ${ORPHAN_NS}"
@@ -535,28 +515,27 @@ metadata:
   labels:
     hypershell.redhat.io/managed: "true"
     app.kubernetes.io/managed-by: hypershell-control-plane
+    hypershell.redhat.io/instance: "${E2E_HS_NAMESPACE}"
   annotations:
     hypershell.redhat.io/gc-eligible-since: "${ORPHAN_ELIGIBLE_SINCE}"
 EOF
   ORPHAN_GC_DEADLINE=$(($(date +%s) + E2E_ORPHAN_GC_TIMEOUT))
 fi
 
-# Per-gateway Keycloak client id. When Keycloak provisioning is enabled (the Kind
-# path), the control-plane reconciler creates a dedicated public client named
-# "${gw.Name}-${gatewayID}" with an audience mapper and overrides the gateway's
-# OIDC config to require aud == this client. Gateway and CLI tokens must therefore
-# be minted against this client, not the shared frontend client, or Envoy rejects
-# them with InvalidAudience. gatewayID is the API resource id (GW_ID).
+# Per-gateway Keycloak client id. The control-plane reconciler creates a
+# dedicated public client named "${gw.Name}-${gatewayID}" with an audience
+# mapper and overrides the gateway's OIDC config to require aud == this
+# client, on every infra target. Gateway and CLI tokens must therefore be
+# minted against this client, not the shared frontend client, or Envoy
+# rejects them with InvalidAudience. gatewayID is the API resource id (GW_ID).
 GW_KC_CLIENT_ID="${GW_NAME}-${GW_ID}"
-if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
-  dim "  Per-gateway OIDC client: ${GW_KC_CLIENT_ID}"
-fi
+dim "  Per-gateway OIDC client: ${GW_KC_CLIENT_ID}"
 sep
 
 # ── 3. gateway infrastructure ──────────────────────────────────────────────
 
 echo ""
-bold "3. Gateway Infrastructure"
+e2e_area "3. Gateway Infrastructure"
 echo ""
 
 show_cmd "$CLI get deployment openshell-gateway -n $GW_NAMESPACE"
@@ -605,6 +584,7 @@ else
   fail_test "Gateway service not found"
 fi
 
+if e2e_step long; then
 show_cmd "$CLI get secret openshell-server-tls -n $GW_NAMESPACE"
 HAS_TLS=$($CLI get secret openshell-server-tls -n "$GW_NAMESPACE" 2>/dev/null && echo yes || true)
 if [[ -n "$HAS_TLS" ]]; then
@@ -663,6 +643,10 @@ if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
   else
     fail_test "Client TLS secret not found"
   fi
+elif [[ "${DB_PROVIDER}" == "external" ]]; then
+  # External provider: no in-cluster database workload. The sole check is the
+  # gateway-namespace credentials secret, verified below for all providers.
+  dim "  External database: no in-cluster DB deployment to verify"
 else
   # Deployment provider: verify DB Deployment readiness and credentials secret
   show_cmd "$CLI get deployment openshell-gateway-db -n ${DB_GW_NAMESPACE}"
@@ -729,26 +713,27 @@ else
     fail_test "Expected at least 3 gateway NetworkPolicies, found ${GW_NP_COUNT:-0}"
   fi
 fi
+fi
 sep
 
 # ── 4. OIDC token acquisition + CA certificate setup ─────────────────────
 
 echo ""
-bold "4. OIDC Token Acquisition + CA Certificate Setup"
+e2e_area "4. OIDC Token Acquisition + CA Certificate Setup"
 echo ""
 
-# The client the admin's gateway/CLI tokens are minted against. On Kind the
-# reconciler forces a per-gateway audience, so we use the per-gateway client and
-# wait for the async owner-binding -> openshell-admin role to land in the token.
-OIDC_CLIENT_ID_EFFECTIVE="${E2E_OIDC_CLIENT_ID}"
-if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
-  OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
+# The client the admin's gateway/CLI tokens are minted against. The
+# reconciler forces a per-gateway audience on every infra target, so we
+# always use the per-gateway client and wait for the async owner-binding ->
+# openshell-admin role to land in the token.
+OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
 
+if [[ "${E2E_INFRA_DRIVER}" == "kind" ]] && e2e_step long; then
   # Exercise the real Keycloak device authorization endpoint for the client
   # provisioned by the control plane. A successful authorization response proves
   # that oauth2.device.authorization.grant.enabled reached Keycloak; polling once
   # after the advertised interval proves that Keycloak recognizes the device code.
-  DEVICE_DISCOVERY=$(curl -sk "${E2E_OIDC_ISSUER}/.well-known/openid-configuration" 2>/dev/null || true)
+  DEVICE_DISCOVERY=$(_driver_curl "${E2E_OIDC_ISSUER}/.well-known/openid-configuration" 2>/dev/null || true)
   DEVICE_AUTH_ENDPOINT=$(echo "$DEVICE_DISCOVERY" | python3 -c "import json,sys; print(json.load(sys.stdin).get('device_authorization_endpoint',''))" 2>/dev/null || true)
   if [[ -z "$DEVICE_AUTH_ENDPOINT" ]]; then
     fail_test "OIDC discovery did not advertise a device authorization endpoint"
@@ -761,7 +746,7 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
   DEVICE_CODE_CHALLENGE=$(DEVICE_CODE_VERIFIER="$DEVICE_CODE_VERIFIER" python3 -c "import base64,hashlib,os; print(base64.urlsafe_b64encode(hashlib.sha256(os.environ['DEVICE_CODE_VERIFIER'].encode()).digest()).rstrip(b'=').decode())")
 
   show_cmd "# OAuth 2.0 Device Authorization Grant with PKCE S256 → ${DEVICE_AUTH_ENDPOINT} (client: ${GW_KC_CLIENT_ID})"
-  DEVICE_AUTH_RESPONSE=$(curl -sk -X POST "$DEVICE_AUTH_ENDPOINT" \
+  DEVICE_AUTH_RESPONSE=$(_driver_curl -X POST "$DEVICE_AUTH_ENDPOINT" \
     --data-urlencode "client_id=${GW_KC_CLIENT_ID}" \
     --data-urlencode "scope=openid" \
     --data-urlencode "code_challenge=${DEVICE_CODE_CHALLENGE}" \
@@ -783,7 +768,7 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
   fi
   sleep "$DEVICE_INTERVAL"
 
-  DEVICE_TOKEN_RESPONSE=$(curl -sk -X POST "${E2E_OIDC_ISSUER}/protocol/openid-connect/token" \
+  DEVICE_TOKEN_RESPONSE=$(_driver_curl -X POST "${E2E_OIDC_ISSUER}/protocol/openid-connect/token" \
     --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
     --data-urlencode "client_id=${GW_KC_CLIENT_ID}" \
     --data-urlencode "device_code=${DEVICE_CODE}" \
@@ -796,44 +781,38 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
     fail_test "Device code poll did not return authorization_pending: ${DEVICE_TOKEN_DESCRIPTION}"
     exit 1
   fi
+fi
 
-  show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
-  if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
-    OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
-    pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
-  else
-    fail_test "Failed to acquire per-gateway OIDC token with openshell-admin role"
-    exit 1
-  fi
-else
-  show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER}"
-  acquire_oidc_token
+show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
+if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
   OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
-  if [[ -n "$OIDC_TOKEN" ]]; then
-    pass "OIDC token acquired (user: ${E2E_OIDC_USERNAME})"
-  else
-    fail_test "Failed to acquire OIDC token from Keycloak"
-    exit 1
-  fi
+  pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
+else
+  fail_test "Failed to acquire per-gateway OIDC token with openshell-admin role"
+  exit 1
 fi
 
 
-show_cmd "$CLI get secret hypershell-ca-secret -n $E2E_HS_NAMESPACE -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/e2e-hypershell-ca.crt"
-$CLI get secret hypershell-ca-secret -n "$E2E_HS_NAMESPACE" -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > /tmp/e2e-hypershell-ca.crt
-if [[ -s /tmp/e2e-hypershell-ca.crt ]]; then
-  export SSL_CERT_FILE=/tmp/e2e-hypershell-ca.crt
-  pass "CA certificate extracted and SSL_CERT_FILE set"
-  dim "    CA: /tmp/e2e-hypershell-ca.crt"
+if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
+  show_cmd "$CLI get secret hypershell-ca-secret -n $E2E_HS_NAMESPACE -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/e2e-hypershell-ca.crt"
+  $CLI get secret hypershell-ca-secret -n "$E2E_HS_NAMESPACE" -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > /tmp/e2e-hypershell-ca.crt
+  if [[ -s /tmp/e2e-hypershell-ca.crt ]]; then
+    export SSL_CERT_FILE=/tmp/e2e-hypershell-ca.crt
+    pass "CA certificate extracted and SSL_CERT_FILE set"
+    dim "    CA: /tmp/e2e-hypershell-ca.crt"
+  else
+    fail_test "Failed to extract CA certificate"
+    exit 1
+  fi
 else
-  fail_test "Failed to extract CA certificate"
-  exit 1
+  pass "Gateway TLS trust configured by the OpenShift driver"
 fi
 sep
 
 # ── 5. route discovery + CLI registration ─────────────────────────────────
 
 echo ""
-bold "5. Route Discovery + CLI Registration"
+e2e_area "5. Route Discovery + CLI Registration"
 echo ""
 
 GW_LOCAL_NAME="${GW_NAMESPACE}-openshell"
@@ -875,7 +854,8 @@ meta = {
     'gateway_port': 0,
     'auth_mode': 'oidc',
     'oidc_issuer': os.environ['E2E_OIDC_ISSUER'],
-    'oidc_client_id': os.environ['OIDC_CLIENT_ID_EFFECTIVE']
+    'oidc_client_id': os.environ['OIDC_CLIENT_ID_EFFECTIVE'],
+    'gateway_insecure': bool(os.environ.get('OPENSHELL_GATEWAY_INSECURE', ''))
 }
 with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
     json.dump(meta, f, indent=2)
@@ -900,7 +880,7 @@ sep
 # ── 6. gateway connectivity ───────────────────────────────────────────────
 
 echo ""
-bold "6. Gateway Connectivity"
+e2e_area "6. Gateway Connectivity"
 echo ""
 
 show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} status"
@@ -937,7 +917,7 @@ sep
 # ── 7. sandbox lifecycle ──────────────────────────────────────────────────
 
 echo ""
-bold "7. Sandbox Lifecycle"
+e2e_area "7. Sandbox Lifecycle"
 echo ""
 
 RUN_ID=$(date +%s | tail -c5)
@@ -1004,7 +984,7 @@ sep
 # ── 8. sandbox interaction + active sandbox count ─────────────────────────
 
 echo ""
-bold "8. Sandbox Interaction + Active Sandbox Count"
+e2e_area "8. Sandbox Interaction + Active Sandbox Count"
 echo ""
 
 GW_FLAG="-g ${GW_LOCAL_NAME}"
@@ -1048,6 +1028,7 @@ else
     dim "    ${SB_EXEC_OUTPUT:0:200}"
   fi
 
+  if e2e_step long; then
   show_cmd "${OPENSHELL_BIN} ${GW_FLAG} sandbox exec -n ${SANDBOX_NAME} -- ls -la /workspace"
   if SB_LS_OUTPUT=$("${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- ls -la /workspace 2>&1); then
     CLEAN_LS=$(echo "$SB_LS_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^ *$' | grep -v 'WARN' | tail -5)
@@ -1067,6 +1048,7 @@ else
       fail_test "Sandbox workspace: openshell ls command failed"
       dim "    ${SB_LS_OUTPUT:0:200}"
     fi
+  fi
   fi
 fi
 
@@ -1106,6 +1088,7 @@ if [[ "$SANDBOX_FOUND" == "true" ]]; then
     fail_test "active_sandbox_count did not reach 1 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
   fi
 
+  if e2e_step long; then
   SANDBOX_NAME_2="${SANDBOX_NAME}-2"
   show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME_2}"
   dim "  Creating a second sandbox to assert the count increments..."
@@ -1153,6 +1136,18 @@ if [[ "$SANDBOX_FOUND" == "true" ]]; then
   else
     fail_test "active_sandbox_count did not return to 1 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
   fi
+  else
+    # Short mode: delete the one sandbox and assert the count returns to 0.
+    # Runs even with E2E_SKIP_CLEANUP so a reused canary does not accumulate sandboxes.
+    show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} sandbox delete ${SANDBOX_NAME}"
+    "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME}" 2>&1 || true
+    if COUNT=$(poll_active_sandbox_count 0); then
+      pass "active_sandbox_count decremented to 0 on sandbox delete (${COUNT})"
+    else
+      fail_test "active_sandbox_count did not return to 0 within ${E2E_SANDBOX_TIMEOUT}s (last: ${COUNT:-<unset>})"
+    fi
+    SANDBOX_FOUND=false
+  fi
 fi
 sep
 
@@ -1170,43 +1165,32 @@ sep
 # ── 9. developer user RBAC verification ──────────────────────────────────
 
 echo ""
-bold "9. Developer User RBAC Verification"
+e2e_area "9. Developer User RBAC Verification"
 echo ""
 
 # The developer's gateway/CLI token, like the admin's, must be minted against the
-# per-gateway client on Kind. The gateway requires user_role (openshell-user) on
-# that client or it rejects the developer outright ("role 'openshell-user'
-# required"). In production the RoleBinding reconciler assigns this when a
-# gateway:viewer binding is created, but that grant is not expressible through the
-# API for a non-owner (no user_id discovery path), so we provision the same end
-# state directly in Keycloak -- a test-setup shortcut, not a product change.
-DEV_OIDC_CLIENT_ID_EFFECTIVE="${E2E_OIDC_CLIENT_ID}"
-if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
-  DEV_OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
-  show_cmd "# grant developer openshell-user on ${GW_KC_CLIENT_ID} (mirrors gateway:viewer RoleBinding)"
-  if assign_gateway_client_role "$E2E_DEV_USERNAME" "$GW_KC_CLIENT_ID" openshell-user; then
-    pass "Developer granted openshell-user on per-gateway client"
-  else
-    fail_test "Failed to grant developer openshell-user on per-gateway client"
-  fi
-
-  show_cmd "# acquire per-gateway OIDC token for developer (client: ${GW_KC_CLIENT_ID}, await role: openshell-user)"
-  if acquire_gateway_token_with_role "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD" "$GW_KC_CLIENT_ID" openshell-user; then
-    DEV_TOKEN="${_OIDC_ACCESS_TOKEN}"
-    pass "Developer OIDC token acquired with openshell-user (user: ${E2E_DEV_USERNAME})"
-  else
-    DEV_TOKEN=""
-    fail_test "Failed to acquire developer per-gateway OIDC token with openshell-user role"
-  fi
+# per-gateway client on every infra target. The gateway requires user_role
+# (openshell-user) on that client or it rejects the developer outright ("role
+# 'openshell-user' required"). In production the RoleBinding reconciler assigns
+# this when a gateway:viewer binding is created, but that grant is not
+# expressible through the API for a non-owner (no user_id discovery path), so we
+# provision the same end state directly in Keycloak -- a test-setup shortcut,
+# not a product change.
+DEV_OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
+show_cmd "# grant developer openshell-user on ${GW_KC_CLIENT_ID} (mirrors gateway:viewer RoleBinding)"
+if assign_gateway_client_role "$E2E_DEV_USERNAME" "$GW_KC_CLIENT_ID" openshell-user; then
+  pass "Developer granted openshell-user on per-gateway client"
 else
-  show_cmd "# acquire OIDC token for developer user"
-  acquire_oidc_token "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD"
+  fail_test "Failed to grant developer openshell-user on per-gateway client"
+fi
+
+show_cmd "# acquire per-gateway OIDC token for developer (client: ${GW_KC_CLIENT_ID}, await role: openshell-user)"
+if acquire_gateway_token_with_role "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD" "$GW_KC_CLIENT_ID" openshell-user; then
   DEV_TOKEN="${_OIDC_ACCESS_TOKEN}"
-  if [[ -n "$DEV_TOKEN" ]]; then
-    pass "Developer OIDC token acquired (user: ${E2E_DEV_USERNAME})"
-  else
-    fail_test "Failed to acquire developer OIDC token"
-  fi
+  pass "Developer OIDC token acquired with openshell-user (user: ${E2E_DEV_USERNAME})"
+else
+  DEV_TOKEN=""
+  fail_test "Failed to acquire developer per-gateway OIDC token with openshell-user role"
 fi
 
 if [[ -n "$DEV_TOKEN" ]]; then
@@ -1231,7 +1215,8 @@ meta = {
     'gateway_port': 0,
     'auth_mode': 'oidc',
     'oidc_issuer': os.environ['E2E_OIDC_ISSUER'],
-    'oidc_client_id': os.environ['DEV_OIDC_CLIENT_ID_EFFECTIVE']
+    'oidc_client_id': os.environ['DEV_OIDC_CLIENT_ID_EFFECTIVE'],
+    'gateway_insecure': bool(os.environ.get('OPENSHELL_GATEWAY_INSECURE', ''))
 }
 with open(os.path.join(config_dir, 'metadata.json'), 'w') as f:
     json.dump(meta, f, indent=2)
@@ -1252,6 +1237,7 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
     fail_test "Failed to write developer gateway config"
   fi
 
+  if e2e_step long; then
   show_cmd "${OPENSHELL_BIN} -g ${DEV_GW_LOCAL_NAME} status"
   DEV_STATUS=$("${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" status 2>&1 || true)
   DEV_CLEAN=$(echo "$DEV_STATUS" | sed 's/\x1b\[[0-9;]*m//g')
@@ -1365,19 +1351,19 @@ except Exception:
     fail_test "Developer user: sandbox not created within ${E2E_SANDBOX_TIMEOUT}s"
     dim "    ${DEV_SB_ERR:0:200}"
   fi
+  fi
 
-  # ── negative assertion: openshell-user may NOT create a gateway ──
-  # gateway:viewer lacks the platform-scoped gateway:creator role, so
-  # POST /gateways MUST be rejected with 403 (rbac-enforcement.spec.md scenario
-  # "User without creator role cannot create gateways"). SUCCESS here would mean
-  # RBAC is NOT enforced.
+  # ── positive assertion: authenticated user receives gateway:creator by default ──
+  # RBAC_DEFAULT_ROLES defaults to gateway:creator, so every authenticated user
+  # is a creator. A developer with openshell-user Keycloak roles still gets the
+  # platform default binding and therefore can create gateways. This verifies
+  # that the default-role bootstrap fires correctly (HYPERSHELL-262).
   DEV_GW_CREATE_NAME="e2e-dev-gw-$(date +%s | tail -c5)"
   DEV_GW_BODY=$(GW_NAME="$DEV_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
     'database_id': 'e2e-database',
@@ -1392,30 +1378,29 @@ body = {
 }
 print(json.dumps(body))
 ")
-  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 403"
-  dim "  Expecting 403 Forbidden (developer lacks gateway:creator)..."
+  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 201 (gateway:creator by default)"
+  dim "  Expecting 201 Created (developer receives gateway:creator via RBAC_DEFAULT_ROLES)..."
 
   DEV_GW_RESP_FILE=$(mktemp)
-  DEV_GW_STATUS=$(curl -sk -o "${DEV_GW_RESP_FILE}" -w '%{http_code}' \
+  DEV_GW_STATUS=$(_driver_curl -o "${DEV_GW_RESP_FILE}" -w '%{http_code}' \
     -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Authorization: Bearer ${DEV_TOKEN}" \
     -H "Content-Type: application/json" \
     -d "${DEV_GW_BODY}" 2>/dev/null || true)
   DEV_GW_RESP=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_GW_RESP_FILE}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
 
-  if [[ "$DEV_GW_STATUS" == "403" ]]; then
-    pass "Developer user: gateway create correctly denied (403 Forbidden)"
-  elif [[ "$DEV_GW_STATUS" =~ ^2 ]]; then
-    fail_test "Developer user: RBAC not enforced -- non-creator created a gateway (HTTP ${DEV_GW_STATUS})"
-    # A gateway was wrongly created; the creator auto-owns it, so delete it as the
-    # developer to avoid leaking test state.
-    DEV_BAD_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-    if [[ -n "$DEV_BAD_GW_ID" ]]; then
-      curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_BAD_GW_ID}" \
+  if [[ "$DEV_GW_STATUS" =~ ^2 ]]; then
+    pass "Developer user: gateway create allowed (gateway:creator default binding active)"
+    DEV_DEFAULT_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+    if [[ -n "$DEV_DEFAULT_GW_ID" ]]; then
+      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_DEFAULT_GW_ID}" \
         -H "Authorization: Bearer ${DEV_TOKEN}" &>/dev/null || true
     fi
+  elif [[ "$DEV_GW_STATUS" == "403" ]]; then
+    fail_test "Developer user: gateway create blocked -- default gateway:creator binding was not assigned (HTTP 403)"
+    dim "    ${DEV_GW_RESP:0:200}"
   else
-    fail_test "Developer user: gateway create did not return 403 (got HTTP ${DEV_GW_STATUS:-none})"
+    fail_test "Developer user: unexpected HTTP ${DEV_GW_STATUS:-none} on gateway create"
     dim "    ${DEV_GW_RESP:0:200}"
   fi
   rm -f "${DEV_GW_RESP_FILE}" 2>/dev/null || true
@@ -1427,22 +1412,23 @@ sep
 # ── 10. platform admin RBAC verification ─────────────────────────────────
 
 echo ""
-bold "10. Platform Admin RBAC Verification"
+e2e_area "10. Platform Admin RBAC Verification"
 echo ""
 
+if ! e2e_step long; then
+  dim "  Skipped (E2E_MODE=short): platform-admin assertions delete a gateway"
+else
 # The platform:admin role is a realm role (not a client role) assigned in Keycloak.
 # Platform admins can view all gateways and delete any gateway, but cannot modify
 # gateways they don't own or create gateways without gateway:creator.
 
 # Assign platform:admin realm role to the platform admin user (best-effort; user may
 # already have the role from Keycloak realm import)
-if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
-  show_cmd "# verify/assign platform:admin realm role to ${E2E_PLATFORM_ADMIN_USERNAME}"
-  if assign_realm_role "$E2E_PLATFORM_ADMIN_USERNAME" "platform:admin"; then
-    pass "Platform admin has platform:admin realm role"
-  else
-    dim "  Note: Could not verify platform:admin role assignment (user may already have it from realm import)"
-  fi
+show_cmd "# verify/assign platform:admin realm role to ${E2E_PLATFORM_ADMIN_USERNAME}"
+if assign_realm_role "$E2E_PLATFORM_ADMIN_USERNAME" "platform:admin"; then
+  pass "Platform admin has platform:admin realm role"
+else
+  dim "  Note: Could not verify platform:admin role assignment (user may already have it from realm import)"
 fi
 
 # Acquire OIDC token for platform admin
@@ -1461,7 +1447,7 @@ if [[ -n "$PADMIN_TOKEN" ]]; then
   dim "  Expecting 200 OK (platform:admin can view all gateways)..."
 
   PADMIN_LIST_FILE=$(mktemp)
-  PADMIN_LIST_STATUS=$(curl -sk -o "${PADMIN_LIST_FILE}" -w '%{http_code}' \
+  PADMIN_LIST_STATUS=$(_driver_curl -o "${PADMIN_LIST_FILE}" -w '%{http_code}' \
     -H "Authorization: Bearer ${PADMIN_TOKEN}" \
     "${API_HOST}/api/hypershell/v1/gateways" 2>/dev/null || true)
   PADMIN_LIST_RESP=$(cat "${PADMIN_LIST_FILE}" 2>/dev/null || true)
@@ -1484,7 +1470,7 @@ if [[ -n "$PADMIN_TOKEN" ]]; then
   # Before deleting, verify platform admin is NOT the owner by checking role bindings
   show_cmd "# verify platform admin has NO owner binding on ${GW_NAME}"
   PADMIN_BINDINGS_FILE=$(mktemp)
-  PADMIN_BINDINGS_STATUS=$(curl -sk -o "${PADMIN_BINDINGS_FILE}" -w '%{http_code}' \
+  PADMIN_BINDINGS_STATUS=$(_driver_curl -o "${PADMIN_BINDINGS_FILE}" -w '%{http_code}' \
     -H "Authorization: Bearer ${PADMIN_TOKEN}" \
     "${API_HOST}/api/hypershell/v1/role_bindings?gateway_id=${GW_ID}" 2>/dev/null || true)
 
@@ -1506,7 +1492,7 @@ print('true' if has_owner else 'false')
 
   # Now attempt delete as platform admin
   PADMIN_DELETE_FILE=$(mktemp)
-  PADMIN_DELETE_STATUS=$(curl -sk -o "${PADMIN_DELETE_FILE}" -w '%{http_code}' \
+  PADMIN_DELETE_STATUS=$(_driver_curl -o "${PADMIN_DELETE_FILE}" -w '%{http_code}' \
     -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" \
     -H "Authorization: Bearer ${PADMIN_TOKEN}" 2>/dev/null || true)
   PADMIN_DELETE_RESP=$(cat "${PADMIN_DELETE_FILE}" 2>/dev/null || true)
@@ -1521,14 +1507,16 @@ print('true' if has_owner else 'false')
   fi
   rm -f "${PADMIN_DELETE_FILE}" 2>/dev/null || true
 
-  # ── negative assertion: platform:admin cannot create gateways without gateway:creator ──
+  # ── positive assertion: platform:admin also receives gateway:creator by default ──
+  # RBAC_DEFAULT_ROLES applies to all authenticated users including platform:admin.
+  # They can create gateways via the default binding even without explicit
+  # gateway:creator in their Keycloak realm roles (HYPERSHELL-262).
   PADMIN_GW_CREATE_NAME="e2e-padmin-gw-$(date +%s | tail -c5)"
   PADMIN_GW_BODY=$(GW_NAME="$PADMIN_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'fleet_id': 'e2e-fleet',
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
     'database_id': 'e2e-database',
@@ -1543,42 +1531,119 @@ body = {
 }
 print(json.dumps(body))
 ")
-  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as platform admin) -> expect 403"
-  dim "  Expecting 403 Forbidden (platform:admin lacks gateway:creator)..."
+  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as platform admin) -> expect 201 (gateway:creator by default)"
+  dim "  Expecting 201 Created (platform:admin receives gateway:creator via RBAC_DEFAULT_ROLES)..."
 
   PADMIN_CREATE_FILE=$(mktemp)
-  PADMIN_CREATE_STATUS=$(curl -sk -o "${PADMIN_CREATE_FILE}" -w '%{http_code}' \
+  PADMIN_CREATE_STATUS=$(_driver_curl -o "${PADMIN_CREATE_FILE}" -w '%{http_code}' \
     -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Authorization: Bearer ${PADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
     -d "${PADMIN_GW_BODY}" 2>/dev/null || true)
   PADMIN_CREATE_RESP=$(cat "${PADMIN_CREATE_FILE}" 2>/dev/null || true)
 
-  if [[ "$PADMIN_CREATE_STATUS" == "403" ]]; then
-    pass "Platform admin: gateway create correctly denied (403 Forbidden)"
-  elif [[ "$PADMIN_CREATE_STATUS" =~ ^2 ]]; then
-    fail_test "Platform admin: RBAC not enforced -- platform:admin created gateway without gateway:creator (HTTP ${PADMIN_CREATE_STATUS})"
-    # Clean up wrongly created gateway
-    PADMIN_BAD_GW_ID=$(echo "$PADMIN_CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-    if [[ -n "$PADMIN_BAD_GW_ID" ]]; then
-      curl -sk -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_BAD_GW_ID}" \
+  if [[ "$PADMIN_CREATE_STATUS" =~ ^2 ]]; then
+    pass "Platform admin: gateway create allowed (gateway:creator default binding active)"
+    PADMIN_DEFAULT_GW_ID=$(echo "$PADMIN_CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+    if [[ -n "$PADMIN_DEFAULT_GW_ID" ]]; then
+      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_DEFAULT_GW_ID}" \
         -H "Authorization: Bearer ${PADMIN_TOKEN}" &>/dev/null || true
     fi
+  elif [[ "$PADMIN_CREATE_STATUS" == "403" ]]; then
+    fail_test "Platform admin: gateway create blocked -- default gateway:creator binding was not assigned (HTTP 403)"
+    dim "    ${PADMIN_CREATE_RESP:0:200}"
   else
-    fail_test "Platform admin: gateway create did not return 403 (got HTTP ${PADMIN_CREATE_STATUS:-none})"
+    fail_test "Platform admin: unexpected HTTP ${PADMIN_CREATE_STATUS:-none} on gateway create"
     dim "    ${PADMIN_CREATE_RESP:0:200}"
   fi
   rm -f "${PADMIN_CREATE_FILE}" 2>/dev/null || true
+fi
 fi
 sep
 
 # ── 11. gateway deletion + namespace garbage collection ────────────────────
 
 echo ""
-bold "11. Gateway Deletion + Namespace Garbage Collection"
+e2e_area "11. Gateway Deletion + Namespace Garbage Collection"
 echo ""
 
-if [[ "$E2E_SKIP_CLEANUP" == "1" ]]; then
+if [[ "$E2E_MODE" == "short" ]]; then
+  # Short mode must not tear down the supplied/reused gateway. Exercise
+  # delete-driven GC against a throwaway gateway instead, with a bounded wait.
+  THROW_NAME="${GW_NAME}-gc-throwaway"
+  dim "  Delete-driven GC on throwaway gateway ${THROW_NAME} (not ${GW_NAME})"
+  acquire_oidc_token 2>/dev/null || true
+  e2e_ensure_seed_ids || true
+  e2e_lookup_gateway_by_name "$THROW_NAME"
+  THROW_ID="${_GW_ID}"
+  THROW_NS="${_GW_NAMESPACE}"
+  if [[ -z "$THROW_ID" ]]; then
+    if ! e2e_seed_ids_ready; then
+      fail_test "Cannot create throwaway gateway: seeded cluster/release ids are unknown"
+    else
+      THROW_BODY=$(e2e_gateway_create_body "$THROW_NAME")
+      THROW_RESP=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+        -H "Content-Type: application/json" -d "${THROW_BODY}" 2>/dev/null || true)
+      e2e_parse_gateway_response "$THROW_RESP"
+      if [[ "$_CREATE_KIND" == "OK" && -n "$_CREATE_ID" ]]; then
+        THROW_ID="$_CREATE_ID"
+        THROW_NS="$_CREATE_NAMESPACE"
+        pass "Throwaway gateway created: ${THROW_NAME} (${THROW_ID})"
+      else
+        fail_test "Failed to create throwaway gateway ${THROW_NAME}"
+        dim "    ${THROW_RESP:0:300}"
+      fi
+    fi
+  else
+    pass "Throwaway gateway already exists: ${THROW_NAME} (${THROW_ID})"
+  fi
+
+  if [[ -n "$THROW_ID" ]]; then
+    if [[ -z "$THROW_NS" ]]; then
+      # Namespace may lag the create response; poll briefly.
+      THROW_NS_DEADLINE=$(($(date +%s) + 30))
+      while [[ $(date +%s) -lt $THROW_NS_DEADLINE ]]; do
+        e2e_lookup_gateway_by_name "$THROW_NAME"
+        THROW_NS="${_GW_NAMESPACE}"
+        [[ -n "$THROW_NS" ]] && break
+        sleep 2
+      done
+    fi
+    if [[ -z "$THROW_NS" ]]; then
+      fail_test "Throwaway gateway ${THROW_NAME} has no namespace; cannot validate GC"
+    else
+      if $CLI get namespace "$THROW_NS" &>/dev/null; then
+        pass "Throwaway namespace present before delete: ${THROW_NS}"
+      else
+        fail_test "Throwaway namespace ${THROW_NS} missing before delete"
+      fi
+      show_cmd "api_curl -X DELETE ${API_HOST}/api/hypershell/v1/gateways/${THROW_ID}"
+      THROW_DEL=$(api_curl -o /dev/null -w '%{http_code}' -X DELETE \
+        "${API_HOST}/api/hypershell/v1/gateways/${THROW_ID}" 2>/dev/null || true)
+      if [[ "$THROW_DEL" == "204" || "$THROW_DEL" == "404" ]]; then
+        pass "Throwaway gateway delete accepted (HTTP ${THROW_DEL})"
+      else
+        fail_test "Expected 204 or 404 deleting throwaway gateway, got ${THROW_DEL:-none}"
+      fi
+      dim "  Waiting for throwaway namespace ${THROW_NS} to be garbage collected (up to ${E2E_GC_TIMEOUT}s)..."
+      THROW_GONE=false
+      THROW_DEADLINE=$(($(date +%s) + E2E_GC_TIMEOUT))
+      while [[ $(date +%s) -lt $THROW_DEADLINE ]]; do
+        if ! $CLI get namespace "$THROW_NS" &>/dev/null; then
+          THROW_GONE=true
+          break
+        fi
+        sleep 5
+      done
+      if [[ "$THROW_GONE" == "true" ]]; then
+        pass "Throwaway namespace garbage collected: ${THROW_NS}"
+      else
+        fail_test "Throwaway namespace ${THROW_NS} not garbage collected after ${E2E_GC_TIMEOUT}s"
+        e2e_dump_namespace_gc_logs "${E2E_HS_NAMESPACE}" "$CLI"
+      fi
+    fi
+  fi
+elif [[ "$E2E_SKIP_CLEANUP" == "1" ]]; then
   dim "  Skipped (E2E_SKIP_CLEANUP=1): preserving namespace ${GW_NAMESPACE}"
 elif [[ -z "$GW_NAMESPACE" ]]; then
   fail_test "Cannot validate namespace GC: gateway namespace is unknown"
@@ -1589,8 +1654,9 @@ else
   # Deleting the Gateway via the API drives the control-plane delete path
   # (watch-delete-events.spec.md): DeleteGatewayResources then
   # DeleteManagedNamespace, best-effort and idempotent. The gateway namespace is
-  # managed (carries both hypershell.redhat.io/managed=true and
-  # app.kubernetes.io/managed-by=hypershell-control-plane), so it MUST be reaped.
+  # managed (carries hypershell.redhat.io/managed=true,
+  # app.kubernetes.io/managed-by=hypershell-control-plane, and
+  # hypershell.redhat.io/instance=<this control plane>), so it MUST be reaped.
   # Any namespace missed by the delete path is later swept by the
   # NamespaceGCReconciler. See openshell-gateway-namespace-gc.spec.md
   # (HYPERSHELL-96, HYPERSHELL-78).
@@ -1713,7 +1779,9 @@ sep
 
 # ── results ───────────────────────────────────────────────────────────────
 
-print_results
+# Reached every planned area without a fatal abort; cleanup's EXIT trap prints
+# the results (see cleanup()), so print_results itself is not called here.
+E2E_COMPLETED=1
 
 if [[ $E2E_FAIL -gt 0 ]]; then
   exit 1

@@ -186,6 +186,16 @@ It surfaces load to operators; it never blocks an action.
 - THEN the deletion SHALL proceed regardless of the reported count, which is used
   only to warn the operator beforehand
 
+### Requirement: Operational Dashboard Fleet Aggregate
+
+The API server SHALL expose a Prometheus gauge `hypershell_gateways_active_sandboxes_total` that sums `active_sandbox_count` across all gateways on each scrape. The operational dashboard loads this fleet-wide total through BFF `GET /api/metrics/gateway-sandboxes` (`web-console/operational-dashboard.spec.md` OP-DASH-06). This aggregate is dashboard-operator scoped and is independent of per-gateway RBAC visibility on the gateway collection table.
+
+#### Scenario: Fleet sandbox gauge reflects database sum
+
+- GIVEN three gateways report `active_sandbox_count` values of `2`, `0`, and `3`
+- WHEN Prometheus scrapes the API server `/metrics` endpoint
+- THEN `hypershell_gateways_active_sandboxes_total` SHALL report `5`
+
 ## Design Decisions
 
 | Decision | Rationale |

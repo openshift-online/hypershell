@@ -9,12 +9,12 @@
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": "..",
     "sourceMap": false,
     "strict": true,
     "target": "ES2022",
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "../shared/**/*.ts"]
 }

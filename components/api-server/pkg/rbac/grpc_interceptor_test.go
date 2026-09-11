@@ -41,12 +41,12 @@ func TestGrpcMethodIsRead(t *testing.T) {
 		method string
 		want   bool
 	}{
-		{"/hypershell.v1.FleetService/GetFleet", true},
-		{"/hypershell.v1.FleetService/ListFleets", true},
-		{"/hypershell.v1.FleetService/WatchFleets", true},
-		{"/hypershell.v1.FleetService/CreateFleet", false},
-		{"/hypershell.v1.FleetService/UpdateFleet", false},
-		{"/hypershell.v1.FleetService/DeleteFleet", false},
+		{"/hypershell.v1.GatewayReleaseService/GetGatewayRelease", true},
+		{"/hypershell.v1.GatewayReleaseService/ListGatewayReleases", true},
+		{"/hypershell.v1.GatewayReleaseService/WatchGatewayReleases", true},
+		{"/hypershell.v1.GatewayReleaseService/CreateGatewayRelease", false},
+		{"/hypershell.v1.GatewayReleaseService/UpdateGatewayRelease", false},
+		{"/hypershell.v1.GatewayReleaseService/DeleteGatewayRelease", false},
 		{"/hypershell.v1.GatewayService/GetGateway", true},
 		{"/hypershell.v1.GatewayService/CreateGateway", false},
 	}
@@ -114,7 +114,7 @@ func TestIsGRPCAuthorized_ViewerCanOnlyRead(t *testing.T) {
 func TestIsGRPCAuthorized_NoBindingsDenied(t *testing.T) {
 	bindings := []BindingSummary{}
 
-	if isGRPCAuthorized("/hypershell.v1.FleetService/GetFleet", bindings) {
+	if isGRPCAuthorized("/hypershell.v1.GatewayService/GetGateway", bindings) {
 		t.Error("empty bindings must be denied")
 	}
 }
@@ -282,10 +282,10 @@ func TestIsGRPCDeleteMethod(t *testing.T) {
 		method string
 		want   bool
 	}{
-		{"/hypershell.v1.FleetService/DeleteFleet", true},
+		{"/hypershell.v1.GatewayReleaseService/DeleteGatewayRelease", true},
 		{"/hypershell.v1.GatewayService/DeleteGateway", true},
-		{"/hypershell.v1.FleetService/GetFleet", false},
-		{"/hypershell.v1.FleetService/CreateFleet", false},
+		{"/hypershell.v1.GatewayService/GetGateway", false},
+		{"/hypershell.v1.GatewayService/CreateGateway", false},
 	}
 
 	for _, tt := range tests {

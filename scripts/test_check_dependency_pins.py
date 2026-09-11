@@ -75,6 +75,33 @@ class DependencyPinTest(unittest.TestCase):
             ),
         )
 
+    def test_allows_from_selecting_a_digest_pinned_stage_by_build_arg(self):
+        self.assertEqual(
+            [],
+            CHECKER._dockerfile_violations(
+                "components/example/Dockerfile",
+                [
+                    "ARG BUILDARCH",
+                    "FROM registry.access.redhat.com/hi/go:1@sha256:"
+                    + "a" * 64
+                    + " AS go-amd64",
+                    "FROM registry.access.redhat.com/hi/go:1@sha256:"
+                    + "b" * 64
+                    + " AS go-arm64",
+                    "FROM go-${BUILDARCH} AS builder",
+                ],
+            ),
+        )
+
+    def test_rejects_from_selecting_an_undeclared_stage(self):
+        self.assertEqual(
+            [("components/example/Dockerfile", 1, "base image lacks a sha256 digest")],
+            CHECKER._dockerfile_violations(
+                "components/example/Dockerfile",
+                ["FROM go-${BUILDARCH} AS builder"],
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

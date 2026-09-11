@@ -5,14 +5,29 @@ import path from "node:path";
 import compress from "@fastify/compress";
 import helmet from "@fastify/helmet";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance, LogController } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+  LogController,
+} from "fastify";
 
 import { clearSession, persistTokenSet, registerAuth } from "./auth.js";
+import { hasDashboardAdminRole } from "./roles.js";
 import {
   browserRuntimeConfig,
   type BrowserRuntimeConfig,
   type ServerConfig,
 } from "./config.js";
+import { queryGatewayPhaseCounts } from "./metrics-gateways.js";
+import { queryClusterCpu } from "./metrics-cluster-cpu.js";
+import { queryClusterMemory } from "./metrics-cluster-memory.js";
+import { queryGatewayProvisionDuration } from "./metrics-gateway-provision-duration.js";
+import { queryGatewaySandboxes } from "./metrics-gateway-sandboxes.js";
+import { queryPlatformInventory } from "./metrics-platform-inventory.js";
+import { queryRegisteredUsers } from "./metrics-registered-users.js";
+import { queryClusterPods } from "./metrics-cluster-pods.js";
+import { queryClusterNodes } from "./metrics-cluster-nodes.js";
 import { tokenExpired } from "./tokens.js";
 import {
   disabledTracing,
@@ -47,9 +62,47 @@ declare module "fastify" {
 function isApplicationRoute(pathname: string): boolean {
   return (
     pathname === "/" ||
+    pathname === "/dashboard" ||
     pathname === "/login" ||
     pathname === "/gateways/new" ||
+    pathname === "/metrics" ||
     /^\/gateways\/[^/]+\/?$/u.test(pathname)
+  );
+}
+
+const DASHBOARD_HOST_PREFIX = "dashboard.";
+
+function isDashboardHost(hostHeader: string | undefined): boolean {
+  if (typeof hostHeader !== "string") {
+    return false;
+  }
+
+  const host = hostHeader.split(":")[0] ?? "";
+  return host.startsWith(DASHBOARD_HOST_PREFIX);
+}
+
+function consoleRedirectForDashboardHost(request: FastifyRequest): string {
+  const hostHeader = request.headers.host ?? "";
+  const [, port] = hostHeader.split(":");
+  const host = hostHeader.split(":")[0] ?? "";
+  const portSuffix = port ? `:${port}` : "";
+
+  if (host.startsWith(DASHBOARD_HOST_PREFIX)) {
+    const rest = host.slice(DASHBOARD_HOST_PREFIX.length);
+    return `${request.protocol}://console.${rest}${portSuffix}/`;
+  }
+
+  return "/";
+}
+
+function requiresDashboardAdminAccess(
+  pathname: string,
+  hostHeader: string | undefined,
+): boolean {
+  return (
+    pathname === "/dashboard" ||
+    pathname === "/metrics" ||
+    (pathname === "/" && isDashboardHost(hostHeader))
   );
 }
 
@@ -286,6 +339,17 @@ export async function buildApp(
           reply.redirect("/auth/login");
           return;
         }
+        if (
+          requiresDashboardAdminAccess(pathname, request.headers.host) &&
+          !hasDashboardAdminRole(request.session.get("roles") ?? [])
+        ) {
+          reply.redirect(
+            pathname === "/" && isDashboardHost(request.headers.host)
+              ? consoleRedirectForDashboardHost(request)
+              : "/",
+          );
+          return;
+        }
       }
     });
   }
@@ -315,12 +379,28 @@ export async function buildApp(
   });
 
   const sendApplication = (
-    _request: unknown,
+    request: FastifyRequest,
     reply: {
       header(name: string, value: string): unknown;
+      redirect(location: string): unknown;
       type(value: string): { send(payload: string): unknown };
     },
   ) => {
+    const pathname = new URL(request.url, "http://bff.invalid").pathname;
+    // Dashboard admin enforcement applies only when OIDC is configured. In
+    // no-auth dev mode (OIDC_ISSUER unset) the operational dashboard is open.
+    if (
+      config.oidcIssuer &&
+      requiresDashboardAdminAccess(pathname, request.headers.host) &&
+      !hasDashboardAdminRole(request.session.get("roles") ?? [])
+    ) {
+      return reply.redirect(
+        pathname === "/" && isDashboardHost(request.headers.host)
+          ? consoleRedirectForDashboardHost(request)
+          : "/",
+      );
+    }
+
     reply.header("Cache-Control", "no-store");
     return reply.type("text/html; charset=utf-8").send(indexDocument);
   };
@@ -340,6 +420,22 @@ export async function buildApp(
       login_url: "/auth/login",
       statusCode: 401,
     };
+  };
+
+  const requireDashboardMetricsAccess = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    reply.header("Cache-Control", "no-store");
+    if (!config.oidcIssuer) {
+      return;
+    }
+    if (!request.session.get("accessToken")) {
+      return reply.send(respondReauth(reply));
+    }
+    if (!hasDashboardAdminRole(request.session.get("roles") ?? [])) {
+      return reply.code(403).send({ error: "Forbidden", statusCode: 403 });
+    }
   };
 
   // Same-origin browser telemetry ingest. The browser exporter posts OTLP/HTTP
@@ -363,6 +459,193 @@ export async function buildApp(
     reply.code(202);
     return { status: "accepted" };
   });
+
+  app.get(
+    "/api/metrics/gateways",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        const counts = await queryGatewayPhaseCounts(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
+        );
+        return { counts };
+      } catch (error) {
+        request.log.warn({ err: error }, "gateway metrics query failed");
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/cluster-memory",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryClusterMemory(
+          {
+            url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+            tokenFile: config.clusterPrometheusTokenFile,
+            caFile: config.clusterPrometheusCaFile,
+          },
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn({ err: error }, "cluster memory metrics query failed");
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/cluster-cpu",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryClusterCpu(
+          {
+            url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+            tokenFile: config.clusterPrometheusTokenFile,
+            caFile: config.clusterPrometheusCaFile,
+          },
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn({ err: error }, "cluster CPU metrics query failed");
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/cluster-pods",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryClusterPods(
+          {
+            url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+            tokenFile: config.clusterPrometheusTokenFile,
+            caFile: config.clusterPrometheusCaFile,
+          },
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn({ err: error }, "cluster pods metrics query failed");
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/cluster-nodes",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryClusterNodes(
+          {
+            url: config.clusterPrometheusUrl ?? config.prometheusUrl,
+            tokenFile: config.clusterPrometheusTokenFile,
+            caFile: config.clusterPrometheusCaFile,
+          },
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn({ err: error }, "cluster nodes metrics query failed");
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/gateway-provision-duration",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryGatewayProvisionDuration(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "gateway provision duration metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/gateway-sandboxes",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryGatewaySandboxes(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "gateway sandbox metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/platform-inventory",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryPlatformInventory(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "platform inventory metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/registered-users",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryRegisteredUsers(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "registered user metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
 
   app.all("/api/*", async (request, reply) => {
     // Start one BFF server span per proxied request. It continues a valid

@@ -10,7 +10,6 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**FleetId** | **string** |  | 
 **Topology** | Pointer to **string** |  | [optional] 
 **TunnelMode** | Pointer to **string** |  | [optional] 
 **HubGatewayId** | Pointer to **string** |  | [optional] 
@@ -20,7 +19,7 @@ Name | Type | Description | Notes
 
 ### NewGatewayNetwork
 
-`func NewGatewayNetwork(name string, fleetId string, ) *GatewayNetwork`
+`func NewGatewayNetwork(name string, ) *GatewayNetwork`
 
 NewGatewayNetwork instantiates a new GatewayNetwork object
 This constructor will assign default values to properties that have it defined,
@@ -178,26 +177,6 @@ and a boolean to check if the value has been set.
 `func (o *GatewayNetwork) SetName(v string)`
 
 SetName sets Name field to given value.
-
-
-### GetFleetId
-
-`func (o *GatewayNetwork) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *GatewayNetwork) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *GatewayNetwork) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
 
 
 ### GetTopology

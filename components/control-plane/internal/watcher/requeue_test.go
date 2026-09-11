@@ -3,6 +3,7 @@ package watcher
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -14,15 +15,16 @@ import (
 // first failUntil calls, so tests can drive retry, coalescing, and serialization
 // behavior. An optional block channel lets a test hold a call in-flight.
 type recordingHandler struct {
-	mu        sync.Mutex
-	calls     int
-	failUntil int
-	seen      []string
-	inFlight  int
-	maxInFl   int
-	enter     chan struct{}
-	release   chan struct{}
-	onCall    func() // invoked inside Handle, e.g. to simulate a self-status event
+	mu             sync.Mutex
+	calls          int
+	failUntil      int
+	preserveOnFail bool
+	seen           []string
+	inFlight       int
+	maxInFl        int
+	enter          chan struct{}
+	release        chan struct{}
+	onCall         func() // invoked inside Handle, e.g. to simulate a self-status event
 }
 
 func (h *recordingHandler) Handle(_ context.Context, ev Event[string]) error {
@@ -51,7 +53,11 @@ func (h *recordingHandler) Handle(_ context.Context, ev Event[string]) error {
 	h.mu.Unlock()
 
 	if fail {
-		return errors.New("boom")
+		err := errors.New("boom")
+		if h.preserveOnFail {
+			return PreservePayloadForRetry(err)
+		}
+		return err
 	}
 	return nil
 }
@@ -94,6 +100,144 @@ func waitForCount(t *testing.T, h *recordingHandler, want int) {
 // fastLimiter is a short-backoff rate limiter so retry tests run quickly.
 func fastLimiter() workqueue.TypedRateLimiter[string] {
 	return workqueue.NewTypedItemExponentialFailureRateLimiter[string](time.Millisecond, 5*time.Millisecond)
+}
+
+type mutableClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *mutableClock) current() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *mutableClock) advance(duration time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(duration)
+	c.mu.Unlock()
+}
+
+type durationRecorder struct {
+	mu     sync.Mutex
+	values []time.Duration
+}
+
+func (r *durationRecorder) record(duration time.Duration) {
+	r.mu.Lock()
+	r.values = append(r.values, duration)
+	r.mu.Unlock()
+}
+
+func (r *durationRecorder) snapshot() []time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]time.Duration(nil), r.values...)
+}
+
+func TestReconcileQueue_RecordsOneWaitForCoalescedKey(t *testing.T) {
+	clock := &mutableClock{now: time.Unix(1_000, 0)}
+	waits := &durationRecorder{}
+	h := &recordingHandler{
+		enter:   make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	q := newReconcileQueue(context.Background(), "Gateway", h,
+		withWorkers[string](1),
+		withNow[string](clock.current),
+		withQueueWaitRecorder[string](waits.record),
+	)
+	defer q.stop()
+
+	q.enqueue(Event[string]{ResourceID: "blocker", Resource: "blocker"})
+	<-h.enter
+	if got := q.readyDepth(); got != 0 {
+		t.Fatalf("ready depth while handler is in progress = %d, want 0", got)
+	}
+
+	clock.advance(2 * time.Second)
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v1"})
+	clock.advance(time.Second)
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v2"})
+	clock.advance(2 * time.Second)
+	h.release <- struct{}{}
+
+	<-h.enter
+	if got := h.lastSeen(); got != "v2" {
+		t.Fatalf("handler saw %q, want coalesced payload v2", got)
+	}
+	h.release <- struct{}{}
+	waitForCount(t, h, 2)
+
+	got := waits.snapshot()
+	want := []time.Duration{0, 3 * time.Second}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("queue waits = %v, want %v", got, want)
+	}
+}
+
+func TestReconcileQueue_ExcludesRetryBackoffFromWait(t *testing.T) {
+	const backoff = 50 * time.Millisecond
+	waits := &durationRecorder{}
+	h := &recordingHandler{failUntil: 1}
+	limiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](backoff, backoff)
+	q := newReconcileQueue(context.Background(), "Gateway", h,
+		withWorkers[string](1),
+		withRateLimiter[string](limiter),
+		withQueueWaitRecorder[string](waits.record),
+	)
+	defer q.stop()
+
+	start := time.Now()
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v1"})
+	waitForCount(t, h, 2)
+	elapsed := time.Since(start)
+
+	got := waits.snapshot()
+	if len(got) != 2 {
+		t.Fatalf("queue wait sample count = %d, want 2", len(got))
+	}
+	if excluded := elapsed - got[1]; excluded < backoff-(10*time.Millisecond) {
+		t.Fatalf("retry elapsed = %v and queue wait = %v; scheduled backoff was not excluded", elapsed, got[1])
+	}
+}
+
+func TestReconcileQueue_DepthExcludesRetryBackoffAfterDirtyAdd(t *testing.T) {
+	const backoff = 100 * time.Millisecond
+	waits := &durationRecorder{}
+	h := &recordingHandler{failUntil: 1}
+	limiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](backoff, backoff)
+	q := newReconcileQueue(context.Background(), "Gateway", h,
+		withWorkers[string](1),
+		withRateLimiter[string](limiter),
+		withQueueWaitRecorder[string](waits.record),
+	)
+	defer q.stop()
+
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v1"})
+	waitForCount(t, h, 1)
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		q.mu.Lock()
+		_, backingOff := q.notBefore["gw-1"]
+		q.mu.Unlock()
+		if backingOff {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("gateway did not enter retry backoff")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// A live update makes client-go mark the key as ready while its retry delay
+	// is active. The metric must still exclude it until the delay ends.
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v2"})
+	if got := q.readyDepth(); got != 0 {
+		t.Fatalf("ready depth during retry backoff = %d, want 0", got)
+	}
 }
 
 // A reconcile that fails transiently must be retried until it succeeds, then stop
@@ -388,6 +532,107 @@ func TestReconcileQueue_RetryTransformOnlyOnRetry(t *testing.T) {
 	}
 	if h.seen[1] != "transformed" {
 		t.Fatalf("retry saw %q, want the transformed payload", h.seen[1])
+	}
+}
+
+// A handler can keep a narrowly scoped operation behind its normal gate by
+// marking the failure. Gateway Keycloak drift repair uses this so a transient
+// Keycloak error does not clear phase and expand into full Kubernetes recovery.
+func TestReconcileQueue_PreservePayloadForRetrySkipsTransform(t *testing.T) {
+	h := &recordingHandler{failUntil: 1, preserveOnFail: true}
+	transform := func(ev Event[string]) Event[string] {
+		ev.Resource = "transformed"
+		return ev
+	}
+	q := newReconcileQueue(context.Background(), "Test", h,
+		withRateLimiter[string](fastLimiter()), withWorkers[string](1),
+		withRetryTransform(transform))
+	defer q.stop()
+
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "original"})
+
+	waitForCount(t, h, 2)
+	time.Sleep(20 * time.Millisecond)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.seen) < 2 {
+		t.Fatalf("want at least 2 calls, got %d", len(h.seen))
+	}
+	if h.seen[0] != "original" || h.seen[1] != "original" {
+		t.Fatalf("attempts saw %v, want the original payload on first attempt and retry", h.seen[:2])
+	}
+}
+
+// A reconnect can request forced recovery while a Keycloak-only retry is behind
+// the gateway phase gate. Preservation must win until that lightweight operation
+// succeeds, without losing the forced request: repeated failures see the original
+// payload, then exactly one deferred pass sees the transformed payload.
+func TestReconcileQueue_PreservedRetryDefersForcedRecoveryUntilSuccess(t *testing.T) {
+	h := &recordingHandler{
+		failUntil:      3,
+		preserveOnFail: true,
+		enter:          make(chan struct{}),
+		release:        make(chan struct{}),
+	}
+	transform := func(ev Event[string]) Event[string] {
+		ev.Resource = "transformed"
+		return ev
+	}
+	q := newReconcileQueue(context.Background(), "Test", h,
+		withRateLimiter[string](fastLimiter()), withWorkers[string](1),
+		withRetryTransform(transform))
+	defer q.stop()
+
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "original"})
+
+	// First lightweight attempt establishes preservePayload.
+	<-h.enter
+	if got := h.lastSeen(); got != "original" {
+		t.Fatalf("first attempt saw %q, want original", got)
+	}
+	h.release <- struct{}{}
+
+	// Force arrives while the first preserved retry is in flight. That retry and
+	// the following repeated failure must remain untransformed.
+	<-h.enter
+	q.enqueueForced(Event[string]{ResourceID: "gw-1", Resource: "original"})
+	if got := h.lastSeen(); got != "original" {
+		t.Fatalf("preserved retry saw %q after force enqueue, want original", got)
+	}
+	h.release <- struct{}{}
+
+	<-h.enter
+	if got := h.lastSeen(); got != "original" {
+		t.Fatalf("repeated preserved failure saw %q, want original", got)
+	}
+	h.release <- struct{}{}
+
+	// The fourth attempt succeeds in lightweight mode. Only after that success may
+	// the retained force bit schedule a transformed recovery pass.
+	<-h.enter
+	if got := h.lastSeen(); got != "original" {
+		t.Fatalf("successful preserved attempt saw %q, want original", got)
+	}
+	h.release <- struct{}{}
+
+	<-h.enter
+	if got := h.lastSeen(); got != "transformed" {
+		t.Fatalf("deferred forced pass saw %q, want transformed", got)
+	}
+	h.release <- struct{}{}
+
+	time.Sleep(20 * time.Millisecond)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.calls != 5 {
+		t.Fatalf("handler calls = %d, want exactly 5 (four preserved attempts and one deferred forced pass); payloads=%v", h.calls, h.seen)
+	}
+	want := []string{"original", "original", "original", "original", "transformed"}
+	for i := range want {
+		if h.seen[i] != want[i] {
+			t.Fatalf("payloads = %v, want %v", h.seen, want)
+		}
 	}
 }
 
@@ -802,5 +1047,28 @@ func TestReconcileQueue_DuplicateDeleteRetainsPayload(t *testing.T) {
 	h.release <- struct{}{}
 	if got != "del-second" {
 		t.Fatalf("reprocessed delete saw %q, want the duplicate's full payload %q", got, "del-second")
+	}
+}
+
+// gatewayWorkerCount clamps a non-positive configured count to the default so the
+// gateway reconcile pool always has at least one worker (CP-CONC-03), and honors
+// any positive value (CP-CONC-01).
+func TestGatewayWorkerCount(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured int
+		want       int
+	}{
+		{name: "positive value honored", configured: 8, want: 8},
+		{name: "one honored", configured: 1, want: 1},
+		{name: "default when zero", configured: 0, want: gatewayReconcileWorkers},
+		{name: "default when negative", configured: -5, want: gatewayReconcileWorkers},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := gatewayWorkerCount(tt.configured); got != tt.want {
+				t.Fatalf("gatewayWorkerCount(%d) = %d, want %d", tt.configured, got, tt.want)
+			}
+		})
 	}
 }

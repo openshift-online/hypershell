@@ -112,6 +112,37 @@ function EditableField({
   );
 }
 
+function SelectField({
+  colorClassName,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  colorClassName: string;
+  label: string;
+  onChange: (value: string) => void;
+  options: readonly string[];
+  value: string;
+}) {
+  return (
+    <select
+      aria-label={label}
+      className={[styles.selectField, colorClassName].filter(Boolean).join(" ")}
+      onChange={(event) => {
+        onChange(event.target.value);
+      }}
+      value={value}
+    >
+      {options.map((opt) => (
+        <option key={opt} value={opt}>
+          {opt}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /**
  * A copyable and highlighted command block. Marked value slots are editable.
  *
@@ -125,6 +156,7 @@ export function CommandBlock({
   labels = noLabels,
   markers = noMarkers,
   onFieldChange = ignoreFieldChange,
+  selectOptions,
   templateCommand = copyText,
   values = noValues,
 }: {
@@ -133,6 +165,7 @@ export function CommandBlock({
   labels?: Record<string, string>;
   markers?: readonly string[];
   onFieldChange?: (marker: string, value: string) => void;
+  selectOptions?: Record<string, readonly string[]>;
   templateCommand?: string;
   values?: Record<string, string>;
 }) {
@@ -187,12 +220,32 @@ export function CommandBlock({
         <div className={styles.highlighted}>
           <pre className="shiki">
             <code>
-              {parts.map((part, index) =>
-                part.kind === "text" ? (
-                  <span className={part.className} key={index}>
-                    {part.value}
-                  </span>
-                ) : (
+              {parts.map((part, index) => {
+                if (part.kind === "text") {
+                  return (
+                    <span className={part.className} key={index}>
+                      {part.value}
+                    </span>
+                  );
+                }
+
+                const options = selectOptions?.[part.marker];
+                if (options) {
+                  return (
+                    <SelectField
+                      colorClassName={part.className}
+                      key={index}
+                      label={labels[part.marker] ?? ""}
+                      onChange={(value) => {
+                        onFieldChange(part.marker, value);
+                      }}
+                      options={options}
+                      value={values[part.marker] ?? ""}
+                    />
+                  );
+                }
+
+                return (
                   <EditableField
                     colorClassName={part.className}
                     key={index}
@@ -202,8 +255,8 @@ export function CommandBlock({
                     }}
                     value={values[part.marker] ?? ""}
                   />
-                ),
-              )}
+                );
+              })}
             </code>
           </pre>
         </div>

@@ -1,0 +1,34 @@
+# This namespace is created from a raw Namespace manifest, not `oc new-project`,
+# so it gets none of the default same-namespace/openshift-ingress NetworkPolicies
+# a project-request template would install. Selecting the Keycloak pod here
+# makes it default-deny for Ingress, so every legitimate path needs its own
+# rule: platform pods load JWKS and reach the Keycloak Admin API directly
+# (in-cluster), and the router needs its own rule to proxy the public Keycloak
+# Route -- used by browser logins and by the web console's server-side OIDC
+# discovery call, both of which hit the public issuer URL, not the in-cluster
+# Service DNS name.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-allow-platform
+  namespace: keycloak
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hypershell-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-ingress
+      ports:
+        - protocol: TCP
+          port: 8080

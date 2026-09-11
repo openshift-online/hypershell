@@ -37,28 +37,18 @@ const defaultOAuth2ProxyImage = "quay.io/oauth2-proxy/oauth2-proxy:v7.7.1"
 
 type StaticImageDefaults struct{}
 
-const defaultGatewayImage = "ghcr.io/nvidia/openshell/gateway:0.0.109"
-const defaultSupervisorImage = "ghcr.io/nvidia/openshell/supervisor:0.0.109"
-
 // DefaultGatewayImage resolves the gateway server (and certgen) image used when
-// a Gateway resource does not specify one. Overridable via GATEWAY_IMAGE so
-// clusters whose nodes cannot reach ghcr.io (e.g. IBM ROKS) can point it at an
-// in-cluster registry mirror, mirroring the GATEWAY_SANDBOX_IMAGE override.
+// a Gateway resource does not specify one. Must be set via GATEWAY_IMAGE environment
+// variable; reconciliation will fail if not provided.
 func (StaticImageDefaults) DefaultGatewayImage() string {
-	if v := os.Getenv("GATEWAY_IMAGE"); v != "" {
-		return v
-	}
-	return defaultGatewayImage
+	return os.Getenv("GATEWAY_IMAGE")
 }
 
 // DefaultSupervisorImage resolves the supervisor sidecar image used when a
-// Gateway resource does not specify one. Overridable via GATEWAY_SUPERVISOR_IMAGE
-// for the same ghcr.io-unreachable clusters as DefaultGatewayImage.
+// Gateway resource does not specify one. Must be set via GATEWAY_SUPERVISOR_IMAGE environment
+// variable; reconciliation will fail if not provided.
 func (StaticImageDefaults) DefaultSupervisorImage() string {
-	if v := os.Getenv("GATEWAY_SUPERVISOR_IMAGE"); v != "" {
-		return v
-	}
-	return defaultSupervisorImage
+	return os.Getenv("GATEWAY_SUPERVISOR_IMAGE")
 }
 
 func (StaticImageDefaults) DefaultDatabaseImage() string {
@@ -71,6 +61,20 @@ func (StaticImageDefaults) DefaultDatabaseImage() string {
 type CNPGConfig struct {
 	ClusterName      string
 	ClusterNamespace string
+}
+
+// ExternalDBConfig locates the admin credentials for an external
+// ManagedDatabase. CredentialsNamespace is the value of
+// ManagedDatabase.connection_secret: the NAMESPACE holding the credentials, not
+// a Secret name. It must satisfy the hypershell-managed-db- prefix rule, and
+// the control plane reads exactly one fixed-name Secret
+// (hypershell-managed-db-credentials) inside it.
+//
+// ManagedDatabaseID is carried for diagnostics only: single-shot cleanup logs
+// it so an operator can tie an orphaned role/database back to its registration.
+type ExternalDBConfig struct {
+	CredentialsNamespace string
+	ManagedDatabaseID    string
 }
 
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
@@ -176,13 +180,15 @@ type ReconcileOpts struct {
 	HasCertManager bool
 	HasGatewayAPI  bool
 	HasCNPG        bool
-	// DatabaseProvider is the ManagedDatabase provider ("cnpg" or "deployment").
+	// DatabaseProvider is the ManagedDatabase provider ("cnpg", "deployment", or "external").
 	DatabaseProvider string
 	CNPG             CNPGConfig
 	// DeploymentDBNamespace is the namespace where the Deployment-managed
 	// database lives. Used when DatabaseProvider is "deployment" to copy
 	// credentials into the tenant namespace.
 	DeploymentDBNamespace string
+	// ExternalDB carries the admin Secret reference for the external provider.
+	ExternalDB            ExternalDBConfig
 	ControlPlaneNamespace string
 	Images                ImageDefaults
 	// SkipNetworkPolicies disables creation of the per-tenant gateway
@@ -213,6 +219,8 @@ type ReconcileOpts struct {
 	UpdateOIDC func(ctx context.Context, oidcJSON string) error
 	// GatewayName is the user-visible name of the gateway being reconciled.
 	GatewayName string
+	// GatewayClientID is the validated identity recorded during provisioning.
+	GatewayClientID string
 	// KeycloakClient is a Keycloak Admin REST API client for cleanup operations.
 	// Used during gateway deletion to remove the Keycloak OIDC client.
 	KeycloakClient KeycloakClientAPI

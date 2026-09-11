@@ -31,6 +31,7 @@ const (
 	clientRefreshTokenAttribute    = "client_credentials.use_refresh_token"
 	deviceGrantAttribute           = "oauth2.device.authorization.grant.enabled"
 	cibaGrantAttribute             = "oidc.ciba.grant.enabled"
+	builtInServiceAccountScope     = "service_account"
 	defaultAccessTokenLifetimeSecs = 300
 )
 
@@ -276,7 +277,7 @@ func (c *Client) reconcileConverged(ctx context.Context, spec ServiceAccountSpec
 		return false, nil
 	}
 	if len(client.RedirectURIs) > 0 || len(client.WebOrigins) > 0 ||
-		len(client.DefaultClientScopes) > 0 || len(client.OptionalClientScopes) > 0 {
+		!defaultClientScopesConverged(client.DefaultClientScopes) || len(client.OptionalClientScopes) > 0 {
 		return false, nil
 	}
 	lifetime := spec.AccessTokenLifetimeSeconds
@@ -303,6 +304,13 @@ func (c *Client) reconcileConverged(ctx context.Context, spec ServiceAccountSpec
 		return false, err
 	}
 	return c.protocolMappersConverged(ctx, client.ID, spec.GatewayClientID)
+}
+
+// defaultClientScopesConverged accepts the built-in scope that Keycloak adds
+// when service accounts are enabled. The repair payload stays empty because
+// Keycloak owns this scope. All other scopes are drift.
+func defaultClientScopesConverged(scopes []string) bool {
+	return len(scopes) == 0 || (len(scopes) == 1 && scopes[0] == builtInServiceAccountScope)
 }
 
 // roleMappingSet is the shape Keycloak returns for both user role-mappings and

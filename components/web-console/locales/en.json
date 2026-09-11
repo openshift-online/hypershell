@@ -27,6 +27,422 @@
     "defaultMessage": "Copy",
     "description": "Tooltip for a button that copies text to the clipboard."
   },
+  "app.dashboard.addWidgets": {
+    "defaultMessage": "Add widgets",
+    "description": "Label for the button that opens the widget drawer."
+  },
+  "app.dashboard.description": {
+    "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
+    "description": "Supporting text on the operational dashboard page."
+  },
+  "app.dashboard.gatewayStatus.ariaDesc": {
+    "defaultMessage": "Gateway count by status",
+    "description": "Accessible description for the gateway status donut chart."
+  },
+  "app.dashboard.gatewayStatus.chartTitle": {
+    "defaultMessage": "Gateway status chart",
+    "description": "Accessible title for the gateway status donut chart."
+  },
+  "app.dashboard.gatewayStatus.dataLabel": {
+    "defaultMessage": "{status}: {count}",
+    "description": "Data label for a gateway status donut chart segment. Superseded by statusDonutDataLabel."
+  },
+  "app.dashboard.gatewayStatus.degraded": {
+    "defaultMessage": "Degraded",
+    "description": "Legend label for degraded gateways."
+  },
+  "app.dashboard.gatewayStatus.failed": {
+    "defaultMessage": "Failed",
+    "description": "Legend label for failed gateways."
+  },
+  "app.dashboard.gatewayStatus.healthy": {
+    "defaultMessage": "Healthy",
+    "description": "Legend label for healthy gateways."
+  },
+  "app.dashboard.gatewayStatus.legend": {
+    "defaultMessage": "{status}: {count}",
+    "description": "Legend entry for a gateway status donut chart segment."
+  },
+  "app.dashboard.gatewayStatus.provisioning": {
+    "defaultMessage": "Provisioning",
+    "description": "Legend label for provisioning gateways."
+  },
+  "app.dashboard.inventoryStatus.unknown": {
+    "defaultMessage": "Unknown",
+    "description": "Display label for inventory status bucket key unknown."
+  },
+  "app.dashboard.inventoryStatus.warning": {
+    "defaultMessage": "Warning",
+    "description": "Summary label for inventory items in a non-failed exception state (for example degraded or pending)."
+  },
+  "app.dashboard.lastRefreshed": {
+    "defaultMessage": "Last refreshed: {timestamp}",
+    "description": "Timestamp shown when operational dashboard metrics were last loaded successfully."
+  },
+  "app.dashboard.loadError.body": {
+    "defaultMessage": "An unexpected error occurred while loading dashboard metrics.",
+    "description": "Recovery guidance when operational dashboard metrics cannot be loaded."
+  },
+  "app.dashboard.loadError.title": {
+    "defaultMessage": "Operational dashboard metrics are unavailable",
+    "description": "Title shown when operational dashboard metrics cannot be loaded."
+  },
+  "app.dashboard.loading": {
+    "defaultMessage": "Loading operational dashboard metrics",
+    "description": "Accessible status shown while operational dashboard metrics load."
+  },
+  "app.dashboard.managedClusterProviders.ariaDesc": {
+    "defaultMessage": "Managed cluster count by provider",
+    "description": "Accessible description for the managed cluster provider donut chart."
+  },
+  "app.dashboard.managedClusterProviders.chartTitle": {
+    "defaultMessage": "Managed cluster providers chart",
+    "description": "Accessible title for the managed cluster provider donut chart."
+  },
+  "app.dashboard.managedClusterRegions.ariaDesc": {
+    "defaultMessage": "Managed cluster count by region and provider",
+    "description": "Accessible description for the managed cluster placement donut chart."
+  },
+  "app.dashboard.managedClusterRegions.chartTitle": {
+    "defaultMessage": "Managed cluster regions chart",
+    "description": "Accessible title for the managed cluster region donut chart."
+  },
+  "app.dashboard.managedClusterStatus.ariaDesc": {
+    "defaultMessage": "Managed cluster count by status",
+    "description": "Accessible description for the managed cluster status donut chart."
+  },
+  "app.dashboard.managedClusterStatus.chartTitle": {
+    "defaultMessage": "Managed cluster status chart",
+    "description": "Accessible title for the managed cluster status donut chart."
+  },
+  "app.dashboard.managedDatabaseStatus.ariaDesc": {
+    "defaultMessage": "Managed database count by status",
+    "description": "Accessible description for the managed database status donut chart."
+  },
+  "app.dashboard.managedDatabaseStatus.chartTitle": {
+    "defaultMessage": "Managed database status chart",
+    "description": "Accessible title for the managed database status donut chart."
+  },
+  "app.dashboard.metric.value": {
+    "defaultMessage": "{value} {label}",
+    "description": "Formatted count for a dashboard metric card heading."
+  },
+  "app.dashboard.metricCouldNotBeDetermined": {
+    "defaultMessage": "Metric could not be determined",
+    "description": "Fallback when a dashboard metric value is non-finite or cannot be shown as a number."
+  },
+  "app.dashboard.metricUnavailable.body": {
+    "defaultMessage": "This information is not currently available.",
+    "description": "Recovery guidance when an individual dashboard metric is missing."
+  },
+  "app.dashboard.metricUnavailable.title": {
+    "defaultMessage": "Metric unavailable",
+    "description": "Heading shown when an individual dashboard metric is missing."
+  },
+  "app.dashboard.nodeStatus.ariaDesc": {
+    "defaultMessage": "Node count by readiness",
+    "description": "Accessible description for the node status donut chart."
+  },
+  "app.dashboard.nodeStatus.chartTitle": {
+    "defaultMessage": "Node status chart",
+    "description": "Accessible title for the node status donut chart."
+  },
+  "app.dashboard.nodeStatus.notReady": {
+    "defaultMessage": "Not ready",
+    "description": "Legend label for not-ready nodes."
+  },
+  "app.dashboard.nodeStatus.ready": {
+    "defaultMessage": "Ready",
+    "description": "Legend label for ready nodes."
+  },
+  "app.dashboard.partialLoadWarning.body": {
+    "defaultMessage": "Some dashboard metrics could not be loaded. Available data is shown below; missing areas may be incomplete.",
+    "description": "Recovery guidance when one or more operational dashboard metric sources fail."
+  },
+  "app.dashboard.partialLoadWarning.refreshAction": {
+    "defaultMessage": "Refresh all data now",
+    "description": "Action link on the partial-load warning that retries every dashboard metric source."
+  },
+  "app.dashboard.partialLoadWarning.title": {
+    "defaultMessage": "Some dashboard metrics are unavailable",
+    "description": "Title shown when one or more operational dashboard metric sources fail."
+  },
+  "app.dashboard.podStatus.ariaDesc": {
+    "defaultMessage": "Pod capacity by phase and unused slots",
+    "description": "Accessible description for the pod capacity donut chart."
+  },
+  "app.dashboard.podStatus.chartTitle": {
+    "defaultMessage": "Pod capacity chart",
+    "description": "Accessible title for the pod capacity donut chart."
+  },
+  "app.dashboard.podStatus.failed": {
+    "defaultMessage": "Failed",
+    "description": "Legend label for failed pods."
+  },
+  "app.dashboard.podStatus.pending": {
+    "defaultMessage": "Pending",
+    "description": "Legend label for pending pods."
+  },
+  "app.dashboard.podStatus.running": {
+    "defaultMessage": "Running",
+    "description": "Legend label for running pods."
+  },
+  "app.dashboard.podStatus.succeeded": {
+    "defaultMessage": "Succeeded",
+    "description": "Legend label for succeeded pods."
+  },
+  "app.dashboard.podStatus.unknown": {
+    "defaultMessage": "Unknown",
+    "description": "Legend label for unknown-phase pods."
+  },
+  "app.dashboard.podStatus.unused": {
+    "defaultMessage": "Unused",
+    "description": "Legend label for unused pod capacity slots."
+  },
+  "app.dashboard.provisionTime.average": {
+    "defaultMessage": "Average",
+    "description": "Label for average gateway provision duration."
+  },
+  "app.dashboard.provisionTime.median": {
+    "defaultMessage": "Median (P50)",
+    "description": "Label for median gateway provision duration."
+  },
+  "app.dashboard.provisionTime.p95": {
+    "defaultMessage": "P95",
+    "description": "Label for the 95th percentile gateway provision duration."
+  },
+  "app.dashboard.provisionTime.p95Note": {
+    "defaultMessage": "95% of gateways were provisioned in under {duration} {unit}.",
+    "description": "Context note explaining the 95th percentile gateway provision duration."
+  },
+  "app.dashboard.provisionTime.statsAriaLabel": {
+    "defaultMessage": "Gateway provision duration statistics",
+    "description": "Accessible label for the provision time statistics description list."
+  },
+  "app.dashboard.refresh": {
+    "defaultMessage": "Refresh dashboard metrics",
+    "description": "Accessible label for refreshing operational dashboard metrics."
+  },
+  "app.dashboard.refreshError.body": {
+    "defaultMessage": "Showing the last successful metrics. Try refreshing again.",
+    "description": "Recovery guidance when operational dashboard metrics cannot be refreshed."
+  },
+  "app.dashboard.refreshError.title": {
+    "defaultMessage": "Could not refresh dashboard metrics",
+    "description": "Title shown when operational dashboard metrics cannot be refreshed."
+  },
+  "app.dashboard.resetToDefault": {
+    "defaultMessage": "Reset to default",
+    "description": "Label for restoring the operational dashboard default layout."
+  },
+  "app.dashboard.sectionTitle.hubCluster": {
+    "defaultMessage": "Hub cluster",
+    "description": "Section title above hub cluster capacity widgets."
+  },
+  "app.dashboard.sectionTitle.platformAdoption": {
+    "defaultMessage": "Platform adoption",
+    "description": "Section title above platform adoption widgets."
+  },
+  "app.dashboard.sectionTitle.platformInventory": {
+    "defaultMessage": "Platform inventory",
+    "description": "Section title above platform inventory widgets."
+  },
+  "app.dashboard.statusDonut.dataLabel": {
+    "defaultMessage": "{status}: {count}",
+    "description": "Data label for a status donut chart segment."
+  },
+  "app.dashboard.statusDonut.legend": {
+    "defaultMessage": "{status}: {count}",
+    "description": "Legend entry for a status donut chart segment."
+  },
+  "app.dashboard.summary.cpus": {
+    "defaultMessage": "CPUs",
+    "description": "Summary label for provisioned CPU capacity."
+  },
+  "app.dashboard.summary.gateways": {
+    "defaultMessage": "Gateways",
+    "description": "Summary label for provisioned gateways."
+  },
+  "app.dashboard.summary.inventoryAriaLabel": {
+    "defaultMessage": "Platform inventory metrics",
+    "description": "Accessible label for the platform inventory summary widget."
+  },
+  "app.dashboard.summary.managedClusters": {
+    "defaultMessage": "Clusters",
+    "description": "Summary label for total managed clusters."
+  },
+  "app.dashboard.summary.managedClustersCreatedLast30Days": {
+    "defaultMessage": "Clusters created (30 days)",
+    "description": "Summary label for managed clusters created within the lookback window."
+  },
+  "app.dashboard.summary.managedDatabases": {
+    "defaultMessage": "Databases",
+    "description": "Summary label for total managed databases."
+  },
+  "app.dashboard.summary.memory": {
+    "defaultMessage": "Memory",
+    "description": "Summary label for memory utilization."
+  },
+  "app.dashboard.summary.pods": {
+    "defaultMessage": "Pods",
+    "description": "Summary label for pod utilization."
+  },
+  "app.dashboard.summary.provisionTime": {
+    "defaultMessage": "Provision time (average)",
+    "description": "Summary label for average gateway provision time."
+  },
+  "app.dashboard.summary.provisionTimeP50": {
+    "defaultMessage": "Provision time (P50)",
+    "description": "Deprecated summary label retained for locale extraction."
+  },
+  "app.dashboard.summary.provisionTimeP95": {
+    "defaultMessage": "Provision time (P95)",
+    "description": "Deprecated summary label retained for locale extraction."
+  },
+  "app.dashboard.summary.registeredUsers": {
+    "defaultMessage": "Registered users",
+    "description": "Summary label for registered users."
+  },
+  "app.dashboard.summary.sandboxes": {
+    "defaultMessage": "Sandboxes",
+    "description": "Label for provisioned sandboxes on the operational dashboard."
+  },
+  "app.dashboard.summary.system": {
+    "defaultMessage": "System",
+    "description": "Heading for system utilization metrics in the summary widget."
+  },
+  "app.dashboard.summary.systemAriaLabel": {
+    "defaultMessage": "System metrics",
+    "description": "Accessible label for the system metrics list in the summary widget."
+  },
+  "app.dashboard.summary.trendDecrease": {
+    "defaultMessage": "{percent}% decrease",
+    "description": "Tooltip for a usage summary metric that decreased since the start of its trend."
+  },
+  "app.dashboard.summary.trendIncrease": {
+    "defaultMessage": "{percent}% increase",
+    "description": "Tooltip for a usage summary metric that increased since the start of its trend."
+  },
+  "app.dashboard.summary.usage": {
+    "defaultMessage": "Usage",
+    "description": "Heading for adoption metrics in the summary widget."
+  },
+  "app.dashboard.summary.usageAriaLabel": {
+    "defaultMessage": "Usage metrics",
+    "description": "Accessible label for the usage metrics list in the summary widget."
+  },
+  "app.dashboard.title": {
+    "defaultMessage": "HyperShell operational dashboard",
+    "description": "Main heading on the operational dashboard page."
+  },
+  "app.dashboard.trend.lastDays": {
+    "defaultMessage": "Last {days} days",
+    "description": "Caption below a trend sparkline showing the lookback window."
+  },
+  "app.dashboard.trend.tooltip": {
+    "defaultMessage": "{date}: {value} {metric}",
+    "description": "Tooltip for a dashboard metric trend sparkline point."
+  },
+  "app.dashboard.utilization.capacity": {
+    "defaultMessage": "{unit} capacity",
+    "description": "Capacity label for a utilization donut chart."
+  },
+  "app.dashboard.utilization.chartTitle": {
+    "defaultMessage": "{unit} utilization chart",
+    "description": "Accessible title for a utilization donut chart."
+  },
+  "app.dashboard.utilization.dataLabel": {
+    "defaultMessage": "{capacity}: {percentage}%",
+    "description": "Data label for a utilization donut chart segment."
+  },
+  "app.dashboard.utilization.label": {
+    "defaultMessage": "{value} {unit}",
+    "description": "Primary value label for a utilization donut chart."
+  },
+  "app.dashboard.utilization.subtitle": {
+    "defaultMessage": "of {total} {unit}",
+    "description": "Subtitle for a utilization donut chart."
+  },
+  "app.dashboard.utilization.summaryTooltip": {
+    "defaultMessage": "{percent}% capacity{separator}{value} of {total} {unit}",
+    "description": "Tooltip for utilization status in the system summary widget."
+  },
+  "app.dashboard.widget.cpu": {
+    "defaultMessage": "CPU",
+    "description": "Title for the CPU utilization dashboard widget."
+  },
+  "app.dashboard.widget.gatewayStatus": {
+    "defaultMessage": "Gateway status",
+    "description": "Title for the gateway status dashboard widget."
+  },
+  "app.dashboard.widget.inventorySummary": {
+    "defaultMessage": "Inventory summary",
+    "description": "Title for the platform inventory summary dashboard widget."
+  },
+  "app.dashboard.widget.managedClusterProviders": {
+    "defaultMessage": "Cluster providers",
+    "description": "Title for the managed cluster provider breakdown dashboard widget."
+  },
+  "app.dashboard.widget.managedClusterRegions": {
+    "defaultMessage": "Cluster regions",
+    "description": "Title for the managed cluster region breakdown dashboard widget."
+  },
+  "app.dashboard.widget.managedClusterStatus": {
+    "defaultMessage": "Cluster status",
+    "description": "Title for the managed cluster status dashboard widget."
+  },
+  "app.dashboard.widget.managedClusters": {
+    "defaultMessage": "Clusters",
+    "description": "Title for the managed clusters count dashboard widget."
+  },
+  "app.dashboard.widget.managedDatabaseStatus": {
+    "defaultMessage": "Database status",
+    "description": "Title for the managed database status dashboard widget."
+  },
+  "app.dashboard.widget.managedDatabases": {
+    "defaultMessage": "Databases",
+    "description": "Title for the managed databases count dashboard widget."
+  },
+  "app.dashboard.widget.memory": {
+    "defaultMessage": "Memory",
+    "description": "Title for the memory utilization dashboard widget."
+  },
+  "app.dashboard.widget.nodes": {
+    "defaultMessage": "Nodes",
+    "description": "Title for the nodes dashboard widget."
+  },
+  "app.dashboard.widget.pods": {
+    "defaultMessage": "Pods",
+    "description": "Title for the pods utilization dashboard widget."
+  },
+  "app.dashboard.widget.provisionTime": {
+    "defaultMessage": "Gateway provision time",
+    "description": "Title for the gateway provision time dashboard widget."
+  },
+  "app.dashboard.widget.provisionedGateways": {
+    "defaultMessage": "Provisioned gateways",
+    "description": "Title for the provisioned gateways dashboard widget."
+  },
+  "app.dashboard.widget.registeredUsers": {
+    "defaultMessage": "Registered users",
+    "description": "Title for the registered users dashboard widget."
+  },
+  "app.dashboard.widget.sectionTitle": {
+    "defaultMessage": "Section title",
+    "description": "Default label for a section title widget in the add-widgets drawer."
+  },
+  "app.dashboard.widget.summary": {
+    "defaultMessage": "Summary",
+    "description": "Title for the operational dashboard summary widget."
+  },
+  "app.dashboard.widget.systemSummary": {
+    "defaultMessage": "System summary",
+    "description": "Title for the operational dashboard system summary widget."
+  },
+  "app.dashboard.widget.usageSummary": {
+    "defaultMessage": "Usage summary",
+    "description": "Title for the operational dashboard usage summary widget."
+  },
   "app.error.body": {
     "defaultMessage": "Refresh the page to try again.",
     "description": "Recovery guidance shown after an unexpected route failure."
@@ -127,9 +543,21 @@
     "defaultMessage": "Copy the create-sandbox command",
     "description": "Accessible label for copying the create-sandbox command."
   },
+  "app.gateway.connection.copySandboxConnectCommand": {
+    "defaultMessage": "Copy the connect-sandbox command",
+    "description": "Accessible label for the button that copies the sandbox connect command."
+  },
   "app.gateway.connection.copySetupCommand": {
     "defaultMessage": "Copy the one-time setup commands",
     "description": "Accessible label for copying the gateway registration, provider creation, and model selection commands."
+  },
+  "app.gateway.connection.editEditor": {
+    "defaultMessage": "Editor",
+    "description": "Accessible label for the editor selector in the connect-sandbox command."
+  },
+  "app.gateway.connection.editExistingSandboxName": {
+    "defaultMessage": "Existing sandbox name (editable)",
+    "description": "Accessible label for the inline-editable sandbox name in the connect-sandbox command."
   },
   "app.gateway.connection.editModel": {
     "defaultMessage": "Model (editable)",
@@ -142,6 +570,22 @@
   "app.gateway.connection.editSandboxName": {
     "defaultMessage": "Sandbox name (editable)",
     "description": "Accessible label for the inline-editable sandbox name in the create-sandbox command."
+  },
+  "app.gateway.connection.editorOptions": {
+    "defaultMessage": "Supported interactive editors are <code>vscode</code> and <code>cursor</code>.",
+    "description": "Info note listing the supported editor values for the connect-sandbox command. Editor names are wrapped in <code> tags."
+  },
+  "app.gateway.connection.editorOptionsLink": {
+    "defaultMessage": "OpenShell connect documentation",
+    "description": "Link text pointing to the OpenShell sandbox connect CLI documentation."
+  },
+  "app.gateway.connection.editorOptionsLinkNewTab": {
+    "defaultMessage": "Sandbox connect reference (opens in a new tab)",
+    "description": "Accessible name for the sandbox connect docs link, including that it opens in a new tab."
+  },
+  "app.gateway.connection.editorOptionsTitle": {
+    "defaultMessage": "Editor options",
+    "description": "Title for the editor options info alert."
   },
   "app.gateway.connection.installLink": {
     "defaultMessage": "View installation documentation",
@@ -170,6 +614,14 @@
   "app.gateway.connection.sandbox.title": {
     "defaultMessage": "Create a sandbox",
     "description": "Title for the create-sandbox connection step."
+  },
+  "app.gateway.connection.sandboxConnect.description": {
+    "defaultMessage": "Disconnecting does not stop the sandbox process. Connect attaches to the same process instance and replays recent output.",
+    "description": "Supporting text for the connect-to-sandbox connection step."
+  },
+  "app.gateway.connection.sandboxConnect.title": {
+    "defaultMessage": "Connect to a sandbox",
+    "description": "Title for the connect-to-sandbox connection step."
   },
   "app.gateway.connection.setup.description": {
     "defaultMessage": "Run these commands in order to register the gateway, add the Claude on Vertex AI provider, and select the model.",
@@ -647,9 +1099,57 @@
     "defaultMessage": "Log out",
     "description": "Sign-out action in the masthead identity menu."
   },
+  "app.metrics.dashboard.loadError": {
+    "defaultMessage": "Metrics could not be loaded",
+    "description": "Shown when the metrics endpoint returns an error."
+  },
+  "app.metrics.dashboard.loadErrorBody": {
+    "defaultMessage": "Check that Prometheus is running and reachable, then refresh.",
+    "description": "Recovery guidance shown below the metrics load error title."
+  },
+  "app.metrics.dashboard.loading": {
+    "defaultMessage": "Loading metrics",
+    "description": "Accessible label for the metrics loading spinner."
+  },
+  "app.metrics.dashboard.title": {
+    "defaultMessage": "Gateway metrics",
+    "description": "Heading for the gateway metrics dashboard page."
+  },
+  "app.metrics.phase.degraded": {
+    "defaultMessage": "Degraded",
+    "description": "Label for the Degraded gateway phase metric card."
+  },
+  "app.metrics.phase.failed": {
+    "defaultMessage": "Failed",
+    "description": "Label for the Failed gateway phase metric card."
+  },
+  "app.metrics.phase.gateways": {
+    "defaultMessage": "{count, plural, one {# gateway} other {# gateways}}",
+    "description": "Pluralized gateway count shown inside each phase card."
+  },
+  "app.metrics.phase.pending": {
+    "defaultMessage": "Pending",
+    "description": "Label for the Pending gateway phase metric card."
+  },
+  "app.metrics.phase.provisioning": {
+    "defaultMessage": "Provisioning",
+    "description": "Label for the Provisioning gateway phase metric card."
+  },
+  "app.metrics.phase.running": {
+    "defaultMessage": "Running",
+    "description": "Label for the Running gateway phase metric card."
+  },
+  "app.nav.dashboard": {
+    "defaultMessage": "Operational dashboard",
+    "description": "Page and navigation label for the HyperShell dashboard."
+  },
   "app.nav.gateways": {
     "defaultMessage": "OpenShell Gateways",
     "description": "Page and resource collection label for OpenShell gateways."
+  },
+  "app.nav.metrics": {
+    "defaultMessage": "Metrics",
+    "description": "Navigation label for the gateway metrics dashboard page."
   },
   "app.notFound.body": {
     "defaultMessage": "Check the address and try again.",
@@ -662,6 +1162,18 @@
   "app.notifications": {
     "defaultMessage": "Notifications",
     "description": "Accessible label for transient application notifications."
+  },
+  "app.page.dashboard.accessDenied.body": {
+    "defaultMessage": "The operational dashboard is available only to HyperShell administrators.",
+    "description": "Recovery guidance shown when a signed-in user lacks the admin role for the dashboard."
+  },
+  "app.page.dashboard.accessDenied.title": {
+    "defaultMessage": "Access denied",
+    "description": "Heading shown when a signed-in user lacks the admin role for the dashboard."
+  },
+  "app.page.dashboard.description": {
+    "defaultMessage": "Operational metrics dashboard for HyperShell adoption and provisioned resources.",
+    "description": "Browser metadata description for the operational dashboard page."
   },
   "app.page.gateway.description": {
     "defaultMessage": "Connect to this gateway and review its configuration.",
@@ -715,9 +1227,17 @@
     "defaultMessage": "No matching gateways",
     "description": "Heading when no gateways match the current filter."
   },
+  "app.page.metrics.description": {
+    "defaultMessage": "Gateway phase metrics dashboard showing running, provisioning, degraded, and failed gateway counts.",
+    "description": "Browser metadata description for the gateway metrics page."
+  },
   "app.productName": {
     "defaultMessage": "HyperShell",
     "description": "HyperShell product name."
+  },
+  "app.session.loading.ariaLabel": {
+    "defaultMessage": "Loading session",
+    "description": "Accessible label for the session loading spinner."
   },
   "app.skipToContent": {
     "defaultMessage": "Skip to content",

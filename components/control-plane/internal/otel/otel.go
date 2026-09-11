@@ -36,8 +36,16 @@ const (
 // zero instrumentation overhead on an unconfigured or failed startup.
 var enabled bool
 
+// metricsEnabled tracks whether the SDK has an active metric exporter and all
+// control-plane metric instruments were registered. Queue instrumentation uses
+// it to avoid ready-time tracking and callbacks when metrics are disabled.
+var metricsEnabled bool
+
 // Enabled reports whether the OTel SDK was successfully initialized.
 func Enabled() bool { return enabled }
+
+// MetricsEnabled reports whether the control plane can export OTel metrics.
+func MetricsEnabled() bool { return metricsEnabled }
 
 // Init initializes the OTel SDK when OTEL_EXPORTER_OTLP_ENDPOINT is set.
 // It returns a shutdown function that flushes providers, bounded by a timeout.
@@ -53,8 +61,12 @@ func Init(ctx context.Context) (shutdown func(context.Context) error, err error)
 		return func(context.Context) error { return nil }, fmt.Errorf("otel init: %w", err)
 	}
 
-	if err := registerMetrics(); err != nil {
-		log.Printf("WARN OpenTelemetry metric instrument setup failed: %v", err)
+	if os.Getenv("OTEL_METRICS_EXPORTER") != "none" {
+		if err := registerMetrics(); err != nil {
+			log.Printf("WARN OpenTelemetry metric instrument setup failed: %v", err)
+		} else {
+			metricsEnabled = true
+		}
 	}
 
 	enabled = true

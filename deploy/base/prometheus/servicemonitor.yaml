@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hypershell-api-server
+  namespace: hypershell-system
+  labels:
+    app: hypershell-api-server
+    hypershell.redhat.io/prometheus-scrape: "true"
+spec:
+  selector:
+    matchLabels:
+      app: hypershell-api-server
+  endpoints:
+    - port: metrics
+      path: /metrics
+      scheme: http
+      interval: 30s

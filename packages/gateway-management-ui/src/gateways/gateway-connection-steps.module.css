@@ -153,6 +153,26 @@
   outline-offset: 2px;
 }
 
+.selectField {
+  appearance: auto;
+  background: transparent;
+  border: none;
+  border-radius: var(--pf-t--global--border--radius--small);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.selectField:hover {
+  background-color: var(--pf-t--global--background--color--secondary--default);
+}
+
+.selectField:focus-visible {
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 .prereqAlert {
   margin-block: var(--pf-t--global--spacer--sm);
 }

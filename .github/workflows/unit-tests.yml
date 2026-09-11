@@ -1,0 +1,171 @@
+name: Unit
+
+# Reusable unit-test stage of the Tests pipeline. Invoked by
+# .github/workflows/tests.yml, which gates the E2E stage on this stage alone
+# (`needs: [detect-changes, unit]`). The separate Checks workflow
+# (.github/workflows/checks.yml, lint/policy/drift) runs fully concurrently
+# with Tests as its own top-level entry in the PR checks list -- GitHub
+# Actions `needs:` cannot gate across independently-triggered workflows
+# without a cross-workflow poller, which this repo deliberately avoids.
+# tests.yml owns the triggers, concurrency group, stage sequencing, and
+# change detection: the per-component flags below arrive as inputs instead
+# of being detected here. The stage's rolled-up result, together with e2e's,
+# is turned into a single required check by the `Tests CI Gate` job in tests.yml,
+# so this workflow needs no summary/gate job of its own.
+on:
+  workflow_call:
+    inputs:
+      api_server:
+        type: string
+        default: 'false'
+      bash_tests:
+        type: string
+        default: 'false'
+      cli:
+        type: string
+        default: 'false'
+      control_plane:
+        type: string
+        default: 'false'
+      gateway_management_ui:
+        type: string
+        default: 'false'
+      operational_dashboard_ui:
+        type: string
+        default: 'false'
+      sdk_go:
+        type: string
+        default: 'false'
+      sdk_typescript:
+        type: string
+        default: 'false'
+      web_console:
+        type: string
+        default: 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  test-frontend:
+    name: Frontend
+    if: >-
+      inputs.web_console == 'true' ||
+      inputs.gateway_management_ui == 'true' ||
+      inputs.operational_dashboard_ui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run frontend unit tests
+        run: pnpm run test:web
+
+  test-api-server:
+    name: Go - API server
+    if: inputs.api_server == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    # Most plugins/* packages self-provision PostgreSQL via testcontainers-go
+    # once API_ENV=integration_testing is set (see the Makefile's test
+    # target). plugins/users is the one exception: its testmain_test.go
+    # hardcodes DB_FACTORY_MODE=external, opting out of testcontainers and
+    # requiring a real, reachable PostgreSQL at the same host/port/user/
+    # password/database as components/api-server/Makefile's db/setup target.
+    # This service exists for that one package; the rest ignore it and use
+    # their own ephemeral testcontainer instead.
+    services:
+      postgres:
+        image: postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hypershell
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/api-server/go.mod
+          cache-dependency-path: components/api-server/go.sum
+      - name: Run API server unit tests
+        working-directory: components/api-server
+        run: make test
+
+  test-control-plane:
+    name: Go - control plane
+    if: inputs.control_plane == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/control-plane/go.mod
+          cache-dependency-path: components/control-plane/go.sum
+      - name: Run control plane unit tests
+        working-directory: components/control-plane
+        run: go test -count=1 ./...
+
+  test-cli:
+    name: Go - CLI
+    if: >-
+      inputs.cli == 'true' ||
+      inputs.sdk_go == 'true' ||
+      inputs.sdk_typescript == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/cli/go.mod
+          cache-dependency-path: |
+            components/cli/go.sum
+            scripts/cli-generator/go.sum
+            scripts/sdk-generator/go.sum
+      - name: Run CLI unit tests
+        if: inputs.cli == 'true'
+        working-directory: components/cli
+        run: go test -count=1 ./...
+      - name: Run CLI generator unit tests
+        if: inputs.cli == 'true'
+        working-directory: scripts/cli-generator
+        run: go test -count=1 ./...
+      - name: Run SDK generator unit tests
+        if: >-
+          inputs.sdk_go == 'true' ||
+          inputs.sdk_typescript == 'true'
+        working-directory: scripts/sdk-generator
+        run: go test -count=1 ./...
+
+  test-bash:
+    name: Shell
+    if: inputs.bash_tests == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run discovered *_test.sh tests
+        run: make ci-test

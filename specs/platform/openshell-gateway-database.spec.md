@@ -14,8 +14,9 @@ This specification defines PostgreSQL database provisioning for OpenShell gatewa
 |---|---|---|
 | **Deployment** (default) | unset/empty or `deployment` | Uses a standalone PostgreSQL Deployment per gateway. No operator required. Each gateway gets its own dedicated ManagedDatabase (and thus its own PostgreSQL pod) created automatically at gateway creation time. Suitable for environments where installing the CNPG operator is not feasible (e.g. minimal dev clusters), and requires no CNPG APIs at all. |
 | **CNPG** | `cnpg` | Uses the [CloudNativePG](https://cloudnative-pg.io/) operator. Multiple gateways share one ManagedDatabase's CNPG Cluster; each gateway gets its own logical database inside it. Requires the exact CNPG CRDs this code depends on (`Cluster`, `Database`, `DatabaseRole` in `postgresql.cnpg.io/v1`) to be installed on the cluster. |
+| **External** | `external` | The PostgreSQL server is provisioned outside HyperShell as a cloud-managed database (AWS RDS/Aurora, IBM Cloud Databases). HyperShell registers the endpoint and provisions one dedicated database and login role per gateway inside it, issuing the DDL itself. No operator and no in-cluster PostgreSQL workload. Specified in full by [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md). |
 
-Any `DATABASE_PROVIDER` value other than unset/empty, `deployment`, or `cnpg` is a startup configuration error: the API server and control plane SHALL fail to start rather than silently selecting CNPG.
+Any `DATABASE_PROVIDER` value other than unset/empty, `deployment`, `cnpg`, or `external` is a startup configuration error: the API server and control plane SHALL fail to start rather than silently selecting a provider.
 
 PostgreSQL is the only supported database backend for HyperShell gateways.
 
@@ -91,18 +92,20 @@ In both modes, the ManagedDatabase namespace is derived from the ManagedDatabase
 
 ### Automatic Database Assignment
 
-The Gateway create contract keeps `cluster_id`, `fleet_id`, and `database_id`. The API server stores `cluster_id` and `fleet_id`, but it SHALL NOT resolve, validate, or use them for database placement. The `database_id` value is server-owned. Clients send an empty string, and the API server SHALL ignore and replace any non-empty value. Omitting the property is invalid. The server-side `database_id` placement strategy depends on `DATABASE_PROVIDER`:
+The Gateway create contract keeps `cluster_id` and `database_id`. The API server stores `cluster_id` but SHALL NOT resolve, validate, or use it for database placement in any mode. The `database_id` value is server-owned in every mode. Clients send an empty string, and the API server SHALL ignore and replace any non-empty value. Omitting the property is invalid. The server-side `database_id` placement strategy depends on `DATABASE_PROVIDER`:
 
-**CNPG mode (`cnpgPlacement`):** For every Gateway creation, the API server ignores the requested `database_id` and queries all ManagedDatabases. If exactly one ManagedDatabase exists, the API server assigns its ID. If zero or more than one exist, the API server rejects the request. The API server does not change `fleet_id`.
+**CNPG mode (`cnpgPlacement`):** For every Gateway creation, the API server ignores the requested `database_id` and queries all ManagedDatabases with `provider=cnpg`. If exactly one such ManagedDatabase exists, the API server assigns its ID. If zero or more than one exist, the API server rejects the request.
 
-**Deployment mode (`deploymentPlacement`):** For every Gateway creation, the API server ignores the requested `database_id`, creates a new ManagedDatabase (provider=deployment) for that gateway, and assigns its ID. No existing ManagedDatabase or Fleet is necessary. A caller cannot select a database that another gateway uses. The API server stores the Gateway `fleet_id` on the Gateway record only. It does not copy this value to the ManagedDatabase.
+**Deployment mode (`deploymentPlacement`):** For every Gateway creation, the API server ignores the requested `database_id`, creates a new ManagedDatabase (provider=deployment) for that gateway, and assigns its ID. No existing ManagedDatabase is necessary. A caller cannot select a database that another gateway uses.
+
+**External mode (`externalPlacement`):** For every Gateway creation, the API server ignores the requested `database_id` and selects, from all ManagedDatabases with `provider=external`, the one **created first** (creation timestamp ascending, ties broken by ID ascending). More than one registered external ManagedDatabase is not an error; zero is rejected. Selection happens only at creation, so a later registration never moves an existing gateway. No ManagedDatabase is created - external servers are registered by an administrator, never provisioned by HyperShell. Specified in full by [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md).
 
 The admin workflows differ accordingly:
 
-| | CNPG mode | Deployment mode |
-|---|---|---|
-| Pre-requisite | Create one ManagedDatabase (provider=cnpg) | None |
-| Gateway creation | Provide `name`; database auto-resolved; `cluster_id` and `fleet_id` have no placement effect | Provide `name`; ManagedDatabase auto-created; `cluster_id` and `fleet_id` have no placement effect |
+| | CNPG mode | Deployment mode | External mode |
+|---|---|---|---|
+| Pre-requisite | Create one ManagedDatabase (provider=cnpg) | None | Provision the server out-of-band, create the `hypershell-managed-db-<name>` namespace and its `hypershell-managed-db-credentials` Secret, and register at least one ManagedDatabase (provider=external) |
+| Gateway creation | Provide `name`; database auto-resolved; `cluster_id` has no placement effect | Provide `name`; ManagedDatabase auto-created; `cluster_id` has no placement effect | Provide `name`; first-created external ManagedDatabase auto-selected; `cluster_id` has no placement effect |
 
 In the Kind development environment, `make kind-up` seeds a single `openshell-db` ManagedDatabase in CNPG mode; no seeding is needed in deployment mode.
 
@@ -112,7 +115,7 @@ In the Kind development environment, `make kind-up` seeds a single `openshell-db
 
 ### Requirement: ManagedDatabase Provider Validation and Immutability
 
-The API server SHALL accept only `cnpg` and `deployment` as ManagedDatabase provider values. Once a ManagedDatabase has a supported provider, that provider is immutable: REST patches, gRPC updates, and internal callers MAY resend the same value but SHALL NOT transition the resource to another provider. Status-only and other mutable-field updates SHALL preserve the provider. A legacy resource whose persisted provider is unsupported MAY be corrected once to a supported provider; after correction, normal immutability applies.
+The API server SHALL accept only `cnpg`, `deployment`, and `external` as ManagedDatabase provider values. The `external` provider carries additional create-time validation specified in [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md). Once a ManagedDatabase has a supported provider, that provider is immutable: REST patches, gRPC updates, and internal callers MAY resend the same value but SHALL NOT transition the resource to another provider. Status-only and other mutable-field updates SHALL preserve the provider. A legacy resource whose persisted provider is unsupported MAY be corrected once to a supported provider; after correction, normal immutability applies.
 
 #### Scenario: Attempt to change a supported provider
 
@@ -265,12 +268,12 @@ The GatewayReconciler SHALL resolve the gateway's `database_id` to a ManagedData
 
 #### Scenario: Gateway created with database auto-resolved (cnpg mode)
 
-- GIVEN `DATABASE_PROVIDER=cnpg` and a Gateway with any `cluster_id`, any `fleet_id`, and blank `database_id`
+- GIVEN `DATABASE_PROVIDER=cnpg` and a Gateway with any `cluster_id` and blank `database_id`
 - WHEN the API server processes the creation request
-- THEN the API server SHALL query all ManagedDatabases without Fleet filtering
+- THEN the API server SHALL query all ManagedDatabases
 - AND if exactly one exists, assign its ID as the gateway's `database_id`
 - AND if zero or more than one exist, reject the creation with an error
-- AND preserve the requested `cluster_id` and `fleet_id` values
+- AND preserve the requested `cluster_id` value
 
 #### Scenario: Gateway created (deployment mode, ManagedDatabase auto-created)
 
@@ -279,8 +282,6 @@ The GatewayReconciler SHALL resolve the gateway's `database_id` to a ManagedData
 - THEN the API server SHALL ignore the property's value, including any non-empty caller-selected ID
 - AND auto-create a new ManagedDatabase (provider=deployment) for this gateway
 - AND assign the new ManagedDatabase's ID as the gateway's `database_id`
-- AND accept an empty `fleet_id`
-- AND not copy the Gateway `fleet_id` to the ManagedDatabase
 
 ---
 
@@ -406,7 +407,7 @@ The `uri` key provides the full connection string for the gateway's `--db-url` a
 
 ### Requirement: Manual Credential Rotation
 
-The GatewayReconciler SHALL support manual database credential rotation for CNPG mode gateways.
+The GatewayReconciler SHALL support manual database credential rotation for CNPG mode gateways. Deployment and external mode gateways SHALL NOT support rotation; for external mode see [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md) § Requirement: No Credential Rotation (External Mode).
 
 - To trigger rotation, an operator adds the annotation `hypershell.redhat.io/rotate-db-credentials: "<timestamp>"` to the Gateway resource
 - When the reconciler detects a new value for this annotation (different from the last-observed value stored on the gateway credentials Secret), it SHALL:
@@ -495,6 +496,7 @@ Both the API server and the control plane read `DATABASE_PROVIDER` independently
 - Unset or empty resolves to `deployment` (the default).
 - `deployment` selects deployment-backed ManagedDatabase placement, which never requires any CNPG API.
 - `cnpg` selects CNPG-backed placement, subject to the exact-resource startup check below.
+- `external` selects external-backed placement and per-gateway DDL against a registered cloud-managed server. It imposes no CNPG startup check; its preconditions (reachability, a valid admin connection Secret) are evaluated at reconcile time, not at startup.
 - Any other value is a startup configuration error: the process SHALL fail to start (return/propagate a contextual error and exit non-zero -- never panic) rather than silently falling back to `cnpg` or any other provider.
 
 #### Scenario: DATABASE_PROVIDER unset defaults to deployment
@@ -513,9 +515,9 @@ Both the API server and the control plane read `DATABASE_PROVIDER` independently
 
 #### Scenario: Unsupported DATABASE_PROVIDER value fails startup
 
-- GIVEN `DATABASE_PROVIDER` is set to a value other than unset/empty, `deployment`, or `cnpg` (e.g. `postgres`, or a differently-cased `CNPG`)
+- GIVEN `DATABASE_PROVIDER` is set to a value other than unset/empty, `deployment`, `cnpg`, or `external` (e.g. `postgres`, or a differently-cased `CNPG`)
 - WHEN the API server or the control plane starts
-- THEN it SHALL fail to start with an explicit, contextual error naming the invalid value and the two supported values
+- THEN it SHALL fail to start with an explicit, contextual error naming the invalid value and the supported values
 - AND it SHALL NOT silently select `cnpg` (or any other provider) as a fallback
 
 ---
@@ -556,8 +558,8 @@ This startup check is independent of the per-resource CNPG capability detection 
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `DATABASE_PROVIDER` | env var | `deployment` (unset/empty resolves to it) | Selects the database deployment mode. Valid values: `deployment`, `cnpg`. Any other value is a startup configuration error. |
-| `OPENSHELL_DATABASE_IMAGE` | env var | (unset) | PostgreSQL image override. In CNPG mode: sets `spec.imageName` on the CNPG Cluster CR. In deployment mode: sets the container image for the PostgreSQL Deployment. When unset, CNPG uses its default image; deployment mode uses `postgres:18`. |
+| `DATABASE_PROVIDER` | env var | `deployment` (unset/empty resolves to it) | Selects the database deployment mode. Valid values: `deployment`, `cnpg`, `external`. Any other value is a startup configuration error. |
+| `OPENSHELL_DATABASE_IMAGE` | env var | (unset) | PostgreSQL image override. In CNPG mode: sets `spec.imageName` on the CNPG Cluster CR. In deployment mode: sets the container image for the PostgreSQL Deployment. When unset, CNPG uses its default image; deployment mode uses `postgres:18`. Not used in external mode, which runs no in-cluster PostgreSQL workload. |
 
 > **Removed:** `CNPG_CLUSTER_NAME` and `CNPG_CLUSTER_NAMESPACE` environment variables are no longer used. The database location is derived per-gateway from the ManagedDatabase resource referenced by the gateway's `database_id`.
 
@@ -572,7 +574,6 @@ ManagedDatabase (created via API, reconciled by ManagedDatabaseReconciler):
 ```json
 {
   "name": "openshell-db",
-  "fleet_id": "<fleet-id>",
   "provider": "cnpg"
 }
 ```
@@ -684,7 +685,6 @@ ManagedDatabase (auto-created by the API server per gateway):
 ```json
 {
   "name": "openshell-db",
-  "fleet_id": "<fleet-id>",
   "provider": "deployment"
 }
 ```
@@ -820,10 +820,10 @@ stringData:
 |---|---|---|---|
 | Database CR `status.applied: false` | cnpg | CNPG operator not running or Cluster not ready | Check CNPG operator pods and Cluster status |
 | DatabaseRole stuck in `Terminating` | cnpg | Role owns objects that prevent DROP | Manually drop owned objects or delete database first |
-| Gateway pod cannot connect to database | both | Credentials Secret not created or wrong host | Verify `openshell-gateway-db-credentials` in tenant namespace |
-| ManagedDatabase namespace not found | both | ManagedDatabaseReconciler has not yet processed the resource | Check ManagedDatabase status and reconciler logs |
+| Gateway pod cannot connect to database | all | Credentials Secret not created or wrong host | Verify `openshell-gateway-db-credentials` in tenant namespace |
+| ManagedDatabase namespace not found | deployment, cnpg | ManagedDatabaseReconciler has not yet processed the resource | Check ManagedDatabase status and reconciler logs |
 | Control plane exits at startup with "DATABASE_PROVIDER=cnpg requires..." | cnpg | `DATABASE_PROVIDER=cnpg` but the CNPG operator (or one of the `clusters`/`databases`/`databaseroles` resources) is not installed | Install/upgrade the CloudNativePG operator, or switch to `DATABASE_PROVIDER=deployment` (also the default when unset) |
-| API server or control plane exits at startup with "invalid DATABASE_PROVIDER" | both | `DATABASE_PROVIDER` set to a value other than unset/empty, `deployment`, or `cnpg` | Set `DATABASE_PROVIDER` to `deployment` or `cnpg`, or unset it |
+| API server or control plane exits at startup with "invalid DATABASE_PROVIDER" | all | `DATABASE_PROVIDER` set to a value other than unset/empty, `deployment`, `cnpg`, or `external` | Set `DATABASE_PROVIDER` to `deployment`, `cnpg`, or `external`, or unset it |
 | PostgreSQL Deployment not ready | deployment | Image pull failure or PVC not bound | Check Deployment events and PVC status in ManagedDatabase namespace |
 | `openshell-db-credentials` Secret missing | deployment | ManagedDatabaseReconciler has not yet completed | Check ManagedDatabase status and reconciler logs |
 | Password rotation not applied | cnpg | Missing `cnpg.io/reload: "true"` label on password Secret | Add the label to the Secret |

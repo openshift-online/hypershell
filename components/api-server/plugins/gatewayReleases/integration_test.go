@@ -48,7 +48,6 @@ func TestGatewayReleasePost(t *testing.T) {
 
 	gatewayReleaseInput := openapi.GatewayRelease{
 		Name:            "test-name",
-		FleetId:         "test-fleet_id",
 		Image:           "test-image",
 		RolloutStrategy: openapi.PtrString("test-rollout_strategy"),
 		CanaryPercent:   openapi.PtrInt32(42),

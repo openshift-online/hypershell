@@ -54,12 +54,11 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 
 	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
 
-	_, err = grpcClient.CreateManagedDatabase(ctx, &pb.CreateManagedDatabaseRequest{Name: "invalid-provider", FleetId: "TestFleetId", Provider: "unsupported"})
+	_, err = grpcClient.CreateManagedDatabase(ctx, &pb.CreateManagedDatabaseRequest{Name: "invalid-provider", Provider: "unsupported"})
 	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 
 	createReq := &pb.CreateManagedDatabaseRequest{
 		Name:             "TestName",
-		FleetId:          "TestFleetId",
 		Provider:         "deployment",
 		Region:           func() *string { s := "TestRegion"; return &s }(),
 		Engine:           func() *string { s := "TestEngine"; return &s }(),
@@ -82,7 +81,6 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 	updateReq := &pb.UpdateManagedDatabaseRequest{
 		Id:               managedDatabaseID,
 		Name:             func() *string { s := "UpdatedName"; return &s }(),
-		FleetId:          func() *string { s := "UpdatedFleetId"; return &s }(),
 		Provider:         func() *string { s := "deployment"; return &s }(),
 		Region:           func() *string { s := "UpdatedRegion"; return &s }(),
 		Engine:           func() *string { s := "UpdatedEngine"; return &s }(),
@@ -171,7 +169,6 @@ func TestGRPCWatchManagedDatabases(t *testing.T) {
 		for name := range itemNames {
 			managedDatabaseInput := openapi.ManagedDatabase{
 				Name:     name,
-				FleetId:  "watch-test-fleet",
 				Provider: "deployment",
 			}
 			_, resp, postErr := client.DefaultAPI.CreateManagedDatabase(ctx).ManagedDatabase(managedDatabaseInput).Execute()
@@ -264,7 +261,6 @@ func TestGRPCWatchManagedDatabaseReplaysDeletedResource(t *testing.T) {
 	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
 	created, err := grpcClient.CreateManagedDatabase(ctx, &pb.CreateManagedDatabaseRequest{
 		Name:     "delete-watch-test",
-		FleetId:  "delete-watch-fleet",
 		Provider: "deployment",
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -298,7 +294,6 @@ func TestGRPCWatchManagedDatabaseReplaysDeletedResource(t *testing.T) {
 		Expect(evt.ManagedDatabase).NotTo(BeNil(), "delete event must include the ManagedDatabase tombstone")
 		Expect(evt.ManagedDatabase.Metadata.Id).To(Equal(databaseID))
 		Expect(evt.ManagedDatabase.Name).To(Equal("delete-watch-test"))
-		Expect(evt.ManagedDatabase.FleetId).To(Equal("delete-watch-fleet"))
 		Expect(evt.ManagedDatabase.Provider).To(Equal("deployment"))
 		Expect(evt.ManagedDatabase.Namespace).To(Equal(created.ManagedDatabase.Namespace))
 		Expect(evt.ManagedDatabase.Namespace).NotTo(BeEmpty())

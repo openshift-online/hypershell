@@ -29,8 +29,8 @@ var Cmd = &cobra.Command{
 	Short: "Create a role",
 	Long: "Create a new role.\n\n" +
 		"Examples:\n" +
-		"  hypershell create role --built-in <value> --description <value> --display-name <value> --name <value> --permissions <value> \n" +
-		"  hypershell create role --body request.json",
+		"  hsctl create role --built-in <value> --description <value> --display-name <value> --name <value> --permissions <value> \n" +
+		"  hsctl create role --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
 }

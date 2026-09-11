@@ -11,9 +11,9 @@ var Cmd = &cobra.Command{
 	Short: "Generate shell completion scripts",
 	Long: "Generate shell completion scripts for the CLI.\n\n" +
 		"Examples:\n" +
-		"  hypershell completion bash > /etc/bash_completion.d/hypershell\n" +
-		"  hypershell completion zsh > \"${fpath[1]}/_hypershell\"\n" +
-		"  hypershell completion fish > ~/.config/fish/completions/hypershell.fish",
+		"  hsctl completion bash > /etc/bash_completion.d/hsctl\n" +
+		"  hsctl completion zsh > \"${fpath[1]}/_hsctl\"\n" +
+		"  hsctl completion fish > ~/.config/fish/completions/hsctl.fish",
 	Args:      cobra.ExactArgs(1),
 	ValidArgs: []string{"bash", "zsh", "fish"},
 	RunE:      run,

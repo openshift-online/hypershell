@@ -52,7 +52,6 @@ func TestGatewayPost(t *testing.T) {
 
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:        "test-name",
-		FleetId:     "test-fleet_id",
 		ClusterId:   "test-cluster_id",
 		ReleaseId:   "test-release_id",
 		DatabaseId:  "test-database_id",
@@ -60,7 +59,7 @@ func TestGatewayPost(t *testing.T) {
 		TlsMode:     openapi.PtrString("test-tls_mode"),
 		ServiceType: openapi.PtrString("test-service_type"),
 		Status:      openapi.PtrString("test-status"),
-		Phase:       openapi.PtrString("test-phase"),
+		Phase:       openapi.PtrString("Provisioning"),
 	}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
@@ -91,7 +90,6 @@ func TestGatewayPostAllowsEmptyPlacementIDs(t *testing.T) {
 	ctx := h.NewAuthenticatedContext(account)
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "local-gateway",
-		FleetId:   "",
 		ClusterId: "",
 		ReleaseId: "",
 	}
@@ -99,7 +97,6 @@ func TestGatewayPostAllowsEmptyPlacementIDs(t *testing.T) {
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with server-side database placement: %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-	Expect(gatewayOutput.FleetId).To(BeEmpty())
 	Expect(gatewayOutput.ClusterId).To(BeEmpty())
 	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
 	Expect(gatewayOutput.GetDatabaseId()).NotTo(BeEmpty())
@@ -118,7 +115,6 @@ func TestGatewayPostRejectsMissingDatabaseID(t *testing.T) {
 		SetHeader("Authorization", fmt.Sprintf("Bearer %s", jwtToken)).
 		SetBody(map[string]string{
 			"name":       "missing-db-property",
-			"fleet_id":   "test-fleet_id",
 			"cluster_id": "",
 			"release_id": "",
 		}).
@@ -136,7 +132,6 @@ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
 
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "route-default-test",
-		FleetId:   "test-fleet_id",
 		ClusterId: "",
 		ReleaseId: "",
 	}
@@ -156,7 +151,6 @@ func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
 	customRoute := `{"enabled":true,"host":"custom.example.com"}`
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "route-explicit-test",
-		FleetId:   "test-fleet_id",
 		ClusterId: "",
 		ReleaseId: "",
 		Route:     openapi.PtrString(customRoute),
@@ -284,7 +278,6 @@ func TestGatewayPostWithCredentialDriver(t *testing.T) {
 	credDriver := `{"type":"kubernetes-secrets","kubernetes_secrets":{"namespace":"creds-ns"}}`
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:             "test-cred-driver",
-		FleetId:          "test-fleet_id",
 		ClusterId:        "test-cluster_id",
 		ReleaseId:        "test-release_id",
 		DatabaseId:       "test-database_id",
@@ -301,7 +294,9 @@ func TestGatewayPostWithCredentialDriver(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	Expect(retrieved.CredentialDriver).NotTo(BeNil())
-	Expect(*retrieved.CredentialDriver).To(Equal(credDriver))
+	// Read-back goes through the jsonb column, which canonicalizes whitespace,
+	// so compare JSON semantically rather than byte-for-byte.
+	Expect(*retrieved.CredentialDriver).To(MatchJSON(credDriver))
 }
 
 func TestGatewayPatchCredentialDriver(t *testing.T) {
@@ -327,7 +322,9 @@ func TestGatewayPatchCredentialDriver(t *testing.T) {
 	retrieved, resp, err := client.DefaultAPI.GetGateway(ctx, gatewayModel.ID).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(*retrieved.CredentialDriver).To(Equal(credDriver))
+	// Read-back goes through the jsonb column, which canonicalizes whitespace,
+	// so compare JSON semantically rather than byte-for-byte.
+	Expect(*retrieved.CredentialDriver).To(MatchJSON(credDriver))
 }
 
 func TestGatewayListSearch(t *testing.T) {

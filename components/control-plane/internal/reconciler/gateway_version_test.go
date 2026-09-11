@@ -177,39 +177,32 @@ func TestGatewayVersionUpdateRequest(t *testing.T) {
 	}
 }
 
-func TestGatewayHealthUpdateRequest(t *testing.T) {
+func TestObservedGatewayHealthUpdateWithoutVersion(t *testing.T) {
 	currentPhase := "Running"
 	currentStatus := "Healthy"
-	base := func() *pb.Gateway {
-		return &pb.Gateway{
-			Metadata: &pb.ObjectReference{Id: "gateway-1"},
-			Phase:    &currentPhase,
-			Status:   &currentStatus,
-		}
-	}
 
 	t.Run("does not update unchanged state", func(t *testing.T) {
-		if request := gatewayHealthUpdateRequest(base(), currentPhase, currentStatus); request != nil {
+		if request := observedGatewayHealthUpdate("gateway-1", currentPhase, currentStatus, currentPhase, currentStatus, false); request != nil {
 			t.Fatalf("request = %#v, want nil", request)
 		}
 	})
 
 	t.Run("combines changed phase and status", func(t *testing.T) {
-		request := gatewayHealthUpdateRequest(base(), "Degraded", "route not ready")
+		request := observedGatewayHealthUpdate("gateway-1", currentPhase, currentStatus, "Degraded", "route not ready", false)
 		if request == nil || request.Phase == nil || request.Status == nil {
 			t.Fatalf("request = %#v, want phase and status", request)
 		}
 	})
 
 	t.Run("updates health without a version observation", func(t *testing.T) {
-		request := gatewayHealthUpdateRequest(base(), "Degraded", "deployment not ready")
+		request := observedGatewayHealthUpdate("gateway-1", currentPhase, currentStatus, "Degraded", "deployment not ready", false)
 		if request == nil || request.Phase == nil || request.Status == nil {
 			t.Fatalf("request = %#v, want phase and status", request)
 		}
 	})
 
 	t.Run("does not update health after an exposure observation failure", func(t *testing.T) {
-		if request := gatewayHealthUpdateRequest(base(), "", ""); request != nil {
+		if request := observedGatewayHealthUpdate("gateway-1", currentPhase, currentStatus, "", "", false); request != nil {
 			t.Fatalf("request = %#v, want nil", request)
 		}
 	})

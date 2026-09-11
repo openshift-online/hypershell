@@ -241,10 +241,13 @@ func routeConditionState(conditions []interface{}, condType string) (isTrue bool
 	return false, ""
 }
 
-// consoleListenerName returns the sectionName of the shared Gateway HTTP
-// listener that console HTTPRoutes attach to (GATEWAY_API_HTTP_LISTENER_NAME,
-// default "https").
-func consoleListenerName() string {
+// sharedGatewayListenerName returns the sectionName of the shared Gateway
+// listener that both the gateway's GRPCRoute and the per-gateway console's
+// HTTPRoute attach to (GATEWAY_API_HTTP_LISTENER_NAME, default "https"). Both
+// route kinds must resolve to the same listener, so this is the single source
+// of truth for both call sites -- a mismatch here reproduces as GRPCRoute or
+// HTTPRoute status NoMatchingParent even when the Gateway itself is Programmed.
+func sharedGatewayListenerName() string {
 	if n := os.Getenv("GATEWAY_API_HTTP_LISTENER_NAME"); n != "" {
 		return n
 	}
@@ -416,7 +419,11 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 	// observed Ready (and retracts it if the pod later goes unready), gating the
 	// button on a servable console. See openshell-gateway-console.spec.md.
 
-	log.Printf("INFO console reconciled in namespace %s (host=%s)", namespace, host)
+	if ingressMode == IngressModeGatewayAPI {
+		log.Printf("INFO console reconciled in namespace %s (host=%s listener=%s)", namespace, host, sharedGatewayListenerName())
+	} else {
+		log.Printf("INFO console reconciled in namespace %s (host=%s)", namespace, host)
+	}
 	return nil
 }
 
@@ -749,7 +756,7 @@ func buildConsoleHTTPRoute(namespace, host string) *unstructured.Unstructured {
 	parentRef := map[string]interface{}{
 		"name":        gatewayIngressName(),
 		"namespace":   gatewayIngressNamespace(),
-		"sectionName": consoleListenerName(),
+		"sectionName": sharedGatewayListenerName(),
 	}
 	return &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -823,6 +830,35 @@ func reconcileConsoleExposure(ctx context.Context, dynamicClient dynamic.Interfa
 		inactiveKind = "OpenShift Route"
 	case IngressModeRoute:
 		desired = buildConsoleOpenShiftRoute(namespace, host)
+		// Give the console Route its own publicly-trusted certificate when
+		// GATEWAY_ROUTE_TLS_ISSUER names a cert-manager ClusterIssuer.
+		//
+		// Without this the Route rides the router default certificate, which is
+		// only valid for the cluster ingress domain. Clusters whose gateway hosts
+		// live under a CUSTOM domain (e.g. *.gwlb.<instance>.<zone> on IBM ROKS)
+		// therefore serve a name-mismatched certificate and every browser refuses
+		// the console. Gateway-API clusters do not hit this because a wildcard
+		// certificate on the shared Gateway listener already covers the host, and
+		// HTTP-01 cannot issue wildcards -- so a per-host certificate is the only
+		// option where DNS-01 is unavailable.
+		if issuer := routeTLSIssuer(); issuer != "" {
+			annotateRouteForIssuer(desired, issuer)
+			// reconcileResource replaces the whole Route, and the spec built above
+			// intentionally omits certificate/key: openshift-routes co-owns this
+			// Route and injects them. Carry any injection forward, otherwise every
+			// reconcile strips the certificate and the console flaps.
+			if cert, key := readInjectedRouteCert(ctx, dynamicClient, namespace, consoleName); cert != "" {
+				tls, _, _ := unstructured.NestedMap(desired.Object, "spec", "tls")
+				if tls == nil {
+					tls = map[string]interface{}{}
+				}
+				tls["certificate"] = cert
+				if key != "" {
+					tls["key"] = key
+				}
+				_ = unstructured.SetNestedMap(desired.Object, tls, "spec", "tls")
+			}
+		}
 		inactiveGVR = consoleHTTPRouteGVR
 		inactiveKind = "HTTPRoute"
 	default:
@@ -997,4 +1033,18 @@ func deleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 	}
 
 	return errors.Join(errs...)
+}
+
+// annotateRouteForIssuer marks a Route for the cert-manager openshift-routes
+// controller, which mints a certificate from the named ClusterIssuer and
+// injects it into spec.tls.{certificate,key}.
+func annotateRouteForIssuer(route *unstructured.Unstructured, issuer string) {
+	annotations, _, _ := unstructured.NestedStringMap(route.Object, "metadata", "annotations")
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations["cert-manager.io/issuer-name"] = issuer
+	annotations["cert-manager.io/issuer-kind"] = "ClusterIssuer"
+	annotations["cert-manager.io/issuer-group"] = "cert-manager.io"
+	_ = unstructured.SetNestedStringMap(route.Object, annotations, "metadata", "annotations")
 }

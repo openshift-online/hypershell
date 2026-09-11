@@ -4,7 +4,6 @@ All URIs are relative to *http://localhost:8000*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**CreateFleet**](DefaultAPI.md#CreateFleet) | **Post** /api/hypershell/v1/fleets | Create a new fleet
 [**CreateGateway**](DefaultAPI.md#CreateGateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 [**CreateGatewayNetwork**](DefaultAPI.md#CreateGatewayNetwork) | **Post** /api/hypershell/v1/gateway_networks | Create a new gatewayNetwork
 [**CreateGatewayRelease**](DefaultAPI.md#CreateGatewayRelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
@@ -12,7 +11,6 @@ Method | HTTP request | Description
 [**CreateManagedCluster**](DefaultAPI.md#CreateManagedCluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
 [**CreateManagedDatabase**](DefaultAPI.md#CreateManagedDatabase) | **Post** /api/hypershell/v1/managed_databases | Create a new managedDatabase
 [**CreateRoleBinding**](DefaultAPI.md#CreateRoleBinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
-[**DeleteFleet**](DefaultAPI.md#DeleteFleet) | **Delete** /api/hypershell/v1/fleets/{id} | Delete a fleet
 [**DeleteGateway**](DefaultAPI.md#DeleteGateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
 [**DeleteGatewayNetwork**](DefaultAPI.md#DeleteGatewayNetwork) | **Delete** /api/hypershell/v1/gateway_networks/{id} | Delete a gateway network
 [**DeleteGatewayRelease**](DefaultAPI.md#DeleteGatewayRelease) | **Delete** /api/hypershell/v1/gateway_releases/{id} | Delete a gateway release
@@ -20,7 +18,6 @@ Method | HTTP request | Description
 [**DeleteManagedCluster**](DefaultAPI.md#DeleteManagedCluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
 [**DeleteManagedDatabase**](DefaultAPI.md#DeleteManagedDatabase) | **Delete** /api/hypershell/v1/managed_databases/{id} | Delete a managed database
 [**DeleteRoleBinding**](DefaultAPI.md#DeleteRoleBinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
-[**GetFleet**](DefaultAPI.md#GetFleet) | **Get** /api/hypershell/v1/fleets/{id} | Get an fleet by id
 [**GetGateway**](DefaultAPI.md#GetGateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 [**GetGatewayNetwork**](DefaultAPI.md#GetGatewayNetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
 [**GetGatewayRelease**](DefaultAPI.md#GetGatewayRelease) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
@@ -30,7 +27,7 @@ Method | HTTP request | Description
 [**GetMetadata**](DefaultAPI.md#GetMetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
 [**GetRole**](DefaultAPI.md#GetRole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 [**GetRoleBinding**](DefaultAPI.md#GetRoleBinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
-[**ListFleets**](DefaultAPI.md#ListFleets) | **Get** /api/hypershell/v1/fleets | Returns a list of fleets
+[**GetUser**](DefaultAPI.md#GetUser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
 [**ListGatewayNetworks**](DefaultAPI.md#ListGatewayNetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
 [**ListGatewayReleases**](DefaultAPI.md#ListGatewayReleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
 [**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
@@ -39,78 +36,15 @@ Method | HTTP request | Description
 [**ListManagedDatabases**](DefaultAPI.md#ListManagedDatabases) | **Get** /api/hypershell/v1/managed_databases | Returns a list of managedDatabases
 [**ListRoleBindings**](DefaultAPI.md#ListRoleBindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 [**ListRoles**](DefaultAPI.md#ListRoles) | **Get** /api/hypershell/v1/roles | List all roles
+[**ListUsers**](DefaultAPI.md#ListUsers) | **Get** /api/hypershell/v1/users | List registered users
+[**RegisterManagedCluster**](DefaultAPI.md#RegisterManagedCluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a spoke control-plane as a managed cluster
 [**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
-[**UpdateFleet**](DefaultAPI.md#UpdateFleet) | **Patch** /api/hypershell/v1/fleets/{id} | Update an fleet
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateGatewayNetwork**](DefaultAPI.md#UpdateGatewayNetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
 [**UpdateGatewayRelease**](DefaultAPI.md#UpdateGatewayRelease) | **Patch** /api/hypershell/v1/gateway_releases/{id} | Update an gatewayRelease
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 [**UpdateManagedDatabase**](DefaultAPI.md#UpdateManagedDatabase) | **Patch** /api/hypershell/v1/managed_databases/{id} | Update an managedDatabase
 
-
-
-## CreateFleet
-
-> Fleet CreateFleet(ctx).Fleet(fleet).Execute()
-
-Create a new fleet
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	fleet := *openapiclient.NewFleet("Name_example") // Fleet | Fleet data
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.CreateFleet(context.Background()).Fleet(fleet).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreateFleet``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-	// response from `CreateFleet`: Fleet
-	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.CreateFleet`: %v\n", resp)
-}
-```
-
-### Path Parameters
-
-
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiCreateFleetRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **fleet** | [**Fleet**](Fleet.md) | Fleet data | 
-
-### Return type
-
-[**Fleet**](Fleet.md)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: application/json
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
 
 
 ## CreateGateway
@@ -132,7 +66,7 @@ import (
 )
 
 func main() {
-	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "FleetId_example", "ClusterId_example", "ReleaseId_example", "DatabaseId_example") // GatewayCreateRequest | Gateway data
+	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "ClusterId_example", "ReleaseId_example", "DatabaseId_example") // GatewayCreateRequest | Gateway data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -196,7 +130,7 @@ import (
 )
 
 func main() {
-	gatewayNetwork := *openapiclient.NewGatewayNetwork("Name_example", "FleetId_example") // GatewayNetwork | GatewayNetwork data
+	gatewayNetwork := *openapiclient.NewGatewayNetwork("Name_example") // GatewayNetwork | GatewayNetwork data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -260,7 +194,7 @@ import (
 )
 
 func main() {
-	gatewayRelease := *openapiclient.NewGatewayRelease("Name_example", "FleetId_example", "Image_example") // GatewayRelease | GatewayRelease data
+	gatewayRelease := *openapiclient.NewGatewayRelease("Name_example", "Image_example") // GatewayRelease | GatewayRelease data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -394,7 +328,7 @@ import (
 )
 
 func main() {
-	managedCluster := *openapiclient.NewManagedCluster("Name_example", "FleetId_example", "Provider_example", "KubeconfigSecret_example") // ManagedCluster | ManagedCluster data
+	managedCluster := *openapiclient.NewManagedCluster("Name_example", "Provider_example", "KubeconfigSecret_example") // ManagedCluster | ManagedCluster data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -458,7 +392,7 @@ import (
 )
 
 func main() {
-	managedDatabase := *openapiclient.NewManagedDatabase("Name_example", "FleetId_example", "Provider_example") // ManagedDatabase | ManagedDatabase data
+	managedDatabase := *openapiclient.NewManagedDatabase("Name_example", "Provider_example") // ManagedDatabase | ManagedDatabase data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -560,72 +494,6 @@ Name | Type | Description  | Notes
 ### HTTP request headers
 
 - **Content-Type**: application/json
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
-
-
-## DeleteFleet
-
-> DeleteFleet(ctx, id).Execute()
-
-Delete a fleet
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	id := "id_example" // string | The id of record
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	r, err := apiClient.DefaultAPI.DeleteFleet(context.Background(), id).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.DeleteFleet``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-}
-```
-
-### Path Parameters
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record | 
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiDeleteFleetRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: Not defined
 - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
@@ -1085,74 +953,6 @@ Name | Type | Description  | Notes
 ### Return type
 
  (empty response body)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: Not defined
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
-
-
-## GetFleet
-
-> Fleet GetFleet(ctx, id).Execute()
-
-Get an fleet by id
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	id := "id_example" // string | The id of record
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.GetFleet(context.Background(), id).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetFleet``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-	// response from `GetFleet`: Fleet
-	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetFleet`: %v\n", resp)
-}
-```
-
-### Path Parameters
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record | 
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiGetFleetRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-
-
-### Return type
-
-[**Fleet**](Fleet.md)
 
 ### Authorization
 
@@ -1774,11 +1574,11 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
-## ListFleets
+## GetUser
 
-> FleetList ListFleets(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+> User GetUser(ctx, id).Execute()
 
-Returns a list of fleets
+Get a registered user by ID
 
 ### Example
 
@@ -1793,44 +1593,40 @@ import (
 )
 
 func main() {
-	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
-	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
-	search := "search_example" // string | Specifies the search criteria (optional)
-	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
-	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+	id := "id_example" // string | The id of record
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.ListFleets(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	resp, r, err := apiClient.DefaultAPI.GetUser(context.Background(), id).Execute()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListFleets``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetUser``: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
 	}
-	// response from `ListFleets`: FleetList
-	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListFleets`: %v\n", resp)
+	// response from `GetUser`: User
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetUser`: %v\n", resp)
 }
 ```
 
 ### Path Parameters
 
 
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
 
 ### Other Parameters
 
-Other parameters are passed through a pointer to a apiListFleetsRequest struct via the builder pattern
+Other parameters are passed through a pointer to a apiGetUserRequest struct via the builder pattern
 
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
- **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria | 
- **orderBy** | **string** | Specifies the order by criteria | 
- **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
+
 
 ### Return type
 
-[**FleetList**](FleetList.md)
+[**User**](User.md)
 
 ### Authorization
 
@@ -2430,6 +2226,144 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## ListUsers
+
+> UserList ListUsers(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+
+List registered users
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
+	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListUsers(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListUsers``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListUsers`: UserList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListUsers`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListUsersRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
+
+### Return type
+
+[**UserList**](UserList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## RegisterManagedCluster
+
+> ManagedClusterRegistrationResponse RegisterManagedCluster(ctx).ManagedClusterRegistrationRequest(managedClusterRegistrationRequest).Execute()
+
+Self-register a spoke control-plane as a managed cluster
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	managedClusterRegistrationRequest := *openapiclient.NewManagedClusterRegistrationRequest("Name_example") // ManagedClusterRegistrationRequest | Registration request
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.RegisterManagedCluster(context.Background()).ManagedClusterRegistrationRequest(managedClusterRegistrationRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.RegisterManagedCluster``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `RegisterManagedCluster`: ManagedClusterRegistrationResponse
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.RegisterManagedCluster`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiRegisterManagedClusterRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **managedClusterRegistrationRequest** | [**ManagedClusterRegistrationRequest**](ManagedClusterRegistrationRequest.md) | Registration request | 
+
+### Return type
+
+[**ManagedClusterRegistrationResponse**](ManagedClusterRegistrationResponse.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## RevokeGatewayServiceAccount
 
 > OpenShellGatewayServiceAccountListItem RevokeGatewayServiceAccount(ctx, gatewayId, serviceAccountId).Execute()
@@ -2494,76 +2428,6 @@ Name | Type | Description  | Notes
 ### HTTP request headers
 
 - **Content-Type**: Not defined
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
-
-
-## UpdateFleet
-
-> Fleet UpdateFleet(ctx, id).FleetPatchRequest(fleetPatchRequest).Execute()
-
-Update an fleet
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	id := "id_example" // string | The id of record
-	fleetPatchRequest := *openapiclient.NewFleetPatchRequest() // FleetPatchRequest | Updated fleet data
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.UpdateFleet(context.Background(), id).FleetPatchRequest(fleetPatchRequest).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdateFleet``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-	// response from `UpdateFleet`: Fleet
-	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdateFleet`: %v\n", resp)
-}
-```
-
-### Path Parameters
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record | 
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiUpdateFleetRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-
- **fleetPatchRequest** | [**FleetPatchRequest**](FleetPatchRequest.md) | Updated fleet data | 
-
-### Return type
-
-[**Fleet**](Fleet.md)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: application/json
 - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)

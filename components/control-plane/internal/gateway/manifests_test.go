@@ -20,7 +20,7 @@ func TestApplyManifestToNamespace_ReplacesControlPlaneNamespace(t *testing.T) {
 		},
 	}}
 
-	result, err := ApplyManifestToNamespace(manifest, "tenant-ns", "control-plane-ns", GatewayConfig{}, StaticImageDefaults{})
+	result, err := ApplyManifestToNamespace(manifest, "tenant-ns", "control-plane-ns", GatewayConfig{Image: "example.test/gateway:v1", SupervisorImage: "example.test/supervisor:v1"}, StaticImageDefaults{})
 	if err != nil {
 		t.Fatalf("ApplyManifestToNamespace() error = %v", err)
 	}

@@ -26,7 +26,8 @@ else
     # 5-minute sudo timeout expires first, those sudo calls fail silently (they
     # are guarded with `|| warn`), and port forwarding is left unconfigured.
     # The loop refreshes every 50s and exits on its own once this script ($$)
-    # is gone, so no EXIT trap (which the seeding step below rebinds) is needed.
+    # is gone, so it needs no EXIT trap (seed.sh binds its own EXIT trap in its
+    # own process, which no longer interferes with this loop).
     ( while kill -0 "$$" 2>/dev/null; do sudo -n -v 2>/dev/null || exit; sleep 50; done ) &
   else
     warn "sudo unavailable - will use kubectl port-forward as fallback"
@@ -173,15 +174,15 @@ fi
 echo ""
 
 # --- Database provider selection ---
-# DATABASE_PROVIDER unset or empty means "deployment" (see
-# specs/platform/openshell-gateway-database.spec.md): a standalone
-# PostgreSQL Deployment per gateway that needs no operator, matching the
-# control-plane and API-server default. "cnpg" opts into CNPG-backed
-# placement and requires the CNPG operator; any other value is rejected
-# below rather than silently selected as one provider or the other.
-DB_PROVIDER="${DATABASE_PROVIDER:-deployment}"
-if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" ]]; then
-  error "DATABASE_PROVIDER must be 'cnpg' or 'deployment', got '${DB_PROVIDER}'"
+# DATABASE_PROVIDER unset or empty means "external": a standalone PostgreSQL
+# Deployment in a separate namespace that simulates a cloud-managed external
+# server, exercising the external-provider code path by default. "deployment"
+# opts into an in-namespace Deployment (no operator required). "cnpg" opts into
+# CNPG-backed placement and requires the CNPG operator; any other value is
+# rejected below rather than silently selected as one provider or the other.
+DB_PROVIDER="${DATABASE_PROVIDER:-external}"
+if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" && "${DB_PROVIDER}" != "external" ]]; then
+  error "DATABASE_PROVIDER must be 'cnpg', 'deployment', or 'external', got '${DB_PROVIDER}'"
   exit 1
 fi
 info "Database provider: ${DB_PROVIDER}"
@@ -208,7 +209,7 @@ done
 for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do
   kube wait --for=delete crd/"$crd" --timeout=30s 2>/dev/null || true
 done
-if [[ "${DB_PROVIDER}" == "deployment" ]]; then
+if [[ "${DB_PROVIDER}" == "deployment" || "${DB_PROVIDER}" == "external" ]]; then
   info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox) without CNPG..."
   kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure-no-cnpg | \
     kube apply --server-side --force-conflicts -f -
@@ -222,17 +223,18 @@ kube wait --for=condition=available deployment/cert-manager -n cert-manager --ti
 kube wait --for=condition=available deployment/cert-manager-webhook -n cert-manager --timeout=120s
 info "Waiting for agent-sandbox controller..."
 kube wait --for=condition=available deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
-if [[ "${DB_PROVIDER}" != "deployment" ]]; then
+if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
   info "Waiting for CNPG operator..."
   kube wait --for=condition=available deployment/cnpg-controller-manager -n cnpg-system --timeout=120s
 fi
+info "Waiting for Prometheus operator..."
+kube wait --for=condition=available deployment/prometheus-operator -n default --timeout=120s
 success "Infrastructure ready"
 echo ""
 
 # --- Build and load local images (offline mode) ---
 FORCE_ROLLOUT=""
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
-  header "Local Images"
   "${SCRIPT_DIR}/build-images.sh"
   FORCE_ROLLOUT=true
   echo ""
@@ -244,13 +246,14 @@ fi
 # them at start (imagePullPolicy IfNotPresent) with no build or pre-load step.
 
 # --- Apply pull secret (if configured) ---
-if [[ -n "${KIND_PULL_SECRET:-}" ]]; then
+_pull_secret="$(printf '%s' "${PULL_SECRET:-${KIND_PULL_SECRET:-}}")"
+if [[ -n "${_pull_secret}" ]]; then
   header "Pull Secret"
   kube create namespace "${KIND_NAMESPACE}" --dry-run=client -o yaml | \
     kube apply -f -
-  info "Applying pull secret from ${KIND_PULL_SECRET}..."
-  kube apply -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}"
-  SECRET_NAME=$(kube get -f "${KIND_PULL_SECRET}" -n "${KIND_NAMESPACE}" -o jsonpath='{.metadata.name}')
+  info "Applying pull secret from ${_pull_secret}..."
+  kube apply -f "${_pull_secret}" -n "${KIND_NAMESPACE}"
+  SECRET_NAME=$(kube get -f "${_pull_secret}" -n "${KIND_NAMESPACE}" -o jsonpath='{.metadata.name}')
   if [[ -n "${SECRET_NAME}" ]]; then
     info "Waiting for default ServiceAccount in ${KIND_NAMESPACE}..."
     for i in $(seq 1 30); do
@@ -276,21 +279,129 @@ kube create secret generic hypershell-oidc-session \
 success "OIDC session secret created"
 echo ""
 
+# --- External PostgreSQL (DATABASE_PROVIDER=external only) ---
+# Provision a standalone PostgreSQL in a dedicated namespace so the external
+# provider has a real server to probe and issue per-gateway DDL against.
+#
+# The admin credentials live in their own reserved-prefix namespace
+# (hypershell-managed-db-kind), NOT in the HyperShell instance namespace: that
+# mirrors production, where the platform team stages the credentials
+# out-of-band, normally before HyperShell is installed. The Secret inside it has
+# the fixed name hypershell-managed-db-credentials, and
+# ManagedDatabase.connection_secret names the NAMESPACE.
+if [[ "${DB_PROVIDER}" == "external" ]]; then
+  header "External Cloud DB (PostgreSQL)"
+  EXTERNAL_PG_NS="external-cloud-db"
+  EXTERNAL_PG_PASSWORD="hypershell-kind-admin-password"
+  EXTERNAL_CREDS_NS="hypershell-managed-db-kind"
+  info "Deploying standalone PostgreSQL in namespace '${EXTERNAL_PG_NS}'..."
+  kube create namespace "${EXTERNAL_PG_NS}" --dry-run=client -o yaml | kube apply -f -
+  kube apply -f - <<'EXTERNAL_PG_EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: external-cloud-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      # runAsNonRoot: false and no capabilities.drop are intentional here.
+      # This stand-in Deployment simulates a cloud-managed external server
+      # (AWS RDS / IBM Cloud DB) for CI/dev purposes only. The postgres:15
+      # entrypoint requires CHOWN/SETUID/SETGID to initialise the data
+      # directory as root before switching to the postgres user (uid 999);
+      # dropping ALL capabilities causes a CrashLoopBackOff. The real external
+      # server runs outside the cluster and is never managed by HyperShell.
+      # seccompProfile: RuntimeDefault is applied to restrict syscalls within
+      # the permitted capability set.
+      securityContext:
+        runAsNonRoot: false
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:15
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: POSTGRES_PASSWORD
+              value: hypershell-kind-admin-password
+            - name: POSTGRES_DB
+              value: hypershell
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: external-cloud-db
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+EXTERNAL_PG_EOF
+  info "Waiting for external PostgreSQL to be ready..."
+  kube wait --for=condition=available deployment/postgres -n "${EXTERNAL_PG_NS}" --timeout=120s
+  success "External PostgreSQL ready"
+  info "Creating credentials namespace '${EXTERNAL_CREDS_NS}'..."
+  kube create namespace "${EXTERNAL_CREDS_NS}" --dry-run=client -o yaml | kube apply -f -
+  info "Creating admin Secret 'hypershell-managed-db-credentials' in ${EXTERNAL_CREDS_NS}..."
+  # sslmode=disable is acceptable ONLY because this stand-in server is in-cluster
+  # and never reachable from outside. Any real external server must use
+  # sslmode=require at minimum (verify-full with an inline PEM sslrootcert is
+  # the recommended hardening).
+  kube create secret generic hypershell-managed-db-credentials \
+    -n "${EXTERNAL_CREDS_NS}" \
+    --from-literal=host="postgres.${EXTERNAL_PG_NS}.svc.cluster.local" \
+    --from-literal=port="5432" \
+    --from-literal=user="postgres" \
+    --from-literal=password="${EXTERNAL_PG_PASSWORD}" \
+    --from-literal=dbname="postgres" \
+    --from-literal=sslmode="disable" \
+    --dry-run=client -o yaml | kube apply -f -
+  success "Admin credentials namespace and Secret created"
+  echo ""
+fi
+
 # --- Deploy all components via kustomize ---
 header "Deploying Components"
 
 # Both provider modes need the running containers to select the same
 # DATABASE_PROVIDER this script provisioned infrastructure for.
-# DATABASE_PROVIDER unset/empty now defaults to "deployment" (see above),
-# so the "cnpg" branch must opt back in explicitly via the JSON6902 patch
-# below rather than relying on an implicit default that no longer selects
-# it. The "deployment" branch keeps using the existing database-deployment
-# component, which also swaps the CNPG Cluster used for the frameworks own
-# metadata storage (not the tenant/gateway ManagedDatabase) for a static
-# Deployment.
+# DATABASE_PROVIDER unset/empty now defaults to "external" (see above),
+# so both "cnpg" and "deployment" must opt in explicitly via their patches
+# rather than relying on an implicit default that no longer selects them.
+# The "deployment" branch uses the database-deployment component, which also
+# swaps the CNPG Cluster used for the framework's own metadata storage (not
+# the tenant/gateway ManagedDatabase) for a static Deployment.
 _db_overlay_extra=$'\ncomponents:\n  - ../components/database-deployment'
 if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
   _db_overlay_extra=$'\npatches:\n  - path: ../kind/database-cnpg-env-patch.yaml\n    target:\n      kind: Deployment\n      name: hypershell-api-server\n      namespace: hypershell-system\n  - path: ../kind/database-cnpg-env-patch.yaml\n    target:\n      kind: Deployment\n      name: hypershell-controller\n      namespace: hypershell-system'
+elif [[ "${DB_PROVIDER}" == "external" ]]; then
+  # Use the database-external component: removes the CNPG Cluster, sets
+  # DB_SSLMODE=disable, and injects the hypershell-db-app Secret pointing to
+  # the external-cloud-db Postgres provisioned above. The API server and its
+  # migrate init container both read from that external server; gateways use
+  # the same server via their per-gateway databases (gw_<id>) created by the
+  # control plane. DATABASE_PROVIDER=external is NOT patched here - it is
+  # applied via kubectl set env after the initial deployment readiness wait
+  # below so the baseline image can start cleanly before the PR image swap.
+  _db_overlay_extra=$'\ncomponents:\n  - ../kind/database-external'
 fi
 
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
@@ -330,11 +441,19 @@ EOF
   rm -rf "${_kustomize_dir}"
 fi
 
+# The apply above re-renders every Deployment from the overlay baseline,
+# which resets any previously swapped component's image. Restore swapped
+# images immediately, the same apply-then-restore sequencing the OpenShift
+# driver uses (restore_swaps_after_reconcile in
+# scripts/cluster/drivers/openshift.sh), so `kind-up` and `openshift-up`
+# preserve swap state the same way.
+restore_swaps_after_reconcile
+
 if [[ "${DB_PROVIDER}" == "deployment" ]]; then
   info "Waiting for PostgreSQL deployment..."
   kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=120s
   success "PostgreSQL deployment ready"
-else
+elif [[ "${DB_PROVIDER}" == "cnpg" ]]; then
   if [[ -n "${HYPERSHELL_DATABASE_IMAGE:-}" ]]; then
     info "Setting API server CNPG cluster image to ${HYPERSHELL_DATABASE_IMAGE}..."
     kube patch cluster/hypershell-db -n "${KIND_NAMESPACE}" --type merge \
@@ -344,12 +463,23 @@ else
   kube wait --for=condition=Ready cluster/hypershell-db -n "${KIND_NAMESPACE}" --timeout=300s
   success "CNPG clusters ready"
 fi
+# external: standalone PG was already provisioned and waited on above
 
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Waiting for Keycloak..."
   kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
   success "Keycloak ready"
 fi
+
+# --- Prometheus monitoring stack ---
+# Applied after the main components so the hypershell-system namespace and
+# ServiceAccount already exist when the Prometheus CR and RBAC are created.
+# The Prometheus Operator CRDs were installed in the infrastructure step above.
+info "Applying Prometheus monitoring stack..."
+kustomize build --load-restrictor=LoadRestrictionsNone deploy/base/prometheus | \
+  kube apply -f -
+success "Prometheus monitoring stack applied"
+echo ""
 
 # --- Jaeger (optional, for OTel trace inspection) ---
 # Deploys an all-in-one Jaeger v2 for local trace inspection alongside the API
@@ -414,17 +544,6 @@ api_server_otel_endpoint_set() {
   tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
 }
 
-controller_otel_endpoint_set() {
-  local names
-  if ! names=$(kube get deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
-    -o jsonpath='{.spec.template.spec.containers[?(@.name=="controller")].env[*].name}' \
-    2>&1); then
-    error "verifying OTLP endpoint removal: ${names}"
-    exit 1
-  fi
-  tr ' ' '\n' <<<"${names}" | grep -qx "OTEL_EXPORTER_OTLP_ENDPOINT"
-}
-
 if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   header "Jaeger"
   info "Deploying Jaeger..."
@@ -445,10 +564,9 @@ if [[ "${KIND_JAEGER:-}" == "true" ]]; then
   kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
     OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4317" \
     OTEL_METRICS_EXPORTER="none"
-  info "Patching controller with OTEL_EXPORTER_OTLP_ENDPOINT..."
-  kube set env deployment/hypershell-controller -c controller -n "${KIND_NAMESPACE}" \
-    OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger.${KIND_NAMESPACE}.svc.cluster.local:4317" \
-    OTEL_METRICS_EXPORTER="none"
+  # Control-plane metrics export to the in-cluster OTel Collector (kind
+  # kustomization) so Prometheus can serve gateway provision duration. Jaeger is
+  # trace-only; do not point the controller at Jaeger here.
   info "Waiting for Jaeger..."
   kube wait --for=condition=available deployment/jaeger -n "${KIND_NAMESPACE}" --timeout=120s
   success "Jaeger ready"
@@ -486,14 +604,8 @@ else
       exit 1
     fi
   fi
-  if deployment_exists hypershell-controller; then
-    kube set env deployment/hypershell-controller -c controller -n "${KIND_NAMESPACE}" \
-      OTEL_EXPORTER_OTLP_ENDPOINT- OTEL_METRICS_EXPORTER-
-    if controller_otel_endpoint_set; then
-      error "OTEL_EXPORTER_OTLP_ENDPOINT is still set after disabling tracing"
-      exit 1
-    fi
-  fi
+  # Control-plane metrics export to the in-cluster OTel Collector is configured
+  # by deploy/kind/kustomization.yaml and must remain when tracing is off.
   echo ""
 fi
 
@@ -554,8 +666,8 @@ if ! is_swapped control-plane; then
   kube wait --for=condition=available deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
 fi
 
-if is_swapped web-console; then
-  warn "Web console is swapped -- scaling to zero (runs locally via npm)"
+if is_swapped web-console && [[ "$(swap_image web-console)" == "hot-reload" ]]; then
+  warn "Web console is swapped (hot reload) -- scaling to zero (runs locally via npm)"
   kube scale deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --replicas=0
 fi
 
@@ -733,301 +845,46 @@ kube rollout status deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --t
 success "Web console ready"
 echo ""
 
-# --- Seed Gateway via REST API ---
-header "Gateway Provisioning"
-API_URL="http://localhost:8000"
-info "Port-forwarding to API server..."
-kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
-PF_PID=$!
-cleanup_pf() { kill "${PF_PID}" 2>/dev/null || true; wait "${PF_PID}" 2>/dev/null || true; }
-trap cleanup_pf EXIT
-
-# `port-forward` accepts a local TCP connection before it has confirmed the pod
-# is serving, so a fixed `sleep` races the REST server coming up. Poll until the
-# API answers with *any* HTTP status -- a 401/403 without a token still proves
-# the server responded (curl exits 0). An empty reply / dead forward makes curl
-# exit non-zero (HTTP 000), so tear the forward down and re-establish it before
-# retrying.
-info "Waiting for API server to answer through the port-forward..."
-api_reachable=""
-for _ in $(seq 1 30); do
-  if curl -s -o /dev/null -m 3 "${API_URL}/api/hypershell/v1/fleets" 2>/dev/null; then
-    api_reachable=true
-    break
+if [[ "${DB_PROVIDER}" == "external" ]]; then
+  # Apply DATABASE_PROVIDER=external after the readiness gate passes. Deferring
+  # here - not baking it into the kustomize overlay and not setting it before the
+  # rollout-status wait above - ensures the baseline image (which predates
+  # external-mode support) can pass the readiness check without crashing.
+  # In CI the image-swap step runs next; it sets the PR image which supports
+  # external mode, so the single rollout triggered by set-component-images.sh
+  # carries both the new image and the new env together.
+  info "Setting DATABASE_PROVIDER=external on api-server and controller..."
+  kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
+    DATABASE_PROVIDER=external
+  kube set env deployment/hypershell-controller -c controller -n "${KIND_NAMESPACE}" \
+    DATABASE_PROVIDER=external
+  if is_swapped api-server || [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
+    # Local development: working-tree images already support external mode;
+    # wait for the rollout so seeding does not race ahead of a ready cluster.
+    # LOCAL_IMAGES=true deploys working-tree images via the kustomize overlay
+    # (not via swap-component.sh), so is_swapped returns false even though the
+    # images support external mode - the OR covers that case.
+    kube rollout status deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --timeout=120s
+    kube rollout status deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
   fi
-  kill "${PF_PID}" 2>/dev/null || true
-  wait "${PF_PID}" 2>/dev/null || true
-  kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
-  PF_PID=$!
-  sleep 2
-done
-if [[ -z "${api_reachable}" ]]; then
-  warn "API server did not answer through the port-forward; seeding may fail"
+  # CI (baseline, not swapped, not LOCAL_IMAGES): no wait - set-component-images.sh
+  # triggers the image swap immediately after kind-up, restarting pods with the PR
+  # image that supports external mode before seeding begins.
 fi
 
-# Obtain a Bearer token from Keycloak for API calls.
-API_AUTH_HEADER=""
-info "Obtaining API token from Keycloak..."
-# Use the Gateway-routed Keycloak URL instead of port-forwarding.
-# Keycloak is accessible via HTTPRoute at keycloak.hypershell.localhost.
-#
-# Seed with the admin resource-owner (password) token, NOT the control-plane
-# client-credentials token. The kind overlay enables RBAC_ENFORCE=true, and the
-# HTTP authz middleware (unlike the gRPC interceptor) has no service-account
-# bypass -- every write requires the caller's JWT to carry the `gateway:creator`
-# realm role. The `hypershell-control-plane` client holds no such role, so its
-# token 403s on `POST /fleets` onward and (because seeding is non-fatal) would
-# leave the cluster with no seeded resources behind a scroll-past warning. The
-# `admin` user has `gateway:creator`, and `hypershell-frontend` permits the
-# password grant (publicClient + directAccessGrantsEnabled), so this token is
-# authorized to create the platform resources below.
-#
-# Poll rather than fetching once. On a fresh `kind-up` the gateway LB has an
-# address (waited on above) and Keycloak is Available, but the gateway's
-# Keycloak route/listener may not be accepting on :443 yet -- a single curl
-# then fails with (7) "Couldn't connect to server", the token is empty, and
-# seeding proceeds unauthenticated (HTTP 401). Re-running `kind-up` "fixes" it
-# only because everything is warm by then. Retry until Keycloak answers with a
-# token (or we time out) so the first run seeds successfully. Mirrors the
-# API-server port-forward readiness loop above.
-KC_TOKEN_URL="https://${KEYCLOAK_HOSTNAME}/realms/hypershell/protocol/openid-connect/token"
-API_TOKEN=""
-TOKEN_RESP=""
-for _ in $(seq 1 30); do
-  TOKEN_RESP=$(curl -sSk -m 5 -X POST "${KC_TOKEN_URL}" \
-    -d "grant_type=password" \
-    -d "client_id=hypershell-frontend" \
-    -d "username=admin" \
-    -d "password=admin" 2>&1 || true)
-  API_TOKEN=$(echo "${TOKEN_RESP}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 || true)
-  if [[ -n "${API_TOKEN}" ]]; then break; fi
-  sleep 2
-done
-if [[ -n "${API_TOKEN}" ]]; then
-  API_AUTH_HEADER="Authorization: Bearer ${API_TOKEN}"
-  success "API token obtained"
+# --- Seed platform resources via REST API ---
+# Seeding lives in seed.sh so CI can run it AFTER the component image swap
+# (see scripts/kind/seed.sh). Local runs seed inline by default; CI sets
+# SKIP_SEED=true here and runs `make kind-seed` once the swapped-in
+# working-tree images are live, so the seed exercises the branch's own request
+# contract instead of the baseline placeholder image kind-up deploys first.
+if skip_seed; then
+  header "Gateway Provisioning"
+  info "SKIP_SEED=true - deferring platform seeding (run 'make kind-seed')"
+  echo ""
 else
-  warn "Could not obtain API token: ${TOKEN_RESP:0:200}"
+  "${SCRIPT_DIR}/seed.sh"
 fi
-
-# Helper: POST a JSON resource; prints the response body on success or failure.
-api_post() {
-  local url="$1" data="$2"
-  local auth_args=()
-  if [[ -n "${API_AUTH_HEADER}" ]]; then
-    auth_args=(-H "${API_AUTH_HEADER}")
-  fi
-  curl -sS -w "\n%{http_code}" -X POST "${url}" \
-    -H "Content-Type: application/json" \
-    ${auth_args[@]+"${auth_args[@]}"} \
-    -d "${data}" 2>&1 || true
-}
-
-api_get() {
-  local url="$1"
-  local auth_args=()
-  if [[ -n "${API_AUTH_HEADER}" ]]; then
-    auth_args=(-H "${API_AUTH_HEADER}")
-  fi
-  curl -sS -w "\n%{http_code}" -X GET "${url}" \
-    ${auth_args[@]+"${auth_args[@]}"} 2>&1 || true
-}
-
-extract_id() {
-  local resp="$1"
-  if echo "$resp" | grep -q '"kind":"Error"'; then
-    echo ""
-    return
-  fi
-  local id
-  id=$(echo "$resp" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
-  echo "${id}"
-}
-
-seed_failed=""
-FLEET_ID=""
-CLUSTER_ID=""
-RELEASE_ID=""
-DATABASE_ID=""
-
-# Check for existing Fleet first
-info "Checking for existing default Fleet..."
-EXISTING_FLEET_RAW=$(api_get "${API_URL}/api/hypershell/v1/fleets")
-EXISTING_FLEET_HTTP=$(echo "${EXISTING_FLEET_RAW}" | tail -1)
-EXISTING_FLEET_RESP=$(echo "${EXISTING_FLEET_RAW}" | sed '$d')
-
-if [[ "${EXISTING_FLEET_HTTP}" == "200" ]]; then
-  FLEET_ID=$(echo "${EXISTING_FLEET_RESP}" | grep -o '"name":"default"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
-  if [[ -n "${FLEET_ID}" ]]; then
-    success "default Fleet already exists: ${FLEET_ID}"
-  fi
-fi
-
-if [[ -z "${FLEET_ID}" ]]; then
-  info "Creating default Fleet..."
-  FLEET_RAW=$(api_post "${API_URL}/api/hypershell/v1/fleets" \
-    '{"name":"default","description":"Local development fleet"}')
-  FLEET_HTTP=$(echo "${FLEET_RAW}" | tail -1)
-  FLEET_RESP=$(echo "${FLEET_RAW}" | sed '$d')
-  FLEET_ID=$(extract_id "${FLEET_RESP}")
-
-  if [[ -z "${FLEET_ID}" ]]; then
-    warn "Fleet creation failed (HTTP ${FLEET_HTTP}): ${FLEET_RESP:-no response}"
-    seed_failed=true
-  else
-    success "Fleet created: ${FLEET_ID}"
-  fi
-fi
-
-if [[ -z "${seed_failed}" ]]; then
-  # Check for existing ManagedCluster
-  info "Checking for existing local-kind ManagedCluster..."
-  EXISTING_MC_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_clusters")
-  EXISTING_MC_HTTP=$(echo "${EXISTING_MC_RAW}" | tail -1)
-  EXISTING_MC_RESP=$(echo "${EXISTING_MC_RAW}" | sed '$d')
-
-  if [[ "${EXISTING_MC_HTTP}" == "200" ]]; then
-    CLUSTER_ID=$(echo "${EXISTING_MC_RESP}" | grep -o '"name":"local-kind"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
-    if [[ -n "${CLUSTER_ID}" ]]; then
-      success "local-kind ManagedCluster already exists: ${CLUSTER_ID}"
-    fi
-  fi
-
-  if [[ -z "${CLUSTER_ID}" ]]; then
-    info "Creating ManagedCluster..."
-    MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" \
-      "{\"name\":\"local-kind\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\"}")
-    MC_HTTP=$(echo "${MC_RAW}" | tail -1)
-    MC_RESP=$(echo "${MC_RAW}" | sed '$d')
-    CLUSTER_ID=$(extract_id "${MC_RESP}")
-
-    if [[ -z "${CLUSTER_ID}" ]]; then
-      warn "ManagedCluster creation failed (HTTP ${MC_HTTP}): ${MC_RESP:-no response}"
-      seed_failed=true
-    else
-      success "ManagedCluster created: ${CLUSTER_ID}"
-    fi
-  fi
-fi
-
-if [[ -z "${seed_failed}" ]]; then
-  # Check for existing GatewayRelease
-  info "Checking for existing dev-release GatewayRelease..."
-  EXISTING_GR_RAW=$(api_get "${API_URL}/api/hypershell/v1/gateway_releases")
-  EXISTING_GR_HTTP=$(echo "${EXISTING_GR_RAW}" | tail -1)
-  EXISTING_GR_RESP=$(echo "${EXISTING_GR_RAW}" | sed '$d')
-
-  if [[ "${EXISTING_GR_HTTP}" == "200" ]]; then
-    RELEASE_ID=$(echo "${EXISTING_GR_RESP}" | grep -o '"name":"dev-release"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
-    if [[ -n "${RELEASE_ID}" ]]; then
-      success "dev-release GatewayRelease already exists: ${RELEASE_ID}"
-    fi
-  fi
-
-  if [[ -z "${RELEASE_ID}" ]]; then
-    info "Creating GatewayRelease..."
-    GR_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateway_releases" \
-      "{\"name\":\"dev-release\",\"fleet_id\":\"${FLEET_ID}\",\"image\":\"${GATEWAY_IMAGE}\"}")
-    GR_HTTP=$(echo "${GR_RAW}" | tail -1)
-    GR_RESP=$(echo "${GR_RAW}" | sed '$d')
-    RELEASE_ID=$(extract_id "${GR_RESP}")
-
-    if [[ -z "${RELEASE_ID}" ]]; then
-      warn "GatewayRelease creation failed (HTTP ${GR_HTTP}): ${GR_RESP:-no response}"
-      seed_failed=true
-    else
-      success "GatewayRelease created: ${RELEASE_ID}"
-    fi
-  fi
-fi
-
-if [[ -z "${seed_failed}" ]]; then
-  if [[ "${DB_PROVIDER}" == "deployment" ]]; then
-    info "Skipping ManagedDatabase seed - deployment mode auto-creates per-gateway databases"
-    DATABASE_ID=""
-  else
-    # Check for existing openshell-db ManagedDatabase
-    info "Checking for existing openshell-db ManagedDatabase..."
-    EXISTING_MD_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_databases")
-    EXISTING_MD_HTTP=$(echo "${EXISTING_MD_RAW}" | tail -1)
-    EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
-
-    if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
-      DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"name":"openshell-db"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
-      if [[ -n "${DATABASE_ID}" ]]; then
-        success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
-      fi
-    fi
-
-    if [[ -z "${DATABASE_ID}" ]]; then
-      info "Creating ManagedDatabase (provider=${DB_PROVIDER})..."
-      MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-        "{\"name\":\"openshell-db\",\"fleet_id\":\"${FLEET_ID}\",\"provider\":\"${DB_PROVIDER}\"}")
-      MD_HTTP=$(echo "${MD_RAW}" | tail -1)
-      MD_RESP=$(echo "${MD_RAW}" | sed '$d')
-
-      if [[ "${MD_HTTP}" != "201" && "${MD_HTTP}" != "200" ]]; then
-        warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
-        seed_failed=true
-      else
-        DATABASE_ID=$(extract_id "${MD_RESP}")
-        if [[ -z "${DATABASE_ID}" ]]; then
-          warn "ManagedDatabase creation returned success but no ID: ${MD_RESP:-no response}"
-          seed_failed=true
-        else
-          success "ManagedDatabase created: ${DATABASE_ID}"
-        fi
-      fi
-    fi
-  fi
-fi
-
-if [[ -z "${seed_failed}" ]]; then
-  # Check if dev-gateway already exists before creating
-  info "Checking for existing dev-gateway..."
-  GATEWAY_ID=""
-  EXISTING_GW_RAW=$(api_get "${API_URL}/api/hypershell/v1/gateways")
-  EXISTING_GW_HTTP=$(echo "${EXISTING_GW_RAW}" | tail -1)
-  EXISTING_GW_RESP=$(echo "${EXISTING_GW_RAW}" | sed '$d')
-
-  if [[ "${EXISTING_GW_HTTP}" == "200" ]]; then
-    EXISTING_GW_ID=$(echo "${EXISTING_GW_RESP}" | grep -o '"name":"dev-gateway"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
-    if [[ -n "${EXISTING_GW_ID}" ]]; then
-      success "dev-gateway already exists: ${EXISTING_GW_ID}"
-      GATEWAY_ID="${EXISTING_GW_ID}"
-    fi
-  fi
-
-  if [[ -z "${GATEWAY_ID}" ]]; then
-    info "Creating Gateway with OIDC..."
-    OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
-    # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
-    # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-    # Always send database_id; deployment mode uses the empty placeholder.
-    GW_BODY="{\"name\":\"dev-gateway\",\"fleet_id\":\"${FLEET_ID}\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
-    GW_BODY="${GW_BODY},\"database_id\":\"${DATABASE_ID}\""
-    GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
-    GW_BODY="${GW_BODY}}"
-    GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
-    GW_HTTP=$(echo "${GW_RAW}" | tail -1)
-    GW_RESP=$(echo "${GW_RAW}" | sed '$d')
-    GATEWAY_ID=$(extract_id "${GW_RESP}")
-
-    if [[ -z "${GATEWAY_ID}" ]]; then
-      warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
-    else
-      success "Gateway created with OIDC: ${GATEWAY_ID}"
-    fi
-  fi
-fi
-
-if [[ -n "${seed_failed}" ]]; then
-  warn "Automatic seeding incomplete - create resources manually after API server is ready"
-fi
-
-cleanup_pf
-trap - EXIT
-echo ""
 
 # --- kubectl port-forward (no cloud-provider-kind fallback) ---
 if [[ "${CPK_RUNNING}" == "false" ]]; then
@@ -1056,6 +913,7 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
   info "HTTP API:     https://${API_HOSTNAME}${PORT_SUFFIX}"
   info "Web Console:  https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}"
   info "Health:       https://${HEALTH_HOSTNAME}${PORT_SUFFIX}"
+  info "Metrics:      https://${METRICS_HOSTNAME}${PORT_SUFFIX}/metrics"
 
   if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
     info "Keycloak:     https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX} (admin/admin)"
@@ -1073,6 +931,7 @@ else
   info "HTTP API:     http://localhost:8000"
   info "Web Console:  http://localhost:3000"
   info "Health:       http://localhost:8000/healthz"
+  info "Metrics:      http://localhost:4433/metrics"
 
   if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
     info "Keycloak:     http://localhost:8080 (admin/admin)"

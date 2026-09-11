@@ -43,17 +43,29 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/openshell-inference-routing.spec.md` | platform | Inference router, inference.local, credential-free sandbox model access, provider translation | CP | openshell-gateway, openshell-gateway-credentials |
 | `platform/global-architecture.spec.md` | platform | Global hub, multi-cloud, CNPG, Tekton, ArgoCD, Vault | CP, ALL | data-model, control-plane |
 | `web-console/architecture.spec.md` | web-console | Web console, BFF, browser session, UI routes | WEB, SDK, API | data-model, security, openshell-gateway-service-accounts, UI standards |
+| `web-console/operational-dashboard.spec.md` | web-console | Widgetized operational dashboard, Prometheus-backed metrics adapter, admin access | WEB | web-console/architecture, gateway-metrics-dashboard, platform-inventory, registered-users, UI standards |
 | `web-console/tracing.spec.md` | web-console | Browser OTel trace sink, BFF W3C propagation, telemetry ingest, dev Jaeger | WEB, BFF | web-console/architecture, domain-observability, local-development |
+| `platform/gateway-metrics-dashboard.spec.md` | platform | Prometheus gateway phase metric, BFF metrics proxy, GatewayMetricsDashboard, operational dashboard gateway counts | API, WEB, deploy | data-model, web-console/architecture, local-development |
+| `platform/platform-inventory.spec.md` | platform | Managed cluster and database inventory Prometheus collectors and operational dashboard widgets | API, WEB | web-console/operational-dashboard, managed-cluster-registration, rbac-enforcement |
+| `platform/registered-users.spec.md` | platform | Registered user inventory API, Prometheus count, and operational dashboard widget | API, WEB | rbac-enforcement, web-console/operational-dashboard |
+| `platform/cluster-memory.spec.md` | platform | Hub cluster memory utilization for operational dashboard | WEB, deploy | web-console/operational-dashboard, gateway-metrics-dashboard, local-development |
+| `platform/cluster-cpu.spec.md` | platform | Hub cluster CPU utilization for operational dashboard | WEB, deploy | web-console/operational-dashboard, cluster-memory, gateway-metrics-dashboard, local-development |
+| `platform/cluster-pods.spec.md` | platform | Hub cluster pod utilization for operational dashboard | WEB, deploy | web-console/operational-dashboard, cluster-memory, cluster-cpu, gateway-metrics-dashboard, local-development |
+| `platform/cluster-nodes.spec.md` | platform | Hub cluster node inventory for operational dashboard | WEB, deploy | web-console/operational-dashboard, cluster-pods, gateway-metrics-dashboard, local-development |
+| `platform/gateway-provision-time.spec.md` | platform | Gateway provision duration (mean, P50, P95) from control-plane histogram for operational dashboard | WEB, deploy, CP | web-console/operational-dashboard, control-plane-observability, cluster-memory |
 | `standards/platform/cross-cutting.spec.md` | standards | - | ALL | - |
 | `standards/platform/naming-multitenancy.spec.md` | standards | - | ALL | cross-cutting, global-architecture |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |
+| `platform/managed-cluster-registration.spec.md` | platform | ManagedCluster self-registration, oidc_subject upsert, last_seen_at heartbeat loop | API, CP | data-model, rbac-enforcement, control-plane |
 | `security/rbac-enforcement.spec.md` | security | User, Role, RoleBinding, RBAC middleware | API | data-model |
 | `standards/security/security.spec.md` | standards | - | ALL | - |
 | `platform/local-development.spec.md` | platform | Kind cluster, images, Make targets | ALL | cross-cutting, security |
 | `platform/oidc-integration.spec.md` | platform | API JWT validation, BFF OIDC session, IdP client config, Kind opt-in | API, WEB, CP | local-development, openshell-gateway-oidc, web-console/architecture |
 | `platform/e2e-testing.spec.md` | platform | Infra drivers, e2e test suite, CI workflow, deploy overlays | ALL | local-development, control-plane, openshell-gateway-routing |
+| `platform/openshell-image-auto-update.spec.md` | platform | Renovate customManager, OpenShell image bumps, merge policy | CI | e2e-testing, control-plane |
 | `platform/api-server-observability.spec.md` | platform | API OTel SDK bootstrap, HTTP/gRPC server spans, W3C trace continuation, request metrics | API | web-console/tracing, security, local-development, e2e-testing |
 | `platform/control-plane-observability.spec.md` | platform | CP OTel SDK bootstrap, reconcile spans, gRPC client spans, watch lifecycle, K8s API spans, reconcile metrics | CP | api-server-observability, control-plane, security, local-development |
+| `platform/reconcile-trace-correlation.spec.md` | platform | Trace context persistence, span links, reconcile-to-request correlation | API, CP | api-server-observability, control-plane-observability, data-model |
 | `standards/ui/foundations.spec.md` | standards | UI foundations | WEB | - |
 | `standards/ui/brand-color.spec.md` | standards | Red Hat brand color | WEB | foundations, accessibility |
 | `standards/ui/interaction.spec.md` | standards | UI interaction | WEB | foundations |

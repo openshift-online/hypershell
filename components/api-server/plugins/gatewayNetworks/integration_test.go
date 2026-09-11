@@ -48,7 +48,6 @@ func TestGatewayNetworkPost(t *testing.T) {
 
 	gatewayNetworkInput := openapi.GatewayNetwork{
 		Name:         "test-name",
-		FleetId:      "test-fleet_id",
 		Topology:     openapi.PtrString("test-topology"),
 		TunnelMode:   openapi.PtrString("test-tunnel_mode"),
 		HubGatewayId: openapi.PtrString("test-hub_gateway_id"),

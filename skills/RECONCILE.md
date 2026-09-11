@@ -24,8 +24,10 @@ skills/
 │   ├── full-stack-pipeline/  # Single-spec wave-based implementation pipeline
 │   └── dev-cluster/          # Kind cluster lifecycle for local testing
 ├── deploy/
-│   ├── deploy-cluster/       # OpenShift deployment (internal registry, kustomize)
-│   └── kind/                 # Kind local development (image loading, NodePort)
+│   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
+│   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, CNPG, kustomize)
+│   ├── gcp-cluster/          # GCP OSD cluster deployment (Route mode)
+│   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment (Route mode)
 ├── plan/
 │   └── spec/                 # Spec authoring (desired state)
 ├── review/
@@ -36,18 +38,19 @@ skills/
     ├── align/                # Convention compliance scoring
     ├── jira-log/             # Jira work logging
     ├── maintain-ci/          # CI and component registration maintenance
-    └── memory/               # Project memory management
+    ├── memory/               # Project memory management
+    └── update-openshell/     # Update to upstream OpenShell releases
 ```
 
-**SDLC flow**: `/reconcile` → `/spec` → `/full-stack-pipeline` → `/deploy-cluster` or `/kind`
+**SDLC flow**: `/reconcile` → `/spec` → `/full-stack-pipeline` → `/deploy-cluster` or `/dev-cluster`
 
 ---
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-08-27 (OpenShell Gateway Console GC-W1 complete)
-**Spec corpus**: 40 spec files; the coverage table tracks 32 analyzed feature/spec groups after adding OpenShell Gateway Console
-**Codebase commit**: 9984ed0 (fix/console OpenShift Route ingress)
+**Last analyzed**: 2026-09-04 (scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
+**Spec corpus**: 48 spec files; the coverage table tracks 39 analyzed feature/spec groups after adding OpenShell Gateway Console, OpenShift Development, Operational Dashboard, Registered Users, Cluster Memory, Cluster CPU, Cluster Pods, Cluster Nodes, and Gateway Provision Time
+**Codebase commit**: `c9d68e0` (rebased HYPERSHELL-276 initial dashboard data branch; section titles + last-refreshed header; partial metric-source failure; NaN/Infinity display fallback; layout persistence v23)
 
 ### Coverage Summary
 
@@ -67,12 +70,21 @@ skills/
 | Platform - Namespace GC | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
-| Platform - E2E Testing | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
-| Platform - OIDC Integration | 1 | 6 | 5 | 1 | 0 | 0 | 92% |
+| Platform - E2E Testing | 1 | 19 | 19 | 0 | 0 | 0 | 100% |
+| Platform - OpenShift Development | 1 | 13 | 7 | 2 | 4 | 0 | 54% |
+| Platform - OIDC Integration | 1 | 7 | 6 | 1 | 0 | 0 | 93% |
+| Platform - Gateway Metrics Dashboard | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
+| Platform - Registered Users | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
+| Platform - Cluster Memory | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
+| Platform - Cluster CPU | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
+| Platform - Cluster Pods | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
+| Platform - Cluster Nodes | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
+| Platform - Gateway Provision Time | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
+| Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **32** | **224** | **175** | **18** | **26** | **5** | **82%** |
+| **TOTAL** | **39** | **291** | **248** | **17** | **13** | **5** | **85%** |
 
 ### Spec Dependency Order
 
@@ -96,6 +108,61 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 ## Gap Table
 
+### generated-gateway-config-validation.spec.md (HYPERSHELL-179)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CGV-1 | Validate the rendered configuration before rollout | Present | Render the gateway.toml artifact and validate well-formedness + OIDC structural coherence, distinct from the input-field check | `components/control-plane/internal/gateway/manifests.go` (`RenderGatewayConfigTOML`), `internal/gateway/validation.go` (`ValidateRenderedGatewayConfig`) | CGV-W1 |
+| CGV-2 | A validation failure blocks rollout without disrupting a running gateway | Present | Gate placed before `deployGateway`, so no ConfigMap is written and the workload is never rolled onto an invalid artifact | `components/control-plane/internal/gateway/reconciler.go` (`ReconcileGateway`) | CGV-W1 |
+| CGV-3 | Validation failures are observable (`Failed` + reason + log) | Present | Typed `RenderedConfigValidationError` surfaces `PhaseFailed` with a human-readable reason and a name+namespace log line | `components/control-plane/internal/reconciler/reconciler.go`, `internal/gateway/validation.go` | CGV-W1 |
+| CGV-4 | Validation is idempotent and self-correcting | Present | Up-front gate leaves no partial artifacts; a corrected config renders valid and rolls out on the next reconcile | `components/control-plane/internal/gateway/reconciler.go` | CGV-W1 |
+
+**Scoped coverage:** 4 of 4 requirements present. Reuses the canonical `Failed` phase (no new vocabulary). This scoped run does not change the full-corpus coverage table.
+
+**Direction checks:**
+
+- Spec to code: rendered-artifact validation, up-front gating, `Failed`+reason observability, and idempotency are all implemented.
+- Code to spec: the new TOML-parse + OIDC-coherence check is confined to the generated artifact; input validation (`ValidateGatewayConfig`) is unchanged.
+- OpenAPI to spec: no public API field or route added; validation is control-plane-internal and reuses the existing `phase`/`status` fields.
+
+### control-plane-observability.spec.md (CP-OBS-07 reconcile-queue metric delta)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CP-OBS-07f | Export ready reconcile-queue depth as an observable gauge with unit `{item}` | Present | - | `components/control-plane/internal/otel/metrics.go`, `components/control-plane/internal/watcher/requeue.go` | CP-OBS-RQ-W1 |
+| CP-OBS-07g | Export ready-to-worker queue wait as a histogram in seconds | Present | - | `components/control-plane/internal/otel/metrics.go`, `components/control-plane/internal/watcher/requeue.go` | CP-OBS-RQ-W1 |
+| CP-OBS-07h | Use only the bounded `resource.kind` attribute and no resource identifier | Present | - | `components/control-plane/internal/otel/metrics.go`, `metrics_test.go` | CP-OBS-RQ-W1 |
+| CP-OBS-07i | Record one wait observation for coalesced work when `Handle` starts | Present | - | `components/control-plane/internal/watcher/requeue.go`, `requeue_test.go` | CP-OBS-RQ-W1 |
+| CP-OBS-07j | Exclude scheduled retry backoff from queue depth and queue wait | Present | - | `components/control-plane/internal/watcher/requeue.go`, `requeue_test.go` | CP-OBS-RQ-W1 |
+
+**Scoped coverage:** 5 of 5 changed CP-OBS-07 fields are present. This scoped run does not change the full-corpus coverage table.
+
+**Direction checks:**
+
+- Spec to code: The two instruments, bounded label, coalescing rule, and backoff rule are present.
+- Code to spec: All new queue telemetry behavior is in CP-OBS-07. Explicit histogram buckets are an implementation detail.
+- OpenAPI to spec: The metrics do not add a public API field or route.
+
+### control-plane-observability.spec.md (CP-OBS-07 Gateway provision-duration delta)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CP-OBS-07a | Export `gateway.provision.duration` as a histogram in seconds, with explicit buckets from 1 second through 15 minutes | Present | - | `components/control-plane/internal/otel/metrics.go`, `metrics_test.go` | CP-OBS-GPD-W1 |
+| CP-OBS-07b | Use the stored Gateway `created_at` and `updated_at` values, and ignore missing, invalid, or reversed values | Present | - | `components/control-plane/internal/reconciler/metrics.go`, `metrics_test.go`; `components/api-server/plugins/gateways/grpc_presenter.go` | CP-OBS-GPD-W1 |
+| CP-OBS-07c | Record only after a successful direct update to `Running` | Present | - | `components/control-plane/internal/reconciler/reconciler.go` | CP-OBS-GPD-W1 |
+| CP-OBS-07d | Record a delayed `Provisioning` to `Running` transition, but do not record a `Degraded` to `Running` recovery | Present | - | `components/control-plane/internal/reconciler/health.go`, `metrics.go`, `gateway_vocabulary.go`; `components/control-plane/internal/watcher/watcher.go` | CP-OBS-GPD-W1 |
+| CP-OBS-07e | Record at most one observation for one Gateway and do not export a Gateway identifier as a metric attribute | Present | - | `components/control-plane/internal/reconciler/metrics.go`, `metrics_test.go`; `components/control-plane/internal/otel/metrics_test.go` | CP-OBS-GPD-W1 |
+
+**Scoped coverage:** 5 of 5 changed CP-OBS-07 fields are present. This scoped run does not change the full-corpus coverage table.
+
+**Direction checks:**
+
+- Spec to code: The metric contract, both promotion paths, timestamp rules, recovery rule, single-observation rule, and attribute rule are present.
+- Code to spec: All new provision-duration behavior is in CP-OBS-07. The exact intermediate bucket values are implementation details inside the specified range.
+- OpenAPI to spec: The metric does not add a public API field. The existing `ObjectReference` contract supplies `created_at` and `updated_at`, and the gRPC presenter returns both fields after an update.
+
+The first gap analysis found a race between the event-driven reconciler and the health reconciler. Both paths could record the first `Running` transition. CP-OBS-GPD-W1 adds one process-wide claim per Gateway. The delete path removes the claim. A normal reconcile uses the stored phase before work starts. A forced retry keeps the phase that existed before the retry bypass. These checks prevent work on a `Running` or `Degraded` Gateway from producing a new observation.
+
 ### openshell-gateway-console.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
@@ -116,6 +183,26 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 - GC-W1 added the OpenShift Route adapter and made provisioning, readiness, cleanup, and health repair use the selected ingress mode.
 - The base controller role permits Route CRUD and create and update access to `routes/custom-host` because the console Route sets `spec.host`.
 
+### openshift-development.spec.md (local-dev lifecycle)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| OS-1 | Cluster Lifecycle Driver Abstraction | Present | Kind targets keep current behavior via a thin wrapper around `scripts/kind/` | `scripts/cluster/`, `Makefile` | OS-W2 |
+| OS-2 | OpenShift Lifecycle Up and Down | Present | `make openshift-up` / `openshift-down` / `openshift-status`. `openshift-teardown` is an alias of down (no cluster to destroy). Down deletes the platform project and `${name}-keycloak`. | `scripts/cluster/drivers/openshift.sh` | OS-W2 |
+| OS-3 | Ephemeral Namespace Isolation | Present | Current `oc project -q` by default; `OPENSHIFT_NAMESPACE` overrides. Unlabeled existing projects are the developer's chosen target (no prompt; namespace labeling is best-effort). Refuse other HyperShell env ids and reserved names. Down tries `oc delete project` for the platform and `-keycloak` projects; if forbidden, deletes HyperShell resources (including unlabeled Keycloak) in both. Labels are not a delete gate. | `scripts/cluster/lib.sh`, `drivers/openshift.sh` | OS-W2 |
+| OS-4 | Keycloak Namespace | Present | `${OPENSHIFT_NAMESPACE}-keycloak` via `oc new-project`; apply while that project is selected, then switch back; OIDC issuer from Keycloak Route; `KC_HOSTNAME` is host-only; `keycloak-allow-platform` NetworkPolicy lets platform pods reach JWKS/Admin API; console redirect URIs and API seeding use host `curl` against Routes (API server image has no curl) | `rewrite-namespaces.py`, `drivers/openshift.sh`, `deploy/openshift/keycloak-networkpolicy.yaml` | OS-W2 |
+| OS-5 | Component Swap on OpenShift | Present | Build, push immutable commit+namespace identity, per-namespace `.openshift-swaps/`, reconcile preserves swaps | `drivers/openshift.sh`, `Makefile` | OS-W2 |
+| OS-E2E-1 | OpenShift E2E Driver | Partial | Manual `make e2e` / `make e2e-performance` against a pre-deployed cluster. Out of scope for OS-W2. | `tests/e2e/drivers/openshift.sh` | OS-W1 |
+| OS-7 | E2E Script Consolidation | Missing | Intentionally deferred: not local-dev lifecycle | `components/pr-test/` | Future |
+| OS-8 | Ephemeral CI Environment Provisioning | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
+| OS-9 | Environment Access Handoff | Missing | Intentionally deferred: CI-only | - | Future |
+| OS-10 | Blessed OpenShift Overlay | Partial | Namespace parameterization, Routes, SCC RoleBindings; `API_ENV=development_oidc` in the overlay (not `oc set env`); gateway base domain discovered from the shared Gateway listener (not `GATEWAY_API_BASE_DOMAIN`). Drift-check CI job deferred. | `deploy/openshift/`, `rewrite-namespaces.py` | OS-W2 |
+| OS-11 | OpenShift CI Workflow Shape | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
+| OS-12 | Cluster Infrastructure Prerequisites | Present | `make openshift-up` fails fast when the shared Gateway is missing or not Programmed. GatewayClass is cluster-scoped and not GET-checked (developers typically cannot read it). | `drivers/openshift.sh` `check_infrastructure` | OS-W2 |
+| OS-13 | Cluster-Scoped Permissions + SCC/RBAC posture | Present | Default applies prefixed overlay ClusterRole then ClusterRoleBinding. If ClusterRole create is Forbidden, bind the prefixed CRB to existing ClusterRole `hypershell-controller` (replace immutable roleRef if needed). Never touches unprefixed `hypershell-controller`. Down deletes this env's prefixed ClusterRole/CRB. | `rewrite-namespaces.py`, `drivers/openshift.sh` `apply_cluster_rbac`, `deploy/base/controller-rbac.yaml` | OS-W2 |
+
+Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemented. E2E driver completion beyond the OS-W1 manual slice, legacy `pr-test` consolidation, ephemeral CI, access handoff, overlay drift CI, and the OpenShift e2e workflow remain out of scope for this wave.
+
 ### openshell-gateway-service-accounts.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
@@ -133,13 +220,14 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | SA-11 | Workspace membership is a separate grant | Present | - | `plugins/serviceAccounts/presenter.go`, `components/cli/pkg/serviceaccount/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W1, W4, W5 |
 | SA-12 | Scopes are not configurable in version 1 | Present | - | `openapi.serviceAccounts.yaml`, `pkg/keycloak/service_accounts.go` | SA-W1, W3 |
 | SA-13 | Auditability and secret redaction | Present | - | `plugins/serviceAccounts/`, `pkg/keycloak/`, generated SDKs, `components/web-console/bff/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W3, W5 |
-| SA-14 | Reconciliation and drift repair | Present | Structural reconciliation intentionally does not fetch a delivered secret or mint a token; this follows the stronger secret rule and records the spec contradiction | `plugins/serviceAccounts/service.go`, `pkg/keycloak/service_accounts.go` | SA-W3 |
+| SA-14 | Reconciliation and drift repair | Present | The control-plane convergence predicate accepts Keycloak's built-in `service_account` scope and rejects all other client scopes. Structural reconciliation intentionally does not fetch a delivered secret or mint a token; this follows the stronger secret rule and records the spec contradiction. | `components/control-plane/internal/serviceaccountkeycloak/client.go`, `plugins/serviceAccounts/service.go`, `pkg/keycloak/service_accounts.go` | KC-ES-W1 |
 | SA-15 | Verification coverage | Present | - | `pkg/keycloak/*_test.go`, `plugins/serviceAccounts/*_test.go`, `pkg/rbac/*_test.go`, `components/cli/pkg/serviceaccount/*_test.go`, `packages/gateway-management-ui/src/service-accounts/*_test.ts*`, `components/web-console/**/*test*` | SA-W1..W6 |
 
 **Scoped analysis notes:**
 
 - The nested API, generated SDKs, CLI, Keycloak lifecycle, reconciliation, cleanup barrier, and gateway-detail management UI now implement the resource's public behavior.
 - The SDK and CLI generators now project the nested service-account collection. Generated clients and commands remain reproducible from the OpenAPI contract.
+- Keycloak 26.1 and later adds the built-in `service_account` default client scope. The control-plane convergence predicate accepts this provider-managed scope without a write and rejects all additional scopes.
 - The spec forbids retrieving or regenerating a delivered client secret during reconciliation, while the full-scope drift scenario asks reconciliation to issue and inspect another Client Credentials token. Creation can perform this token test because it still holds the new secret. Later reconciliation can verify and repair structural Keycloak state but cannot perform a new grant without violating the stronger one-time-secret rule. This remains a specification mismatch; reconciliation will not fetch the secret.
 - The BFF forwards `Cache-Control` and `Pragma`, preserving the one-time response's no-store policy end to end.
 
@@ -147,8 +235,8 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| DM-1 | Fleet (Sector) Lifecycle CRUD | Present | Naming: spec says "Sector", code says "Fleet" | `plugins/fleets/` | - |
-| DM-2 | Fleet-Scoped Resources (FK) | Present | `fleet_id` instead of `sector_id` | all child models | - |
+| DM-1 | ~~Fleet (Sector) Lifecycle CRUD~~ | Removed | Fleet/Sector grouping removed; all resources are top-level, tenancy via RBAC | (removed) | - |
+| DM-2 | ~~Fleet-Scoped Resources (FK)~~ | Removed | `fleet_id` field dropped from all models and contracts | (removed) | - |
 | DM-3a | Gateway field: `image` | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3b | Gateway field: `server_dns_names` | Present | Added as JSONB (model `*string`), proto `repeated string`, OpenAPI `[]string` | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3c | Gateway field: `oidc` (JSONB) | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
@@ -208,7 +296,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | D1 | ManagedDatabase Reconciliation (provider=cnpg) | Present | ManagedDatabaseReconciler creates CNPG Cluster CRs | `reconciler.go` | W8 ✅ |
 | D2 | Per-gateway Database/DatabaseRole/Secret CRs | Present | GatewayReconciler provisions CNPG Database+DatabaseRole+Secret in ManagedDB namespace | `gateway/reconciler.go` | W8 ✅ |
 | D3 | ManagedDatabase Deletion Protection | Present | API rejects delete (409) when gateways reference it | `plugins/managedDatabases/service.go` | W8 ✅ |
-| D4 | Gateway Database Resolution (auto fleet+db) | Present | fleet_id auto-resolved from cluster_id; database_id auto-assigned when sole DB in fleet | `plugins/gateways/service.go` | W8 ✅ |
+| D4 | Gateway Database Resolution (auto db) | Present | database_id auto-assigned when a sole ManagedDatabase exists | `plugins/gateways/service.go` | W8 ✅ |
 | D5 | Gateway Credentials Secret (tenant namespace) | Present | `openshell-gateway-db-credentials` created in tenant NS with host/port/dbname/user/password/uri | `gateway/reconciler.go` | W8 ✅ |
 | D6 | Database Provisioning Readiness | Present | `waitForCNPGDatabase()` waits 2min for CNPG Database CR `status.applied: true` | `gateway/reconciler.go` | W8 ✅ |
 | D7 | Database Credential Security (crypto/rand) | Present | 32-byte hex password; create-or-skip semantics | `gateway/reconciler.go` | W8 ✅ |
@@ -304,6 +392,173 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | WEB-SEC-01 | Browser security headers | Present | - | `bff/src/app.ts` (helmet) | - |
 | WEB-OBS-01 | Web performance signals | Partial | `web-vitals` declared; wiring TBD | `domain-probes/` | - |
 
+### gateway-metrics-dashboard.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| DASH-01 | Gateway phase Prometheus collector (`hypershell_gateways_total`) | Present | - | `plugins/gateways/metrics.go`, `dao.go:CountByPhase` | - |
+| DASH-02 | Metrics server bind `0.0.0.0:4433` | Present | - | `deploy/base/api-server.yaml` | - |
+| DASH-03 | Prometheus Operator and instance | Present | - | `deploy/kind/prometheus-operator/prometheus-operator-bundle.yaml`, `deploy/base/prometheus/` | - |
+| DASH-04 | ServiceMonitor scrape configuration | Present | - | `deploy/base/prometheus/servicemonitor.yaml` | - |
+| DASH-05 | BFF metrics proxy `GET /api/metrics/gateways` | Present | - | `bff/src/metrics-gateways.ts`, `bff/src/app.ts`, `bff/test/metrics-gateways.test.ts` | - |
+| DASH-06 | `GatewayMetricsDashboard` shared component | Present | - | `packages/gateway-management-ui/src/metrics/` | - |
+| DASH-07 | BFF SPA route registration for `/dashboard` | Present | - | `route-contract.json`, `bff/src/app.ts:isApplicationRoute` | - |
+| DASH-08 | Kind `PROMETHEUS_URL` patch | Present | - | `deploy/kind/kustomization.yaml` | - |
+
+**Scoped analysis notes:**
+
+- Prometheus pipeline and `GatewayMetricsDashboard` are implemented on branch `ui-and-data`. `/dashboard` renders `OperationalDashboardPage` per `web-console/operational-dashboard.spec.md`; the metrics component is embeddable but not mounted on that route by design.
+- DASH-07 was narrowed in the spec amendment: sidebar navigation and `GatewayMetricsDashboard` at `/dashboard` are no longer required.
+
+### web-console/operational-dashboard.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| OP-DASH-01 | Reusable `operational-dashboard-ui` package | Present | - | `packages/operational-dashboard-ui/` | - |
+| OP-DASH-02 | Hexagonal ports, workflow probes | Present | - | `application/dashboard-types.ts`, `dashboard-operations.ts`, `dashboard-probes.ts` | - |
+| OP-DASH-03 | Host composition wiring | Present | - | `app/composition/dashboard-composition.ts`, `application-shell.tsx` | - |
+| OP-DASH-04 | Administrator access control (SPA + BFF) | Present | - | `require-dashboard-admin.tsx`, `bff/src/app.ts`, `bff/test/auth.test.ts` | - |
+| OP-DASH-05 | SPA and BFF route surfaces | Present | - | `routes/dashboard.tsx`, `routes/home.tsx`, `route-contract.json` | - |
+| OP-DASH-06 | Gateway list metrics adapter (paginated REST) | Present | - | `app/adapters/api/dashboard-control-plane.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅ |
+| OP-DASH-07 | Gateway display status aggregation | Present | - | `dashboard-control-plane.ts`, `gateway-management-ui/gateway-data.ts:aggregateGatewayDisplayStatusCounts` | - |
+| OP-DASH-08 | Connected vs placeholder metrics | Present | - | `DATA_SOURCES.md`, `dashboard/dashboard-data.ts` | OP-W1 ✅ |
+| OP-DASH-09 | Metrics refresh policy (15 min + manual refresh, partial failure) | Present | - | `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
+| OP-DASH-10 | Widgetized grid layout | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-template.ts` | - |
+| OP-DASH-11 | Layout persistence (`localStorage` v23) | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-persistence.ts` | - |
+| OP-DASH-12 | Gateway status donut widget | Present | - | `dashboard/gateway-status-chart.tsx`, `dashboard/status-donut-chart.tsx`, `dashboard-widget.tsx` | - |
+| OP-DASH-13 | Metric, utilization, and summary widgets | Present | - | `dashboard-widget.tsx`, `dashboard/utilization-chart.tsx` | - |
+| OP-DASH-14 | Localization and accessibility | Present | - | `messages.ts`, `web-console/locales/en.json` | - |
+| OP-DASH-15 | Verification fixtures and Storybook | Present | - | `fixtures/`, `operational-dashboard.stories.tsx`, `src/dashboard/*.test.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅ |
+| OP-DASH-16 | Shared status donut + nodes widget | Present | - | `dashboard/status-donut-*.ts(x)`, `dashboard/node-status-*.ts(x)`, `dashboard-layout-template.ts` | - |
+| OP-DASH-17 | Pod capacity widget (phase + Unused segments) | Present | - | `dashboard/pod-capacity-*.ts(x)`, `bff/src/metrics-cluster-pods.ts`, `dashboard-control-plane.ts` | - |
+| OP-DASH-18 | Non-displayable metric values (NaN/Infinity fallback) | Present | - | `dashboard-widget.tsx`, `messages.ts` | - |
+| OP-DASH-19 | Independent metric sources and partial failure | Present | - | `dashboard-control-plane.ts`, `dashboard-metric-sources.ts`, `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
+| OP-DASH-20 | Section title widgets (platform adoption / hub cluster) | Present | - | `dashboard-layout-template.ts`, `dashboard-widget.tsx`, `dashboard-widget.css` | - |
+
+**Scoped analysis notes:**
+
+- Live gateway and sandbox metrics load via RBAC-scoped REST list pagination, not the Prometheus BFF route. This matches the spec's relationship table vs `gateway-metrics-dashboard.spec.md`.
+- `dashboard.layout.template.invalid` probe name is declared but never published; invalid saved templates silently fall back to default (acceptable for v1; no gap recorded).
+- CI registers `packages/operational-dashboard-ui` with `pnpm check` in `.github/workflows/checks.yml`.
+- OP-DASH-16 (2026-08-31): shared `StatusDonutChart` stack; `nodes` widget at `NODE_STATUS_WIDGET_HEIGHT`; layout persistence key `hypershell.operational-dashboard.layout.v17`.
+- OP-DASH-17 (2026-08-31): `pods` widget uses `PodCapacityChart` (phase segments + gray Unused); BFF phase PromQL; layout persistence key `hypershell.operational-dashboard.layout.v18`.
+- Post-OP-DASH-17 polish (2026-08-31): system-summary failed pod count; taller system-summary widget; expanded compact donut for pods subtitle; Storybook mock aligned to production adapter; layout persistence key `hypershell.operational-dashboard.layout.v19`.
+- OP-DASH-20 (2026-09-02): `section-title` widget for platform adoption and hub cluster headers; full-width title rows; headerless/borderless presentation; layout persistence key `hypershell.operational-dashboard.layout.v23`; `sanitizeDashboardTemplate` preserves multiple `section-title` instances; page header consolidates refresh, reset, and add-widgets controls (no separate toolbar).
+- Post-connect polish (2026-09-02, `06d6c56`): removed interim `usesSampleData` info banner and i18n keys; all OP-DASH-08 metrics are connected so the banner is no longer required.
+- OP-W2 (2026-09-03): partial metric-source failure handling - adapter fetches sources independently, page shows warning + metric-unavailable per widget/summary row, refresh merges stale data for failed sources (`dashboard-metric-sources.ts`, `get-metrics-data.ts` `keepPreviousData`).
+
+### registered-users.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| RU-01 | Read-only User inventory API (List + Get) | Present | - | `openapi.users.yaml`, `plugins/users/handler.go`, `plugins/users/plugin.go` | RU-W1 ✅ |
+| RU-02 | User resource schema (OpenAPI) | Present | - | `openapi.users.yaml`, `plugins/users/presenter.go`, `plugins/users/model.go` | RU-W1 ✅ |
+| RU-03 | User inventory authorization | Present | - | `pkg/rbac/authorization.go`, `pkg/rbac/user_provisioning.go` | RU-W1 ✅ |
+| RU-04 | Paginated List contract | Present | - | `plugins/users/handler.go`, generic list wiring | RU-W1 ✅ |
+| RU-05 | Operational dashboard `registered-users` metric | Present | - | `dashboard-control-plane.ts`, `sdk-typescript` users client | RU-W2 ✅ |
+| RU-06 | UI presentation (Registered users) | Present | - | `operational-dashboard-page.tsx`, `messages.ts`, layout key v14 | RU-W2 ✅ |
+| RU-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, `operational-dashboard-page.tsx` | - |
+| RU-08 | Verification (API + adapter tests) | Present | - | `plugins/users/integration_test.go`, `dashboard-control-plane.test.ts` | RU-W1 ✅, RU-W2 ✅ |
+
+**Scoped analysis notes:**
+
+- Delivered in `eb99f6b`: OpenAPI + List/Get handlers, `platform:admin` binding or `hypershell-admins` JWT authorization, integration tests, and dashboard adapter emitting `registered-users` from `users.list({ page: 1, size: 1 }).total`.
+- `DATA_SOURCES.md` and OP-DASH-08 `registered-users` row updated to connected.
+
+### cluster-memory.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CM-01 | Hub cluster scope (schedulable nodes) | Present | - | `deploy/base/prometheus/node-exporter.yaml`, PromQL `sum(node_memory_*)` | CM-W1 ✅ |
+| CM-02 | Memory measurement contract (`capacity_bytes`, `available_bytes`, `used_bytes`) | Present | - | `bff/src/metrics-cluster-memory.ts` | CM-W2 ✅ |
+| CM-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-memory.ts`, `DATA_SOURCES.md` | CM-W1 ✅ |
+| CM-04 | BFF `GET /api/metrics/cluster-memory` | Present | - | `bff/src/app.ts`, `bff/src/metrics-cluster-memory.ts` | CM-W2 ✅ |
+| CM-05 | Operational dashboard `memory` metric mapping | Present | - | `dashboard-control-plane.ts` | CM-W3 ✅ |
+| CM-06 | Prometheus scrape prerequisites | Present | - | `deploy/base/prometheus/node-exporter.yaml`, `node-exporter-servicemonitor.yaml` | CM-W1 ✅ |
+| CM-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
+| CM-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-memory*.test.ts`, `dashboard-control-plane.test.ts` | CM-W2 ✅, CM-W3 ✅ |
+
+**Scoped analysis notes:**
+
+- **Delivered:** node-exporter DaemonSet + ServiceMonitor; BFF instant queries `sum(node_memory_MemTotal_bytes)` and `sum(node_memory_MemAvailable_bytes)`; dashboard adapter maps bytes → GiB `memory` metric; OP-DASH-08 `memory` row connected.
+- **Scrape target:** `quay.io/prometheus/node-exporter:v1.9.0` on port 9100 with host `/proc`, `/sys`, `/root` mounts.
+- **Prometheus selector:** `hypershell.redhat.io/prometheus-scrape: "true"` on api-server and node-exporter ServiceMonitors.
+
+### cluster-cpu.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CC-01 | Hub cluster scope (schedulable nodes) | Present | - | `bff/src/metrics-cluster-cpu.ts` | CC-W2 ✅ |
+| CC-02 | CPU measurement contract (`capacity_cores`, `available_cores`, `used_cores`) | Present | - | `bff/src/metrics-cluster-cpu.ts` | CC-W2 ✅ |
+| CC-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-cpu.ts`, `DATA_SOURCES.md` | CC-W1 ✅ |
+| CC-04 | BFF `GET /api/metrics/cluster-cpu` | Present | - | `bff/src/app.ts` | CC-W2 ✅ |
+| CC-05 | Operational dashboard `cpu` metric mapping | Present | - | `dashboard-control-plane.ts` | CC-W3 ✅ |
+| CC-06 | Prometheus scrape prerequisites (reuse node-exporter) | Present | - | `deploy/base/prometheus/node-exporter.yaml`, `DATA_SOURCES.md` | CC-W1 ✅ |
+| CC-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
+| CC-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-cpu*.test.ts`, `dashboard-control-plane.test.ts` | CC-W2 ✅, CC-W3 ✅ |
+
+**Scoped analysis notes:**
+
+- **Delivered:** Reuses CM-W1 node-exporter; BFF instant queries for capacity/used cores; dashboard adapter maps to `cpu` metric (whole cores); OP-DASH-08 `cpu` row connected.
+- **BFF JSON** preserves fractional `used_cores`; adapter rounds for display.
+
+### cluster-pods.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CLP-01 | Hub cluster scope (all namespaces, schedulable nodes) | Present | - | `bff/src/metrics-cluster-pods.ts` | CLP-W2 ✅ |
+| CLP-02 | Pod measurement contract (`capacity_pods`, `used_pods`, `available_pods`) | Present | - | `bff/src/metrics-cluster-pods.ts` | CLP-W2 ✅ |
+| CLP-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-pods.ts`, `DATA_SOURCES.md` | CLP-W1 ✅ |
+| CLP-04 | BFF `GET /api/metrics/cluster-pods` | Present | - | `bff/src/app.ts` | CLP-W2 ✅ |
+| CLP-05 | Operational dashboard `pods` metric mapping | Present | - | `dashboard-control-plane.ts` | CLP-W3 ✅ |
+| CLP-06 | Prometheus scrape prerequisites (kube-state-metrics) | Present | - | `deploy/base/prometheus/kube-state-metrics.yaml`, `kube-state-metrics-servicemonitor.yaml` | CLP-W1 ✅ |
+| CLP-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
+| CLP-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-pods*.test.ts`, `dashboard-control-plane.test.ts` | CLP-W2 ✅, CLP-W3 ✅ |
+
+**Scoped analysis notes:**
+
+- **Delivered:** kube-state-metrics Deployment/ServiceMonitor; BFF instant queries for capacity/used pods and per-phase counts; dashboard adapter maps to `pods` metric with `podPhases`; `pods` widget uses `PodCapacityChart` (OP-DASH-17); OP-DASH-08 `pods` row connected.
+- **Used pods:** `count(kube_pod_info)` - all phases including Failed/Succeeded while objects exist; phase breakdown via `kube_pod_status_phase`; Unused segment = `capacity - used`.
+- **Scrape target:** `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.14.0`.
+
+### cluster-nodes.spec.md
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| CLN-01 | Hub cluster scope (all Node objects) | Present | - | `bff/src/metrics-cluster-nodes.ts` | CLN-W2 ✅ |
+| CLN-02 | Node measurement contract (`total_nodes`, `ready_nodes`, `not_ready_nodes`) | Present | - | `bff/src/metrics-cluster-nodes.ts` | CLN-W2 ✅ |
+| CLN-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-nodes.ts`, `DATA_SOURCES.md` | CLN-W1 ✅ |
+| CLN-04 | BFF `GET /api/metrics/cluster-nodes` | Present | - | `bff/src/app.ts` | CLN-W2 ✅ |
+| CLN-05 | Operational dashboard `nodes` metric mapping | Present | - | `dashboard-control-plane.ts`, `dashboard-widget.tsx` | CLN-W3 ✅ |
+| CLN-06 | Prometheus scrape prerequisites (reuse kube-state-metrics) | Present | - | `deploy/base/prometheus/kube-state-metrics.yaml`, `DATA_SOURCES.md` | CLN-W1 ✅ |
+| CLN-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
+| CLN-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-nodes*.test.ts`, `dashboard-control-plane.test.ts` | CLN-W2 ✅, CLN-W3 ✅ |
+
+**Scoped analysis notes:**
+
+- **Delivered:** Reuses CLP-W1 kube-state-metrics; BFF instant queries for total/ready nodes; adapter maps to `nodes` metric with gateway-style `value` + `status` (`healthy`/`failed`); `system-summary` row uses `SummaryGatewayValue`.
+- **UI:** Total count with failed-node exception icon when `status.failed > 0`; no `provisioning`/`degraded` buckets in v1.
+
+### gateway-provision-time.spec.md (v2 - histogram mean / P50 / P95)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GPT-00 | Prometheus histogram availability (`gateway_provision_duration_seconds`) | Missing | CP OTLP metrics not wired to Prometheus in deploy/kind | - | GPT-W2 |
+| GPT-01 | Measurement contract (mean, P50, P95 in minutes) | Missing | Adapter still emits mean only from gateway list | `dashboard-control-plane.ts` | GPT-W2 |
+| GPT-02 | Control-plane histogram semantics (CP-OBS-07) | Present | - | `control-plane/internal/otel/metrics.go` | CP-OBS-GPD-W1 ✅ |
+| GPT-03 | Prometheus data source | Missing | No BFF PromQL queries | - | GPT-W2 |
+| GPT-04 | BFF `GET /api/metrics/gateway-provision-duration` | Missing | Route does not exist | - | GPT-W2 |
+| GPT-05 | Operational dashboard mapping + three system-summary rows | Missing | Single mean row; no `provisionDuration` field | `dashboard-widget.tsx`, `dashboard-types.ts` | GPT-W2 |
+| GPT-06 | Decoupled from gateway list | Missing | Still computed from gateway list | `dashboard-control-plane.ts` | GPT-W2 |
+| GPT-07 | Refresh and error semantics | Partial | Omit-on-failure works; zero-count path still list-based | `dashboard-control-plane.ts` | GPT-W2 |
+| GPT-08 | Verification | Partial | List-based adapter tests only | `dashboard-control-plane.test.ts` | GPT-W2 |
+
+**Scoped analysis notes:**
+
+- **Spec v2 (2026-09-03):** Retires gateway-list timestamp proxy. Provision time becomes fleet-wide histogram stats via BFF Prometheus proxy (same pattern as cluster memory).
+- **Drift:** GPT-W1 implementation (mean from gateway list) remains until GPT-W2 lands.
+- **Prerequisite:** Deploy/kind must expose `gateway_provision_duration_seconds` to the BFF's `PROMETHEUS_URL` (GPT-00).
+
 ### e2e-testing.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
@@ -320,6 +575,19 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | E2E-6 | CI Artifact Collection | Present | Pod logs, events, describes uploaded on failure only | `.github/workflows/e2e.yml` | E2E-W3 ✅ |
 | E2E-7 | Deploy Base/Overlay Structure | Present | deploy/base/ + deploy/kind/ overlay + deploy/openshift/ stub | `deploy/base/`, `deploy/kind/kustomization.yaml` | E2E-W1 ✅ |
 | E2E-8 | Backward Compatibility | Present | make kind-up unchanged; IMAGE_TAG now overrides initial deploy images | `scripts/kind/up.sh` | E2E-W1 ✅ |
+| E2E-9 | E2E short and long modes (`E2E_MODE`) | Present | Step-tagged `e2e_step short\|long`; default `long`; invalid mode fails fast | `tests/e2e/lib.sh`, `tests/e2e/e2e-openshell.sh` | PERF-W1 ✅ |
+| PERF-1 | `make e2e-performance` entry point | Present | Defaults `E2E_INFRA_DRIVER` to `kind`; honors CLI override | `Makefile` | PERF-W1 ✅ |
+| PERF-2 | Infra-agnostic harness | Present | Driver-selected; `$(get_cli_binary)` only; no kubectl/oc/kind in harness | `tests/e2e/e2e-performance.sh` | PERF-W1 ✅ |
+| PERF-3 | Gateway fleet scale-up | Present | Batch + bounded concurrency, reuse-or-create, per-gateway latency | `tests/e2e/e2e-performance.sh`, `tests/e2e/perf/lib.sh` | PERF-W1 ✅ |
+| PERF-4 | Incremental checkpoints | Present | Short-mode mini test on a once-provisioned canary; incremental JSON | `tests/e2e/e2e-performance.sh` | PERF-W1 ✅ |
+| PERF-5 | Functional validation under load | Present | Nested long-mode suite on `perf-e2e-gw`; skippable | `tests/e2e/e2e-performance.sh` | PERF-W1 ✅ |
+| PERF-6 | Metrics and reporting | Present | Stdout table + schema_version=1 JSON (p50/p90/p99/max, throughput) | `tests/e2e/e2e-performance.sh` | PERF-W1 ✅ |
+| PERF-7 | Optional SLO gating | Present | Off by default; `E2E_PERF_MIN_SUCCESS_RATE` / `E2E_PERF_MAX_PROVISION_P99` | `tests/e2e/e2e-performance.sh` | PERF-W1 ✅ |
+| PERF-8 | Results consumption | Present | Timestamped history, `latest.json`, CSV opt-in, `make e2e-performance-report` | `scripts/perf-report.sh`, `perf-results/` gitignored | PERF-W1 ✅ |
+| PERF-9 | Performance cleanup | Present | EXIT trap deletes fleet + canary + functional GW; bounded concurrency; skippable | `tests/e2e/e2e-performance.sh` | PERF-W1 ✅ |
+| PERF-10 | Failure diagnostics | Present | Pending pods, node capacity, gateway phases, CP logs; `::group::` only under Actions | `tests/e2e/perf/lib.sh` | PERF-W1 ✅ |
+
+The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) remains a gap for HYPERSHELL-44; this wave delivered the performance harness against the existing Kind driver. `make e2e` / `make e2e-performance` honor `E2E_INFRA_DRIVER=openshift` once that driver exists.
 
 ### oidc-integration.spec.md
 
@@ -331,6 +599,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | OI-4 | BFF Browser Session Contract | Present | GET /auth/session with identity, roles, expiry; no tokens | `bff/src/auth.ts` | OIDC ✅ |
 | OI-5 | Kind OIDC Always-On | Present | OIDC enabled unconditionally in kind-up; KIND_ENABLE_OIDC removed | `scripts/kind/`, `Makefile` | OIDC ✅ |
 | OI-6 | Identity Provider Client Security | Partial | redirectUris restricted but port wildcard pattern not supported by Keycloak; needs explicit port URIs | `keycloak.yaml` | Follow-up |
+| OI-7 | Control Plane Service Token Reuse | Present | - | `components/control-plane/internal/auth/token_provider.go`, `components/control-plane/internal/auth/token_provider_test.go` | KC-ES-W1 |
 
 ### rbac-enforcement.spec.md
 
@@ -381,7 +650,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | NGC-1 | Gateway deletion reaps the gateway namespace (cascade + out-of-namespace cleanup) | Present | Delete event deletes the managed namespace (cascading in-namespace resources incl. sandbox pods); ClusterRoleBinding, Keycloak client, cross-namespace credential RBAC cleaned explicitly; best-effort/idempotent; never gated on sandbox count | `gateway/reconciler.go` `DeleteGatewayResources()`, `gateway/namespace.go` | NGC ✅ |
-| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps managed namespaces (both management labels required); `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `config/config.go` | NGC ✅ |
+| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; each sweep backfills `hypershell.redhat.io/instance` onto unlabeled legacy gateway namespaces (`openshell-*`, not `openshell-db-*`) then reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go` `BackfillInstanceLabels`, `config/config.go` | NGC ✅ |
 | NGC-3 | Grace period prevents premature deletion (durable annotation) | Present | `hypershell.redhat.io/gc-eligible-since` (RFC3339) stamped on and measured from the namespace so it survives restarts; cleared when a live Gateway reappears | `gateway/namespace.go` `MarkGCEligible`/`ClearGCEligible` | NGC ✅ |
 | NGC-4 | Do not reap namespaces of live gateways (abort on list failure) | Present | Liveness derived from API-reported Gateways; sweep aborts entirely if Gateways cannot be listed; existing gateway preserved regardless of phase (Degraded/Failed) | `reconciler/namespace.go` | NGC ✅ |
 | NGC-5 | Preserve a durable record before deletion | Present | `GarbageCollected` Event recorded in the control-plane namespace summarizing orphan duration, pod state, and active sandbox count; summary best-effort, never blocks the reap | `reconciler/namespace.go:203` | NGC ✅ |
@@ -430,7 +699,7 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 | L19 | cloud-provider-kind | Present | Patched build (podman 6+ fix); `--enable-lb-port-mapping`; verified in PATH | `Makefile`, `scripts/kind/up.sh` |
 | L20 | cert-manager | Present | Installed from release manifest; waits for deployments ready | `scripts/kind/up.sh` |
 | L21 | Keycloak | Present | Full realm with `hypershell-frontend`, `hypershell-provisioner`, users, custom theme; `KIND_KEYCLOAK_URL` skips | `deploy/kind/prerequisites/keycloak.yaml` |
-| L22 | Gateway Resource | Present | User-initiated via REST API; `kind-up` seeds prerequisites (Fleet, Cluster, Release, DB) but not the Gateway itself; documented in DEVELOPMENT.md | `DEVELOPMENT.md` |
+| L22 | Gateway Resource | Present | User-initiated via REST API; `kind-up` seeds Cluster, Release, and optional DB (not Fleet) and may also seed a Gateway; documented in DEVELOPMENT.md | `DEVELOPMENT.md` |
 | L23 | Gateway API Routing | Present | Networking Gateway + HTTPRoutes + wildcard TLS certs via cert-manager | `deploy/kind/prerequisites/` |
 | L24 | Multi-Namespace Deployments | Missing | Manifests have hardcoded `hypershell-system`; no namespace templating or scoped HTTPRoutes | - |
 | L25 | Single Root Makefile | Present | All kind-* targets in root Makefile; component Makefiles deprecated | `Makefile` |
@@ -439,6 +708,75 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Wave Plan
+
+### CGV-W1: Generated gateway configuration validation ✅
+
+**Scope:** CGV-1 through CGV-4 (HYPERSHELL-179) | **Status:** Complete
+
+1. Add `github.com/pelletier/go-toml/v2` as a direct control-plane dependency (already an indirect dep in the repo root).
+2. Render the gateway.toml artifact up front via the same `ApplyManifestToNamespace` + `ApplyConfigOverrides` path `deployGateway` uses (`RenderGatewayConfigTOML`).
+3. Validate the rendered artifact for well-formed TOML and OIDC structural coherence (`ValidateRenderedGatewayConfig`), distinct from the existing input-field validation.
+4. Gate before `deployGateway` so an invalid render writes no ConfigMap and never rolls the workload; a `Running` gateway keeps its last-good config.
+5. Surface failures as `PhaseFailed` with a human-readable reason and a name+namespace log line via a typed `RenderedConfigValidationError` detected with `errors.As`.
+6. Add unit tests for the validator, the renderer against the real base ConfigMap, and the error-unwrap contract; run build, vet, and the full control-plane test suite.
+
+**CGV-W1 summary:** The control plane now validates the fully rendered
+`gateway.toml` artifact before writing any config-derived resource. Well-formedness
+is checked by parsing the artifact, and OIDC coherence is checked structurally
+(section present with an issuer, unauthenticated access disabled). Because the gate
+runs before `deployGateway`, an invalid render writes no ConfigMap and never rolls
+the workload, so a running gateway keeps serving its last-good configuration; the
+failure settles the gateway to the canonical `Failed` phase with a human-readable
+reason and a name+namespace log line, reusing the existing phase vocabulary. Build,
+vet, and the complete control-plane test suite pass.
+
+### CP-OBS-RQ-W1: Reconcile queue metrics ✅
+
+**Scope:** Changed CP-OBS-07 queue fields only | **Status:** Complete
+
+1. Add the queue-depth observable gauge and queue-wait histogram.
+2. Register one depth callback for each shared reconcile queue.
+3. Track the first ready time for each pending key and record it when `Handle` starts.
+4. Keep coalesced work as one sample and exclude scheduled retry backoff.
+5. Verify metric units, attributes, buckets, queue behavior, build, vet, race tests, alignment, and review checks.
+
+**CP-OBS-RQ-W1 summary:** The shared reconcile queue now exports ready depth
+and ready-to-worker wait time through OTel. It keeps one ready time for
+coalesced work. It moves the retry ready time to the end of scheduled backoff.
+The queue does not allocate its telemetry state when metric export is disabled.
+One locked worker-claim boundary removes a key from ready depth and stops its
+queue-wait time. The eligibility time keeps scheduled retry backoff out of both
+metrics, including after a dirty add.
+Focused repeat tests, race tests, the complete control-plane tests, build, vet,
+lint, alignment, and review checks pass.
+
+### CP-OBS-GPD-W1: Reconcile Gateway provision-duration metrics ✅
+
+**Scope:** Changed CP-OBS-07 fields only | **Status:** Complete
+
+1. Add the histogram name, unit, description, and explicit buckets.
+2. Use API server timestamps from the successful `Running` update response.
+3. Record direct and delayed first promotions.
+4. Exclude `Degraded` recoveries, including forced recovery retries.
+5. Coordinate the two promotion paths so only one path records the observation.
+6. Verify that the metric has no Gateway identifier attribute.
+
+**CP-OBS-GPD-W1 summary:** The first implementation met the metric, timestamp, and transition contracts. The scoped reconcile found and closed one concurrent-recording gap. A per-Gateway claim now coordinates the event-driven and health paths. The direct path checks the stored phase before work starts. The retry adapter keeps the phase that existed before it bypasses the phase gate. Recovery and later desired-state work cannot look like a new provision. Package constants now keep the Gateway phase and healthy-status values consistent. Focused race tests pass.
+
+### KC-ES-W1: Stop the Keycloak event storm
+
+**Scope:** OI-7, SA-14
+**Dependency:** Existing control-plane token provider and service-account Keycloak reconciliation
+**Status:** Complete
+
+1. Interpret the token response's `expires_in` value as seconds and keep the 80 percent refresh threshold.
+2. Add a regression test that proves that repeated calls reuse one token.
+3. Accept an empty default-scope list or one built-in `service_account` scope as converged.
+4. Reject every other default scope and every optional scope as drift.
+5. Add regression tests for the provider-managed scope and additional-scope drift.
+6. Run control-plane tests, race tests, vet, build, alignment, and review checks.
+
+**KC-ES-W1 summary:** The token provider now interprets `expires_in` as seconds and refreshes after 80 percent of the token lifetime. Service-account reconciliation now accepts Keycloak's built-in `service_account` scope without a write and repairs every other client scope. Sequential, concurrent, threshold, no-write, drift, and update-payload tests cover the changes. The complete control-plane test suite, affected-package race tests, vet, lint, build, alignment scan, and independent review passed.
 
 ### GC-W1: OpenShift Route support for the Gateway Console
 
@@ -541,6 +879,20 @@ Created `tests/e2e/lib.sh` (shared utilities), `tests/e2e/drivers/kind.sh` (5 dr
 
 Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurrency groups, component detection (api_server, control_plane, e2e, pr_test), Kind cluster creation, e2e test execution, failure-only diagnostic artifacts, 20-min timeout, summary gate. Added `e2e` component to `.github/component-paths.json`.
 
+### Wave PERF-W1: Performance harness + short/long mode ✅
+
+**Scope:** E2E-9, PERF-1..PERF-10 | **Status:** Complete
+
+Added `E2E_MODE=short|long` step tagging in `e2e-openshell.sh` (long remains the default, so CI is unchanged). Added `tests/e2e/perf/lib.sh` (timing, average/percentile latency, bounded concurrency, schema_version=1 JSON I/O), `tests/e2e/e2e-performance.sh` (batched scale-up, canary checkpoints, functional gate, SLO, signal-safe EXIT cleanup), `scripts/perf-report.sh`, and `make e2e-performance` / `make e2e-performance-report`. Batch workers emit periodic stage/count/elapsed heartbeats while concurrent provisioning is in progress. Teardown deletes the run's Gateway records and directly reaps their tracked namespaces under one global timeout, including on INT/TERM, rather than depending on periodic namespace GC. The default per-gateway provisioning timeout is 180 seconds. `make e2e` now honors `E2E_INFRA_DRIVER` instead of hardcoding `kind`. Verified with `bash -n` and `tests/e2e/perf/lib_test.sh` (no cluster required).
+
+### Wave OS-W1: Manual OpenShift e2e/performance driver (partial) ✅
+
+Implemented `tests/e2e/drivers/openshift.sh` for an already-deployed environment: namespace-scoped API and Keycloak Route discovery, Gateway API endpoint/readiness checks, gateway base-domain discovery from the running controller Deployment, `oc` selection, shared per-gateway Keycloak role flows, and TLS verification through the system trust store or an extracted private CA. The shared suite now routes direct HTTP calls through the driver TLS seam. Manual runs require only the current `oc` context and `OPENSHIFT_NAMESPACE`. No OpenShift cluster lifecycle, namespace creation, overlay reconciliation, bootstrap, or CI automation is included.
+
+### Wave OS-W2: OpenShift local-dev lifecycle (up/down/swap) ✅
+
+Implemented `scripts/cluster/` with a driver model. `make kind-*` wraps today's `scripts/kind/` with no behavior change. `make openshift-up` deploys `kustomize build deploy/openshift/` into an ephemeral namespace group (`OPENSHIFT_NAMESPACE` + `${OPENSHIFT_NAMESPACE}-keycloak`), stamps ownership labels, refuses foreign namespaces, fails fast when the shared Gateway is missing, reads the gateway base domain from that Gateway's listener hostname, seeds ManagedCluster/GatewayRelease/ManagedDatabase/Gateway, and prints Routes. `make openshift-down` deletes only owned namespaces. Component swaps (`make openshift-api-server-up` and siblings) build, push an immutable commit+namespace identity to the internal registry, record per-namespace state in `.openshift-swaps/`, and are preserved across reconcile. Overlay: web-console + Keycloak Routes; SCC *use* is namespace-scoped RoleBindings. E2E, CI, `pr-test` consolidation, and overlay drift CI were explicitly out of scope.
+
 ### Wave R1-R8: RBAC COMPLETED
 
 | Wave | Scope | Status |
@@ -597,8 +949,12 @@ Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` 
 
 **Namespace GC (NGC):** `NamespaceGCReconciler` sweeps managed namespaces (both
 `app.kubernetes.io/managed-by=hypershell-control-plane` and
-`hypershell.redhat.io/managed=true` required) and reaps those orphaned past the
-grace period. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
+`hypershell.redhat.io/managed=true` required, plus
+`hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>`) and reaps those orphaned
+past the grace period. Each sweep first claims unlabeled legacy gateway
+namespaces (management labels, no instance label, `openshell-*` not
+`openshell-db-*`) so missed-delete orphans from before the instance label are
+not invisible to GC. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
 annotation (RFC3339) and cleared when a Gateway reappears. Sweep aborts entirely
 if Gateways cannot be listed, so a transient API failure never reaps a live
 namespace. A `GarbageCollected` Event is recorded in the control-plane namespace
@@ -629,6 +985,216 @@ label-selected pod informer.
   0 issues (control-plane + api-server gateways plugin), reusable UI package and
   web-console `check` green. (api-server unit tests run on CI; the local
   Apple-Silicon go-m1cpu cgo crash at package init is environmental.)
+
+### Wave OP-W1: Operational Dashboard Verification Hardening
+
+**Scope:** OP-DASH-06, OP-DASH-08, OP-DASH-15
+**Dependency:** operational-dashboard spec authored (2026-08-31)
+**Status:** Complete ✅
+
+1. Correct `DATA_SOURCES.md` refresh interval to 15 minutes (match `operationalDashboardRefreshMilliseconds`)
+2. Add Vitest unit tests for `createDashboardControlPlaneAdapter`: multi-page aggregation, pagination consistency failure, display-status mapping
+3. Add Vitest unit tests in `operational-dashboard-ui` for `getMetricTrendChange`, `buildGatewayStatusData`, and layout sanitization helpers
+4. Verify: `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console `check`
+
+### Wave OP-W2: Independent Metric Sources and Partial Failure
+
+**Scope:** OP-DASH-09 (partial-failure scenarios), OP-DASH-19
+**Dependency:** OP-W1, all cluster-metric BFF routes connected
+**Status:** Complete ✅
+
+1. Refactor `createDashboardControlPlaneAdapter` to fetch metric sources concurrently with `Promise.allSettled`
+2. Add `dashboard-metric-sources.ts` merge helper; extend `get-metrics-data.ts` to preserve stale metrics on refetch partial failure
+3. Publish `dashboard.metrics.partial-failure` probe when one or more sources fail but at least one succeeds
+4. Page shows warning `Alert` + per-widget metric-unavailable state for omitted metrics
+5. Update platform cluster-metric specs CM-07/CC-07/CLP-07/CLN-07 and registered-users RU-07 for source-scoped failure (OP-DASH-19)
+6. Add adapter tests for partial failure, total failure, and abort propagation
+7. Verify: `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console adapter tests
+
+### Wave RU-W1: Registered Users API and Authorization ✅
+
+**Scope:** RU-01, RU-02, RU-03, RU-04, RU-08 (API)
+**Dependency:** `registered-users.spec.md` authored
+**Status:** Complete (`eb99f6b`)
+
+1. Add `openapi.users.yaml`; embed in composite OpenAPI; run `make generate`
+2. Add `handler.go`, `presenter.go`, List/Get routes in `plugins/users/plugin.go` (read-only; no POST/PATCH/DELETE)
+3. Extend `isAuthorized` for resource `users`: require `platform:admin` binding OR `hypershell-admins` JWT realm role; singleton deny → 404
+4. Add users plugin integration tests (allow, forbid, opaque Get, `total` with `size=1`)
+5. Verify: `cd components/api-server && make test` (integration), `make generate`, `go vet ./...`
+
+### Wave RU-W2: Registered Users Dashboard Integration ✅
+
+**Scope:** RU-05, RU-06, RU-08 (UI), OP-DASH-08 `registered-users` row
+**Dependency:** RU-W1 (SDK `users.list` available)
+**Status:** Complete (`eb99f6b`)
+
+1. Extend `createDashboardControlPlaneAdapter` to fetch `users.list({ page: 1, size: 1 })` and emit `registered-users` metric from `total`
+2. Rename widget type `active-users` → `registered-users` in layout template, widget mapping, usage summary, fixtures, `DATA_SOURCES.md`, and i18n (`Registered users`)
+3. Bump layout storage key if widget type rename invalidates saved layouts (or accept one-time reset)
+4. Add adapter unit tests for registered-users mapping; update Storybook fixtures
+5. Verify: `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console `check`
+
+### Wave CM-W1: Prometheus Node Memory Scrape ✅
+
+**Scope:** CM-01 (query target), CM-03, CM-06
+**Dependency:** `cluster-memory.spec.md` authored
+**Status:** Complete (`ac65674`)
+
+1. Add hub-cluster node memory scrape targets to `deploy/base/prometheus/` (node-exporter DaemonSet, kubelet/cAdvisor `ServiceMonitor`, or equivalent for Kind and production)
+2. Confirm `hypershell-prometheus` `ClusterRole` covers the chosen scrape path (RBAC already grants `nodes`/`nodes/metrics`)
+3. Validate positive capacity samples on Kind (`make kind-up` + ad-hoc PromQL)
+4. Document canonical PromQL expressions in `packages/operational-dashboard-ui/DATA_SOURCES.md`
+
+### Wave CM-W2: BFF Cluster Memory Route ✅
+
+**Scope:** CM-02, CM-04, CM-08 (BFF)
+**Dependency:** CM-W1 (memory series available in Prometheus)
+**Status:** Complete (`ac65674`)
+
+1. Add `bff/src/metrics-cluster-memory.ts` following `metrics-gateways.ts` instant-query pattern
+2. Register `GET /api/metrics/cluster-memory` in `bff/src/app.ts` with OIDC session gate
+3. Return CM-04 JSON; compute `used_bytes = capacity_bytes - available_bytes`; HTTP `502` on Prometheus failure (no zero fallback)
+4. Add BFF unit tests: success mapping, Prometheus `502`, session requirement when OIDC enabled
+
+### Wave CM-W3: Dashboard Memory Adapter Integration ✅
+
+**Scope:** CM-05, CM-08 (adapter), OP-DASH-08 `memory` row
+**Dependency:** CM-W2 (BFF route available)
+**Status:** Complete (`ac65674`)
+
+1. Extend `createDashboardControlPlaneAdapter` to fetch `/api/metrics/cluster-memory` with same-origin credentials
+2. Map `used_bytes`/`capacity_bytes` → `memory` metric (`value`, `total`, `unit: "GiB"`, rounded whole GiB)
+3. Failed memory fetch SHALL fail entire `getOperationalMetrics` (CM-07)
+4. Update `DATA_SOURCES.md` and OP-DASH-08 `memory` row to connected
+5. Add adapter unit tests; verify `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console `check`
+
+### Wave CC-W1: CPU PromQL Documentation ✅
+
+**Scope:** CC-03 (documented PromQL), CC-06
+**Dependency:** `cluster-cpu.spec.md` authored (`9f9b0da`); CM-W1 node-exporter scrape (complete)
+**Status:** Complete (`b364373`)
+
+1. Document canonical CPU PromQL in `packages/operational-dashboard-ui/DATA_SOURCES.md`
+2. Note that CPU and memory share the same node-exporter DaemonSet (no new scrape targets)
+
+### Wave CC-W2: BFF Cluster CPU Route ✅
+
+**Scope:** CC-01 (query target), CC-02, CC-04, CC-08 (BFF)
+**Dependency:** CC-W1 (PromQL documented); node-exporter CPU series available
+**Status:** Complete (`b364373`)
+
+1. Add `bff/src/metrics-cluster-cpu.ts` following `metrics-cluster-memory.ts` pattern
+2. Register `GET /api/metrics/cluster-cpu` in `bff/src/app.ts` with OIDC session gate
+3. Return CC-04 JSON with fractional `used_cores`; HTTP `502` on Prometheus failure
+4. Add BFF unit tests: success mapping, Prometheus `502`, session requirement when OIDC enabled
+
+### Wave CC-W3: Dashboard CPU Adapter Integration ✅
+
+**Scope:** CC-05, CC-08 (adapter), OP-DASH-08 `cpu` row
+**Dependency:** CC-W2 (BFF route available)
+**Status:** Complete (`b364373`)
+
+1. Extend `createDashboardControlPlaneAdapter` to fetch `/api/metrics/cluster-cpu` in parallel with memory
+2. Map `used_cores`/`capacity_cores` → `cpu` metric (`value`, `total`, `unit: "cores"`, rounded whole cores)
+3. Failed CPU fetch SHALL fail entire `getOperationalMetrics` (CC-07)
+4. Update `DATA_SOURCES.md` and OP-DASH-08 `cpu` row to connected
+5. Add adapter unit tests; re-sync `locales/en.json` via `pnpm run i18n:extract`
+
+### Wave CLP-W1: kube-state-metrics Scrape + PromQL Documentation ✅
+
+**Scope:** CLP-03 (documented PromQL), CLP-06
+**Dependency:** `cluster-pods.spec.md` authored (`3466e55`); hub Prometheus operator overlay (CM-W1)
+**Status:** Complete (working tree)
+
+1. Deploy kube-state-metrics to `deploy/base/prometheus/` (Deployment/Service + `ServiceMonitor` with `hypershell.redhat.io/prometheus-scrape: "true"`)
+2. Wire into `deploy/base/prometheus/kustomization.yaml` and Kind overlay (validate `make kind-up` exposes `kube_pod_info` and `kube_node_status_allocatable`)
+3. Document canonical PromQL in `packages/operational-dashboard-ui/DATA_SOURCES.md`:
+   - Capacity: `sum(kube_node_status_allocatable{resource="pods"})`
+   - Used: `count(kube_pod_info)` (all phases while objects exist)
+
+### Wave CLP-W2: BFF Cluster Pods Route ✅
+
+**Scope:** CLP-01 (query target), CLP-02, CLP-04, CLP-08 (BFF)
+**Dependency:** CLP-W1 (kube-state-metrics series available)
+**Status:** Complete (working tree)
+
+1. Add `bff/src/metrics-cluster-pods.ts` following `metrics-cluster-cpu.ts` pattern (capacity + used instant queries; compute `available_pods`; reject `used_pods > capacity_pods`)
+2. Register `GET /api/metrics/cluster-pods` in `bff/src/app.ts` with OIDC session gate
+3. Return CLP-04 JSON with integral `used_pods`; HTTP `502` on Prometheus failure (no zero fallback)
+4. Add BFF unit tests: success mapping, inconsistent samples, Prometheus `502`, session requirement when OIDC enabled
+
+### Wave CLP-W3: Dashboard Pods Adapter Integration ✅
+
+**Scope:** CLP-05, CLP-08 (adapter), OP-DASH-08 `pods` row
+**Dependency:** CLP-W2 (BFF route available)
+**Status:** Complete (working tree)
+
+1. Extend `createDashboardControlPlaneAdapter` to fetch `/api/metrics/cluster-pods` with same-origin credentials (parallel with memory/cpu/users/gateways)
+2. Map `used_pods`/`capacity_pods` → `pods` metric (`value`, `total`, `unit: "pods"`)
+3. Failed pods fetch SHALL fail entire `getOperationalMetrics` (CLP-07)
+4. Update `DATA_SOURCES.md` and OP-DASH-08 `pods` row to connected
+5. Add adapter unit tests; verify `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console `check`
+
+### Wave CLN-W1: Node PromQL Documentation ✅
+
+**Scope:** CLN-03 (documented PromQL), CLN-06
+**Dependency:** `cluster-nodes.spec.md` authored; kube-state-metrics from CLP-W1
+**Status:** Complete (working tree)
+
+1. Document canonical PromQL in `packages/operational-dashboard-ui/DATA_SOURCES.md`:
+   - Total: `count(kube_node_info)`
+   - Ready: `sum(kube_node_status_condition{condition="Ready",status="true"})`
+2. Note reuse of existing kube-state-metrics scrape (no new Deployment)
+
+### Wave CLN-W2: BFF Cluster Nodes Route ✅
+
+**Scope:** CLN-01 (query target), CLN-02, CLN-04, CLN-08 (BFF)
+**Dependency:** CLN-W1 (PromQL documented); kube-state-metrics node series available
+**Status:** Complete (working tree)
+
+1. Add `bff/src/metrics-cluster-nodes.ts` following `metrics-cluster-pods.ts` pattern (total + ready instant queries; compute `not_ready_nodes`; reject `ready_nodes > total_nodes` or `total_nodes === 0`)
+2. Register `GET /api/metrics/cluster-nodes` in `bff/src/app.ts` with OIDC session gate
+3. Return CLN-04 JSON with integral counts; HTTP `502` on Prometheus failure (no zero fallback)
+4. Add BFF unit tests: success mapping, inconsistent samples, Prometheus `502`, session requirement when OIDC enabled
+
+### Wave CLN-W3: Dashboard Nodes Adapter Integration ✅
+
+**Scope:** CLN-05, CLN-08 (adapter), OP-DASH-08 `nodes` row
+**Dependency:** CLN-W2 (BFF route available)
+**Status:** Complete (working tree)
+
+1. Extend `createDashboardControlPlaneAdapter` to fetch `/api/metrics/cluster-nodes` with same-origin credentials (parallel with memory/cpu/pods/users/gateways)
+2. Map `total_nodes` → `nodes` metric `value`; map `ready_nodes` → `status.healthy` and `not_ready_nodes` → `status.failed` (gateway-style, OP-DASH-07)
+3. Update `system-summary` nodes row to use the same total + exception-status presentation as gateways (`SummaryGatewayValue` pattern)
+4. Failed nodes fetch SHALL fail entire `getOperationalMetrics` (CLN-07)
+5. Update `DATA_SOURCES.md` and OP-DASH-08 `nodes` row to connected
+6. Add adapter unit tests; update `mockOperationalDashboardMetrics` `status` fixture
+
+### Wave GPT-W1: Gateway Provision Time Adapter Integration ✅
+
+**Scope:** GPT-01 through GPT-06, GPT-08 (adapter), OP-DASH-08 `provision-time` row
+**Dependency:** `gateway-provision-time.spec.md` authored; OP-DASH-06 gateway list aggregate
+**Status:** Complete (working tree)
+
+1. Extend `aggregateGatewayList` to collect `Running` gateway timestamp samples from the existing paginated list
+2. Compute mean `updated_at - created_at` duration in minutes; format `value` to two decimal places
+3. Emit `provision-time` metric with `unit: "minutes"`; fail when no qualifying samples
+4. Document proxy semantics in `DATA_SOURCES.md`; connect OP-DASH-08 `provision-time` row
+5. Add adapter unit tests for averaging, exclusions, and empty-sample failure
+
+### Wave GPT-W2: Histogram Provision Time (mean / P50 / P95)
+
+**Scope:** GPT-00 through GPT-08 (v2 spec), OP-DASH-13 three-row system-summary, OP-DASH-19 independent source
+**Dependency:** CP-OBS-GPD-W1 ✅; `gateway-provision-time.spec.md` v2; Prometheus pipeline for CP histogram (GPT-00)
+**Status:** Planned
+
+1. Wire control-plane OTLP metrics into Prometheus (`gateway_provision_duration_seconds`) in deploy/kind (GPT-00)
+2. Add BFF `GET /api/metrics/gateway-provision-duration` with mean / P50 / P95 PromQL (GPT-03, GPT-04)
+3. Decouple adapter: new `gateway-provision-duration` metric source; remove list-based computation (GPT-06)
+4. Extend `OperationalMetric` with `provisionDuration`; map BFF JSON to `provision-time` metric (GPT-01, GPT-05)
+5. Render three system-summary rows (mean, median, P95) with localized labels (GPT-05, OP-DASH-13)
+6. BFF + adapter unit tests; update `DATA_SOURCES.md` and `dashboard-metric-sources.ts`
 
 ### Future (Deferred)
 
@@ -667,6 +1233,13 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-09-07 | working tree | Reconciled gateway-reconcile-concurrency.spec.md (CP-CONC-01..03) | 3/3 scoped requirements present | Made the gateway reconcile worker-pool size deployment configuration via `GATEWAY_RECONCILE_WORKERS` (new `getEnvInt` helper + `Config.GatewayReconcileWorkers`, default 4 = prior hardcoded pool), plumbed config -> `WatchGateways` -> `withWorkers`, clamped non-positive to the default at the watcher boundary (preserving the test-only 0-worker queue pattern), and added config/getEnvInt tests. Per-gateway serialization and bounded throttle already held (existing queue tests). The full-corpus percentage is unchanged. |
+| 2026-09-04 | `bd02232` | Reanalyzed CP-OBS-RQ-W1 after review fixes | 5/5 scoped fields present | Defined one locked worker-claim boundary for depth and wait, kept dirty adds in backoff out of ready depth, and made the design rationale apply to each shared reconcile queue. The full-corpus percentage is unchanged. |
+| 2026-09-04 | `9c01984` | Completed CP-OBS-RQ-W1 reconcile-queue metrics | 5/5 scoped fields present | Added ready queue depth and ready-to-worker wait metrics with one bounded resource-kind attribute. Coalesced work produces one wait observation, and scheduled retry backoff is excluded. |
+| 2026-09-04 | `e61bdac` | Planned the CP-OBS-07 reconcile-queue metric delta | 0/5 scoped fields present | Found two missing instruments and three missing behavior checks. Planned one control-plane wave for queue depth, queue wait, bounded labels, coalescing, and retry-backoff exclusion. |
+| 2026-09-03 | `b97a99d` | Reconciled the CP-OBS-07 Gateway provision-duration delta | 5/5 scoped fields present | Found and closed a duplicate-observation race between the event-driven and health promotion paths. Added a concurrent claim, stored-phase and forced-recovery checks, shared package constants, delete cleanup, timestamp tests, bucket tests, and a no-attribute test. The full-corpus percentage is unchanged. |
+| 2026-08-31 | working tree | Completed Keycloak event-storm KC-ES-W1 | 82% | Corrected the token lifetime unit, reused tokens until the 80 percent threshold, accepted the provider-managed service-account scope, rejected all other client scopes, and added regression tests. OI-7 and SA-14 are present. |
+| 2026-08-31 | 9ac4354 | Keycloak event-storm scoped gap analysis | 82% | Found two partial requirements: the token cache uses nanoseconds for `expires_in`, and service-account convergence rejects Keycloak's built-in scope. Planned control-plane wave KC-ES-W1. |
 | 2026-08-27 | 9984ed0 | Completed Gateway Console GC-W1 | 82% | Added mode-selected Route exposure, admission readiness, lifecycle cleanup, custom-host RBAC, and tests. All nine console requirements are present. |
 | 2026-08-27 | 612b373 | Gateway Console scoped gap analysis | 81% | Added the console spec to the registry and found four partial requirements. Planned one control-plane wave for OpenShift Route exposure, readiness, cleanup, RBAC, and tests. |
 | 2026-08-03 | initial | Initial setup | 100% | Baseline with 6 Kinds fully implemented |
@@ -697,3 +1270,29 @@ label-selected pod informer.
 | 2026-08-21 | 361305e | HYPERSHELL-49 scoped gap analysis | 69% | Added 15 OpenShellGatewayServiceAccount requirements, all initially missing. Planned strict API -> SDK -> service/Keycloak -> CLI -> UI -> integration waves. Recorded the post-delivery token-verification contradiction without changing specs. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W1..W3 | pending final recount | Added nested REST/OpenAPI, generated SDKs, durable persistence/audit, exact gateway-scoped Keycloak clients, one-time verified secret delivery, role-capped authorization, expiration/revoke/delete reconciliation, and gateway cleanup barriers. |
 | 2026-08-21 | working tree | Executed HYPERSHELL-49 SA-W4 | pending final recount | Extended the CLI generator for the nested gateway collection; added create/list/get/revoke/delete commands, explicit mode-0600 one-time credential output, expiration handling, workspace guidance, and secret-redaction tests. |
+| 2026-08-25 | working tree | Executed PERF-W1 (e2e-testing performance features) | 82% | Short/long `E2E_MODE` in the e2e suite; infra-agnostic performance harness with batched scale-up, canary checkpoints, functional gate, optional SLOs, schema_version=1 JSON history, and `make e2e-performance` / `make e2e-performance-report`. OpenShift driver still belongs to HYPERSHELL-44. |
+| 2026-08-26 | working tree | Executed OS-W1 (manual OpenShift e2e driver slice) | 78% | Added the OpenShift driver needed to run the existing e2e and performance harnesses against a pre-deployed cluster; lifecycle, overlay, bootstrap, and CI requirements remain missing. |
+| 2026-08-27 | working tree | Executed OS-W2 (OpenShift local-dev up/down/swap) | 77% | Lifecycle driver model, `make openshift-up`/`down`/`status`, namespace isolation, Keycloak namespace, component swaps via internal registry, overlay namespace parameterization. E2E/CI left deferred. |
+| 2026-08-31 | b93b1f0 | Dry-run: operational-dashboard + gateway-metrics-dashboard | 78% | Authored `web-console/operational-dashboard.spec.md` (15 reqs: 12 present, 3 partial). Amended `gateway-metrics-dashboard.spec.md` relationship and DASH-07. Gateway metrics pipeline 8/8 present on `ui-and-data`. Planned OP-W1 for docs drift, adapter tests, and package Vitest. |
+| 2026-08-31 | working tree | Executed OP-W1: operational dashboard verification | 79% | Fixed `DATA_SOURCES.md` refresh interval; added `dashboard-control-plane.test.ts` (pagination, status mapping, consistency guard, abort signal); added Vitest to `operational-dashboard-ui` with tests for layout persistence, gateway status data, and trend change; extracted `gateway-status-data.ts` and `dashboard-layout-persistence.ts`. Operational dashboard 15/15 present. |
+| 2026-08-31 | 5572127+spec | Dry-run: registered-users | 78% | Authored `platform/registered-users.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Users plugin has persistence + auto-provision but no HTTP/OpenAPI/RBAC/SDK/dashboard wiring. Planned RU-W1 (API+auth+tests) and RU-W2 (dashboard rename+adapter). |
+| 2026-08-31 | eb99f6b | Executed RU-W1 + RU-W2: registered users | 78% | OpenAPI List/Get, `platform:admin`/`hypershell-admins` auth, integration tests, SDK, dashboard `registered-users` metric (layout v14). Registered users 8/8 present. |
+| 2026-08-31 | 217452a | Dry-run: cluster-memory | 78% | Authored `platform/cluster-memory.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Prometheus scrape + BFF route + dashboard adapter not implemented. Planned CM-W1 (scrape), CM-W2 (BFF), CM-W3 (adapter). |
+| 2026-08-31 | working tree | Executed CM-W1–W3: cluster memory | 81% | node-exporter DaemonSet + ServiceMonitor; BFF `GET /api/metrics/cluster-memory`; dashboard `memory` GiB metric; BFF + adapter tests. Cluster memory 8/8 present. |
+| 2026-08-31 | 9f9b0da | Dry-run: cluster-cpu | 79% | Authored `platform/cluster-cpu.spec.md` (8 reqs). Planned CC-W1 (PromQL docs), CC-W2 (BFF), CC-W3 (adapter). |
+| 2026-08-31 | working tree | Executed CC-W1–W3: cluster CPU | 81% | BFF `GET /api/metrics/cluster-cpu`; dashboard `cpu` cores metric; BFF + adapter tests; `i18n:extract` reorder for `26a62eb`/`dc696eb` drift. Cluster CPU 8/8 present. |
+| 2026-08-31 | 3466e55 | Dry-run: cluster-pods | 79% | Authored `platform/cluster-pods.spec.md` (8 reqs: 1 present, 1 partial, 6 missing). Requires kube-state-metrics deploy (not node-exporter); BFF route + adapter not implemented. Planned CLP-W1 (ksm scrape + PromQL), CLP-W2 (BFF), CLP-W3 (adapter). Used count includes all phases. |
+| 2026-08-31 | working tree | Executed CLP-W1–W3: cluster pods | 84% | kube-state-metrics Deployment/ServiceMonitor; BFF `GET /api/metrics/cluster-pods`; dashboard `pods` metric; BFF + adapter tests; `DATA_SOURCES.md` + OP-DASH-08 connected. Cluster pods 8/8 present. |
+| 2026-08-31 | working tree | OpenShift Keycloak NetworkPolicy for JWKS | 84% | `keycloak-allow-platform` lets platform pods reach Keycloak TCP/8080 across the default-deny project policies so API server JWKS load and Admin API calls succeed. |
+| 2026-08-31 | working tree | OpenShift console redirect URI + Route seeding | 84% | Host `curl` against Keycloak/API Routes registers the web-console `/auth/callback` (realm import only had Kind localhost URIs) and seeds the API. The API server image has no curl, so `oc exec curl` never obtained tokens. |
+| 2026-08-31 | working tree | Dry-run: cluster-nodes | 82% | Authored `platform/cluster-nodes.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Gateway-style `value` + `status` for system-summary; reuses kube-state-metrics from CLP-W1. Planned CLN-W1 (PromQL docs), CLN-W2 (BFF), CLN-W3 (adapter). |
+| 2026-08-31 | working tree | Executed CLN-W1–W3: cluster nodes | 85% | BFF `GET /api/metrics/cluster-nodes`; dashboard `nodes` metric with `healthy`/`failed` status; `SummaryGatewayValue` in system-summary; BFF + adapter tests. Cluster nodes 8/8 present. |
+| 2026-08-31 | working tree | Dry-run: gateway-provision-time | 85% | Authored `platform/gateway-provision-time.spec.md` (8 reqs: 1 present, 7 missing). Mean duration from gateway list timestamps; no BFF route. Planned GPT-W1 (adapter). |
+| 2026-08-31 | 54cf5b0 | OP-DASH-16: status donut + nodes widget alignment | 85% | Shared `StatusDonutChart`; `nodes` widget; layout v17; `i18n:extract` for new dashboard message IDs; OP-DASH-16 scenario aligned with implementation (no chart subtitle). Operational dashboard 16/16 present. |
+| 2026-08-31 | working tree | Executed GPT-W1: gateway provision time | 85% | Adapter computes mean `Running` gateway provision minutes from paginated list; `provision-time` metric connected; adapter tests; `DATA_SOURCES.md` + OP-DASH-08 updated. Gateway provision time 8/8 present. OP-DASH-08 all metrics connected. |
+| 2026-08-31 | working tree | OP-DASH-17: pod capacity chart + phase breakdown | 85% | BFF phase PromQL + validation; `PodCapacityChart` with Unused segment; layout v18; CLP-02/04/05 spec updates; BFF + adapter tests. Operational dashboard 17/17 present. |
+| 2026-09-01 | feecbcb, da771fb | Reconciled commit-driven stale doc gaps | 84% (unchanged) | Two recent commits removed hardcoded image defaults (`GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` now required env vars, no fallback) and unified deploy paths (deleted `components/api-server/deploy/*`, using repo-root `deploy/` as single source of truth). Updated 7 docs: `skills/deploy/ibm-cluster/SKILL.md` (image refs, path, namespace, image-var explanation), `skills/deploy/gcp-cluster/SKILL.md` (path fix, RBAC ref), `skills/deploy/deploy-cluster/SKILL.md` (full rewrite: Keycloak bootstrap, `hypershell-api-config` Secret creation, CNPG database, OIDC/JWT security, troubleshooting for missing Secret), `skills/tooling/update-openshell/SKILL.md` (grep patterns for new image names, search path fixes), `skills/RECONCILE.md` (skill directory tree, this log entry), `README.md` (env var rows, namespace refs), `specs/platform/openshift-development.spec.md` (deploy/ directory layout, overlay limitations note). Overlay gaps surfaced: `deploy/openshift/` requires manually-created `hypershell-api-config` Secret (missing from repo; documented in deploy-cluster), hardcoded domain placeholder, missing Keycloak Route on OpenShift. Marked as known limitations in specs. |
+| 2026-09-02 | working tree | OP-DASH-20: section title widgets + layout v23 | 85% (unchanged) | `section-title` headers for platform adoption and hub cluster; OP-DASH-10/11/20 spec alignment; layout key v23; i18n extract for section title message IDs. Operational dashboard 19/19 present (renumbered to OP-DASH-20 when OP-DASH-19 assigned to partial failure). |
+| 2026-09-02 | 06d6c56 | Post-connect polish: remove sample-data banner | 85% (unchanged) | Removed `usesSampleData` provider flag, inline info `Alert`, and `app.dashboard.sampleData.*` i18n keys after all OP-DASH-08 metrics connected. Operational dashboard 17/17 present. |
+| 2026-09-03 | 6ab016a+6583d2c | Executed OP-W2: partial metric-source failure | 85% (unchanged) | Independent adapter sources with `Promise.allSettled`; `dashboard-metric-sources.ts` stale-merge on refetch; `dashboard.metrics.partial-failure` probe; platform spec CM/CC/CLP/CLN-07 + RU-07 aligned to OP-DASH-19. Operational dashboard 19/19 present. |
+| 2026-09-03 | 56befbf | Reconcile: OP-DASH-18/19/20 verification | 85% (unchanged) | Verified OP-DASH-18 (NaN/Infinity fallback), OP-DASH-19 (partial failure), OP-DASH-20 (section titles + last-refreshed header + layout v23). All `operational-dashboard-ui` and adapter tests pass. Operational dashboard 20/20 present. |

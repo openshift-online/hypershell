@@ -7,6 +7,8 @@ resources:
   - certificates.yaml
   - networkpolicies.yaml
   - route.yaml
+  - keycloak-route.yaml
+  - keycloak-networkpolicy.yaml
   - scc.yaml
 patches:
   - patch: |
@@ -31,6 +33,12 @@ patches:
                     value: openshell.stage.example.com
                   - name: GATEWAY_API_TLS_ISSUER_NAME
                     value: hypershell-ca-issuer
+                  # Shared Gateway listener is named grpc (see
+                  # deploy/openshift/infrastructure/gateway.yaml). Console
+                  # HTTPRoutes default sectionName to https, which yields
+                  # NoMatchingParent on this cluster.
+                  - name: GATEWAY_API_HTTP_LISTENER_NAME
+                    value: grpc
                   - name: OIDC_ISSUER
                     valueFrom:
                       secretKeyRef:
@@ -71,38 +79,59 @@ patches:
       name: hypershell-api-server
       namespace: hypershell-system
     patch: |
-      # Append each OpenShift setting. Do not replace the base environment
-      # list. The base list contains the database and service-account
-      # provisioner settings.
       - op: add
-        path: /spec/template/spec/containers/0/env/-
+        path: /spec/template/spec/containers/0/env
         value:
-          name: API_ENV
-          value: "development_oidc"
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: JWK_CERT_URL
-          valueFrom:
-            secretKeyRef:
-              name: hypershell-api-config
-              key: api-service.jwkCertUrl
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: RBAC_ENFORCE
-          value: "true"
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: RBAC_SERVICE_ACCOUNTS
-          value: "service-account-hypershell-control-plane"
+          # API_ENV selects the rh-trex runtime environment. The default
+          # "development" hard-forces Auth.EnableJWT=false in OverrideConfig()
+          # AFTER flag parsing, which silently clobbers --enable-jwt=true below
+          # and leaves REST with no identity so RBAC 401s every request.
+          # "development_oidc" is the purpose-built environment for a
+          # self-contained Keycloak: it leaves EnableJWT to the flags and keeps
+          # the OCM/AMS client mocked (enable-mock=true default), so the
+          # api-server does NOT require sso.redhat.com secret files. Any overlay
+          # that enables JWT against a self-hosted IdP MUST set this. Mirrors the
+          # deploy/kind overlay and the gitops jwt-enforce component.
+          - name: API_ENV
+            value: "development_oidc"
+          # Re-declare the base env: this JSON6902 add REPLACES the whole env
+          # array, so the base values would otherwise be dropped. POD_NAMESPACE
+          # must precede the provisioner address so kubelet can expand it.
+          # Same downward-API source as the controller HYPERSHELL_NAMESPACE.
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR
+            value: "hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443"
+          - name: DB_SSLMODE
+            value: require
+          - name: JWK_CERT_URL
+            valueFrom:
+              secretKeyRef:
+                name: hypershell-api-config
+                key: api-service.jwkCertUrl
+          - name: RBAC_ENFORCE
+            value: "true"
+          - name: RBAC_SERVICE_ACCOUNTS
+            value: "service-account-hypershell-control-plane"
+          # Explicit empty: disable the gateway:creator default grant so spoke
+          # service accounts holding only managed-cluster-registrar receive no
+          # gateway permissions. Remove this line to re-enable defaults for
+          # human users if the Keycloak realm role mapping is not yet in place.
+          - name: RBAC_DEFAULT_ROLES
+            value: ""
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--enable-jwt=true"
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--enable-authz=true"
+      # NOTE: the OCM/Red Hat AMS client stays mocked via API_ENV=development_oidc
+      # (enable-mock=true default), so no explicit --enable-mock flag is needed.
+      # A self-contained Keycloak deployment has no sso.redhat.com secret files,
+      # and the AMS client is unused here; JWT auth (enable-jwt) and gateway RBAC
+      # (RBAC_ENFORCE) are independent of the mock and stay on.
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--jwk-cert-url=$(JWK_CERT_URL)"
@@ -111,4 +140,4 @@ patches:
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"
       - op: add
         path: /spec/template/spec/containers/0/command/-
-        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.FleetService/WatchFleets,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
+        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"

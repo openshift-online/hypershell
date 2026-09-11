@@ -5,3 +5,4 @@ resources:
   - https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml
   - https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.0/cnpg-1.30.0.yaml
   - https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.5.4/sandbox.yaml
+  - https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml

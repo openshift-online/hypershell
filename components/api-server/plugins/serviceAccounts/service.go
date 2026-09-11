@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -670,6 +671,17 @@ func (s *service) cleanupOrphanedClients(ctx context.Context) error {
 			cleanupErrors = append(cleanupErrors, getErr)
 			continue
 		}
+		if orphaned {
+			// A shared realm can contain clients owned by another HyperShell
+			// database. Missing local records do not establish ownership. Require
+			// a local gateway before removing an account with no local record.
+			if _, gatewayErr := s.gateways.Get(ctx, client.GatewayID); gatewayErr != nil {
+				if gatewayErr.HttpCode != http.StatusNotFound {
+					cleanupErrors = append(cleanupErrors, fmt.Errorf("check orphan client gateway ownership for gateway %s: %w", client.GatewayID, gatewayErr))
+				}
+				continue
+			}
+		}
 		if account != nil {
 			if account.KeycloakClientUUID != "" && account.KeycloakClientUUID != client.UUID {
 				orphaned = true
@@ -956,7 +968,7 @@ func (s *service) readyGateway(ctx context.Context, gatewayID string) (*gateways
 	if problem != nil {
 		return nil, GatewayOIDC{}, problem
 	}
-	if gateway.Phase == nil || !strings.EqualFold(*gateway.Phase, "Running") || gateway.Status == nil || !strings.EqualFold(*gateway.Status, "Healthy") {
+	if gateway.Phase == nil || !strings.EqualFold(*gateway.Phase, string(gatewayhealth.PhaseRunning)) || gateway.Status == nil || !strings.EqualFold(*gateway.Status, gatewayhealth.StatusHealthy) {
 		return nil, GatewayOIDC{}, &APIError{Status: http.StatusConflict, Code: "gateway_not_ready", Message: "The gateway is not ready for service-account provisioning"}
 	}
 	return gateway, oidc, nil

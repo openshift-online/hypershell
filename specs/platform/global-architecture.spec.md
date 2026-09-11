@@ -138,7 +138,7 @@ graph TB
 
 **Components**:
 - API Server, Control Plane, Web UI (HA deployment)
-- PostgreSQL (via CNPG) - source of truth for Fleet, Gateway, ManagedCluster resources
+- PostgreSQL (via CNPG) - source of truth for Gateway, ManagedCluster resources
 - ArgoCD - self-reconciles *this* Cloud Hub's operator stack and HyperShell platform components (API server, control plane, Web UI) by pulling its own path from the central GitOps repo; it does **not** reconcile into ManagedClusters
 - Keycloak - federates to Global Keycloak, serves cloud services
 - Vault - secrets for cloud hub services (API server, control plane)
@@ -252,7 +252,7 @@ sequenceDiagram
 ```
 
 **Key Points**:
-- PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources - Fleet, Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
+- PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources - Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
 - Runtime state owned by each OpenShell Gateway (active Sandboxes, provider credentials, live sessions) lives in that gateway's own database on its ManagedCluster, not in the Cloud Hub PostgreSQL. Where a fact could live in either store, this document names which one owns it.
 - Control Plane watches API server via gRPC streams
 - Control Plane reconciles *tenant* resources into ManagedClusters via kubeconfig secrets (runtime push; distinct from the platform GitOps pull below)
@@ -928,7 +928,7 @@ the gateway database.
 
 | Component | Tool | Purpose |
 |-----------|------|---------|
-| Database operator | CNPG (CloudNativePG) | PostgreSQL lifecycle (replaces per-gateway cloud databases) |
+| Database operator | CNPG (CloudNativePG) | PostgreSQL lifecycle for the default, in-cluster provider; not required by the `external` provider |
 | GitOps | ArgoCD (on every cluster) | Each cluster self-reconciles its own platform state by pulling its path from the central GitOps repo (pull model) |
 | Secret management | Vault | Stores and rotates secrets with cloud-native drivers |
 | Identity | Keycloak | OIDC authentication for gateways and console |
@@ -937,15 +937,41 @@ the gateway database.
 | Monitoring | Prometheus | Metrics collection on all clusters |
 | Dashboards | Grafana | Centralized visualization on hub |
 
-## Database Strategy: CNPG
+## Database Strategy
 
-CloudNativePG replaces per-gateway cloud-managed databases (RDS, Cloud SQL). CNPG runs PostgreSQL clusters as Kubernetes-native resources with automated failover, backup, and recovery.
+Gateway PostgreSQL is provisioned through one of three providers, selected per
+install by `DATABASE_PROVIDER` and recorded on each ManagedDatabase. See
+[`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) and, for
+the external provider,
+[`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md).
+
+| Provider | Server lifecycle | Operator required |
+|---|---|---|
+| `deployment` | HyperShell runs a standalone PostgreSQL Deployment per gateway | none |
+| `cnpg` | HyperShell runs a shared CNPG `Cluster` | CloudNativePG |
+| `external` | Owned externally (AWS RDS/Aurora, IBM Cloud Databases); HyperShell registers the endpoint and provisions a database and role per gateway inside it | none |
+
+### CNPG is the default, portable choice
+
+CloudNativePG runs PostgreSQL clusters as Kubernetes-native resources with automated
+failover, backup, and recovery. It is portable across clouds and requires no cloud
+database offering, which is why it is the recommended provider for a HyperShell
+install that has a free choice.
+
+### `external` is a supported, opt-in alternative
+
+The `external` provider deliberately reintroduces cloud-managed databases for
+operators who must consume one - for compliance, an existing cloud investment, or a
+managed backup and HA story they are required to use. Choosing it trades portability
+for those properties, and it is opt-in: nothing about `external` is on the default
+path. HyperShell never creates, resizes, or deletes an external server; it registers
+a pre-existing endpoint and manages only the per-gateway database and role inside it.
 
 ### Requirements
 
 #### Requirement: CNPG Operator Deployment
 
-The CNPG operator SHALL be deployed on the hub cluster. Each ManagedDatabase SHALL be provisioned as a CNPG Cluster resource in its own dedicated namespace (`openshell-db-<hash>`), and gateway databases SHALL be provisioned as logical CNPG `Database` resources inside that ManagedDatabase namespace - not in the gateway namespace.
+The CNPG operator SHALL be deployed on the hub cluster when `DATABASE_PROVIDER=cnpg`. The `deployment` and `external` providers SHALL NOT require it. Each ManagedDatabase SHALL be provisioned as a CNPG Cluster resource in its own dedicated namespace (`openshell-db-<hash>`), and gateway databases SHALL be provisioned as logical CNPG `Database` resources inside that ManagedDatabase namespace - not in the gateway namespace.
 
 ##### Scenario: Gateway Database Provisioning via CNPG
 
@@ -1213,8 +1239,8 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Full operator stack on all tiers | Every cluster has ArgoCD, Vault, Keycloak, CNPG, Prometheus - but serves different purposes per tier. Because each cluster's own ArgoCD installs its stack from Git, the stack is present before any tenant workload lands. |
 | Federated Keycloak chain | RH SSO → Global → Cloud Hub → ManagedCluster - identity flows down, authentication bubbles up |
 | Vault per tier with distinct purposes | Cloud Hub Vault: service secrets; ManagedCluster Vault: gateway keystores |
-| CNPG on all clusters | Kubernetes-native lifecycle, portable across clouds, no vendor lock-in |
-| PostgreSQL on Cloud Hub as source of truth | All Fleet/Gateway/ManagedCluster resource state lives in Cloud Hub database |
+| CNPG as the default database provider | Kubernetes-native lifecycle, portable across clouds, no vendor lock-in. The `external` provider is available where an operator must consume a cloud-managed database, trading portability for the provider's compliance, backup, and HA properties. |
+| PostgreSQL on Cloud Hub as source of truth | All Gateway/ManagedCluster resource state lives in Cloud Hub database |
 | ManagedClusters can be standard K8s | Maximizes deployment flexibility; only hubs need OpenShift |
 | Tekton over bash scripts | Deterministic, auditable, cattle-not-pets infrastructure |
 | ArgoCD on every cluster (pull model) | Every cluster runs its own ArgoCD and self-reconciles only its own path from the central GitOps repo. No cluster stores another's kubeconfig and no hub pushes manifests outward, so credential blast radius is minimized and a hub outage never stalls a spoke's platform reconciliation. (Distinct from control-plane tenant reconciliation, which remains a runtime push from the Cloud Hub.) |

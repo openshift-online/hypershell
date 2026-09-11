@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
@@ -23,19 +24,14 @@ import (
 // gateway workload health and synchronizes the Gateway phase.
 const defaultHealthInterval = 30 * time.Second
 
+// gatewayHealthWorkerCount limits concurrent gateway health passes.
+const gatewayHealthWorkerCount = 4
+
 // defaultRouteReadyTimeout is the grace window a routed gateway's external
 // exposure may remain not-Ready (after its Deployment is Ready) before the
 // control plane moves the gateway to Degraded. See
 // specs/platform/openshell-gateway-routing.spec.md § Gateway Exposure Configuration.
 const defaultRouteReadyTimeout = 10 * time.Minute
-
-// defaultListGatewaysPageSize is the number of gateways requested per page
-// when retrieving the full gateway fleet for health observation.
-const defaultListGatewaysPageSize = 100
-
-// gatewayHealthWorkerCount limits the number of gateways that the health
-// reconciler processes at the same time. Work for one gateway stays serial.
-const gatewayHealthWorkerCount = 4
 
 // routeVerifyInterval is the minimum time between residual route/console
 // absence re-checks for a settled (torn-down, addressless) gateway.
@@ -53,9 +49,13 @@ const routeVerifyInterval = 5 * time.Minute
 // moved to Degraded, and a Degraded gateway whose workload and exposure recover
 // is moved back to Running. See openshell-gateway-health.spec.md.
 type GatewayHealthReconciler struct {
-	clientset             *kubernetes.Clientset
-	dynamicClient         dynamic.Interface
-	grpcConn              *grpc.ClientConn
+	clientset     *kubernetes.Clientset
+	dynamicClient dynamic.Interface
+	grpcConn      *grpc.ClientConn
+	// clusterID scopes the health sweep to this managed cluster's gateways. When
+	// non-empty the fleet list is filtered server-side so a spoke never stamps
+	// (Degraded/Running) a gateway owned by another cluster. Empty sweeps all.
+	clusterID             string
 	interval              time.Duration
 	exposure              exposure.Port
 	routeReadyTimeout     time.Duration
@@ -67,10 +67,7 @@ type GatewayHealthReconciler struct {
 	versionObserver       gatewayVersionObserver
 	controlPlaneNamespace string
 
-	// consoleClientChecker is one long-lived Keycloak client for residual-absence
-	// checks. It keeps its token cache between passes. It is nil when Keycloak is
-	// not configured. The client returns a mutex-protected token snapshot to each
-	// bounded gateway worker.
+	// The shared client returns a protected token snapshot to each worker.
 	consoleClientChecker gateway.ConsoleClientChecker
 
 	// now is the clock, overridable in tests.
@@ -102,7 +99,7 @@ type GatewayHealthReconciler struct {
 	routeVerifiedAt    map[string]time.Time
 }
 
-func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, controlPlaneNamespace string) *GatewayHealthReconciler {
+func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID, controlPlaneNamespace string) *GatewayHealthReconciler {
 	// Build one long-lived Keycloak client for residual-absence checks so its
 	// token cache survives across ticks (see consoleClientChecker).
 	var consoleClientChecker gateway.ConsoleClientChecker
@@ -123,6 +120,9 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		clientset:             clientset,
 		dynamicClient:         dynamicClient,
 		grpcConn:              grpcConn,
+		clusterID:             clusterID,
+		versionObserver:       newHTTPGatewayVersionObserver(),
+		controlPlaneNamespace: controlPlaneNamespace,
 		interval:              defaultHealthInterval,
 		exposure:              exposurePort,
 		routeReadyTimeout:     routeReadyTimeout(),
@@ -132,8 +132,6 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		hasGatewayAPI:         hasGatewayAPI,
 		ingressMode:           ingressMode,
 		skipNetworkPolicies:   os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
-		versionObserver:       newHTTPGatewayVersionObserver(),
-		controlPlaneNamespace: controlPlaneNamespace,
 		now:                   time.Now,
 		routeNotReadySince:    make(map[string]time.Time),
 		routeTornDown:         make(map[string]bool),
@@ -175,7 +173,7 @@ func (h *GatewayHealthReconciler) Run(ctx context.Context) error {
 }
 
 func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "gateway-health", "reconcile")
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "gateway-health", "reconcile", "")
 	var tickErr error
 	defer func() { endSpan(tickErr) }()
 
@@ -183,7 +181,7 @@ func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
 	// Page through the whole fleet: the list endpoint is server-side paginated
 	// (default page size 20), so an unpaged request would only ever refresh the
 	// health of the first page of gateways.
-	gateways, err := h.listAllGateways(ctx, client)
+	gateways, err := listAllGateways(ctx, client, h.clusterID)
 	if err != nil {
 		tickErr = err
 		log.Printf("WARN gateway health: list gateways: %v", err)
@@ -249,33 +247,6 @@ sendLoop:
 	workers.Wait()
 }
 
-// listAllGateways retrieves all gateways from the API server across all pages.
-func (h *GatewayHealthReconciler) listAllGateways(ctx context.Context, client pb.GatewayServiceClient) ([]*pb.Gateway, error) {
-	var all []*pb.Gateway
-	page := int32(1)
-
-	for {
-		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{
-			Page: page,
-			Size: defaultListGatewaysPageSize,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		items := resp.GetItems()
-		all = append(all, items...)
-
-		meta := resp.GetMetadata()
-		if len(items) == 0 || (meta != nil && int64(len(all)) >= int64(meta.GetTotal())) || len(items) < int(defaultListGatewaysPageSize) {
-			break
-		}
-		page++
-	}
-
-	return all, nil
-}
-
 func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, client pb.GatewayServiceClient, gw *pb.Gateway) (string, bool) {
 	gatewayID := gw.GetMetadata().GetId()
 	if gatewayID == "" {
@@ -287,7 +258,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	// observable workload. Leave Pending gateways to the provisioning path and
 	// Failed gateways to a subsequent spec change.
 	switch phase {
-	case "Running", "Degraded", "Provisioning":
+	case string(gatewayhealth.PhaseRunning), string(gatewayhealth.PhaseDegraded), string(gatewayhealth.PhaseProvisioning):
 	default:
 		return "", false
 	}
@@ -334,46 +305,75 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		// The Deployment has not been created yet; the provisioning path still
 		// owns this gateway. Leave its phase untouched.
 		if reason == "deployment not found" {
-			return namespace, false
+			return namespace, ready
 		}
 		h.clearRouteTimer(gatewayID)
-		desiredPhase, desiredStatus = "Degraded", reason
+		desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), reason
 	case h.exposure != nil && isRoutedGateway(gw):
 		// Deployment is Ready; a routed gateway additionally requires its external
 		// exposure to be observed Ready before it can be Running.
 		desiredPhase, desiredStatus = h.evaluateRouteReadiness(ctx, gatewayID, namespace, phase)
+		if desiredPhase == "" {
+			// Transient error observing the exposure; leave the phase untouched
+			// rather than flap the gateway.
+			return namespace, ready
+		}
 	default:
 		h.clearRouteTimer(gatewayID)
-		desiredPhase, desiredStatus = "Running", "Healthy"
+		desiredPhase, desiredStatus = string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy
 	}
 
-	request := gatewayHealthUpdateRequest(gw, desiredPhase, desiredStatus)
-	if request != nil {
-		if _, err := client.UpdateGateway(ctx, request); err != nil {
-			log.Printf("WARN gateway health: update observed state for %s: %v", gatewayID, err)
-		} else {
-			log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)
-		}
+	// active_sandbox_count is maintained independently by the event-driven
+	// sandbox-count reconciler (see openshell-gateway-sandbox-count.spec.md); the
+	// health reconciler only owns phase and status except while the lightweight
+	// Keycloak reconciler has published one of its fixed external-state markers.
+	update := observedGatewayHealthUpdate(gatewayID, phase, gw.GetStatus(), desiredPhase, desiredStatus, h.keycloakConfig != nil)
+	if update == nil {
+		return namespace, ready
 	}
+
+	response, err := client.UpdateGateway(ctx, update)
+	if err != nil {
+		log.Printf("WARN gateway health: update %s to %s: %v", gatewayID, desiredPhase, err)
+		return namespace, ready
+	}
+	if isGatewayProvisionCompletion(phase, desiredPhase) {
+		observeGatewayProvisionDuration(ctx, response.GetGateway())
+	}
+
+	log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)
 	return namespace, ready
 }
 
-// gatewayHealthUpdateRequest builds a field-scoped update for state owned by
-// the health reconciler. It returns nil when the observed state did not change.
-func gatewayHealthUpdateRequest(gw *pb.Gateway, desiredPhase, desiredStatus string) *pb.UpdateGatewayRequest {
-	if gw == nil || gw.GetMetadata().GetId() == "" {
+// observedGatewayHealthUpdate builds the narrow update required for an observed
+// health transition. A healthy workload does not prove that its external
+// Keycloak client exists or that its persisted identity is valid, so
+// Running/Healthy observations preserve either fixed Keycloak status when the
+// integration is configured. The health reconciler may still promote the
+// workload phase to Running, but does so with a phase-only update. Unhealthy
+// observations retain normal ownership of phase and status so operational
+// failures remain visible.
+func observedGatewayHealthUpdate(gatewayID, currentPhase, currentStatus, desiredPhase, desiredStatus string, keycloakConfigured bool) *pb.UpdateGatewayRequest {
+	if gatewayID == "" || desiredPhase == "" {
 		return nil
 	}
-
-	request := &pb.UpdateGatewayRequest{Id: gw.GetMetadata().GetId()}
-	if desiredPhase != "" && (gw.GetPhase() != desiredPhase || gw.GetStatus() != desiredStatus) {
-		request.Phase = &desiredPhase
-		request.Status = &desiredStatus
+	if keycloakConfigured && isGatewayKeycloakClientStatus(currentStatus) && desiredPhase == string(gatewayhealth.PhaseRunning) && desiredStatus == gatewayhealth.StatusHealthy {
+		if currentPhase == desiredPhase {
+			return nil
+		}
+		return &pb.UpdateGatewayRequest{
+			Id:    gatewayID,
+			Phase: &desiredPhase,
+		}
 	}
-	if request.Phase == nil {
+	if currentPhase == desiredPhase && currentStatus == desiredStatus {
 		return nil
 	}
-	return request
+	return &pb.UpdateGatewayRequest{
+		Id:     gatewayID,
+		Phase:  &desiredPhase,
+		Status: &desiredStatus,
+	}
 }
 
 // selfHealConsole re-reconciles the per-gateway console when it is observed not
@@ -603,21 +603,21 @@ func (h *GatewayHealthReconciler) evaluateRouteReadiness(ctx context.Context, ga
 	}
 	if rr.Ready {
 		h.clearRouteTimer(gatewayID)
-		return "Running", "Healthy"
+		return string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy
 	}
 
-	if currentPhase == "Provisioning" {
+	if currentPhase == string(gatewayhealth.PhaseProvisioning) {
 		since := h.markRouteNotReady(gatewayID)
 		if h.now().Sub(since) >= h.routeReadyTimeout {
 			h.clearRouteTimer(gatewayID)
-			return "Degraded", fmt.Sprintf("route not ready after %s: %s", h.routeReadyTimeout, rr.Reason)
+			return string(gatewayhealth.PhaseDegraded), fmt.Sprintf("route not ready after %s: %s", h.routeReadyTimeout, rr.Reason)
 		}
-		return "Provisioning", rr.Reason
+		return string(gatewayhealth.PhaseProvisioning), rr.Reason
 	}
 
 	// currentPhase is Running (lost readiness) or Degraded (still unhealthy).
 	h.clearRouteTimer(gatewayID)
-	return "Degraded", rr.Reason
+	return string(gatewayhealth.PhaseDegraded), rr.Reason
 }
 
 // markRouteNotReady records the first time the gateway's Deployment was observed

@@ -5,13 +5,12 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | Pointer to **string** |  | [optional] 
-**FleetId** | Pointer to **string** |  | [optional] 
 **Provider** | Pointer to **string** |  | [optional] 
 **Region** | Pointer to **string** |  | [optional] 
 **Engine** | Pointer to **string** |  | [optional] 
 **EngineVersion** | Pointer to **string** |  | [optional] 
 **InstanceClass** | Pointer to **string** |  | [optional] 
-**ConnectionSecret** | Pointer to **string** |  | [optional] 
+**ConnectionSecret** | Pointer to **string** | For provider \&quot;external\&quot;: the NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \&quot;/\&quot;) prefixed with \&quot;hypershell-managed-db-\&quot; and a valid DNS-1123 label. The Secret inside it always has the fixed name \&quot;hypershell-managed-db-credentials\&quot;. Ignored by other providers. | [optional] 
 **Status** | Pointer to **string** |  | [optional] 
 
 ## Methods
@@ -57,31 +56,6 @@ SetName sets Name field to given value.
 `func (o *ManagedDatabasePatchRequest) HasName() bool`
 
 HasName returns a boolean if a field has been set.
-
-### GetFleetId
-
-`func (o *ManagedDatabasePatchRequest) GetFleetId() string`
-
-GetFleetId returns the FleetId field if non-nil, zero value otherwise.
-
-### GetFleetIdOk
-
-`func (o *ManagedDatabasePatchRequest) GetFleetIdOk() (*string, bool)`
-
-GetFleetIdOk returns a tuple with the FleetId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetFleetId
-
-`func (o *ManagedDatabasePatchRequest) SetFleetId(v string)`
-
-SetFleetId sets FleetId field to given value.
-
-### HasFleetId
-
-`func (o *ManagedDatabasePatchRequest) HasFleetId() bool`
-
-HasFleetId returns a boolean if a field has been set.
 
 ### GetProvider
 

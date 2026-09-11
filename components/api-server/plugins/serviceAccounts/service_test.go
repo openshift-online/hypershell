@@ -558,6 +558,33 @@ func TestReconcileDeletesKeycloakClientsWithoutAResource(t *testing.T) {
 	}
 }
 
+func TestOrphanCleanupRequiresLocalResourceOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		gateway   GatewayLookup
+		wantError bool
+	}{
+		{name: "another deployment owns the gateway", gateway: fakeGateway{}},
+		{name: "gateway lookup is unavailable", gateway: fakeGateway{serviceErr: trexerrors.GeneralError("database unavailable")}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dao := newMemoryDAO()
+			kc := &fakeKeycloak{configured: true, managedClients: []ManagedClient{{UUID: "foreign-client", GatewayID: "foreign-gateway", ServiceAccountID: "foreign-account"}}}
+			service := newTestServiceWith(dao, kc, testBindings("creator", "gateway:viewer"), time.Now().UTC(), test.gateway, &countingLockFactory{})
+			err := service.ReconcileOnce(t.Context())
+			if (err != nil) != test.wantError {
+				t.Fatalf("ReconcileOnce() error = %v, wantError %v", err, test.wantError)
+			}
+			if test.wantError && !strings.Contains(err.Error(), "database unavailable") {
+				t.Fatalf("ReconcileOnce() error = %v, want wrapped ownership lookup cause", err)
+			}
+			if len(kc.deletedUUIDs) != 0 || kc.disableCalls != 0 || kc.deleteManagedCalls != 0 {
+				t.Fatal("cleanup changed a client without local ownership evidence")
+			}
+		})
+	}
+}
+
 func TestReconcileWithStaleSnapshotNeverReenablesARevokedCredential(t *testing.T) {
 	dao := newMemoryDAO()
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)

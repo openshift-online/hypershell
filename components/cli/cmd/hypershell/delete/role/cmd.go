@@ -20,8 +20,8 @@ var Cmd = &cobra.Command{
 	Short: "Delete a role",
 	Long: "Delete a role by ID.\n\n" +
 		"Examples:\n" +
-		"  hypershell delete role 2abc123\n" +
-		"  hypershell delete role 2abc123 --yes",
+		"  hsctl delete role 2abc123\n" +
+		"  hsctl delete role 2abc123 --yes",
 	Args: cobra.ExactArgs(1),
 	RunE: run,
 }

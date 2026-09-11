@@ -11,8 +11,10 @@ export default [
   route(routeContract.login, "./routes/login.tsx"),
   layout("./routes/application.tsx", [
     index("./routes/home.tsx"),
+    route(routeContract.dashboard, "./routes/dashboard.tsx"),
     route(routeContract.gatewayNew, "./routes/gateway-new.tsx"),
     route(routeContract.gatewayDetail, "./routes/gateway.tsx"),
+    route(routeContract.metrics, "./routes/metrics.tsx"),
   ]),
   route("*", "./routes/not-found.tsx"),
 ] satisfies RouteConfig;

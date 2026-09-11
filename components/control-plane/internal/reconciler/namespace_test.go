@@ -21,7 +21,18 @@ func managedNS(name string, annotations map[string]string) *corev1.Namespace {
 			Labels: map[string]string{
 				gateway.ManagedByLabel: gateway.ManagedByValue,
 				gateway.ManagedLabel:   gateway.ManagedLabelValue,
+				gateway.InstanceLabel:  "hypershell",
 			},
+			Annotations: annotations,
+		},
+	}
+}
+
+func nsWithLabels(name string, labels, annotations map[string]string) *corev1.Namespace {
+	return &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Labels:      labels,
 			Annotations: annotations,
 		},
 	}
@@ -285,5 +296,132 @@ func TestReconcileNamespace_UnmanagedIsUntouched(t *testing.T) {
 	}
 	if _, ok := updated.Annotations[gateway.GCEligibleSinceAnnotation]; ok {
 		t.Errorf("unmanaged namespace was annotated, want untouched")
+	}
+}
+
+func TestReconcileOnce_OnlySweepsThisInstance(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	own := managedNS("openshell-own", nil)
+	foreign := nsWithLabels("openshell-stage", map[string]string{
+		gateway.ManagedByLabel: gateway.ManagedByValue,
+		gateway.ManagedLabel:   gateway.ManagedLabelValue,
+		gateway.InstanceLabel:  "hypershell-stage",
+	}, nil)
+	client := fake.NewSimpleClientset(own, foreign)
+	r := newTestGC(client, now)
+
+	r.reconcileOnce(ctx)
+
+	ownUpdated, err := client.CoreV1().Namespaces().Get(ctx, "openshell-own", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get own namespace: %v", err)
+	}
+	if ownUpdated.Annotations[gateway.GCEligibleSinceAnnotation] != now.Format(time.RFC3339) {
+		t.Errorf("this instance's orphan was not stamped gc-eligible-since")
+	}
+
+	foreignUpdated, err := client.CoreV1().Namespaces().Get(ctx, "openshell-stage", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get foreign namespace: %v", err)
+	}
+	if foreignUpdated.Labels[gateway.InstanceLabel] != "hypershell-stage" {
+		t.Errorf("foreign instance label overwritten to %q", foreignUpdated.Labels[gateway.InstanceLabel])
+	}
+	if _, ok := foreignUpdated.Annotations[gateway.GCEligibleSinceAnnotation]; ok {
+		t.Errorf("foreign instance namespace was treated as an orphan of this instance, want ignored")
+	}
+}
+
+// Legacy gateway namespaces that predate the instance label are invisible to
+// the sweep until labeled manually: the reconciler must never touch them
+// itself, regardless of how long they have existed or whether they carry a
+// stale gc-eligible-since annotation from before labeling.
+func TestReconcileOnce_UnlabeledLegacyNamespaceIsIgnored(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	unlabeled := nsWithLabels("openshell-legacy", map[string]string{
+		gateway.ManagedByLabel: gateway.ManagedByValue,
+		gateway.ManagedLabel:   gateway.ManagedLabelValue,
+	}, map[string]string{
+		gateway.GCEligibleSinceAnnotation: now.Add(-20 * time.Minute).Format(time.RFC3339),
+	})
+	client := fake.NewSimpleClientset(unlabeled)
+	r := newTestGC(client, now)
+
+	r.reconcileOnce(ctx)
+
+	if !nsExists(t, client, "openshell-legacy") {
+		t.Fatalf("unlabeled legacy namespace reaped, want retained until manually labeled")
+	}
+	got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-legacy", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get namespace: %v", err)
+	}
+	if _, ok := got.Labels[gateway.InstanceLabel]; ok {
+		t.Errorf("unlabeled legacy namespace was claimed, want unlabeled")
+	}
+}
+
+func TestReconcileOnce_DoesNotReapForeignInstancePastGrace(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	foreign := nsWithLabels("openshell-stage", map[string]string{
+		gateway.ManagedByLabel: gateway.ManagedByValue,
+		gateway.ManagedLabel:   gateway.ManagedLabelValue,
+		gateway.InstanceLabel:  "hypershell-stage",
+	}, map[string]string{
+		gateway.GCEligibleSinceAnnotation: now.Add(-20 * time.Minute).Format(time.RFC3339),
+	})
+	client := fake.NewSimpleClientset(foreign)
+	r := newTestGC(client, now)
+
+	r.reconcileOnce(ctx)
+
+	if !nsExists(t, client, "openshell-stage") {
+		t.Fatalf("foreign instance namespace reaped, want retained")
+	}
+}
+
+func TestReconcileNamespace_SkipsForeignInstance(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	foreign := nsWithLabels("openshell-stage", map[string]string{
+		gateway.ManagedByLabel: gateway.ManagedByValue,
+		gateway.ManagedLabel:   gateway.ManagedLabelValue,
+		gateway.InstanceLabel:  "hypershell-stage",
+	}, nil)
+	client := fake.NewSimpleClientset(foreign)
+	r := newTestGC(client, now)
+
+	if err := r.reconcileNamespace(ctx, foreign, map[string]struct{}{}); err != nil {
+		t.Fatalf("reconcileNamespace() error = %v", err)
+	}
+
+	updated, err := client.CoreV1().Namespaces().Get(ctx, "openshell-stage", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get namespace: %v", err)
+	}
+	if _, ok := updated.Annotations[gateway.GCEligibleSinceAnnotation]; ok {
+		t.Errorf("foreign instance namespace was annotated, want untouched")
+	}
+}
+
+func TestReconcileOnce_EmptyInstanceAbortsSweep(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	ns := managedNS("openshell-gw", nil)
+	client := fake.NewSimpleClientset(ns)
+	r := newTestGC(client, now)
+	r.cpNamespace = ""
+
+	r.reconcileOnce(ctx)
+
+	updated, err := client.CoreV1().Namespaces().Get(ctx, "openshell-gw", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get namespace: %v", err)
+	}
+	if _, ok := updated.Annotations[gateway.GCEligibleSinceAnnotation]; ok {
+		t.Errorf("sweep with empty instance annotated a namespace, want aborted")
 	}
 }

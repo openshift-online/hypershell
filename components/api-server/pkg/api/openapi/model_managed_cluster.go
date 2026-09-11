@@ -1,7 +1,7 @@
 /*
 HyperShell API
 
-HyperShell fleet management API
+HyperShell gateway management API
 
 API version: 1.0.0
 */
@@ -28,12 +28,15 @@ type ManagedCluster struct {
 	CreatedAt        *time.Time `json:"created_at,omitempty"`
 	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
 	Name             string     `json:"name"`
-	FleetId          string     `json:"fleet_id"`
 	Provider         string     `json:"provider"`
 	Region           *string    `json:"region,omitempty"`
 	KubeconfigSecret string     `json:"kubeconfig_secret"`
 	Status           *string    `json:"status,omitempty"`
 	ApiServerUrl     *string    `json:"api_server_url,omitempty"`
+	// OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable.
+	OidcSubject *string `json:"oidc_subject,omitempty"`
+	// Timestamp of the most recent registration call. Updated on every POST /registration.
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 }
 
 type _ManagedCluster ManagedCluster
@@ -42,10 +45,9 @@ type _ManagedCluster ManagedCluster
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewManagedCluster(name string, fleetId string, provider string, kubeconfigSecret string) *ManagedCluster {
+func NewManagedCluster(name string, provider string, kubeconfigSecret string) *ManagedCluster {
 	this := ManagedCluster{}
 	this.Name = name
-	this.FleetId = fleetId
 	this.Provider = provider
 	this.KubeconfigSecret = kubeconfigSecret
 	return &this
@@ -243,30 +245,6 @@ func (o *ManagedCluster) SetName(v string) {
 	o.Name = v
 }
 
-// GetFleetId returns the FleetId field value
-func (o *ManagedCluster) GetFleetId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.FleetId
-}
-
-// GetFleetIdOk returns a tuple with the FleetId field value
-// and a boolean to check if the value has been set.
-func (o *ManagedCluster) GetFleetIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.FleetId, true
-}
-
-// SetFleetId sets field value
-func (o *ManagedCluster) SetFleetId(v string) {
-	o.FleetId = v
-}
-
 // GetProvider returns the Provider field value
 func (o *ManagedCluster) GetProvider() string {
 	if o == nil {
@@ -411,6 +389,70 @@ func (o *ManagedCluster) SetApiServerUrl(v string) {
 	o.ApiServerUrl = &v
 }
 
+// GetOidcSubject returns the OidcSubject field value if set, zero value otherwise.
+func (o *ManagedCluster) GetOidcSubject() string {
+	if o == nil || IsNil(o.OidcSubject) {
+		var ret string
+		return ret
+	}
+	return *o.OidcSubject
+}
+
+// GetOidcSubjectOk returns a tuple with the OidcSubject field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedCluster) GetOidcSubjectOk() (*string, bool) {
+	if o == nil || IsNil(o.OidcSubject) {
+		return nil, false
+	}
+	return o.OidcSubject, true
+}
+
+// HasOidcSubject returns a boolean if a field has been set.
+func (o *ManagedCluster) HasOidcSubject() bool {
+	if o != nil && !IsNil(o.OidcSubject) {
+		return true
+	}
+
+	return false
+}
+
+// SetOidcSubject gets a reference to the given string and assigns it to the OidcSubject field.
+func (o *ManagedCluster) SetOidcSubject(v string) {
+	o.OidcSubject = &v
+}
+
+// GetLastSeenAt returns the LastSeenAt field value if set, zero value otherwise.
+func (o *ManagedCluster) GetLastSeenAt() time.Time {
+	if o == nil || IsNil(o.LastSeenAt) {
+		var ret time.Time
+		return ret
+	}
+	return *o.LastSeenAt
+}
+
+// GetLastSeenAtOk returns a tuple with the LastSeenAt field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedCluster) GetLastSeenAtOk() (*time.Time, bool) {
+	if o == nil || IsNil(o.LastSeenAt) {
+		return nil, false
+	}
+	return o.LastSeenAt, true
+}
+
+// HasLastSeenAt returns a boolean if a field has been set.
+func (o *ManagedCluster) HasLastSeenAt() bool {
+	if o != nil && !IsNil(o.LastSeenAt) {
+		return true
+	}
+
+	return false
+}
+
+// SetLastSeenAt gets a reference to the given time.Time and assigns it to the LastSeenAt field.
+func (o *ManagedCluster) SetLastSeenAt(v time.Time) {
+	o.LastSeenAt = &v
+}
+
 func (o ManagedCluster) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -437,7 +479,6 @@ func (o ManagedCluster) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated_at"] = o.UpdatedAt
 	}
 	toSerialize["name"] = o.Name
-	toSerialize["fleet_id"] = o.FleetId
 	toSerialize["provider"] = o.Provider
 	if !IsNil(o.Region) {
 		toSerialize["region"] = o.Region
@@ -449,6 +490,12 @@ func (o ManagedCluster) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.ApiServerUrl) {
 		toSerialize["api_server_url"] = o.ApiServerUrl
 	}
+	if !IsNil(o.OidcSubject) {
+		toSerialize["oidc_subject"] = o.OidcSubject
+	}
+	if !IsNil(o.LastSeenAt) {
+		toSerialize["last_seen_at"] = o.LastSeenAt
+	}
 	return toSerialize, nil
 }
 
@@ -458,7 +505,6 @@ func (o *ManagedCluster) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"fleet_id",
 		"provider",
 		"kubeconfig_secret",
 	}

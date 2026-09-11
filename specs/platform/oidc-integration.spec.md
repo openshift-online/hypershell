@@ -1,6 +1,6 @@
 # Platform OIDC Integration
 
-**Date:** 2026-08-14
+**Date:** 2026-08-31
 **Status:** Draft
 **Related:** `openshell-gateway-oidc.spec.md` - per-gateway OIDC authentication; `../web-console/architecture.spec.md` - WEB-AUTH-01 through WEB-AUTH-03; `local-development.spec.md` - Kind cluster environment
 
@@ -91,7 +91,6 @@ When JWT is enabled, trusted in-cluster services (e.g., the control plane) SHALL
 
 - `/grpc.health.v1.Health/`
 - `/grpc.reflection.v1alpha.ServerReflection/`
-- `/hypershell.v1.FleetService/WatchFleets`
 - `/hypershell.v1.GatewayService/WatchGateways`
 - `/hypershell.v1.GatewayReleaseService/WatchGatewayReleases`
 - `/hypershell.v1.ManagedClusterService/WatchManagedClusters`
@@ -224,6 +223,28 @@ Protocol mappers (retained as-is):
 
 The BFF validates the `aud` claim matches `OIDC_CLIENT_ID` (i.e., `hypershell-frontend`).
 
+### `hypershell-cli` Client
+
+The `hypershell-cli` client is used by the `hsctl` CLI for interactive user authentication. It is a public client (no client secret). It supports both browser-based Authorization Code + PKCE and Device Authorization Grant (for headless/SSH environments).
+
+| Setting | Value | Rationale |
+|---------|-------|-----------|
+| `publicClient` | `true` | No client secret; PKCE secures the browser flow |
+| `standardFlowEnabled` | `true` | Authorization Code + PKCE for browser login |
+| `directAccessGrantsEnabled` | `false` | CLI does not use password grant |
+| `oauth2.device.authorization.grant.enabled` | `true` | Device flow for headless environments |
+| `pkce.code.challenge.method` | `S256` | Reject non-PKCE authorization code exchanges |
+| `redirectUris` | `http://127.0.0.1:*` | Ephemeral localhost callback port for PKCE |
+| `webOrigins` | `[]` | Loopback-only redirect; no browser-origin CORS calls to Keycloak |
+| `defaultClientScopes` | `openid`, `email`, `profile` | Standard OIDC scopes |
+
+Protocol mappers (same as `hypershell-frontend`):
+- **Audience mapper** -- includes `hypershell-frontend` in the `aud` claim so the API server's JWT validator accepts CLI-issued tokens
+- **Sub mapper** -- includes `sub` in the access token
+- **Realm roles mapper** -- maps realm roles to the `groups` claim
+
+The CLI stores the access token, refresh token, issuer URL, and client ID in `~/.config/hypershell/config.json` (or `~/.hypershell.json` if the legacy path exists). On each command the CLI refreshes the access token eagerly if it is expired and a refresh token is available.
+
 ### `hypershell-provisioner` Client
 
 The `hypershell-provisioner` client is a confidential service account used for automated Keycloak administration (e.g., per-gateway client provisioning). It is not used by the BFF or browser. See `openshell-gateway-credentials.spec.md` for its role in gateway OIDC provisioning.
@@ -315,6 +336,23 @@ The API server SHALL support JWT validation against a configurable JWKS endpoint
 - GIVEN the API server is started with JWT enabled
 - WHEN a request is made to `/healthcheck` or `/api/hypershell/v1/openapi`
 - THEN the request SHALL be processed without JWT validation
+
+### Requirement: Control Plane Service Token Reuse
+
+The control plane SHALL cache the access token that it gets with its Client Credentials grant. It SHALL interpret the token response's `expires_in` value as seconds. It SHALL reuse the token until 80 percent of its lifetime has passed. Concurrent calls SHALL use the same cached token.
+
+#### Scenario: Repeated gRPC calls reuse one token
+
+- GIVEN Keycloak returns a control-plane access token with `expires_in=300`
+- WHEN the control plane makes two gRPC calls before 240 seconds have passed
+- THEN it SHALL make one Client Credentials grant
+- AND both gRPC calls SHALL use the same access token
+
+#### Scenario: The refresh threshold has passed
+
+- GIVEN the cached control-plane access token has passed 80 percent of its lifetime
+- WHEN the control plane makes another authenticated gRPC call
+- THEN it SHALL get a new access token before it makes the call
 
 ### Requirement: BFF OIDC Authorization Code Flow
 
@@ -539,7 +577,8 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 | OIDC always-on in Kind | OIDC is the only supported authentication method. Running without it masks integration issues and diverges from production. |
 | `hypershell-frontend` client reused for BFF | The client already exists with the correct audience mapper and role claims. Creating a separate BFF client would duplicate configuration and require additional Keycloak provisioning. PKCE secures the public client adequately for a BFF. |
 | Restrict `redirectUris` from wildcard | Wildcard redirect URIs are an OAuth security anti-pattern (open redirect). Restricting to the deployment's console origin prevents authorization code interception. |
-| `directAccessGrantsEnabled` retained | Password grant is used by CLI tooling and curl-based testing in local dev. Disabling it would break the documented CLI authentication flow in `openshell-gateway-oidc.spec.md`. |
+| `directAccessGrantsEnabled` retained on `hypershell-frontend` | Password grant is retained on the web console client for `curl`-based testing and E2E test token acquisition. The `hypershell-cli` client disables it -- the CLI now uses Authorization Code + PKCE or Device Authorization Grant. |
+| Separate `hypershell-cli` client instead of reusing `hypershell-frontend` | The CLI's redirect URI (`http://127.0.0.1:*`) and the BFF's redirect URIs (HTTPS console origin) are incompatible on a single client. A separate public client also lets device flow be enabled for CLI only, without exposing it on the BFF client. |
 | Session secret as deployment configuration | Each deployment generates or provisions its own encryption key. In Kind, `openssl rand -hex 32` during `kind-up` stored in a Kubernetes Secret. In production, provisioned via the deployment's secret management system. |
 | Chunked session cookies (`session` + `session_tok`) | Storing the access token, refresh token, and ID token together would push a single encrypted cookie past the ~4KB browser limit (a limit this project has hit before). Splitting a hot-path identity cookie from a refresh cookie keeps each well under the limit and keeps the per-request read small. Both use the same key and are set atomically via `@fastify/secure-session` named sessions. |
 | In-process single-flight refresh instead of a shared lock | The BFF is stateless (encrypted cookies, no shared store), so a distributed lock would add infrastructure the design deliberately avoids. Coalescing concurrent refreshes within an instance handles the common case (an SPA firing parallel requests), and a failed refresh falls back to re-authentication, which is safe. Session affinity MAY be enabled if cross-replica refresh races become material. |

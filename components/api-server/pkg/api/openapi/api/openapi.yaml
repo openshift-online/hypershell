@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  description: HyperShell fleet management API
+  description: HyperShell gateway management API
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
@@ -28,283 +28,6 @@ paths:
                 $ref: "#/components/schemas/ObjectReference"
           description: Service metadata
       summary: Service metadata
-  /api/hypershell/v1/fleets:
-    get:
-      operationId: listFleets
-      parameters:
-      - description: Page number of record list when record list exceeds specified
-          page size
-        explode: true
-        in: query
-        name: page
-        required: false
-        schema:
-          default: 1
-          minimum: 1
-          type: integer
-        style: form
-      - description: Maximum number of records to return
-        explode: true
-        in: query
-        name: size
-        required: false
-        schema:
-          default: 100
-          minimum: 0
-          type: integer
-        style: form
-      - description: Specifies the search criteria
-        explode: true
-        in: query
-        name: search
-        required: false
-        schema:
-          type: string
-        style: form
-      - description: Specifies the order by criteria
-        explode: true
-        in: query
-        name: orderBy
-        required: false
-        schema:
-          type: string
-        style: form
-      - description: Supplies a comma-separated list of fields to be returned
-        explode: true
-        in: query
-        name: fields
-        required: false
-        schema:
-          type: string
-        style: form
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FleetList"
-          description: A JSON array of fleet objects
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error occurred
-      security:
-      - Bearer: []
-      summary: Returns a list of fleets
-    post:
-      operationId: createFleet
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Fleet"
-        description: Fleet data
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Fleet"
-          description: Created
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Validation errors occurred
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Fleet already exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: An unexpected error occurred creating the fleet
-      security:
-      - Bearer: []
-      summary: Create a new fleet
-  /api/hypershell/v1/fleets/{id}:
-    delete:
-      operationId: deleteFleet
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      responses:
-        "204":
-          description: Fleet deleted successfully
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: No fleet with specified id exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error deleting fleet
-      security:
-      - Bearer: []
-      summary: Delete a fleet
-    get:
-      operationId: getFleet
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Fleet"
-          description: Fleet found by id
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: No fleet with specified id exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error occurred
-      security:
-      - Bearer: []
-      summary: Get an fleet by id
-    patch:
-      operationId: updateFleet
-      parameters:
-      - description: The id of record
-        explode: false
-        in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        style: simple
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/FleetPatchRequest"
-        description: Updated fleet data
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Fleet"
-          description: Fleet updated successfully
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Validation errors occurred
-        "401":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Auth token is invalid
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unauthorized to perform operation
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: No fleet with specified id exists
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Fleet already exists
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-          description: Unexpected error updating fleet
-      security:
-      - Bearer: []
-      summary: Update an fleet
   /api/hypershell/v1/managed_clusters:
     get:
       operationId: listManagedClusters
@@ -431,6 +154,67 @@ paths:
       security:
       - Bearer: []
       summary: Create a new managedCluster
+  /api/hypershell/v1/managed_clusters/registration:
+    post:
+      description: |
+        Idempotent. Creates a ManagedCluster record on first call; returns the existing
+        cluster_id on subsequent calls from the same OIDC identity. Updates last_seen_at
+        on every call, making this endpoint double as a heartbeat. Requires the
+        managed-cluster-registrar Keycloak realm role.
+      operationId: registerManagedCluster
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagedClusterRegistrationRequest"
+        description: Registration request
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedClusterRegistrationResponse"
+          description: Already registered; last_seen_at updated
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedClusterRegistrationResponse"
+          description: Registered for the first time
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Missing managed-cluster-registrar role
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Same OIDC subject already registered under a different name
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error
+      security:
+      - Bearer: []
+      summary: Self-register a spoke control-plane as a managed cluster
   /api/hypershell/v1/managed_clusters/{id}:
     delete:
       operationId: deleteManagedCluster
@@ -2250,6 +2034,107 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Unexpected error occurred
       summary: Get a role binding by ID
+  /api/hypershell/v1/users:
+    get:
+      operationId: listUsers
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+          description: A list of registered users
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: List registered users
+  /api/hypershell/v1/users/{id}:
+    get:
+      operationId: getUser
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+          description: User found
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: User not found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: Get a registered user by ID
 components:
   parameters:
     id:
@@ -2450,83 +2335,11 @@ components:
         operation_id: operation_id
         id: id
         href: href
-    Fleet:
-      allOf:
-      - $ref: "#/components/schemas/ObjectReference"
-      - properties:
-          name:
-            type: string
-          description:
-            type: string
-          status:
-            type: string
-        required:
-        - name
-        type: object
-      example:
-        updated_at: 2000-01-23T04:56:07.000+00:00
-        kind: kind
-        name: name
-        created_at: 2000-01-23T04:56:07.000+00:00
-        description: description
-        id: id
-        href: href
-        status: status
-    FleetList:
-      allOf:
-      - $ref: "#/components/schemas/List"
-      - properties:
-          items:
-            items:
-              $ref: "#/components/schemas/Fleet"
-            type: array
-        type: object
-      example:
-        total: 1
-        size: 6
-        updated_at: 2000-01-23T04:56:07.000+00:00
-        kind: kind
-        created_at: 2000-01-23T04:56:07.000+00:00
-        page: 0
-        id: id
-        href: href
-        items:
-        - updated_at: 2000-01-23T04:56:07.000+00:00
-          kind: kind
-          name: name
-          created_at: 2000-01-23T04:56:07.000+00:00
-          description: description
-          id: id
-          href: href
-          status: status
-        - updated_at: 2000-01-23T04:56:07.000+00:00
-          kind: kind
-          name: name
-          created_at: 2000-01-23T04:56:07.000+00:00
-          description: description
-          id: id
-          href: href
-          status: status
-    FleetPatchRequest:
-      example:
-        name: name
-        description: description
-        status: status
-      properties:
-        name:
-          type: string
-        description:
-          type: string
-        status:
-          type: string
-      type: object
     ManagedCluster:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
           name:
-            type: string
-          fleet_id:
             type: string
           provider:
             type: string
@@ -2538,23 +2351,34 @@ components:
             type: string
           api_server_url:
             type: string
+          oidc_subject:
+            description: OIDC sub claim of the service account that registered this
+              cluster. Server-assigned; not writable.
+            readOnly: true
+            type: string
+          last_seen_at:
+            description: Timestamp of the most recent registration call. Updated on
+              every POST /registration.
+            format: date-time
+            readOnly: true
+            type: string
         required:
-        - fleet_id
         - kubeconfig_secret
         - name
         - provider
         type: object
       example:
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        oidc_subject: oidc_subject
         updated_at: 2000-01-23T04:56:07.000+00:00
         provider: provider
-        kind: kind
         name: name
-        created_at: 2000-01-23T04:56:07.000+00:00
         kubeconfig_secret: kubeconfig_secret
         id: id
         href: href
-        fleet_id: fleet_id
         region: region
+        last_seen_at: 2000-01-23T04:56:07.000+00:00
         status: status
         api_server_url: api_server_url
     ManagedClusterList:
@@ -2576,28 +2400,30 @@ components:
         id: id
         href: href
         items:
-        - updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
-          kind: kind
-          name: name
+        - kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
+          oidc_subject: oidc_subject
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
-          fleet_id: fleet_id
           region: region
+          last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
-          kind: kind
-          name: name
+        - kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
+          oidc_subject: oidc_subject
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
-          fleet_id: fleet_id
           region: region
+          last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
     ManagedClusterPatchRequest:
@@ -2605,14 +2431,11 @@ components:
         provider: provider
         name: name
         kubeconfig_secret: kubeconfig_secret
-        fleet_id: fleet_id
         region: region
         status: status
         api_server_url: api_server_url
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         provider:
           type: string
@@ -2625,13 +2448,37 @@ components:
         api_server_url:
           type: string
       type: object
+    ManagedClusterRegistrationRequest:
+      example:
+        name: name
+        description: description
+      properties:
+        name:
+          description: "Human-readable spoke name, unique per fleet (e.g. hyp0-mc1).\
+            \ Must match on every subsequent call."
+          type: string
+        description:
+          description: Optional description of the spoke.
+          type: string
+      required:
+      - name
+      type: object
+    ManagedClusterRegistrationResponse:
+      example:
+        cluster_id: cluster_id
+      properties:
+        cluster_id:
+          description: Stable KSUID assigned to this managed cluster. Use as the cluster
+            filter for WatchGateways.
+          type: string
+      required:
+      - cluster_id
+      type: object
     ManagedDatabase:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
           name:
-            type: string
-          fleet_id:
             type: string
           provider:
             type: string
@@ -2647,11 +2494,15 @@ components:
           instance_class:
             type: string
           connection_secret:
+            description: "For provider \"external\": the NAMESPACE holding the admin\
+              \ credentials Secret, not a Secret name. Must be a bare namespace name\
+              \ (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123\
+              \ label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\"\
+              . Ignored by other providers."
             type: string
           status:
             type: string
         required:
-        - fleet_id
         - name
         - provider
         type: object
@@ -2667,7 +2518,6 @@ components:
         namespace: namespace
         id: id
         href: href
-        fleet_id: fleet_id
         region: region
         engine_version: engine_version
         status: status
@@ -2701,7 +2551,6 @@ components:
           namespace: namespace
           id: id
           href: href
-          fleet_id: fleet_id
           region: region
           engine_version: engine_version
           status: status
@@ -2716,7 +2565,6 @@ components:
           namespace: namespace
           id: id
           href: href
-          fleet_id: fleet_id
           region: region
           engine_version: engine_version
           status: status
@@ -2727,14 +2575,11 @@ components:
         provider: provider
         engine: engine
         name: name
-        fleet_id: fleet_id
         region: region
         engine_version: engine_version
         status: status
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         provider:
           type: string
@@ -2747,6 +2592,11 @@ components:
         instance_class:
           type: string
         connection_secret:
+          description: "For provider \"external\": the NAMESPACE holding the admin\
+            \ credentials Secret, not a Secret name. Must be a bare namespace name\
+            \ (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123\
+            \ label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\"\
+            . Ignored by other providers."
           type: string
         status:
           type: string
@@ -2756,8 +2606,6 @@ components:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
           name:
-            type: string
-          fleet_id:
             type: string
           image:
             type: string
@@ -2771,7 +2619,6 @@ components:
           status:
             type: string
         required:
-        - fleet_id
         - image
         - name
         type: object
@@ -2785,7 +2632,6 @@ components:
         rollout_strategy: rollout_strategy
         id: id
         href: href
-        fleet_id: fleet_id
         canary_duration: canary_duration
         status: status
     GatewayReleaseList:
@@ -2816,7 +2662,6 @@ components:
           rollout_strategy: rollout_strategy
           id: id
           href: href
-          fleet_id: fleet_id
           canary_duration: canary_duration
           status: status
         - image: image
@@ -2828,7 +2673,6 @@ components:
           rollout_strategy: rollout_strategy
           id: id
           href: href
-          fleet_id: fleet_id
           canary_duration: canary_duration
           status: status
     GatewayReleasePatchRequest:
@@ -2837,13 +2681,10 @@ components:
         canary_percent: 0
         name: name
         rollout_strategy: rollout_strategy
-        fleet_id: fleet_id
         canary_duration: canary_duration
         status: status
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         image:
           type: string
@@ -2862,8 +2703,6 @@ components:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
           name:
-            type: string
-          fleet_id:
             type: string
           cluster_id:
             type: string
@@ -2936,7 +2775,6 @@ components:
         required:
         - cluster_id
         - database_id
-        - fleet_id
         - name
         - namespace
         - release_id
@@ -2952,7 +2790,6 @@ components:
         updated_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href
-        fleet_id: fleet_id
         gateway_version: gateway_version
         external_dns: external_dns
         phase: phase
@@ -3000,7 +2837,6 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
-          fleet_id: fleet_id
           gateway_version: gateway_version
           external_dns: external_dns
           phase: phase
@@ -3029,7 +2865,6 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
-          fleet_id: fleet_id
           gateway_version: gateway_version
           external_dns: external_dns
           phase: phase
@@ -3066,13 +2901,10 @@ components:
         route: route
         database_id: database_id
         name: name
-        fleet_id: fleet_id
         external_dns: external_dns
         status: status
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         cluster_id:
           type: string
@@ -3509,8 +3341,6 @@ components:
       - properties:
           name:
             type: string
-          fleet_id:
-            type: string
           topology:
             type: string
           tunnel_mode:
@@ -3520,7 +3350,6 @@ components:
           status:
             type: string
         required:
-        - fleet_id
         - name
         type: object
       example:
@@ -3533,7 +3362,6 @@ components:
         created_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href
-        fleet_id: fleet_id
         status: status
     GatewayNetworkList:
       allOf:
@@ -3563,7 +3391,6 @@ components:
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
-          fleet_id: fleet_id
           status: status
         - tunnel_mode: tunnel_mode
           hub_gateway_id: hub_gateway_id
@@ -3574,7 +3401,6 @@ components:
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
-          fleet_id: fleet_id
           status: status
     GatewayNetworkPatchRequest:
       example:
@@ -3582,12 +3408,9 @@ components:
         hub_gateway_id: hub_gateway_id
         topology: topology
         name: name
-        fleet_id: fleet_id
         status: status
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         topology:
           type: string
@@ -3674,12 +3497,9 @@ components:
           scope:
             enum:
             - global
-            - fleet
             - gateway
             type: string
           user_id:
-            type: string
-          fleet_id:
             type: string
           gateway_id:
             type: string
@@ -3696,7 +3516,6 @@ components:
         created_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href
-        fleet_id: fleet_id
         gateway_id: gateway_id
     RoleBindingList:
       allOf:
@@ -3725,7 +3544,6 @@ components:
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
-          fleet_id: fleet_id
           gateway_id: gateway_id
         - updated_at: 2000-01-23T04:56:07.000+00:00
           role_id: role_id
@@ -3735,8 +3553,64 @@ components:
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
-          fleet_id: fleet_id
           gateway_id: gateway_id
+    User:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          username:
+            type: string
+          email:
+            type: string
+          name:
+            type: string
+        required:
+        - username
+        type: object
+      example:
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        id: id
+        href: href
+        email: email
+        username: username
+    UserList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/User"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          email: email
+          username: username
+        - updated_at: 2000-01-23T04:56:07.000+00:00
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          id: id
+          href: href
+          email: email
+          username: username
     GatewayCreateRequest:
       example:
         phase: phase
@@ -3754,13 +3628,10 @@ components:
         route: route
         database_id: database_id
         name: name
-        fleet_id: fleet_id
         external_dns: external_dns
         status: status
       properties:
         name:
-          type: string
-        fleet_id:
           type: string
         cluster_id:
           type: string
@@ -3803,7 +3674,6 @@ components:
       required:
       - cluster_id
       - database_id
-      - fleet_id
       - name
       - release_id
       type: object

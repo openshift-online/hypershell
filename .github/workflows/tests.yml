@@ -1,0 +1,160 @@
+name: Tests
+
+# Orchestrator for the unit/e2e pipeline. Checks (lint, repository policy,
+# SDK drift) lives in the separate, independently-triggered
+# .github/workflows/checks.yml so it shows as its own entry in the PR checks
+# list and runs fully concurrently with this workflow -- GitHub Actions
+# `needs:` only works within a single workflow file, so the two cannot gate
+# each other without a cross-workflow poller, and this repo deliberately
+# avoids that pattern. Each triggers its own `detect-changes` job rather than
+# sharing one, which is the cost of that split.
+#
+# Within this workflow, unit and e2e are reusable workflows (on:
+# workflow_call) wired with native `needs:` gating: e2e joins on unit
+# (`needs: [detect-changes, unit]`) so Kind is never created for a SHA whose
+# unit tests are failing -- no wasted e2e run, and no in-workflow poller. It
+# no longer waits on Checks; a lint/policy/drift failure alone will not stop
+# e2e from starting.
+#
+# Change detection runs exactly once here (the detect-changes job) and is
+# passed into each stage as inputs; the stage workflows no longer detect
+# internally.
+#
+# Each stage is a reusable-workflow call, so its individual jobs surface as
+# `Unit / <job>` and (once it runs) `E2E / <job>` checks -- there is no
+# single check named just `Unit`/`E2E`. To give branch protection a stable,
+# always-present required check, the `tests-gate` job below runs with
+# `if: always()`, reads both stages' rolled-up `result` via `needs`, and
+# fails unless detect-changes succeeded and neither stage failed or was
+# cancelled. Because it always runs, it is never left pending by
+# path-filtered skips (a skipped stage still passes the gate), so THIS is
+# the check to mark required in branch protection alongside checks.yml's own
+# gate job. The two are named distinctly (`Tests CI Gate` here, `Checks CI
+# Gate` there) rather than both plain `CI Gate`: this repo's branch
+# protection is a ruleset whose required_status_checks match by
+# (context name, integration_id) only, not by workflow file, and both
+# workflows' checks share the same "GitHub Actions" integration_id -- so two
+# identically-named gates from different workflows would be indistinguishable
+# to the ruleset, and either one succeeding could satisfy the requirement
+# while the other silently failed.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Union of the permissions the called workflows need. A reusable workflow can
+# never be granted more than its caller, so this ceiling must cover e2e's
+# `checks: read` (Konflux build waits) in addition to the shared `contents:
+# read`.
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: Detect changed components
+    runs-on: ubuntu-24.04
+    outputs:
+      api_server: ${{ steps.detect.outputs.api_server }}
+      bash_tests: ${{ steps.detect.outputs.bash_tests }}
+      cli: ${{ steps.detect.outputs.cli }}
+      control_plane: ${{ steps.detect.outputs.control_plane }}
+      e2e: ${{ steps.detect.outputs.e2e }}
+      gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
+      operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
+      pr_test: ${{ steps.detect.outputs.pr_test }}
+      sdk_go: ${{ steps.detect.outputs.sdk_go }}
+      sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
+      web_console: ${{ steps.detect.outputs.web_console }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect changed components
+        id: detect
+        run: bash .github/scripts/detect-components.sh
+
+  unit:
+    name: Unit
+    needs: detect-changes
+    uses: ./.github/workflows/unit-tests.yml
+    permissions:
+      contents: read
+    with:
+      api_server: ${{ needs.detect-changes.outputs.api_server }}
+      bash_tests: ${{ needs.detect-changes.outputs.bash_tests }}
+      cli: ${{ needs.detect-changes.outputs.cli }}
+      control_plane: ${{ needs.detect-changes.outputs.control_plane }}
+      gateway_management_ui: ${{ needs.detect-changes.outputs.gateway_management_ui }}
+      operational_dashboard_ui: ${{ needs.detect-changes.outputs.operational_dashboard_ui }}
+      sdk_go: ${{ needs.detect-changes.outputs.sdk_go }}
+      sdk_typescript: ${{ needs.detect-changes.outputs.sdk_typescript }}
+      web_console: ${{ needs.detect-changes.outputs.web_console }}
+
+  e2e:
+    name: E2E
+    needs:
+      - detect-changes
+      - unit
+    # GitHub Actions' default `needs:` behavior skips a job if ANY needed job
+    # failed OR was skipped. When a PR touches only e2e-owned paths (no
+    # unit-tested component changed), every job inside the reusable `unit`
+    # workflow is individually if:-skipped, and that skip propagates to the
+    # `unit` caller job's own result -- which would silently skip `e2e` too
+    # without this explicit override. Only an actual `unit` failure (not a
+    # skip) should block e2e; detect-changes failing/cancelling still does,
+    # since it never legitimately skips.
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result != 'failure' }}
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read
+      checks: read
+    with:
+      api_server: ${{ needs.detect-changes.outputs.api_server }}
+      control_plane: ${{ needs.detect-changes.outputs.control_plane }}
+      e2e: ${{ needs.detect-changes.outputs.e2e }}
+      pr_test: ${{ needs.detect-changes.outputs.pr_test }}
+
+  # Stable rollup check for branch protection. Always runs, so a
+  # path-filtered stage that skips its internal jobs never leaves a required
+  # check pending. A stage that was skipped (result 'skipped') passes the
+  # gate; only an actual 'failure'/'cancelled' -- or a detect-changes that did
+  # not succeed -- fails it.
+  tests-gate:
+    name: Tests CI Gate
+    needs:
+      - detect-changes
+      - unit
+      - e2e
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify unit and e2e stages passed
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          if [[ "${DETECT_RESULT}" != "success" ]]; then
+            echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
+            exit 1
+          fi
+          if [[ "${UNIT_RESULT}" == "failure" || "${UNIT_RESULT}" == "cancelled" ]]; then
+            echo "Unit stage did not pass (result: ${UNIT_RESULT})"
+            exit 1
+          fi
+          if [[ "${E2E_RESULT}" == "failure" || "${E2E_RESULT}" == "cancelled" ]]; then
+            echo "E2E stage did not pass (result: ${E2E_RESULT})"
+            exit 1
+          fi
+          echo "Tests stages OK (unit: ${UNIT_RESULT}, e2e: ${E2E_RESULT})"

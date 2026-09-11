@@ -13,7 +13,6 @@ func newGatewayRelease(id string) (*gatewayReleases.GatewayRelease, error) {
 
 	gatewayRelease := &gatewayReleases.GatewayRelease{
 		Name:            "test-name",
-		FleetId:         "test-fleet_id",
 		Image:           "test-image",
 		RolloutStrategy: stringPtr("test-rollout_strategy"),
 		CanaryPercent:   intPtr(42),

@@ -38,7 +38,7 @@ func init() {
 	fs := Cmd.Flags()
 	arguments.AddParameterFlag(fs, &args.parameter)
 	arguments.AddNoHeadersFlag(fs, &args.noHeaders)
-	arguments.AddColumnsFlag(fs, &args.columns, "id, fleet_id, hub_gateway_id, name, status, created_at")
+	arguments.AddColumnsFlag(fs, &args.columns, "id, hub_gateway_id, name, status, created_at")
 	arguments.AddOutputFlag(fs, &args.outputFmt)
 	fs.StringVar(&args.search, "search", "", "Search filter expression.")
 	fs.StringVar(&args.orderBy, "order-by", "", "Order by expression.")

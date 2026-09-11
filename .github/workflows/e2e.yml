@@ -1,22 +1,42 @@
 name: E2E
 
+# Reusable final stage of the Tests pipeline. Invoked by
+# .github/workflows/tests.yml only after the Unit stage succeeds
+# (parent-level `needs: [detect-changes, unit]`), so Kind never spins up
+# against a SHA whose unit tests are failing -- no wasted e2e run, and no
+# in-workflow poller waiting on that gate. It does NOT wait on the separate
+# Checks workflow (.github/workflows/checks.yml, lint/policy/drift) -- that
+# workflow runs fully concurrently with Tests as its own top-level entry in
+# the PR checks list, and GitHub Actions `needs:` cannot gate across
+# independently-triggered workflows without a cross-workflow poller, which
+# this repo deliberately avoids. tests.yml owns the triggers, concurrency
+# group, stage sequencing, and change detection: the per-component flags
+# used by plan-images arrive as inputs instead of being detected here. The
+# stage's rolled-up result, together with unit's, is turned into a single
+# required check by the `Tests CI Gate` job in tests.yml, so this workflow needs
+# no summary/gate job of its own. The `checks: read` permission and
+# the wait-on-check-action steps below remain: they gate on Konflux image
+# builds, which are an external system this workflow cannot order with
+# `needs:`.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-  merge_group:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      api_server:
+        type: string
+        default: 'false'
+      control_plane:
+        type: string
+        default: 'false'
+      e2e:
+        type: string
+        default: 'false'
+      pr_test:
+        type: string
+        default: 'false'
 
 permissions:
   contents: read
   checks: read
-
-concurrency:
-  group: e2e-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
@@ -40,11 +60,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
-      - name: Detect changed components
-        id: detect
-        if: github.event_name == 'pull_request'
-        run: bash .github/scripts/detect-components.sh
 
       - name: Detect Konflux components
         id: detect-konflux
@@ -104,10 +119,10 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PUSH_SHA: ${{ github.sha }}
-          DETECT_API_SERVER: ${{ steps.detect.outputs.api_server }}
-          DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
-          DETECT_E2E: ${{ steps.detect.outputs.e2e }}
-          DETECT_PR_TEST: ${{ steps.detect.outputs.pr_test }}
+          DETECT_API_SERVER: ${{ inputs.api_server }}
+          DETECT_CONTROL_PLANE: ${{ inputs.control_plane }}
+          DETECT_E2E: ${{ inputs.e2e }}
+          DETECT_PR_TEST: ${{ inputs.pr_test }}
           KONFLUX_API_SERVER: ${{ steps.detect-konflux.outputs.api_server }}
           KONFLUX_CONTROL_PLANE: ${{ steps.detect-konflux.outputs.control_plane }}
           KONFLUX_WEB_CONSOLE: ${{ steps.detect-konflux.outputs.web_console }}
@@ -342,14 +357,14 @@ jobs:
 
 
   e2e-kind:
-    name: E2E Kind (${{ matrix.database-provider }})
+    name: Kind (${{ matrix.database-provider }})
     needs: plan-images
     if: needs.plan-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        database-provider: [deployment, cnpg]
+        database-provider: [deployment, cnpg, external]
     # This job now also absorbs the Konflux build wait that plan-images used to
     # hold: kind-up runs first and overlaps the remote build, the
     # wait-on-check-action steps then block for whatever build time is left (up
@@ -390,6 +405,12 @@ jobs:
           # Deploy Jaeger and point the web-console BFF at it so the browser
           # trace verification below has a collector to export to (WEB-TRACE-10).
           KIND_JAEGER: "true"
+          # Defer platform seeding until after the image swap below. kind-up
+          # deploys the baseline placeholder image first; seeding a request
+          # contract change (e.g. a removed/added required field) against that
+          # stale image would 400 and abort. The "Seed platform resources" step
+          # runs it once the working-tree images are swapped in.
+          SKIP_SEED: "true"
         run: make kind-up
 
       # Block until each triggered component build has concluded.
@@ -450,6 +471,17 @@ jobs:
           echo "::group::Kind environment configuration"
           make kind-env
           echo "::endgroup::"
+
+      # Seed platform resources now that the working-tree images are live (the
+      # swap above rolled them in). Deferred from kind-up so the seed exercises
+      # this PR's request contract instead of the baseline placeholder image.
+      # SEED_STRICT fails the job here with the real HTTP error if a create
+      # is rejected, rather than surfacing later as a confusing discovery miss.
+      - name: Seed platform resources
+        env:
+          DATABASE_PROVIDER: ${{ matrix.database-provider }}
+          SEED_STRICT: "true"
+        run: make kind-seed
 
       - name: Run e2e tests
         env:
@@ -590,24 +622,3 @@ jobs:
           name: e2e-diagnostics
           path: e2e-diagnostics/
           retention-days: 7
-
-  summary:
-    name: E2E CI gate
-    if: ${{ always() && !cancelled() }}
-    needs:
-      - plan-images
-      - e2e-kind
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check e2e results
-        env:
-          PLAN_RESULT: ${{ needs.plan-images.result }}
-          E2E_KIND_RESULT: ${{ needs.e2e-kind.result }}
-        run: |
-          for result in "${PLAN_RESULT}" "${E2E_KIND_RESULT}"; do
-            if [[ "${result}" == failure || "${result}" == cancelled ]]; then
-              echo "One or more e2e jobs failed or were cancelled."
-              exit 1
-            fi
-          done
-          echo "All e2e jobs passed or were skipped."
