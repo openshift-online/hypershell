@@ -82,7 +82,7 @@ The application shell SHALL wrap authenticated routes in `DashboardUiProvider`, 
 
 ### Requirement: OP-DASH-04 -- Administrator Access Control
 
-Access to the operational dashboard SHALL be restricted to users with the `hypershell-admins` or `platform:admin` realm role.
+Access to the operational dashboard SHALL be restricted to users with the `platform:admin` realm role (effective `platform:admin` RoleBinding, including JWT-synced realm role). The legacy Keycloak realm role `hypershell-admins` SHALL NOT grant dashboard access on its own.
 
 The SPA route modules for `/dashboard` and the dashboard-host root (`/`) SHALL wrap `OperationalDashboardPage` in `RequireDashboardAdmin`, which:
 
@@ -116,10 +116,16 @@ When OIDC is enabled, the BFF SHALL enforce the same dashboard-admin role requir
 
 #### Scenario: Dashboard administrator can fetch cluster metrics
 
-- GIVEN OIDC is enabled and the signed-in user has `hypershell-admins`
+- GIVEN OIDC is enabled and the signed-in user has `platform:admin`
 - AND Prometheus returns successful instant-query results
 - WHEN the user sends `GET /api/metrics/cluster-memory`
 - THEN the BFF SHALL respond with HTTP `200`
+
+#### Scenario: Legacy hypershell-admins cannot fetch cluster metrics
+
+- GIVEN OIDC is enabled and the signed-in user has only `hypershell-admins` (no `platform:admin`)
+- WHEN the user sends `GET /api/metrics/cluster-memory`
+- THEN the BFF SHALL respond with HTTP `403`
 
 ---
 
@@ -235,7 +241,7 @@ Version 1 of the operational dashboard SHALL distinguish **connected** metrics (
 | --- | --- | --- |
 | `provisioned-gateways` | Yes | BFF `GET /api/metrics/gateways` (Prometheus); OP-DASH-23, OP-DASH-07 |
 | `provisioned-sandboxes` | Yes | BFF `GET /api/metrics/gateway-sandboxes` (Prometheus); OP-DASH-06 |
-| `registered-users` | Yes | BFF `GET /api/metrics/registered-users` (Prometheus); see `platform/registered-users.spec.md` |
+| `registered-users` | Yes | BFF `GET /api/metrics/registered-users` (Prometheus); adoption totals, added counts, unique-login rollups, and daily `trend` per `platform/registered-users.spec.md` |
 | `memory` | Yes | BFF `GET /api/metrics/cluster-memory` (Prometheus node-exporter); see `platform/cluster-memory.spec.md` |
 | `nodes` | Yes | BFF `GET /api/metrics/cluster-nodes` (Prometheus kube-state-metrics); see `platform/cluster-nodes.spec.md` |
 | `cpu` | Yes | BFF `GET /api/metrics/cluster-cpu` (Prometheus node-exporter); see `platform/cluster-cpu.spec.md` |
@@ -248,7 +254,7 @@ Widgets for placeholder metrics SHALL remain in the default layout and in the ad
 
 Summary rows (`usage-summary`, `system-summary`) that reference a missing metric SHALL render the same localized metric-unavailable message in place of the value instead of omitting the row or showing a blank cell.
 
-Historical trend data (`OperationalMetric.trend`) and utilization capacity fields (`unit`, `total`) are not loaded by the production adapter in v1. Widgets SHALL omit trend sparklines and utilization donuts when those fields are absent.
+Historical trend data (`OperationalMetric.trend`) is loaded for `registered-users` (daily unique logins) and MAY be loaded for other metrics when connected. Utilization capacity fields (`unit`, `total`) are not loaded for cluster metrics in v1. Widgets SHALL omit trend sparklines and utilization donuts when those fields are absent.
 
 The package SHALL maintain `DATA_SOURCES.md` documenting connected vs placeholder metrics and the adapter update procedure.
 
@@ -385,7 +391,7 @@ The default layout template (`defaultDashboardLayoutTemplate`) SHALL place these
 | `usage-summary` | `usage-summary#1` | Column 0, platform adoption |
 | `gateway-status` | `gateway-status#1` | Columns 1–2, platform adoption, spans two columns |
 | `provisioned-sandboxes` | `provisioned-sandboxes#1` | Column 3, platform adoption |
-| `registered-users` | `registered-users#1` | Column 3, platform adoption second row |
+| `registered-users` | `registered-users#1` | Column 3, platform adoption second row; height `REGISTERED_USERS_WIDGET_HEIGHT` (see RU-06) |
 | `section-title` | `section-title#hub-cluster` | Full width, hub cluster header row |
 | `system-summary` | `system-summary#1` | Column 0, hub cluster |
 | `memory` | `memory#1` | Column 1, hub cluster |
@@ -413,7 +419,7 @@ Users SHALL be able to add widgets from the drawer, drag to rearrange, and remov
 
 ### Requirement: OP-DASH-11 -- Layout Persistence
 
-The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v23`.
+The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v24`.
 
 On mount, a saved template SHALL be loaded when it parses as valid JSON and contains an array entry for every responsive variant (`xl`, `lg`, `md`, `sm`). Invalid or corrupt saved state SHALL fall back to the default template without surfacing an error to the user.
 
@@ -518,7 +524,7 @@ The `pods` widget SHALL use `PodCapacityChart` (OP-DASH-17), not `UtilizationCha
 
 **Summary widgets:**
 
-- `usage-summary` - horizontal `DescriptionList` for active users, gateways (with exception status counts), and sandboxes
+- `usage-summary` - horizontal `DescriptionList` for users (total registered count with optional unique-login trend arrow per `platform/registered-users.spec.md` RU-13), gateways (with exception status counts), and sandboxes
 - `system-summary` - horizontal `DescriptionList` for memory, CPU, pods (with failed pod count when `podPhases.failed` is non-zero), nodes (with exception status counts when `status.failed` is non-zero), and provision duration (average, P50, and P95 rows when `provisionDuration` is present on the `provision-time` metric; see `platform/gateway-provision-time.spec.md` GPT-05)
 
 Trend direction indicators in summary rows SHALL appear only when `getMetricTrendChange` detects at least a 5% change between the first and last trend point.
