@@ -235,6 +235,10 @@ type ReconcileOpts struct {
 	// resources, so an in-flight pass does not recreate them behind a concurrent
 	// health-loop teardown. Nil disables the re-check (the pass proceeds).
 	RouteStillDesired func(ctx context.Context) (bool, error)
+	// ReportProgress is called at provisioning step boundaries to report
+	// condition transitions. Nil means no reporting (progress is silently
+	// skipped).
+	ReportProgress ProgressReporter
 }
 
 // KeycloakClientAPI is the subset of keycloak.Client needed by the gateway package.

@@ -9,6 +9,7 @@ configuration.go
 docs/DefaultAPI.md
 docs/Error.md
 docs/Gateway.md
+docs/GatewayAllOfProvisioningConditions.md
 docs/GatewayCreateRequest.md
 docs/GatewayList.md
 docs/GatewayNetwork.md
@@ -50,6 +51,7 @@ go.mod
 go.sum
 model_error.go
 model_gateway.go
+model_gateway_all_of_provisioning_conditions.go
 model_gateway_create_request.go
 model_gateway_list.go
 model_gateway_network.go

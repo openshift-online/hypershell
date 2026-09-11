@@ -988,6 +988,37 @@ export const messages = defineMessages({
     defaultMessage: "Loading service account",
     description: "Status while loading service-account setup metadata.",
   },
+  provisioningProgressLabel: {
+    id: "app.gateway.provisioningProgress.label",
+    defaultMessage: "Provisioning progress",
+    description:
+      "Accessible label for the progress stepper showing provisioning steps.",
+  },
+  provisioningStepConfiguringIdentityProvider: {
+    id: "app.gateway.provisioningProgress.step.identityProvider",
+    defaultMessage: "Configuring identity provider",
+    description: "Label for the identity provider provisioning step.",
+  },
+  provisioningStepDeployingGateway: {
+    id: "app.gateway.provisioningProgress.step.deploy",
+    defaultMessage: "Deploying gateway",
+    description: "Label for the gateway deployment provisioning step.",
+  },
+  provisioningStepPreparingEnvironment: {
+    id: "app.gateway.provisioningProgress.step.environment",
+    defaultMessage: "Preparing environment",
+    description: "Label for the environment preparation provisioning step.",
+  },
+  provisioningStepProvisioningDatabase: {
+    id: "app.gateway.provisioningProgress.step.database",
+    defaultMessage: "Provisioning database",
+    description: "Label for the database provisioning step.",
+  },
+  provisioningStepVerifyingHealth: {
+    id: "app.gateway.provisioningProgress.step.health",
+    defaultMessage: "Verifying gateway health",
+    description: "Label for the gateway health verification provisioning step.",
+  },
   /* eslint-enable sort-keys */
   unavailableGatewayConsole: {
     id: "app.gateway.unavailableConsole",

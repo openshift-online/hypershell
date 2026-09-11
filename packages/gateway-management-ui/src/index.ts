@@ -15,6 +15,8 @@ export type {
   GatewayPlacement,
   GatewayPlacementOptions,
   GatewayProvisionInput,
+  ProvisioningCondition,
+  ProvisioningConditionStatus,
   GatewayRecord,
   GatewaySortDirection,
   GatewaySortField,

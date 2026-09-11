@@ -25,6 +25,7 @@ type Gateway struct {
 	Namespace          string `json:"namespace"`
 	Oidc               string `json:"oidc,omitempty"`
 	Phase              string `json:"phase,omitempty"`
+	ProvisioningConditions string `json:"provisioning_conditions,omitempty"`
 	ReleaseID          string `json:"release_id"`
 	Route              string `json:"route,omitempty"`
 	RouteAddress       string `json:"route_address,omitempty"`
@@ -41,9 +42,9 @@ type GatewayList struct {
 }
 
 func (l *GatewayList) GetItems() []Gateway { return l.Items }
-func (l *GatewayList) GetTotal() int       { return l.Total }
-func (l *GatewayList) GetPage() int        { return l.Page }
-func (l *GatewayList) GetSize() int        { return l.Size }
+func (l *GatewayList) GetTotal() int                  { return l.Total }
+func (l *GatewayList) GetPage() int                   { return l.Page }
+func (l *GatewayList) GetSize() int                   { return l.Size }
 
 type GatewayBuilder struct {
 	resource Gateway
@@ -53,6 +54,7 @@ type GatewayBuilder struct {
 func NewGatewayBuilder() *GatewayBuilder {
 	return &GatewayBuilder{}
 }
+
 
 func (b *GatewayBuilder) ClusterID(v string) *GatewayBuilder {
 	b.resource.ClusterID = v
@@ -124,6 +126,7 @@ func (b *GatewayBuilder) TLSMode(v string) *GatewayBuilder {
 	return b
 }
 
+
 func (b *GatewayBuilder) Build() (*Gateway, error) {
 	if b.resource.ClusterID == "" {
 		b.errors = append(b.errors, fmt.Errorf("cluster_id is required"))
@@ -153,6 +156,7 @@ type GatewayPatchBuilder struct {
 func NewGatewayPatchBuilder() *GatewayPatchBuilder {
 	return &GatewayPatchBuilder{patch: make(map[string]any)}
 }
+
 
 func (b *GatewayPatchBuilder) ClusterID(v string) *GatewayPatchBuilder {
 	b.patch["cluster_id"] = v
@@ -234,6 +238,8 @@ func (b *GatewayPatchBuilder) TLSMode(v string) *GatewayPatchBuilder {
 	return b
 }
 
+
 func (b *GatewayPatchBuilder) Build() map[string]any {
 	return b.patch
 }
+

@@ -18,6 +18,7 @@ export type Gateway = ObjectReference & {
   namespace: string;
   oidc: string;
   phase: string;
+  provisioning_conditions: string;
   release_id: string;
   route: string;
   route_address: string;
@@ -250,3 +251,4 @@ export class GatewayPatchBuilder {
     return this.data as GatewayPatchRequest;
   }
 }
+

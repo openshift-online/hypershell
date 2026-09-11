@@ -79,5 +79,24 @@ func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 		}
 	}
 
+	if gateway.ProvisioningConditions != nil {
+		var conditions []struct {
+			Type            string `json:"type"`
+			ConditionStatus string `json:"condition_status"`
+			Message         string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(*gateway.ProvisioningConditions), &conditions); err == nil {
+			apiConditions := make([]openapi.GatewayAllOfProvisioningConditions, 0, len(conditions))
+			for _, c := range conditions {
+				apiConditions = append(apiConditions, openapi.GatewayAllOfProvisioningConditions{
+					Type:            &c.Type,
+					ConditionStatus: &c.ConditionStatus,
+					Message:         &c.Message,
+				})
+			}
+			g.ProvisioningConditions = apiConditions
+		}
+	}
+
 	return g
 }

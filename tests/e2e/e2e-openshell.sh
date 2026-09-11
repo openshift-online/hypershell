@@ -479,16 +479,36 @@ print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('databa
   dim "  Waiting for controller to provision (timeout: ${E2E_PROVISION_TIMEOUT}s)..."
   DEADLINE=$(($(date +%s) + E2E_PROVISION_TIMEOUT))
   GW_PHASE=""
+  GW_CONDITIONS_SUMMARY=""
   while [[ $(date +%s) -lt $DEADLINE ]]; do
     # Refresh the OIDC token each poll: provisioning can outlast the access
     # token lifetime, and api_curl reads _OIDC_ACCESS_TOKEN on every call.
     acquire_oidc_token 2>/dev/null || true
-    GW_PHASE=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+    GW_JSON=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
+    GW_PHASE=$(echo "$GW_JSON" | \
       python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
+    GW_CONDITIONS_SUMMARY=$(echo "$GW_JSON" | python3 -c "
+import json, sys
+try:
+    gw = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+conditions = gw.get('provisioning_conditions', [])
+if not conditions:
+    sys.exit(0)
+parts = []
+for c in conditions:
+    parts.append('%s=%s' % (c.get('type','?'), c.get('condition_status','?')))
+print(', '.join(parts))
+" 2>/dev/null || true)
     if [[ "$GW_PHASE" == "Running" ]]; then
       break
     fi
-    dim "    phase: ${GW_PHASE:-unknown}"
+    if [[ -n "$GW_CONDITIONS_SUMMARY" ]]; then
+      dim "    phase: ${GW_PHASE:-unknown}  conditions: [${GW_CONDITIONS_SUMMARY}]"
+    else
+      dim "    phase: ${GW_PHASE:-unknown}"
+    fi
     sleep 5
   done
 
@@ -502,6 +522,67 @@ print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('databa
     exit 1
   fi
 fi
+
+# ── 2b. provisioning conditions validation ─────────────────────────────────
+# After the gateway reaches Running, verify that the API exposes provisioning
+# conditions and that every condition completed successfully.
+
+show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # verify provisioning_conditions"
+GW_COND_JSON=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
+GW_COND_CHECK=$(echo "$GW_COND_JSON" | python3 -c "
+import json, sys
+try:
+    gw = json.load(sys.stdin)
+except Exception:
+    print('PARSE_ERROR'); sys.exit(0)
+conditions = gw.get('provisioning_conditions')
+if conditions is None or not isinstance(conditions, list):
+    print('MISSING'); sys.exit(0)
+if len(conditions) == 0:
+    print('EMPTY'); sys.exit(0)
+types = []
+incomplete = []
+for c in conditions:
+    ct = c.get('type', '?')
+    cs = c.get('condition_status', '?')
+    types.append(ct)
+    if cs != 'Complete':
+        incomplete.append('%s=%s' % (ct, cs))
+# Verify required condition types are present
+required = {'EnvironmentReady', 'DatabaseReady', 'GatewayDeployed', 'GatewayHealthy'}
+present = set(types)
+missing = required - present
+if missing:
+    print('MISSING_TYPES:%s' % ','.join(sorted(missing))); sys.exit(0)
+if incomplete:
+    print('INCOMPLETE:%s' % '; '.join(incomplete)); sys.exit(0)
+print('OK:%d' % len(conditions))
+" 2>/dev/null || echo "SCRIPT_ERROR")
+
+case "$GW_COND_CHECK" in
+  OK:*)
+    COND_COUNT="${GW_COND_CHECK#OK:}"
+    pass "Provisioning conditions present (${COND_COUNT} steps, all Complete)"
+    ;;
+  MISSING)
+    fail_test "Gateway is Running but provisioning_conditions field is missing from API response"
+    ;;
+  EMPTY)
+    fail_test "Gateway is Running but provisioning_conditions is an empty array"
+    ;;
+  MISSING_TYPES:*)
+    MISSING_TYPES="${GW_COND_CHECK#MISSING_TYPES:}"
+    fail_test "Provisioning conditions missing required types: ${MISSING_TYPES}"
+    ;;
+  INCOMPLETE:*)
+    INCOMPLETE_INFO="${GW_COND_CHECK#INCOMPLETE:}"
+    fail_test "Gateway is Running but not all provisioning conditions are Complete: ${INCOMPLETE_INFO}"
+    ;;
+  *)
+    fail_test "Could not parse provisioning conditions from API response"
+    dim "    raw check result: ${GW_COND_CHECK}"
+    ;;
+esac
 
 if [[ -z "$GW_NAMESPACE" ]]; then
   fail_test "Gateway response did not include a server-assigned namespace"

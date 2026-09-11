@@ -252,4 +252,5 @@ func init() {
 	db.RegisterMigration(migrationDropFleetId())
 	db.RegisterMigration(migrationDropFleetsTable())
 	db.RegisterMigration(migrationAddTraceContext())
+	db.RegisterMigration(migrationAddProvisioningConditions())
 }
