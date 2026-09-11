@@ -160,6 +160,12 @@ func (o *httpGatewayVersionObserver) Observe(ctx context.Context, namespace stri
 
 // A failed observation removes its entry so the next health pass repairs
 // access before it retries. Successful checks remain valid for five minutes.
+//
+// Each gateway has its own namespace. runGatewayWorkers removes duplicate
+// gateway IDs before dispatch. This mutex protects map access; it does not
+// claim a namespace across the check and the later timestamp write. If gateways
+// can share a namespace in the future, add a per-namespace lock around the
+// complete access check and reconciliation.
 func (h *GatewayHealthReconciler) healthAccessCheckDue(namespace string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
