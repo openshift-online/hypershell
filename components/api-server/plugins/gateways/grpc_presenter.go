@@ -3,6 +3,7 @@ package gateways
 import (
 	"encoding/json"
 
+	"github.com/golang/glog"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -58,7 +59,9 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 			ConditionStatus string `json:"condition_status"`
 			Message         string `json:"message"`
 		}
-		if err := json.Unmarshal([]byte(*d.ProvisioningConditions), &conditions); err == nil {
+		if err := json.Unmarshal([]byte(*d.ProvisioningConditions), &conditions); err != nil {
+			glog.Warningf("failed to unmarshal provisioning_conditions for gateway %s: %v", d.ID, err)
+		} else {
 			for _, c := range conditions {
 				gw.ProvisioningConditions = append(gw.ProvisioningConditions, &pb.ProvisioningCondition{
 					Type:            c.Type,
@@ -98,6 +101,7 @@ func conditionStatusFromProto(s pb.ProvisioningConditionStatus) string {
 	case pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_FAILED:
 		return "Failed"
 	default:
+		glog.Warningf("unknown ProvisioningConditionStatus enum value: %d", int32(s))
 		return "Pending"
 	}
 }
