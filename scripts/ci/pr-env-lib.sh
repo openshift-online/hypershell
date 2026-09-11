@@ -121,6 +121,28 @@ pr_env_is_reapable() {
   (( now >= exp ))
 }
 
+# pr_env_comment_deploying_body <head-sha>
+#
+# Render the placeholder comment a deploy run posts immediately on start,
+# before the environment exists or any access facts are known. Carries the
+# same hidden marker as pr_env_comment_body, so the later "ready" update
+# edits this comment in place rather than posting a second one. Because this
+# step runs first in the job -- before cluster login, deploy, or e2e -- it is
+# normally the first comment this workflow ever adds to the pull request,
+# which is what keeps the access comment near the top of the pull request's
+# timeline instead of appearing after other bots' checks/comments.
+pr_env_comment_deploying_body() {
+  local head_sha="$1"
+  local short_sha="${head_sha:0:7}"
+  cat <<EOF
+${PR_ENV_COMMENT_MARKER}
+## HyperShell environment deploying
+
+Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This
+comment will update in place once the environment is ready.
+EOF
+}
+
 # pr_env_comment_body <pr-number> <head-sha> <platform-ns> <keycloak-ns> \
 #                     <console-url> <api-url> <web-url> <cluster-api-url> <updated>
 #

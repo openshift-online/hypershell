@@ -83,6 +83,17 @@ assert_not_reapable 'env id pr- without a number' \
 assert_not_reapable 'reserved openshift- namespace refused' \
   'openshift-config' 'true' 'pr-1' "${past}" "${now}"
 
+# --- Deploying placeholder comment (posted before the ready comment) ---
+deploying_body="$(pr_env_comment_deploying_body abcdef1234567)"
+case "${deploying_body}" in
+  *"<!-- hypershell-pr-environment -->"*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing hidden marker' ;;
+esac
+case "${deploying_body}" in
+  *'abcdef1'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing short SHA' ;;
+esac
+
 # --- Comment body ---
 body="$(pr_env_comment_body 232 abcdef1234567 hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak \
   https://console.example.com https://api.pr-232.example.com https://web.pr-232.example.com \

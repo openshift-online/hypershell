@@ -935,6 +935,21 @@ configure_oidc_from_routes() {
   oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
     --from=secret/hypershell-oidc-session >/dev/null
 
+  if github_idp_enabled; then
+    local github_org github_allowlist
+    github_org="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+      -o jsonpath='{.data.org}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    github_allowlist="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+      -o jsonpath='{.data.allowlist}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    info "Configuring web console GitHub org gate (${github_org:-openshift-online})"
+    oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
+      "GITHUB_ORG_GATE=${github_org:-openshift-online}" \
+      "GITHUB_USERNAME_ALLOWLIST=${github_allowlist}" >/dev/null
+  else
+    oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
+      GITHUB_ORG_GATE- GITHUB_USERNAME_ALLOWLIST- >/dev/null
+  fi
+
   info "Configuring control plane public gateway issuer"
   oc_cli set env deployment/hypershell-controller -n "${OPENSHIFT_NAMESPACE}" -c controller \
     "GATEWAY_OIDC_ISSUER_URL=${OPENSHIFT_OIDC_ISSUER}" >/dev/null

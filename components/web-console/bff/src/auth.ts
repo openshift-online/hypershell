@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import * as oidc from "openid-client";
 
 import type { ServerConfig } from "./config.js";
+import { evaluateGithubOrgGate } from "./github-org-gate.js";
 import {
   createRefresher,
   sanitizeReturnTo,
@@ -136,8 +137,9 @@ export function clearSession(request: {
  * Registers OIDC-based authentication on the Fastify instance.
  *
  * This sets up encrypted cookie sessions via @fastify/secure-session, performs
- * OpenID Connect discovery against the configured issuer, and mounts the four
- * auth endpoints (/auth/login, /auth/callback, /auth/logout, /auth/session).
+ * OpenID Connect discovery against the configured issuer, and mounts the
+ * auth endpoints (/auth/login, /auth/callback, /auth/denied, /auth/logout,
+ * /auth/session).
  *
  * Call this function only when OIDC configuration is present. It must be called
  * before route registration so that the session decorator is available to all
@@ -234,6 +236,26 @@ export async function registerAuth(
     reply.redirect(authUrl.toString());
   });
 
+  app.get("/auth/denied", async (_request, reply) => {
+    reply
+      .code(403)
+      .header("Cache-Control", "no-store")
+      .type("text/html; charset=utf-8");
+    return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <title>Access denied</title>
+  </head>
+  <body>
+    <h1>Access denied</h1>
+    <p>This HyperShell environment is limited to members of the configured GitHub organization and allowlisted usernames.</p>
+    <p><a href="/auth/logout">Sign out</a> and try a different GitHub account.</p>
+  </body>
+</html>
+`;
+  });
+
   app.get("/auth/callback", async (request, reply) => {
     const storedState = request.session.get("state");
     const storedNonce = request.session.get("nonce");
@@ -263,13 +285,41 @@ export async function registerAuth(
       );
 
       const claims = tokens.claims();
+      const tokenSet = toTokenSet(tokens);
+
+      // Pull-request environments set GITHUB_ORG_GATE so interactive GitHub
+      // logins are limited to org members and allowlisted usernames. Kind and
+      // local leave it unset, so password users are not checked.
+      if (config.githubOrgGate && config.oidcIssuer) {
+        const username =
+          typeof claims?.preferred_username === "string"
+            ? claims.preferred_username
+            : undefined;
+        const allowed = await evaluateGithubOrgGate({
+          accessToken: tokenSet.accessToken,
+          allowlistRaw: config.githubUsernameAllowlist,
+          githubApiOrigin: config.githubApiOrigin ?? "https://api.github.com",
+          oidcIssuer: config.oidcIssuer,
+          orgGate: config.githubOrgGate,
+          username,
+        });
+        if (!allowed) {
+          request.log.info(
+            { preferredUsername: username },
+            "GitHub org gate denied login",
+          );
+          clearSession(request);
+          reply.redirect("/auth/denied");
+          return;
+        }
+      }
 
       // Replace login session data with auth session data. Rotate both cookies
       // so no pre-login value survives (session fixation defense).
       request.session.regenerate();
       request.tokenSession.regenerate();
 
-      persistTokenSet(request, toTokenSet(tokens));
+      persistTokenSet(request, tokenSet);
       if (claims) {
         request.session.set("sub", claims.sub);
         if (typeof claims.preferred_username === "string") {

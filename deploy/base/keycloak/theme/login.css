@@ -225,7 +225,17 @@ h1.pf-v5-c-title.pf-m-3xl,
   transition: color 0.2s ease, border-color 0.2s ease;
 }
 
+/*
+ * The control button's ::after border is composed from four separate
+ * top/right/bottom/left color variables. We only drove the bottom one (for
+ * the underline-style hover highlight), leaving top/right at PatternFly's
+ * own default (--pf-v5-global--BorderColor--300, #f0f0f0) -- nearly
+ * invisible against the white card, so the button looked borderless on top
+ * next to the password input's visibly bordered #e0e0e0 edge.
+ */
 .pf-v5-c-button.pf-m-control::after {
+  border-top-color: #e0e0e0 !important;
+  border-right-color: #e0e0e0 !important;
   border-bottom-color: #e0e0e0 !important;
   transition: border-bottom-color 0.2s ease;
 }
@@ -463,6 +473,8 @@ h1.pf-v5-c-title.pf-m-3xl,
   }
 
   .pf-v5-c-button.pf-m-control::after {
+    border-top-color: #3c3f42 !important;
+    border-right-color: #3c3f42 !important;
     border-bottom-color: #3c3f42 !important;
   }
 
