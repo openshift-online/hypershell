@@ -30,8 +30,9 @@ perf-results/
 # Agent Package Manager cache
 apm_modules/
 
-# Claude Code working state
+# Agent working state
 .claude/
+.rpi/
 
 # Kind swap tracking
 .kind-swaps
