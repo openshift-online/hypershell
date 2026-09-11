@@ -195,7 +195,9 @@ The health reconciler SHALL run an initial list when it starts and SHALL repeat
 the list at the health reconciliation interval. Each pass SHALL compare the
 observed version with the stored value. It SHALL update only the fields that it
 owns and only when a value changes. The request to the gateway health endpoint
-SHALL have a bounded timeout and SHALL NOT follow redirects. The reconciler
+SHALL have a bounded timeout and SHALL NOT follow redirects. Before it builds
+the health URL, the reconciler SHALL validate the namespace as a Kubernetes
+DNS label. The reconciler
 SHALL accept a valid version from the healthy HTTP 200 response or the unhealthy
 HTTP 503 response because the gateway includes its runtime version in both.
 

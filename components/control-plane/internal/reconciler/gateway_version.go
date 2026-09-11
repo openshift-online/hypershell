@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode"
 
+	"k8s.io/apimachinery/pkg/util/validation"
+
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 )
@@ -103,6 +105,9 @@ func newHTTPGatewayVersionObserver() *httpGatewayVersionObserver {
 func (o *httpGatewayVersionObserver) Observe(ctx context.Context, namespace string) (string, error) {
 	if strings.TrimSpace(namespace) == "" {
 		return "", fmt.Errorf("gateway namespace is required")
+	}
+	if errors := validation.IsDNS1123Label(namespace); len(errors) != 0 {
+		return "", fmt.Errorf("invalid gateway namespace: %s", strings.Join(errors, "; "))
 	}
 
 	requestCtx, cancel := context.WithTimeout(ctx, o.timeout)

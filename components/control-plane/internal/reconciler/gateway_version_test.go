@@ -271,3 +271,18 @@ func TestGatewayVersionAccessChecks(t *testing.T) {
 		t.Fatal("expired access checks remain in memory")
 	}
 }
+
+func TestGatewayVersionRejectsInvalidNamespacesBeforeBuildingURL(t *testing.T) {
+	observer := newHTTPGatewayVersionObserver()
+	observer.endpoint = func(string) string {
+		t.Fatal("built a health URL from an invalid namespace")
+		return ""
+	}
+	for _, namespace := range []string{"", "gateway.example", "gateway/path", "gateway?query", "gateway#fragment", "Gateway", "-gateway", "gateway-", "gateway\n", strings.Repeat("a", 64)} {
+		t.Run(namespace, func(t *testing.T) {
+			if _, err := observer.Observe(context.Background(), namespace); err == nil {
+				t.Fatal("accepted an invalid namespace")
+			}
+		})
+	}
+}
