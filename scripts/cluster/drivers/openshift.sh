@@ -1263,7 +1263,7 @@ print_banner() {
   info "Namespace:     ${OPENSHIFT_NAMESPACE} (Keycloak: ${OPENSHIFT_KEYCLOAK_NAMESPACE})"
   info "HTTP API:      https://${OPENSHIFT_API_HOST}"
   info "Web Console:   https://${OPENSHIFT_CONSOLE_HOST}"
-  info "Keycloak:      ${OPENSHIFT_KC_HOSTNAME} (admin/admin)"
+  info "Keycloak:      ${OPENSHIFT_KC_HOSTNAME}"
   info "OIDC Issuer:   ${OPENSHIFT_OIDC_ISSUER}"
   info "Login:         https://${OPENSHIFT_CONSOLE_HOST}/auth/login"
   if github_idp_enabled; then

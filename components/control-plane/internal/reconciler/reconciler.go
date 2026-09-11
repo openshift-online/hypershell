@@ -1871,6 +1871,9 @@ func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.C
 	if err := r.keycloakClient.EnsureDeviceAuthorizationGrant(ctx, clientUUID); err != nil {
 		return fmt.Errorf("reconcile device authorization grant on Keycloak client %q: %w", clientID, err)
 	}
+	if err := r.keycloakClient.EnsureE2ETokenExchange(ctx, clientUUID); err != nil {
+		return fmt.Errorf("reconcile e2e token-exchange on Keycloak client %q: %w", clientID, err)
+	}
 	log.Printf("INFO reconciled Keycloak client %q (uuid=%q)", clientID, clientUUID)
 	return nil
 }

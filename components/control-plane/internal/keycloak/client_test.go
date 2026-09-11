@@ -526,3 +526,247 @@ func TestEnsureDeviceAuthorizationGrantSkipsEnabledClient(t *testing.T) {
 	default:
 	}
 }
+
+const (
+	teTestE2EUUID       = "e2e-client-uuid"
+	teTestRealmMgmtUUID = "realm-management-uuid"
+	teTestFrontendUUID  = "frontend-client-uuid"
+	teTestTargetUUID    = "target-client-uuid"
+	teTestPolicyUUID    = "e2e-policy-uuid"
+	teTestTargetPerm    = "target-te-perm-uuid"
+	teTestFrontendPerm  = "frontend-te-perm-uuid"
+)
+
+type tokenExchangeFake struct {
+	mu sync.Mutex
+
+	e2ePresent     bool
+	policyExists   bool
+	alreadyGranted map[string]bool
+	createdPolicy  bool
+	enabledClients []string
+	attachedPerms  []string
+	lookedUp       []string
+}
+
+func newTokenExchangeServer(t *testing.T, fake *tokenExchangeFake) *httptest.Server {
+	t.Helper()
+	clientsPath := fmt.Sprintf("/admin/realms/%s/clients", testRealm)
+	policySearchPath := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/policy/search", testRealm, teTestRealmMgmtUUID)
+	policyCreatePath := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/policy/client", testRealm, teTestRealmMgmtUUID)
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == deviceTestTokenPath:
+			writeTokenResponse(t, w, t.Name())
+		case r.URL.Path == clientsPath && r.Method == http.MethodGet:
+			clientID := r.URL.Query().Get("clientId")
+			fake.mu.Lock()
+			fake.lookedUp = append(fake.lookedUp, clientID)
+			e2ePresent := fake.e2ePresent
+			fake.mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			switch clientID {
+			case e2eClientID:
+				if !e2ePresent {
+					_ = json.NewEncoder(w).Encode([]keycloakClient{})
+					return
+				}
+				_ = json.NewEncoder(w).Encode([]keycloakClient{{ID: teTestE2EUUID, ClientID: e2eClientID}})
+			case realmManagementClientID:
+				_ = json.NewEncoder(w).Encode([]keycloakClient{{ID: teTestRealmMgmtUUID, ClientID: realmManagementClientID}})
+			case frontendClientID:
+				_ = json.NewEncoder(w).Encode([]keycloakClient{{ID: teTestFrontendUUID, ClientID: frontendClientID}})
+			default:
+				_ = json.NewEncoder(w).Encode([]keycloakClient{})
+			}
+		case strings.HasSuffix(r.URL.Path, "/management/permissions") && r.Method == http.MethodPut:
+			targetUUID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, clientsPath+"/"), "/management/permissions")
+			permID := teTestTargetPerm
+			if targetUUID == teTestFrontendUUID {
+				permID = teTestFrontendPerm
+			}
+			fake.mu.Lock()
+			fake.enabledClients = append(fake.enabledClients, targetUUID)
+			fake.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(managementPermissions{
+				Enabled:          true,
+				Resource:         "client-resource-" + targetUUID,
+				ScopePermissions: map[string]string{tokenExchangeScope: permID},
+			})
+		case r.URL.Path == policySearchPath && r.Method == http.MethodGet:
+			fake.mu.Lock()
+			exists := fake.policyExists
+			fake.mu.Unlock()
+			if !exists {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(authzPolicy{ID: teTestPolicyUUID, Name: e2eTokenExchangePolicyName})
+		case r.URL.Path == policyCreatePath && r.Method == http.MethodPost:
+			var payload struct {
+				Name    string   `json:"name"`
+				Clients []string `json:"clients"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Errorf("decode policy create: %v", err)
+				http.Error(w, "invalid payload", http.StatusBadRequest)
+				return
+			}
+			if payload.Name != e2eTokenExchangePolicyName {
+				t.Errorf("policy name = %q, want %q", payload.Name, e2eTokenExchangePolicyName)
+			}
+			if len(payload.Clients) != 1 || payload.Clients[0] != teTestE2EUUID {
+				t.Errorf("policy clients = %v, want [%s]", payload.Clients, teTestE2EUUID)
+			}
+			fake.mu.Lock()
+			fake.createdPolicy = true
+			fake.policyExists = true
+			fake.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(authzPolicy{ID: teTestPolicyUUID, Name: e2eTokenExchangePolicyName})
+		case strings.HasSuffix(r.URL.Path, "/associatedPolicies") && r.Method == http.MethodGet:
+			permID := strings.TrimSuffix(r.URL.Path[strings.LastIndex(r.URL.Path[:len(r.URL.Path)-len("/associatedPolicies")], "/")+1:], "/associatedPolicies")
+			w.Header().Set("Content-Type", "application/json")
+			fake.mu.Lock()
+			granted := fake.alreadyGranted[permID]
+			fake.mu.Unlock()
+			if granted {
+				_ = json.NewEncoder(w).Encode([]authzPolicy{{ID: teTestPolicyUUID, Name: e2eTokenExchangePolicyName}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode([]authzPolicy{})
+		case strings.Contains(r.URL.Path, "/permission/scope/") && r.Method == http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":               strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/permission/scope/", testRealm, teTestRealmMgmtUUID)),
+				"name":             "token-exchange.permission.client",
+				"type":             "scope",
+				"logic":            "POSITIVE",
+				"decisionStrategy": "UNANIMOUS",
+			})
+		case strings.Contains(r.URL.Path, "/permission/scope/") && r.Method == http.MethodPut:
+			var representation struct {
+				Policies []string `json:"policies"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&representation); err != nil {
+				t.Errorf("decode permission update: %v", err)
+				http.Error(w, "invalid payload", http.StatusBadRequest)
+				return
+			}
+			if len(representation.Policies) == 0 {
+				t.Error("permission update omitted policies")
+			}
+			found := false
+			for _, id := range representation.Policies {
+				if id == teTestPolicyUUID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("permission policies = %v, want to include %s", representation.Policies, teTestPolicyUUID)
+			}
+			permID := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/permission/scope/", testRealm, teTestRealmMgmtUUID))
+			fake.mu.Lock()
+			fake.attachedPerms = append(fake.attachedPerms, permID)
+			fake.mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestEnsureE2ETokenExchangeGrantsGatewayAndFrontend(t *testing.T) {
+	t.Parallel()
+
+	fake := &tokenExchangeFake{e2ePresent: true}
+	server := newTokenExchangeServer(t, fake)
+	defer server.Close()
+
+	client := NewClient(server.URL, testRealm, testAdminClientID, t.Name())
+	if err := client.EnsureE2ETokenExchange(t.Context(), teTestTargetUUID); err != nil {
+		t.Fatalf("EnsureE2ETokenExchange() error = %v", err)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if !fake.createdPolicy {
+		t.Error("did not create the hypershell-e2e token-exchange client policy")
+	}
+	if got, want := fake.enabledClients, []string{teTestTargetUUID, teTestFrontendUUID}; !equalStrings(got, want) {
+		t.Errorf("enabled management permissions on %v, want %v", got, want)
+	}
+	if got, want := fake.attachedPerms, []string{teTestTargetPerm, teTestFrontendPerm}; !equalStrings(got, want) {
+		t.Errorf("attached token-exchange policy on %v, want %v", got, want)
+	}
+}
+
+func TestEnsureE2ETokenExchangeSkipsMissingE2EClient(t *testing.T) {
+	t.Parallel()
+
+	fake := &tokenExchangeFake{}
+	server := newTokenExchangeServer(t, fake)
+	defer server.Close()
+
+	client := NewClient(server.URL, testRealm, testAdminClientID, t.Name())
+	if err := client.EnsureE2ETokenExchange(t.Context(), teTestTargetUUID); err != nil {
+		t.Fatalf("EnsureE2ETokenExchange() error = %v", err)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.createdPolicy || len(fake.enabledClients) > 0 || len(fake.attachedPerms) > 0 {
+		t.Errorf("granted token-exchange without hypershell-e2e (enabled=%v attached=%v createdPolicy=%v)",
+			fake.enabledClients, fake.attachedPerms, fake.createdPolicy)
+	}
+}
+
+func TestEnsureE2ETokenExchangeSkipsAlreadyGrantedPermission(t *testing.T) {
+	t.Parallel()
+
+	fake := &tokenExchangeFake{
+		e2ePresent:   true,
+		policyExists: true,
+		alreadyGranted: map[string]bool{
+			teTestTargetPerm:   true,
+			teTestFrontendPerm: true,
+		},
+	}
+	server := newTokenExchangeServer(t, fake)
+	defer server.Close()
+
+	client := NewClient(server.URL, testRealm, testAdminClientID, t.Name())
+	if err := client.EnsureE2ETokenExchange(t.Context(), teTestTargetUUID); err != nil {
+		t.Fatalf("EnsureE2ETokenExchange() error = %v", err)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.createdPolicy {
+		t.Error("recreated an existing token-exchange client policy")
+	}
+	if len(fake.attachedPerms) != 0 {
+		t.Errorf("re-attached already granted permissions %v", fake.attachedPerms)
+	}
+	if got, want := fake.enabledClients, []string{teTestTargetUUID, teTestFrontendUUID}; !equalStrings(got, want) {
+		t.Errorf("enabled management permissions on %v, want %v", got, want)
+	}
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}

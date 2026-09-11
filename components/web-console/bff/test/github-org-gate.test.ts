@@ -185,4 +185,28 @@ describe("evaluateGithubOrgGate", () => {
       }),
     ).resolves.toBe(false);
   });
+
+  it("denies when the broker token body is neither JSON nor form-encoded", async () => {
+    const fetchImpl = vi.fn((input: Parameters<typeof fetch>[0]) => {
+      const href = hrefOf(input);
+      if (href.endsWith("/broker/github/token")) {
+        return Promise.resolve(
+          new Response("gho-not-a-structured-token", {
+            headers: { "content-type": "text/plain" },
+            status: 200,
+          }),
+        );
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
+
+    await expect(
+      evaluateGithubOrgGate({
+        ...baseInput,
+        allowlistRaw: "",
+        fetchImpl,
+      }),
+    ).resolves.toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 });

@@ -1309,6 +1309,9 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 		if err := kc.EnsureDeviceAuthorizationGrant(ctx, existingUUID); err != nil {
 			return fmt.Errorf("reconcile device authorization grant on keycloak client %s: %w", kcClientID, err)
 		}
+		if err := kc.EnsureE2ETokenExchange(ctx, existingUUID); err != nil {
+			return fmt.Errorf("reconcile e2e token-exchange on keycloak client %s: %w", kcClientID, err)
+		}
 		log.Printf("INFO reconciled keycloak client %s (uuid=%s)", kcClientID, existingUUID)
 	} else {
 		clientUUID, err := kc.ProvisionGatewayClient(ctx, kcClientID)

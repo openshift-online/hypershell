@@ -98,6 +98,8 @@ async function fetchGithubOrgLogins(input: {
   const githubToken = await fetchBrokerGithubToken(input);
   const origin = input.githubApiOrigin.replace(/\/+$/u, "");
   const logins: string[] = [];
+  // Membership visibility depends on the GitHub IdP requesting `read:org`
+  // (deploy/base/keycloak GitHub identity provider defaultScope).
   let nextUrl: string | undefined = `${origin}/user/orgs?per_page=100`;
 
   for (
@@ -139,6 +141,9 @@ async function fetchBrokerGithubToken(input: {
   fetchImpl: typeof fetch;
   oidcIssuer: string;
 }): Promise<string> {
+  // Requires the GitHub IdP to set storeToken and addReadTokenRoleOnCreate
+  // so this user's access token can read the stored GitHub token. Without
+  // the broker read-token role Keycloak returns 403 and the org gate denies.
   const issuer = input.oidcIssuer.replace(/\/+$/u, "");
   const response = await input.fetchImpl(`${issuer}/broker/github/token`, {
     headers: {
@@ -192,9 +197,6 @@ function readBrokerAccessToken(
     trimmed.includes("access_token=")
   ) {
     return new URLSearchParams(trimmed).get("access_token") ?? undefined;
-  }
-  if (!trimmed.includes(" ") && !trimmed.includes("\n")) {
-    return trimmed;
   }
   return undefined;
 }
