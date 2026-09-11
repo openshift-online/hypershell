@@ -94,10 +94,8 @@ When JWT is enabled, trusted in-cluster services (e.g., the control plane) SHALL
 - `/hypershell.v1.GatewayService/WatchGateways`
 - `/hypershell.v1.GatewayReleaseService/WatchGatewayReleases`
 - `/hypershell.v1.ManagedClusterService/WatchManagedClusters`
-- `/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases`
 - `/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks`
 
-The v1 database watch remains part of the compatibility interface.
 These exemptions SHALL apply only on a private in-cluster service boundary.
 A watch endpoint reachable by a remote spoke SHALL authenticate the caller and
 bind it to its registered execution identity before it returns gateway events.

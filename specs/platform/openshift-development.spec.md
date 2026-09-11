@@ -11,10 +11,11 @@
              `control-plane.spec.md` -- reconciler behavior;
              `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning
 
-The controller-local setup requirements apply to fresh environments and completed
-migrations. Existing environments SHALL retain their provider runtime, database
-seeds, credentials, and gateway data until migration completes. Upgrades follow
-the [migration contract](./gateway-database-migration.spec.md).
+Setup for this breaking release SHALL follow the
+[teardown-and-recreate contract](./openshell-gateway-database.spec.md).
+It SHALL reject an old or unknown installation before applying manifests or
+running migrations. Existing environments require explicit teardown; setup
+SHALL NOT delete or convert them automatically.
 
 ## Purpose
 
@@ -209,9 +210,8 @@ application runtime. It SHALL supply a gateway server and administrative Secret
 before creating a gateway, using the same connection contract for CNPG or a
 development PostgreSQL Deployment. No database API registration is required.
 Existing server resources or credentials SHALL NOT be deleted automatically
-when the selected backend changes. Such a change requires the explicit
-[migration workflow](./gateway-database-migration.spec.md). Teardown is optional
-for disposable environments; it SHALL NOT be required for an upgrade.
+when the selected backend changes. Such a change requires explicit teardown of
+the development environment before setup with the replacement backend.
 
 The OpenShift overlay SHALL derive `GATEWAY_API_HTTP_LISTENER_NAME` from the
 shared Gateway's actual listener (preferring one literally named `grpc` for

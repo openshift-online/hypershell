@@ -2,10 +2,6 @@
 
 **When to load:** Working on authentication, authorization, or handling sensitive data.
 
-Database server ownership follows the active runtime. Existing provider-managed
-resources retain their security controls until the migration workflow transfers
-ownership. See the [migration contract](../../platform/gateway-database-migration.spec.md).
-
 ## Critical Security Rules
 
 ### Secret Handling

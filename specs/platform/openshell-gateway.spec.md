@@ -22,11 +22,6 @@ This specification covers core provisioning. Domain-specific concerns are define
 
 ---
 
-The controller-local requirements below apply after runtime selection or completed
-migration. Existing gateways retain their provider-specific provisioning, security,
-and cleanup behavior until ownership transfer. Both API versions and their
-resource projections follow the [migration contract](./gateway-database-migration.spec.md).
-
 ## Purpose
 
 The control plane SHALL provision and reconcile OpenShell gateway deployments in dedicated, API-assigned namespaces through a fully API-driven model. The API server persists Gateway resources in PostgreSQL. The control plane discovers Gateway resources via the same gRPC watch stream used for all other resources and reconciles them into Kubernetes gateway deployments.
@@ -857,8 +852,8 @@ ALTER TABLE gateways ADD COLUMN route_address TEXT;
 ```
 
 > **Database provisioning:** The controller creates a SQL database and role on its installation-supplied PostgreSQL server. Database selection is not part of the Gateway request. See the [database specification](./openshell-gateway-database.spec.md).
-> The v2 model has no inline database configuration. Schema upgrades SHALL
-> retain fields required by v1 clients; they SHALL NOT drop compatibility data.
+> Fresh schema setup SHALL omit the legacy inline database column. Existing
+> installation handling follows the database specification.
 
 ---
 

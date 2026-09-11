@@ -5,11 +5,11 @@
 **Jira:** ENGPROD-10281
 **Related:** `openshift-development.spec.md` -- OpenShift lifecycle (`make openshift-up`)
 
-The default fresh environment uses the controller-local runtime. Existing local
-environments SHALL remain usable after tooling upgrades. Setup SHALL detect their
-runtime and retain its seeding, credentials, and ownership until an explicit
-migration. Compatibility tests SHALL also exercise the existing provider modes.
-See the [migration contract](./gateway-database-migration.spec.md).
+Setup for this breaking release SHALL follow the
+[teardown-and-recreate contract](./openshell-gateway-database.spec.md).
+It SHALL reject an old or unknown installation before applying manifests or
+running migrations. Existing environments require explicit teardown; setup
+SHALL NOT delete or convert them automatically.
 
 ## Purpose
 

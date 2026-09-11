@@ -16,12 +16,12 @@
   },
   {
     "filename": "specs/platform/global-architecture.spec.md",
-    "line": 47,
+    "line": 42,
     "rationale": "Mermaid diagram node id 'ACP' abbreviates 'Control Plane' in the topology graph; it is a diagram identifier, not the discouraged term."
   },
   {
     "filename": "specs/platform/global-architecture.spec.md",
-    "line": 1185,
+    "line": 1180,
     "rationale": "Example directory names 'vteam-stage'/'vteam-uat' in a GitOps directory-tree illustration reference real external cluster environments; they are example paths, not the discouraged term."
   },
   {

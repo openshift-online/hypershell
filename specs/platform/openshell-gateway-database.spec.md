@@ -8,10 +8,9 @@ Each HyperShell execution controller uses one configured PostgreSQL server to
 create a separate SQL database and login role for each gateway it owns. The
 installation system owns the PostgreSQL server. The HyperShell API owns gateway
 placement on execution clusters, but does not select or register database
-servers on the controller-local path. Existing installations, databases, and API
-clients SHALL remain supported. The new path does not require `ManagedDatabase`
-or `database_id`; existing interfaces retain them under the
-[migration and compatibility contract](./gateway-database-migration.spec.md).
+servers. The application model has no `ManagedDatabase` entity or Gateway
+`database_id` field. This intentionally breaking release supports fresh
+installations and explicit teardown followed by recreation.
 
 ## Scope and Terminology
 
@@ -30,10 +29,10 @@ This is the database contract for the [data model](./data-model.spec.md),
 [gateway lifecycle](./openshell-gateway.spec.md). The API server's own PostgreSQL
 database and Keycloak databases are separate installation dependencies.
 
-This document defines the controller-local runtime. The migration contract
-defines the existing provider runtime, backward-compatible interfaces, and the
-controlled transfer between them. Existing resources SHALL stay on their current
-runtime until their migration is complete. Remote gRPC transport implementation is a
+In-place upgrades, data migration, old API clients, and mixed old/new runtimes
+are unsupported for this transition. There is no v2 API or legacy compatibility
+runtime in this design. An installation that remains on its existing release
+SHALL NOT receive this change automatically. Remote gRPC transport implementation is a
 separate dependency. The execution ownership requirements below apply even when
 all controllers use the same Kubernetes cluster.
 
@@ -41,14 +40,13 @@ all controllers use the same Kubernetes cluster.
 
 ### Requirement: The Installation System Owns the Server
 
-On the controller-local path, the installation system SHALL create, configure,
-back up, and delete PostgreSQL server infrastructure according to installation
-policy. The execution controller SHALL
+The installation system SHALL create, configure, back up, and delete PostgreSQL
+server infrastructure according to the installation policy. HyperShell SHALL
 NOT create, resize, or delete RDS instances, CNPG Clusters, PostgreSQL Deployments,
 or their persistent volumes as part of gateway reconciliation.
 
 Hypbox SHALL retain RDS and CNPG as installation choices. Both SHALL supply the
-same PostgreSQL connection contract to the application. The controller-local runtime SHALL
+same PostgreSQL connection contract to the application. The application SHALL
 NOT require a cloud provider setting or CNPG APIs to create a gateway database.
 Local development and CI SHALL supply a PostgreSQL server through their setup
 manifests or scripts, with no database-registration API call.
@@ -104,44 +102,42 @@ production configuration SHALL NOT silently downgrade TLS verification.
 - THEN it SHALL use the replacement credentials
 - AND it SHALL preserve existing gateway database names and login passwords
 
-### Requirement: Controller-Local Placement Has No Database Dependency
+### Requirement: The API Has No Database Placement Entity
 
-The controller-local API SHALL accept valid gateway creation without a database
-identifier. It SHALL retain execution placement through `cluster_id`. It SHALL
-NOT select or require a registered database during this operation.
+The API SHALL accept valid gateway creation without `database_id`. It SHALL
+retain gateway execution placement through `cluster_id`. It SHALL NOT select,
+create, or query a database resource during gateway creation.
 
-The v1 API SHALL retain its existing fields and endpoints. V2 gateway DTOs
-SHALL contain no database-selection fields.
-The existing REST v1 and gRPC v1 contracts, SDK interfaces, CLI commands, database
-records, and watch streams SHALL remain functional. Existing protobuf field
-numbers and names SHALL NOT be removed or reused. See the
-[migration contract](./gateway-database-migration.spec.md).
+The REST and gRPC contracts SHALL have no ManagedDatabase operations, watch
+stream, or Gateway database-selection fields. Protobuf numbers and names retired
+from those contracts SHALL remain reserved and SHALL NOT be reused. Generated
+SDKs, CLI commands, UI workflows, dashboards, fixtures, and documentation SHALL
+use this model. There SHALL be no database registration prerequisite or central
+cluster-to-database mapping entity. ManagedCluster and its registration remain
+part of the API.
 
-Schema changes SHALL be additive. They SHALL preserve existing identifiers,
-relationships, tombstones, and data. Fresh schema setup SHALL also support the
-v1 compatibility surface. The controller-local runtime SHALL NOT depend on the
-legacy database catalog, even where that catalog remains for existing clients.
+The release SHALL use the existing REST `/api/hypershell/v1` and gRPC
+`hypershell.v1` namespaces with an explicitly documented breaking contract.
+Only matching release clients and controllers are supported. This release SHALL
+NOT advertise compatibility with prior clients based on those namespace names.
 
-#### Scenario: New path without database registration
+A fresh application schema SHALL have no active ManagedDatabase table or Gateway
+`database_id` column. Historical migration records SHALL NOT be rewritten to
+conceal the transition. Existing application schemas SHALL remain unchanged when
+this release rejects them; the startup gate below applies before any migrations.
 
-- GIVEN an eligible execution target configured for the controller-local path
-- WHEN a client uses the new API to create a gateway without a database identifier
-- THEN the API SHALL store the gateway and publish its assigned work event
-- AND it SHALL NOT require a database registration
+#### Scenario: No database record exists
 
-#### Scenario: Existing client after API upgrade
-
-- GIVEN an existing client uses v1 database and gateway APIs
-- WHEN the API server is upgraded
-- THEN the same requests SHALL retain their existing behavior
-- AND existing database identifiers, response fields, and watch events SHALL remain valid
+- GIVEN a fresh API installation and an eligible execution target
+- WHEN a client creates a gateway using the new contract
+- THEN the API SHALL store the gateway and publish its work event
+- AND it SHALL NOT require a database record or database identifier
 
 ### Requirement: Reconciliation Creates One Database Per Gateway
 
 The assigned controller SHALL create a separate PostgreSQL database and login
-role for each gateway. New database and role names SHALL be `gw_<lowercase-gateway-id>`, derived from
-the stable gateway ID. Migrated gateways SHALL retain their existing names and
-credentials unless an approved migration explicitly changes them. Each gateway SHALL receive only its own login credentials.
+role for each gateway. The database and role names SHALL be `gw_<lowercase-gateway-id>`, derived from
+the stable gateway ID, not its display name. Each gateway SHALL receive only its own login credentials.
 Other gateway roles SHALL NOT have access to that database through PUBLIC
 permissions. The administrative credential SHALL NOT be supplied to gateway
 pods.
@@ -149,7 +145,7 @@ pods.
 The controller SHALL publish `openshell-gateway-db-credentials` in the gateway
 namespace with `host`, `port`, `dbname`, `user`, `password`, `sslmode`, and `uri`.
 The URI SHALL encode credentials correctly. TLS trust material SHALL be supplied
-where needed. New passwords SHALL use at least 256 bits of cryptographic randomness.
+where needed. Passwords SHALL use at least 256 bits of cryptographic randomness.
 SQL identifiers and values SHALL be escaped or bound safely. Administrative
 access SHALL require only the privileges needed to manage gateway databases and
 roles, including RDS-supported privileges; PostgreSQL superuser access SHALL NOT
@@ -183,18 +179,16 @@ a retry SHALL repair the incomplete provisioning safely.
 A gateway SHALL remain bound to the configured server on which its database was
 created. The controller SHALL retain enough durable local information to detect
 a different destination before it changes gateway credentials or deletes data.
-This information SHALL NOT add a database placement dependency to the new API.
-Changing a gateway's execution cluster or its database destination through an
-ordinary configuration edit SHALL be rejected. An explicit migration MAY change
-the destination only through the validation, ownership transfer, and rollback
-rules in the migration contract. Credential renewal on the same destination
-SHALL remain supported.
+This information SHALL NOT become a central database inventory or mapping API.
+Changing a gateway's execution cluster or its controller's database destination
+while it has provisioned data SHALL be rejected as an unsupported migration.
+Credential renewal for the same destination SHALL remain supported.
 
 #### Scenario: Configuration points to a different server
 
 - GIVEN a controller has provisioned gateway databases
-- WHEN its database destination changes without an approved migration
-- THEN it SHALL report that an explicit migration is required
+- WHEN its database destination changes without teardown
+- THEN it SHALL report the unsupported change
 - AND it SHALL NOT create empty replacement databases or redirect gateway pods
 - AND it SHALL NOT execute cleanup on the replacement server
 
@@ -243,14 +237,12 @@ installation data deletion.
 
 Hypbox SHALL generate the PostgreSQL infrastructure, credential delivery,
 controller configuration, network access, TLS trust, and startup dependencies.
-New controller-local installations SHALL NOT require `ManagedDatabase` seed
-Jobs, seed-only Keycloak clients, or seed-only credentials. Migration SHALL retain
-existing resources and credentials until no active runtime or rollback path needs
-them. GitOps pruning SHALL NOT remove migration dependencies.
+It SHALL NOT generate `ManagedDatabase` seed Jobs, seed-only Keycloak clients,
+or seed-only credentials and access grants.
 
 Spoke installation SHALL target only hypbox-managed clusters. Users SHALL be
-able to add spokes to a compatible hypbox-managed cluster or create a fresh
-cluster with spokes. Existing hypbox-managed instances SHALL have a migration path. Adopting arbitrary existing clusters is outside scope.
+able to add spokes to a cluster running this new contract or create a fresh
+cluster with spokes. Adopting arbitrary existing clusters is outside scope.
 Single and main/canary modes SHALL both be supported. Each spoke SHALL have its
 own gateway PostgreSQL server and administrative credentials. A spoke SHALL
 not get an application database or Keycloak database for absent components.
@@ -270,48 +262,98 @@ API/controller combination.
 - AND main SHALL inherit the main controller image
 - AND generation SHALL produce the necessary parent and spoke changes in one PR
 
-### Requirement: Delivery Preserves Existing Installations
+### Requirement: Delivery Requires Teardown and Recreation
 
-API, controller, SDK, manifest, and tooling releases SHALL support an ordered
-upgrade with existing clients and controllers. The new API SHALL first preserve
-v1 and advertise the controller-local capability. For existing gateways, new controllers SHALL use the
-existing runtime until an approved ownership transfer completes. Fresh instances
-MAY select the controller-local runtime after capability checks. An installation
-SHALL NOT require teardown or client replacement to upgrade.
+This transition SHALL use a coordinated API, controller, SDK, manifest, and
+tooling release. An existing installation selected for replacement SHALL first
+be removed through its existing teardown workflow. Replacement SHALL use a fresh
+application schema and fresh gateway storage. Teardown is an explicit destructive
+operator action; installation or a binary upgrade SHALL NOT perform it implicitly.
+Existing installations that are not selected for replacement SHALL stay on their
+current release and resources.
 
 Hypbox's workflow SHALL remain: generate a PR, merge it, then run deployment
 from the approved main revision. CI SHALL validate changes but SHALL NOT deploy
-clusters. Migration SHALL be an explicit operator action with a preview and
-persisted progress. Deploying a new image SHALL NOT move or delete database data.
+clusters. The release documentation SHALL identify the unsupported in-place
+upgrade and the required teardown-and-recreate path. A matching replacement
+SHALL NOT require data migration, a legacy database catalog, or a v2 API.
 
-#### Scenario: Upgrade before database migration
+#### Scenario: Fresh replacement installation
 
-- GIVEN an existing installation with active gateways and an older controller
-- WHEN the compatibility-capable API is deployed
-- THEN existing clients and gateways SHALL continue to work
-- AND database locations and ownership SHALL remain unchanged
-- AND the operator MAY migrate later without recreating the installation
+- GIVEN the operator has completed teardown of the selected old installation
+- WHEN the matching replacement release is deployed with fresh storage
+- THEN no database-registration API call SHALL be necessary
+- AND gateway provisioning SHALL use the controller-local connection contract
+
+### Requirement: Existing Installations Are Rejected Before Mutation
+
+The deployment preflight SHALL distinguish a fresh installation, an installation
+already on the controller-local schema generation, and an old or unknown
+installation. It SHALL reject an old or unknown target before changing its
+Deployments, Terraform resources, credentials, or schema. Failure to inspect the
+target SHALL NOT be interpreted as an empty installation. Automatic image updates
+SHALL NOT bypass this preflight. A general confirmation flag such as `--yes`
+SHALL NOT bypass the generation check.
+
+The API server and every schema-initialization entry point SHALL independently
+inspect the application schema before automatic migrations or schema writes.
+Only an empty application schema or a recognized controller-local schema generation
+may proceed. Legacy tables, legacy migration state, or an unknown generation SHALL
+produce a clear unsupported-upgrade error and a non-ready result, with no schema
+or data writes. An empty legacy table does not make a legacy schema fresh. Initial
+schema creation and generation marking SHALL be serialized so concurrent starts
+cannot bypass the check. Under that lock, a verified empty schema SHALL receive
+an initialization record before other schema changes. Only a recognized record
+for this generation SHALL permit an interrupted bootstrap to resume.
+
+Deployment tooling and controllers SHALL reject an incompatible API generation
+before reconciliation. They SHALL NOT fall back to the old database-provider
+runtime. Failure of a new process SHALL leave the old schema and data available
+to existing pods. This is a rejection safeguard, not support for mixed versions.
+
+#### Scenario: A new API pod starts beside old pods
+
+- GIVEN old API pods use an application schema containing database references
+- WHEN a new-release API pod starts during an accidental rolling update
+- THEN it SHALL reject the schema before migrations or any database writes
+- AND it SHALL NOT drop tables or columns used by the old pods
+- AND the existing rows and credentials SHALL remain unchanged
+
+#### Scenario: Hypbox deploy targets an old installation
+
+- GIVEN the target still has an old release or legacy schema
+- WHEN the user runs deployment, including with `--yes`
+- THEN preflight SHALL stop before apply or rollout
+- AND it SHALL explain that explicit teardown and recreation are required
+- AND it SHALL NOT schedule cleanup or change the existing installation
+
+#### Scenario: Fresh bootstrap is interrupted
+
+- GIVEN two matching API pods start against a fresh application schema
+- WHEN schema initialization is interrupted and retried
+- THEN initialization SHALL resume under its lock without misclassifying legacy state
+- AND the installation SHALL become ready only with a valid new-generation schema
 
 ## Acceptance Coverage
 
 The implementation SHALL demonstrate the following with automated tests:
 
-- Fresh v2 gateway creation without `database_id` or a database seed step.
+- Fresh gateway creation without `database_id` or a database seed step.
 - One SQL database and role per gateway, with cross-gateway access denied.
 - Equivalent gateway behavior with a supplied RDS server and CNPG server.
 - Restart, duplicate event, concurrent attempt, and partial-creation recovery.
 - Redacted errors, unavailable secrets, invalid TLS trust, insufficient SQL
   privileges, and credential renewal on the same server.
-- Rejection of an unapproved destination change before SQL or credential mutation.
+- Rejection of a changed destination before any SQL or credential mutation.
 - Hub/spoke isolation for initial lists, watches, retries, and deletion.
 - Durable cleanup after controller restart and temporary PostgreSQL failure.
 - Deletion that leaves the server, storage, and other gateways intact.
-- Additive schema upgrades with existing IDs, relationships, and tombstones intact.
-- Existing v1 SDK, CLI, REST, and gRPC clients against the upgraded API.
-- Ordered API/controller upgrades, capability checks, and rollback.
-- CNPG, deployment, and external database migration with data verification.
-- Failed and interrupted transfers, write fencing, resume, and rollback without loss.
-- New API DTOs without database fields, while v1 fields and APIs remain supported.
+- Fresh schema and matching generated clients without database-selection fields.
+- Rejection of populated and empty legacy schemas before migrations or writes.
+- An old API pod still reading and writing while a new pod rejects the old schema.
+- Deployment preflight rejection before apply, including when inspection fails.
+- Controller rejection of an old or unknown API generation before reconciliation.
+- Serialized fresh bootstrap, interrupted initialization, and safe retry.
 - Single and paired hypbox generation for both RDS and CNPG, with distinct
   credentials, inherited image pins, and no seed-only resources.
 
