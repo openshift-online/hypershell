@@ -371,6 +371,12 @@ h1.pf-v5-c-title.pf-m-3xl,
   fill: #151515 !important;
 }
 
+/* Logout confirmation page -- "Do you want to log out?" text renders flush
+   against the Log out button with no separating space by default. */
+#kc-logout-confirm p.instruction {
+  margin: 0 0 1.5rem !important;
+}
+
 /* Alert styling */
 .pf-v5-c-alert {
   background-color: #ffffff !important;
