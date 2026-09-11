@@ -217,6 +217,13 @@ provisioning condition maps to a `ProgressStep` as follows:
 | `Failed` | `danger` | `false` | Step shows a red X icon |
 | `Failed` (on `GatewayHealthy` when `phase` is `Degraded`) | `warning` | `false` | Step shows a warning icon (recoverable, polling continues) |
 
+**Implementation note:** The `Degraded` row means the variant is not a pure
+function of `condition_status` alone - the UI must also inspect the gateway's
+`phase` to distinguish `danger` (non-recoverable `Failed` phase) from `warning`
+(recoverable `Degraded` phase). Implementers SHOULD encapsulate this logic in a
+single helper (e.g., `stepVariant(condition, phase)`) rather than spreading the
+branching across the component template.
+
 Each `ProgressStep` SHALL use the condition's user-facing label (from the
 Provisioning Steps table) as its title. When a condition has `condition_status` `Failed`
 and a non-empty `message`, the `ProgressStep` SHALL display the message using
