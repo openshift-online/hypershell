@@ -12,9 +12,11 @@
 - Replaced `informer–reconciler` with `informer-reconciler` in `docs/architecture/source/control-plane.md`.
 - Added a Marked HTML renderer override in `tools/architecture-site/build.mjs` that escapes source HTML instead of passing it into published pages.
 
-## Remaining work
+## Pull request update
 
-- Commit and push the rebased branch, reply to all review threads, and resolve them.
+- Committed the review fixes as `f4359a6` and force-pushed with lease after the rebase.
+- Replied to all seven review threads with the corresponding resolution.
+- Resolved all seven threads after posting the responses.
 
 ## Verification
 
@@ -26,3 +28,4 @@
 - `git diff --check`: passed.
 - Initial direct `pnpm` commands could not run because pnpm was not on the shell PATH; reran through mise/Corepack with Node 24.18.1 and pnpm 11.15.1.
 - One root `pnpm run` attempt failed because its script recursively expected `pnpm` on PATH; reran the equivalent filtered package commands directly and they passed.
+- Pre-commit and pre-push repository policy hooks: passed.
