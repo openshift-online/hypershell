@@ -135,7 +135,11 @@ export function GatewayConnectionSteps({
           {intl.formatMessage(messages.connectionLoginConfigureTitle)}
         </Title>
         {isProvisioning ? (
-          <div className={styles.commandPending} style={{ maxWidth: "60rem" }}>
+          <div
+            className={styles.commandPending}
+            role="status"
+            style={{ maxWidth: "60rem" }}
+          >
             <Content component="p" style={{ textAlign: "center" }}>
               <Spinner
                 isInline
