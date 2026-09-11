@@ -78,7 +78,7 @@ the CI YAML or the Keycloak realm export.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase) only where a
+GatewayNetwork, GatewayRelease, ManagedCluster) only where a
 scenario provisions one. "Environment" here means the per-pull-request namespace
 group (the platform namespace and its companion `-keycloak` namespace) that
 `openshift-development.spec.md` defines.

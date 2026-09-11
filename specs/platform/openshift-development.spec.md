@@ -69,7 +69,7 @@ YAML. Those are follow-up implementation work.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase) only
+GatewayNetwork, GatewayRelease, ManagedCluster) only
 where a scenario provisions one.
 
 ## Architecture
@@ -195,28 +195,17 @@ the working-tree image is active.
 
 Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
 developer needs for a working gateway -- a ManagedCluster, a
-GatewayRelease, a ManagedDatabase, and a Gateway -- with the OpenShift Route and
+GatewayRelease and a Gateway -- with the OpenShift Route and
 OIDC values for the environment, so that one command produces a working gateway and
 the OpenShift workflow matches the Kind workflow.
 
-The platform's own database provider (CNPG `Cluster` vs. the bundled PostgreSQL
-Deployment) SHALL be selectable with `DATABASE_PROVIDER=cnpg|deployment`, mirroring
-`make kind-up`. When unset, `make openshift-up` SHALL auto-detect: CNPG if the
-CloudNativePG operator is on the cluster, the bundled Deployment otherwise.
-Seeding SHALL create the ManagedDatabase with `provider=deployment` when the
-bundled Deployment is what's actually running, and `provider=cnpg` when CNPG is.
-Both providers persist their connection info in a Secret of the same name
-(`hypershell-db-app`) with different, incompatible key shapes (deployment:
-`user`/`password`/`host`/`port`/`dbname`; CNPG: `username`/`password`,
-auto-generated only if that Secret does not already exist). When the effective
-provider for a run differs from what is actually deployed in the namespace group
-(detected directly from live cluster state, not from `DATABASE_PROVIDER`),
-`make openshift-up` SHALL cut over automatically: delete the outgoing provider's
-resources (its Secret, and its Deployment/Service or its CNPG `Cluster`/PVCs) before
-applying the target provider, and restart `hypershell-api-server` and
-`hypershell-controller` afterward so they pick up the new connection info. This
-cutover is destructive to the outgoing provider's data, acceptable because this
-namespace group is ephemeral dev/e2e infrastructure, not production.
+Setup SHALL select the PostgreSQL server infrastructure independently from the
+application runtime. It SHALL supply a gateway server and administrative Secret
+before creating a gateway, using the same connection contract for CNPG or a
+development PostgreSQL Deployment. No database API registration is required.
+Existing server resources or credentials SHALL NOT be deleted automatically
+when the selected backend changes. Such a change requires explicit teardown of
+the development environment before setup with the replacement backend.
 
 The OpenShift overlay SHALL derive `GATEWAY_API_HTTP_LISTENER_NAME` from the
 shared Gateway's actual listener (preferring one literally named `grpc` for
@@ -270,7 +259,7 @@ those from the developer machine.
 - THEN the scripts render and apply the API server, the control plane, the web
   console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
 - AND the scripts seed a ManagedCluster, a GatewayRelease, a
-  ManagedDatabase, and a Gateway
+  Gateway
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 

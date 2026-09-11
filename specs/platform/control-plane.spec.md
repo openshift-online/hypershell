@@ -5,32 +5,32 @@
 
 ## Overview
 
-The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into actual Kubernetes resources across managed clusters. It follows the informer-reconciler pattern without depending on controller-runtime.
+The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into Kubernetes resources in its local execution cluster. Each controller processes only its assigned gateways. It follows the informer-reconciler pattern without depending on controller-runtime.
 
 ## Architecture
 
 ```
-API Server (PostgreSQL via CNPG)
+Parent API Server (PostgreSQL)
   │  gRPC watch streams per Kind
   ▼
 Control Plane (Watcher + Reconciler)
   │  reconciles into K8s resources
   ▼
-Managed Clusters (Gateway pods, Services, Configs)
+Local Execution Cluster (Gateway pods, Services, Configs)
 ```
 
 ## Components
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, ManagedDatabases, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md).
 
 ### Reconciler
 
-The Reconciler receives resource events from the Watcher and converges the Kubernetes state on managed clusters to match. Key responsibilities:
+The Reconciler receives resource events from the Watcher and converges its local Kubernetes state for its assigned gateways. Key responsibilities:
 
-- Deploy/update Gateway workloads on target clusters
-- Provision per-gateway PostgreSQL databases and roles via CNPG `Database` and `DatabaseRole` CRDs in the ManagedDatabase's CNPG Cluster (resolved via the gateway's `database_id`)
+- Deploy/update assigned Gateway workloads in the local execution cluster
+- Create per-gateway SQL databases and roles on the controller-configured PostgreSQL server
 - Configure TLS certificates via cert-manager
 - Create GRPCRoute and BackendTLSPolicy for external gateway exposure
 - Inject OIDC authentication configuration into gateway deployments
@@ -57,7 +57,7 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 
 ### Config
 
-Holds connection configuration for the API server gRPC endpoint, Kubernetes client initialization, and the internal service-account provisioner. The provisioner listens on an in-cluster gRPC port that a NetworkPolicy restricts to the API server pod. The API server does not receive Keycloak administrator credentials.
+Holds the local PostgreSQL credential reference, API server gRPC connection configuration, Kubernetes client initialization, and internal service-account provisioner configuration. The provisioner listens on an in-cluster gRPC port that a NetworkPolicy restricts to the API server pod. The API server does not receive Keycloak administrator credentials.
 
 ## Requirements
 
@@ -125,7 +125,7 @@ The control plane SHALL reconcile Gateway resources into Kubernetes Deployments,
 - GIVEN a new Gateway resource appears via the watch stream
 - WHEN the reconciler processes it
 - THEN it SHALL create the corresponding K8s resources on the cluster identified by `cluster_id`:
-  - CNPG database resources (DatabaseRole, Database CRDs, credential Secrets) in the ManagedDatabase's CNPG Cluster (resolved via `database_id`) - see [database spec](./openshell-gateway-database.spec.md)
+  - SQL database and role on the configured PostgreSQL server, with a credential Secret in the gateway namespace - see [database spec](./openshell-gateway-database.spec.md)
   - cert-manager Issuer and Certificate resources for TLS - see [TLS spec](./openshell-gateway-tls.spec.md)
   - JWT key generation Job (`openshell-gateway-certgen`)
   - Gateway Deployment, Service, ServiceAccounts, Roles, RoleBindings, ConfigMap, NetworkPolicies
@@ -133,31 +133,20 @@ The control plane SHALL reconcile Gateway resources into Kubernetes Deployments,
   - OIDC configuration in gateway.toml (when `oidc.issuer` is set) - see [OIDC spec](./openshell-gateway-oidc.spec.md)
 - AND set the Gateway's `phase` to `Provisioning` while applying manifests, and to `Running` only after the `openshell-gateway` Deployment is observed Ready - see [health spec](./openshell-gateway-health.spec.md)
 
-### Requirement: ManagedDatabase Reconciliation
+### Requirement: Controller-Local Database Configuration
 
-The control plane SHALL reconcile ManagedDatabase resources with `provider: "cnpg"` into CNPG Cluster infrastructure. Each CNPG-backed ManagedDatabase gets its own namespace and CNPG Cluster.
+The controller SHALL use its installation-supplied PostgreSQL configuration for
+all database operations on its assigned gateways. It SHALL NOT watch a database
+API resource or create PostgreSQL server infrastructure. Connection readiness,
+credential isolation, and durable cleanup SHALL follow the
+[database specification](./openshell-gateway-database.spec.md).
 
-#### Scenario: New ManagedDatabase Created (provider=cnpg)
-- GIVEN a new ManagedDatabase resource with `provider: "cnpg"` appears via the watch stream
-- WHEN the ManagedDatabaseReconciler processes it
-- THEN it SHALL create the namespace `openshell-db-<hex16>` (derived from the ManagedDatabase KSUID)
-- AND it SHALL create a CNPG `Cluster` CR in that namespace
-- AND it SHALL wait for the Cluster to reach Ready status
-- AND it SHALL update the ManagedDatabase status in the API server
+#### Scenario: Local server configuration is sufficient
 
-#### Scenario: ManagedDatabase Deletion
-- GIVEN a ManagedDatabase deletion event from the watch stream
-- AND no Gateways reference this ManagedDatabase via `database_id`
-- WHEN the ManagedDatabaseReconciler processes it
-- THEN it SHALL delete the CNPG Cluster CR
-- AND it SHALL delete the namespace
-
-#### Scenario: ManagedDatabase Deletion Blocked
-- GIVEN a ManagedDatabase that is referenced by one or more Gateways
-- WHEN a user attempts to delete the ManagedDatabase
-- THEN the API server SHALL reject the deletion with HTTP 409
-
-See [database spec](./openshell-gateway-database.spec.md) for full provisioning details.
+- GIVEN the installation has supplied a PostgreSQL server and credential Secret
+- WHEN a gateway is assigned to this controller
+- THEN it SHALL create the gateway SQL database and role on that server
+- AND it SHALL NOT require a database registration or API lookup
 
 ### Requirement: Resource Cleanup
 
@@ -167,7 +156,8 @@ When a Gateway is deleted, the control plane SHALL clean up all associated Kuber
 - GIVEN a Gateway deletion event from the watch stream
 - WHEN the reconciler processes it
 - THEN it SHALL delete all K8s resources associated with that Gateway
-- AND confirm cleanup completion
+- AND it SHALL complete or durably retain pending SQL cleanup before removing required credentials
+- AND it SHALL leave the PostgreSQL server and other gateways intact
 
 ### Requirement: Status Synchronization
 

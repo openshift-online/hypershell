@@ -9,13 +9,16 @@
 
 ## Purpose
 
-HyperShell generates database passwords and credential Key Encryption Keys (KEK) once during gateway provisioning and never rotates them. TLS certificates are managed by cert-manager with automatic renewal, but pod restarts on renewal depend on the config-hash annotation (now implemented). For a multi-tenant SaaS platform, a "create once, never rotate" approach does not meet security best practices.
+The control plane SHALL support explicit rotation of gateway database passwords
+without changing the configured PostgreSQL destination. It SHALL preserve gateway
+credentials during ordinary reconciliation. This specification also defines the
+rotation boundaries for credential encryption keys and TLS certificates.
 
 This specification defines the rotation strategy for the three categories of secrets managed by the control plane:
 
 | Secret | Current Behavior | Rotation Strategy |
 |---|---|---|
-| Database password (`openshell-gateway-db-credentials`) | Generated once, never rotated | Annotation-triggered; update CNPG password Secret, operator applies change to PostgreSQL |
+| Database password (`openshell-gateway-db-credentials`) | Generated once, never rotated | Annotation-triggered; controller updates the SQL role through its local administrative connection |
 | Credential KEK (`openshell-gateway-credential-kek`) | Generated once, never rotated | Day-2 follow-up (re-encryption workflow requires gateway cooperation) |
 | TLS certificates (`openshell-server-tls`, `openshell-client-tls`) | cert-manager automatic renewal | Already handled; this spec ensures the config-hash annotation covers TLS secrets |
 | Provider credentials (kubernetes-secrets driver) | Stored as K8s Secrets by gateway | User/operator responsibility; SA token auto-rotates |
@@ -43,68 +46,65 @@ The reconciler compares this value against the annotation `hypershell.redhat.io/
 
 #### Rotation Procedure
 
-When rotation is triggered, the reconciler SHALL execute the following steps in order:
+For each requested rotation, the assigned controller SHALL:
 
-1. **Generate new password** -- 32 bytes from `crypto/rand`, hex-encoded (same as initial provisioning)
-2. **Update the CNPG password Secret** -- Update the `kubernetes.io/basic-auth` Secret (`gw-<gatewayID>-credentials`) in the CNPG namespace with the new password. The `cnpg.io/reload: "true"` label ensures the CNPG operator applies the password change to PostgreSQL immediately (no direct SQL connection needed)
-3. **Update the gateway credentials Secret** -- Update `openshell-gateway-db-credentials` in the tenant namespace with the new password and connection URI, and set `hypershell.redhat.io/last-db-rotation` annotation to match the trigger annotation value
-4. **Trigger pod restart** -- The config-hash annotation on the Deployment already includes the database credentials Secret hash; updating the Secret content causes the hash to change on next reconciliation, triggering a rolling restart
+1. Generate a password with at least 256 bits of cryptographic randomness and
+   persist it as a protected pending rotation before changing SQL state.
+2. Use its configured administrative connection to change only the gateway's
+   SQL login role password. This SHALL use the same behavior on RDS and CNPG.
+3. Update `openshell-gateway-db-credentials` with the new password and connection
+   URI. Record `hypershell.redhat.io/last-db-rotation` only after SQL and the
+   gateway Secret agree. Remove the pending rotation after completion.
+4. Cause a rolling restart through the database credential config hash.
+
+The controller SHALL serialize rotation with other operations for that gateway.
+A retry SHALL reuse the persisted pending password. It SHALL NOT generate a new
+password for every attempt or expose either password in logs, events, or SQL
+error text. Pending credentials SHALL have the same access limits as active ones.
 
 #### Scenario: Successful database password rotation
 
-- GIVEN a Gateway with annotation `hypershell.redhat.io/rotate-db-credentials: "2026-08-12T10:00:00Z"`
-- AND the database credentials Secret does NOT have annotation `hypershell.redhat.io/last-db-rotation: "2026-08-12T10:00:00Z"`
-- WHEN the GatewayReconciler reconciles
-- THEN it SHALL generate a new password
-- AND update the CNPG password Secret `gw-<gatewayID>-credentials` in the CNPG namespace
-- AND the CNPG operator SHALL apply the password change to PostgreSQL (via `cnpg.io/reload` label)
-- AND update Secret `openshell-gateway-db-credentials` in the tenant namespace with the new password and connection URI
-- AND set annotation `hypershell.redhat.io/last-db-rotation: "2026-08-12T10:00:00Z"` on the Secret
-- AND the gateway Deployment SHALL rolling-restart due to config-hash change
+- GIVEN a gateway has a new rotation annotation
+- WHEN its assigned controller completes rotation
+- THEN the SQL role and gateway Secret SHALL contain the new password
+- AND the Secret SHALL record the completed rotation annotation
+- AND the gateway Deployment SHALL restart with the new credentials
+- AND the database contents and destination SHALL remain unchanged
 
 #### Scenario: Rotation already completed
 
-- GIVEN a Gateway with annotation `hypershell.redhat.io/rotate-db-credentials: "2026-08-12T10:00:00Z"`
-- AND the database credentials Secret has annotation `hypershell.redhat.io/last-db-rotation: "2026-08-12T10:00:00Z"`
-- WHEN the GatewayReconciler reconciles
-- THEN it SHALL skip rotation (idempotent)
+- GIVEN the requested rotation matches the Secret's completed rotation annotation
+- WHEN the controller reconciles the gateway
+- THEN it SHALL preserve the current password and skip rotation
 
 #### Scenario: No rotation annotation
 
-- GIVEN a Gateway without the `hypershell.redhat.io/rotate-db-credentials` annotation
-- WHEN the GatewayReconciler reconciles
-- THEN it SHALL NOT attempt rotation (preserve existing create-or-skip behavior)
-
----
+- GIVEN a gateway has no rotation annotation
+- WHEN the controller reconciles the gateway
+- THEN it SHALL preserve its existing credentials
 
 ### Requirement: Database Rotation Failure Handling
 
-Database password rotation involves a coordinated multi-step mutation. If any step fails, the system MUST remain in a recoverable state.
+A failed rotation SHALL remain visible and retryable. Before a confirmed SQL
+password change, the controller SHALL NOT publish the new active gateway Secret.
+If SQL succeeds but Secret persistence fails, new gateway connections can fail
+until the retry completes. The system SHALL report this condition and SHALL NOT
+claim uninterrupted service or successful rotation. A controller restart SHALL
+resume the same pending rotation on the original destination.
 
-#### Step ordering rationale
+#### Scenario: SQL password update fails
 
-The CNPG password Secret is updated first, then the gateway credentials Secret. This ordering reduces risk but does not eliminate all failure windows:
+- GIVEN a pending rotation and a failed SQL password update
+- WHEN the controller handles the failure
+- THEN it SHALL leave the active gateway Secret unchanged
+- AND it SHALL retain the pending rotation and retry with a redacted error
 
-- If the CNPG password Secret update succeeds but the gateway credentials Secret update fails: CNPG applies the new password to PostgreSQL asynchronously. Because the gateway credentials Secret annotation is not updated on failure, the next reconciliation attempt detects the mismatch (trigger annotation != last-rotation annotation) and runs the full rotation again - generating a fresh password, updating the CNPG Secret a second time, and then updating the gateway credentials Secret.
-- The gateway continues operating with the old password (still in memory from the old Secret) until the gateway credentials Secret is updated and the pod restarts.
-- Unlike direct `ALTER ROLE`, CNPG applies the password change asynchronously via the `cnpg.io/reload` label. There is a brief window where PostgreSQL has applied the new password but the gateway credentials Secret has not yet been updated; during this window gateway connections that reconnect may fail until the credentials Secret is updated.
+#### Scenario: Secret update fails after SQL succeeds
 
-#### Scenario: CNPG password Secret update fails
-
-- GIVEN a rotation is triggered
-- AND the CNPG password Secret update fails (e.g., Kubernetes API error)
-- WHEN the GatewayReconciler handles the error
-- THEN it SHALL NOT update the gateway credentials Secret
-- AND it SHALL log the error and return it (standard reconciler retry behavior)
-- AND the gateway SHALL continue operating with the current credentials
-
-#### Scenario: Gateway credentials Secret update fails after CNPG Secret update
-
-- GIVEN the CNPG password Secret was updated with the new password
-- AND the gateway credentials Secret update fails (e.g., Kubernetes API error)
-- WHEN the GatewayReconciler retries
-- THEN it SHALL detect the mismatch (trigger annotation != last-rotation annotation on the gateway credentials Secret) and run the full rotation again with a newly generated password - updating the CNPG password Secret and then the gateway credentials Secret
-- AND the running gateway pods SHALL continue operating with the original password until the retry completes and the pod restarts
+- GIVEN SQL accepted the pending password but the gateway Secret update failed
+- WHEN the controller restarts and retries
+- THEN it SHALL reuse the pending password and complete the Secret update
+- AND it SHALL restart the gateway only with credentials that match SQL
 
 ---
 
@@ -123,9 +123,19 @@ This ensures that when the database password is rotated (Secret content changes)
 
 ---
 
-### Requirement: No Direct PostgreSQL Connection for Rotation
+### Requirement: Rotation Uses the Local PostgreSQL Contract
 
-The reconciler SHALL NOT establish a direct connection to PostgreSQL for credential rotation. Instead, it updates the CNPG password Secret (`gw-<gatewayID>-credentials`) and the CNPG operator handles the `ALTER ROLE` execution internally, within a transaction that suppresses SQL logging for security. This eliminates the need for the reconciler to maintain database driver dependencies (`lib/pq`) for rotation.
+Rotation SHALL use the controller-local administrative connection and TLS policy
+defined in the [database specification](./openshell-gateway-database.spec.md).
+It SHALL NOT modify CNPG password Secrets, DatabaseRole resources, or server
+infrastructure. SQL statements and errors SHALL NOT disclose passwords.
+
+#### Scenario: Rotate a gateway on RDS
+
+- GIVEN the controller uses an installation-supplied RDS server
+- WHEN an operator requests gateway password rotation
+- THEN rotation SHALL complete without a CNPG API or operator
+- AND it SHALL affect only that gateway's SQL role and credentials
 
 ---
 
@@ -287,32 +297,9 @@ Database password rotation (the `openshell-gateway-db-credentials` Secret) is in
 - GIVEN a gateway with `credential_driver.type` = `vault`
 - AND the operator triggers DB password rotation via annotation
 - WHEN the GatewayReconciler reconciles
-- THEN it SHALL rotate the database password (update CNPG password Secret, update gateway credentials Secret, rolling restart)
+- THEN it SHALL rotate the database password (update SQL role, update gateway credentials Secret, rolling restart)
 - AND the Vault credential configuration SHALL remain unchanged
 - AND provider credentials in Vault SHALL remain accessible after the gateway restarts
-
----
-
-## Implementation Plan
-
-### Phase 1: Database Password Rotation (Day-1)
-
-| Step | Description | Files |
-|---|---|---|
-| 1 | Add `rotateDatabaseCredentials()` to reconciler -- updates CNPG password Secret and gateway credentials Secret | `reconciler.go` |
-| 2 | Extend `applyConfigHashAnnotation` to include DB credentials Secret | `reconciler.go` |
-| 3 | Wire rotation check into `ReconcileGateway` (after CNPG database provisioning) | `reconciler.go` |
-| 4 | Add annotation reading in `GatewayReconciler.Handle` (pass from proto Gateway to config) | `reconciler/reconciler.go` |
-
-### Phase 2: TLS Hardening (Day-1)
-
-| Step | Description | Files |
-|---|---|---|
-| 1 | Add `rotationPolicy: Always` to CA Certificate in `reconcileCertManagerResources` | `reconciler.go` |
-
-### Phase 3: KEK Rotation (Day-2, Separate PR)
-
-Deferred until the gateway exposes a re-encryption API.
 
 ---
 

@@ -52,11 +52,12 @@ All containers must set:
 - `Capabilities.Drop: ["ALL"]`
 - `runAsNonRoot: true`
 
-**Note:** All PostgreSQL databases (API server and per-gateway) are provisioned by
-the CloudNativePG (CNPG) operator, which manages its own PostgreSQL pods with
-appropriate security contexts. The CNPG operator enforces non-root execution and
-drops capabilities by default. No database container security configuration is
-needed on the HyperShell side.
+The installation system SHALL own PostgreSQL server security. CNPG installations
+SHALL use the operator's PostgreSQL pod security controls. Development PostgreSQL
+Deployments SHALL follow the container requirements above and the target cluster's
+admission rules. RDS server security SHALL be configured through infrastructure.
+The gateway controller SHALL manage SQL databases and roles only. It SHALL NOT
+create database pods or broaden their security permissions.
 
 ### Gateway Access Isolation
 

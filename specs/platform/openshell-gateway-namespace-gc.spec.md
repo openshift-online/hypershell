@@ -45,7 +45,7 @@ Namespace creation and provisioning mechanics are defined in
   pod's own namespace via the downward API so two controllers cannot accidentally
   share a copied static value. Multiple instances MAY share a cluster (for
   example stage alongside an e2e run, or two developers' local-dev environments).
-  Each instance has its own API server and therefore its own set of live Gateways.
+  Each execution instance owns the gateways assigned to its registered cluster identity. A spoke uses its parent API server; it does not have a separate API server.
 - **Managed namespace** - a namespace this control-plane instance created and is
   responsible for, identified by carrying ALL of the labels the control plane
   stamps at creation:
@@ -53,20 +53,20 @@ Namespace creation and provisioning mechanics are defined in
   - `hypershell.redhat.io/managed=true`
   - `hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>`
   Periodic garbage collection sweeps only namespaces owned by this instance whose
-  names match the gateway prefix (`openshell-<hex>`) and excludes ManagedDatabase
-  namespaces (`openshell-db-<hex>`). A namespace owned by a different instance is
+  names match the gateway prefix (`openshell-<hex>`) and excludes installation-owned
+  PostgreSQL namespaces. A namespace owned by a different instance is
   never listed, annotated, or reaped. A gateway namespace that carries both
   management labels but no instance label is unlabeled leftover. Periodic GC
   SHALL leave it unlabeled. A namespace still recorded by a live Gateway in this
-  instance's API server is claimed for this instance by the startup backfill (see
+  instance's assigned gateway inventory is claimed for this instance by the startup backfill (see
   "Backfill Instance Labels on Startup") and by live reconcile; an unlabeled
-  leftover with no such Gateway is claimed only by an operator. ManagedDatabase
+  leftover with no such Gateway is claimed only by an operator. Installation-owned PostgreSQL
   namespaces and namespaces already labeled for another instance are never claimed.
   A Gateway pointed at a pre-existing or shared namespace can never cause that
   namespace to be reaped.
 - **Orphaned namespace** - a gateway namespace (matching the gateway prefix, not
-  the database prefix) for which no live Gateway exists (no Gateway in the API
-  server maps to it). This is the sole trigger for garbage collection.
+  an installation-owned PostgreSQL namespace) for which no live assigned Gateway
+  exists. This is the sole trigger for garbage collection.
 - **GC grace period** - the minimum time a namespace must remain continuously
   orphaned before it is reaped. It is measured from a timestamp persisted on the
   namespace so it survives control-plane restarts.
@@ -94,16 +94,17 @@ The control plane SHALL additionally clean up the resources a gateway owns that
 live outside its namespace, because namespace deletion does not reach them:
 
 - the cluster-scoped ClusterRoleBinding created for the gateway,
-- the gateway's external Keycloak client, and
+- the gateway's external Keycloak client,
+- the gateway SQL database and login role on the configured server, and
 - any credential RBAC the gateway created in a separate credential namespace.
 
-> **Future work (not yet implemented):** As gateways gain ownership of
-> out-of-namespace external state that namespace deletion cannot reach (for
-> example secrets written to an external secret store such as HashiCorp Vault),
-> this delete path will need to be extended to reclaim that state too, under the
-> same best-effort, idempotent contract used for the resources above. No such
-> external store is provisioned today, so there is nothing beyond the listed
-> resources to clean up yet.
+Before delete-event handling or periodic GC removes a gateway namespace, the
+controller SHALL persist its SQL cleanup intent and original destination outside
+that namespace. Namespace removal SHALL NOT erase the information required for
+SQL cleanup. If persistence fails, namespace deletion SHALL wait and retry.
+Pending SQL cleanup SHALL survive missed events, namespace removal, and controller
+restarts. The controller SHALL report incomplete SQL cleanup and retry it until
+it succeeds. See the [database contract](./openshell-gateway-database.spec.md).
 
 Namespace deletion SHALL be best-effort and idempotent: an already-absent or
 already-terminating namespace is treated as success, and a namespace that is not
@@ -111,11 +112,21 @@ managed by this control-plane instance SHALL NOT be deleted. A namespace that
 carries `hypershell.redhat.io/instance` set to a different instance SHALL NOT be
 deleted. A legacy namespace that carries the two management labels but no
 instance label MAY still be deleted on this path, because the delete is keyed to
-a Gateway from this instance's API server rather than a cluster-wide sweep.
+a Gateway assigned to this instance rather than a cluster-wide sweep.
 
 Namespace deletion SHALL NOT be gated on the number of active sandboxes. A delete
 is processed and the namespace is removed; if the namespace no longer exists when
-the delete is processed, the delete is considered complete.
+the delete is processed, namespace cleanup is complete. Full gateway cleanup
+SHALL remain pending until the SQL cleanup record is complete.
+
+#### Scenario: Namespace cleanup during a PostgreSQL outage
+
+- GIVEN an orphaned gateway namespace is eligible for cleanup
+- AND the gateway's PostgreSQL server is unavailable
+- WHEN GC removes the namespace after it stores durable SQL cleanup intent
+- THEN SQL cleanup SHALL remain pending outside the deleted namespace
+- AND a restarted controller SHALL retry it against the original server
+- AND the controller SHALL NOT report full gateway cleanup until SQL cleanup completes
 
 #### Scenario: Gateway deleted with a managed namespace
 
@@ -150,9 +161,8 @@ the delete is processed, the delete is considered complete.
 
 The control plane SHALL run a background reconciler that periodically lists
 namespaces owned by this control-plane instance and reaps gateway workload
-namespaces (`openshell-<hex>`, excluding ManagedDatabase namespaces
-`openshell-db-<hex>`) that have been orphaned (no live Gateway in this instance's
-API server) for at least the grace period. The list selector SHALL include
+namespaces (`openshell-<hex>`, excluding installation-owned PostgreSQL namespaces) that have been orphaned (no live Gateway in this instance's
+assigned inventory) for at least the grace period. The list selector SHALL include
 `hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>` in addition to the two
 management labels, so a namespace created by another HyperShell instance on the
 same cluster is never observed as an orphan of this instance. If
@@ -172,8 +182,7 @@ variables:
 - `GATEWAY_NAMESPACE_GC_GRACE_PERIOD` (default `10m`)
 
 Reaping SHALL be best-effort and idempotent, and SHALL only ever delete gateway
-workload namespaces owned by this instance (matching the gateway prefix, not the
-database prefix, and carrying this instance's identity label).
+workload namespaces owned by this instance (matching the gateway prefix, not installation-owned PostgreSQL namespaces, and carrying this instance's identity label).
 
 #### Scenario: Orphaned gateway namespace reaped after grace period
 
@@ -212,17 +221,17 @@ database prefix, and carrying this instance's identity label).
 - THEN it SHALL stamp `hypershell.redhat.io/instance` for this instance
 - AND the garbage-collection sweep SHALL NOT stamp that label on its own
 
-#### Scenario: Unlabeled ManagedDatabase namespace is not claimed
+#### Scenario: Unlabeled installation-owned PostgreSQL namespace is not claimed
 
-- GIVEN a namespace named `openshell-db-<hex>` that carries the two management
+- GIVEN a namespace named `hypershell-gateway-db-hyp0` that carries the two management
   labels but not `hypershell.redhat.io/instance`
 - WHEN this instance's garbage-collection reconciler sweeps
 - THEN it SHALL NOT stamp an instance label on that namespace
 - AND it SHALL NOT annotate or delete that namespace
 
-#### Scenario: ManagedDatabase namespace is not reaped
+#### Scenario: Installation-owned PostgreSQL namespace is not reaped
 
-- GIVEN a managed namespace named `openshell-db-<hex>` with no live Gateway
+- GIVEN a managed namespace named `hypershell-gateway-db-hyp0` with no live Gateway
 - WHEN the garbage-collection reconciler sweeps
 - THEN it SHALL NOT delete that namespace
 
@@ -466,7 +475,7 @@ real-time guarantee.
 | Decision | Rationale |
 |----------|-----------|
 | GC triggers on orphaning (no live Gateway), not on `phase` being `Degraded`/`Failed` | A gateway that still exists - even if unhealthy - is the health reconciler's and the operator's concern; only the absence of a backing Gateway unambiguously means the namespace is garbage. This avoids reaping a namespace an operator is still debugging. |
-| Exclude `openshell-db-*` managed namespaces from periodic GC | ManagedDatabase CNPG namespaces share the management labels but are owned by the ManagedDatabase reconciler; the stable `openshell-db-` prefix distinguishes them without requiring a label migration on existing gateway namespaces. |
+| Exclude installation-owned PostgreSQL namespaces from GC | The installation owns the server and its administrative credentials. Gateway cleanup removes SQL objects only. |
 | Require this instance's identity label before periodic GC | Two HyperShell controllers on one cluster share the generic management labels. Without a value unique to that controller (`hypershell.redhat.io/instance=<the controller's namespace>`), instance B's sweep treats instance A's live gateways as orphans (they are absent from B's API server) and would delete them after the grace period. The identity is the controller pod's namespace from the downward API so it cannot be a copied static string. |
 | Periodic GC never claims unlabeled legacy gateway namespaces | An earlier design had each sweep stamp the instance label onto unlabeled leftovers before evaluating them for orphaning, so a missed-delete orphan predating the instance label would not leak forever. In practice this reclaimed the label on every sweep for a namespace whose instance label never durably stuck (e.g. a naming or list-vs-read inconsistency), which reset `gc-eligible-since` to "now" on every tick and made the namespace look freshly orphaned forever, so it was never reaped. Claiming unlabeled leftovers is now an explicit operator action instead. |
 | Require BOTH management labels plus this instance's identity before deleting | Defense in depth: even if a label selector over-returns, a namespace not created by this control-plane instance (another HyperShell, a shared namespace, or a pre-existing namespace) is never deleted by periodic GC. |
@@ -478,4 +487,4 @@ real-time guarantee.
 | Record the GC Event in the control-plane namespace | An Event stored in the namespace being deleted would be destroyed with it; recording it in the control-plane namespace gives operators a durable audit trail. |
 | Active sandbox count maintained event-driven, not by this reconciler | The count is maintained from a control-plane sandbox pod watch with periodic self-heal (see [`openshell-gateway-sandbox-count.spec.md`](./openshell-gateway-sandbox-count.spec.md)), avoiding a repeated full-namespace pod poll. This reconciler only consumes the published value to warn operators before a deletion. |
 | Sandbox pods reclaimed by the namespace cascade, not reaped pod by pod | Sandboxes run in the gateway's own namespace, so deleting the namespace reclaims them along with the gateway's workloads; no separate per-pod sandbox reaper is needed, and the sandbox count stays a warning signal rather than a cleanup driver. |
-| Out-of-namespace cleanup is an explicit, extensible list | Namespace deletion cannot reach resources outside the namespace, so each must be deleted explicitly. The list is expected to grow (e.g. external secret stores such as Vault); new out-of-namespace state is added here under the same best-effort, idempotent contract. |
+| Retain SQL cleanup intent outside the gateway namespace | Namespace removal cannot remove SQL resources. Pending SQL cleanup must survive namespace deletion and controller restarts. |

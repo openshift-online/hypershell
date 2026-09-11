@@ -7,7 +7,7 @@
 
 ## Purpose
 
-HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. Database provisioning follows two paths: `kind-up` applies the static `hypershell-db` CNPG Cluster for the API server, while the ManagedDatabaseReconciler in the control plane provisions gateway databases dynamically. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all images from the working tree instead of pulling from the registry. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
+HyperShell provides a single-command local development environment using Kind (Kubernetes in Docker) clusters. The environment deploys all platform components - API server, control plane, and web console - so developers can test changes end-to-end without external infrastructure. Setup supplies separate PostgreSQL servers for the API and gateway workloads. The controller creates gateway SQL databases on the configured gateway server. The tooling is idempotent: running it repeatedly converges to the desired `main` state without errors. For offline or air-gapped environments, `LOCAL_IMAGES=true` builds all images from the working tree instead of pulling from the registry. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
 
 Developers selectively swap individual components with local builds using per-component targets. The baseline cluster runs pre-built images pulled from the container registry; individual components are "swapped in" from local source as needed. Selective swapping converges to the current working tree state.
 
@@ -37,7 +37,7 @@ OpenShift e2e driver.
 | Gateway API CRDs | Gateway, GRPCRoute, BackendTLSPolicy, and related CRDs; required before cloud-provider-kind can serve as a gateway controller |
 | cloud-provider-kind | LoadBalancer and Gateway API controller for Kind clusters; implements GatewayClass and serves as the data-plane proxy for GRPCRoute traffic |
 | cert-manager | TLS certificate lifecycle for gateway certificates (issuance, renewal, rotation) |
-| CloudNativePG operator | PostgreSQL database lifecycle; provides Cluster, Database, and DatabaseRole CRDs |
+| CloudNativePG operator | Installation-owned PostgreSQL server lifecycle; gateway SQL objects do not require Database or DatabaseRole CRDs |
 | CloudNativePG Cluster (hypershell-system) | PostgreSQL cluster for the API server in the platform namespace |
 | Keycloak | OIDC identity provider for local gateway authentication testing (skipped when `KIND_KEYCLOAK_URL` is set) |
 
@@ -53,7 +53,7 @@ cert-manager SHALL be installed by applying the release manifest from `https://g
 
 The CloudNativePG (CNPG) operator SHALL be installed by applying the release manifest from `https://github.com/cloudnative-pg/cloudnative-pg/releases/download/<version>/cnpg-<version>.yaml` on every `kind-up` run (idempotent via server-side apply), and waiting for the `cnpg-controller-manager` deployment in `cnpg-system` to reach ready state before proceeding. The version SHALL be pinned via a `CNPG_VERSION` variable (default: `v1.30.0`).
 
-After the CNPG operator is ready, `make kind-up` SHALL apply the `hypershell-db` CNPG `Cluster` resource for the API server on every run so that changes to `HYPERSHELL_DATABASE_IMAGE` are propagated without requiring a cluster teardown. The gateway database CNPG Cluster is NOT static infrastructure -- it is created dynamically by the ManagedDatabaseReconciler when the seeded `openshell-db` ManagedDatabase is processed by the control plane.
+After the CNPG operator is ready, `make kind-up` SHALL apply the `hypershell-db` CNPG `Cluster` resource for the API server on every run so that changes to `HYPERSHELL_DATABASE_IMAGE` are propagated without requiring a cluster teardown. Setup SHALL also supply the gateway PostgreSQL server and its administrative credential reference before gateway seeding. The server is installation infrastructure.
 
 #### API server CNPG Cluster
 
@@ -89,19 +89,19 @@ The API server SHALL retry database connections on startup until the database be
 
 `HYPERSHELL_DATABASE_IMAGE` is a Makefile/kustomize variable substituted into the API server CNPG Cluster CR at deploy time. When unset, the `imageName` field is omitted and CNPG uses its built-in default image. To use a specific image (e.g., a Red Hat Hardened Image), set the variable before running `make kind-up`.
 
-#### Gateway Database (ManagedDatabase Seeding)
+#### Gateway PostgreSQL Server
 
-The gateway database CNPG Cluster is NOT created by `kind-up` as static infrastructure. Instead, `kind-up` seeds a ManagedDatabase resource named `openshell-db` (provider=cnpg) via the REST API during the resource seeding step. The ManagedDatabaseReconciler in the control plane then creates the namespace and CNPG Cluster dynamically. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) for the full lifecycle.
+Setup SHALL create the gateway PostgreSQL server directly and wait for its connection to become ready. It SHALL configure the controller with a local administrative Secret reference. No database resource is seeded through the API. See the [database specification](./openshell-gateway-database.spec.md).
 
-`OPENSHELL_DATABASE_IMAGE` configures the PostgreSQL image for ManagedDatabase CNPG Clusters. When unset, CNPG uses its built-in default image.
+`OPENSHELL_DATABASE_IMAGE` is a setup input for the installation-owned gateway PostgreSQL server image. The controller SHALL NOT use it to create server infrastructure.
 
 Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYCLOAK_URL` environment variable is set, the local Keycloak deployment SHALL be skipped and the Gateway OIDC issuer SHALL point at the external URL instead. This allows developers to test against a shared downstream Keycloak instance (e.g. the production broker - a downstream Keycloak that brokers authentication to Red Hat SSO and manages per-gateway OIDC clients).
 
 ### Gateway Resource
 
-`make kind-up` SHALL seed all resources needed for a functional local environment: ManagedCluster, GatewayRelease, ManagedDatabase (`openshell-db` when `DATABASE_PROVIDER=cnpg`), and a Gateway with OIDC configuration pointing at the local Keycloak instance. The ManagedDatabase seed triggers the ManagedDatabaseReconciler to create the gateway database CNPG Cluster infrastructure. When a single ManagedDatabase exists, gateways created without an explicit `database_id` are auto-assigned to it. The seeding step obtains a Bearer token from Keycloak using the admin user (not the control-plane service account), then creates each resource via the REST API. If any seed step fails (e.g. the resource already exists from a previous run), it SHALL warn and continue rather than abort. This makes `kind-up` fully self-contained -- a developer gets a working gateway without any manual API calls after the initial setup.
+`make kind-up` SHALL configure the PostgreSQL server before seeding a ManagedCluster, GatewayRelease, and Gateway with local OIDC configuration. It SHALL NOT seed a database API entity. Repeated setup SHALL reuse matching resources. Genuine setup failures SHALL remain visible and prevent a successful-ready result.
 
-The local environment SHALL NOT deploy the gateway's PostgreSQL directly - the control plane reconciler provisions a dedicated database and role for each gateway in the shared CNPG Cluster using CNPG `Database` and `DatabaseRole` CRDs (see `specs/platform/openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production. The API server's database is also managed by CNPG via a separate Cluster CR in `hypershell-system` (see Cluster-Level Prerequisites above).
+Setup SHALL supply the gateway PostgreSQL server. The controller SHALL create a SQL database and role for each gateway on that server, through the same connection contract used in production. It SHALL NOT create CNPG Database or DatabaseRole resources.
 
 TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). The OIDC issuer uses HTTP because the local Keycloak instance runs in dev mode without TLS; the TLS requirement applies to the gateway's own serving certificate, not to the OIDC issuer endpoint. Authentication SHALL use OIDC only - mTLS client authentication is not supported.
 
@@ -722,7 +722,7 @@ container engine into `SWAP_REGISTRY` and SHALL NOT require an interactive
 
 > **Database images:** Two environment variables control PostgreSQL images for the two CNPG provisioning paths:
 > - `HYPERSHELL_DATABASE_IMAGE` - configures the API server's static `hypershell-db` CNPG Cluster. `make kind-up` patches the Cluster with this image after applying manifests. When unset, CNPG uses its built-in default image.
-> - `OPENSHELL_DATABASE_IMAGE` - configures gateway database CNPG Clusters created dynamically by the ManagedDatabaseReconciler. Set this on the control plane process (or in the Kind deployment environment) before provisioning gateways. When unset, CNPG uses its built-in default image.
+> - `OPENSHELL_DATABASE_IMAGE` configures the gateway PostgreSQL server created by setup, not by the application controller.
 >
 > To satisfy the all-images HI requirement, set **both** variables to the HI PostgreSQL image before running `make kind-up`.
 
@@ -847,10 +847,10 @@ All Kind targets operate on `KIND_NAMESPACE` (default: `hypershell-system`). Ope
 | Jaeger all-in-one for local tracing | One workload provides both OTLP receivers (gRPC `4317` for the API server, HTTP `4318` for the web console) and the query UI with in-memory storage; avoids a separate OpenTelemetry Collector in development. The BFF exports over OTLP/HTTP; the browser exports through the same-origin BFF endpoint. `KIND_JAEGER=true` opts in |
 | Hot reload on by default | Swap targets for supported components (web console) mount host source and run a dev server in an interactive TTY by default; `KIND_HOT_RELOAD=false` opts out to rebuild-and-replace. Keeps the same `kind-<component>-up` entrypoint for both workflows |
 | Per-component targets require existing cluster | Avoids implicit full-stack deployment; keeps intent explicit |
-| All databases provisioned by CNPG operator | The API server database (in `hypershell-system`) uses a static CNPG Cluster. Gateway databases use CNPG Clusters created dynamically by the ManagedDatabaseReconciler  -- each ManagedDatabase (provider=cnpg) gets its own namespace and CNPG Cluster. No standalone PostgreSQL Deployments |
+| Installation-owned PostgreSQL servers | Setup owns the API and gateway servers. The controller creates gateway SQL databases and roles only. |
 | Red Hat Hardened Images | HI images (`registry.access.redhat.com/hi/...`) are distroless, CIS-hardened, and signed at build time. No fallback to standard RHEL images - HI is the only supported path |
-| Independent database image configuration | `HYPERSHELL_DATABASE_IMAGE` configures the API server CNPG Cluster image. `OPENSHELL_DATABASE_IMAGE` configures the image for ManagedDatabase CNPG Clusters (applied by the ManagedDatabaseReconciler). When unset, CNPG uses its built-in default |
-| CNPG as cluster prerequisite | CloudNativePG operator installed via release manifest (like cert-manager). The API server CNPG Cluster is static infrastructure in `hypershell-system`. Gateway CNPG Clusters are created dynamically by the ManagedDatabaseReconciler per ManagedDatabase resource |
+| Independent database image configuration | Setup selects API and gateway server images separately. Neither choice requires a database API entity. |
+| CNPG for selected server infrastructure | Setup installs the operator before applying its PostgreSQL Cluster resources. The controller uses SQL and does not require CNPG APIs. |
 | Multiple deployments via namespace isolation | Additional platform deployments go into separate namespaces within the same Kind cluster with distinct hostnames via `KIND_NAMESPACE=<name> make kind-up`. More performant than separate Kind clusters; shares cluster-level resources (Gateway API CRDs, cert-manager, cloud-provider-kind). `kind-down` removes the target namespace; `kind-teardown` destroys the cluster |
 | Gateway API CRDs from experimental channel | Experimental channel includes BackendTLSPolicy (required for TLS re-encrypt); standard channel does not. CRDs must be installed before cloud-provider-kind starts |
 | cloud-provider-kind as Gateway API controller | Kind has no built-in LoadBalancer or Gateway API support; cloud-provider-kind provides both, implementing the GatewayClass and serving as the data-plane proxy for GRPCRoute traffic |
