@@ -90,6 +90,18 @@ Managed cluster Prometheus series:
 | `hypershell_managed_clusters_created_last_30_days_total` | Clusters created in the last 30 × 24 hours (UTC) |
 | `hypershell_managed_clusters_inventory_total{status, provider, region}` | Cluster counts by inventory dimensions |
 
+Managed database compatibility series, retained for existing consumers and the
+unscoped `GET /api/metrics/platform-inventory` response:
+
+| Metric | Meaning |
+| --- | --- |
+| `hypershell_managed_databases_total` | Total registered managed databases |
+| `hypershell_managed_databases_inventory_total{status}` | Managed database counts by status; absent or blank status maps to `unknown` |
+
+These series SHALL remain available on the API server's `/metrics` endpoint.
+The `scope=clusters` BFF request SHALL query only the managed cluster series;
+it SHALL NOT disable the managed database collector or change the unscoped response.
+
 The adapter SHALL map the BFF JSON response into `managed-clusters` operational metrics per PI-04 and PI-05. A non-success BFF response SHALL fail only the `platform-inventory` metric source (`web-console/operational-dashboard.spec.md` OP-DASH-19).
 
 The adapter SHALL NOT paginate HyperShell REST List APIs for dashboard inventory aggregates. REST List APIs remain authoritative for gateway placement selection and other collection workflows.
@@ -114,7 +126,13 @@ The adapter SHALL NOT paginate HyperShell REST List APIs for dashboard inventory
 
 ### Requirement: PI-10 -- API Server Inventory Collectors and BFF Route
 
-The API server SHALL register Prometheus collectors for managed cluster inventory. Each collector SHALL query the database once per scrape via an inventory snapshot DAO method and emit gauges matching PI-02. When the database query fails, the collector SHALL emit `prometheus.NewInvalidMetric` so the scrape registers as failed.
+The API server SHALL register collectors for both managed cluster inventory and
+managed database compatibility inventory. Each collector SHALL query its inventory
+snapshot DAO once per scrape and emit its PI-02 gauges. Collector registration
+SHALL NOT depend on the BFF request scope or the new dashboard's widget catalog.
+A database collector SHALL emit a zero total for an empty successful inventory.
+When a snapshot query fails, its collector SHALL emit `prometheus.NewInvalidMetric`
+so the scrape registers as failed; it SHALL NOT substitute a zero count.
 
 The web-console BFF SHALL expose `GET /api/metrics/platform-inventory?scope=clusters` as a same-origin proxy route that queries Prometheus instant vectors and scalars and returns structured JSON for managed clusters. The route SHALL use the same `PROMETHEUS_URL` and `PROMETHEUS_QUERY_TIMEOUT_MS` configuration as other `/api/metrics/*` routes.
 
@@ -125,6 +143,21 @@ When OIDC is enabled, the route SHALL require dashboard-operator authorization m
 - GIVEN 42 managed clusters exist with known status, provider, and region buckets
 - WHEN Prometheus scrapes the API server `/metrics` endpoint
 - THEN samples for `hypershell_managed_clusters_total`, `hypershell_managed_clusters_created_last_30_days_total`, and `hypershell_managed_clusters_inventory_total` SHALL be present
+
+#### Scenario: Scrape retains managed database compatibility gauges
+
+- GIVEN three registered managed databases, two with status `Ready` and one with no status
+- WHEN Prometheus scrapes the API server `/metrics` endpoint
+- THEN `hypershell_managed_databases_total` SHALL equal `3`
+- AND `hypershell_managed_databases_inventory_total` SHALL contain `Ready: 2` and `unknown: 1`
+- AND these series SHALL remain present when the new dashboard uses `scope=clusters`
+
+#### Scenario: Database collector query fails
+
+- GIVEN the managed database inventory snapshot query fails
+- WHEN the API server collects inventory metrics
+- THEN the database collector SHALL emit an invalid metric
+- AND it SHALL NOT report an empty successful database inventory
 
 #### Scenario: BFF maps Prometheus inventory into JSON
 

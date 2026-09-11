@@ -158,6 +158,41 @@ credentials, grants, extensions, and contents unless the approved plan changes t
 - AND removing old control resources SHALL NOT drop data or reset credentials
 - AND the existing gateway SHALL reconnect to the same verified database
 
+### Requirement: Synchronization and Orphan Cleanup Respect Runtime Ownership
+
+Periodic synchronization of ManagedDatabase records SHALL operate only through
+the v1 compatibility runtime. The v2 inventory has no ManagedDatabase kind; its
+absence SHALL NOT be treated as an empty v1 database inventory or as evidence
+that a server is orphaned. A failed, unavailable, or incomplete v1 inventory
+SHALL prevent destructive database orphan cleanup.
+
+Database ownership labels, including `hypershell.redhat.io/managed-database-id`,
+SHALL NOT establish current ownership by themselves. Before mutation, both the
+synchronization worker and orphan cleanup worker SHALL check the persisted
+runtime owner and migration state. A queued job from the previous owner SHALL
+be rejected after transfer. Installation-owned servers, migrated SQL resources,
+and retained migration sources SHALL remain outside legacy orphan cleanup even
+if they retain old labels or no longer have a v1 catalog record.
+
+The existing provider reconciler and its optional orphan cleanup MAY continue
+for resources it still owns. They SHALL NOT provision or delete server
+infrastructure on behalf of the controller-local runtime.
+
+#### Scenario: Legacy orphan cleanup observes an adopted server
+
+- GIVEN a CNPG server retains its old database ownership label after adoption
+- AND its v1 database record is absent
+- WHEN the legacy orphan cleanup worker checks the server
+- THEN it SHALL observe the installation ownership or retained migration state
+- AND it SHALL NOT delete the server, its SQL objects, or its credentials
+
+#### Scenario: A periodic job crosses an ownership transfer
+
+- GIVEN a legacy synchronization job was queued before migration completed
+- WHEN the job runs after ownership transferred
+- THEN it SHALL recheck ownership and skip the transferred resources
+- AND the controller-local owner SHALL remain the only active SQL reconciler
+
 ### Requirement: Data Transfer Is Resumable and Verifiable
 
 Cross-server migration SHALL preserve all committed gateway data, schema,

@@ -1,7 +1,7 @@
 # Data Model
 
 **Date:** 2026-08-03
-**Status:** Active
+**Status:** Draft
 
 The model and API tables below describe the new controller-local v2 surface.
 REST v1 and gRPC v1 remain supported, including ManagedDatabase, Gateway database
