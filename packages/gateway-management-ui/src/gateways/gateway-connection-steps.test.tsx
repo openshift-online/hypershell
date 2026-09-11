@@ -88,7 +88,7 @@ describe("GatewayConnectionSteps", () => {
 
     const installationCode = commandBlocks[installationIndex];
     expect(installationCode?.textContent).toContain("\\\n");
-    expect(installationCode?.textContent.split("\n")).toHaveLength(3);
+    expect(installationCode?.textContent.split("\n")).toHaveLength(4);
     expect(
       installationCode
         ?.closest(".pf-v6-c-code-block")

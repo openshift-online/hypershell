@@ -356,9 +356,16 @@ The `Connection` tab SHALL show this OpenShell CLI installation command in a cod
 
 ```bash
 curl -LsSf \
-  https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
+  https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh \
   | OPENSHELL_VERSION=v<gateway-version> sh
+export PATH="$HOME/.local/bin:$PATH"
 ```
+
+The installer SHALL download only the CLI archive from the selected NVIDIA
+release and verify its SHA-256 checksum before installation. It SHALL install
+the CLI in `~/.local/bin` without starting a local gateway. It SHALL reject an
+unsupported platform, invalid version, missing checksum, or checksum mismatch.
+The command SHALL add the install directory to the current shell PATH.
 
 The command SHALL use the read-only `gateway_version` value that the control
 plane reconciles from the gateway runtime. It SHALL encode the version as a safe

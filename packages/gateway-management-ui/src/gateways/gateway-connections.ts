@@ -79,7 +79,7 @@ export const installDocsUrl =
   "https://docs.nvidia.com/openshell/about/installation";
 
 const installScriptUrl =
-  "https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh";
+  "https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh";
 
 /**
  * Builds an installation command that matches the reconciled gateway version.
@@ -108,6 +108,7 @@ export function buildOpenShellInstallCommand(
     "curl -LsSf \\",
     `  ${installScriptUrl} \\`,
     `  | OPENSHELL_VERSION=${shellArgument(installerVersion)} sh`,
+    'export PATH="$HOME/.local/bin:$PATH"',
   ].join("\n");
 }
 

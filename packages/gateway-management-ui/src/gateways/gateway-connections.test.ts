@@ -58,8 +58,9 @@ describe("gateway connections", () => {
     expect(buildOpenShellInstallCommand(gateway)).toBe(
       [
         "curl -LsSf \\",
-        "  https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \\",
+        "  https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh \\",
         "  | OPENSHELL_VERSION=v0.0.109 sh",
+        'export PATH="$HOME/.local/bin:$PATH"',
       ].join("\n"),
     );
   });

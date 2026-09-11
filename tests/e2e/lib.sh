@@ -164,7 +164,7 @@ _E2E_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   never  - require a pre-installed CLI; do not install
 : "${E2E_OPENSHELL_INSTALL:=auto}"
 # Upstream install script the console links to (installScriptUrl in the UI).
-: "${OPENSHELL_INSTALL_SCRIPT_URL:=https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh}"
+: "${OPENSHELL_INSTALL_SCRIPT_URL:=https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh}"
 # Bounded wait for the control plane to reconcile gateway_version from the
 # gateway's health endpoint before deriving the install command.
 : "${E2E_GATEWAY_VERSION_TIMEOUT:=120}"

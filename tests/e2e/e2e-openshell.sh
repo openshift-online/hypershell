@@ -870,11 +870,9 @@ install_openshell_cli_from_api() {
     exit 1
   fi
 
-  # install.sh may place the binary in a directory not yet on PATH.
-  if ! command -v "${OPENSHELL_BIN}" >/dev/null 2>&1; then
-    export PATH="${HOME}/.local/bin:${HOME}/.openshell/bin:${PATH}"
-    hash -r 2>/dev/null || true
-  fi
+  # Match the console command, including its PATH order.
+  export PATH="${HOME}/.local/bin:${PATH}"
+  hash -r 2>/dev/null || true
   if ! command -v "${OPENSHELL_BIN}" >/dev/null 2>&1; then
     fail_test "openshell CLI not on PATH after install (OPENSHELL_BIN=${OPENSHELL_BIN})"
     exit 1

@@ -484,6 +484,8 @@ jobs:
         env:
           E2E_INFRA_DRIVER: kind
           E2E_OPENSHELL_INSTALL: always
+          # Test the candidate installer before its public main URL is available.
+          OPENSHELL_INSTALL_SCRIPT_URL: file://${{ github.workspace }}/scripts/install-openshell.sh
           # Mirror the provider used to create this matrix job's cluster.
           DATABASE_PROVIDER: ${{ matrix.database-provider }}
           E2E_PROVISION_TIMEOUT: "300"
