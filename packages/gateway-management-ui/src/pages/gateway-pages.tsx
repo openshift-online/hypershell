@@ -7,6 +7,7 @@ import {
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
+  Divider,
   Flex,
   FlexItem,
   PageSection,
@@ -650,15 +651,19 @@ export function GatewayPage({
           onRenamed={setRenamedGatewayName}
         />
       </PageSection>
-      {visibleGateway.provisioningConditions &&
-        visibleGateway.provisioningConditions.length > 0 && (
-          <PageSection hasBodyWrapper={false}>
+      {(connection.phase?.toLocaleLowerCase() !== "running" ||
+        (visibleGateway.provisioningConditions?.length ?? 0) > 0) && (
+        <PageSection hasBodyWrapper={false}>
+          <div className={styles.provisioningStepper}>
             <GatewayProvisioningStepper
-              conditions={visibleGateway.provisioningConditions}
+              conditions={visibleGateway.provisioningConditions ?? []}
+              consoleReady={Boolean(connection.consoleUrl)}
               phase={visibleGateway.phase}
             />
-          </PageSection>
-        )}
+          </div>
+        </PageSection>
+      )}
+      <Divider />
       <PageSection hasBodyWrapper={false} isFilled variant="secondary">
         <Tabs
           activeKey={currentTab}
@@ -677,7 +682,21 @@ export function GatewayPage({
               </TabTitleText>
             }
           >
-            <GatewayConnectionSteps gateway={connection} />
+            <Content component="p">
+              <Button
+                isInline
+                onClick={() => {
+                  changeTab("service-accounts");
+                }}
+                variant="link"
+              >
+                <FormattedMessage {...messages.manageServiceAccounts} />
+              </Button>
+            </Content>
+            <GatewayConnectionSteps
+              gateway={connection}
+              isProvisioning={connection.phase?.toLocaleLowerCase() !== "running"}
+            />
           </Tab>
           <Tab
             eventKey="service-accounts"

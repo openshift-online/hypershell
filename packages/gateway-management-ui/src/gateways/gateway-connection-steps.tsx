@@ -4,6 +4,7 @@ import {
   Button,
   Content,
   Skeleton,
+  Spinner,
   Title,
 } from "@patternfly/react-core";
 import { ExternalLinkAltIcon } from "@patternfly/react-icons";
@@ -63,8 +64,10 @@ function ConnectionStep({
 
 export function GatewayConnectionSteps({
   gateway,
+  isProvisioning,
 }: {
   gateway: GatewayConnection;
+  isProvisioning?: boolean;
 }) {
   const intl = useIntl();
   const [providerName, setProviderName] = useState(vertexProviderName);
@@ -124,7 +127,21 @@ export function GatewayConnectionSteps({
             </div>
           </Alert>
         ) : null}
-        {setupTemplate && setupCopy ? (
+        <Title
+          headingLevel="h3"
+          size="lg"
+          style={{ marginTop: "var(--pf-t--global--spacer--lg)" }}
+        >
+          {intl.formatMessage(messages.connectionLoginConfigureTitle)}
+        </Title>
+        {isProvisioning ? (
+          <div className={styles.commandPending} style={{ maxWidth: "60rem" }}>
+            <Content component="p" style={{ textAlign: "center" }}>
+              <Spinner isInline size="md" />{" "}
+              {intl.formatMessage(messages.connectionWaitingForProvisioning)}
+            </Content>
+          </div>
+        ) : setupTemplate && setupCopy ? (
           <CommandBlock
             copyAriaLabel={intl.formatMessage(messages.copySetupCommand)}
             copyText={setupCopy}
@@ -158,90 +175,100 @@ export function GatewayConnectionSteps({
         )}
       </ConnectionStep>
 
-      <ConnectionStep
-        description={intl.formatMessage(messages.connectionSandboxDescription)}
-        title={intl.formatMessage(messages.connectionSandboxTitle)}
-      >
-        <CommandBlock
-          copyAriaLabel={intl.formatMessage(messages.copySandboxCommand)}
-          copyText={buildSandboxCreateCommand(sandboxName, model)}
-          labels={{
-            [modelMarker]: intl.formatMessage(messages.editModel),
-            [sandboxMarker]: intl.formatMessage(messages.editSandboxName),
-          }}
-          markers={sandboxMarkers}
-          onFieldChange={(marker, value) => {
-            if (marker === sandboxMarker) {
-              setSandboxName(value);
-            } else if (marker === modelMarker) {
-              setModel(value);
-            }
-          }}
-          templateCommand={buildSandboxCreateCommand(
-            sandboxMarker,
-            modelMarker,
-          )}
-          values={{ [modelMarker]: model, [sandboxMarker]: sandboxName }}
-        />
-      </ConnectionStep>
-
-      <ConnectionStep
-        description={intl.formatMessage(
-          messages.connectionSandboxConnectDescription,
-        )}
-        title={intl.formatMessage(messages.connectionSandboxConnectTitle)}
-      >
-        <Alert
-          actionLinks={
-            <AlertActionLink
-              aria-label={intl.formatMessage(
-                messages.connectionEditorOptionsLinkNewTab,
+      {!isProvisioning && (
+        <>
+          <ConnectionStep
+            description={intl.formatMessage(
+              messages.connectionSandboxDescription,
+            )}
+            title={intl.formatMessage(messages.connectionSandboxTitle)}
+          >
+            <CommandBlock
+              copyAriaLabel={intl.formatMessage(messages.copySandboxCommand)}
+              copyText={buildSandboxCreateCommand(sandboxName, model)}
+              labels={{
+                [modelMarker]: intl.formatMessage(messages.editModel),
+                [sandboxMarker]: intl.formatMessage(messages.editSandboxName),
+              }}
+              markers={sandboxMarkers}
+              onFieldChange={(marker, value) => {
+                if (marker === sandboxMarker) {
+                  setSandboxName(value);
+                } else if (marker === modelMarker) {
+                  setModel(value);
+                }
+              }}
+              templateCommand={buildSandboxCreateCommand(
+                sandboxMarker,
+                modelMarker,
               )}
-              component="a"
-              href={sandboxConnectDocsUrl}
-              icon={<ExternalLinkAltIcon aria-hidden />}
-              iconPosition="end"
-              rel="noopener noreferrer"
-              target="_blank"
+              values={{ [modelMarker]: model, [sandboxMarker]: sandboxName }}
+            />
+          </ConnectionStep>
+
+          <ConnectionStep
+            description={intl.formatMessage(
+              messages.connectionSandboxConnectDescription,
+            )}
+            title={intl.formatMessage(messages.connectionSandboxConnectTitle)}
+          >
+            <Alert
+              actionLinks={
+                <AlertActionLink
+                  aria-label={intl.formatMessage(
+                    messages.connectionEditorOptionsLinkNewTab,
+                  )}
+                  component="a"
+                  href={sandboxConnectDocsUrl}
+                  icon={<ExternalLinkAltIcon aria-hidden />}
+                  iconPosition="end"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  {intl.formatMessage(messages.connectionEditorOptionsLink)}
+                </AlertActionLink>
+              }
+              className={styles.prereqAlert}
+              component="h3"
+              isInline
+              title={intl.formatMessage(
+                messages.connectionEditorOptionsTitle,
+              )}
+              variant="info"
             >
-              {intl.formatMessage(messages.connectionEditorOptionsLink)}
-            </AlertActionLink>
-          }
-          className={styles.prereqAlert}
-          component="h3"
-          isInline
-          title={intl.formatMessage(messages.connectionEditorOptionsTitle)}
-          variant="info"
-        >
-          {intl.formatMessage(messages.connectionEditorOptions, {
-            code: (chunks) => <code>{chunks}</code>,
-          })}
-        </Alert>
-        <CommandBlock
-          copyAriaLabel={intl.formatMessage(messages.copySandboxConnectCommand)}
-          copyText={buildSandboxConnectCommand(sandboxName, editor)}
-          labels={{
-            [editorMarker]: intl.formatMessage(messages.editEditor),
-            [sandboxMarker]: intl.formatMessage(
-              messages.editExistingSandboxName,
-            ),
-          }}
-          markers={sandboxConnectMarkers}
-          onFieldChange={(marker, value) => {
-            if (marker === sandboxMarker) {
-              setSandboxName(value);
-            } else if (marker === editorMarker) {
-              setEditor(value);
-            }
-          }}
-          selectOptions={{ [editorMarker]: validEditors }}
-          templateCommand={buildSandboxConnectCommand(
-            sandboxMarker,
-            editorMarker,
-          )}
-          values={{ [editorMarker]: editor, [sandboxMarker]: sandboxName }}
-        />
-      </ConnectionStep>
+              {intl.formatMessage(messages.connectionEditorOptions, {
+                code: (chunks) => <code>{chunks}</code>,
+              })}
+            </Alert>
+            <CommandBlock
+              copyAriaLabel={intl.formatMessage(
+                messages.copySandboxConnectCommand,
+              )}
+              copyText={buildSandboxConnectCommand(sandboxName, editor)}
+              labels={{
+                [editorMarker]: intl.formatMessage(messages.editEditor),
+                [sandboxMarker]: intl.formatMessage(
+                  messages.editExistingSandboxName,
+                ),
+              }}
+              markers={sandboxConnectMarkers}
+              onFieldChange={(marker, value) => {
+                if (marker === sandboxMarker) {
+                  setSandboxName(value);
+                } else if (marker === editorMarker) {
+                  setEditor(value);
+                }
+              }}
+              selectOptions={{ [editorMarker]: validEditors }}
+              templateCommand={buildSandboxConnectCommand(
+                sandboxMarker,
+                editorMarker,
+              )}
+              values={{ [editorMarker]: editor, [sandboxMarker]: sandboxName }}
+            />
+          </ConnectionStep>
+        </>
+      )}
     </ol>
   );
 }
