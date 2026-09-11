@@ -3,6 +3,7 @@ package rbac
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -13,9 +14,9 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
 
-func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, config AuthzConfig) grpc.UnaryServerInterceptor {
+func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, config AuthzConfig) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		ctx = provisionUserForGRPC(ctx, provisioner, syncer)
+		ctx = provisionUserForGRPC(ctx, provisioner, syncer, activityRecorder)
 
 		if !config.EnforceRBAC {
 			return handler(ctx, req)
@@ -57,9 +58,9 @@ func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner,
 	}
 }
 
-func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, config AuthzConfig) grpc.StreamServerInterceptor {
+func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, config AuthzConfig) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		ctx := provisionUserForGRPC(ss.Context(), provisioner, syncer)
+		ctx := provisionUserForGRPC(ss.Context(), provisioner, syncer, activityRecorder)
 		wrapped := &wrappedServerStream{ServerStream: ss, ctx: ctx}
 
 		if !config.EnforceRBAC {
@@ -180,7 +181,7 @@ func isGRPCDeleteMethod(fullMethod string) bool {
 	return strings.HasPrefix(parts[len(parts)-1], "Delete")
 }
 
-func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, syncer JWTRoleSyncer) context.Context {
+func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder) context.Context {
 	if provisioner == nil {
 		return ctx
 	}
@@ -210,6 +211,10 @@ func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, sync
 		if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
 			glog.Warningf("gRPC JWT role sync failed for %q: %v", username, syncErr)
 		}
+	}
+
+	if activityRecorder != nil {
+		activityRecorder.RecordDailyActivity(ctx, userID, time.Now().UTC())
 	}
 
 	return ctx

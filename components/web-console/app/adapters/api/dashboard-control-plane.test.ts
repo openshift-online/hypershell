@@ -51,11 +51,20 @@ function defaultPlatformInventory(): PlatformInventoryMetricsResponse {
   };
 }
 
+interface RegisteredUsersMockResponse {
+  created_last_7_days?: number;
+  created_last_30_days?: number;
+  daily_unique_logins?: { count: number; date: string }[];
+  total_registered: number;
+  unique_logins_last_7_days?: number;
+  unique_logins_last_30_days?: number;
+}
+
 interface DashboardMetricsMockOptions {
   activeSandboxes?: number;
   omitProvisionDuration?: boolean;
   platformInventory?: PlatformInventoryMetricsResponse;
-  registeredUsers?: { total_registered: number };
+  registeredUsers?: RegisteredUsersMockResponse;
 }
 
 function mockClusterMetricsResponses(
@@ -968,6 +977,62 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/metrics/platform-inventory", {
       credentials: "same-origin",
       signal: controller.signal,
+    });
+  });
+
+  it("maps registered user adoption fields into operational metrics", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2, undefined, {
+      registeredUsers: {
+        created_last_7_days: 12,
+        created_last_30_days: 48,
+        daily_unique_logins: [
+          { count: 5, date: "2026-09-01" },
+          { count: 7, date: "2026-09-02" },
+        ],
+        total_registered: 450,
+        unique_logins_last_7_days: 186,
+        unique_logins_last_30_days: 312,
+      },
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const registeredUsersMetric = metrics.metrics.find(
+      (metric) => metric.id === "registered-users",
+    );
+
+    expect(registeredUsersMetric).toEqual({
+      createdLast7Days: "12",
+      createdLast30Days: "48",
+      id: "registered-users",
+      trend: {
+        points: [
+          { label: "2026-09-01", value: 5 },
+          { label: "2026-09-02", value: 7 },
+        ],
+      },
+      uniqueLoginsLast7Days: "186",
+      uniqueLoginsLast30Days: "312",
+      value: "450",
+    });
+  });
+
+  it("omits optional registered user adoption fields when degraded", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2, undefined, {
+      registeredUsers: {
+        created_last_30_days: 12,
+        total_registered: 450,
+      },
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const registeredUsersMetric = metrics.metrics.find(
+      (metric) => metric.id === "registered-users",
+    );
+
+    expect(registeredUsersMetric).toEqual({
+      createdLast30Days: "12",
+      id: "registered-users",
+      value: "450",
     });
   });
 });

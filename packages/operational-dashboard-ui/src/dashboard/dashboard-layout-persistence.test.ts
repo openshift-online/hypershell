@@ -13,9 +13,9 @@ describe("dashboard layout persistence", () => {
     expect(getActiveWidgetTypes(defaultDashboardLayoutTemplate)).toEqual([
       "section-title",
       "usage-summary",
-      "gateway-status",
-      "provisioned-sandboxes",
       "registered-users",
+      "provisioned-sandboxes",
+      "gateway-status",
       "system-summary",
       "memory",
       "provision-time",

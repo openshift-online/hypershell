@@ -3,6 +3,11 @@ import {
   Card,
   CardBody,
   Content,
+  DataList,
+  DataListCell,
+  DataListItem,
+  DataListItemCells,
+  DataListItemRow,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -23,8 +28,8 @@ import {
   TrendDownIcon,
   TrendUpIcon,
 } from "@patternfly/react-icons";
-import type { PropsWithChildren } from "react";
-import { FormattedMessage, useIntl } from "react-intl";
+import type { PropsWithChildren, ReactNode } from "react";
+import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
 import type { OperationalMetric } from "../application/dashboard-types";
 import {
@@ -59,7 +64,15 @@ function WidgetContent({
 }: Readonly<PropsWithChildren<{ bodyClassName?: string }>>) {
   return (
     <Card isPlain isFullHeight>
-      <CardBody className={bodyClassName}>{children}</CardBody>
+      <CardBody
+        className={
+          bodyClassName
+            ? `${bodyClassName} hypershell-dashboard-widget-card`
+            : "hypershell-dashboard-widget-card"
+        }
+      >
+        {children}
+      </CardBody>
     </Card>
   );
 }
@@ -109,6 +122,167 @@ export function MetricCard({
   );
 }
 
+function UsersStatValue({ value }: Readonly<{ value: string | undefined }>) {
+  const intl = useIntl();
+
+  if (value === undefined) {
+    return <SummaryUnavailableValue />;
+  }
+
+  return <span>{formatOperationalMetricDisplayValue(value, intl)}</span>;
+}
+
+function UsersStatCell({
+  label,
+  value,
+}: Readonly<{
+  label: ReactNode;
+  value: string | undefined;
+}>) {
+  return (
+    <DataListCell className="hypershell-dashboard-users-stat-cell" width={2}>
+      <span className="hypershell-dashboard-users-stat-cell__label">
+        {label}
+      </span>
+      <span className="hypershell-dashboard-users-stat-cell__value">
+        <UsersStatValue value={value} />
+      </span>
+    </DataListCell>
+  );
+}
+
+function UsersAdoptionStats({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  const intl = useIntl();
+  const statsAriaLabel = intl.formatMessage(messages.registeredUsers);
+
+  return (
+    <DataList
+      aria-label={statsAriaLabel}
+      className="hypershell-dashboard-users-card__stats"
+      isCompact
+      isPlain
+    >
+      <DataListItem aria-labelledby="users-adoption-stats">
+        <DataListItemRow>
+          <DataListItemCells
+            dataListCells={[
+              <UsersStatCell
+                key="added-7-days"
+                label={
+                  <FormattedMessage {...messages.registeredUsersAdded7Days} />
+                }
+                value={metric.createdLast7Days}
+              />,
+              <UsersStatCell
+                key="added-30-days"
+                label={
+                  <FormattedMessage {...messages.registeredUsersAdded30Days} />
+                }
+                value={metric.createdLast30Days}
+              />,
+            ]}
+            rowid="users-adoption-added"
+          />
+        </DataListItemRow>
+        <DataListItemRow>
+          <DataListItemCells
+            dataListCells={[
+              <UsersStatCell
+                key="unique-logins-7-days"
+                label={
+                  <FormattedMessage
+                    {...messages.registeredUsersUniqueLogins7Days}
+                  />
+                }
+                value={metric.uniqueLoginsLast7Days}
+              />,
+              <UsersStatCell
+                key="unique-logins-30-days"
+                label={
+                  <FormattedMessage
+                    {...messages.registeredUsersUniqueLogins30Days}
+                  />
+                }
+                value={metric.uniqueLoginsLast30Days}
+              />,
+            ]}
+            rowid="users-adoption-logins"
+          />
+        </DataListItemRow>
+      </DataListItem>
+    </DataList>
+  );
+}
+
+export function UsersCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric | undefined }>) {
+  const intl = useIntl();
+
+  if (!metric) {
+    return (
+      <WidgetContent>
+        <SummaryUnavailableValue />
+      </WidgetContent>
+    );
+  }
+
+  const heroValue = formatOperationalMetricDisplayValue(metric.value, intl);
+  const sparklineTitle = intl.formatMessage(
+    messages.registeredUsersUniqueLoginsPerDay,
+  );
+  const sparklineTooltipMetric = intl.formatMessage(
+    messages.registeredUsersUniqueLogins,
+  );
+
+  return (
+    <WidgetContent>
+      <Content className="hypershell-dashboard-users-card">
+        <Stack hasGutter>
+          <StackItem>
+            <Flex justifyContent={{ default: "justifyContentCenter" }}>
+              <FlexItem>
+                <Title headingLevel="h3" size="lg">
+                  {isDisplayableOperationalMetricValue(metric.value)
+                    ? intl.formatMessage(messages.registeredUsersHero, {
+                        value: heroValue,
+                      })
+                    : heroValue}
+                </Title>
+              </FlexItem>
+            </Flex>
+          </StackItem>
+          <StackItem>
+            <UsersAdoptionStats metric={metric} />
+            {metric.trend ? (
+              <Stack
+                hasGutter
+                className="hypershell-dashboard-users-card__sparkline"
+              >
+                <StackItem>
+                  <Title headingLevel="h4" size="md">
+                    {sparklineTitle}
+                  </Title>
+                </StackItem>
+                <StackItem>
+                  <TrendSparklineChart
+                    trend={metric.trend}
+                    title={sparklineTooltipMetric}
+                  />
+                </StackItem>
+              </Stack>
+            ) : (
+              <SummaryUnavailableValue />
+            )}
+          </StackItem>
+        </Stack>
+      </Content>
+    </WidgetContent>
+  );
+}
+
 export function GatewayStatusCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
@@ -116,7 +290,7 @@ export function GatewayStatusCard({
   const trendTitle = intl.formatMessage(messages.provisionedGateways);
 
   return (
-    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--default">
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
       <Content className="hypershell-dashboard-status-donut-card">
         <Stack hasGutter>
           <StackItem>
@@ -227,14 +401,38 @@ export function UtilizationCard({
   );
 }
 
+function getSummaryTrendSubject(
+  metric: OperationalMetric,
+  intl: IntlShape,
+): string {
+  switch (metric.id) {
+    case "registered-users":
+      return intl.formatMessage(messages.registeredUsersUniqueLogins);
+    case "provisioned-gateways":
+      return intl.formatMessage(messages.gateways);
+    case "provisioned-sandboxes":
+      return intl.formatMessage(messages.widgetSandboxes);
+    case "managed-clusters":
+      return intl.formatMessage(messages.managedClustersSummary);
+    case "managed-databases":
+      return intl.formatMessage(messages.managedDatabasesSummary);
+    default:
+      return intl.formatMessage(messages.summaryUsage);
+  }
+}
+
 function SummaryTrendIndicator({
+  metric,
   trendChange,
-}: Readonly<{ trendChange: MetricTrendChange }>) {
+}: Readonly<{ metric: OperationalMetric; trendChange: MetricTrendChange }>) {
   const intl = useIntl();
   const isIncrease = trendChange.direction === "increase";
   const tooltipContent = intl.formatMessage(
     isIncrease ? messages.summaryTrendIncrease : messages.summaryTrendDecrease,
-    { percent: trendChange.percent },
+    {
+      percent: trendChange.percent,
+      subject: getSummaryTrendSubject(metric, intl),
+    },
   );
 
   return (
@@ -436,7 +634,7 @@ function SummaryMetricValue({
       <FlexItem>{displayValue}</FlexItem>
       {trendChange ? (
         <FlexItem>
-          <SummaryTrendIndicator trendChange={trendChange} />
+          <SummaryTrendIndicator metric={metric} trendChange={trendChange} />
         </FlexItem>
       ) : null}
     </Flex>

@@ -161,8 +161,8 @@ func hasPlatformAdmin(bindings []BindingSummary) bool {
 	return false
 }
 
-func hasUsersInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool {
-	return hasPlatformAdmin(bindings) || HasHypershellAdminRole(jwtRoles)
+func hasUsersInventoryAccess(bindings []BindingSummary, _ []string) bool {
+	return hasPlatformAdmin(bindings)
 }
 
 func hasDashboardInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool {

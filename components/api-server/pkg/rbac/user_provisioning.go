@@ -3,6 +3,7 @@ package rbac
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/golang/glog"
 
@@ -25,7 +26,11 @@ type UserProvisioner interface {
 	UpsertFromJWT(ctx context.Context, payload *auth.Payload) (userID string, err error)
 }
 
-func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSyncer) func(http.Handler) http.Handler {
+type DailyActivityRecorder interface {
+	RecordDailyActivity(ctx context.Context, userID string, at time.Time)
+}
+
+func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			payload, err := auth.GetAuthPayload(r)
@@ -59,6 +64,10 @@ func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSynce
 				if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
 					glog.Warningf("JWT role sync failed for %q: %v", payload.Username, syncErr)
 				}
+			}
+
+			if activityRecorder != nil {
+				activityRecorder.RecordDailyActivity(ctx, userID, time.Now().UTC())
 			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))

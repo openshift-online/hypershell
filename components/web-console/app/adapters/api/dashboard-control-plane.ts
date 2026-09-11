@@ -62,8 +62,50 @@ interface GatewaySandboxesResponse {
   active_sandboxes: number;
 }
 
+interface RegisteredUsersDailyLogin {
+  count: number;
+  date: string;
+}
+
 interface RegisteredUsersResponse {
+  created_last_7_days?: number;
+  created_last_30_days?: number;
+  daily_unique_logins?: RegisteredUsersDailyLogin[];
   total_registered: number;
+  unique_logins_last_7_days?: number;
+  unique_logins_last_30_days?: number;
+}
+
+function registeredUsersResponseToMetric(
+  body: RegisteredUsersResponse,
+): OperationalMetric {
+  const metric: OperationalMetric = {
+    id: "registered-users",
+    value: String(body.total_registered),
+  };
+
+  if (body.created_last_7_days !== undefined) {
+    metric.createdLast7Days = String(body.created_last_7_days);
+  }
+  if (body.created_last_30_days !== undefined) {
+    metric.createdLast30Days = String(body.created_last_30_days);
+  }
+  if (body.unique_logins_last_7_days !== undefined) {
+    metric.uniqueLoginsLast7Days = String(body.unique_logins_last_7_days);
+  }
+  if (body.unique_logins_last_30_days !== undefined) {
+    metric.uniqueLoginsLast30Days = String(body.unique_logins_last_30_days);
+  }
+  if (body.daily_unique_logins !== undefined) {
+    metric.trend = {
+      points: body.daily_unique_logins.map((point) => ({
+        label: point.date,
+        value: point.count,
+      })),
+    };
+  }
+
+  return metric;
 }
 
 function bytesToRoundedGib(bytes: number): string {
@@ -306,12 +348,7 @@ async function fetchRegisteredUsersMetric(
 
   const body = (await response.json()) as RegisteredUsersResponse;
 
-  return [
-    {
-      id: "registered-users",
-      value: String(body.total_registered),
-    },
-  ];
+  return [registeredUsersResponseToMetric(body)];
 }
 
 async function fetchPlatformInventoryMetrics(
