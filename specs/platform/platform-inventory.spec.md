@@ -125,18 +125,25 @@ When OIDC is enabled, the route SHALL require dashboard-operator authorization m
 Managed cluster and managed database List endpoints SHALL be readable by **dashboard operators**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` OP-DASH-04) and registered user inventory (`platform/registered-users.spec.md` RU-03):
 
 - Caller holds an effective `platform:admin` RoleBinding (including JWT-synced realm role), **or**
-- Caller presents a JWT whose `realm_access.roles` includes `hypershell-admins`, **or**
 - Caller holds an effective `gateway:creator` RoleBinding (existing behavior)
+
+Holding only the legacy Keycloak realm role `hypershell-admins` SHALL NOT grant dashboard-inventory List access when `platform:admin` is absent.
 
 All other callers SHALL be denied List access with HTTP `403`.
 
 The RBAC middleware SHALL treat `managed_clusters` and `managed_databases` collection List (`GET` with empty resource ID) with the same dashboard-inventory access helper used for `users`. Singleton Get authorization for these resources MAY retain the existing `gateway:creator` requirement.
 
-#### Scenario: Hypershell admin without gateway:creator can list clusters
+#### Scenario: Platform admin without gateway:creator can list clusters
 
-- GIVEN a caller presents a JWT with `hypershell-admins` and no `gateway:creator` binding
+- GIVEN a caller with effective `platform:admin` and no `gateway:creator` binding
 - WHEN the caller sends `GET /api/hypershell/v1/managed_clusters`
 - THEN the API SHALL respond with HTTP `200`
+
+#### Scenario: Legacy hypershell-admins role alone cannot list clusters
+
+- GIVEN a caller presents a JWT with `hypershell-admins` and no `platform:admin` or `gateway:creator` binding
+- WHEN the caller sends `GET /api/hypershell/v1/managed_clusters`
+- THEN the API SHALL respond with HTTP `403`
 
 #### Scenario: Gateway owner without creator cannot list clusters
 
