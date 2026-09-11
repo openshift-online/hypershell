@@ -17,13 +17,10 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        # Keycloak's declarative `--import-realm` does not perform ${VAR:default}
-        # substitution on imported realm JSON (upstream keycloak#20199,
-        # keycloak#12069) - it only stores or chokes on the literal placeholder
-        # text. This container resolves the placeholders itself from the same
-        # Secret-backed env vars the realm comments describe, writing the
-        # rendered realm to an emptyDir that the keycloak container imports from
-        # instead of the raw ConfigMap.
+        # Renders GitHub IdP / e2e-client values and OpenShift console redirect
+        # URIs into the realm JSON. Keycloak --import-realm does not substitute
+        # placeholders (upstream keycloak#20199), and start-dev's ephemeral H2
+        # store drops any admin-API redirect URI patch on pod recycle.
         - name: render-realm-config
           image: registry.access.redhat.com/hi/python:3.13-builder@sha256:75f0b15a73e9510e97dc3c3613a8c17794a0efbfc42ecfb4203e419450163763
           securityContext:
@@ -83,47 +80,21 @@ spec:
                   name: hypershell-github-oauth
                   key: e2e-client-enabled
                   optional: true
+            # Set by make openshift-up from the web-console Route host. Unset on
+            # Kind, so the renderer keeps the localhost frontend redirect URIs.
+            - name: HYPERSHELL_CONSOLE_HOST
+              value: ""
           command:
-            - /bin/bash
-            - -c
-            - |
-              set -euo pipefail
-              python3 - <<'PY'
-              import json
-              import os
-
-              with open("/config/hypershell-realm.json") as f:
-                  text = f.read()
-
-              def esc(value):
-                  # JSON-escape a value for splicing between existing quotes.
-                  return json.dumps(value)[1:-1]
-
-              idp_enabled = os.environ.get("PR_ENV_GITHUB_IDP_ENABLED", "false").strip().lower() == "true"
-              e2e_enabled = os.environ.get("HYPERSHELL_E2E_CLIENT_ENABLED", "false").strip().lower() == "true"
-
-              replacements = {
-                  '"${PR_ENV_GITHUB_IDP_ENABLED:false}"': "true" if idp_enabled else "false",
-                  '"${HYPERSHELL_E2E_CLIENT_ENABLED:false}"': "true" if e2e_enabled else "false",
-                  "${PR_ENV_GITHUB_CLIENT_ID:}": esc(os.environ.get("PR_ENV_GITHUB_CLIENT_ID", "")),
-                  "${PR_ENV_GITHUB_CLIENT_SECRET:}": esc(os.environ.get("PR_ENV_GITHUB_CLIENT_SECRET", "")),
-                  "${PR_ENV_GITHUB_ORG:openshift-online}": esc(os.environ.get("PR_ENV_GITHUB_ORG", "openshift-online")),
-                  "${PR_ENV_GITHUB_ALLOWLIST:}": esc(os.environ.get("PR_ENV_GITHUB_ALLOWLIST", "")),
-                  "${HYPERSHELL_E2E_CLIENT_SECRET:}": esc(os.environ.get("HYPERSHELL_E2E_CLIENT_SECRET", "")),
-              }
-
-              for placeholder, value in replacements.items():
-                  text = text.replace(placeholder, value)
-
-              # Fail the init container (not Keycloak's boot) on malformed output.
-              json.loads(text)
-
-              with open("/rendered/hypershell-realm.json", "w") as f:
-                  f.write(text)
-              PY
+            - python3
+            - /scripts/render-realm-config.py
+            - /config/hypershell-realm.json
+            - /rendered/hypershell-realm.json
           volumeMounts:
             - name: realm-config-source
               mountPath: /config
+              readOnly: true
+            - name: realm-renderer
+              mountPath: /scripts
               readOnly: true
             - name: realm-config
               mountPath: /rendered
@@ -211,6 +182,10 @@ spec:
         - name: realm-config-source
           configMap:
             name: keycloak-realm
+        - name: realm-renderer
+          configMap:
+            name: keycloak-realm-renderer
+            defaultMode: 0444
         - name: realm-config
           emptyDir: {}
         - name: hypershell-theme
@@ -421,6 +396,20 @@ data:
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred-username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "consentRequired": false,
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "admin",
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
               }
             }
           ]
@@ -732,12 +721,18 @@ data:
           "username": "service-account-hypershell-e2e",
           "enabled": true,
           "serviceAccountClientId": "hypershell-e2e",
-          "realmRoles": ["platform:admin", "gateway:creator"]
+          "realmRoles": ["platform:admin", "gateway:creator"],
+          "clientRoles": {
+            "realm-management": ["impersonation"]
+          }
         }
       ],
       "clientScopeMappings": {
         "hypershell-provisioner": [
           { "client": "realm-management", "roles": ["manage-clients", "manage-users"] }
+        ],
+        "hypershell-e2e": [
+          { "client": "realm-management", "roles": ["impersonation"] }
         ]
       },
       "attributes": {
@@ -765,13 +760,13 @@ data:
         {
           "name": "github-grant-platform-admin",
           "identityProviderAlias": "github",
-          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "identityProviderMapper": "hardcoded-role-idp-mapper",
           "config": { "role": "platform:admin", "syncMode": "FORCE" }
         },
         {
           "name": "github-grant-gateway-creator",
           "identityProviderAlias": "github",
-          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "identityProviderMapper": "hardcoded-role-idp-mapper",
           "config": { "role": "gateway:creator", "syncMode": "FORCE" }
         }
       ]

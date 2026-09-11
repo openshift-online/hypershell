@@ -152,11 +152,12 @@ request.
 The workflow SHALL keep the pull request's environment continuously deployed to
 the pull request's current head commit for the life of the pull request. It SHALL
 trigger on origin-repository pull-request `opened`, `reopened`, and `synchronize`
-(a new commit pushed to the pull-request branch), and it SHALL trigger on
-`closed` (which covers both merge and close) to release the environment (see the
-Timebox and Reaping requirement). It SHALL NOT trigger on `merge_group`. Kind
-e2e, as `e2e-testing.spec.md` defines, remains the merge-queue gate; this
-workflow does not share a namespace with a merge-queue SHA.
+(a new commit pushed to the pull-request branch). A dedicated release workflow
+SHALL trigger on `closed` (which covers both merge and close) to release the
+environment (see the Timebox and Reaping requirement), so open and synchronize
+runs do not list a skipped Release check. Neither workflow SHALL trigger on
+`merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
+merge-queue gate; this workflow does not share a namespace with a merge-queue SHA.
 
 The workflow SHALL run only for pull requests targeting the origin repository.
 Fork pull requests SHALL NOT receive cluster credentials and SHALL NOT get an
@@ -359,12 +360,14 @@ The reaper SHALL NOT delete namespaces that fail that match, including local
 environment identifier is not `pr-*`. It SHALL refuse reserved names
 (`default`, `kube-*`, `openshift-*`).
 
-On pull-request `closed` (merge or close), the workflow SHALL release the
+On pull-request `closed` (merge or close), CI SHALL release the
 environment as the primary path by removing the namespace group the same way
-`make openshift-down` does. The timebox SHALL remain the backstop for the case
-where the close event does not fire or its release cannot be confirmed; when the
-release step cannot confirm the release, the workflow SHALL report the failure so
-an operator can free the environment.
+`make openshift-down` does. That release SHALL live in a `closed`-only workflow
+so open and synchronize runs do not list a skipped Release check. The timebox
+SHALL remain the backstop for the case where the close event does not fire or
+its release cannot be confirmed; when the release step cannot confirm the
+release, the workflow SHALL report the failure so an operator can free the
+environment.
 
 #### Scenario: Deploying run refreshes the expiry
 

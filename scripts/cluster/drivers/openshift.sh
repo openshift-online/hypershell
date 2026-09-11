@@ -922,9 +922,14 @@ configure_oidc_from_routes() {
   OPENSHIFT_KC_HOSTNAME="https://${kc_host}"
   OPENSHIFT_OIDC_ISSUER="https://${kc_host}/realms/hypershell"
 
-  info "Setting Keycloak KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}"
+  info "Setting Keycloak KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME} and console redirect host ${console_host}"
+  # One set-env so Keycloak rolls once. HYPERSHELL_CONSOLE_HOST is consumed by
+  # the render-realm-config init container: --import-realm after a pod recycle
+  # would otherwise restore localhost-only frontend redirect URIs and Keycloak
+  # would reject the BFF callback ("Invalid parameter: redirect_uri").
   oc_cli set env deployment/keycloak -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
-    "KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}" >/dev/null
+    "KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}" \
+    "HYPERSHELL_CONSOLE_HOST=${console_host}" >/dev/null
 
   info "Configuring web console OIDC"
   oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \

@@ -613,7 +613,7 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 
 The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/e2e.yml` (`on: workflow_call`) that runs the e2e test suite against Kind and, on origin pull requests, against the ephemeral OpenShift PR environment. It SHALL run as the final stage of `tests.yml`, which triggers on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. Like the unit stage, it SHALL receive the changed-component flags as `workflow_call` inputs and gate its jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result (together with unit's) up into the required check, so it has no summary or gate job of its own. The orchestrator's `needs: [detect-changes, unit]` edge (with the `if:` override described in the CI Unit Test Workflow requirement, so a `unit` skip does not also skip `e2e`) SHALL ensure Kind is never created until the unit-test stage succeeds; the e2e workflow itself SHALL NOT contain a job that polls for that gate, or for the separate `checks.yml` workflow. The workflow SHALL still gate Kind jobs on Konflux image builds completing (an external build system it cannot order with `needs:`) and pull those images by digest -- it SHALL NOT rebuild component images itself.
 
-On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift` (check: Tests / E2E / OpenShift). That job SHALL poll the independent `Deploy PR environment` check until it succeeds, then run the OpenShift e2e suite against the live per-PR namespace as `ephemeral-pr-environments.spec.md` defines. GitHub Actions `needs:` cannot order independently-triggered workflows, so this poller is the allowed exception to the no-cross-workflow-poller rule for Unit vs Checks. Fork PRs, `merge_group`, and `push` SHALL skip that job (no per-PR environment). Push to `main` SHALL keep the separate bring-up-test-tear-down OpenShift job.
+On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift` (check: Tests / E2E / OpenShift). That job SHALL poll the independent `Deploy PR environment` check until it succeeds, then run the OpenShift e2e suite against the live per-PR namespace as `ephemeral-pr-environments.spec.md` defines. GitHub Actions `needs:` cannot order independently-triggered workflows, so this poller is the allowed exception to the no-cross-workflow-poller rule for Unit vs Checks. Fork PRs, `merge_group`, and `push` SHALL skip that job (no per-PR environment). Push to `main` SHALL run the bring-up-test-tear-down OpenShift job from a dedicated workflow (`.github/workflows/e2e-openshift-main.yml`) that does not run on pull requests, so it does not appear as a skipped Tests check.
 
 #### Scenario: PR Triggers Workflow
 
@@ -862,6 +862,9 @@ deploy/
                               native `needs:`
   unit-tests.yml           -- Tests unit-test stage (reusable, on: workflow_call)
   e2e.yml                  -- Tests e2e stage (reusable, on: workflow_call)
+  e2e-openshift-main.yml   -- push-to-main OpenShift bring-up-test-tear-down
+  pr-environment.yml       -- ephemeral PR env deploy (open/reopen/synchronize)
+  pr-environment-release.yml -- ephemeral PR env teardown (closed: merge or close)
 ```
 
 `components/pr-test/e2e-openshell.sh` SHALL be deprecated as `ephemeral-pr-environments.spec.md` specifies. Removal is deferred until manual usage migrates; the ROKS variant is out of that deprecation.

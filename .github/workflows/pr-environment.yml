@@ -14,6 +14,9 @@ name: PR Environment
 # and then runs the suite against the live namespace. Deploy failure and e2e
 # failure therefore surface as distinct checks.
 #
+# Teardown on merge/close lives in pr-environment-release.yml (pull_request
+# closed only) so open/synchronize runs do not list a skipped Release check.
+#
 # Trust boundary: pull_request only (never pull_request_target). Every job is
 # additionally guarded on head.repo == this repo, so a fork PR receives no
 # cluster credentials and gets no environment. The GitHub org gate + allowlist
@@ -31,7 +34,7 @@ name: PR Environment
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, closed]
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: read
@@ -52,9 +55,7 @@ jobs:
   # --- Plan which component images this PR's environment should run ----------
   plan-images:
     name: Plan component images
-    if: >-
-      github.event.action != 'closed' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -109,9 +110,7 @@ jobs:
   deploy:
     name: Deploy PR environment
     needs: plan-images
-    if: >-
-      github.event.action != 'closed' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -230,9 +229,11 @@ jobs:
 
       # start-dev --import-realm only loads the rendered JSON into an empty
       # data dir. A Keycloak pod that already booted (this PR, or a
-      # synchronize after idp-enabled flipped) keeps the old realm. Stamp the
-      # oauth secret hash onto the pod template so a change recycles Keycloak
-      # and the init container re-renders GitHub IdP enabled=true.
+      # synchronize after the oauth Secret changed) keeps the old realm. Stamp
+      # the oauth secret hash onto the pod template so a change recycles
+      # Keycloak. make openshift-up sets HYPERSHELL_CONSOLE_HOST on the
+      # Deployment, so the init container re-imports the console redirect URIs
+      # instead of the localhost defaults (avoids Invalid parameter: redirect_uri).
       - name: Recycle Keycloak when GitHub OAuth secret changes
         run: |
           kc_ns="${OPENSHIFT_NAMESPACE}-keycloak"
@@ -338,44 +339,3 @@ jobs:
           name: pr-env-diagnostics-${{ github.event.pull_request.number }}
           path: e2e-diagnostics/
           retention-days: 7
-
-  # --- Release the environment on merge/close (timebox is the backstop) -----
-  release:
-    name: Release PR environment
-    if: >-
-      github.event.action == 'closed' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
-      KUBECONFIG: ${{ github.workspace }}/.kube/config
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install oc
-        run: |
-          mkdir -p "$(dirname "${KUBECONFIG}")"
-          curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
-            | sudo tar -xz -C /usr/local/bin oc kubectl
-          oc version --client
-
-      - name: Log in to the target cluster
-        env:
-          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
-          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
-        run: |
-          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
-            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
-            exit 1
-          fi
-          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
-
-      # Primary release path. The out-of-band reaper is the backstop when this
-      # event does not fire. If teardown cannot confirm the release, fail so an
-      # operator frees the environment.
-      - name: Remove environment (make openshift-down)
-        run: make openshift-down
