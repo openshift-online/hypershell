@@ -4,10 +4,13 @@ name: Tests
 # SDK drift) lives in the separate, independently-triggered
 # .github/workflows/checks.yml so it shows as its own entry in the PR checks
 # list and runs fully concurrently with this workflow -- GitHub Actions
-# `needs:` only works within a single workflow file, so the two cannot gate
-# each other without a cross-workflow poller, and this repo deliberately
-# avoids that pattern. Each triggers its own `detect-changes` job rather than
-# sharing one, which is the cost of that split.
+# `needs:` only works within a single workflow file, so Checks cannot gate
+# Tests without a cross-workflow poller, and this repo deliberately avoids
+# that pattern for Unit vs Checks. Each triggers its own `detect-changes`
+# job rather than sharing one, which is the cost of that split. The one
+# exception is Tests / E2E / OpenShift, which polls the independent
+# "Deploy PR environment" check (PR Environment workflow) because that
+# environment is the suite's target.
 #
 # Within this workflow, unit and e2e are reusable workflows (on:
 # workflow_call) wired with native `needs:` gating: e2e joins on unit
@@ -119,6 +122,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+    secrets: inherit
     with:
       api_server: ${{ needs.detect-changes.outputs.api_server }}
       control_plane: ${{ needs.detect-changes.outputs.control_plane }}

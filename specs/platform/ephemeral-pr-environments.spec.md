@@ -23,11 +23,13 @@ keeps that environment in continuous deployment for the life of the pull request
 When a pull request opens, CI deploys the full stack into a per-PR ephemeral
 namespace group on a shared target OpenShift cluster, waits for Konflux to build
 the pull request's component images, swaps those images into the environment,
-runs the OpenShift e2e suite against it, and posts a pull-request comment telling
-the developer how to log in. When a later commit is pushed to the same pull
+and posts a pull-request comment telling the developer how to log in. Tests /
+E2E / OpenShift waits for that deploy check, then runs the OpenShift e2e suite
+against the live namespace. When a later commit is pushed to the same pull
 request, CI does not create a second environment: it reuses the existing one,
-waits for Konflux to rebuild the changed images, swaps them in, reruns the e2e
-suite, and updates the comment to say the environment now runs that commit. The
+waits for Konflux to rebuild the changed images, swaps them in, updates the
+comment to say the environment now runs that commit, and Tests / E2E / OpenShift
+reruns the suite. The
 environment lives independently of any single CI run so a developer can use it as
 a live debug and development target, and it is reaped after a fixed timebox so an
 abandoned pull request cannot hold cluster resources.
@@ -276,7 +278,7 @@ artifact across the stack.
 - THEN the workflow SHALL wait for the control plane's Konflux build for the new
   head commit
 - AND it SHALL swap the new control plane image into the environment by digest
-  before running e2e
+  before the `Deploy PR environment` check succeeds
 
 #### Scenario: Immutable digest is preferred over a mutable tag
 
@@ -291,33 +293,36 @@ artifact across the stack.
 ### Requirement: E2E Execution Against the Environment
 
 After the environment is deployed and the pull request's images are swapped in,
-the workflow SHALL run the OpenShift e2e suite against it, exactly as
+Tests / E2E / OpenShift SHALL wait for the `Deploy PR environment` check to
+succeed, then run the OpenShift e2e suite against it, exactly as
 `e2e-testing.spec.md` and `openshift-development.spec.md` define: it SHALL run
 `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials bash tests/e2e/e2e-openshell.sh` against a KUBECONFIG
 context pointed at the environment, exercising the same test areas the Kind suite
 exercises. The suite SHALL run on the pull request's first deployment and on every
 later deployment for that pull request, so each commit is validated against a live
 environment the same way the Kind e2e job validates each commit today. On failure
-the workflow SHALL collect the diagnostics `e2e-testing.spec.md` defines. Whether
+the job SHALL collect the diagnostics `e2e-testing.spec.md` defines. Whether
 the suite passes or fails, the environment SHALL survive (see Timebox and
 Reaping), so a developer can inspect a failing run on the live environment.
 
 The e2e suite's authentication SHALL set `E2E_OIDC_GRANT=client_credentials` and
 use the non-interactive path this spec defines (see Automated E2E Authentication),
 because the environment's interactive login is GitHub-brokered and brokered users
-have no password grant.
+have no password grant. The suite lives in the Tests workflow, not inside the
+PR Environment deploy job, so a deploy failure and an e2e failure surface as
+distinct checks.
 
 #### Scenario: E2E runs on every deployment
 
 - GIVEN the environment is deployed and the pull request's images are swapped in
-- WHEN the workflow reaches the test step
+- WHEN Tests / E2E / OpenShift sees the `Deploy PR environment` check succeed
 - THEN it SHALL run the OpenShift e2e suite against the environment
 - AND it SHALL run the suite again on each later commit's deployment
 
 #### Scenario: Environment survives a failing run
 
 - GIVEN the e2e suite fails
-- WHEN the workflow finishes
+- WHEN Tests / E2E / OpenShift finishes
 - THEN it SHALL collect the failure diagnostics
 - AND the environment SHALL remain deployed for developer inspection
 
