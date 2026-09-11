@@ -3,10 +3,12 @@ import {
   AlertActionCloseButton,
   AlertGroup,
   Button,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
+  Divider,
   Flex,
   FlexItem,
   PageSection,
@@ -35,6 +37,7 @@ import {
   GatewayDetailHeader,
   GatewayEndpointCopy,
 } from "../gateways/gateway-detail-header";
+import { GatewayProvisioningStepper } from "../gateways/gateway-provisioning-stepper";
 import {
   gatewayListQueryKey,
   gatewayNeedsStatusPolling,
@@ -649,6 +652,19 @@ export function GatewayPage({
           onRenamed={setRenamedGatewayName}
         />
       </PageSection>
+      {(connection.phase?.toLocaleLowerCase() !== "running" ||
+        (visibleGateway.provisioningConditions?.length ?? 0) > 0) && (
+        <PageSection hasBodyWrapper={false}>
+          <div className={styles.provisioningStepper}>
+            <GatewayProvisioningStepper
+              conditions={visibleGateway.provisioningConditions ?? []}
+              consoleReady={Boolean(connection.consoleUrl)}
+              phase={visibleGateway.phase}
+            />
+          </div>
+        </PageSection>
+      )}
+      <Divider />
       <PageSection hasBodyWrapper={false} isFilled variant="secondary">
         <Tabs
           activeKey={currentTab}
@@ -667,7 +683,25 @@ export function GatewayPage({
               </TabTitleText>
             }
           >
-            <GatewayConnectionSteps gateway={connection} />
+            <Content component="p">
+              <Button
+                isInline
+                onClick={() => {
+                  changeTab("service-accounts");
+                }}
+                variant="link"
+              >
+                <FormattedMessage {...messages.manageServiceAccounts} />
+              </Button>
+            </Content>
+            <GatewayConnectionSteps
+              gateway={connection}
+              isProvisioning={
+                !connection.phase ||
+                connection.phase.toLocaleLowerCase() === "pending" ||
+                connection.phase.toLocaleLowerCase() === "provisioning"
+              }
+            />
           </Tab>
           <Tab
             eventKey="service-accounts"

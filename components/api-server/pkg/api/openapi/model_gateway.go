@@ -59,6 +59,8 @@ type Gateway struct {
 	CredentialDriver *string `json:"credential_driver,omitempty"`
 	// Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
 	ActiveSandboxCount *int32 `json:"active_sandbox_count,omitempty"`
+	// Ordered list of provisioning conditions describing sub-phase progress
+	ProvisioningConditions []GatewayAllOfProvisioningConditions `json:"provisioning_conditions,omitempty"`
 	// Username of the user who provisioned this gateway, resolved from RBAC role bindings
 	CreatedBy *string `json:"created_by,omitempty"`
 }
@@ -847,6 +849,38 @@ func (o *Gateway) SetActiveSandboxCount(v int32) {
 	o.ActiveSandboxCount = &v
 }
 
+// GetProvisioningConditions returns the ProvisioningConditions field value if set, zero value otherwise.
+func (o *Gateway) GetProvisioningConditions() []GatewayAllOfProvisioningConditions {
+	if o == nil || IsNil(o.ProvisioningConditions) {
+		var ret []GatewayAllOfProvisioningConditions
+		return ret
+	}
+	return o.ProvisioningConditions
+}
+
+// GetProvisioningConditionsOk returns a tuple with the ProvisioningConditions field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetProvisioningConditionsOk() ([]GatewayAllOfProvisioningConditions, bool) {
+	if o == nil || IsNil(o.ProvisioningConditions) {
+		return nil, false
+	}
+	return o.ProvisioningConditions, true
+}
+
+// HasProvisioningConditions returns a boolean if a field has been set.
+func (o *Gateway) HasProvisioningConditions() bool {
+	if o != nil && !IsNil(o.ProvisioningConditions) {
+		return true
+	}
+
+	return false
+}
+
+// SetProvisioningConditions gets a reference to the given []GatewayAllOfProvisioningConditions and assigns it to the ProvisioningConditions field.
+func (o *Gateway) SetProvisioningConditions(v []GatewayAllOfProvisioningConditions) {
+	o.ProvisioningConditions = v
+}
+
 // GetCreatedBy returns the CreatedBy field value if set, zero value otherwise.
 func (o *Gateway) GetCreatedBy() string {
 	if o == nil || IsNil(o.CreatedBy) {
@@ -953,6 +987,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ActiveSandboxCount) {
 		toSerialize["active_sandbox_count"] = o.ActiveSandboxCount
+	}
+	if !IsNil(o.ProvisioningConditions) {
+		toSerialize["provisioning_conditions"] = o.ProvisioningConditions
 	}
 	if !IsNil(o.CreatedBy) {
 		toSerialize["created_by"] = o.CreatedBy

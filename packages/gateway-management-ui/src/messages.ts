@@ -129,6 +129,12 @@ export const messages = defineMessages({
     defaultMessage: "Prerequisite",
     description: "Title for the CLI installation prerequisite alert.",
   },
+  connectionLoginConfigureTitle: {
+    id: "app.gateway.connection.loginConfigure.title",
+    defaultMessage: "Log in and configure",
+    description:
+      "Sub-header for the login and configuration command within one-time setup.",
+  },
   connectionLoginUnavailable: {
     id: "app.gateway.connection.login.unavailable",
     defaultMessage:
@@ -178,6 +184,12 @@ export const messages = defineMessages({
     id: "app.gateway.connection.tabsLabel",
     defaultMessage: "Gateway connection, service accounts, and details",
     description: "Accessible label for the gateway detail tabs.",
+  },
+  connectionWaitingForProvisioning: {
+    id: "app.gateway.connection.waitingForProvisioning",
+    defaultMessage: "Waiting for gateway provisioning...",
+    description:
+      "Shown in the connection tab while the gateway is still being provisioned.",
   },
   copied: {
     id: "app.clipboard.copied",
@@ -443,6 +455,12 @@ export const messages = defineMessages({
     id: "app.gateway.managedDatabaseId",
     defaultMessage: "Managed database ID",
     description: "Label for a gateway's managed database identifier.",
+  },
+  manageServiceAccounts: {
+    id: "app.gateway.manageServiceAccounts",
+    defaultMessage: "Manage service accounts",
+    description:
+      "Link text that navigates to the service accounts tab from the connection tab.",
   },
   moreClustersAvailable: {
     id: "app.gateway.cluster.moreResults",
@@ -987,6 +1005,81 @@ export const messages = defineMessages({
     id: "app.gateway.serviceAccounts.loadingOne",
     defaultMessage: "Loading service account",
     description: "Status while loading service-account setup metadata.",
+  },
+  provisioningProgressLabel: {
+    id: "app.gateway.provisioningProgress.label",
+    defaultMessage: "Provisioning progress",
+    description:
+      "Accessible label for the progress stepper showing provisioning steps.",
+  },
+  provisioningStepConfiguringIdentityProvider: {
+    id: "app.gateway.provisioningProgress.step.identityProvider",
+    defaultMessage: "Configuring identity provider",
+    description: "Label for the identity provider provisioning step.",
+  },
+  provisioningStepDeployingGateway: {
+    id: "app.gateway.provisioningProgress.step.deploy",
+    defaultMessage: "Deploying gateway",
+    description: "Label for the gateway deployment provisioning step.",
+  },
+  provisioningStepPreparingEnvironment: {
+    id: "app.gateway.provisioningProgress.step.environment",
+    defaultMessage: "Preparing environment",
+    description: "Label for the environment preparation provisioning step.",
+  },
+  provisioningStepProvisioningDatabase: {
+    id: "app.gateway.provisioningProgress.step.database",
+    defaultMessage: "Provisioning database",
+    description: "Label for the database provisioning step.",
+  },
+  provisioningStepVerifyingHealth: {
+    id: "app.gateway.provisioningProgress.step.health",
+    defaultMessage: "Verifying gateway health",
+    description: "Label for the gateway health verification provisioning step.",
+  },
+  provisioningStepProvisioned: {
+    id: "app.gateway.provisioningProgress.step.provisioned",
+    defaultMessage: "Provisioned",
+    description: "Label for the final provisioning step indicating completion.",
+  },
+  provisioningStepEnvironmentReady: {
+    id: "app.gateway.provisioningProgress.step.environmentReady",
+    defaultMessage: "Environment ready",
+    description: "Completed-state label for the environment preparation step.",
+  },
+  provisioningStepDatabaseReady: {
+    id: "app.gateway.provisioningProgress.step.databaseReady",
+    defaultMessage: "Database ready",
+    description: "Completed-state label for the database provisioning step.",
+  },
+  provisioningStepIdentityProviderReady: {
+    id: "app.gateway.provisioningProgress.step.identityProviderReady",
+    defaultMessage: "IdP ready",
+    description:
+      "Completed-state label for the identity provider configuration step.",
+  },
+  provisioningStepGatewayDeployed: {
+    id: "app.gateway.provisioningProgress.step.gatewayDeployed",
+    defaultMessage: "Gateway deployed",
+    description: "Completed-state label for the gateway deployment step.",
+  },
+  provisioningStepHealthVerified: {
+    id: "app.gateway.provisioningProgress.step.healthVerified",
+    defaultMessage: "Health verified",
+    description:
+      "Completed-state label for the gateway health verification step.",
+  },
+  provisioningStepStartingConsole: {
+    id: "app.gateway.provisioningProgress.step.startingConsole",
+    defaultMessage: "Starting console",
+    description:
+      "Active-state label for the console readiness provisioning step.",
+  },
+  provisioningStepConsoleReady: {
+    id: "app.gateway.provisioningProgress.step.consoleReady",
+    defaultMessage: "Console ready",
+    description:
+      "Completed-state label for the console readiness provisioning step.",
   },
   /* eslint-enable sort-keys */
   unavailableGatewayConsole: {

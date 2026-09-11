@@ -397,9 +397,7 @@ describe("gateway shell pages", () => {
     ));
 
     expect(
-      screen.getByRole("status", {
-        name: "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
-      }),
+      screen.getByText("Waiting for gateway provisioning..."),
     ).toBeTruthy();
     expect(
       screen.queryByText(/openshell gateway add/u, { selector: "code" }),
@@ -461,6 +459,26 @@ describe("gateway shell pages", () => {
         name: "Open console for Team gateway in a new tab",
       }),
     ).toBeNull();
+  });
+
+  it("shows connection commands for failed and degraded gateways", () => {
+    for (const phase of ["Failed", "Degraded"]) {
+      const { unmount } = renderPage(() => (
+        <GatewayPage
+          gateway={{
+            ...gatewayResponse("gateway-1", "Team gateway"),
+            phase,
+            status: phase === "Failed" ? "apply error" : "CrashLoopBackOff",
+          }}
+          gatewayId="gateway-1"
+        />
+      ));
+
+      expect(
+        screen.queryByText("Waiting for gateway provisioning..."),
+      ).toBeNull();
+      unmount();
+    }
   });
 
   it("encodes service-account and detail tabs through its host", async () => {
