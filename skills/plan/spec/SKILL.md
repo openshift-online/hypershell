@@ -42,13 +42,18 @@ Follow the spec format:
 - **Purpose section** -- one paragraph describing the domain or feature
 - **Requirements** -- each states an observable behavior using RFC 2119 keywords (SHALL, MUST, SHOULD, MAY)
 - **Scenarios** -- concrete Given/When/Then examples
+- **Lasting contracts** -- state the behavior that must remain true after implementation. Use "The v2 response has no field X; v1 retains X" rather than "Remove field X." Negative requirements are valid when they define a lasting boundary.
+- **Implementation work** -- keep edit instructions, removal tasks, rollout checklists, and completion reports in the PR or reconciliation checkpoint. Observable migration, rollback, and compatibility guarantees belong in the spec.
+- **Status** -- follow the repository's metadata convention. A status label is not evidence that code satisfies a requirement. Record implementation coverage in `skills/RECONCILE.md`; do not mark a draft implemented because its text was updated.
 
 ### Phase 4 -- Critic Pass
 
 Check for:
 
-- Schema / migration impacts
-- Cross-component consistency
+- Schema and migration guarantees: existing data, identifiers, clients, mixed-version rollout, ownership transfer, and rollback. State the required compatibility policy; do not infer that existing installations can be discarded.
+- Cross-component consistency: find every spec that defines the changed entity, field, lifecycle, or interface. Amend or replace conflicting requirements in the same change. A new spec or a "supersedes" note alone does not resolve a contradiction.
+- Version boundaries: distinguish the new contract from interfaces that remain supported. Do not claim compatibility while deleting an existing endpoint, field, SDK interface, or behavior.
+- Lasting behavior: each requirement must still make sense after the implementation is complete. Keep task instructions and progress out of the contract; retain negative requirements that define supported behavior.
 - HyperShell terminology correctness
 - Incremental API search debounce, cancellation, literal wildcard/escape semantics, and bounded request counts
 - Server-state freshness, refetch, retry, and invalidation behavior rather than incidental framework defaults
