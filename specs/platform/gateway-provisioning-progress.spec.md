@@ -206,7 +206,7 @@ user can always see which provisioning steps the gateway went through.
 
 #### PatternFly Component Mapping
 
-The UI SHALL use PatternFly's `ProgressStepper` with `isVertical` layout. Each
+The UI SHALL use PatternFly's `ProgressStepper`. Each
 provisioning condition maps to a `ProgressStep` as follows:
 
 | Condition Status | `ProgressStep` variant | `isCurrent` | Behavior |
