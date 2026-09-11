@@ -198,7 +198,7 @@ func TestUnaryInterceptor_SandboxCountRestrictedToServiceAccount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			interceptor := RBACUnaryInterceptor(ownerLookup, prov, nil, AuthzConfig{
+			interceptor := RBACUnaryInterceptor(ownerLookup, prov, nil, nil, AuthzConfig{
 				EnforceRBAC:     true,
 				ServiceAccounts: tt.serviceAccounts,
 			})
@@ -255,7 +255,7 @@ func TestStreamInterceptor_ManagedDatabaseReplayRestrictedToServiceAccount(t *te
 				ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("hypershell-managed-database-replay", "deleted-v1"))
 			}
 			stream := &fakeServerStream{ctx: ctx}
-			interceptor := RBACStreamInterceptor(ownerLookup, provisioner, nil, AuthzConfig{
+			interceptor := RBACStreamInterceptor(ownerLookup, provisioner, nil, nil, AuthzConfig{
 				EnforceRBAC:     true,
 				ServiceAccounts: tt.serviceAccounts,
 			})

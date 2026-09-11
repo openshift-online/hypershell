@@ -2,6 +2,7 @@ package users
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm/clause"
 
@@ -19,6 +20,7 @@ type UserDao interface {
 	FindByIDs(ctx context.Context, ids []string) (UserList, error)
 	All(ctx context.Context) (UserList, error)
 	CountRegistered(ctx context.Context) (int64, error)
+	CountCreatedSince(ctx context.Context, since time.Time) (int64, error)
 }
 
 var _ UserDao = &sqlUserDao{}
@@ -118,6 +120,15 @@ func (d *sqlUserDao) CountRegistered(ctx context.Context) (int64, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	var count int64
 	if err := g2.Model(&User{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (d *sqlUserDao) CountCreatedSince(ctx context.Context, since time.Time) (int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var count int64
+	if err := g2.Model(&User{}).Where("created_at >= ?", since.UTC()).Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil

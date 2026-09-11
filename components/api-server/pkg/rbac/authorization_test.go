@@ -300,8 +300,8 @@ func TestIsAuthorized_UsersInventoryRequiresDashboardOperator(t *testing.T) {
 		t.Error("platform:admin should list users")
 	}
 
-	if !isAuthorized(http.MethodGet, "users", "", "", nil, []string{HypershellAdminRole}) {
-		t.Error("hypershell-admins JWT role should list users")
+	if isAuthorized(http.MethodGet, "users", "", "", nil, []string{HypershellAdminRole}) {
+		t.Error("hypershell-admins JWT role alone must not list users")
 	}
 
 	if isAuthorized(http.MethodGet, "users", "user-1", "user-1", creatorOnly, nil) {
@@ -328,8 +328,8 @@ func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *
 		t.Error("gateway:creator should list managed_databases")
 	}
 
-	if !isAuthorized(http.MethodGet, "managed_clusters", "", "", nil, []string{HypershellAdminRole}) {
-		t.Error("hypershell-admins JWT role should list managed_clusters")
+	if isAuthorized(http.MethodGet, "managed_clusters", "", "", nil, []string{HypershellAdminRole}) {
+		t.Error("hypershell-admins JWT role alone must not list managed_clusters")
 	}
 
 	platformAdmin := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}

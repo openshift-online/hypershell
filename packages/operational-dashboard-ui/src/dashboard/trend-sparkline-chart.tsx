@@ -17,7 +17,7 @@ interface SparklineDatum {
   y: number;
 }
 
-const SPARKLINE_PLOT_HEIGHT = 36;
+const SPARKLINE_PLOT_HEIGHT = 56;
 
 export function TrendSparklineChart({
   trend,

@@ -231,6 +231,34 @@
     "defaultMessage": "Could not refresh dashboard metrics",
     "description": "Title shown when operational dashboard metrics cannot be refreshed."
   },
+  "app.dashboard.registeredUsers.added30Days": {
+    "defaultMessage": "Added (30 days)",
+    "description": "Stat label for users added in the last 30 days."
+  },
+  "app.dashboard.registeredUsers.added7Days": {
+    "defaultMessage": "Added (7 days)",
+    "description": "Stat label for users added in the last 7 days."
+  },
+  "app.dashboard.registeredUsers.hero": {
+    "defaultMessage": "{value} Registered users",
+    "description": "Hero line for the Users adoption widget."
+  },
+  "app.dashboard.registeredUsers.uniqueLogins": {
+    "defaultMessage": "Unique logins",
+    "description": "Metric name in registered users login sparkline tooltips."
+  },
+  "app.dashboard.registeredUsers.uniqueLogins30Days": {
+    "defaultMessage": "Unique logins (30 days)",
+    "description": "Stat label for unique logins in the last 30 days."
+  },
+  "app.dashboard.registeredUsers.uniqueLogins7Days": {
+    "defaultMessage": "Unique logins (7 days)",
+    "description": "Stat label for unique logins in the last 7 days."
+  },
+  "app.dashboard.registeredUsers.uniqueLoginsPerDay": {
+    "defaultMessage": "Unique logins per day",
+    "description": "Title above the registered users login sparkline."
+  },
   "app.dashboard.resetToDefault": {
     "defaultMessage": "Reset to default",
     "description": "Label for restoring the operational dashboard default layout."
@@ -300,7 +328,7 @@
     "description": "Deprecated summary label retained for locale extraction."
   },
   "app.dashboard.summary.registeredUsers": {
-    "defaultMessage": "Registered users",
+    "defaultMessage": "Users",
     "description": "Summary label for registered users."
   },
   "app.dashboard.summary.sandboxes": {
@@ -316,11 +344,11 @@
     "description": "Accessible label for the system metrics list in the summary widget."
   },
   "app.dashboard.summary.trendDecrease": {
-    "defaultMessage": "{percent}% decrease",
+    "defaultMessage": "{percent}% decrease in {subject}",
     "description": "Tooltip for a usage summary metric that decreased since the start of its trend."
   },
   "app.dashboard.summary.trendIncrease": {
-    "defaultMessage": "{percent}% increase",
+    "defaultMessage": "{percent}% increase in {subject}",
     "description": "Tooltip for a usage summary metric that increased since the start of its trend."
   },
   "app.dashboard.summary.usage": {
@@ -424,7 +452,7 @@
     "description": "Title for the provisioned gateways dashboard widget."
   },
   "app.dashboard.widget.registeredUsers": {
-    "defaultMessage": "Registered users",
+    "defaultMessage": "Users",
     "description": "Title for the registered users dashboard widget."
   },
   "app.dashboard.widget.sectionTitle": {

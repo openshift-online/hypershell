@@ -19,6 +19,7 @@ func init() {
 
 		userService := users.Service(envServices)
 		rbService := roleBindings.Service(envServices)
+		activityRecorder := users.ActivityRecorder(envServices)
 
 		if userService != nil {
 			provisioner := rbac.NewUserProvisioner(userService)
@@ -26,7 +27,7 @@ func init() {
 			if rbService != nil {
 				syncer = rbService
 			}
-			apiV1Router.Use(rbac.UserProvisioningMiddleware(provisioner, syncer))
+			apiV1Router.Use(rbac.UserProvisioningMiddleware(provisioner, syncer, activityRecorder))
 		}
 		if rbService != nil {
 			enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
