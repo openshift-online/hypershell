@@ -1,6 +1,6 @@
 # Control plane
 
-The control plane follows an informer–reconciler pattern: one watcher maintains gRPC streams and dispatches events to resource-specific reconcilers.
+The control plane follows an informer-reconciler pattern: one watcher maintains gRPC streams and dispatches events to resource-specific reconcilers.
 
 Authoritative source: specs/platform/control-plane.spec.md; components/control-plane/
 

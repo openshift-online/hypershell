@@ -55,6 +55,7 @@ function parsePage(markdown, file) {
 
 function renderMarkdown(page) {
   const renderer = new marked.Renderer();
+  renderer.html = ({ text }) => escapeHtml(text);
   renderer.code = ({ text, lang }) => {
     if (lang?.trim().toLowerCase() === 'mermaid') {
       let svg;
