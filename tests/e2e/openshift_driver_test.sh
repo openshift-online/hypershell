@@ -130,11 +130,11 @@ case "$(captured_curl_args)" in
   *) FAIL=$((FAIL + 1)); printf 'FAIL: client_credentials admin args (got=%q)\n' "$(captured_curl_args)" ;;
 esac
 
-# Developer client_credentials path impersonates the principal via token exchange,
-# scoped to the requested audience (here a per-gateway client id).
+# Developer path: client-credentials subject_token, then legacy impersonation
+# (requested_subject). Keycloak 26 standard token-exchange rejects that param.
 E2E_OIDC_GRANT=client_credentials acquire_oidc_token developer developer openshell-gw-1 >/dev/null
 case "$(captured_curl_args)" in
-  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' requested_subject=developer '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
+  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' requested_subject=developer '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); printf 'FAIL: token-exchange developer args (got=%q)\n' "$(captured_curl_args)" ;;
 esac
 
@@ -143,7 +143,7 @@ esac
 # (e2e-testing.spec.md acquire_gateway_token_with_role).
 E2E_OIDC_GRANT=client_credentials acquire_oidc_token admin admin openshell-gw-1 >/dev/null
 case "$(captured_curl_args)" in
-  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' requested_subject=admin '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
+  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' requested_subject=admin '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); printf 'FAIL: token-exchange admin gateway args (got=%q)\n' "$(captured_curl_args)" ;;
 esac
 
