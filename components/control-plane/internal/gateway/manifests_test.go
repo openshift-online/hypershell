@@ -7,6 +7,23 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+// Health access has one owner. A provisioning pass must not overwrite its
+// Service or policy with a second definition.
+func TestGatewayHealthAccessHasOneOwner(t *testing.T) {
+	manifests, err := LoadGatewayManifests("../../manifests/gateway")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, objects := range manifests {
+		for _, object := range objects {
+			if (object.GetKind() == "Service" && object.GetName() == GatewayHealthServiceName) ||
+				(object.GetKind() == "NetworkPolicy" && object.GetName() == gatewayHealthPolicyName) {
+				t.Fatalf("provisioning has a second definition for %s %s", object.GetKind(), object.GetName())
+			}
+		}
+	}
+}
+
 func TestApplyCredentialDriverToml_KubernetesSecrets(t *testing.T) {
 	lines := []string{
 		"[openshell.gateway]",

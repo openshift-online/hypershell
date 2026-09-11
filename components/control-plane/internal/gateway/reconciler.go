@@ -673,10 +673,6 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 				"port":     int64(8080),
 				"protocol": "TCP",
 			},
-			map[string]interface{}{
-				"port":     int64(8081),
-				"protocol": "TCP",
-			},
 		},
 		"from": []interface{}{
 			map[string]interface{}{
@@ -2009,10 +2005,6 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 			"ports": []interface{}{
 				map[string]interface{}{
 					"port":     int64(8080),
-					"protocol": "TCP",
-				},
-				map[string]interface{}{
-					"port":     int64(8081),
 					"protocol": "TCP",
 				},
 			},

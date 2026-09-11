@@ -32,6 +32,7 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		SupervisorImage:  d.SupervisorImage,
 		RouteAddress:     d.RouteAddress,
 		ConsoleAddress:   d.ConsoleAddress,
+		GatewayVersion:   d.GatewayVersion,
 		Oidc:             d.Oidc,
 		Route:            d.Route,
 		CredentialDriver: d.CredentialDriver,

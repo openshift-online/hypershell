@@ -6,6 +6,7 @@ export interface GatewayRecord {
   createdBy?: string;
   databaseId: string;
   externalDns?: string;
+  gatewayVersion?: string;
   id: string;
   name: string;
   namespace: string;

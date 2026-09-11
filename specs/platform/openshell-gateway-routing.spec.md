@@ -74,11 +74,9 @@ spec:
     ports:
     - port: 8080
       protocol: TCP
-    - port: 8081
-      protocol: TCP
 ```
 
-> The GatewayReconciler SHALL create this NetworkPolicy automatically when the Gateway has a `route` configuration. The ingress rule restricts source traffic to the namespace hosting the shared Gateway (`GATEWAY_API_GATEWAY_NAMESPACE`, default `openshift-ingress`), so only the admin-provisioned proxy can reach the gateway ports.
+> The GatewayReconciler SHALL create this NetworkPolicy automatically when the Gateway has a `route` configuration. The ingress rule restricts source traffic to the namespace hosting the shared Gateway (`GATEWAY_API_GATEWAY_NAMESPACE`, default `openshift-ingress`), so only the admin-provisioned proxy can reach the gateway gRPC port.
 
 ---
 

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
-import { EditableCommand, sanitizeFieldValue } from "./editable-command";
+import { CommandBlock, sanitizeFieldValue } from "./editable-command";
 
 const marker = "ZMARK";
 
@@ -14,7 +14,7 @@ function Harness() {
   const [value, setValue] = useState("alpha");
   return (
     <IntlProvider locale="en">
-      <EditableCommand
+      <CommandBlock
         copyAriaLabel="Copy the command"
         copyText={`run --a ${value} --b ${value}`}
         labels={{ [marker]: "Value (editable)" }}
@@ -50,7 +50,20 @@ describe("sanitizeFieldValue", () => {
   });
 });
 
-describe("EditableCommand", () => {
+describe("CommandBlock", () => {
+  it("highlights a static command without editable values", async () => {
+    const { container } = render(
+      <IntlProvider locale="en">
+        <CommandBlock copyAriaLabel="Copy static command" copyText="echo ok" />
+      </IntlProvider>,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".shiki")?.textContent).toBe("echo ok");
+    });
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
   it("renders the marked value as inline editable fields", async () => {
     render(<Harness />);
 

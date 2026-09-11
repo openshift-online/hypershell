@@ -29,6 +29,10 @@ message Gateway {
   optional string credential_driver = 20;
   optional int32 active_sandbox_count = 21;
   optional string console_address = 22;
+  // Field 23 is allocated to provisioning_conditions in PR #269.
+  // Keep it available for that field; do not mark it reserved.
+
+  optional string gateway_version = 24;
 }
 
 message CreateGatewayRequest {
@@ -120,6 +124,17 @@ message SetActiveSandboxCountResponse {
   int32 active_sandbox_count = 1;
 }
 
+// SetGatewayVersionRequest sets the last observed runtime version. The health
+// reconciler is the only writer for this field.
+message SetGatewayVersionRequest {
+  string id = 1;
+  string gateway_version = 2;
+}
+
+message SetGatewayVersionResponse {
+  string gateway_version = 1;
+}
+
 message DeleteGatewayRequest {
   string id = 1;
 }
@@ -164,4 +179,5 @@ service GatewayService {
   rpc WatchGateways(WatchGatewaysRequest) returns (stream WatchGatewaysResponse);
   rpc AdjustActiveSandboxCount(AdjustActiveSandboxCountRequest) returns (AdjustActiveSandboxCountResponse);
   rpc SetActiveSandboxCount(SetActiveSandboxCountRequest) returns (SetActiveSandboxCountResponse);
+  rpc SetGatewayVersion(SetGatewayVersionRequest) returns (SetGatewayVersionResponse);
 }

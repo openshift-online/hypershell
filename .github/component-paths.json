@@ -91,6 +91,7 @@
     "directory": "tests/e2e",
     "paths": [
       "tests/e2e/**",
+      "scripts/install-openshell.sh",
       "deploy/base/**",
       "deploy/kind/**",
       "scripts/kind/**",

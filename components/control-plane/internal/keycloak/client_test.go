@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 const (
@@ -28,6 +30,77 @@ const (
 type capturedMapper struct {
 	Name   string                 `json:"name"`
 	Config map[string]interface{} `json:"config"`
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func TestClientConcurrentTokenSnapshots(t *testing.T) {
+	client := NewClient("https://keycloak.example.com", testRealm, testAdminClientID, testAdminSecret)
+	client.token = "token-short"
+	client.tokenExpiry = time.Now().Add(time.Hour)
+	client.httpClient = &http.Client{
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			if authorization := request.Header.Get("Authorization"); !strings.HasPrefix(authorization, "Bearer token-") {
+				return nil, fmt.Errorf("unexpected authorization header %q", authorization)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{}`)),
+				Request:    request,
+			}, nil
+		}),
+	}
+
+	const (
+		requestWorkers    = 8
+		requestsPerWorker = 1000
+		tokenWrites       = 10000
+	)
+	start := make(chan struct{})
+	errors := make(chan error, requestWorkers)
+	var workers sync.WaitGroup
+	workers.Add(requestWorkers + 1)
+
+	go func() {
+		defer workers.Done()
+		<-start
+		for index := range tokenWrites {
+			client.mu.Lock()
+			if index%2 == 0 {
+				client.token = "token-short"
+			} else {
+				client.token = "token-with-a-longer-value"
+			}
+			client.tokenExpiry = time.Now().Add(time.Hour)
+			client.mu.Unlock()
+			runtime.Gosched()
+		}
+	}()
+
+	for range requestWorkers {
+		go func() {
+			defer workers.Done()
+			<-start
+			for range requestsPerWorker {
+				if _, err := client.doRequest(t.Context(), http.MethodGet, "/admin/realms/test", nil); err != nil {
+					errors <- err
+					return
+				}
+			}
+		}()
+	}
+
+	close(start)
+	workers.Wait()
+	close(errors)
+	for err := range errors {
+		t.Errorf("concurrent request: %v", err)
+	}
 }
 
 // fakeKeycloak records the mappers and scope-mapping grants the client sends.

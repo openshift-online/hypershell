@@ -186,3 +186,15 @@ func migrationDropFleetsTable() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationAddGatewayVersion() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026082712000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS gateway_version TEXT").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS gateway_version").Error
+		},
+	}
+}

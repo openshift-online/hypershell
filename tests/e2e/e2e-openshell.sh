@@ -29,6 +29,8 @@
 #   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: external)
 #   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
+#   E2E_OPENSHELL_INSTALL  auto, always, or never (default: auto; CI uses always)
+#   E2E_GATEWAY_VERSION_TIMEOUT  Seconds to wait for the runtime version (default: 120)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,6 +50,7 @@ DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 # --- Driver selection and validation ---
 
 e2e_validate_mode
+e2e_validate_openshell_install
 e2e_select_infra_driver
 
 DRIVER_FILE="${SCRIPT_DIR}/drivers/${E2E_INFRA_DRIVER}.sh"
@@ -78,10 +81,18 @@ SANDBOX_NAME=""
 E2E_GW_PF_PID="${E2E_GW_PF_PID:-}"
 E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
 
-if ! command -v "${OPENSHELL_BIN}" >/dev/null 2>&1; then
-  red "ERROR: openshell CLI not found (OPENSHELL_BIN=${OPENSHELL_BIN})"
-  red "Install: curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh"
-  exit 1
+# The installation step runs after gateway provisioning. Only the "never"
+# mode requires an installed CLI before the test starts.
+if command -v "${OPENSHELL_BIN}" >/dev/null 2>&1; then
+  OPENSHELL_PREINSTALLED=1
+else
+  OPENSHELL_PREINSTALLED=0
+  if [[ "${E2E_OPENSHELL_INSTALL}" == "never" ]]; then
+    red "ERROR: openshell CLI not found (OPENSHELL_BIN=${OPENSHELL_BIN}) and E2E_OPENSHELL_INSTALL=never"
+    red "Install it manually, or set E2E_OPENSHELL_INSTALL=auto to install the"
+    red "gateway-matched version via the console-recommended command."
+    exit 1
+  fi
 fi
 
 # --- Cleanup trap ---
@@ -814,6 +825,71 @@ sep
 echo ""
 e2e_area "5. Route Discovery + CLI Registration"
 echo ""
+
+# Read the runtime version and run the installation command shown in the console.
+install_openshell_cli_from_api() {
+  if [[ "${E2E_OPENSHELL_INSTALL}" == "never" ]]; then
+    dim "  E2E_OPENSHELL_INSTALL=never; using pre-installed openshell CLI."
+    return 0
+  fi
+  if [[ "${E2E_OPENSHELL_INSTALL}" != "always" && "${OPENSHELL_PREINSTALLED}" == "1" ]]; then
+    dim "  Using pre-installed openshell CLI (E2E_OPENSHELL_INSTALL=${E2E_OPENSHELL_INSTALL})."
+    return 0
+  fi
+
+  # The control plane reconciles gateway_version from the gateway's health
+  # endpoint after the pod is Running; poll for a bounded period.
+  local raw_version="" deadline
+  deadline=$(($(date +%s) + E2E_GATEWAY_VERSION_TIMEOUT))
+  dim "  Waiting for reconciled gateway_version (timeout: ${E2E_GATEWAY_VERSION_TIMEOUT}s)..."
+  while [[ $(date +%s) -lt $deadline ]]; do
+    # Provisioning can outlast the access token; api_curl reads it each call.
+    acquire_oidc_token 2>/dev/null || true
+    raw_version=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+      python3 -c "import json,sys; print(json.load(sys.stdin).get('gateway_version') or '')" 2>/dev/null || true)
+    [[ -n "$raw_version" ]] && break
+    sleep 5
+  done
+  if [[ -z "$raw_version" ]]; then
+    fail_test "API never reported gateway_version for ${GW_ID} within ${E2E_GATEWAY_VERSION_TIMEOUT}s"
+    exit 1
+  fi
+  pass "Reconciled gateway_version: ${raw_version}"
+
+  local installer_version
+  if ! installer_version=$(openshell_installer_version "$raw_version"); then
+    fail_test "Could not derive an installer version from gateway_version='${raw_version}'"
+    exit 1
+  fi
+  dim "  Derived installer version: ${installer_version} (from '${raw_version}')"
+
+  # The exact command the console shows the user (installScriptUrl + OPENSHELL_VERSION).
+  show_cmd "curl -LsSf ${OPENSHELL_INSTALL_SCRIPT_URL} | OPENSHELL_VERSION=${installer_version} sh"
+  if ! curl -LsSf "${OPENSHELL_INSTALL_SCRIPT_URL}" | OPENSHELL_VERSION="${installer_version}" sh; then
+    fail_test "openshell install.sh failed for OPENSHELL_VERSION=${installer_version} (recommended command broken)"
+    exit 1
+  fi
+
+  # Match the console command, including its PATH order.
+  export PATH="${HOME}/.local/bin:${PATH}"
+  hash -r 2>/dev/null || true
+  if ! command -v "${OPENSHELL_BIN}" >/dev/null 2>&1; then
+    fail_test "openshell CLI not on PATH after install (OPENSHELL_BIN=${OPENSHELL_BIN})"
+    exit 1
+  fi
+
+  local reported
+  reported=$("${OPENSHELL_BIN}" --version 2>&1 || true)
+  dim "  openshell --version: ${reported}"
+  # The installed CLI must report the requested version.
+  if ! openshell_cli_matches_version "$reported" "$installer_version"; then
+    fail_test "Installed openshell version '${reported}' does not match requested ${installer_version}"
+    exit 1
+  fi
+  pass "openshell CLI installed via console-recommended command (${installer_version})"
+}
+
+install_openshell_cli_from_api
 
 GW_LOCAL_NAME="${GW_NAMESPACE}-openshell"
 

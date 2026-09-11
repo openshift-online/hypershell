@@ -133,3 +133,9 @@ Component-specific conventions:
 - Control Plane: [conventions](specs/standards/control-plane/conventions.spec.md)
 - Security: [security standards](specs/standards/security/security.spec.md)
 - Web UI: [UI standards](specs/standards/ui/)
+
+Install the CLI for a remote gateway with
+`OPENSHELL_VERSION=v<gateway-version> sh scripts/install-openshell.sh`.
+The script verifies the release checksum and installs only the CLI in
+`~/.local/bin`. Add that directory to `PATH`. Run `make ci-test` to test the
+installer with local release fixtures.

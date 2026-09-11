@@ -27,6 +27,7 @@ const (
 	GatewayService_WatchGateways_FullMethodName            = "/hypershell.v1.GatewayService/WatchGateways"
 	GatewayService_AdjustActiveSandboxCount_FullMethodName = "/hypershell.v1.GatewayService/AdjustActiveSandboxCount"
 	GatewayService_SetActiveSandboxCount_FullMethodName    = "/hypershell.v1.GatewayService/SetActiveSandboxCount"
+	GatewayService_SetGatewayVersion_FullMethodName        = "/hypershell.v1.GatewayService/SetGatewayVersion"
 )
 
 // GatewayServiceClient is the client API for GatewayService service.
@@ -41,6 +42,7 @@ type GatewayServiceClient interface {
 	WatchGateways(ctx context.Context, in *WatchGatewaysRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchGatewaysResponse], error)
 	AdjustActiveSandboxCount(ctx context.Context, in *AdjustActiveSandboxCountRequest, opts ...grpc.CallOption) (*AdjustActiveSandboxCountResponse, error)
 	SetActiveSandboxCount(ctx context.Context, in *SetActiveSandboxCountRequest, opts ...grpc.CallOption) (*SetActiveSandboxCountResponse, error)
+	SetGatewayVersion(ctx context.Context, in *SetGatewayVersionRequest, opts ...grpc.CallOption) (*SetGatewayVersionResponse, error)
 }
 
 type gatewayServiceClient struct {
@@ -140,6 +142,16 @@ func (c *gatewayServiceClient) SetActiveSandboxCount(ctx context.Context, in *Se
 	return out, nil
 }
 
+func (c *gatewayServiceClient) SetGatewayVersion(ctx context.Context, in *SetGatewayVersionRequest, opts ...grpc.CallOption) (*SetGatewayVersionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetGatewayVersionResponse)
+	err := c.cc.Invoke(ctx, GatewayService_SetGatewayVersion_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GatewayServiceServer is the server API for GatewayService service.
 // All implementations must embed UnimplementedGatewayServiceServer
 // for forward compatibility.
@@ -152,6 +164,7 @@ type GatewayServiceServer interface {
 	WatchGateways(*WatchGatewaysRequest, grpc.ServerStreamingServer[WatchGatewaysResponse]) error
 	AdjustActiveSandboxCount(context.Context, *AdjustActiveSandboxCountRequest) (*AdjustActiveSandboxCountResponse, error)
 	SetActiveSandboxCount(context.Context, *SetActiveSandboxCountRequest) (*SetActiveSandboxCountResponse, error)
+	SetGatewayVersion(context.Context, *SetGatewayVersionRequest) (*SetGatewayVersionResponse, error)
 	mustEmbedUnimplementedGatewayServiceServer()
 }
 
@@ -185,6 +198,9 @@ func (UnimplementedGatewayServiceServer) AdjustActiveSandboxCount(context.Contex
 }
 func (UnimplementedGatewayServiceServer) SetActiveSandboxCount(context.Context, *SetActiveSandboxCountRequest) (*SetActiveSandboxCountResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetActiveSandboxCount not implemented")
+}
+func (UnimplementedGatewayServiceServer) SetGatewayVersion(context.Context, *SetGatewayVersionRequest) (*SetGatewayVersionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetGatewayVersion not implemented")
 }
 func (UnimplementedGatewayServiceServer) mustEmbedUnimplementedGatewayServiceServer() {}
 func (UnimplementedGatewayServiceServer) testEmbeddedByValue()                        {}
@@ -344,6 +360,24 @@ func _GatewayService_SetActiveSandboxCount_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GatewayService_SetGatewayVersion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetGatewayVersionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServiceServer).SetGatewayVersion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayService_SetGatewayVersion_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServiceServer).SetGatewayVersion(ctx, req.(*SetGatewayVersionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GatewayService_ServiceDesc is the grpc.ServiceDesc for GatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -378,6 +412,10 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetActiveSandboxCount",
 			Handler:    _GatewayService_SetActiveSandboxCount_Handler,
+		},
+		{
+			MethodName: "SetGatewayVersion",
+			Handler:    _GatewayService_SetGatewayVersion_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

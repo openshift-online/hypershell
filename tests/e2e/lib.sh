@@ -107,6 +107,43 @@ retry_until() {
   return 1
 }
 
+# Keep this rule consistent with buildOpenShellInstallCommand in
+# packages/gateway-management-ui/src/gateways/gateway-connections.ts.
+# Remove surrounding space and the first "-" suffix. Add a leading "v".
+openshell_installer_version() {
+  local raw="$1"
+  # trim leading/trailing whitespace (mirrors the TS .trim())
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  raw="${raw%"${raw##*[![:space:]]}"}"
+  [[ -z "$raw" ]] && return 1
+  # Strip the first "-" and all following text (v0.0.109-rh9a8f8 -> v0.0.109).
+  local base="${raw%%-*}"
+  [[ -z "$base" ]] && return 1
+  if [[ "$base" == v* ]]; then
+    printf '%s' "$base"
+  else
+    printf 'v%s' "$base"
+  fi
+}
+
+# Compare the version token, not a substring such as 0.0.11 in 0.0.110.
+openshell_cli_matches_version() {
+  local name version rest
+  read -r name version rest <<< "$1"
+  [[ "$name" == "openshell" && "${version#v}" == "${2#v}" ]]
+}
+
+e2e_validate_openshell_install() {
+  case "$E2E_OPENSHELL_INSTALL" in
+    auto|always|never) ;;
+    *) red "ERROR: E2E_OPENSHELL_INSTALL must be auto, always, or never"; return 1 ;;
+  esac
+  if [[ ! "$E2E_GATEWAY_VERSION_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+    red "ERROR: E2E_GATEWAY_VERSION_TIMEOUT must be a positive integer"
+    return 1
+  fi
+}
+
 # --- Environment defaults ---
 
 : "${E2E_NAMESPACE:=openshell-e2e}"
@@ -120,6 +157,17 @@ retry_until() {
 : "${E2E_PAUSE:=1}"
 _E2E_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${OPENSHELL_BIN:=openshell}"
+# How the e2e test obtains the openshell CLI:
+#   auto   - install the gateway-matched version via the console-recommended
+#            command if the CLI is not already present (default)
+#   always - always install the gateway-matched version, even if one is present
+#   never  - require a pre-installed CLI; do not install
+: "${E2E_OPENSHELL_INSTALL:=auto}"
+# Upstream install script the console links to (installScriptUrl in the UI).
+: "${OPENSHELL_INSTALL_SCRIPT_URL:=https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh}"
+# Bounded wait for the control plane to reconcile gateway_version from the
+# gateway's health endpoint before deriving the install command.
+: "${E2E_GATEWAY_VERSION_TIMEOUT:=120}"
 : "${E2E_KEYCLOAK_NAMESPACE:=keycloak}"
 : "${E2E_OIDC_ISSUER:=https://keycloak.hypershell.localhost/realms/hypershell}"
 : "${E2E_OIDC_CLIENT_ID:=hypershell-frontend}"

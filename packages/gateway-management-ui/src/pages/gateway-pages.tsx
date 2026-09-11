@@ -3,7 +3,6 @@ import {
   AlertActionCloseButton,
   AlertGroup,
   Button,
-  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -668,17 +667,6 @@ export function GatewayPage({
               </TabTitleText>
             }
           >
-            <Content component="p">
-              <Button
-                isInline
-                onClick={() => {
-                  changeTab("service-accounts");
-                }}
-                variant="link"
-              >
-                <FormattedMessage {...messages.manageServiceAccounts} />
-              </Button>
-            </Content>
             <GatewayConnectionSteps gateway={connection} />
           </Tab>
           <Tab
