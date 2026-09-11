@@ -9,12 +9,10 @@ name: PR Environment
 # (out-of-band reaper, deploy/e2e/reaper) so a developer can use it as a live
 # debug target.
 #
-# The OpenShift e2e suite does NOT run here. Once deploy succeeds, the "e2e"
-# job below calls e2e.yml's "E2E OpenShift" job directly (workflow_call), so
-# a deploy failure and an e2e failure surface as distinct checks. A relative-
-# path workflow_call resolves against this branch's own e2e.yml, unlike a
-# workflow_run listener (which is only ever matched against the workflow file
-# on the default branch and so would never fire from a PR that adds it).
+# The OpenShift e2e suite does NOT run here. Tests / E2E / OpenShift (e2e.yml,
+# invoked by tests.yml) waits on this workflow's "Deploy PR environment" check
+# and then runs the suite against the live namespace. Deploy failure and e2e
+# failure therefore surface as distinct checks.
 #
 # Trust boundary: pull_request only (never pull_request_target). Every job is
 # additionally guarded on head.repo == this repo, so a fork PR receives no
@@ -107,7 +105,7 @@ jobs:
             echo "wait_web_console=${wait_wc}"
           } >> "${GITHUB_OUTPUT}"
 
-  # --- Deploy / reconcile the environment and run e2e -----------------------
+  # --- Deploy / reconcile the environment -----------------------------------
   deploy:
     name: Deploy PR environment
     needs: plan-images
@@ -297,8 +295,8 @@ jobs:
         run: make openshift-seed
 
       # Edit the same comment posted at job start now that the environment is
-      # ready, so it survives a failing e2e run and always reflects the
-      # deployed head commit.
+      # ready, so it survives a failing Tests / E2E / OpenShift run and always
+      # reflects the deployed head commit.
       - name: Discover access URLs
         id: urls
         run: |
@@ -340,18 +338,6 @@ jobs:
           name: pr-env-diagnostics-${{ github.event.pull_request.number }}
           path: e2e-diagnostics/
           retention-days: 7
-
-  # --- Run the OpenShift e2e suite against the deployed environment ---------
-  # needs: deploy means this is skipped by default job-dependency semantics
-  # whenever deploy is skipped (fork PR, closed-PR run) or fails, with no
-  # extra `if:` needed here.
-  e2e:
-    name: E2E OpenShift
-    needs: deploy
-    uses: ./.github/workflows/e2e.yml
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-    secrets: inherit
 
   # --- Release the environment on merge/close (timebox is the backstop) -----
   release:

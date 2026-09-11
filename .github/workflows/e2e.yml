@@ -9,33 +9,21 @@ name: E2E
 # workflow runs fully concurrently with Tests as its own top-level entry in
 # the PR checks list, and GitHub Actions `needs:` cannot gate across
 # independently-triggered workflows without a cross-workflow poller, which
-# this repo deliberately avoids. tests.yml owns the triggers, concurrency
-# group, stage sequencing, and change detection: the per-component flags
-# used by plan-images arrive as inputs instead of being detected here. The
-# stage's rolled-up result, together with unit's, is turned into a single
-# required check by the `Tests CI Gate` job in tests.yml, so this workflow needs
-# no summary/gate job of its own for the workflow_call path. The `checks: read`
-# permission and the wait-on-check-action steps below remain: they gate on
-# Konflux image builds, which are an external system this workflow cannot
-# order with `needs:`.
+# this repo deliberately avoids for Unit vs Checks. tests.yml owns the
+# triggers, concurrency group, stage sequencing, and change detection: the
+# per-component flags used by plan-images arrive as inputs instead of being
+# detected here. The stage's rolled-up result, together with unit's, is
+# turned into a single required check by the `Tests CI Gate` job in
+# tests.yml, so this workflow needs no summary/gate job of its own. The
+# `checks: read` permission and the wait-on-check-action steps below remain:
+# they gate on Konflux image builds (and, for E2E OpenShift, on the separate
+# PR Environment deploy job), which this workflow cannot order with `needs:`.
 #
-# Separately, .github/workflows/pr-environment.yml's `deploy` job also calls
-# this workflow directly (workflow_call, relative path), passing `pr_number`,
-# once it has stood up an ephemeral PR environment
-# (ephemeral-pr-environments.spec.md) -- a workflow_run listener was tried
-# first, but workflow_run triggers only match the workflow file already on
-# the default branch, so it would never fire on the PR introducing it.
-#
-# `github.event_name` cannot tell these two callers apart: it is inherited
-# from whichever event originally triggered the top of the call chain (a
-# reusable workflow's own `github.event_name` is NOT the literal string
-# "workflow_call" -- this is a common GitHub Actions gotcha, see
-# actions/runner#3146), and tests.yml's pull_request-triggered runs and
-# pr-environment.yml's pull_request-triggered runs both report
-# `github.event_name == 'pull_request'` regardless of which one is calling.
-# `inputs.pr_number` is therefore the only reliable signal: tests.yml never
-# passes it, so `plan-images`/`e2e-kind` (which exist only to serve that
-# path) gate on its absence, and `e2e-openshift` gates on its presence.
+# E2E OpenShift lives here (Tests / E2E / OpenShift), not inside the PR
+# Environment workflow. On origin pull_request it polls the "Deploy PR
+# environment" check, then runs the suite against that namespace. Fork PRs,
+# merge_group, and push skip it (no per-PR environment). Push to main still
+# has e2e-openshift-main below for the bring-up-test-tear-down cycle.
 on:
   workflow_call:
     inputs:
@@ -51,14 +39,6 @@ on:
       pr_test:
         type: string
         default: 'false'
-      pr_number:
-        description: >-
-          Pull request number to run the OpenShift e2e suite against. Set
-          only by pr-environment.yml; left empty by tests.yml's orchestration
-          call, which instead drives plan-images/e2e-kind via the flags above.
-        required: false
-        type: string
-        default: ''
 
 permissions:
   contents: read
@@ -71,12 +51,6 @@ env:
 jobs:
   plan-images:
     name: Plan component images
-    # Exists only to serve tests.yml's orchestration call; skip it for the
-    # pr-environment.yml-invoked OpenShift e2e path below, which has its own
-    # image handling and would otherwise waste a runner planning Kind images
-    # nobody asked for. See the `on:` block above for why this checks
-    # `inputs.pr_number` rather than `github.event_name`.
-    if: inputs.pr_number == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -656,26 +630,34 @@ jobs:
           retention-days: 7
 
   # Runs the OpenShift e2e suite against the environment the "PR Environment"
-  # workflow's deploy job just deployed (ephemeral-pr-environments.spec.md).
-  # Invoked directly by that job via workflow_call (needs: deploy) rather than
-  # running inline there, so a deploy failure and an e2e failure surface as
-  # distinct checks. needs: deploy already means this only runs once deploy
-  # has succeeded -- a skipped deploy (fork PR, or a closed-PR run) skips this
-  # too by default job-dependency semantics, and pr-environment.yml's own
-  # concurrency group (cancel-in-progress) cancels this run along with the
-  # rest of that workflow run if the PR is superseded or closed mid-flight.
+  # workflow just deployed (ephemeral-pr-environments.spec.md). Lives here so
+  # the check is Tests / E2E / OpenShift, not nested under PR Environment.
+  # Polls the Deploy PR environment check because GitHub Actions `needs:`
+  # cannot cross independently-triggered workflows.
   e2e-openshift:
-    name: E2E OpenShift
-    # See the `on:` block for why this checks inputs.pr_number rather than
-    # github.event_name.
-    if: inputs.pr_number != ''
+    name: OpenShift
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # Deploy PR environment is allowed 60 minutes; the suite itself is
+    # budgeted like Kind (~45). 105 covers wait-then-run with headroom.
+    timeout-minutes: 105
     env:
-      PR_NUMBER: ${{ inputs.pr_number }}
-      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ inputs.pr_number }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
     steps:
+      - name: Wait for Deploy PR environment
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-regexp: 'Deploy PR environment$'
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -728,7 +710,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: pr-env-diagnostics-${{ inputs.pr_number }}
+          name: pr-env-diagnostics-${{ github.event.pull_request.number }}
           path: e2e-diagnostics/
           retention-days: 7
 
