@@ -87,7 +87,7 @@ func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 			Message         string `json:"message"`
 		}
 		if err := json.Unmarshal([]byte(*gateway.ProvisioningConditions), &conditions); err != nil {
-			glog.Warningf("failed to unmarshal provisioning_conditions for gateway %s: %v", gateway.Meta.ID, err)
+			glog.Warningf("failed to unmarshal provisioning_conditions for gateway %s: %v", gateway.ID, err)
 		} else {
 			apiConditions := make([]openapi.GatewayAllOfProvisioningConditions, 0, len(conditions))
 			for _, c := range conditions {
