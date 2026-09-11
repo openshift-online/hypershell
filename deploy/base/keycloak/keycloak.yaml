@@ -131,6 +131,11 @@ spec:
               value: "https://keycloak.hypershell.localhost"
             - name: KC_PROXY_HEADERS
               value: "xforwarded"
+            # Legacy token-exchange (requested_subject impersonation). Keycloak
+            # 26 standard token-exchange rejects that parameter, and the e2e
+            # suite uses impersonation for per-gateway tokens.
+            - name: KC_FEATURES
+              value: "token-exchange"
           ports:
             - containerPort: 8080
               name: http
@@ -382,7 +387,7 @@ data:
           "directAccessGrantsEnabled": false,
           "secret": "${HYPERSHELL_E2E_CLIENT_SECRET:}",
           "attributes": {
-            "standard.token.exchange.enabled": "true"
+            "standard.token.exchange.enabled": "false"
           },
           "defaultClientScopes": ["profile", "roles"],
           "protocolMappers": [

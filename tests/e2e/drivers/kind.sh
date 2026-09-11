@@ -285,12 +285,22 @@ _driver_acquire_oidc_token() {
           -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
           -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"
       else
-        # Developer API tokens and every per-gateway token: impersonate the
-        # requested principal targeting that audience (e2e-testing.spec.md).
+        # Impersonate the requested principal targeting that audience.
+        # Keycloak 26 standard token-exchange rejects requested_subject; this
+        # is the legacy (token-exchange feature) impersonation grant and needs
+        # a subject_token (the hypershell-e2e client-credentials token).
+        if ! _driver_token_request \
+          -d "grant_type=client_credentials" \
+          -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
+          -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"; then
+          return 1
+        fi
+        local subject_token="$_OIDC_ACCESS_TOKEN"
         _driver_token_request \
           -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
           -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
           -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}" \
+          -d "subject_token=${subject_token}" \
           -d "requested_subject=${username}" \
           -d "audience=${client_id}"
       fi
