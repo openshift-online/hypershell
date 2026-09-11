@@ -1,0 +1,136 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agent
+  namespace: agents
+spec:
+  # Override schedule in your overlay kustomization.yaml.
+  schedule: "0 * * * *"
+  # Prevents a backlog of job pods when a run takes longer than the interval.
+  concurrencyPolicy: Forbid
+  # Retain the two most recent completions/failures for log inspection.
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      # Give the job a hard deadline. Override in overlay if your workload
+      # needs more time.
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: agent
+        spec:
+          serviceAccountName: agent
+          restartPolicy: Never
+          automountServiceAccountToken: false
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+
+          # --------------- init container: install openshell ---------------
+          initContainers:
+            - name: install-openshell
+              # Pin to a digest-verified image in your overlay.
+              image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+              command: ["/bin/sh", "/opt/agent/install-openshell.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                # Pin version + SHA256 in your overlay (see install-openshell.sh).
+                # These are placeholders; overlays must override all three.
+                - name: OPENSHELL_VERSION
+                  value: "PATCH_ME"
+                - name: OPENSHELL_SHA256_AMD64
+                  value: "PATCH_ME"
+                - name: OPENSHELL_SHA256_ARM64
+                  value: "PATCH_ME"
+                - name: OPENSHELL_DOWNLOAD_URL
+                  value: "https://github.com/openshift-online/openshell/releases/download"
+              volumeMounts:
+                - name: tools
+                  mountPath: /tools
+                - name: runner
+                  mountPath: /opt/agent
+                  readOnly: true
+
+          # --------------- main container: run agent -----------------------
+          containers:
+            - name: agent
+              # Pin to a digest-verified image in your overlay.
+              image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+              command: ["/bin/bash", "/opt/agent/run.sh"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                # Gateway connection - override values in overlay or Secret ref
+                - name: GATEWAY_ENDPOINT
+                  value: "PATCH_ME"
+                - name: GATEWAY_NAME
+                  value: "PATCH_ME"
+                - name: OIDC_ISSUER_URL
+                  value: "PATCH_ME"
+                - name: OIDC_CLIENT_ID
+                  value: "PATCH_ME"
+                - name: OIDC_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: agent-oidc
+                      key: client-secret
+                # Tuning knobs - override in overlay if defaults don't fit
+                - name: OPENSHELL_BIN
+                  value: /tools/openshell
+                - name: TOKEN_REFRESH_INTERVAL
+                  value: "300"
+                - name: SANDBOX_TIMEOUT
+                  value: "120"
+                - name: AGENT_LABEL
+                  value: "managed-by=agent"
+              volumeMounts:
+                # /opt/agent (ro) - scripts ConfigMap
+                - name: runner
+                  mountPath: /opt/agent
+                  readOnly: true
+                # /etc/agent (ro) - policy ConfigMap
+                - name: policy
+                  mountPath: /etc/agent
+                  readOnly: true
+                # /tools - openshell binary from init container
+                - name: tools
+                  mountPath: /tools
+                # /work - sandbox config roots + intermediate state
+                - name: work
+                  mountPath: /work
+                # /tmp - scratch space
+                - name: tmp
+                  mountPath: /tmp
+
+          volumes:
+            # ConfigMap: agent scripts (agent-lib.sh + run.sh from overlay)
+            - name: runner
+              configMap:
+                name: agent-scripts
+                defaultMode: 0555
+            # ConfigMap: sandbox policy file
+            - name: policy
+              configMap:
+                name: agent-policy
+                defaultMode: 0444
+            # EmptyDir: openshell binary written by init container
+            - name: tools
+              emptyDir: {}
+            # EmptyDir: per-sandbox HOME / gateway state / intermediate files
+            - name: work
+              emptyDir: {}
+            # EmptyDir: scratch space
+            - name: tmp
+              emptyDir: {}

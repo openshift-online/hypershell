@@ -1,0 +1,75 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Inherit the generic agent base - CronJob skeleton, RBAC, namespace,
+# agent-lib.sh, and install-openshell.sh are all provided there.
+resources:
+  - ./base
+
+# Scope names to this agent so multiple agents can coexist in the same cluster.
+namePrefix: example-
+
+# Use the example agent's namespace.
+namespace: agents-example
+
+# Override the CronJob schedule and key env vars for this agent.
+patches:
+  - target:
+      kind: CronJob
+      name: agent
+    patch: |
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: agent
+      spec:
+        # Run every hour
+        schedule: "0 * * * *"
+        jobTemplate:
+          spec:
+            template:
+              spec:
+                initContainers:
+                  - name: install-openshell
+                    env:
+                      - name: OPENSHELL_VERSION
+                        value: "v0.8.2"
+                      - name: OPENSHELL_SHA256_AMD64
+                        value: "REPLACE_WITH_ACTUAL_SHA256"
+                      - name: OPENSHELL_SHA256_ARM64
+                        value: "REPLACE_WITH_ACTUAL_SHA256"
+                containers:
+                  - name: agent
+                    env:
+                      - name: GATEWAY_ENDPOINT
+                        value: "https://gateway.example.com"
+                      - name: GATEWAY_NAME
+                        value: "example-gateway"
+                      - name: OIDC_ISSUER_URL
+                        value: "https://sso.example.com/realms/example"
+                      - name: OIDC_CLIENT_ID
+                        value: "example-agent"
+                      - name: SANDBOX_NAME
+                        value: "example-agent-run"
+                      - name: SANDBOX_SOURCE
+                        value: "ubi9"
+                      - name: PROVIDER
+                        value: "my-service-provider"
+
+# Merge run.sh into the agent-scripts ConfigMap alongside agent-lib.sh.
+# The base provides agent-lib.sh and install-openshell.sh;
+# this overlay adds the workload-specific entrypoint (run.sh).
+configMapGenerator:
+  - name: agent-scripts
+    behavior: merge
+    files:
+      - scripts/run.sh
+    options:
+      disableNameSuffixHash: true
+
+  - name: agent-policy
+    behavior: replace
+    files:
+      - policy/policy.yaml
+    options:
+      disableNameSuffixHash: true
