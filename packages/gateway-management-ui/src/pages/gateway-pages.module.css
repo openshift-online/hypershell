@@ -8,6 +8,7 @@
 
 .provisioningStepper :global(.pf-v6-c-progress-stepper__step-title) {
   font-size: var(--pf-v6-global--FontSize--sm);
+  min-height: 2lh;
 }
 
 .endpointCopy :global(.pf-v6-c-clipboard-copy__group),
