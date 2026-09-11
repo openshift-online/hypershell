@@ -118,6 +118,7 @@ help:
 	@echo "                             LOCAL_IMAGES=true KIND_SKIP_BUILD=true: reuse existing local images"
 	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
+	@echo "    kind-reconcile-keycloak-users  Assign platform:admin to admin on stale Keycloak imports"
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
 	@echo "                             SEED_STRICT=true: fail the command if seeding is incomplete"
 	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
@@ -420,6 +421,10 @@ kind-up:
 .PHONY: kind-seed
 kind-seed:
 	@CLUSTER_DRIVER=kind scripts/cluster/seed.sh
+
+.PHONY: kind-reconcile-keycloak-users
+kind-reconcile-keycloak-users:
+	@bash scripts/kind/reconcile-keycloak-users.sh
 
 .PHONY: kind-down
 kind-down:
