@@ -188,18 +188,13 @@ func migrationDropFleetsTable() *gormigrate.Migration {
 }
 
 func migrationAddGatewayVersion() *gormigrate.Migration {
-	type Gateway struct {
-		db.Model
-		GatewayVersion *string
-	}
-
 	return &gormigrate.Migration{
 		ID: "2026082712000001",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Gateway{})
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS gateway_version TEXT").Error
 		},
 		Rollback: func(tx *gorm.DB) error {
-			return tx.Migrator().DropColumn(&Gateway{}, "gateway_version")
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS gateway_version").Error
 		},
 	}
 }
