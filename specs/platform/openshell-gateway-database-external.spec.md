@@ -1,5 +1,9 @@
 # OpenShell Gateway Database Specification - External Provider
 
+> Proposed replacement: [Controller-Local Gateway Databases](./controller-local-gateway-databases.spec.md)
+> defines the fresh-installation contract that removes `ManagedDatabase` and
+> moves PostgreSQL server ownership to the installation system.
+
 **Date:** 2026-09-07
 **Status:** Active
 **Parent:** [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) - gateway database provisioning

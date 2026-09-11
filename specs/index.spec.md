@@ -31,6 +31,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/data-model.spec.md` | platform | Fleet, Gateway, GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase | API, CP | - |
 | `platform/control-plane.spec.md` | platform | Watcher, Reconciler, gRPC streams | CP | data-model |
 | `platform/openshell-gateway.spec.md` | platform | Gateway, GatewayReconciler, provisioning | CP | data-model, control-plane |
+| `platform/controller-local-gateway-databases.spec.md` | platform | Gateway, ManagedCluster, PostgreSQL ownership | API, CP, CLI, SDK, WEB, hypbox | openshell-gateway, managed-cluster-registration |
 | `platform/openshell-gateway-database.spec.md` | platform | PostgreSQL provisioning, credential security | CP | openshell-gateway |
 | `platform/openshell-gateway-tls.spec.md` | platform | cert-manager, TLS certificates, SAN management | CP | openshell-gateway |
 | `platform/openshell-gateway-routing.spec.md` | platform | GRPCRoute, BackendTLSPolicy, NetworkPolicy | CP | openshell-gateway, openshell-gateway-tls |
