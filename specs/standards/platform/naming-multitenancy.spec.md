@@ -80,32 +80,24 @@ If it is left as the base default (`hypershell-system`), the controller
 ServiceAccount in the instance namespace is not actually bound, so the controller
 runs with zero permissions and fails to provision gateways.
 
-## 4. Dynamically Provisioned Resources (Gateways, Databases, Sandboxes)
+## 4. Gateway Resources and Installation-Owned Databases
 
-**Rule: Controller-generated hashes; databases live in their own namespace.**
+The API server SHALL assign the tenant namespace `openshell-<hash>` from the
+Gateway identity, using 16 hexadecimal characters for `<hash>`. Each controller SHALL label and manage only its own assigned
+gateway namespaces.
 
-Resources the control plane provisions at runtime follow programmatic naming to
-prevent tenant collisions across the cluster. The API server assigns the namespace
-names in its `BeforeCreate` hooks; the control plane mirrors the prefixes in
-`components/control-plane/internal/gateway/namespace.go`.
+The installation system SHALL provide the PostgreSQL server and its namespace,
+if it is hosted in Kubernetes. Those resources SHALL NOT carry gateway ownership
+labels and SHALL NOT be selected by gateway namespace garbage collection.
 
-* **Tenant (gateway) namespace:** `openshell-<hash>`, 16 hex chars
-  (e.g., `openshell-bdd12bb523f166db`). Prefix `openshell-`.
-* **ManagedDatabase namespace:** `openshell-db-<hash>`, a **separate** namespace,
-  distinct from any gateway namespace and explicitly excluded from gateway
-  namespace garbage collection. Prefix `openshell-db-`.
-* **Gateway Postgres instance:** a shared CNPG `Cluster` named `openshell-db`,
-  created by the `ManagedDatabaseReconciler` inside the ManagedDatabase namespace
-  (`openshell-db-<hash>`), **not** inside the gateway namespace.
-* **Per-gateway database:** a logical CNPG `Database` + `DatabaseRole` pair named
-  `gw-<gateway-id>` (Postgres role/db `gw_<gateway-id>`), created inside the
-  ManagedDatabase namespace and backed by the shared `openshell-db` `Cluster`
-  there. One `openshell-db-<hash>` instance may back many gateways.
-* **Database credentials in the tenant namespace:** only the
-  `openshell-gateway-db-credentials` Secret is copied into `openshell-<hash>`; the
-  database itself never runs there.
-* **Gateway workload:** `openshell-gateway` (Deployment, ServiceAccount) in the
-  tenant namespace; NetworkPolicies `openshell-gateway-*`.
+The controller SHALL create the SQL database and login role as
+`gw_<lowercase-gateway-id>` on its configured server. It SHALL write gateway
+credentials to `openshell-gateway-db-credentials` in the tenant namespace. The
+administrative Secret reference SHALL come only from deployment configuration,
+with access restricted to the named namespace and Secret. It SHALL NOT be
+accepted from a Gateway request or resolved from a central database API record.
+
+The Gateway workload remains `openshell-gateway` in its tenant namespace.
 
 ## 5. Shared Platform Services
 
@@ -158,22 +150,16 @@ require per-instance control-plane isolation are deployed once per cluster:
  │       ├── Cluster:        hypershell-db  ──> Secret: hypershell-db-app
  │       └── Deployment:     hypershell-api-server, hypershell-controller, ...
  │
- ├── External DB credential namespaces (created by the operator out-of-band - §6.2)
- │   └── Namespace: hypershell-managed-db-us-east-1   (reserved prefix)
- │       └── Secret: hypershell-managed-db-credentials  (fixed name; the only Secret read here)
- │             ▲ referenced by ManagedDatabase.connection_secret (provider: external)
- │
- ├── ManagedDatabase namespaces (created by the control plane - §4)
- │   └── Namespace: openshell-db-9f3c1a2b7e5d4068
- │       ├── Cluster:  openshell-db (shared CNPG instance)
- │       ├── Database:     gw-<gateway-id>   (one per gateway)
- │       └── DatabaseRole: gw-<gateway-id>
+ ├── PostgreSQL server and administrative credentials (installation-owned)
+ │   ├── RDS server outside Kubernetes, or CNPG Cluster in an installation namespace
+ │   └── Administrative Secret referenced by one execution controller
+ │       └── SQL database and role: gw_<gateway-id> (created by that controller)
  │
  └── Dynamic Tenant Gateways (created by the controller at runtime - §4)
      ├── Namespace: openshell-bdd12bb523f166db (Tenant A)
      │   ├── Deployment:     openshell-gateway
      │   ├── ServiceAccount: openshell-gateway
-     │   ├── Secret:         openshell-gateway-db-credentials  (points at gw-<id> in openshell-db-<hash>)
+     │   ├── Secret:         openshell-gateway-db-credentials  (points at gw_<id> on the configured server)
      │   └── NetworkPolicies: openshell-gateway-*
      │
      └── Namespace: openshell-c22557dbb511cdcb (Tenant B)
@@ -194,13 +180,19 @@ require per-instance control-plane isolation are deployed once per cluster:
 | `hypershell-controller` | ServiceAccount | Control Plane Instance | Runs the controller; subject of the prefixed ClusterRoleBinding. |
 | `hypershell-db` | Cluster (CNPG) | Control Plane Instance | Platform DB. **No suffix**; namespace isolates it (§1). |
 | `hypershell-db-app` | Secret | Control Plane Instance | Auto-generated by CNPG; hardcoded in volume mounts. Must not be renamed. |
-| `hypershell-managed-db-<name>` | Namespace | Shared Platform | **Reserved prefix.** Operator-created namespace holding the administrative connection credentials for a registered external PostgreSQL server (`ManagedDatabase` with `provider: external`). A `ManagedDatabase.connection_secret` reference is a bare **namespace** name - never `namespace/name` - that MUST carry this prefix and MUST be a valid DNS-1123 label. Provisioned out-of-band, normally before HyperShell itself, so the credentials do not depend on the control plane instance namespace existing. Not created, modified or deleted by HyperShell. See [`openshell-gateway-database-external.spec.md`](../../platform/openshell-gateway-database-external.spec.md). |
-| `hypershell-managed-db-credentials` | Secret | Shared Platform | **Fixed name.** The only Secret HyperShell reads inside a `hypershell-managed-db-<name>` namespace: admin `host`/`port`/`user`/`password` (+ optional `dbname`, `sslmode`, `sslrootcert`) for the external server. The reserved namespace prefix combined with this fixed name is a security boundary, not a convention: together they stop an API-level reference from causing the control plane to read an unrelated Secret such as `hypershell-db-app`. No Secret holding anything other than external database admin credentials may take this name in such a namespace. |
 | `hypershell-api-server`, `hypershell-controller`, `hypershell-web-console` | Deployment | Control Plane Instance | Core components; no suffix (§1). |
-| `openshell-db-<hash>` | Namespace | ManagedDatabase | Dedicated namespace for a ManagedDatabase's CNPG instance; distinct from gateway namespaces (§4). |
-| `openshell-db` | Cluster (CNPG) | ManagedDatabase | Shared Postgres instance inside `openshell-db-<hash>`; may back many gateways. |
-| `gw-<gateway-id>` | Database, DatabaseRole (CNPG) | ManagedDatabase | Per-gateway logical DB/role inside `openshell-db-<hash>` (Postgres name `gw_<gateway-id>`). |
-| `openshell-<hash>` | Namespace | Tenant Gateway | Gateway workload namespace; generated by the controller at runtime (§4). |
+| `openshell-<hash>` | Namespace | Tenant Gateway | Gateway workload namespace; assigned by the API and created by the controller (§4). |
 | `openshell-gateway` | Deployment, ServiceAccount | Tenant Gateway | The gateway application and its identity. |
-| `openshell-gateway-db-credentials` | Secret | Tenant Gateway | DB credentials copied into the tenant namespace; the DB itself lives in `openshell-db-<hash>`. |
+| `openshell-gateway-db-credentials` | Secret | Tenant Gateway | Per-gateway SQL login credentials; administrative credentials never enter the tenant namespace. |
 | `openshell-gateway-*` | NetworkPolicy | Tenant Gateway | Tenant-specific network isolation policies. |
+
+### Requirement: Database Namespaces Are Not Gateway Namespaces
+
+Installation-owned PostgreSQL and administrative credential namespaces SHALL
+remain outside gateway namespace ownership and garbage collection.
+
+#### Scenario: Gateway cleanup runs beside a CNPG server
+
+- GIVEN a CNPG server namespace belongs to the installation
+- WHEN the gateway controller removes an orphaned gateway namespace
+- THEN it SHALL leave the CNPG namespace and administrative Secret unchanged

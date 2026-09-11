@@ -1,9 +1,21 @@
 # Platform Inventory
 
 **Status:** Active
-**Applies to:** `components/api-server` managed cluster and managed database list APIs, `components/api-server/pkg/rbac`, `components/sdk-typescript`, `components/web-console` dashboard adapter, `packages/operational-dashboard-ui`
+**Applies to:** `components/api-server` managed cluster list API, `components/api-server/pkg/rbac`, `components/sdk-typescript`, `components/web-console` dashboard adapter, `packages/operational-dashboard-ui`
 
 **Tracks:** [HYPERSHELL-278](https://redhat.atlassian.net/browse/HYPERSHELL-278)
+
+This specification applies to the teardown-and-recreate release. Its inventory
+API contains managed cluster data only. Older database inventory consumers are
+not supported on the replacement installation; existing installations remain on
+their own release until explicit teardown.
+
+**Status scope:** Existing managed-cluster aggregation, authorization, refresh,
+and error behavior retain Active status. The cluster-only API and widget catalog,
+and the absence of database inventory fields, collectors, and series, are Draft
+under the [database contract](./openshell-gateway-database.spec.md). That Draft
+scope applies wherever those changes appear in PI-01 through PI-10 and their
+scenarios; it does not mark the existing cluster metrics as unimplemented.
 
 ## Purpose
 
@@ -14,7 +26,6 @@ Version 1 sources operational dashboard inventory from Prometheus gauges emitted
 HyperShell REST List APIs remain available for other consumers:
 
 - `GET /api/hypershell/v1/managed_clusters` (gateway placement selection, bounded search)
-- `GET /api/hypershell/v1/managed_databases`
 
 This specification defines aggregation rules, dashboard-operator authorization, operational dashboard metric IDs, Prometheus collectors, the BFF proxy route, and the **Inventory summary** presentation. It does **not** add usage trend graphs.
 
@@ -31,7 +42,7 @@ HyperShell removed the top-level Fleet resource and `fleet_id` scoping from all 
 | Hub cluster nodes | Unrelated (Prometheus kube-state-metrics; `platform/cluster-nodes.spec.md`) | `nodes` widget counts hub-cluster Kubernetes nodes, not ManagedCluster registrations |
 | Registered users | Same Prometheus-first dashboard pattern (`platform/registered-users.spec.md`) | Both appear on the operational overview |
 
-Prometheus gateway metrics (`platform/gateway-metrics-dashboard.spec.md`) cover gateway phase counts, not managed cluster or database inventory.
+Prometheus gateway metrics (`platform/gateway-metrics-dashboard.spec.md`) cover gateway phase counts, not managed cluster inventory.
 
 ## Requirements
 
@@ -42,11 +53,22 @@ Platform inventory version 1 SHALL cover:
 | Resource | List endpoint | Aggregated fields |
 | --- | --- | --- |
 | ManagedCluster | `GET /api/hypershell/v1/managed_clusters` | `total`, `status`, `provider`, `region`, `created_at` |
-| ManagedDatabase | `GET /api/hypershell/v1/managed_databases` | `total`, `status`, `created_at` |
 
-The adapter SHALL NOT invent counts from gateway `cluster_id` or `database_id` references. Only registered ManagedCluster and ManagedDatabase records returned by their List APIs SHALL contribute to inventory metrics.
+The adapter SHALL NOT invent counts from gateway `cluster_id` references. Only registered ManagedCluster records returned by their List APIs SHALL contribute to inventory metrics.
 
 Historical trend series (`OperationalMetric.trend`) SHALL NOT be loaded in version 1.
+
+The inventory response and collectors SHALL contain no database inventory fields
+or series. The adapter SHALL NOT request removed database metrics or substitute
+zero or unavailable database totals. PostgreSQL connection health belongs to the
+execution controller, not a central server inventory.
+
+#### Scenario: Cluster inventory works without database series
+
+- GIVEN Prometheus contains managed-cluster inventory but no database inventory
+- WHEN the dashboard requests platform inventory
+- THEN cluster totals and dimensions SHALL load successfully
+- AND the response SHALL contain no database inventory field
 
 #### Scenario: Inventory excludes gateway-only references
 
@@ -59,7 +81,7 @@ Historical trend series (`OperationalMetric.trend`) SHALL NOT be loaded in versi
 
 ### Requirement: PI-02 -- Prometheus Inventory Metrics
 
-The operational dashboard adapter SHALL load managed cluster and managed database inventory from BFF `GET /api/metrics/platform-inventory`, which queries Prometheus gauges emitted by API server inventory collectors on each scrape.
+The operational dashboard adapter SHALL load managed cluster inventory from BFF `GET /api/metrics/platform-inventory`, which queries Prometheus gauges emitted by API server inventory collectors on each scrape.
 
 Managed cluster Prometheus series:
 
@@ -69,14 +91,7 @@ Managed cluster Prometheus series:
 | `hypershell_managed_clusters_created_last_30_days_total` | Clusters created in the last 30 × 24 hours (UTC) |
 | `hypershell_managed_clusters_inventory_total{status, provider, region}` | Cluster counts by inventory dimensions |
 
-Managed database Prometheus series:
-
-| Metric | Meaning |
-| --- | --- |
-| `hypershell_managed_databases_total` | Total registered managed databases |
-| `hypershell_managed_databases_inventory_total{status}` | Database counts by status |
-
-The adapter SHALL map the BFF JSON response into `managed-clusters` and `managed-databases` operational metrics per PI-04 and PI-05. A non-success BFF response SHALL fail only the `platform-inventory` metric source (`web-console/operational-dashboard.spec.md` OP-DASH-19).
+The adapter SHALL map the BFF JSON response into `managed-clusters` operational metrics per PI-04 and PI-05. A non-success BFF response SHALL fail only the `platform-inventory` metric source (`web-console/operational-dashboard.spec.md` OP-DASH-19).
 
 The adapter SHALL NOT paginate HyperShell REST List APIs for dashboard inventory aggregates. REST List APIs remain authoritative for gateway placement selection and other collection workflows.
 
@@ -92,7 +107,7 @@ The adapter SHALL NOT paginate HyperShell REST List APIs for dashboard inventory
 - AND at least one other metric source succeeds
 - WHEN the adapter processes the response
 - THEN the `platform-inventory` source SHALL be treated as failed
-- AND `managed-clusters` and `managed-databases` SHALL be omitted from the adapter response
+- AND `managed-clusters` SHALL be omitted from the adapter response
 - AND the dashboard SHALL NOT synthesize zero counts for those metrics
 - AND the dashboard SHALL NOT enter the total load-error state
 
@@ -100,9 +115,9 @@ The adapter SHALL NOT paginate HyperShell REST List APIs for dashboard inventory
 
 ### Requirement: PI-10 -- API Server Inventory Collectors and BFF Route
 
-The API server SHALL register Prometheus collectors for managed cluster and managed database inventory. Each collector SHALL query the database once per scrape via an inventory snapshot DAO method and emit gauges matching PI-02. When the database query fails, the collector SHALL emit `prometheus.NewInvalidMetric` so the scrape registers as failed.
+The API server SHALL register Prometheus collectors for managed cluster inventory only. No managed database inventory collector or series SHALL be registered. Each collector SHALL query the database once per scrape via an inventory snapshot DAO method and emit gauges matching PI-02. When the database query fails, the collector SHALL emit `prometheus.NewInvalidMetric` so the scrape registers as failed.
 
-The web-console BFF SHALL expose `GET /api/metrics/platform-inventory` as a same-origin proxy route that queries Prometheus instant vectors and scalars and returns structured JSON for managed clusters and managed databases. The route SHALL use the same `PROMETHEUS_URL` and `PROMETHEUS_QUERY_TIMEOUT_MS` configuration as other `/api/metrics/*` routes.
+The web-console BFF SHALL expose `GET /api/metrics/platform-inventory` as a same-origin proxy route that queries Prometheus instant vectors and scalars and returns structured JSON for managed clusters. The route SHALL use the same `PROMETHEUS_URL` and `PROMETHEUS_QUERY_TIMEOUT_MS` configuration as other `/api/metrics/*` routes.
 
 When OIDC is enabled, the route SHALL require dashboard-operator authorization matching `web-console/operational-dashboard.spec.md` OP-DASH-04. When Prometheus is unreachable or returns a non-success response, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`.
 
@@ -116,13 +131,13 @@ When OIDC is enabled, the route SHALL require dashboard-operator authorization m
 
 - GIVEN Prometheus returns current inventory gauge values
 - WHEN an authorized caller sends `GET /api/metrics/platform-inventory`
-- THEN the BFF SHALL respond with HTTP `200` and JSON containing `managed_clusters` and `managed_databases` totals and breakdown maps
+- THEN the BFF SHALL respond with HTTP `200` and JSON containing `managed_clusters` totals and breakdown maps
 
 ---
 
 ### Requirement: PI-03 -- Dashboard-Operator Authorization
 
-Managed cluster and managed database List endpoints SHALL be readable by **dashboard operators**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` OP-DASH-04) and registered user inventory (`platform/registered-users.spec.md` RU-03):
+The managed cluster List endpoint SHALL be readable by **dashboard operators**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` OP-DASH-04) and registered user inventory (`platform/registered-users.spec.md` RU-03):
 
 - Caller holds an effective `platform:admin` RoleBinding (including JWT-synced realm role), **or**
 - Caller presents a JWT whose `realm_access.roles` includes `hypershell-admins`, **or**
@@ -130,7 +145,7 @@ Managed cluster and managed database List endpoints SHALL be readable by **dashb
 
 All other callers SHALL be denied List access with HTTP `403`.
 
-The RBAC middleware SHALL treat `managed_clusters` and `managed_databases` collection List (`GET` with empty resource ID) with the same dashboard-inventory access helper used for `users`. Singleton Get authorization for these resources MAY retain the existing `gateway:creator` requirement.
+The RBAC middleware SHALL treat `managed_clusters` collection List (`GET` with empty resource ID) with the same dashboard-inventory access helper used for `users`. Singleton Get authorization for these resources MAY retain the existing `gateway:creator` requirement.
 
 #### Scenario: Hypershell admin without gateway:creator can list clusters
 
@@ -162,9 +177,9 @@ Provider breakdown SHALL appear in the `managed-cluster-providers` donut widget 
 
 #### Scenario: Null status aggregates to unknown
 
-- GIVEN two managed databases where one has `status: "Ready"` and one omits `status`
+- GIVEN two managed clusters where one has `status: "Ready"` and one omits `status`
 - WHEN inventory metrics are computed
-- THEN the `managed-databases` metric `inventoryStatus` SHALL include buckets `Ready: 1` and `unknown: 1`
+- THEN the `managed-clusters` metric `inventoryStatus` SHALL include buckets `Ready: 1` and `unknown: 1`
 - AND the inventory summary total SHALL be `2`
 
 ---
@@ -176,7 +191,6 @@ The host `DashboardControlPlane` adapter SHALL populate these connected metrics:
 | Metric ID | `value` | Additional fields |
 | --- | --- | --- |
 | `managed-clusters` | Total managed cluster count (decimal string) | `inventoryStatus`, `createdLast30Days`, `inventoryProviders`, `inventoryRegions` |
-| `managed-databases` | Total managed database count (decimal string) | `inventoryStatus` |
 
 Metrics SHALL NOT include `trend`, `unit`, `total`, or gateway-style `status` buckets (`healthy`, `provisioning`, `degraded`, `failed`) in version 1.
 
@@ -202,7 +216,7 @@ Provider donut widgets SHALL read breakdowns from `inventoryProviders`. Region d
 
 ### Requirement: PI-06 -- Inventory Summary Card
 
-The operational dashboard SHALL add an `inventory-summary` widget that renders an `InventorySummaryCard` DescriptionList sourced from the `managed-clusters` and `managed-databases` metrics.
+The operational dashboard SHALL add an `inventory-summary` widget that renders an `InventorySummaryCard` DescriptionList sourced from the `managed-clusters` metrics.
 
 The card SHALL include these rows:
 
@@ -210,9 +224,8 @@ The card SHALL include these rows:
 | --- | --- |
 | Clusters | `managed-clusters.value` |
 | Clusters created (30 days) | `managed-clusters.createdLast30Days` |
-| Databases | `managed-databases.value` |
 
-When a managed cluster or database metric exposes non-zero failure or warning `inventoryStatus` buckets, the summary SHALL show an exception row beneath the total using the same danger/warning icon semantics as gateway and node summary rows: any bucket whose label matches `/fail/i` uses the danger icon; any bucket whose label matches `/degrad/i` or `/pending/i` uses the warning icon. Healthy-only inventories (no matching failure or warning buckets) SHALL omit the exception status row, including when multiple non-exception status buckets exist.
+When a managed cluster metric exposes non-zero failure or warning `inventoryStatus` buckets, the summary SHALL show an exception row beneath the total using the same danger/warning icon semantics as gateway and node summary rows: any bucket whose label matches `/fail/i` uses the danger icon; any bucket whose label matches `/degrad/i` or `/pending/i` uses the warning icon. Healthy-only inventories (no matching failure or warning buckets) SHALL omit the exception status row, including when multiple non-exception status buckets exist.
 
 When a metric is absent from the adapter response, the corresponding inventory summary rows SHALL render the localized **Metric unavailable** empty-state message for that row group (not a silent zero).
 
@@ -220,9 +233,9 @@ The default layout template SHALL place the inventory summary on the operational
 
 #### Scenario: Inventory summary shows totals
 
-- GIVEN inventory metrics loaded with `managed-clusters.value: "8"`, `createdLast30Days: "2"`, and `managed-databases.value: "3"`
+- GIVEN inventory metrics loaded with `managed-clusters.value: "8"`, `createdLast30Days: "2"`
 - WHEN the inventory summary widget renders
-- THEN the card SHALL list cluster total `8`, recent count `2`, and database total `3`
+- THEN the card SHALL list cluster total `8` and recent count `2`
 
 ---
 
@@ -236,8 +249,6 @@ The widget catalog SHALL add these types:
 | `managed-cluster-regions` | `managed-clusters` | Yes | Placement donut from `inventoryRegions` (`{region} ({provider})` keys); legend ordered by descending count (PI-05) |
 | `managed-clusters` | `managed-clusters` | No | `MetricCard` large number |
 | `managed-cluster-status` | `managed-clusters` | No | Status donut when ≤5 non-zero status buckets (PI-04) |
-| `managed-databases` | `managed-databases` | No | `MetricCard` large number |
-| `managed-database-status` | `managed-databases` | Yes | Status donut when ≤5 non-zero status buckets (PI-04) |
 
 Users MAY add optional widgets from the add-widgets drawer. Status and provider donut widgets SHALL omit sparklines.
 
@@ -256,7 +267,7 @@ A dedicated **Platform inventory** dashboard route (`/dashboard/inventory`) SHAL
 
 Platform inventory metrics SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (`web-console/operational-dashboard.spec.md` OP-DASH-09).
 
-A failed `GET /api/metrics/platform-inventory` request SHALL fail only the `platform-inventory` metric source (`managed-clusters`, `managed-databases`). The adapter SHALL NOT synthesize zero, empty, or placeholder values for failed inventory metrics. When at least one other metric source succeeds, the dashboard SHALL render available metrics and show inventory widgets in the localized metric-unavailable state (`web-console/operational-dashboard.spec.md` OP-DASH-08, OP-DASH-19).
+A failed `GET /api/metrics/platform-inventory` request SHALL fail only the `platform-inventory` metric source (`managed-clusters`). The adapter SHALL NOT synthesize zero, empty, or placeholder values for failed inventory metrics. When at least one other metric source succeeds, the dashboard SHALL render available metrics and show inventory widgets in the localized metric-unavailable state (`web-console/operational-dashboard.spec.md` OP-DASH-08, OP-DASH-19).
 
 `getOperationalMetrics` SHALL throw only when every metric source fails or when the request is aborted.
 
@@ -275,7 +286,7 @@ A failed `GET /api/metrics/platform-inventory` request SHALL fail only the `plat
 
 ### Requirement: PI-09 -- Documentation and Verification
 
-`packages/operational-dashboard-ui/DATA_SOURCES.md` SHALL document `managed-clusters` and `managed-databases` metric sources, the BFF `platform-inventory` route, aggregation rules, and the inventory summary widget.
+`packages/operational-dashboard-ui/DATA_SOURCES.md` SHALL document `managed-clusters` metric sources, the BFF `platform-inventory` route, aggregation rules, and the inventory summary widget.
 
 The web console SHALL include unit tests for the dashboard adapter that cover:
 
@@ -285,7 +296,7 @@ The web console SHALL include unit tests for the dashboard adapter that cover:
 - Provider and region bucket mapping into `inventoryProviders` and `inventoryRegions`
 - Metric ID and field mapping into `OperationalDashboardMetrics`
 
-The API server SHALL include RBAC tests for dashboard-operator List access to `managed_clusters` and `managed_databases`, and unit tests for inventory snapshot DAO methods used by the Prometheus collectors.
+The API server SHALL include RBAC tests for dashboard-operator List access to `managed_clusters`, and unit tests for inventory snapshot DAO methods used by the Prometheus collectors.
 
 The operational dashboard package SHALL extend `mockOperationalDashboardMetrics` with representative inventory fields and add Storybook coverage for the inventory summary widget.
 

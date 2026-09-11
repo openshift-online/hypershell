@@ -314,7 +314,7 @@ The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, a
 
 In the initial implementation, the `platform:admin` role is **limited to gateway view and delete operations**. It does NOT grant permissions to:
 
-- View or modify GatewayNetworks, GatewayReleases, ManagedClusters, or ManagedDatabases
+- View or modify GatewayNetworks, GatewayReleases, or ManagedClusters
 - View or modify Users or RoleBindings
 - Access platform-level configuration or system administration functions
 

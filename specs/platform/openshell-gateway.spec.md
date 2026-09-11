@@ -452,7 +452,7 @@ All gateway resources SHALL use fixed names (one gateway per namespace):
 Additionally, the reconciler creates these resources based on gateway configuration:
 - cert-manager Issuer and Certificate resources (see [TLS spec](./openshell-gateway-tls.spec.md))
 - JWT key generation Job: `openshell-gateway-certgen` (see certgen details below)
-- Database resources when `database` is configured (see [database spec](./openshell-gateway-database.spec.md))
+- A SQL database, role, and tenant credential Secret on the configured PostgreSQL server (see [database spec](./openshell-gateway-database.spec.md))
 - GRPCRoute and BackendTLSPolicy when `route` is configured (see [routing spec](./openshell-gateway-routing.spec.md))
 
 All gateway resources SHALL carry the following labels:
@@ -462,7 +462,7 @@ All gateway resources SHALL carry the following labels:
 - `hypershell.redhat.io/managed=true`
 
 The gateway Deployment SHALL specify:
-- **No init containers.** Database readiness is enforced by the control plane's `waitForDeploymentReady` check after reconciling `database.yaml`, before the gateway Deployment is created.
+- **No init containers.** The controller SHALL verify SQL database and credential readiness before creating the gateway Deployment; it SHALL NOT create a PostgreSQL Deployment.
 - **Container image:** from the Gateway resource's `image` field
 - **Container args:** `--config /etc/openshell/gateway.toml`
 - **SecurityContext:** `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`
@@ -612,7 +612,7 @@ See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) f
 
 #### Database Access
 
-Gateway databases are provisioned via the CNPG operator in the shared CNPG Cluster namespace. Network access to the CNPG Cluster is managed by the CNPG operator. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
+Gateway SQL databases are provisioned on the controller-configured PostgreSQL server. Installation networking SHALL allow the controller and its gateways to reach that server and SHALL block access from unrelated tenants. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
 
 ---
 
@@ -686,7 +686,7 @@ When `oidc.issuer` is set on the Gateway resource, the reconciler injects the OI
 
 ### Requirement: OpenShift-Specific Gateway Provisioning
 
-When the control plane detects that it is running on an OpenShift cluster (the `route.openshift.io` API group is available), its reconcilers SHALL adjust gateway and standalone ManagedDatabase PostgreSQL Deployments to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. The gateway adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
+When the control plane detects that it is running on an OpenShift cluster (the `route.openshift.io` API group is available), its reconcilers SHALL adjust gateway Deployments to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. The gateway adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
 
 **Key difference from vanilla Kubernetes:** OpenShift enforces the `restricted` PodSecurity standard by default. Hardcoded `fsGroup`, `runAsUser`, and `runAsGroup` values conflict with OpenShift's SCC admission controller, which assigns UIDs and GIDs from each namespace's allocated ranges. Additionally, sandbox pods require the `privileged` SCC to function correctly.
 
@@ -709,15 +709,6 @@ When the control plane detects that it is running on an OpenShift cluster (the `
 - THEN it SHALL clear the `podSecurityContext.fsGroup` field (set to null/omit) so that OpenShift's SCC admission controller assigns the fsGroup from the namespace's allocated UID range
 - AND it SHALL clear the `securityContext.runAsUser` field (set to null/omit) so that OpenShift's SCC admission controller assigns the UID from the namespace's allocated range
 - AND all gateway containers SHALL set `securityContext.seccompProfile.type` to `RuntimeDefault` to satisfy the `restricted:latest` PodSecurity standard
-
-#### Scenario: Standalone PostgreSQL security context adjustments for OpenShift
-
-- GIVEN the ManagedDatabaseReconciler is deploying standalone PostgreSQL to an OpenShift cluster
-- WHEN it applies the PostgreSQL Deployment and its init containers
-- THEN it SHALL omit fixed `runAsUser` and `runAsGroup` values from every container security context
-- AND it SHALL omit fixed `runAsUser`, `runAsGroup`, `fsGroup`, and `fsGroupChangePolicy` values from the pod security context
-- AND it SHALL retain `runAsNonRoot`, `RuntimeDefault` seccomp, read-only root filesystem, disabled privilege escalation, and dropped `ALL` capabilities
-- AND it SHALL NOT bind the database service account to a broader SCC
 
 #### Scenario: Gateway deployment on vanilla Kubernetes (unchanged)
 
@@ -810,7 +801,7 @@ Control Plane
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
 
-> **Database provisioning:** Gateway databases are provisioned automatically by the control plane using the CloudNativePG operator. The gateway's `database_id` field references a ManagedDatabase resource (provider=cnpg) that determines which CNPG Cluster hosts the gateway's logical database. When `database_id` is blank at creation time and the fleet has exactly one ManagedDatabase, the API server auto-assigns it. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
+> **Database provisioning:** The controller creates a SQL database and role on its installation-supplied PostgreSQL server. Database selection is not part of the Gateway request. See the [database specification](./openshell-gateway-database.spec.md).
 
 ### Control Plane Environment Variables
 
@@ -821,8 +812,6 @@ Control Plane
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
-| ~~`CNPG_CLUSTER_NAME`~~ | *(removed)* | Replaced by per-ManagedDatabase resolution via `database_id` |
-| ~~`CNPG_CLUSTER_NAMESPACE`~~ | *(removed)* | Replaced by per-ManagedDatabase resolution via `database_id` |
 
 ### Example: Full Gateway Configuration
 
@@ -862,10 +851,9 @@ ALTER TABLE gateways ADD COLUMN route JSONB;
 ALTER TABLE gateways ADD COLUMN route_address TEXT;
 ```
 
-> **Database provisioning:** The `database` JSONB column has been removed. Gateway databases are provisioned automatically by the control plane via CNPG CRDs. The migration SHALL drop the column:
-> ```sql
-> ALTER TABLE gateways DROP COLUMN IF EXISTS database;
-> ```
+> **Database provisioning:** The controller creates a SQL database and role on its installation-supplied PostgreSQL server. Database selection is not part of the Gateway request. See the [database specification](./openshell-gateway-database.spec.md).
+> Fresh schema setup SHALL omit the legacy inline database column. Existing
+> installation handling follows the database specification.
 
 ---
 

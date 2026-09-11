@@ -1,20 +1,23 @@
 # Data Model
 
 **Date:** 2026-08-03
-**Status:** Active
+**Status:** Draft
+
+This model applies to the teardown-and-recreate release defined in the
+[database contract](./openshell-gateway-database.spec.md). Its API change is
+intentionally breaking. Existing installations and clients are not upgrade targets.
 
 ## Overview
 
 The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers.
 
-Gateways, clusters, databases, releases, and networks are **top-level resources**. An earlier model included a top-level "Sector" (later renamed "Fleet") organizational unit that grouped these resources via a `fleet_id`; that layer has been removed. There is no sectorization: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner`/`gateway:viewer`), not by a fleet grouping. See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md).
+Gateways, clusters, releases, and networks are **top-level resources**. An earlier model included a top-level "Sector" (later renamed "Fleet") organizational unit that grouped these resources via a `fleet_id`; that layer has been removed. There is no sectorization: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner`/`gateway:viewer`), not by a fleet grouping. See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md).
 
 Current model:
 
 - **ManagedCluster** - a Kubernetes cluster registered into the platform. Tracks provider, region, API server URL, and a kubeconfig secret reference.
-- **ManagedDatabase** - a PostgreSQL server that gateways are placed onto. Tracks provider, region, engine type/version, instance class, and a connection secret reference. The `provider` field records how the server came into being: `deployment` (an in-cluster PostgreSQL Deployment dedicated to one gateway), `cnpg` (a shared in-cluster CNPG Cluster), or `external` (a cloud-managed server owned outside HyperShell and registered here). The `external` provider adds **no columns**: it gives the pre-existing `region`, `engine`, `engine_version`, `instance_class` and `connection_secret` fields their first consumer. `connection_secret` names the **namespace** (not the Secret) that holds the administrative connection to an external server, and is subject to a reserved-prefix rule - the Secret inside it has the fixed name `hypershell-managed-db-credentials`. The field name is retained for wire and column compatibility; see [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md).
 - **GatewayRelease** - a versioned container image for gateway deployments. Supports rollout strategies with canary percent/duration controls.
-- **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within an API-assigned namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release, within an API-assigned namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **GatewayNetwork** - defines network connectivity topology between gateways. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
 
@@ -38,22 +41,6 @@ erDiagram
         time deleted_at
     }
 
-    ManagedDatabase {
-        string ID PK
-        string name
-        string namespace
-        string provider
-        string region
-        string engine
-        string engine_version
-        string instance_class
-        string connection_secret
-        string status
-        time created_at
-        time updated_at
-        time deleted_at
-    }
-
     GatewayRelease {
         string ID PK
         string name
@@ -72,14 +59,12 @@ erDiagram
         string name
         string cluster_id FK
         string release_id FK
-        string database_id FK
         string namespace
         string image
         string[] server_dns_names
         jsonb oidc
         jsonb route
         text route_address
-        jsonb database
         jsonb credential_driver
         string external_dns
         string tls_mode
@@ -125,7 +110,6 @@ erDiagram
 
     ManagedCluster ||--o{ Gateway : "hosts"
     GatewayRelease ||--o{ Gateway : "deployed_as"
-    ManagedDatabase ||--o{ Gateway : "backed_by"
     Gateway ||--o{ OpenShellGatewayServiceAccount : "authorizes"
     Gateway ||--o| GatewayNetwork : "hub_gateway"
 ```
@@ -134,13 +118,13 @@ erDiagram
 
 ### Requirement: Top-Level Resources
 
-ManagedCluster, ManagedDatabase, GatewayRelease, Gateway, and GatewayNetwork SHALL be top-level resources. They SHALL NOT be scoped by a fleet or sector grouping, and their create and update contracts SHALL NOT include a `fleet_id` field.
+ManagedCluster, GatewayRelease, Gateway, and GatewayNetwork SHALL be top-level resources. They SHALL NOT be scoped by a fleet or sector grouping, and their create and update contracts SHALL NOT include a `fleet_id` field.
 
 #### Scenario: Create Gateway Without a Fleet Reference
-- GIVEN a valid cluster_id, release_id, and database_id
+- GIVEN a valid execution target and release reference
 - WHEN a POST request is made to `/api/hypershell/v1/gateways`
 - THEN a new Gateway is created as a top-level resource
-- AND the Gateway references valid cluster, release, and database resources
+- AND the Gateway references the selected execution target and release
 - AND the request SHALL NOT require or accept a `fleet_id`
 
 ### Requirement: Gateway Namespace Ownership
@@ -166,7 +150,7 @@ The API server SHALL assign each Gateway an immutable Kubernetes namespace befor
 
 A Gateway SHALL include provisioning configuration fields that the control plane uses to deploy and configure the OpenShell gateway workload on a target cluster.
 
-> **Relationship to release and database management fields:** The `image` field provides a direct image reference for the control plane reconciler, while `release_id` references a GatewayRelease for rollout management (canary, rollback). When both are set, `release_id` takes precedence and the reconciler resolves it to an image. Similarly, `database` (JSONB) carries inline provisioning config for the reconciler, while `database_id` references a ManagedDatabase for database lifecycle. When `database_id` is set, it takes precedence and the reconciler reads the connection details from the referenced ManagedDatabase.
+> **Release selection:** `release_id` takes precedence over a direct `image`. Database configuration belongs to the assigned controller, not the Gateway API object. The API SHALL neither select a PostgreSQL server nor accept a gateway-specific server or credential reference. See the [database specification](./openshell-gateway-database.spec.md).
 
 | Field | Type | Description |
 |---|---|---|
@@ -176,7 +160,6 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
 | `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
-| `database` | JSONB | Database backend config: `{storageSize, image, externalSecretRef}` |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
 
 See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and its sub-specs for full provisioning details.
@@ -228,8 +211,6 @@ All routes under `/api/hypershell/v1/`:
 | GET/POST | `/managed_clusters` | List/Create |
 | GET/PATCH/DELETE | `/managed_clusters/{id}` | Get/Update/Delete |
 | POST | `/managed_clusters/registration` | Self-register spoke; idempotent on (oidc_subject, name); updates last_seen_at on every call |
-| GET/POST | `/managed_databases` | List/Create |
-| GET/PATCH/DELETE | `/managed_databases/{id}` | Get/Update/Delete |
 
 ## CLI Reference (`hsctl`)
 
@@ -239,76 +220,66 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 
 #### Gateways
 
-| REST API | `hypershell` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
-| `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --cluster-id <c> --release-id <r> --database-id <d> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id> [--yes]` | 🔲 planned |
+| REST API | `hypershell` Command |
+|---|--- |
+| `GET /api/hypershell/v1/gateways` | `hsctl list gateways` |
+| `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --cluster-id <c> --release-id <r> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` |
+| `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` |
+| `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id> [--yes]` |
 
 #### OpenShellGatewayServiceAccounts
 
-| REST API | `hypershell` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/gateways/{gateway_id}/service_accounts` | `hsctl list serviceAccounts --gateway-id <gateway_id>` | 🔲 planned |
-| `GET /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}` | `hsctl get serviceAccount <id> --gateway-id <gateway_id>` | 🔲 planned |
-| `POST /api/hypershell/v1/gateways/{gateway_id}/service_accounts` | `hsctl create serviceAccount --gateway-id <gateway_id> --name <n> --role <role> [--expires-in <duration>]` (`role`: `openshell-user` or `openshell-admin`) | 🔲 planned |
-| `POST /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}/revoke` | `hsctl revoke serviceAccount <id> --gateway-id <gateway_id>` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}` | `hsctl delete serviceAccount <id> --gateway-id <gateway_id>` | 🔲 planned |
+| REST API | `hypershell` Command |
+|---|--- |
+| `GET /api/hypershell/v1/gateways/{gateway_id}/service_accounts` | `hsctl list serviceAccounts --gateway-id <gateway_id>` |
+| `GET /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}` | `hsctl get serviceAccount <id> --gateway-id <gateway_id>` |
+| `POST /api/hypershell/v1/gateways/{gateway_id}/service_accounts` | `hsctl create serviceAccount --gateway-id <gateway_id> --name <n> --role <role> [--expires-in <duration>]` (`role`: `openshell-user` or `openshell-admin`) |
+| `POST /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}/revoke` | `hsctl revoke serviceAccount <id> --gateway-id <gateway_id>` |
+| `DELETE /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}` | `hsctl delete serviceAccount <id> --gateway-id <gateway_id>` |
 
 #### Gateway Networks
 
-| REST API | `hypershell` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/gateway_networks` | `hsctl list gatewayNetworks` | ✅ implemented |
-| `GET /api/hypershell/v1/gateway_networks/{id}` | `hsctl get gatewayNetwork <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_networks` | `hsctl create gatewayNetwork --name <n> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateway_networks/{id}` | `hsctl update gatewayNetwork <id> [--topology <t>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateway_networks/{id}` | `hsctl delete gatewayNetwork <id> [--yes]` | 🔲 planned |
+| REST API | `hypershell` Command |
+|---|--- |
+| `GET /api/hypershell/v1/gateway_networks` | `hsctl list gatewayNetworks` |
+| `GET /api/hypershell/v1/gateway_networks/{id}` | `hsctl get gatewayNetwork <id>` |
+| `POST /api/hypershell/v1/gateway_networks` | `hsctl create gatewayNetwork --name <n> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` |
+| `PATCH /api/hypershell/v1/gateway_networks/{id}` | `hsctl update gatewayNetwork <id> [--topology <t>]` |
+| `DELETE /api/hypershell/v1/gateway_networks/{id}` | `hsctl delete gatewayNetwork <id> [--yes]` |
 
 #### Gateway Releases
 
-| REST API | `hypershell` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/gateway_releases` | `hsctl list gatewayReleases` | ✅ implemented |
-| `GET /api/hypershell/v1/gateway_releases/{id}` | `hsctl get gatewayRelease <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_releases` | `hsctl create gatewayRelease --name <n> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateway_releases/{id}` | `hsctl update gatewayRelease <id> [--image <i>] [--rollout-strategy <s>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateway_releases/{id}` | `hsctl delete gatewayRelease <id> [--yes]` | 🔲 planned |
+| REST API | `hypershell` Command |
+|---|--- |
+| `GET /api/hypershell/v1/gateway_releases` | `hsctl list gatewayReleases` |
+| `GET /api/hypershell/v1/gateway_releases/{id}` | `hsctl get gatewayRelease <id>` |
+| `POST /api/hypershell/v1/gateway_releases` | `hsctl create gatewayRelease --name <n> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` |
+| `PATCH /api/hypershell/v1/gateway_releases/{id}` | `hsctl update gatewayRelease <id> [--image <i>] [--rollout-strategy <s>]` |
+| `DELETE /api/hypershell/v1/gateway_releases/{id}` | `hsctl delete gatewayRelease <id> [--yes]` |
 
 #### Managed Clusters
 
-| REST API | `hypershell` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/managed_clusters` | `hsctl list managedClusters` | ✅ implemented |
-| `GET /api/hypershell/v1/managed_clusters/{id}` | `hsctl get managedCluster <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --provider <p> --region <r> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented |
-| `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hsctl update managedCluster <id> [--status <s>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hsctl delete managedCluster <id> [--yes]` | 🔲 planned |
-
-#### Managed Databases
-
-| REST API | `hypershell` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/managed_databases` | `hsctl list managedDatabases` | ✅ implemented |
-| `GET /api/hypershell/v1/managed_databases/{id}` | `hsctl get managedDatabase <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_databases` | `hsctl create managedDatabase --name <n> --provider <p> --region <r> --engine <e> --instance-class <c> --connection-secret <s>` | ✅ implemented |
-| `PATCH /api/hypershell/v1/managed_databases/{id}` | `hsctl update managedDatabase <id> [--instance-class <c>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/managed_databases/{id}` | `hsctl delete managedDatabase <id> [--yes]` | 🔲 planned |
+| REST API | `hypershell` Command |
+|---|--- |
+| `GET /api/hypershell/v1/managed_clusters` | `hsctl list managedClusters` |
+| `GET /api/hypershell/v1/managed_clusters/{id}` | `hsctl get managedCluster <id>` |
+| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --provider <p> --region <r> --api-server-url <url> --kubeconfig-secret <s>` |
+| `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hsctl update managedCluster <id> [--status <s>]` |
+| `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hsctl delete managedCluster <id> [--yes]` |
 
 #### RBAC
 
-| REST API | `hypershell` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/roles` | `hsctl list roles` | ✅ implemented |
-| `GET /api/hypershell/v1/roles/{id}` | `hsctl get role <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/roles` | `hsctl create role --name <n> [--permissions <json>]` | ✅ implemented |
-| `DELETE /api/hypershell/v1/roles/{id}` | `hsctl delete role <id>` | 🔲 planned |
-| `GET /api/hypershell/v1/role_bindings` | `hsctl list roleBindings` | ✅ implemented |
-| `GET /api/hypershell/v1/role_bindings/{id}` | `hsctl get roleBinding <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>]` | ✅ implemented |
-| `DELETE /api/hypershell/v1/role_bindings/{id}` | `hsctl delete roleBinding <id>` | 🔲 planned |
+| REST API | `hypershell` Command |
+|---|--- |
+| `GET /api/hypershell/v1/roles` | `hsctl list roles` |
+| `GET /api/hypershell/v1/roles/{id}` | `hsctl get role <id>` |
+| `POST /api/hypershell/v1/roles` | `hsctl create role --name <n> [--permissions <json>]` |
+| `DELETE /api/hypershell/v1/roles/{id}` | `hsctl delete role <id>` |
+| `GET /api/hypershell/v1/role_bindings` | `hsctl list roleBindings` |
+| `GET /api/hypershell/v1/role_bindings/{id}` | `hsctl get roleBinding <id>` |
+| `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>]` |
+| `DELETE /api/hypershell/v1/role_bindings/{id}` | `hsctl delete roleBinding <id>` |
 
 #### Auth & Context
 
@@ -328,13 +299,12 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 
 #### Supported Kinds
 
-| Kind | Fields applied | Status |
-|---|---|---|
-| `Gateway` | `name`, `cluster_id`, `release_id`, `database_id`, `image`, `server_dns_names`, `oidc`, `route`, `database`, `external_dns`, `tls_mode`, `service_type` | 🔲 planned |
-| `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | 🔲 planned |
-| `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | 🔲 planned |
-| `ManagedCluster` | `name`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | 🔲 planned |
-| `ManagedDatabase` | `name`, `provider`, `region`, `engine`, `engine_version`, `instance_class`, `connection_secret` | 🔲 planned |
+| Kind | Fields applied |
+|---|--- |
+| `Gateway` | `name`, `cluster_id`, `release_id`, `image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type` |
+| `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` |
+| `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` |
+| `ManagedCluster` | `name`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` |
 
 #### `-f` - File or Directory
 
@@ -446,7 +416,7 @@ hsctl login --url https://api.example.com --issuer-url https://keycloak.example.
 hsctl login --no-browser --url https://api.example.com --issuer-url https://keycloak.example.com/realms/hypershell
 
 hsctl list gateways
-hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0 --database-id db-1
+hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0
 ```
 
 

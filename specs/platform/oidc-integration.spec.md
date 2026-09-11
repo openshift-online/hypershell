@@ -94,8 +94,20 @@ When JWT is enabled, trusted in-cluster services (e.g., the control plane) SHALL
 - `/hypershell.v1.GatewayService/WatchGateways`
 - `/hypershell.v1.GatewayReleaseService/WatchGatewayReleases`
 - `/hypershell.v1.ManagedClusterService/WatchManagedClusters`
-- `/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases`
 - `/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks`
+
+These exemptions SHALL apply only on a private in-cluster service boundary.
+A watch endpoint reachable by a remote spoke SHALL authenticate the caller and
+bind it to its registered execution identity before it returns gateway events.
+It SHALL NOT apply the trusted in-cluster bypass to remote callers. The remote
+transport implementation is a separate dependency; it must preserve this boundary.
+
+#### Scenario: Remote caller supplies another execution cluster ID
+
+- GIVEN an authenticated spoke is registered to one execution identity
+- WHEN it requests gateway events for a different execution cluster
+- THEN the API SHALL reject the request
+- AND it SHALL NOT disclose or assign that cluster's gateway work to the caller
 
 Health and OpenAPI HTTP paths SHALL also bypass JWT: `/healthcheck`, `/metrics`, `/api/hypershell/v1/openapi`, `/openapi`.
 
