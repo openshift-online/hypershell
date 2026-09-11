@@ -9,10 +9,15 @@ import { GatewayProvisioningStepper } from "./gateway-provisioning-stepper";
 function renderStepper(
   conditions: readonly ProvisioningCondition[],
   phase?: string,
+  consoleReady?: boolean,
 ) {
   return render(
     <IntlProvider locale="en">
-      <GatewayProvisioningStepper conditions={conditions} phase={phase} />
+      <GatewayProvisioningStepper
+        conditions={conditions}
+        consoleReady={consoleReady}
+        phase={phase}
+      />
     </IntlProvider>,
   );
 }
@@ -75,9 +80,15 @@ const degradedHealth: ProvisioningCondition[] = [
 ];
 
 describe("GatewayProvisioningStepper", () => {
-  it("renders nothing when conditions list is empty", () => {
-    const { container } = renderStepper([]);
-    expect(container.innerHTML).toBe("");
+  it("renders default pending steps when conditions list is empty", () => {
+    renderStepper([]);
+
+    expect(screen.getByText("Preparing environment")).toBeTruthy();
+    expect(screen.getByText("Provisioning database")).toBeTruthy();
+    expect(screen.getByText("Deploying gateway")).toBeTruthy();
+    expect(screen.getByText("Verifying gateway health")).toBeTruthy();
+    expect(screen.getByText("Starting console")).toBeTruthy();
+    expect(screen.getByText("Provisioned")).toBeTruthy();
   });
 
   it("renders step labels from conditions", () => {
@@ -106,12 +117,12 @@ describe("GatewayProvisioningStepper", () => {
   });
 
   it("renders all-complete steps with success variant", () => {
-    const { container } = renderStepper(allComplete, "Running");
+    const { container } = renderStepper(allComplete, "Running", true);
 
     const successSteps = container.querySelectorAll(
       ".pf-v6-c-progress-stepper__step.pf-m-success",
     );
-    expect(successSteps.length).toBe(4);
+    expect(successSteps.length).toBe(6);
   });
 
   it("renders failed step with danger variant and shows message", () => {
@@ -153,5 +164,25 @@ describe("GatewayProvisioningStepper", () => {
     );
     expect(dangerStep).toBeTruthy();
     expect(dangerStep?.textContent).toContain("Verifying gateway health");
+  });
+
+  it("appends ConsoleReady and Provisioned steps to server conditions", () => {
+    renderStepper(allPending, "Provisioning");
+
+    expect(screen.getByText("Starting console")).toBeTruthy();
+    expect(screen.getByText("Provisioned")).toBeTruthy();
+  });
+
+  it("marks console step as complete when consoleReady is true", () => {
+    const { container } = renderStepper(allComplete, "Running", true);
+
+    const steps = container.querySelectorAll(".pf-v6-c-progress-stepper__step");
+    const consoleStep = Array.from(steps).find((s) =>
+      s.textContent.includes("Console ready"),
+    );
+    expect(consoleStep).toBeDefined();
+    if (consoleStep) {
+      expect(consoleStep.classList.contains("pf-m-success")).toBe(true);
+    }
   });
 });
