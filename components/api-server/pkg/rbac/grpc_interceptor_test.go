@@ -153,6 +153,7 @@ func TestIsServiceAccountOnlyMethod(t *testing.T) {
 	}{
 		{"/hypershell.v1.GatewayService/AdjustActiveSandboxCount", true},
 		{"/hypershell.v1.GatewayService/SetActiveSandboxCount", true},
+		{"/hypershell.v1.GatewayService/SetGatewayVersion", true},
 		{"/hypershell.v1.GatewayService/UpdateGateway", false},
 		{"/hypershell.v1.GatewayService/CreateGateway", false},
 		{"/hypershell.v1.GatewayService/GetGateway", false},
@@ -355,5 +356,31 @@ func TestIsGRPCAuthorized_PlatformAdminWithCreatorCanCreate(t *testing.T) {
 
 	if !isGRPCAuthorized("/hypershell.v1.GatewayService/CreateGateway", bindings) {
 		t.Error("platform:admin + gateway:creator should be authorized for Create")
+	}
+}
+
+func TestUnaryInterceptor_GatewayVersionRestrictedToServiceAccount(t *testing.T) {
+	const method = "/hypershell.v1.GatewayService/SetGatewayVersion"
+	const serviceAccount = "service-account-hypershell-control-plane"
+	for _, role := range []string{"gateway:owner", "gateway:creator"} {
+		for _, username := range []string{"human-user", serviceAccount} {
+			t.Run(role+"/"+username, func(t *testing.T) {
+				lookup := fakeLookup{bindings: []BindingSummary{{RoleName: role, Scope: "gateway", GatewayID: strPtr("gw-1")}}}
+				interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{serviceAccount}})
+				ctx := auth.SetUsernameContext(context.Background(), username)
+				called := false
+				_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: method}, func(context.Context, interface{}) (interface{}, error) {
+					called = true
+					return nil, nil
+				})
+				if username == serviceAccount {
+					if !called || err != nil {
+						t.Fatalf("control-plane call: handler=%v, error=%v", called, err)
+					}
+				} else if called || status.Code(err) != codes.PermissionDenied {
+					t.Fatalf("ordinary user reached version writer: handler=%v, code=%v", called, status.Code(err))
+				}
+			})
+		}
 	}
 }

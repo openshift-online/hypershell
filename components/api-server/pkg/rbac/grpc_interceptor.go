@@ -26,7 +26,7 @@ func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner,
 			return handler(ctx, req)
 		}
 
-		// Control-plane-only mutations (the sandbox-count writes) are restricted to
+		// Control-plane-only mutations (the sandbox-count and runtime-version writes) are restricted to
 		// the service-account allowlist when one is configured. Any principal that
 		// reaches here is not an allowlisted SA, so deny outright rather than fall
 		// through to the coarse role check, which grants gateway:creator/owner every
@@ -157,8 +157,9 @@ func isGRPCAuthorized(fullMethod string, bindings []BindingSummary) bool {
 
 // isServiceAccountOnlyMethod reports whether a method is a control-plane-only
 // mutation that ordinary role bindings must never reach. AdjustActiveSandboxCount
-// and SetActiveSandboxCount write the control-plane-owned active_sandbox_count and
-// are issued solely by the control plane's service account; without this guard
+// and SetActiveSandboxCount write active_sandbox_count. SetGatewayVersion writes
+// the observed runtime version. Only the control plane may write these fields.
+// Without this guard,
 // isGRPCAuthorized would grant them to any gateway:creator / gateway:owner in any
 // namespace. The restriction applies only when a service-account allowlist is
 // configured (see the interceptors).
@@ -168,7 +169,7 @@ func isServiceAccountOnlyMethod(fullMethod string) bool {
 		return false
 	}
 	method := parts[len(parts)-1]
-	return method == "AdjustActiveSandboxCount" || method == "SetActiveSandboxCount"
+	return method == "AdjustActiveSandboxCount" || method == "SetActiveSandboxCount" || method == "SetGatewayVersion"
 }
 
 func isGRPCDeleteMethod(fullMethod string) bool {
