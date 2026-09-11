@@ -2,10 +2,16 @@ package gateway
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -155,4 +161,71 @@ func mutationCount(actions []k8stesting.Action) int {
 		}
 	}
 	return count
+}
+
+func TestReconcileGatewayHealthAccessUpgradesExistingPolicies(t *testing.T) {
+	ctx := context.Background()
+	const namespace = "openshell-existing"
+	grpcPort, healthPort, namedHealth := intstr.FromInt32(8080), intstr.FromInt32(8081), intstr.FromString("health")
+	peer := networkingv1.NetworkPolicyPeer{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"old-peer": "preserve"}}}
+	names := []string{"openshell-gateway-allow-sandbox", "openshell-gateway-allow-sandbox-v2", "openshell-gateway-allow-router", "user-policy"}
+	client := k8sfake.NewSimpleClientset()
+	for _, name := range names {
+		_, err := client.NetworkingV1().NetworkPolicies(namespace).Create(ctx, &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: map[string]string{"preserve": "true"}},
+			Spec: networkingv1.NetworkPolicySpec{
+				PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "openshell"}},
+				PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
+				Ingress: []networkingv1.NetworkPolicyIngressRule{
+					{From: []networkingv1.NetworkPolicyPeer{peer}, Ports: []networkingv1.NetworkPolicyPort{{Port: &grpcPort}, {Port: &healthPort}}},
+					{From: []networkingv1.NetworkPolicyPeer{peer}, Ports: []networkingv1.NetworkPolicyPort{{Port: &namedHealth}}},
+				},
+				Egress: []networkingv1.NetworkPolicyEgressRule{{Ports: []networkingv1.NetworkPolicyPort{{Port: &healthPort}}}},
+			},
+		}, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A concurrent writer must cause a retry, not prevent the upgrade.
+	conflicted := false
+	client.PrependReactor("update", "networkpolicies", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		obj := action.(k8stesting.UpdateAction).GetObject().(*networkingv1.NetworkPolicy)
+		if obj.Name == names[0] && !conflicted {
+			conflicted = true
+			return true, nil, k8serrors.NewConflict(schema.GroupResource{Resource: "networkpolicies"}, obj.Name, nil)
+		}
+		return false, nil, nil
+	})
+	if err := ReconcileGatewayHealthAccess(ctx, client, namespace, "hypershell-system", false); err != nil {
+		t.Fatal(err)
+	}
+	if !conflicted {
+		t.Fatal("the conflict retry was not exercised")
+	}
+	for _, name := range names {
+		got, err := client.NetworkingV1().NetworkPolicies(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "user-policy" {
+			if len(got.Spec.Ingress) != 2 || len(got.Spec.Ingress[0].Ports) != 2 {
+				t.Fatal("changed a user policy")
+			}
+			continue
+		}
+		if len(got.Spec.Ingress) != 1 || len(got.Spec.Ingress[0].Ports) != 1 || *got.Spec.Ingress[0].Ports[0].Port != grpcPort {
+			t.Fatalf("%s retains health access or grants all ports: %#v", name, got.Spec.Ingress)
+		}
+		if !reflect.DeepEqual(got.Spec.Ingress[0].From, []networkingv1.NetworkPolicyPeer{peer}) || got.Annotations["preserve"] != "true" || len(got.Spec.Egress) != 1 {
+			t.Fatalf("%s lost unrelated fields: %#v", name, got)
+		}
+	}
+	mutations := mutationCount(client.Actions())
+	if err := ReconcileGatewayHealthAccess(ctx, client, namespace, "hypershell-system", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := mutationCount(client.Actions()); got != mutations {
+		t.Fatalf("repeat pass wrote resources: %d != %d", got, mutations)
+	}
 }

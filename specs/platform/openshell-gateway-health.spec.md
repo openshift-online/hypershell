@@ -223,7 +223,11 @@ only from the control plane controller in the control plane namespace. Before
 each version request, the health reconciler SHALL reconcile this Service and
 NetworkPolicy with update-or-create operations. This reconciliation SHALL repair
 existing gateways after a control plane upgrade and SHALL repair later drift or
-deletion.
+deletion. It SHALL also remove old TCP health-port permissions from the owned
+sandbox and router policies. It SHALL keep their other permissions. If a rule
+only permits the health port, the reconciler SHALL remove that rule rather than
+leave an empty port list, which would permit every port. This repair SHALL run
+for existing gateways even when their provisioning phase gate is closed.
 
 #### Scenario: Runtime version is observed for the first time
 

@@ -33,8 +33,8 @@ var gatewayManagedLabels = map[string]string{
 }
 
 // ReconcileGatewayHealthAccess makes the internal gateway health endpoint
-// available to the control plane. It changes only the dedicated Service and
-// NetworkPolicy that this reconciler owns.
+// available to the control plane. It repairs the dedicated Service and policy,
+// and removes old health-port permissions from the owned ingress policies.
 func ReconcileGatewayHealthAccess(ctx context.Context, clientset kubernetes.Interface, namespace, controlPlaneNamespace string, skipNetworkPolicies bool) error {
 	if namespace == "" {
 		return fmt.Errorf("gateway namespace is required")
@@ -52,7 +52,70 @@ func ReconcileGatewayHealthAccess(ctx context.Context, clientset kubernetes.Inte
 	if skipNetworkPolicies {
 		return nil
 	}
-	return reconcileGatewayHealthNetworkPolicy(reconcileCtx, clientset, namespace, controlPlaneNamespace)
+	if err := reconcileGatewayHealthNetworkPolicy(reconcileCtx, clientset, namespace, controlPlaneNamespace); err != nil {
+		return err
+	}
+	for _, name := range []string{
+		"openshell-gateway-allow-sandbox",
+		"openshell-gateway-allow-sandbox-v2",
+		"openshell-gateway-allow-router",
+	} {
+		if err := removeLegacyHealthAccess(reconcileCtx, clientset, namespace, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Policies combine their permissions. The new controller policy cannot cancel
+// an old sandbox or router permission. Repair those policies on existing
+// gateways, which can skip the normal provisioning pass after an upgrade.
+func removeLegacyHealthAccess(ctx context.Context, clientset kubernetes.Interface, namespace, name string) error {
+	policies := clientset.NetworkingV1().NetworkPolicies(namespace)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		policy, err := policies.Get(ctx, name, metav1.GetOptions{})
+		if k8serrors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		updated := policy.DeepCopy()
+		changed := false
+		ingress := make([]networkingv1.NetworkPolicyIngressRule, 0, len(updated.Spec.Ingress))
+		for _, rule := range updated.Spec.Ingress {
+			ports := make([]networkingv1.NetworkPolicyPort, 0, len(rule.Ports))
+			removed := false
+			for _, port := range rule.Ports {
+				if port.Port != nil && (port.Protocol == nil || *port.Protocol == corev1.ProtocolTCP) &&
+					(*port.Port == intstr.FromInt32(GatewayHealthPort) || *port.Port == intstr.FromString(gatewayHealthPortName)) {
+					removed = true
+					continue
+				}
+				ports = append(ports, port)
+			}
+			if removed {
+				changed = true
+				// An empty port list permits all ports. Remove a rule that only
+				// granted health access instead of leaving that list empty.
+				if len(ports) == 0 {
+					continue
+				}
+				rule.Ports = ports
+			}
+			ingress = append(ingress, rule)
+		}
+		if !changed {
+			return nil
+		}
+		updated.Spec.Ingress = ingress
+		_, err = policies.Update(ctx, updated, metav1.UpdateOptions{})
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("remove old health access from NetworkPolicy %s in %s: %w", name, namespace, err)
+	}
+	return nil
 }
 
 func reconcileGatewayHealthService(ctx context.Context, clientset kubernetes.Interface, namespace string) error {
