@@ -115,9 +115,7 @@ export function GatewayProvisioningStepper({
     conditions.length > 0
       ? [...conditions, consoleCondition, provisionedCondition]
       : defaultConditionOrder.map((type, index) => ({
-          conditionStatus: (index === 0
-            ? "InProgress"
-            : "Pending") as ProvisioningConditionStatus,
+          conditionStatus: index === 0 ? "InProgress" : "Pending",
           message: "",
           type,
         }));

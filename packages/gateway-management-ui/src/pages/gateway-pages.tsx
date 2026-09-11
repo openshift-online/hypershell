@@ -3,6 +3,7 @@ import {
   AlertActionCloseButton,
   AlertGroup,
   Button,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -695,7 +696,9 @@ export function GatewayPage({
             </Content>
             <GatewayConnectionSteps
               gateway={connection}
-              isProvisioning={connection.phase?.toLocaleLowerCase() !== "running"}
+              isProvisioning={
+                connection.phase?.toLocaleLowerCase() !== "running"
+              }
             />
           </Tab>
           <Tab

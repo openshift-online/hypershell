@@ -129,18 +129,18 @@ export const messages = defineMessages({
     defaultMessage: "Prerequisite",
     description: "Title for the CLI installation prerequisite alert.",
   },
+  connectionLoginConfigureTitle: {
+    id: "app.gateway.connection.loginConfigure.title",
+    defaultMessage: "Log in and configure",
+    description:
+      "Sub-header for the login and configuration command within one-time setup.",
+  },
   connectionLoginUnavailable: {
     id: "app.gateway.connection.login.unavailable",
     defaultMessage:
       "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
     description:
       "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
-  },
-  connectionWaitingForProvisioning: {
-    id: "app.gateway.connection.waitingForProvisioning",
-    defaultMessage: "Waiting for gateway provisioning...",
-    description:
-      "Shown in the connection tab while the gateway is still being provisioned.",
   },
   connectionSandboxConnectDescription: {
     id: "app.gateway.connection.sandboxConnect.description",
@@ -175,12 +175,6 @@ export const messages = defineMessages({
     defaultMessage: "One-time setup",
     description: "Title for the consolidated one-time setup connection step.",
   },
-  connectionLoginConfigureTitle: {
-    id: "app.gateway.connection.loginConfigure.title",
-    defaultMessage: "Log in and configure",
-    description:
-      "Sub-header for the login and configuration command within one-time setup.",
-  },
   connectionTab: {
     id: "app.gateway.connection.tab",
     defaultMessage: "Connection",
@@ -190,6 +184,12 @@ export const messages = defineMessages({
     id: "app.gateway.connection.tabsLabel",
     defaultMessage: "Gateway connection, service accounts, and details",
     description: "Accessible label for the gateway detail tabs.",
+  },
+  connectionWaitingForProvisioning: {
+    id: "app.gateway.connection.waitingForProvisioning",
+    defaultMessage: "Waiting for gateway provisioning...",
+    description:
+      "Shown in the connection tab while the gateway is still being provisioned.",
   },
   copied: {
     id: "app.clipboard.copied",
@@ -455,6 +455,12 @@ export const messages = defineMessages({
     id: "app.gateway.managedDatabaseId",
     defaultMessage: "Managed database ID",
     description: "Label for a gateway's managed database identifier.",
+  },
+  manageServiceAccounts: {
+    id: "app.gateway.manageServiceAccounts",
+    defaultMessage: "Manage service accounts",
+    description:
+      "Link text that navigates to the service accounts tab from the connection tab.",
   },
   moreClustersAvailable: {
     id: "app.gateway.cluster.moreResults",
@@ -1039,8 +1045,7 @@ export const messages = defineMessages({
   provisioningStepEnvironmentReady: {
     id: "app.gateway.provisioningProgress.step.environmentReady",
     defaultMessage: "Environment ready",
-    description:
-      "Completed-state label for the environment preparation step.",
+    description: "Completed-state label for the environment preparation step.",
   },
   provisioningStepDatabaseReady: {
     id: "app.gateway.provisioningProgress.step.databaseReady",

@@ -137,7 +137,11 @@ export function GatewayConnectionSteps({
         {isProvisioning ? (
           <div className={styles.commandPending} style={{ maxWidth: "60rem" }}>
             <Content component="p" style={{ textAlign: "center" }}>
-              <Spinner isInline size="md" />{" "}
+              <Spinner
+                isInline
+                size="md"
+                style={{ marginInlineEnd: "var(--pf-t--global--spacer--sm)" }}
+              />
               {intl.formatMessage(messages.connectionWaitingForProvisioning)}
             </Content>
           </div>
@@ -231,9 +235,7 @@ export function GatewayConnectionSteps({
               className={styles.prereqAlert}
               component="h3"
               isInline
-              title={intl.formatMessage(
-                messages.connectionEditorOptionsTitle,
-              )}
+              title={intl.formatMessage(messages.connectionEditorOptionsTitle)}
               variant="info"
             >
               {intl.formatMessage(messages.connectionEditorOptions, {

@@ -397,9 +397,7 @@ describe("gateway shell pages", () => {
     ));
 
     expect(
-      screen.getByRole("status", {
-        name: "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
-      }),
+      screen.getByText("Waiting for gateway provisioning..."),
     ).toBeTruthy();
     expect(
       screen.queryByText(/openshell gateway add/u, { selector: "code" }),
