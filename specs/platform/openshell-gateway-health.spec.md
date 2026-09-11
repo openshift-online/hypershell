@@ -242,6 +242,16 @@ for existing gateways even when their provisioning phase gate is closed.
 - WHEN its Ready Deployment reports a different version from `/health`
 - THEN the control plane SHALL replace `gateway_version` with the observed value
 
+#### Scenario: CI installs the matching CLI
+
+- GIVEN a ready gateway with a reported `gateway_version`
+- WHEN the end-to-end test runs in CI
+- THEN the test SHALL run the console-recommended installation command
+- AND it SHALL remove the first `-` and all following text from the reported
+  version before adding a leading `v` if needed
+- AND it SHALL compare the complete installed CLI version with that value
+- AND it SHALL fail if the API does not report a version within a bounded wait
+
 #### Scenario: Runtime version observation fails
 
 - GIVEN a Gateway with a stored `gateway_version`
