@@ -85,6 +85,26 @@ steps. The ordering reflects the actual dependency chain in the reconciler.
 - Step 3 is omitted (condition not emitted) when the gateway has no OIDC
   configuration, since there is no IdP work to perform.
 
+### Client-Derived Presentation Steps
+
+The UI appends two additional steps to the stepper that are **not** server-side
+conditions. These are synthesized entirely in the `gateway-management-ui`
+package to represent post-provisioning milestones that the user cares about but
+that are not part of the control plane's reconciliation loop:
+
+| # | Presentation Step | User-Facing Label (active / complete) | Derivation |
+|---|---|---|---|
+| 6 | `ConsoleReady` | Starting console / Console ready | `InProgress` when all 5 server conditions are `Complete` but `consoleReady` is false; `Complete` when `consoleReady` is true; otherwise `Pending` |
+| 7 | `Provisioned` | Provisioned | `Complete` when all server conditions are `Complete` AND `ConsoleReady` is `Complete`; otherwise `Pending` |
+
+These steps are owned by the UI, not the API server or control plane. They are
+never persisted in `provisioning_conditions` and are never sent over the wire.
+The server's contract remains the 5 conditions defined in the Provisioning Steps
+table above. This separation keeps the server model stable while allowing the UI
+to present the full end-to-end journey a user experiences, including console
+readiness which is detected client-side from the gateway's `console_address`
+field.
+
 ---
 
 ## Requirements
@@ -96,10 +116,11 @@ describe sub-phase progress during provisioning. The conditions SHALL be
 persisted in the API server and exposed via both the REST and gRPC APIs.
 
 The conditions list SHALL be retained across all gateway phases, including
-`Running`. When a gateway reaches `Running`, all conditions SHALL have
-`condition_status` set to `Complete`. Retaining the list allows the UI to show
-which provisioning steps the gateway went through, even after provisioning
-finishes.
+`Running`. When a gateway reaches `Running`, all server-side conditions SHALL
+have `condition_status` set to `Complete`. Retaining the list allows the UI to
+show which provisioning steps the gateway went through, even after provisioning
+finishes. The UI MAY append additional client-derived presentation steps (see
+Client-Derived Presentation Steps) that follow their own completion logic.
 
 #### Condition Initialization Ownership
 
@@ -212,7 +233,7 @@ provisioning condition maps to a `ProgressStep` as follows:
 | Condition Status | `ProgressStep` variant | `isCurrent` | Behavior |
 |---|---|---|---|
 | `Pending` | `default` | `false` | Step appears inactive, not yet reached |
-| `InProgress` | `pending` | `true` | Step shows a spinner animation indicating work in progress |
+| `InProgress` | `info` | `true` | Step shows a blue active indicator distinguishing it from not-yet-started steps |
 | `Complete` | `success` | `false` | Step shows a green check mark |
 | `Failed` | `danger` | `false` | Step shows a red X icon |
 | `Failed` (on `GatewayHealthy` when `phase` is `Degraded`) | `warning` | `false` | Step shows a warning icon (recoverable, polling continues) |
@@ -236,7 +257,7 @@ title.
 - WHEN the gateway detail view loads and the gateway `phase` is `Provisioning`
 - THEN the UI SHALL display a vertical `ProgressStepper`
 - AND completed steps SHALL render as `ProgressStep` with `variant="success"`
-- AND the current step SHALL render as `ProgressStep` with `variant="pending"`
+- AND the current step SHALL render as `ProgressStep` with `variant="info"`
   and `isCurrent={true}`
 - AND future steps SHALL render as `ProgressStep` with `variant="default"`
 
@@ -252,9 +273,10 @@ title.
 
 #### Scenario: Provisioning completes successfully
 
-- GIVEN a gateway with `phase` `Running`
+- GIVEN a gateway with `phase` `Running` and `consoleReady` true
 - WHEN the user views the gateway detail
-- THEN the stepper SHALL show all provisioning steps as `variant="success"`
+- THEN the stepper SHALL show all provisioning steps (server conditions and
+  client-derived presentation steps) as `variant="success"`
 - AND the gateway detail view SHALL also display the standard ready-state
   affordances (connection command, console link, etc.)
 
