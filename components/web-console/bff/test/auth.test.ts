@@ -154,6 +154,21 @@ function createOidcServer(ctx: OidcContext): Server {
       return;
     }
 
+    if (
+      url.pathname.startsWith("/orgs/") &&
+      url.pathname.includes("/public_members/")
+    ) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+
+    if (url.pathname.startsWith("/user/memberships/orgs/")) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+
     res.statusCode = 404;
     res.end();
   });
@@ -1104,6 +1119,10 @@ describe("web-console BFF with OIDC enabled", () => {
       expect(denied.statusCode).toBe(403);
       expect(denied.headers["content-type"]).toContain("text/html");
       expect(denied.body).toContain("Access denied");
+      expect(denied.body).toContain('class="card"');
+      expect(denied.headers["content-security-policy"]).toMatch(
+        /style-src[^;]*'sha256-/u,
+      );
 
       const api = await gatedApp.inject({
         headers: { cookie: sessionCookie(callback) },
