@@ -613,7 +613,7 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 
 The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/e2e.yml` (`on: workflow_call`) that runs the e2e test suite against Kind and, on origin pull requests, against the ephemeral OpenShift PR environment. It SHALL run as the final stage of `tests.yml`, which triggers on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. Like the unit stage, it SHALL receive the changed-component flags as `workflow_call` inputs and gate its jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result (together with unit's) up into the required check, so it has no summary or gate job of its own. The orchestrator's `needs: [detect-changes, unit]` edge (with the `if:` override described in the CI Unit Test Workflow requirement, so a `unit` skip does not also skip `e2e`) SHALL ensure Kind is never created until the unit-test stage succeeds; the e2e workflow itself SHALL NOT contain a job that polls for that gate, or for the separate `checks.yml` workflow. The workflow SHALL still gate Kind jobs on Konflux image builds completing (an external build system it cannot order with `needs:`) and pull those images by digest -- it SHALL NOT rebuild component images itself.
 
-On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift` (check: Tests / E2E / OpenShift). That job SHALL poll the independent `Deploy PR environment` check until it succeeds, then run the OpenShift e2e suite against the live per-PR namespace as `ephemeral-pr-environments.spec.md` defines. GitHub Actions `needs:` cannot order independently-triggered workflows, so this poller is the allowed exception to the no-cross-workflow-poller rule for Unit vs Checks. Fork PRs, `merge_group`, and `push` SHALL skip that job (no per-PR environment). Push to `main` SHALL run the bring-up-test-tear-down OpenShift job from a dedicated workflow (`.github/workflows/e2e-openshift-main.yml`) that does not run on pull requests, so it does not appear as a skipped Tests check.
+On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift` (check: Tests / E2E / OpenShift). That job SHALL declare `needs: plan-images` and SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR skips the OpenShift suite as well as Kind. The independent PR Environment workflow still deploys unconditionally. When the job runs, it SHALL poll the independent `Deploy PR environment` check until it succeeds, then run the OpenShift e2e suite against the live per-PR namespace as `ephemeral-pr-environments.spec.md` defines. GitHub Actions `needs:` cannot order independently-triggered workflows, so this poller is the allowed exception to the no-cross-workflow-poller rule for Unit vs Checks. Fork PRs, `merge_group`, and `push` SHALL skip that job (no per-PR environment). Push to `main` SHALL run the bring-up-test-tear-down OpenShift job from a dedicated workflow (`.github/workflows/e2e-openshift-main.yml`) that does not run on pull requests, so it does not appear as a skipped Tests check.
 
 #### Scenario: PR Triggers Workflow
 
@@ -625,11 +625,13 @@ On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift
 
 #### Scenario: OpenShift E2E Waits On Deploy PR Environment
 
-- GIVEN an origin pull request whose `Deploy PR environment` check is still running
+- GIVEN an origin pull request whose e2e-relevant components changed
+- AND whose `Deploy PR environment` check is still running
 - WHEN Tests / E2E / OpenShift starts
-- THEN it SHALL poll that check until it concludes `success`
+- THEN it SHALL have required `plan-images` with `should_run=true`, matching Kind
+- AND it SHALL poll that check until it concludes `success`
 - AND it SHALL then run `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials bash tests/e2e/e2e-openshell.sh` against the per-PR namespace
-- AND a fork PR, `merge_group` event, or `push` event SHALL skip this job
+- AND a fork PR, `merge_group` event, `push` event, or origin PR with `should_run=false` SHALL skip this job
 
 #### Scenario: Tests Pass
 
@@ -648,7 +650,8 @@ On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift
 
 - GIVEN the PR modifies only files outside the e2e-relevant component paths (e.g., only `docs/` or `components/sdk-typescript/`)
 - WHEN the `e2e` workflow evaluates the change detection outputs
-- THEN the e2e job SHALL be skipped
+- THEN `plan-images` SHALL set `should_run=false`
+- AND both the Kind and OpenShift e2e jobs SHALL be skipped
 - AND the workflow SHALL report `success` (to avoid blocking merges)
 
 #### Scenario: Infrastructure-Only Changes (No Source Components)

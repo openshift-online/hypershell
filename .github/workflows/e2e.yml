@@ -633,13 +633,17 @@ jobs:
   # Runs the OpenShift e2e suite against the environment the "PR Environment"
   # workflow just deployed (ephemeral-pr-environments.spec.md). Lives here so
   # the check is Tests / E2E / OpenShift, not nested under PR Environment.
+  # Same plan-images / should_run gate as e2e-kind: docs-only and other
+  # e2e-irrelevant PRs skip the suite (the PR Environment still deploys).
   # Polls the Deploy PR environment check because GitHub Actions `needs:`
   # cannot cross independently-triggered workflows.
   e2e-openshift:
     name: OpenShift
+    needs: plan-images
     if: >-
       github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.plan-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
     # Deploy PR environment is allowed 60 minutes; the suite itself is
     # budgeted like Kind (~45). 105 covers wait-then-run with headroom.
