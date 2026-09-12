@@ -98,5 +98,68 @@ else
 fi
 assert_eq '' "${_GC_TIMING_PATCHED}" 'namespace GC timing patch cleared after restore'
 
+# --- E2E_OIDC_GRANT dispatch (ephemeral-pr-environments.spec.md, PR-ENV-10) ---
+# Replace the reachability stub with a token-endpoint stub that captures the POST
+# body and returns a JSON access token so acquire_oidc_token parses successfully.
+E2E_OIDC_ISSUER='https://sso-test.apps.example.com/realms/hypershell'
+E2E_OIDC_USERNAME='admin'
+E2E_OIDC_PASSWORD='admin'
+E2E_OIDC_CLIENT_ID='hypershell-frontend'
+E2E_OIDC_SA_CLIENT_ID='hypershell-e2e'
+E2E_OIDC_SA_CLIENT_SECRET='s3cr3t'
+# The production token request runs curl inside $(...), a subshell, so capture the
+# request body through a file that survives the subshell rather than a variable.
+CURL_CAPTURE="$(mktemp)"
+curl() {
+  printf '%s' "$*" >"${CURL_CAPTURE}"
+  printf '%s' '{"access_token":"stub.jwt.token"}'
+}
+captured_curl_args() { printf ' %s ' "$(cat "${CURL_CAPTURE}")"; }
+
+# Default grant is the resource-owner password grant against the seeded user.
+E2E_OIDC_GRANT=password acquire_oidc_token >/dev/null
+case "$(captured_curl_args)" in
+  *' grant_type=password '*' client_id=hypershell-frontend '*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); printf 'FAIL: password grant args (got=%q)\n' "$(captured_curl_args)" ;;
+esac
+
+# Admin client_credentials path uses the hypershell-e2e service-account client.
+E2E_OIDC_GRANT=client_credentials acquire_oidc_token >/dev/null
+case "$(captured_curl_args)" in
+  *' grant_type=client_credentials '*' client_id=hypershell-e2e '*' client_secret=s3cr3t '*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); printf 'FAIL: client_credentials admin args (got=%q)\n' "$(captured_curl_args)" ;;
+esac
+
+# Developer path: client-credentials subject_token, then legacy impersonation
+# (requested_subject). Keycloak 26 standard token-exchange rejects that param.
+E2E_OIDC_GRANT=client_credentials acquire_oidc_token developer developer openshell-gw-1 >/dev/null
+case "$(captured_curl_args)" in
+  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' requested_subject=developer '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); printf 'FAIL: token-exchange developer args (got=%q)\n' "$(captured_curl_args)" ;;
+esac
+
+# Admin + per-gateway client must also token-exchange. Straight client_credentials
+# on hypershell-e2e never carries openshell-admin for that gateway client
+# (e2e-testing.spec.md acquire_gateway_token_with_role).
+E2E_OIDC_GRANT=client_credentials acquire_oidc_token admin admin openshell-gw-1 >/dev/null
+case "$(captured_curl_args)" in
+  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' requested_subject=admin '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); printf 'FAIL: token-exchange admin gateway args (got=%q)\n' "$(captured_curl_args)" ;;
+esac
+
+# client_credentials without the service-account secret fails fast.
+if (E2E_OIDC_GRANT=client_credentials E2E_OIDC_SA_CLIENT_SECRET='' acquire_oidc_token >/dev/null 2>&1); then
+  FAIL=$((FAIL + 1)); echo 'FAIL: client_credentials without secret was accepted'
+else
+  PASS=$((PASS + 1))
+fi
+
+# An unrecognized grant is rejected rather than silently defaulting.
+if (E2E_OIDC_GRANT=totp acquire_oidc_token >/dev/null 2>&1); then
+  FAIL=$((FAIL + 1)); echo 'FAIL: unknown E2E_OIDC_GRANT was accepted'
+else
+  PASS=$((PASS + 1))
+fi
+
 printf 'OpenShift driver tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

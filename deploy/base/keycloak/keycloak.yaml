@@ -14,12 +14,99 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Renders GitHub IdP / e2e-client values and OpenShift console redirect
+        # URIs into the realm JSON. Keycloak --import-realm does not substitute
+        # placeholders (upstream keycloak#20199), and start-dev's ephemeral H2
+        # store drops any admin-API redirect URI patch on pod recycle.
+        - name: render-realm-config
+          image: registry.access.redhat.com/hi/python:3.13-builder@sha256:75f0b15a73e9510e97dc3c3613a8c17794a0efbfc42ecfb4203e419450163763
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          env:
+            - name: PR_ENV_GITHUB_IDP_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: idp-enabled
+                  optional: true
+            - name: PR_ENV_GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: client-id
+                  optional: true
+            - name: PR_ENV_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: client-secret
+                  optional: true
+            - name: PR_ENV_GITHUB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: org
+                  optional: true
+            - name: PR_ENV_GITHUB_ALLOWLIST
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: allowlist
+                  optional: true
+            - name: HYPERSHELL_E2E_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: e2e-client-secret
+                  optional: true
+            - name: HYPERSHELL_E2E_CLIENT_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: e2e-client-enabled
+                  optional: true
+            # Set by make openshift-up from the web-console Route host. Unset on
+            # Kind, so the renderer keeps the localhost frontend redirect URIs.
+            - name: HYPERSHELL_CONSOLE_HOST
+              value: ""
+          command:
+            - python3
+            - /scripts/render-realm-config.py
+            - /config/hypershell-realm.json
+            - /rendered/hypershell-realm.json
+          volumeMounts:
+            - name: realm-config-source
+              mountPath: /config
+              readOnly: true
+            - name: realm-renderer
+              mountPath: /scripts
+              readOnly: true
+            - name: realm-config
+              mountPath: /rendered
       containers:
         - name: keycloak
           image: quay.io/keycloak/keycloak:26.7.2@sha256:831330513f55695572286e521f94fcd3c7e285250ed5b848090265a33192f669
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop: ["ALL"]
           args:
@@ -44,6 +131,13 @@ spec:
               value: "https://keycloak.hypershell.localhost"
             - name: KC_PROXY_HEADERS
               value: "xforwarded"
+            # Legacy token-exchange (requested_subject impersonation) plus FGAP
+            # v1. Keycloak 26 standard token-exchange rejects that parameter,
+            # and FGAP v2 (the 26.2+ default) has no token-exchange permission.
+            # The e2e suite impersonates seeded users onto gateway and frontend
+            # audiences, which needs both features.
+            - name: KC_FEATURES
+              value: "token-exchange,admin-fine-grained-authz:v1"
           ports:
             - containerPort: 8080
               name: http
@@ -92,9 +186,15 @@ spec:
               mountPath: /opt/keycloak/themes/hypershell/login/messages/messages_en.properties
               subPath: messages_en.properties
       volumes:
-        - name: realm-config
+        - name: realm-config-source
           configMap:
             name: keycloak-realm
+        - name: realm-renderer
+          configMap:
+            name: keycloak-realm-renderer
+            defaultMode: 0444
+        - name: realm-config
+          emptyDir: {}
         - name: hypershell-theme
           configMap:
             name: keycloak-hypershell-theme
@@ -114,6 +214,17 @@ spec:
       port: 8080
       targetPort: 8080
 ---
+# hypershell-e2e client: confidential CI client for the OpenShift pull-request
+# e2e suite (ephemeral-pr-environments.spec.md). Disabled by default so Kind,
+# local, and stage realms do not ship an enabled admin client with a well-known
+# secret. PR environments set e2e-client-enabled=true and a random secret via
+# hypershell-github-oauth. Its service account holds platform:admin +
+# gateway:creator so E2E_OIDC_GRANT=client_credentials can obtain admin tokens
+# without a GitHub login. Standard token exchange is enabled so the suite can
+# impersonate the seeded developer principal. Distinct from
+# hypershell-provisioner (manage-clients / manage-users). The "description"
+# field below is kept short because Keycloak's CLIENT.DESCRIPTION column is
+# VARCHAR(255); exceeding that fails the whole realm import at boot.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -135,7 +246,7 @@ data:
           "fullScopeAllowed": true,
           "redirectUris": ["https://console.hypershell.localhost/*", "https://console.hypershell.localhost:*"],
           "webOrigins": ["+"],
-          "defaultClientScopes": ["openid", "email", "profile"],
+          "defaultClientScopes": ["openid", "email", "profile", "roles"],
           "protocolMappers": [
             {
               "name": "audience",
@@ -267,6 +378,48 @@ data:
           "standardFlowEnabled": false,
           "directAccessGrantsEnabled": false,
           "secret": "provisioner-secret"
+        },
+        {
+          "clientId": "hypershell-e2e",
+          "description": "Confidential CI client for the OpenShift e2e suite (ephemeral-pr-environments.spec.md)",
+          "enabled": "${HYPERSHELL_E2E_CLIENT_ENABLED:false}",
+          "publicClient": false,
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "secret": "${HYPERSHELL_E2E_CLIENT_SECRET:}",
+          "attributes": {
+            "standard.token.exchange.enabled": "false"
+          },
+          "defaultClientScopes": ["profile", "roles"],
+          "protocolMappers": [
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "hypershell-frontend",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            },
+            {
+              "name": "preferred-username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-hardcoded-claim-mapper",
+              "consentRequired": false,
+              "config": {
+                "claim.name": "preferred_username",
+                "claim.value": "admin",
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
         },
         {
           "clientId": "hypershell-control-plane",
@@ -570,11 +723,60 @@ data:
           "clientRoles": {
             "realm-management": ["manage-clients", "manage-users"]
           }
+        },
+        {
+          "username": "service-account-hypershell-e2e",
+          "enabled": true,
+          "serviceAccountClientId": "hypershell-e2e",
+          "realmRoles": ["platform:admin", "gateway:creator"],
+          "clientRoles": {
+            "realm-management": ["impersonation"]
+          }
         }
       ],
       "clientScopeMappings": {
         "hypershell-provisioner": [
           { "client": "realm-management", "roles": ["manage-clients", "manage-users"] }
+        ],
+        "hypershell-e2e": [
+          { "client": "realm-management", "roles": ["impersonation"] }
         ]
-      }
+      },
+      "attributes": {
+        "github.org.gate": "${PR_ENV_GITHUB_ORG:openshift-online}",
+        "github.username.allowlist": "${PR_ENV_GITHUB_ALLOWLIST:}"
+      },
+      "identityProviders": [
+        {
+          "alias": "github",
+          "providerId": "github",
+          "enabled": "${PR_ENV_GITHUB_IDP_ENABLED:false}",
+          "trustEmail": true,
+          "storeToken": true,
+          "addReadTokenRoleOnCreate": true,
+          "firstBrokerLoginFlowAlias": "first broker login",
+          "config": {
+            "clientId": "${PR_ENV_GITHUB_CLIENT_ID:}",
+            "clientSecret": "${PR_ENV_GITHUB_CLIENT_SECRET:}",
+            "defaultScope": "read:org user:email",
+            "githubJsonFormat": "true",
+            "caseSensitiveOriginalUsername": "false",
+            "syncMode": "FORCE"
+          }
+        }
+      ],
+      "identityProviderMappers": [
+        {
+          "name": "github-grant-platform-admin",
+          "identityProviderAlias": "github",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "config": { "role": "platform:admin", "syncMode": "FORCE" }
+        },
+        {
+          "name": "github-grant-gateway-creator",
+          "identityProviderAlias": "github",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "config": { "role": "gateway:creator", "syncMode": "FORCE" }
+        }
+      ]
     }

@@ -14,6 +14,23 @@ oc_cli() {
   oc "$@"
 }
 
+# Whether this environment brokers interactive login to GitHub instead of the
+# realm's seeded admin/developer passwords
+# (ephemeral-pr-environments.spec.md: GitHub-Brokered Keycloak Authentication).
+# Brokered environments have no password grant, so seeding and the banner
+# must use the hypershell-e2e service account instead of admin/admin.
+github_idp_enabled() {
+  local enabled
+  enabled="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    -o jsonpath='{.data.idp-enabled}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  [[ "${enabled}" == "true" ]]
+}
+
+hypershell_e2e_client_secret() {
+  oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    -o jsonpath='{.data.e2e-client-secret}' 2>/dev/null | base64 -d 2>/dev/null || true
+}
+
 require_openshift_cluster() {
   if ! command -v oc >/dev/null 2>&1; then
     error "oc is not installed. Install the OpenShift CLI and retry."
@@ -876,7 +893,10 @@ wait_for_named_rollout() {
 }
 
 wait_for_keycloak() {
-  wait_for_named_rollout keycloak "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+  # The shared e2e cluster can need to scale up a node for this pod (cluster
+  # autoscaler), which alone can take several minutes before it is even
+  # Scheduled. The default rollout timeout is too tight for that.
+  wait_for_named_rollout keycloak "${OPENSHIFT_KEYCLOAK_NAMESPACE}" 600s
 }
 
 configure_oidc_from_routes() {
@@ -902,9 +922,14 @@ configure_oidc_from_routes() {
   OPENSHIFT_KC_HOSTNAME="https://${kc_host}"
   OPENSHIFT_OIDC_ISSUER="https://${kc_host}/realms/hypershell"
 
-  info "Setting Keycloak KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}"
+  info "Setting Keycloak KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME} and console redirect host ${console_host}"
+  # One set-env so Keycloak rolls once. HYPERSHELL_CONSOLE_HOST is consumed by
+  # the render-realm-config init container: --import-realm after a pod recycle
+  # would otherwise restore localhost-only frontend redirect URIs and Keycloak
+  # would reject the BFF callback ("Invalid parameter: redirect_uri").
   oc_cli set env deployment/keycloak -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
-    "KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}" >/dev/null
+    "KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}" \
+    "HYPERSHELL_CONSOLE_HOST=${console_host}" >/dev/null
 
   info "Configuring web console OIDC"
   oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
@@ -914,6 +939,21 @@ configure_oidc_from_routes() {
     "OIDC_POST_LOGOUT_REDIRECT_URI=https://${console_host}" >/dev/null
   oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
     --from=secret/hypershell-oidc-session >/dev/null
+
+  if github_idp_enabled; then
+    local github_org github_allowlist
+    github_org="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+      -o jsonpath='{.data.org}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    github_allowlist="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+      -o jsonpath='{.data.allowlist}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    info "Configuring web console GitHub org gate (${github_org:-openshift-online})"
+    oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
+      "GITHUB_ORG_GATE=${github_org:-openshift-online}" \
+      "GITHUB_USERNAME_ALLOWLIST=${github_allowlist}" >/dev/null
+  else
+    oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
+      GITHUB_ORG_GATE- GITHUB_USERNAME_ALLOWLIST- >/dev/null
+  fi
 
   info "Configuring control plane public gateway issuer"
   oc_cli set env deployment/hypershell-controller -n "${OPENSHIFT_NAMESPACE}" -c controller \
@@ -1027,11 +1067,28 @@ seed_via_api() {
     fi
     return 0
   fi
+  local -a token_args
+  if github_idp_enabled; then
+    # Brokered environments have no password grant (ephemeral-pr-environments
+    # .spec.md); seed as the hypershell-e2e service account instead, which
+    # holds platform:admin + gateway:creator for exactly this purpose.
+    local e2e_secret
+    e2e_secret="$(hypershell_e2e_client_secret)"
+    if [[ -z "${e2e_secret}" ]]; then
+      warn "GitHub IDP is enabled but hypershell-github-oauth has no e2e-client-secret; skip automatic seeding"
+      if seed_strict; then
+        error "Platform seeding failed and SEED_STRICT=true - failing"
+        return 1
+      fi
+      return 0
+    fi
+    token_args=(-d grant_type=client_credentials -d client_id=hypershell-e2e -d "client_secret=${e2e_secret}")
+  else
+    token_args=(-d grant_type=password -d client_id=hypershell-frontend -d username=admin -d password=admin)
+  fi
   info "Obtaining API token from Keycloak Route..."
   for i in $(seq 1 30); do
-    resp="$(openshift_curl -X POST "${kc_token_url}" \
-      -d grant_type=password -d client_id=hypershell-frontend \
-      -d username=admin -d password=admin || true)"
+    resp="$(openshift_curl -X POST "${kc_token_url}" "${token_args[@]}" || true)"
     token="$(printf '%s' "${resp}" | json_string_field access_token || true)"
     if [[ -n "${token}" ]]; then
       break
@@ -1206,10 +1263,14 @@ print_banner() {
   info "Namespace:     ${OPENSHIFT_NAMESPACE} (Keycloak: ${OPENSHIFT_KEYCLOAK_NAMESPACE})"
   info "HTTP API:      https://${OPENSHIFT_API_HOST}"
   info "Web Console:   https://${OPENSHIFT_CONSOLE_HOST}"
-  info "Keycloak:      ${OPENSHIFT_KC_HOSTNAME} (admin/admin)"
+  info "Keycloak:      ${OPENSHIFT_KC_HOSTNAME}"
   info "OIDC Issuer:   ${OPENSHIFT_OIDC_ISSUER}"
   info "Login:         https://${OPENSHIFT_CONSOLE_HOST}/auth/login"
-  info "Test users:    admin/admin (admins + users), developer/developer (users only)"
+  if github_idp_enabled; then
+    info "Interactive login is GitHub-brokered (openshift-online org, or allowlisted user)"
+  else
+    info "Test users:    admin/admin (admins + users), developer/developer (users only)"
+  fi
   echo ""
   info "API Server Logs:    oc logs -f -l app=hypershell-api-server -n ${OPENSHIFT_NAMESPACE}"
   info "Control Plane Logs: oc logs -f -l app=hypershell-controller -n ${OPENSHIFT_NAMESPACE}"

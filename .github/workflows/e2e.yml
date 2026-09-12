@@ -9,15 +9,22 @@ name: E2E
 # workflow runs fully concurrently with Tests as its own top-level entry in
 # the PR checks list, and GitHub Actions `needs:` cannot gate across
 # independently-triggered workflows without a cross-workflow poller, which
-# this repo deliberately avoids. tests.yml owns the triggers, concurrency
-# group, stage sequencing, and change detection: the per-component flags
-# used by plan-images arrive as inputs instead of being detected here. The
-# stage's rolled-up result, together with unit's, is turned into a single
-# required check by the `Tests CI Gate` job in tests.yml, so this workflow needs
-# no summary/gate job of its own. The `checks: read` permission and
-# the wait-on-check-action steps below remain: they gate on Konflux image
-# builds, which are an external system this workflow cannot order with
-# `needs:`.
+# this repo deliberately avoids for Unit vs Checks. tests.yml owns the
+# triggers, concurrency group, stage sequencing, and change detection: the
+# per-component flags used by plan-images arrive as inputs instead of being
+# detected here. The stage's rolled-up result, together with unit's, is
+# turned into a single required check by the `Tests CI Gate` job in
+# tests.yml, so this workflow needs no summary/gate job of its own. The
+# `checks: read` permission and the wait-on-check-action steps below remain:
+# they gate on Konflux image builds (and, for E2E OpenShift, on the separate
+# PR Environment deploy job), which this workflow cannot order with `needs:`.
+#
+# E2E OpenShift lives here (Tests / E2E / OpenShift), not inside the PR
+# Environment workflow. On origin pull_request it polls the "Deploy PR
+# environment" check, then runs the suite against that namespace. Fork PRs,
+# merge_group, and push skip it (no per-PR environment). Push to main uses
+# the separate e2e-openshift-main.yml workflow (bring-up-test-tear-down)
+# so that job does not appear as a skipped check on pull requests.
 on:
   workflow_call:
     inputs:
@@ -620,5 +627,94 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-diagnostics
+          path: e2e-diagnostics/
+          retention-days: 7
+
+  # Runs the OpenShift e2e suite against the environment the "PR Environment"
+  # workflow just deployed (ephemeral-pr-environments.spec.md). Lives here so
+  # the check is Tests / E2E / OpenShift, not nested under PR Environment.
+  # Same plan-images / should_run gate as e2e-kind: docs-only and other
+  # e2e-irrelevant PRs skip the suite (the PR Environment still deploys).
+  # Polls the Deploy PR environment check because GitHub Actions `needs:`
+  # cannot cross independently-triggered workflows.
+  e2e-openshift:
+    name: OpenShift
+    needs: plan-images
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.plan-images.outputs.should_run == 'true'
+    runs-on: ubuntu-24.04
+    # Deploy PR environment is allowed 60 minutes; the suite itself is
+    # budgeted like Kind (~45). 105 covers wait-then-run with headroom.
+    timeout-minutes: 105
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
+      KUBECONFIG: ${{ github.workspace }}/.kube/config
+    steps:
+      - name: Wait for Deploy PR environment
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-regexp: 'Deploy PR environment$'
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install oc and openshell CLI
+        run: |
+          mkdir -p "$(dirname "${KUBECONFIG}")"
+          curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+            | sudo tar -xz -C /usr/local/bin oc kubectl
+          oc version --client
+          curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.110/install.sh | OPENSHELL_VERSION=v0.0.110 sh
+          openshell --version
+
+      - name: Log in to the target cluster
+        env:
+          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
+          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
+        run: |
+          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
+            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
+            exit 1
+          fi
+          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
+          echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
+
+      - name: Run OpenShift e2e suite
+        env:
+          E2E_INFRA_DRIVER: openshift
+          E2E_OIDC_GRANT: client_credentials
+          E2E_OIDC_SA_CLIENT_ID: hypershell-e2e
+          TERM: dumb
+          NO_COLOR: "1"
+        run: |
+          secret="$(bash scripts/ci/read-e2e-client-secret.sh)"
+          echo "::add-mask::${secret}"
+          export E2E_OIDC_SA_CLIENT_SECRET="${secret}"
+          bash tests/e2e/e2e-openshell.sh
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          mkdir -p e2e-diagnostics
+          oc get pods -n "${OPENSHIFT_NAMESPACE}" -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
+          oc get events --sort-by=.lastTimestamp -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/events.txt || true
+          oc logs --all-containers --prefix --tail=200 -l app=hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/api-server.txt || true
+          oc logs --all-containers --prefix --tail=200 -l app=hypershell-controller -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/controller.txt || true
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr-env-diagnostics-${{ github.event.pull_request.number }}
           path: e2e-diagnostics/
           retention-days: 7

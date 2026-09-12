@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # e2e-openshell.sh - end-to-end test of the OpenShell gateway provisioned by HyperShell.
 #
+# DEPRECATED (ephemeral-pr-environments.spec.md, HYPERSHELL-240):
+#   This hardcoded-OpenShift pull-request e2e script is superseded by the shared,
+#   infra-agnostic harness at tests/e2e/e2e-openshell.sh run with
+#   E2E_INFRA_DRIVER=openshift, which the ephemeral pull-request environment
+#   workflow drives automatically for every origin pull request. It is kept only
+#   because some team members still run it directly; do NOT add new test areas
+#   here (new coverage lands in tests/e2e/). Removal is deferred until that manual
+#   usage migrates. NOTE: this deprecation does NOT apply to the sibling ROKS
+#   script (e2e-openshell-roks.sh), which targets IBM ROKS and is out of scope.
+#
 # Proves the full path: HyperShell API → control plane → gateway provisioning
 # → openshell CLI → sandbox pod creation + interaction.
 #

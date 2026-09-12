@@ -223,19 +223,13 @@ discover_gateway_endpoint() {
 # audience mapper, and the gateway's Envoy validates aud == that client. A token
 # from the shared frontend client is rejected with InvalidAudience, so gateway and
 # CLI calls must mint tokens against the per-gateway client.
-_driver_acquire_oidc_token() {
-  _OIDC_ACCESS_TOKEN=""
-  local username="${1:-${E2E_OIDC_USERNAME}}"
-  local password="${2:-${E2E_OIDC_PASSWORD}}"
-  local client_id="${3:-${E2E_OIDC_CLIENT_ID}}"
-
+# _driver_token_request - POST the given form fields to the realm token endpoint
+# and set _OIDC_ACCESS_TOKEN from the access_token field. Every grant flow funnels
+# through here so error handling and JSON parsing stay in one place.
+_driver_token_request() {
   local token_endpoint="${E2E_OIDC_ISSUER}/protocol/openid-connect/token"
   local response
-  response=$(_driver_curl -X POST "${token_endpoint}" \
-    -d "grant_type=password" \
-    -d "client_id=${client_id}" \
-    -d "username=${username}" \
-    -d "password=${password}" 2>/dev/null || true)
+  response=$(_driver_curl -X POST "${token_endpoint}" "$@" 2>/dev/null || true)
 
   _OIDC_ACCESS_TOKEN=$(echo "$response" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
 
@@ -244,6 +238,78 @@ _driver_acquire_oidc_token() {
     dim "  Token error: $(echo "$response" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error_description','unknown'))" 2>/dev/null || echo 'no response')"
     return 1
   fi
+}
+
+# _driver_acquire_oidc_token - obtain an OIDC access token, honoring E2E_OIDC_GRANT
+# (ephemeral-pr-environments.spec.md). Keeps the same [username] [password]
+# [client_id] signature and call sites regardless of grant.
+#
+#   password (default) -- resource-owner password grant against the seeded user.
+#       The Kind path and the default for manual OpenShift runs.
+#   client_credentials -- the GitHub-brokered pull-request path. Brokered GitHub
+#       users have no password grant, so tokens come from the confidential
+#       hypershell-e2e client instead:
+#         * admin HyperShell API token (username == E2E_OIDC_USERNAME and
+#           client_id == E2E_OIDC_CLIENT_ID) -- client-credentials on
+#           hypershell-e2e.
+#         * every other call, including acquire_gateway_token_with_role --
+#           Keycloak token-exchange impersonating that principal for the
+#           requested audience. Never a password grant.
+_driver_acquire_oidc_token() {
+  _OIDC_ACCESS_TOKEN=""
+  local username="${1:-${E2E_OIDC_USERNAME}}"
+  local password="${2:-${E2E_OIDC_PASSWORD}}"
+  local client_id="${3:-${E2E_OIDC_CLIENT_ID}}"
+
+  case "${E2E_OIDC_GRANT:-password}" in
+    password)
+      _driver_token_request \
+        -d "grant_type=password" \
+        -d "client_id=${client_id}" \
+        -d "username=${username}" \
+        -d "password=${password}"
+      ;;
+    client_credentials)
+      if [[ -z "${E2E_OIDC_SA_CLIENT_SECRET:-}" ]]; then
+        red "  E2E_OIDC_GRANT=client_credentials requires E2E_OIDC_SA_CLIENT_SECRET"
+        red "  (the ${E2E_OIDC_SA_CLIENT_ID} client secret read from the Keycloak namespace after openshift-up)"
+        return 1
+      fi
+      if [[ "${username}" == "${E2E_OIDC_USERNAME}" && "${client_id}" == "${E2E_OIDC_CLIENT_ID}" ]]; then
+        # Admin HyperShell API token: client-credentials on hypershell-e2e.
+        # Per-gateway tokens (a different client_id) must not use this path:
+        # the CC token is issued for hypershell-e2e / hypershell-frontend and
+        # never carries openshell-admin on the gateway client.
+        _driver_token_request \
+          -d "grant_type=client_credentials" \
+          -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
+          -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"
+      else
+        # Impersonate the requested principal targeting that audience.
+        # Keycloak 26 standard token-exchange rejects requested_subject; this
+        # is the legacy (token-exchange feature) impersonation grant and needs
+        # a subject_token (the hypershell-e2e client-credentials token).
+        if ! _driver_token_request \
+          -d "grant_type=client_credentials" \
+          -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
+          -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"; then
+          return 1
+        fi
+        local subject_token="$_OIDC_ACCESS_TOKEN"
+        _driver_token_request \
+          -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+          -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
+          -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}" \
+          -d "subject_token=${subject_token}" \
+          -d "requested_subject=${username}" \
+          -d "audience=${client_id}"
+      fi
+      ;;
+    *)
+      red "  Unknown E2E_OIDC_GRANT '${E2E_OIDC_GRANT}' (valid: password, client_credentials)"
+      return 1
+      ;;
+  esac
 }
 
 acquire_oidc_token() {
@@ -463,6 +529,10 @@ PY
 # AssignClientRole bridge is asynchronous, so a token minted immediately after
 # gateway creation may not yet carry openshell-admin; poll until it does.
 # Sets _OIDC_ACCESS_TOKEN on success.
+#
+# Grant-agnostic: it delegates to acquire_oidc_token, so E2E_OIDC_GRANT selects
+# the flow (password grant on Kind/manual OpenShift; token-exchange impersonation
+# of the passed principal, targeting client_id, on the GitHub-brokered PR path).
 # Usage: acquire_gateway_token_with_role <user> <pass> <client_id> <role> [timeout]
 acquire_gateway_token_with_role() {
   local username="${1:?username required}"

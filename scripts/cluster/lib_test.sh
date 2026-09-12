@@ -148,6 +148,18 @@ merged="$(printf '%s' '{"id":"x","redirectUris":["https://console.hypershell.loc
 assert_eq '["https://console.apps.example.com/auth/callback", "https://console.apps.example.com"]' \
   "$(printf '%s' "${merged}" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["redirectUris"]))')" \
   "keycloak_client_with_console_redirects replaces Kind localhost URIs"
+if grep -A8 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'HYPERSHELL_CONSOLE_HOST='; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: openshift-up does not pin HYPERSHELL_CONSOLE_HOST for realm import'
+fi
+if grep 'Keycloak:' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'admin/admin'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Keycloak banner still prints admin/admin outside the test-user branch'
+else
+  PASS=$((PASS + 1))
+fi
 if grep -A3 '^cluster_teardown()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cluster_down'; then
   PASS=$((PASS + 1))
 else

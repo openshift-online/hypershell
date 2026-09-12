@@ -225,7 +225,17 @@ h1.pf-v5-c-title.pf-m-3xl,
   transition: color 0.2s ease, border-color 0.2s ease;
 }
 
+/*
+ * The control button's ::after border is composed from four separate
+ * top/right/bottom/left color variables. We only drove the bottom one (for
+ * the underline-style hover highlight), leaving top/right at PatternFly's
+ * own default (--pf-v5-global--BorderColor--300, #f0f0f0) -- nearly
+ * invisible against the white card, so the button looked borderless on top
+ * next to the password input's visibly bordered #e0e0e0 edge.
+ */
 .pf-v5-c-button.pf-m-control::after {
+  border-top-color: #e0e0e0 !important;
+  border-right-color: #e0e0e0 !important;
   border-bottom-color: #e0e0e0 !important;
   transition: border-bottom-color 0.2s ease;
 }
@@ -278,6 +288,93 @@ h1.pf-v5-c-title.pf-m-3xl,
 /* Footer */
 .pf-v5-c-login__main-footer {
   background-color: transparent;
+}
+
+/*
+ * Social login buttons (e.g. "Sign in with GitHub"). Keycloak ships these as
+ * a full-width pf-m-secondary button (blue outline, blue text) with a raw
+ * <svg> icon that has no width/height attributes -- browsers fall back to a
+ * 300x150 default replaced-element size, ballooning the whole button. Reskin
+ * to match PatternFly's tertiary button (transparent fill, pill border, icon
+ * and text centered together) and size the icon explicitly.
+ *
+ * PatternFly's secondary/tertiary variants don't draw their border on the
+ * button box (box border-width is 0) -- it's painted by a ::after
+ * pseudo-element with its own --pf-v5-c-button--after--BorderRadius, which
+ * defaults to a small radius. Overriding the box's border-radius alone
+ * rounds an invisible box and leaves the visible border square, so the
+ * pseudo-element's radius and border color both need to be driven here.
+ */
+#kc-social-providers .pf-v5-c-button.pf-m-secondary {
+  --pf-v5-c-button--after--BorderRadius: 50rem;
+  --pf-v5-c-button--m-secondary--after--BorderColor: #0066cc;
+  --pf-v5-c-button--m-secondary--hover--after--BorderColor: #004d99;
+  --pf-v5-c-button--m-secondary--focus--after--BorderColor: #004d99;
+  --pf-v5-c-button--m-secondary--active--after--BorderColor: #004d99;
+  background-color: transparent !important;
+  color: #0066cc !important;
+  border-radius: 50rem !important;
+  font-family: 'Red Hat Text', system-ui, -apple-system, sans-serif !important;
+  justify-content: center !important;
+  gap: 0.5rem;
+  transition: color 0.2s ease;
+}
+
+#kc-social-providers .pf-v5-c-button.pf-m-secondary:hover,
+#kc-social-providers .pf-v5-c-button.pf-m-secondary:focus,
+#kc-social-providers .pf-v5-c-button.pf-m-secondary:active {
+  color: #004d99 !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* The provider name ships with the pf-v5-u-m-auto utility (margin: auto
+   !important), which absorbs the button's flex free space on its own and
+   pins the icon to the far left regardless of justify-content. Zero it so
+   the icon and name sit next to each other as a single centered group. */
+#kc-social-providers .pf-v5-c-button.pf-m-secondary > span {
+  margin: 0 !important;
+}
+
+#kc-social-providers svg {
+  width: 1.25rem !important;
+  height: 1.25rem !important;
+  flex-shrink: 0;
+}
+
+/* The provider list reuses the .pf-v5-c-login__main-body class for its
+   horizontal edge-to-edge padding, but that class also carries the same
+   large PaddingBottom as the real card body wrapping it -- doubling up and
+   leaving a large gap under the button before the card ends. */
+#kc-social-providers .pf-v5-c-login__main-body {
+  padding-block-end: 0 !important;
+}
+
+/*
+ * Keycloak's base keycloak.v2 theme applies a CSS filter (invert/sepia/
+ * hue-rotate) to non-google provider icons to recolor their default black
+ * fill into Keycloak's own blue -- it repaints the rendered pixels after fill,
+ * so it fights the fixed icon color below and must be cancelled explicitly.
+ */
+#kc-social-providers svg:not(.google) {
+  filter: none !important;
+}
+
+/*
+ * Google ships a multi-color logo with per-path fills; every other provider
+ * (github, etc.) draws a single path with no fill. The button text/border is
+ * blue (tertiary style), but the icon should read as neutral ink -- dark on
+ * the light card, light on the dark card -- not the accent blue.
+ */
+#kc-social-providers svg:not(.google) path {
+  fill: #151515 !important;
+}
+
+/* Logout confirmation page -- "Do you want to log out?" text renders flush
+   against the Log out button with no separating space by default. */
+#kc-logout-confirm p.instruction {
+  margin: 0 0 1.5rem !important;
 }
 
 /* Alert styling */
@@ -382,6 +479,8 @@ h1.pf-v5-c-title.pf-m-3xl,
   }
 
   .pf-v5-c-button.pf-m-control::after {
+    border-top-color: #3c3f42 !important;
+    border-right-color: #3c3f42 !important;
     border-bottom-color: #3c3f42 !important;
   }
 
@@ -474,5 +573,25 @@ h1.pf-v5-c-title.pf-m-3xl,
 
   .pf-v5-c-login__footer {
     color: #a2a2a2;
+  }
+
+  #kc-social-providers .pf-v5-c-button.pf-m-secondary {
+    --pf-v5-c-button--m-secondary--after--BorderColor: #73bcf7;
+    --pf-v5-c-button--m-secondary--hover--after--BorderColor: #bee1f4;
+    --pf-v5-c-button--m-secondary--focus--after--BorderColor: #bee1f4;
+    --pf-v5-c-button--m-secondary--active--after--BorderColor: #bee1f4;
+    background-color: transparent !important;
+    color: #73bcf7 !important;
+  }
+
+  #kc-social-providers .pf-v5-c-button.pf-m-secondary:hover,
+  #kc-social-providers .pf-v5-c-button.pf-m-secondary:focus,
+  #kc-social-providers .pf-v5-c-button.pf-m-secondary:active {
+    background-color: transparent !important;
+    color: #bee1f4 !important;
+  }
+
+  #kc-social-providers svg:not(.google) path {
+    fill: #e0e0e0 !important;
   }
 }

@@ -1,0 +1,29 @@
+# Ephemeral pull-request environment reaper (ephemeral-pr-environments.spec.md,
+# Timebox and Reaping). Apply out-of-band to the shared target cluster -- by hand
+# or through Argo CD -- so expired pull-request environments are reclaimed
+# independently of any CI run:
+#
+#   kustomize build --load-restrictor=LoadRestrictionsNone deploy/e2e/reaper \
+#     | oc apply -f -
+#
+# The --load-restrictor=LoadRestrictionsNone flag is required because the reaper
+# ConfigMap is generated from the canonical scripts under scripts/ci/ (rather
+# than a duplicated copy), which live above this directory. This mirrors how
+# scripts/cluster renders the OpenShift overlay.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - rbac.yaml
+  - cronjob.yaml
+
+configMapGenerator:
+  - name: pr-env-reaper-scripts
+    files:
+      - ../../../scripts/ci/pr-env-lib.sh
+      - ../../../scripts/ci/reap-pr-environments.sh
+
+# The reaper reads the pinned script content; a rolling hash would force a
+# needless CronJob update on unrelated kustomize edits.
+generatorOptions:
+  disableNameSuffixHash: true
