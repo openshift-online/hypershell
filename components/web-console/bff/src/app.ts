@@ -12,7 +12,12 @@ import Fastify, {
   LogController,
 } from "fastify";
 
-import { clearSession, persistTokenSet, registerAuth } from "./auth.js";
+import {
+  AUTH_DENIED_PAGE_HTML,
+  clearSession,
+  persistTokenSet,
+  registerAuth,
+} from "./auth.js";
 import { hasDashboardAdminRole } from "./roles.js";
 import {
   browserRuntimeConfig,
@@ -154,10 +159,19 @@ function injectRuntimeConfig(
 }
 
 function inlineScriptHashes(document: string): string[] {
-  const hashes = new Set<string>();
-  const scriptPattern = /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/giu;
+  return cspHashes(
+    document,
+    /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/giu,
+  );
+}
 
-  for (const match of document.matchAll(scriptPattern)) {
+function inlineStyleHashes(document: string): string[] {
+  return cspHashes(document, /<style\b[^>]*>([\s\S]*?)<\/style>/giu);
+}
+
+function cspHashes(document: string, pattern: RegExp): string[] {
+  const hashes = new Set<string>();
+  for (const match of document.matchAll(pattern)) {
     const body = match[1];
     if (body) {
       hashes.add(
@@ -165,7 +179,6 @@ function inlineScriptHashes(document: string): string[] {
       );
     }
   }
-
   return [...hashes];
 }
 
@@ -195,6 +208,7 @@ export async function buildApp(
     browserRuntimeConfig(config),
   );
   const scriptHashes = inlineScriptHashes(indexDocument);
+  const styleHashes = inlineStyleHashes(AUTH_DENIED_PAGE_HTML);
 
   const app = Fastify({
     bodyLimit: 1_048_576,
@@ -239,7 +253,7 @@ export async function buildApp(
         imgSrc: ["'self'", "data:"],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'", ...scriptHashes],
-        styleSrc: ["'self'"],
+        styleSrc: ["'self'", ...styleHashes],
         styleSrcAttr: ["'none'"],
         // The BFF serves plain HTTP behind the deployment TLS terminator.
         // HTTPS already blocks mixed active content, while this directive

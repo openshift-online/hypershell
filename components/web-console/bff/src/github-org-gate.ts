@@ -53,8 +53,12 @@ export function githubIdentityAllowed(input: {
 /**
  * Evaluates the GitHub org gate for an OIDC callback.
  *
- * Allowlisted usernames skip the GitHub API. Otherwise the Keycloak-stored
- * GitHub token is used to list organizations. Any lookup failure is a denial.
+ * Allowlisted usernames skip the GitHub API. Public org membership is checked
+ * next without a GitHub token, so members who keep their membership public
+ * still get in when the OAuth App is not approved by the org. Private
+ * membership uses the Keycloak-stored GitHub token against
+ * `/user/memberships/orgs/{org}` (and `/user/orgs` as a fallback). Any
+ * lookup failure is a denial.
  */
 export async function evaluateGithubOrgGate(
   input: GithubOrgGateInput,
@@ -72,12 +76,37 @@ export async function evaluateGithubOrgGate(
   }
 
   const fetchImpl = input.fetchImpl ?? globalThis.fetch;
+  const origin = input.githubApiOrigin.replace(/\/+$/u, "");
   try {
-    const orgLogins = await fetchGithubOrgLogins({
+    if (
+      await isPublicOrgMember({
+        fetchImpl,
+        githubApiOrigin: origin,
+        orgGate: input.orgGate,
+        username: input.username,
+      })
+    ) {
+      return true;
+    }
+    const githubToken = await fetchBrokerGithubToken({
       accessToken: input.accessToken,
       fetchImpl,
-      githubApiOrigin: input.githubApiOrigin,
       oidcIssuer: input.oidcIssuer,
+    });
+    if (
+      await isActiveOrgMember({
+        fetchImpl,
+        githubApiOrigin: origin,
+        githubToken,
+        orgGate: input.orgGate,
+      })
+    ) {
+      return true;
+    }
+    const orgLogins = await fetchGithubOrgLogins({
+      fetchImpl,
+      githubApiOrigin: origin,
+      githubToken,
     });
     return githubIdentityAllowed({
       allowlist,
@@ -91,18 +120,101 @@ export async function evaluateGithubOrgGate(
   }
 }
 
-async function fetchGithubOrgLogins(input: {
-  accessToken: string;
+function githubApiHeaders(token?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "hypershell-web-console",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  if (token !== undefined) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+/**
+ * Public membership does not require an org-approved OAuth App. GitHub
+ * returns 204 for public members and 404 for everyone else (including
+ * private members).
+ */
+async function isPublicOrgMember(input: {
   fetchImpl: typeof fetch;
   githubApiOrigin: string;
-  oidcIssuer: string;
+  orgGate: string;
+  username: string | undefined;
+}): Promise<boolean> {
+  const username = input.username?.trim();
+  const orgGate = input.orgGate.trim();
+  if (username === undefined || username.length === 0 || orgGate.length === 0) {
+    return false;
+  }
+  const org = encodeURIComponent(orgGate);
+  const login = encodeURIComponent(username);
+  const response = await input.fetchImpl(
+    `${input.githubApiOrigin}/orgs/${org}/public_members/${login}`,
+    {
+      headers: githubApiHeaders(),
+      signal: AbortSignal.timeout(githubRequestTimeoutMs),
+    },
+  );
+  return response.status === 204;
+}
+
+/**
+ * Private (and public) membership for the authenticated user. A 403 usually
+ * means the OAuth App is blocked by the org's third-party access policy, in
+ * which case `/user/orgs` also omits the org.
+ */
+async function isActiveOrgMember(input: {
+  fetchImpl: typeof fetch;
+  githubApiOrigin: string;
+  githubToken: string;
+  orgGate: string;
+}): Promise<boolean> {
+  const orgGate = input.orgGate.trim();
+  if (orgGate.length === 0) {
+    return false;
+  }
+  const response = await input.fetchImpl(
+    `${input.githubApiOrigin}/user/memberships/orgs/${encodeURIComponent(orgGate)}`,
+    {
+      headers: githubApiHeaders(input.githubToken),
+      signal: AbortSignal.timeout(githubRequestTimeoutMs),
+    },
+  );
+  if (response.status === 404) {
+    return false;
+  }
+  if (response.status === 403) {
+    throw new Error(
+      `GitHub org membership failed with HTTP 403 (OAuth App may not be approved by ${orgGate})`,
+    );
+  }
+  if (!response.ok) {
+    throw new Error(
+      `GitHub org membership failed with HTTP ${String(response.status)}`,
+    );
+  }
+  const body: unknown = await response.json();
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "state" in body &&
+    body.state === "active"
+  );
+}
+
+async function fetchGithubOrgLogins(input: {
+  fetchImpl: typeof fetch;
+  githubApiOrigin: string;
+  githubToken: string;
 }): Promise<string[]> {
-  const githubToken = await fetchBrokerGithubToken(input);
-  const origin = input.githubApiOrigin.replace(/\/+$/u, "");
   const logins: string[] = [];
   // Membership visibility depends on the GitHub IdP requesting `read:org`
-  // (deploy/base/keycloak GitHub identity provider defaultScope).
-  let nextUrl: string | undefined = `${origin}/user/orgs?per_page=100`;
+  // (deploy/base/keycloak GitHub identity provider defaultScope). Orgs that
+  // restrict third-party OAuth Apps omit themselves from this list.
+  const orgList = `${input.githubApiOrigin}/user/orgs?per_page=100`;
+  let nextUrl: string | undefined = orgList;
 
   for (
     let page = 0;
@@ -110,11 +222,7 @@ async function fetchGithubOrgLogins(input: {
     page++
   ) {
     const response = await input.fetchImpl(nextUrl, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${githubToken}`,
-        "User-Agent": "hypershell-web-console",
-      },
+      headers: githubApiHeaders(input.githubToken),
       signal: AbortSignal.timeout(githubRequestTimeoutMs),
     });
     if (!response.ok) {
