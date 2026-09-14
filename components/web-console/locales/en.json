@@ -107,14 +107,6 @@
     "defaultMessage": "Managed cluster regions chart",
     "description": "Accessible title for the managed cluster region donut chart."
   },
-  "app.dashboard.managedClusterStatus.ariaDesc": {
-    "defaultMessage": "Managed cluster count by status",
-    "description": "Accessible description for the managed cluster status donut chart."
-  },
-  "app.dashboard.managedClusterStatus.chartTitle": {
-    "defaultMessage": "Managed cluster status chart",
-    "description": "Accessible title for the managed cluster status donut chart."
-  },
   "app.dashboard.managedDatabaseStatus.ariaDesc": {
     "defaultMessage": "Managed database count by status",
     "description": "Accessible description for the managed database status donut chart."
@@ -387,21 +379,9 @@
     "defaultMessage": "Cluster regions",
     "description": "Title for the managed cluster region breakdown dashboard widget."
   },
-  "app.dashboard.widget.managedClusterStatus": {
-    "defaultMessage": "Cluster status",
-    "description": "Title for the managed cluster status dashboard widget."
-  },
-  "app.dashboard.widget.managedClusters": {
-    "defaultMessage": "Clusters",
-    "description": "Title for the managed clusters count dashboard widget."
-  },
   "app.dashboard.widget.managedDatabaseStatus": {
     "defaultMessage": "Database status",
     "description": "Title for the managed database status dashboard widget."
-  },
-  "app.dashboard.widget.managedDatabases": {
-    "defaultMessage": "Databases",
-    "description": "Title for the managed databases count dashboard widget."
   },
   "app.dashboard.widget.memory": {
     "defaultMessage": "Memory",
