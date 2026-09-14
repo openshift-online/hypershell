@@ -290,25 +290,29 @@ else
   echo 'FAIL: OpenShift cluster_up does not honor SKIP_SEED'
 fi
 if grep -q 'extract_named_id' "${SCRIPT_DIR}/drivers/openshift.sh" \
-  || grep -qE '"name":"[^"]+"\[\^}\]\*"id"' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  || grep -Fq '[^}]*"id"' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift seed still greps name-then-id (misses API list JSON)'
 else
   PASS=$((PASS + 1))
 fi
-if awk '/^seed_via_api\(\)/,/^print_banner\(\)/' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'json_named_id'; then
+if grep -q 'json_named_id local-openshift' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'json_named_id dev-release' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'json_named_id openshell-db' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'json_named_id dev-gateway' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift seed_via_api does not look up existing resources with json_named_id'
 fi
-if grep -qE '"name":"[^"]+"\[\^}\]\*"id"' "${REPO_ROOT}/scripts/kind/seed.sh"; then
+if grep -Fq '[^}]*"id"' "${REPO_ROOT}/scripts/kind/seed.sh"; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: Kind seed still greps name-then-id (misses API list JSON)'
 else
   PASS=$((PASS + 1))
 fi
-if grep -q 'json_named_id' "${REPO_ROOT}/scripts/kind/seed.sh"; then
+if grep -q 'json_named_id local-kind' "${REPO_ROOT}/scripts/kind/seed.sh" \
+  && grep -q 'json_named_id dev-gateway' "${REPO_ROOT}/scripts/kind/seed.sh"; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
