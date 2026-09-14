@@ -452,12 +452,20 @@ func (c *Client) EnsureE2ETokenExchange(ctx context.Context, targetClientUUID st
 		return fmt.Errorf("keycloak client %s not found", realmManagementClientID)
 	}
 
+	// Enabling FGAP on the target client lazily initializes realm-management's
+	// authorization resource server. Without it, the policy search/create
+	// endpoints 404 on a fresh realm, so this must precede the policy work.
+	targetPermID, err := c.enableTokenExchangePermissions(ctx, targetClientUUID)
+	if err != nil {
+		return err
+	}
+
 	policyID, err := c.ensureE2EClientPolicy(ctx, rmUUID, e2eUUID)
 	if err != nil {
 		return err
 	}
 
-	if err := c.attachTokenExchangePolicy(ctx, rmUUID, targetClientUUID, policyID); err != nil {
+	if err := c.attachPolicyToPermission(ctx, rmUUID, targetPermID, policyID); err != nil {
 		return fmt.Errorf("grant token-exchange on client %s: %w", targetClientUUID, err)
 	}
 
@@ -468,7 +476,11 @@ func (c *Client) EnsureE2ETokenExchange(ctx context.Context, targetClientUUID st
 	if frontendUUID == "" || frontendUUID == targetClientUUID {
 		return nil
 	}
-	if err := c.attachTokenExchangePolicy(ctx, rmUUID, frontendUUID, policyID); err != nil {
+	frontendPermID, err := c.enableTokenExchangePermissions(ctx, frontendUUID)
+	if err != nil {
+		return err
+	}
+	if err := c.attachPolicyToPermission(ctx, rmUUID, frontendPermID, policyID); err != nil {
 		return fmt.Errorf("grant token-exchange on %s: %w", frontendClientID, err)
 	}
 	return nil
@@ -533,7 +545,10 @@ func (c *Client) findE2EClientPolicy(ctx context.Context, realmMgmtUUID string) 
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 
-	if resp.StatusCode == http.StatusNoContent || len(bytes.TrimSpace(body)) == 0 {
+	// Keycloak's policy search-by-name returns 404 (not an empty 200/204) when no
+	// policy of that name exists yet, so treat it as "not found" and let the caller
+	// create the policy rather than failing the reconcile.
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound || len(bytes.TrimSpace(body)) == 0 {
 		return "", nil
 	}
 	if resp.StatusCode >= 400 {
@@ -547,12 +562,7 @@ func (c *Client) findE2EClientPolicy(ctx context.Context, realmMgmtUUID string) 
 	return found.ID, nil
 }
 
-func (c *Client) attachTokenExchangePolicy(ctx context.Context, realmMgmtUUID, targetClientUUID, policyID string) error {
-	permID, err := c.enableTokenExchangePermissions(ctx, targetClientUUID)
-	if err != nil {
-		return err
-	}
-
+func (c *Client) attachPolicyToPermission(ctx context.Context, realmMgmtUUID, permID, policyID string) error {
 	associatedPath := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/policy/%s/associatedPolicies",
 		c.realm, realmMgmtUUID, permID)
 	associatedBody, err := c.doRequest(ctx, http.MethodGet, associatedPath, nil)

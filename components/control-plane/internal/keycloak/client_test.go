@@ -674,7 +674,11 @@ func newTokenExchangeServer(t *testing.T, fake *tokenExchangeFake) *httptest.Ser
 			exists := fake.policyExists
 			fake.mu.Unlock()
 			if !exists {
-				w.WriteHeader(http.StatusNoContent)
+				// Real Keycloak returns 404 (not 204) from policy search-by-name
+				// when no policy of that name exists yet.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "HTTP 404 Not Found"})
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
