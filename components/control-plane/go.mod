@@ -5,7 +5,7 @@ go 1.26.4
 toolchain go1.26.7
 
 require (
-	github.com/golang-jwt/jwt/v4 v4.5.0
+	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
 	github.com/openshift-online/hypershell/components/api-server v0.0.0-00010101000000-000000000000
