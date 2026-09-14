@@ -158,7 +158,7 @@ if [[ -z "${seed_failed}" ]]; then
   EXISTING_MC_RESP=$(echo "${EXISTING_MC_RAW}" | sed '$d')
 
   if [[ "${EXISTING_MC_HTTP}" == "200" ]]; then
-    CLUSTER_ID=$(echo "${EXISTING_MC_RESP}" | grep -o '"name":"local-kind"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    CLUSTER_ID=$(printf '%s' "${EXISTING_MC_RESP}" | json_named_id local-kind)
     if [[ -n "${CLUSTER_ID}" ]]; then
       success "local-kind ManagedCluster already exists: ${CLUSTER_ID}"
     fi
@@ -193,7 +193,7 @@ if [[ -z "${seed_failed}" ]]; then
   EXISTING_GR_RESP=$(echo "${EXISTING_GR_RAW}" | sed '$d')
 
   if [[ "${EXISTING_GR_HTTP}" == "200" ]]; then
-    RELEASE_ID=$(echo "${EXISTING_GR_RESP}" | grep -o '"name":"dev-release"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    RELEASE_ID=$(printf '%s' "${EXISTING_GR_RESP}" | json_named_id dev-release)
     if [[ -n "${RELEASE_ID}" ]]; then
       success "dev-release GatewayRelease already exists: ${RELEASE_ID}"
     fi
@@ -228,7 +228,7 @@ if [[ -z "${seed_failed}" ]]; then
     EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
 
     if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
-      DATABASE_ID=$(echo "${EXISTING_MD_RESP}" | grep -o '"name":"openshell-db"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+      DATABASE_ID=$(printf '%s' "${EXISTING_MD_RESP}" | json_named_id openshell-db)
       if [[ -n "${DATABASE_ID}" ]]; then
         success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
       fi
@@ -274,7 +274,7 @@ if [[ -z "${seed_failed}" ]]; then
   EXISTING_GW_RESP=$(echo "${EXISTING_GW_RAW}" | sed '$d')
 
   if [[ "${EXISTING_GW_HTTP}" == "200" ]]; then
-    EXISTING_GW_ID=$(echo "${EXISTING_GW_RESP}" | grep -o '"name":"dev-gateway"[^}]*"id":"[^"]*"' | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true)
+    EXISTING_GW_ID=$(printf '%s' "${EXISTING_GW_RESP}" | json_named_id dev-gateway)
     if [[ -n "${EXISTING_GW_ID}" ]]; then
       success "dev-gateway already exists: ${EXISTING_GW_ID}"
       GATEWAY_ID="${EXISTING_GW_ID}"

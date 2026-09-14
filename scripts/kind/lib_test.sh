@@ -71,6 +71,12 @@ assert_ok "tab-format web-console is swapped" is_swapped web-console
 assert_eq "hot-reload" "$(swap_image web-console)" "tab-format swap_image"
 assert_fail "api-server-extra is not matched as api-server" is_swapped api-server-extra
 
+_api_list='{"kind":"GatewayList","items":[{"id":"2FhMpQzXBzABC","kind":"Gateway","name":"dev-gateway","cluster_id":"c1"}]}'
+assert_eq "2FhMpQzXBzABC" "$(printf '%s' "${_api_list}" | json_named_id dev-gateway)" \
+  "json_named_id finds id-before-name list items"
+assert_eq "" "$(printf '%s' "${_api_list}" | json_named_id missing-gateway)" \
+  "json_named_id is empty when the name is absent"
+
 echo "Kind swap ledger tests: ${PASS} passed, ${FAIL} failed"
 if ((FAIL > 0)); then
   exit 1

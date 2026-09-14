@@ -1118,12 +1118,6 @@ seed_via_api() {
     fi
   }
 
-  extract_named_id() {
-    local resp="$1" name="$2"
-    printf '%s' "${resp}" | grep -o "\"name\":\"${name}\"[^}]*\"id\":\"[^\"]*\"" \
-      | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true
-  }
-
   extract_id() {
     local resp="$1"
     if echo "${resp}" | grep -q '"kind":"Error"'; then
@@ -1140,7 +1134,7 @@ seed_via_api() {
   http="$(printf '%s' "${raw}" | tail -1)"
   body="$(printf '%s' "${raw}" | sed '$d')"
   if [[ "${http}" == "200" ]]; then
-    CLUSTER_ID="$(extract_named_id "${body}" local-openshift)"
+    CLUSTER_ID="$(printf '%s' "${body}" | json_named_id local-openshift)"
   fi
   if [[ -z "${CLUSTER_ID}" ]]; then
     info "Creating ManagedCluster..."
@@ -1164,7 +1158,7 @@ seed_via_api() {
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     if [[ "${http}" == "200" ]]; then
-      RELEASE_ID="$(extract_named_id "${body}" dev-release)"
+      RELEASE_ID="$(printf '%s' "${body}" | json_named_id dev-release)"
     fi
     if [[ -z "${RELEASE_ID}" ]]; then
       info "Creating GatewayRelease..."
@@ -1191,7 +1185,7 @@ seed_via_api() {
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     if [[ "${http}" == "200" ]]; then
-      DATABASE_ID="$(extract_named_id "${body}" openshell-db)"
+      DATABASE_ID="$(printf '%s' "${body}" | json_named_id openshell-db)"
     fi
     if [[ -n "${DATABASE_ID}" ]] && ! cnpg_available \
       && printf '%s' "${body}" | grep -Fq '"provider":"cnpg"'; then
@@ -1222,7 +1216,7 @@ seed_via_api() {
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     if [[ "${http}" == "200" ]]; then
-      GATEWAY_ID="$(extract_named_id "${body}" dev-gateway)"
+      GATEWAY_ID="$(printf '%s' "${body}" | json_named_id dev-gateway)"
     fi
     if [[ -z "${GATEWAY_ID}" ]]; then
       info "Creating Gateway with OIDC..."

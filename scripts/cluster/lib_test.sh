@@ -67,6 +67,27 @@ assert_fail "uppercase rejected" validate_rfc1123_label "Alice" 54
 assert_fail "underscore rejected" validate_rfc1123_label "alice_dev" 54
 assert_eq "tok" "$(printf '%s' '{"access_token":"tok","expires_in":60}' | json_string_field access_token)" "json_string_field access_token"
 assert_eq "abc-id" "$(printf '%s' '[{"id":"abc-id","clientId":"hypershell-frontend"}]' | json_first_id)" "json_first_id"
+# Presenters emit id before name. The old grep ("name" then "id" in one object)
+# misses this shape and re-POSTs a second dev-gateway on every openshift-seed.
+_api_list='{"kind":"GatewayList","page":1,"size":100,"total":1,"items":[{"id":"2FhMpQzXBzABC","kind":"Gateway","href":"/api/hypershell/v1/gateways/2FhMpQzXBzABC","created_at":"2026-09-14T00:00:00Z","updated_at":"2026-09-14T00:00:00Z","name":"dev-gateway","cluster_id":"c1","release_id":"r1"}]}'
+assert_eq "2FhMpQzXBzABC" "$(printf '%s' "${_api_list}" | json_named_id dev-gateway)" \
+  "json_named_id finds id-before-name list items"
+assert_eq "id-default" "$(printf '%s' '{"items":[{"name":"other","id":"id-other"},{"name":"dev-gateway","id":"id-default"}]}' | json_named_id dev-gateway)" \
+  "json_named_id finds name-before-id list items"
+assert_eq "" "$(printf '%s' "${_api_list}" | json_named_id missing-gateway)" \
+  "json_named_id is empty when the name is absent"
+assert_eq "" "$(printf '%s' 'not-json' | json_named_id dev-gateway)" \
+  "json_named_id is empty on invalid JSON"
+_pretty_list='{
+  "items": [
+    {
+      "id": "pretty-id",
+      "name": "dev-gateway"
+    }
+  ]
+}'
+assert_eq "pretty-id" "$(printf '%s' "${_pretty_list}" | json_named_id dev-gateway)" \
+  "json_named_id finds pretty-printed list items"
 assert_ok "internal registry svc:port is cluster-local" \
   registry_host_is_cluster_local 'image-registry.openshift-image-registry.svc:5000'
 assert_ok "cluster.local registry is cluster-local" \
@@ -267,6 +288,31 @@ if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'ski
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_up does not honor SKIP_SEED'
+fi
+if grep -q 'extract_named_id' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  || grep -qE '"name":"[^"]+"\[\^}\]\*"id"' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seed still greps name-then-id (misses API list JSON)'
+else
+  PASS=$((PASS + 1))
+fi
+if awk '/^seed_via_api\(\)/,/^print_banner\(\)/' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'json_named_id'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seed_via_api does not look up existing resources with json_named_id'
+fi
+if grep -qE '"name":"[^"]+"\[\^}\]\*"id"' "${REPO_ROOT}/scripts/kind/seed.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Kind seed still greps name-then-id (misses API list JSON)'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -q 'json_named_id' "${REPO_ROOT}/scripts/kind/seed.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Kind seed does not look up existing resources with json_named_id'
 fi
 if grep -B2 'db_provider="\$(effective_database_provider)"' "${SCRIPT_DIR}/drivers/openshift.sh" >/dev/null \
   && grep -A20 'Creating ManagedDatabase' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'provider='; then

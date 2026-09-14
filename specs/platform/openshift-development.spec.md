@@ -197,7 +197,15 @@ Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
 developer needs for a working gateway -- a ManagedCluster, a
 GatewayRelease, a ManagedDatabase, and a Gateway -- with the OpenShift Route and
 OIDC values for the environment, so that one command produces a working gateway and
-the OpenShift workflow matches the Kind workflow.
+the OpenShift workflow matches the Kind workflow. Seeding SHALL be reuse-or-create
+for those named seed resources (`local-openshift`, `dev-release`, `openshell-db`,
+`dev-gateway`): when a resource with that name already exists, the command SHALL
+reuse its id and SHALL NOT POST a second copy. Gateway names are not unique in the
+API, so a second `make openshift-up` or `make openshift-seed` against a namespace
+that already has a `dev-gateway` SHALL leave a single Gateway with that name. This
+keeps seed safe to re-run on every reconcile of a long-lived environment
+(ephemeral pull-request environments re-run `make openshift-seed` after each
+image swap).
 
 The platform's own database provider (CNPG `Cluster` vs. the bundled PostgreSQL
 Deployment) SHALL be selectable with `DATABASE_PROVIDER=cnpg|deployment`, mirroring
@@ -300,6 +308,15 @@ NOT be registered.
 - THEN `hypershell-frontend` redirect URIs include the web-console Route `/auth/callback`
 - AND the driver obtained the seed API token from the Keycloak Route
 - AND Keycloak accepts the BFF `redirect_uri` for that console host
+
+#### Scenario: Seeding reuses existing named resources
+
+- GIVEN the environment already has a ManagedCluster named `local-openshift`, a
+  GatewayRelease named `dev-release`, a ManagedDatabase named `openshell-db`, and
+  a Gateway named `dev-gateway`
+- WHEN the developer runs `make openshift-up` or `make openshift-seed`
+- THEN the command reuses those existing resources
+- AND it does not create a second Gateway named `dev-gateway`
 
 #### Scenario: Remove the deployment
 
