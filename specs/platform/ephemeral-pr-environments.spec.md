@@ -250,9 +250,9 @@ time. Bring-up SHALL set `SKIP_SEED=true` so the baseline image never receives t
 seed POST (a request-contract change against that stale image would 400). After
 the digest swap, the workflow SHALL run `make openshift-seed` so the seed
 exercises this pull request's contract. That seed SHALL reuse existing named seed
-resources rather than create a second `dev-gateway` on a later `synchronize`
-reconcile, as `openshift-development.spec.md` defines. Unchanged components SHALL
-keep baseline registry images. The workflow
+resources on a later `synchronize` reconcile, except `dev-gateway`, which it SHALL
+delete and recreate rather than reuse or duplicate, as `openshift-development.spec.md`
+defines. Unchanged components SHALL keep baseline registry images. The workflow
 SHALL determine which components to wait for using the shared change-detection and
 Konflux-trigger-mirroring rules that `e2e-testing.spec.md` defines, so it never
 falls back to a baseline image while Konflux is building an image the pull request
@@ -288,8 +288,10 @@ artifact across the stack.
   head commit
 - AND it SHALL swap the new control plane image into the environment by digest
   before the `Deploy PR environment` check succeeds
-- AND `make openshift-seed` SHALL reuse the existing named seed resources
-- AND it SHALL NOT create a second Gateway named `dev-gateway`
+- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster`,
+  `GatewayRelease`, and `ManagedDatabase` seed resources
+- AND it SHALL delete and recreate the existing `dev-gateway` rather than reuse
+  it or create a second Gateway named `dev-gateway`
 
 #### Scenario: Immutable digest is preferred over a mutable tag
 
@@ -896,7 +898,7 @@ exists).
 | Namespace name from the pull-request number (`hypershell-ci-pr-<number>`) | A short, stable, collision-free identifier that every run for a pull request derives without external state; fits well within the DNS-label bound that keeps `-keycloak` under 63 characters. Branch names and commit SHAs are not stable for the life of one pull request |
 | Same lifecycle labels as `make openshift-up`, with `pr-<number>` as the environment id | Reuses `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment` so status and cleanup tooling stay one selector set; the `pr-` prefix lets the reaper ignore local environments. CI must be able to patch namespaces; failing closed beats an unlabeled environment the reaper cannot see |
 | `make openshift-up` on every deploying trigger, unconditionally | The command is already idempotent and reconciling, so one code path creates on first run and reconciles on later runs; branching on "does it exist" would duplicate logic and risk drift |
-| Seed after every image swap; reuse existing named resources | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) and reuse them rather than POST a second copy |
+| Seed after every image swap; reuse existing named resources, except `dev-gateway` | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) rather than POST a second copy. `dev-gateway` is the one exception: Keycloak runs on in-memory storage with no persistent volume, so a Keycloak pod restart discards its dynamically-provisioned OIDC client while the `dev-gateway` row survives untouched in PostgreSQL, and the reconciler deliberately never auto-recreates a missing client (`openshell-gateway-keycloak.spec.md`, "Existing gateway client is missing"). Reusing a `dev-gateway` that predates the current Keycloak instance would permanently strand it in status `Keycloak client is missing`, so seeding deletes and recreates it on every run instead. This is a stopgap until Keycloak has durable storage across restarts |
 | CI stamps `hypershell.redhat.io/expires-at`; `make openshift-up` does not | The timebox is a pull-request cost bound, not a local-dev contract. Stamping from the workflow after bring-up refreshes active PRs without time-boxing developer namespaces |
 | Origin `pull_request` only; Kind remains the merge-queue gate | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
 | Per-PR concurrency group | Two in-flight swaps on one namespace can leave mixed digests; cancelling or queuing the older run keeps the comment SHA honest |

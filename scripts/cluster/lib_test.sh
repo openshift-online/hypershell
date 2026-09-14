@@ -1141,6 +1141,26 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: kind-up does not accept PULL_SECRET with KIND_PULL_SECRET alias'
 fi
+# Keycloak has no persistent storage (start-dev on in-memory H2), so a Keycloak
+# pod restart discards dev-gateway's OIDC client while its row survives in
+# PostgreSQL, permanently sticking it in "Keycloak client is missing" (the
+# reconciler never auto-recreates a missing client). Until Keycloak gets
+# durable storage, seed_via_api must delete and recreate dev-gateway on every
+# run instead of reusing whatever it finds.
+if awk '/^seed_via_api\(\)/,0' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -A20 'json_named_id dev-gateway' | grep -q 'api_exec DELETE "/api/hypershell/v1/gateways/\${GATEWAY_ID}"'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seed_via_api does not delete an existing dev-gateway before recreating it'
+fi
+if awk '/^seed_via_api\(\)/,0' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'dev-gateway already exists'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seed_via_api still reuses an existing dev-gateway instead of recreating it'
+else
+  PASS=$((PASS + 1))
+fi
 
 printf 'OpenShift lifecycle tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

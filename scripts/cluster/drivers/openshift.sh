@@ -1228,22 +1228,34 @@ seed_via_api() {
     if [[ "${http}" == "200" ]]; then
       GATEWAY_ID="$(printf '%s' "${body}" | json_named_id dev-gateway)"
     fi
+    # Keycloak runs start-dev on in-memory H2 with no persistent volume, so any
+    # Keycloak pod restart (a config change, node drain, upgrade) discards every
+    # dynamically-provisioned per-gateway OIDC client while dev-gateway's row
+    # survives untouched in PostgreSQL. Reusing that stale dev-gateway then
+    # permanently sticks it in status "Keycloak client is missing": the
+    # reconciler deliberately never auto-recreates a missing client, since doing
+    # so without also restoring RoleBindings and console mappers would leave it
+    # silently half-provisioned (openshell-gateway-keycloak.spec.md, "Existing
+    # gateway client is missing"). Until Keycloak has durable storage, always
+    # recreate dev-gateway here instead of reusing one that might predate the
+    # current Keycloak instance.
+    if [[ -n "${GATEWAY_ID}" ]]; then
+      info "Recreating dev-gateway ${GATEWAY_ID} (Keycloak has no persistent storage across restarts)..."
+      api_exec DELETE "/api/hypershell/v1/gateways/${GATEWAY_ID}" >/dev/null
+      GATEWAY_ID=""
+    fi
+    info "Creating Gateway with OIDC..."
+    local oidc
+    oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
+    raw="$(api_exec POST /api/hypershell/v1/gateways \
+      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
+    http="$(printf '%s' "${raw}" | tail -1)"
+    body="$(printf '%s' "${raw}" | sed '$d')"
+    GATEWAY_ID="$(extract_id "${body}")"
     if [[ -z "${GATEWAY_ID}" ]]; then
-      info "Creating Gateway with OIDC..."
-      local oidc
-      oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
-      raw="$(api_exec POST /api/hypershell/v1/gateways \
-        "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
-      http="$(printf '%s' "${raw}" | tail -1)"
-      body="$(printf '%s' "${raw}" | sed '$d')"
-      GATEWAY_ID="$(extract_id "${body}")"
-      if [[ -z "${GATEWAY_ID}" ]]; then
-        warn "Gateway creation failed (HTTP ${http}): ${body:-no response}"
-      else
-        success "Gateway created: ${GATEWAY_ID}"
-      fi
+      warn "Gateway creation failed (HTTP ${http}): ${body:-no response}"
     else
-      success "dev-gateway already exists: ${GATEWAY_ID}"
+      success "Gateway created: ${GATEWAY_ID}"
     fi
   fi
 
