@@ -13,6 +13,9 @@
 #
 # The reaper matches the platform and the -keycloak namespaces independently
 # (both carry the same labels and prefix), so one pass removes the whole group.
+# Gateway and ManagedDatabase namespaces are siblings labeled
+# hypershell.redhat.io/instance=<platform ns>; they are reaped with the platform
+# project and again if that project is already gone.
 #
 # Environment:
 #   PR_ENV_KUBECTL        kubectl/oc binary (default: kubectl)
@@ -36,6 +39,17 @@ list_owned_namespaces() {
   "${KUBECTL}" get namespaces \
     -l "${PR_ENV_OWNED_LABEL}=true" \
     -o go-template='{{range .items}}{{.metadata.name}}{{"\t"}}{{if .metadata.labels}}{{index .metadata.labels "hypershell.redhat.io/owned"}}{{end}}{{"\t"}}{{if .metadata.labels}}{{index .metadata.labels "hypershell.redhat.io/environment"}}{{end}}{{"\t"}}{{if .metadata.annotations}}{{index .metadata.annotations "hypershell.redhat.io/expires-at"}}{{end}}{{"\n"}}{{end}}'
+}
+
+# name<TAB>instance for namespaces the control plane stamped.
+list_control_plane_managed_namespaces() {
+  "${KUBECTL}" get namespaces \
+    -l "${PR_ENV_CP_MANAGED_LABEL}=${PR_ENV_CP_MANAGED_VALUE},${PR_ENV_CP_MANAGED_BY_LABEL}=${PR_ENV_CP_MANAGED_BY_VALUE}" \
+    -o go-template='{{range .items}}{{.metadata.name}}{{"\t"}}{{if .metadata.labels}}{{index .metadata.labels "hypershell.redhat.io/instance"}}{{end}}{{"\n"}}{{end}}'
+}
+
+platform_namespace_exists() {
+  "${KUBECTL}" get namespace "$1" >/dev/null 2>&1
 }
 
 # Delete this environment's cluster-scoped RBAC, mirroring cluster_down in
@@ -72,6 +86,52 @@ reap_namespace() {
   fi
 }
 
+# Delete sibling gateway/database namespaces this platform instance stamped.
+reap_instance_workloads() {
+  local instance="$1"
+  local rows name inst
+  if [[ -z "${instance}" ]]; then
+    log "  WARNING refusing to reap instance workloads with an empty instance identity"
+    return 1
+  fi
+  if ! rows="$(list_control_plane_managed_namespaces)"; then
+    log "  WARNING could not list instance-managed namespaces for ${instance}"
+    return 1
+  fi
+  while IFS=$'\t' read -r name inst; do
+    [[ -n "${name}" ]] || continue
+    [[ "${inst}" == "${instance}" ]] || continue
+    if [[ "${name}" == "${instance}" || "${name}" == "${instance}-keycloak" ]]; then
+      continue
+    fi
+    log "  instance workload ${name} (instance=${instance})"
+    reap_namespace "${name}" || true
+  done <<< "${rows}"
+}
+
+reap_leftover_instance_workloads() {
+  local rows name inst exists
+  if ! rows="$(list_control_plane_managed_namespaces)"; then
+    log "ERROR: could not list control-plane managed namespaces via ${KUBECTL}"
+    return 1
+  fi
+  while IFS=$'\t' read -r name inst; do
+    [[ -n "${name}" ]] || continue
+    exists="false"
+    if [[ -n "${inst}" ]] && platform_namespace_exists "${inst}"; then
+      exists="true"
+    fi
+    if pr_env_should_reap_instance_workload "${name}" "${inst}" "${exists}"; then
+      log "REAP leftover ${name} (instance=${inst}, platform absent)"
+      if reap_namespace "${name}"; then
+        reaped=$((reaped + 1))
+      else
+        failed=$((failed + 1))
+      fi
+    fi
+  done <<< "${rows}"
+}
+
 main() {
   local now considered=0 reaped=0 retained=0 failed=0
   now="$(pr_env_now_epoch)"
@@ -90,9 +150,11 @@ main() {
     if pr_env_is_reapable "${name}" "${owned}" "${env_id}" "${expires}" "${now}"; then
       log "REAP ${name} (env=${env_id}, expired at ${expires})"
       if reap_namespace "${name}"; then
-        # Only the platform namespace owns cluster RBAC; skip the -keycloak half.
+        # Only the platform namespace owns cluster RBAC and instance-stamped
+        # gateway/database namespaces; skip the -keycloak half.
         if [[ "${name}" != *-keycloak ]]; then
           delete_cluster_rbac "${name}"
+          reap_instance_workloads "${name}"
         fi
         reaped=$((reaped + 1))
       else
@@ -102,6 +164,8 @@ main() {
       retained=$((retained + 1))
     fi
   done <<< "${rows}"
+
+  reap_leftover_instance_workloads
 
   log "pr-env reaper: considered=${considered} reaped=${reaped} retained=${retained} failed=${failed}"
   [[ "${failed}" -eq 0 ]]

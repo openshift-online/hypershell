@@ -19,10 +19,10 @@ trap 'rm -rf "${workdir}"' EXIT
 DELETED="${workdir}/deleted.txt"
 : > "${DELETED}"
 
-# Canned namespace table the stub returns for `get namespaces`. Columns:
-# name<TAB>owned<TAB>environment<TAB>expires-at. Covers: expired PR pair (reap
-# both halves), active PR (future expiry, retain), local openshift-up env
-# (uuid id, retain), and an unlabeled-ish foreign env.
+# Canned namespace table the stub returns for `get namespaces` with the owned
+# label. Columns: name<TAB>owned<TAB>environment<TAB>expires-at. Covers: expired
+# PR pair (reap both halves), active PR (future expiry, retain), local
+# openshift-up env (uuid id, retain), and an unlabeled-ish foreign env.
 cat > "${workdir}/rows.tsv" <<EOF
 hypershell-ci-pr-232	true	pr-232	${PAST}
 hypershell-ci-pr-232-keycloak	true	pr-232	${PAST}
@@ -31,13 +31,44 @@ hypershell-ci-pr-500	true	3f9a1c2e-uuid	${PAST}
 some-dev-namespace	true	pr-1	${PAST}
 EOF
 
-# Stub kubectl: `get namespaces` -> canned rows; `delete namespace` -> record.
+# Control-plane-managed siblings. pr-232 is being reaped this pass; pr-267's
+# platform project is already gone (not in rows.tsv / live.txt); hyp5 and alice
+# must be retained.
+cat > "${workdir}/cp_managed.tsv" <<EOF
+openshell-aaa	hypershell-ci-pr-232
+openshell-db-bbb	hypershell-ci-pr-232
+openshell-ccc	hypershell-ci-pr-267
+openshell-hyp5	hyp5
+openshell-alice	alice
+EOF
+
+cat > "${workdir}/live.txt" <<EOF
+hypershell-ci-pr-232
+hypershell-ci-pr-232-keycloak
+hypershell-ci-pr-999
+hypershell-ci-pr-500
+some-dev-namespace
+hyp5
+alice
+EOF
+
+# Stub kubectl: owned list vs control-plane managed list vs existence vs delete.
 cat > "${workdir}/kubectl" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 case "\$1 \$2" in
   "get namespaces")
-    cat "${workdir}/rows.tsv"
+    if [[ "\$*" == *"hypershell.redhat.io/managed=true"* ]]; then
+      cat "${workdir}/cp_managed.tsv"
+    else
+      cat "${workdir}/rows.tsv"
+    fi
+    ;;
+  "get namespace")
+    if grep -qx "\$3" "${workdir}/live.txt"; then
+      exit 0
+    fi
+    exit 1
     ;;
   "delete namespace")
     printf '%s\n' "\$3" >> "${DELETED}"
@@ -52,8 +83,8 @@ chmod +x "${workdir}/kubectl"
 
 PR_ENV_KUBECTL="${workdir}/kubectl" bash "${SCRIPT_DIR}/reap-pr-environments.sh" >/dev/null
 
-deleted_sorted="$(sort "${DELETED}" | tr '\n' ' ')"
-expected='hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak '
+deleted_sorted="$(sort -u "${DELETED}" | tr '\n' ' ')"
+expected='hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak openshell-aaa openshell-ccc openshell-db-bbb '
 if [[ "${deleted_sorted}" == "${expected}" ]]; then
   PASS=$((PASS + 1))
 else

@@ -376,6 +376,20 @@ The reaper SHALL NOT delete namespaces that fail that match, including local
 environment identifier is not `pr-*`. It SHALL refuse reserved names
 (`default`, `kube-*`, `openshift-*`).
 
+Gateway and ManagedDatabase namespaces are not in the namespace group and do not
+carry `hypershell.redhat.io/owned`. Periodic GC cannot reap them after the
+platform project is gone (`openshell-gateway-namespace-gc.spec.md`). When the
+reaper deletes a pull-request platform namespace, it SHALL also delete namespaces
+labeled `hypershell.redhat.io/managed=true`,
+`app.kubernetes.io/managed-by=hypershell-control-plane`, and
+`hypershell.redhat.io/instance=<that platform namespace>`, matching
+`make openshift-down`. It SHALL also reap those instance-labeled namespaces when
+the platform project is already absent and the instance identity is a
+`hypershell-ci-pr-<number>` platform name, so a previous incomplete teardown
+cannot leave `openshell-*` workloads behind. It SHALL NOT delete namespaces
+labeled for a different instance, including `hyp4`, `hyp5`, and local
+`make openshift-up` environments.
+
 On pull-request `closed` (merge or close), CI SHALL release the
 environment as the primary path by removing the namespace group the same way
 `make openshift-down` does. That release SHALL live in a `closed`-only workflow
@@ -400,8 +414,21 @@ environment.
 - AND the pull request was neither merged nor closed
 - WHEN the out-of-band reaper evaluates environments
 - THEN it SHALL delete the expired namespace group
+- AND it SHALL delete namespaces labeled
+  `hypershell.redhat.io/instance=<that platform namespace>`
 - AND it SHALL delete only namespaces matching the pull-request ownership labels
-  and `pr-*` environment identifier
+  and `pr-*` environment identifier, plus that instance's managed gateway and
+  database namespaces
+
+#### Scenario: Leftover instance namespaces are reaped after the project is gone
+
+- GIVEN the platform project `hypershell-ci-pr-267` is already absent
+- AND gateway namespaces remain labeled
+  `hypershell.redhat.io/instance=hypershell-ci-pr-267`
+- WHEN the out-of-band reaper evaluates environments
+- THEN it SHALL delete those leftover instance-managed namespaces
+- AND it SHALL NOT delete namespaces labeled for `hyp4`, `hyp5`, or a local
+  `make openshift-up` environment
 
 #### Scenario: Local environments are not reaped
 
@@ -849,6 +876,7 @@ exists).
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
 | Close releases as primary path, timebox as backstop | The merge/close event frees the environment promptly in the common case; the timebox covers the case where the event does not fire or release cannot be confirmed |
+| Reap instance-labeled gateway namespaces with the namespace group | Gateway and ManagedDatabase namespaces are siblings of the platform project, not inside it. Periodic GC dies with the controller, so down and the reaper must delete `hypershell.redhat.io/instance=<platform ns>` or e2e leftovers stay on the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |

@@ -83,6 +83,44 @@ assert_not_reapable 'env id pr- without a number' \
 assert_not_reapable 'reserved openshift- namespace refused' \
   'openshift-config' 'true' 'pr-1' "${past}" "${now}"
 
+assert_eq 'true' "$(pr_env_is_pr_platform_namespace 'hypershell-ci-pr-267' && echo true || echo false)" \
+  'pr platform namespace matches'
+assert_eq 'false' "$(pr_env_is_pr_platform_namespace 'hypershell-ci-pr-267-keycloak' && echo true || echo false)" \
+  'keycloak companion is not a pr platform namespace'
+assert_eq 'false' "$(pr_env_is_pr_platform_namespace 'hyp5' && echo true || echo false)" \
+  'hub namespace is not a pr platform namespace'
+
+if pr_env_should_reap_instance_workload 'openshell-aaa' 'hypershell-ci-pr-267' 'false'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: leftover pr-267 gateway should be reaped when platform is gone'
+fi
+if pr_env_should_reap_instance_workload 'openshell-aaa' 'hypershell-ci-pr-267' 'true'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: live pr-267 gateway should be retained'
+else
+  PASS=$((PASS + 1))
+fi
+if pr_env_should_reap_instance_workload 'openshell-aaa' 'hyp5' 'false'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: hyp5 gateway should be retained even if platform lookup fails'
+else
+  PASS=$((PASS + 1))
+fi
+if pr_env_should_reap_instance_workload 'openshell-aaa' 'alice' 'false'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: local openshift-up gateway should be retained'
+else
+  PASS=$((PASS + 1))
+fi
+if pr_env_should_reap_instance_workload 'hypershell-ci-pr-267' 'hypershell-ci-pr-267' 'false'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: instance leftover path must not delete the platform project itself'
+else
+  PASS=$((PASS + 1))
+fi
+
 # --- Deploying placeholder comment (posted before the ready comment) ---
 deploying_body="$(pr_env_comment_deploying_body abcdef1234567)"
 case "${deploying_body}" in

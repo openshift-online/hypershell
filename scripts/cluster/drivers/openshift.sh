@@ -9,6 +9,14 @@ MANAGED_LABEL="app.kubernetes.io/managed-by"
 MANAGED_VALUE="hypershell-lifecycle"
 PART_OF_LABEL="app.kubernetes.io/part-of"
 PART_OF_VALUE="hypershell"
+# Control-plane stamps on gateway and ManagedDatabase namespaces. Must match
+# components/control-plane/internal/gateway/namespace.go (ManagedLabel,
+# ManagedByValue, InstanceLabel). Distinct from MANAGED_VALUE above, which marks
+# the platform/keycloak namespace group.
+CP_MANAGED_LABEL="hypershell.redhat.io/managed"
+CP_MANAGED_VALUE="true"
+CP_MANAGED_BY_VALUE="hypershell-control-plane"
+CP_INSTANCE_LABEL="hypershell.redhat.io/instance"
 
 oc_cli() {
   oc "$@"
@@ -1416,6 +1424,53 @@ remove_project() {
   return 1
 }
 
+# Selector for namespaces this control-plane instance stamped. Empty instance is
+# refused by the caller; an empty label value would match unlabeled leftovers.
+instance_managed_namespace_selector() {
+  local instance="$1"
+  printf '%s=%s,%s=%s,%s=%s' \
+    "${CP_MANAGED_LABEL}" "${CP_MANAGED_VALUE}" \
+    "${MANAGED_LABEL}" "${CP_MANAGED_BY_VALUE}" \
+    "${CP_INSTANCE_LABEL}" "${instance}"
+}
+
+# Delete gateway and ManagedDatabase namespaces this instance created. Periodic
+# GC cannot do this after the platform project is gone. Never delete the
+# platform or keycloak projects through this selector.
+delete_instance_managed_namespaces() {
+  local instance="$1"
+  if [[ -z "${instance}" ]]; then
+    error "Refusing to delete instance-managed namespaces with an empty instance identity"
+    return 1
+  fi
+  info "Removing gateway and database namespaces for instance ${instance}"
+  local selector names ns failed=""
+  selector="$(instance_managed_namespace_selector "${instance}")"
+  names="$(oc_cli get namespace -l "${selector}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+  if [[ -z "${names}" ]]; then
+    info "No instance-managed namespaces for ${instance}"
+    return 0
+  fi
+  while IFS= read -r ns; do
+    [[ -n "${ns}" ]] || continue
+    if [[ "${ns}" == "${instance}" || "${ns}" == "${instance}-keycloak" ]]; then
+      continue
+    fi
+    info "Deleting instance-managed namespace ${ns}"
+    if oc_cli delete namespace "${ns}" --ignore-not-found --wait=true --timeout=300s >/dev/null; then
+      success "Namespace ${ns} deleted"
+    else
+      warn "Failed to delete namespace ${ns}"
+      failed=true
+    fi
+  done <<< "${names}"
+  if [[ -n "${failed}" ]]; then
+    error "Failed to delete one or more instance-managed namespaces for ${instance}"
+    return 1
+  fi
+}
+
 cluster_down() {
   header "Removing OpenShift environment"
   require_openshift_cluster
@@ -1432,9 +1487,7 @@ cluster_down() {
     ok_keycloak=true
   fi
   if [[ "${ok_platform}" != "true" && "${ok_keycloak}" != "true" ]]; then
-    warn "No namespace group found for ${OPENSHIFT_NAMESPACE} / ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
-    clear_all_openshift_swaps
-    return 0
+    info "No namespace group found for ${OPENSHIFT_NAMESPACE} / ${OPENSHIFT_KEYCLOAK_NAMESPACE}; still reaping instance-managed leftovers"
   fi
 
   info "Deleting this environment's cluster-scoped RBAC..."
@@ -1444,9 +1497,14 @@ cluster_down() {
   oc_cli delete clusterrole "${prefix}hypershell-controller-scc-bind" --ignore-not-found >/dev/null 2>&1 || true
   oc_cli delete clusterrole "${prefix}hypershell-controller" --ignore-not-found >/dev/null 2>&1 || true
 
-  info "Removing namespace group ${OPENSHIFT_NAMESPACE} and ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
-  remove_project "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
-  remove_project "${OPENSHIFT_NAMESPACE}"
+  if [[ "${ok_keycloak}" == "true" || "${ok_platform}" == "true" ]]; then
+    info "Removing namespace group ${OPENSHIFT_NAMESPACE} and ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+    remove_project "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+    remove_project "${OPENSHIFT_NAMESPACE}"
+  fi
+  # After the controller is gone (or when the platform project was already
+  # absent) delete sibling gateway/database namespaces this instance stamped.
+  delete_instance_managed_namespaces "${OPENSHIFT_NAMESPACE}"
   clear_all_openshift_swaps
   success "Environment ${OPENSHIFT_NAMESPACE} (and ${OPENSHIFT_KEYCLOAK_NAMESPACE}) removed"
 }

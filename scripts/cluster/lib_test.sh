@@ -245,6 +245,35 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_down does not use the -dev- cluster-scoped prefix'
 fi
+if grep -A80 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete_instance_managed_namespaces'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_down does not delete instance-managed gateway namespaces'
+fi
+if grep -A20 '^delete_instance_managed_namespaces()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'empty instance identity'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: delete_instance_managed_namespaces does not refuse an empty instance'
+fi
+_selector_got="$(bash -c '
+  # shellcheck source=lib.sh
+  source "'"${SCRIPT_DIR}"'/lib.sh"
+  # shellcheck source=drivers/openshift.sh
+  source "'"${SCRIPT_DIR}"'/drivers/openshift.sh"
+  instance_managed_namespace_selector alice
+')"
+assert_eq \
+  'hypershell.redhat.io/managed=true,app.kubernetes.io/managed-by=hypershell-control-plane,hypershell.redhat.io/instance=alice' \
+  "${_selector_got}" \
+  "instance selector stamps managed + managed-by + instance"
+if grep -A80 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'still reaping instance-managed leftovers'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_down returns early when the platform project is already gone'
+fi
 if grep -E 'delete clusterrole(binding)? "hypershell-controller' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift down deletes unprefixed cluster-scoped names (would hit stage)'

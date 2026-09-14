@@ -334,6 +334,15 @@ The admin OIDC token from area 1 authenticates the API calls in areas 2--8 and 1
 - THEN the test SHALL poll the API until the gateway phase is `Running` or `E2E_PROVISION_TIMEOUT` seconds have elapsed
 - AND a timeout SHALL be reported as a test failure
 
+#### Scenario: Seeded Cluster and Release Discovery
+
+- GIVEN the HyperShell API is reachable and the suite has an admin bearer token
+- WHEN area 2 looks up the seeded managed cluster and gateway release
+- THEN it SHALL query `GET /managed_clusters` and `GET /gateway_releases` through `api_curl` and select by `E2E_SEED_CLUSTER_NAME` / `E2E_SEED_RELEASE_NAME`
+- AND on `E2E_INFRA_DRIVER=kind` those names SHALL default to `local-kind` / `dev-release`
+- AND on `E2E_INFRA_DRIVER=openshift` those names SHALL default to `local-openshift` / `dev-release`
+- AND when either id is missing, the suite SHALL fail the area and print whether each list body was empty, an API `Error` (code and reason), or unparseable, plus a re-seed hint (`SEED_STRICT=true make openshift-seed` or `make kind-seed`)
+
 #### Scenario: Infrastructure Verification
 
 - GIVEN a gateway has reached `Running` phase
@@ -380,7 +389,7 @@ count is an advisory recent value that may lag real time (see
 
 ### Requirement: Developer RBAC Enforcement
 
-The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`. This tier is a legitimate *user* of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator`, so it MUST NOT be able to create gateways via the HyperShell API. The suite SHALL assert both halves -- the allowed operation succeeds and the denied operation returns `403 Forbidden`.
+The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`. This tier is a legitimate *user* of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow the API server's `RBAC_DEFAULT_ROLES`: empty (OpenShift/production) MUST return `403 Forbidden`; unset Kind default `gateway:creator` MUST return 2xx. The suite SHALL read that env from the `hypershell-api-server` Deployment rather than branching on `E2E_INFRA_DRIVER`. The sandbox half SHALL succeed in both postures.
 
 #### Scenario: Openshell User May Create a Sandbox
 
@@ -393,13 +402,23 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 #### Scenario: Openshell User May Not Create a Gateway
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
+- AND the API server's `RBAC_DEFAULT_ROLES` does not include `gateway:creator` (OpenShift sets the env to empty; production isolation)
 - WHEN the developer calls `POST /api/hypershell/v1/gateways` with that token
 - THEN the API SHALL return `403 Forbidden` (the developer lacks the platform-scoped `gateway:creator` role)
 - AND the test SHALL record a pass for the denial
 
+#### Scenario: Default Creator Binding Allows Gateway Create
+
+- GIVEN a valid OIDC token has been acquired for the `developer` user
+- AND `RBAC_DEFAULT_ROLES` is unset on the API server (Kind; the process default is `gateway:creator`)
+- WHEN the developer calls `POST /api/hypershell/v1/gateways` with that token
+- THEN the API SHALL return 2xx (HYPERSHELL-262 default-role bootstrap)
+- AND the test SHALL delete the created gateway
+
 #### Scenario: Unexpected Success Is a Failure
 
 - GIVEN the `developer` user attempts to create a gateway
+- AND `RBAC_DEFAULT_ROLES` does not include `gateway:creator`
 - WHEN the API returns a 2xx status despite the missing `gateway:creator` role
 - THEN the test SHALL record a failure (RBAC not enforced)
 - AND the test SHALL delete the erroneously-created gateway to leave a clean state
@@ -889,8 +908,8 @@ deploy/
 | `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--8 and 11 |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (local dev only; unused when `E2E_OIDC_GRANT=client_credentials`) |
 | `E2E_OIDC_GRANT` | `password` | Token grant for `acquire_oidc_token` and `acquire_gateway_token_with_role`: `password` (Kind and manual OpenShift) or `client_credentials` (GitHub-brokered pull-request environments, see `ephemeral-pr-environments.spec.md`) |
-| `E2E_SEED_CLUSTER_NAME` | `local-kind` on kind; unset otherwise | Pin seed discovery to this managed-cluster name. Unset means the first list item |
-| `E2E_SEED_RELEASE_NAME` | `dev-release` on kind; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
+| `E2E_SEED_CLUSTER_NAME` | `local-kind` on kind; `local-openshift` on openshift; unset otherwise | Pin seed discovery to this managed-cluster name. Unset means the first list item |
+| `E2E_SEED_RELEASE_NAME` | `dev-release` on kind and openshift; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
 | `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
 | `E2E_DEV_PASSWORD` | `developer` | Password for the developer OIDC user (local dev only) |
 | `OPENSHELL_BIN` | `openshell` | Path to the openshell CLI binary |
@@ -1021,7 +1040,7 @@ The system SHALL provide a `make e2e-performance` target. The target SHALL run `
 
 The performance harness (`tests/e2e/e2e-performance.sh`) SHALL be infrastructure-agnostic. It SHALL call only the driver interface functions for infrastructure operations. It SHALL select the driver the same way the e2e suite does: auto-detected from the current KUBECONFIG context, with `E2E_INFRA_DRIVER` as an override. It SHALL exit with a non-zero status at startup if `E2E_INFRA_DRIVER` names a missing driver, and SHALL list the available drivers. It SHALL NOT contain any `kubectl`-only, `oc`-only, or `kind`-only command.
 
-The harness SHALL obtain the seeded cluster, release, and managed database ids the same way the e2e suite does: it SHALL query the API through `api_curl` and reuse the shared seeding helpers in `tests/e2e/lib.sh`, never hardcoding ids. When `E2E_SEED_CLUSTER_NAME` / `E2E_SEED_RELEASE_NAME` are set, discovery SHALL select the matching name; when they are unset it SHALL take the first list item (the single-seed Kind/CI layout). On `E2E_INFRA_DRIVER=kind` those names SHALL default to the `make kind-up` seeds (`local-kind`, `dev-release`). Every diagnostic or resource-inspection command SHALL invoke the Kubernetes CLI through `$(get_cli_binary)`, so it resolves to `kubectl` on Kind and `oc` on OpenShift with no change to the harness.
+The harness SHALL obtain the seeded cluster, release, and managed database ids the same way the e2e suite does: it SHALL query the API through `api_curl` and reuse the shared seeding helpers in `tests/e2e/lib.sh`, never hardcoding ids. When `E2E_SEED_CLUSTER_NAME` / `E2E_SEED_RELEASE_NAME` are set, discovery SHALL select the matching name; when they are unset it SHALL take the first list item (the single-seed Kind/CI layout). On `E2E_INFRA_DRIVER=kind` those names SHALL default to the `make kind-up` seeds (`local-kind`, `dev-release`). On `E2E_INFRA_DRIVER=openshift` they SHALL default to the `make openshift-seed` names (`local-openshift`, `dev-release`). When discovery cannot resolve both ids, it SHALL report whether each list body was an empty collection, an API `Error` (code and reason), or unparseable, and SHALL hint to re-run `SEED_STRICT=true make openshift-seed` (or `make kind-seed`). Every diagnostic or resource-inspection command SHALL invoke the Kubernetes CLI through `$(get_cli_binary)`, so it resolves to `kubectl` on Kind and `oc` on OpenShift with no change to the harness.
 
 The OpenShift driver is specified alongside this contract in `openshift-development.spec.md`; the performance harness uses it for OpenShift runs (see [Scope](#scope)). The harness SHALL contain no infra-specific code: it works with either driver with no change. OpenShift runs are manual and on-demand; the performance test is not wired into CI for any target (see [Design Decisions](#design-decisions)).
 

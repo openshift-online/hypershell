@@ -383,7 +383,7 @@ command stops with an error.
 | Target | Use |
 |--------|-----|
 | `make openshift-up` | Deploy the stack into the current oc project (`OPENSHIFT_NAMESPACE` override) and companion `${name}-keycloak`. Does not create an OpenShift cluster. Waits for component rollouts, then seeds unless `SKIP_SEED=true`. |
-| `make openshift-down` | Delete the platform and Keycloak projects. If project deletion is forbidden, strip HyperShell resources and leave the projects. |
+| `make openshift-down` | Delete the platform and Keycloak projects, then delete gateway and ManagedDatabase namespaces labeled `hypershell.redhat.io/instance=<platform ns>`. If project deletion is forbidden, strip HyperShell resources and leave the projects. |
 | `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
 | `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |
 | `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding via API and Keycloak Routes from this machine. Reuses existing named seed resources (`local-openshift`, `dev-release`, `openshell-db`, `dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |

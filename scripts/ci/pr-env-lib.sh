@@ -21,6 +21,14 @@ PR_ENV_MANAGED_VALUE="hypershell-lifecycle"
 PR_ENV_PART_OF_LABEL="app.kubernetes.io/part-of"
 PR_ENV_PART_OF_VALUE="hypershell"
 PR_ENV_EXPIRES_ANNOTATION="hypershell.redhat.io/expires-at"
+# Control-plane stamps on gateway and ManagedDatabase namespaces. Must match
+# components/control-plane/internal/gateway/namespace.go. Distinct from
+# PR_ENV_MANAGED_VALUE, which marks the platform/keycloak namespace group.
+PR_ENV_CP_MANAGED_LABEL="hypershell.redhat.io/managed"
+PR_ENV_CP_MANAGED_VALUE="true"
+PR_ENV_CP_MANAGED_BY_LABEL="app.kubernetes.io/managed-by"
+PR_ENV_CP_MANAGED_BY_VALUE="hypershell-control-plane"
+PR_ENV_CP_INSTANCE_LABEL="hypershell.redhat.io/instance"
 
 # Default timebox in days. The workflow overrides this from a single documented
 # setting (vars.PR_ENV_TIMEBOX_DAYS); the constant keeps the default in one place.
@@ -119,6 +127,31 @@ pr_env_is_reapable() {
   exp="$(pr_env_rfc3339_to_epoch "${expires_at}")" || return 1
   [[ -n "${exp}" ]] || return 1
   (( now >= exp ))
+}
+
+# pr_env_is_pr_platform_namespace <name> - true for hypershell-ci-pr-<digits>
+# only, not the companion -keycloak namespace.
+pr_env_is_pr_platform_namespace() {
+  [[ "$1" =~ ^hypershell-ci-pr-[0-9]+$ ]]
+}
+
+# pr_env_should_reap_instance_workload <workload-ns> <instance> <platform-exists>
+#
+# True when a control-plane-managed namespace is leftover from a pull-request
+# platform project that no longer exists. platform-exists is the string "true"
+# when kubectl can still get that instance's platform namespace. Local
+# openshift-up instances (alice, hyp4, hyp5) and a still-live PR platform are
+# retained.
+pr_env_should_reap_instance_workload() {
+  local workload="$1" instance="$2" platform_exists="$3"
+  pr_env_is_pr_platform_namespace "${instance}" || return 1
+  [[ "${platform_exists}" == "true" ]] && return 1
+  [[ "${workload}" != "${instance}" ]] || return 1
+  [[ "${workload}" != "${instance}-keycloak" ]] || return 1
+  if pr_env_is_reserved_namespace "${workload}"; then
+    return 1
+  fi
+  return 0
 }
 
 # pr_env_comment_deploying_body <head-sha>

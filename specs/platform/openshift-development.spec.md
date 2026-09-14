@@ -249,7 +249,26 @@ HyperShell environment. The command SHALL wait until each project is gone before
 rather than return after it has only requested deletion. When `oc delete project`
 is forbidden, the command SHALL delete HyperShell resources inside both projects
 (including the bundled Keycloak workload, which is unlabeled), wait for those
-deletes, and leave the projects. The
+deletes, and leave the projects.
+
+Gateway and ManagedDatabase workloads do not live in the platform project. The
+control plane creates sibling namespaces (`openshell-<hex>`, `openshell-db-<hex>`)
+stamped with `hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>` as
+`openshell-gateway-namespace-gc.spec.md` defines. Periodic GC cannot reap those
+after the platform project is gone, because only that instance's controller
+selects on its own identity, and deleting the project kills the controller.
+`make openshift-down` SHALL therefore delete every namespace labeled
+`hypershell.redhat.io/managed=true`,
+`app.kubernetes.io/managed-by=hypershell-control-plane`, and
+`hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>`, including ManagedDatabase
+namespaces, after the platform project is removed (or when that project is already
+absent) so the controller cannot recreate them from API state. It SHALL NOT
+delete namespaces labeled for a different instance. An empty instance identity
+SHALL refuse that selector rather than match unlabeled leftovers. This cleanup
+SHALL still run when the platform project is already gone, so a previous partial
+down can be completed with the same command.
+
+The
 `make openshift-status` command SHALL report the cluster, the environment
 namespaces, the pods, the services, the Routes, the Gateway status, and the
 component swap state, the same categories that `make kind-status` reports.
@@ -321,14 +340,27 @@ NOT be registered.
 #### Scenario: Remove the deployment
 
 - GIVEN a HyperShell deployment exists from `make openshift-up`
+- AND that environment has created gateway and ManagedDatabase namespaces labeled
+  `hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>`
 - WHEN the developer runs `make openshift-down` or `make openshift-teardown`
 - THEN the scripts delete the platform project and the companion `-keycloak` project
 - AND the command does not return until both projects are gone, or until project
   deletion is forbidden and HyperShell resources in both projects have been removed
 - AND when project deletion is forbidden, the scripts remove HyperShell
   resources from both projects, including Keycloak
+- AND the scripts delete namespaces labeled for this instance, including
+  `openshell-*` and `openshell-db-*`
+- AND the scripts do not delete namespaces labeled for a different instance
 - AND the scripts do not delete resources that belong to other environments or to
   cluster infrastructure
+
+#### Scenario: Down reaps leftover instance namespaces after the project is gone
+
+- GIVEN the platform project `hypershell-ci-pr-267` is already absent
+- AND gateway namespaces remain labeled `hypershell.redhat.io/instance=hypershell-ci-pr-267`
+- WHEN the developer runs `OPENSHIFT_NAMESPACE=hypershell-ci-pr-267 make openshift-down`
+- THEN the scripts delete those leftover instance-managed namespaces
+- AND the scripts do not delete namespaces labeled `hyp4` or `hyp5`
 
 #### Scenario: No target cluster is available
 
@@ -417,7 +449,8 @@ the projects. The command SHALL NOT require namespace labels in order to delete.
 - GIVEN two HyperShell environment namespace groups exist on one cluster
 - WHEN a developer runs `make openshift-down` for one environment
 - THEN the scripts remove only that environment's platform project and `-keycloak` project, or the HyperShell resources in them
-- AND the other environment stays intact
+- AND the scripts delete that environment's instance-labeled gateway and database namespaces
+- AND the other environment stays intact, including its instance-labeled namespaces
 
 #### Scenario: Deployment refuses a foreign namespace
 
