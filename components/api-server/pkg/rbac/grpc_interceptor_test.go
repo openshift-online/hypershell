@@ -366,7 +366,7 @@ func TestUnaryInterceptor_GatewayVersionRestrictedToServiceAccount(t *testing.T)
 		for _, username := range []string{"human-user", serviceAccount} {
 			t.Run(role+"/"+username, func(t *testing.T) {
 				lookup := fakeLookup{bindings: []BindingSummary{{RoleName: role, Scope: "gateway", GatewayID: strPtr("gw-1")}}}
-				interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{serviceAccount}})
+				interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{serviceAccount}})
 				ctx := auth.SetUsernameContext(context.Background(), username)
 				called := false
 				_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: method}, func(context.Context, interface{}) (interface{}, error) {

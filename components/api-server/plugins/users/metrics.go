@@ -31,11 +31,11 @@ type registeredUsersCollector struct {
 }
 
 type registeredUsersMetricDescs struct {
-	registeredTotal       *prometheus.Desc
-	createdLast7Days      *prometheus.Desc
-	createdLast30Days     *prometheus.Desc
-	uniqueLoginsDaily     *prometheus.Desc
-	uniqueLoginsLast7Days *prometheus.Desc
+	registeredTotal        *prometheus.Desc
+	createdLast7Days       *prometheus.Desc
+	createdLast30Days      *prometheus.Desc
+	uniqueLoginsDaily      *prometheus.Desc
+	uniqueLoginsLast7Days  *prometheus.Desc
 	uniqueLoginsLast30Days *prometheus.Desc
 }
 
@@ -96,28 +96,56 @@ func (c *registeredUsersCollector) Describe(ch chan<- *prometheus.Desc) {
 func (c *registeredUsersCollector) Collect(ch chan<- prometheus.Metric) {
 	ctx := context.Background()
 	evaluationTime := time.Now().UTC()
-	snapshot, err := c.loadSnapshot(ctx, evaluationTime)
+
+	totalRegistered, err := c.userDao.CountRegistered(ctx)
 	if err != nil {
 		ch <- prometheus.NewInvalidMetric(c.descs.registeredTotal, err)
+	} else {
+		ch <- prometheus.MustNewConstMetric(
+			c.descs.registeredTotal,
+			prometheus.GaugeValue,
+			float64(totalRegistered),
+		)
+	}
+
+	createdLast7Days, err := c.userDao.CountCreatedSince(ctx, evaluationTime.Add(-createdLookback7Days))
+	if err != nil {
+		ch <- prometheus.NewInvalidMetric(c.descs.createdLast7Days, err)
+	} else {
+		ch <- prometheus.MustNewConstMetric(
+			c.descs.createdLast7Days,
+			prometheus.GaugeValue,
+			float64(createdLast7Days),
+		)
+	}
+
+	createdLast30Days, err := c.userDao.CountCreatedSince(ctx, evaluationTime.Add(-createdLookback30Days))
+	if err != nil {
+		ch <- prometheus.NewInvalidMetric(c.descs.createdLast30Days, err)
+	} else {
+		ch <- prometheus.MustNewConstMetric(
+			c.descs.createdLast30Days,
+			prometheus.GaugeValue,
+			float64(createdLast30Days),
+		)
+	}
+
+	today := utcDayStart(evaluationTime)
+	startDate := today.AddDate(0, 0, -(activityRetentionDays - 1))
+	dailyCounts, err := c.activityDao.DailyUniqueLoginCounts(ctx, startDate, today)
+	if err != nil {
+		ch <- prometheus.NewInvalidMetric(c.descs.uniqueLoginsDaily, err)
+		ch <- prometheus.NewInvalidMetric(c.descs.uniqueLoginsLast7Days, err)
+		ch <- prometheus.NewInvalidMetric(c.descs.uniqueLoginsLast30Days, err)
 		return
 	}
 
-	ch <- prometheus.MustNewConstMetric(
-		c.descs.registeredTotal,
-		prometheus.GaugeValue,
-		float64(snapshot.TotalRegistered),
-	)
-	ch <- prometheus.MustNewConstMetric(
-		c.descs.createdLast7Days,
-		prometheus.GaugeValue,
-		float64(snapshot.CreatedLast7Days),
-	)
-	ch <- prometheus.MustNewConstMetric(
-		c.descs.createdLast30Days,
-		prometheus.GaugeValue,
-		float64(snapshot.CreatedLast30Days),
-	)
-	for _, day := range snapshot.DailyUniqueLogins {
+	if err := c.activityDao.PruneBefore(ctx, startDate); err != nil {
+		glog.Warningf("user daily activity pruning failed: %v", err)
+	}
+
+	loginSnapshot := buildUserAdoptionSnapshot(0, 0, 0, dailyCounts, evaluationTime)
+	for _, day := range loginSnapshot.DailyUniqueLogins {
 		ch <- prometheus.MustNewConstMetric(
 			c.descs.uniqueLoginsDaily,
 			prometheus.GaugeValue,
@@ -128,47 +156,11 @@ func (c *registeredUsersCollector) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(
 		c.descs.uniqueLoginsLast7Days,
 		prometheus.GaugeValue,
-		float64(snapshot.UniqueLoginsLast7Days),
+		float64(loginSnapshot.UniqueLoginsLast7Days),
 	)
 	ch <- prometheus.MustNewConstMetric(
 		c.descs.uniqueLoginsLast30Days,
 		prometheus.GaugeValue,
-		float64(snapshot.UniqueLoginsLast30Days),
+		float64(loginSnapshot.UniqueLoginsLast30Days),
 	)
-}
-
-func (c *registeredUsersCollector) loadSnapshot(ctx context.Context, evaluationTime time.Time) (*UserAdoptionSnapshot, error) {
-	totalRegistered, err := c.userDao.CountRegistered(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	createdLast7Days, err := c.userDao.CountCreatedSince(ctx, evaluationTime.Add(-createdLookback7Days))
-	if err != nil {
-		return nil, err
-	}
-
-	createdLast30Days, err := c.userDao.CountCreatedSince(ctx, evaluationTime.Add(-createdLookback30Days))
-	if err != nil {
-		return nil, err
-	}
-
-	today := utcDayStart(evaluationTime)
-	startDate := today.AddDate(0, 0, -(activityRetentionDays - 1))
-	dailyCounts, err := c.activityDao.DailyUniqueLoginCounts(ctx, startDate, today)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := c.activityDao.PruneBefore(ctx, startDate); err != nil {
-		glog.Warningf("user daily activity pruning failed: %v", err)
-	}
-
-	return buildUserAdoptionSnapshot(
-		totalRegistered,
-		createdLast7Days,
-		createdLast30Days,
-		dailyCounts,
-		evaluationTime,
-	), nil
 }
