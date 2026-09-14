@@ -10,7 +10,7 @@ import (
 
 func activityMigration() *gormigrate.Migration {
 	type UserDailyActivity struct {
-		UserID       string `gorm:"primaryKey"`
+		UserID       string    `gorm:"primaryKey"`
 		ActivityDate time.Time `gorm:"primaryKey;type:date"`
 	}
 

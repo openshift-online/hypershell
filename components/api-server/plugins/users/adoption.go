@@ -16,12 +16,12 @@ type UserAdoptionDailyLogin struct {
 // UserAdoptionSnapshot is the fleet-wide registered-user adoption aggregate
 // computed on each metrics scrape.
 type UserAdoptionSnapshot struct {
-	TotalRegistered         int64
-	CreatedLast7Days        int64
-	CreatedLast30Days       int64
-	UniqueLoginsLast7Days   int64
-	UniqueLoginsLast30Days  int64
-	DailyUniqueLogins       []UserAdoptionDailyLogin
+	TotalRegistered        int64
+	CreatedLast7Days       int64
+	CreatedLast30Days      int64
+	UniqueLoginsLast7Days  int64
+	UniqueLoginsLast30Days int64
+	DailyUniqueLogins      []UserAdoptionDailyLogin
 }
 
 func utcDayStart(value time.Time) time.Time {
