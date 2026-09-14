@@ -2,7 +2,7 @@ module github.com/openshift-online/hypershell
 
 go 1.26.4
 
-toolchain go1.26.7
+toolchain go1.27.0
 
 tool github.com/evilmartians/lefthook/v2
 
