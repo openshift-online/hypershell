@@ -80,8 +80,10 @@ spec:
                   name: hypershell-github-oauth
                   key: e2e-client-enabled
                   optional: true
-            # Set by make openshift-up from the web-console Route host. Unset on
-            # Kind, so the renderer keeps the localhost frontend redirect URIs.
+            # Set by make openshift-up on this init container from the
+            # web-console Route host. Unset on Kind, so the renderer keeps the
+            # localhost frontend redirect URIs. Must not live only on the
+            # keycloak container: start-dev --import-realm reads this render.
             - name: HYPERSHELL_CONSOLE_HOST
               value: ""
           command:

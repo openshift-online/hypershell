@@ -169,11 +169,45 @@ merged="$(printf '%s' '{"id":"x","redirectUris":["https://console.hypershell.loc
 assert_eq '["https://console.apps.example.com/auth/callback", "https://console.apps.example.com"]' \
   "$(printf '%s' "${merged}" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["redirectUris"]))')" \
   "keycloak_client_with_console_redirects replaces Kind localhost URIs"
-if grep -A8 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'HYPERSHELL_CONSOLE_HOST='; then
+_kc_patch="$(keycloak_route_env_patch 'https://keycloak.apps.example.com' 'web-console.apps.example.com')"
+assert_eq 'https://keycloak.apps.example.com' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"])')" \
+  "keycloak_route_env_patch sets KC_HOSTNAME on the keycloak container"
+assert_eq 'keycloak' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["containers"][0]["name"])')" \
+  "keycloak_route_env_patch targets container keycloak"
+assert_eq 'web-console.apps.example.com' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["initContainers"][0]["env"][0]["value"])')" \
+  "keycloak_route_env_patch sets HYPERSHELL_CONSOLE_HOST on render-realm-config"
+assert_eq 'render-realm-config' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["initContainers"][0]["name"])')" \
+  "keycloak_route_env_patch targets init container render-realm-config"
+assert_eq 'HYPERSHELL_CONSOLE_HOST' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["initContainers"][0]["env"][0]["name"])')" \
+  "keycloak_route_env_patch names the console-host env var"
+if grep -A14 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'keycloak_route_env_patch'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: openshift-up does not pin HYPERSHELL_CONSOLE_HOST for realm import'
+  echo 'FAIL: openshift-up does not stamp Keycloak route env via keycloak_route_env_patch'
+fi
+if grep -A14 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q -- '--type=strategic'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: openshift-up does not strategic-merge patch Keycloak route env'
+fi
+if grep -A14 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -Eq 'replace -f|set env deployment/keycloak'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: openshift-up still replaces or set-envs the Keycloak Deployment'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -A25 'Recycle Keycloak when GitHub OAuth secret changes' "${REPO_ROOT}/.github/workflows/pr-environment.yml" | grep -q 'already matches; skip recycle'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: PR env workflow recycles Keycloak even when the oauth-secret hash is unchanged'
 fi
 if grep 'Keycloak:' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'admin/admin'; then
   FAIL=$((FAIL + 1))

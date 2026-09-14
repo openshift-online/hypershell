@@ -126,10 +126,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # Posted before cluster login, deploy, or e2e, so this is normally the
-      # first comment the workflow adds to the pull request and the access
-      # comment stays near the top of the timeline once it is edited in place
-      # below, rather than landing wherever deploy happens to finish.
+      # Posted before cluster login, deploy, or e2e. First deploy is a
+      # no-facts placeholder so the access comment is near the top of the
+      # timeline; a later reconcile keeps the existing access-fact table and
+      # only updates the heading to the new commit.
       - name: Post initial "deploying" comment
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -232,14 +232,22 @@ jobs:
       # synchronize after the oauth Secret changed) keeps the old realm. Stamp
       # the oauth secret hash onto the pod template so a change recycles
       # Keycloak. make openshift-up sets HYPERSHELL_CONSOLE_HOST on the
-      # Deployment, so the init container re-imports the console redirect URIs
-      # instead of the localhost defaults (avoids Invalid parameter: redirect_uri).
+      # render-realm-config init container, so a recycle re-imports the console
+      # redirect URIs instead of the localhost defaults (avoids Invalid
+      # parameter: redirect_uri). Skip when the annotation already matches so
+      # we do not wipe a live realm for no reason.
       - name: Recycle Keycloak when GitHub OAuth secret changes
         run: |
           kc_ns="${OPENSHIFT_NAMESPACE}-keycloak"
           hash="$(oc get secret hypershell-github-oauth -n "${kc_ns}" \
             -o jsonpath='{.data.idp-enabled}{.data.client-id}{.data.e2e-client-enabled}' \
             | sha256sum | awk '{print $1}')"
+          current="$(oc get deploy/keycloak -n "${kc_ns}" \
+            -o jsonpath='{.spec.template.metadata.annotations.hypershell\.redhat\.io/oauth-secret}' || true)"
+          if [[ "${current}" == "${hash}" ]]; then
+            echo "Keycloak oauth-secret annotation already matches; skip recycle"
+            exit 0
+          fi
           oc patch deploy/keycloak -n "${kc_ns}" --type=merge -p \
             "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"hypershell.redhat.io/oauth-secret\":\"${hash}\"}}}}}"
           oc rollout status deploy/keycloak -n "${kc_ns}" --timeout=600s

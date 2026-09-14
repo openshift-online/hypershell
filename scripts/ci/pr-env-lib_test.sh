@@ -131,6 +131,83 @@ case "${deploying_body}" in
   *'abcdef1'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing short SHA' ;;
 esac
+case "${deploying_body}" in
+  *'| Fact | Value |'*) FAIL=$((FAIL + 1)); echo 'FAIL: first-deploy placeholder must not include the access-fact table' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+case "${deploying_body}" in
+  *'Deploying commit `abcdef1` to an ephemeral OpenShift environment.'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: first-deploy placeholder missing deploying wording' ;;
+esac
+case "${deploying_body}" in
+  *'may not be fully responsive'*) FAIL=$((FAIL + 1)); echo 'FAIL: first-deploy placeholder must not warn about an existing environment' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+
+# A later reconcile must keep the existing table: those facts do not change
+# from run to run, and wiping them hides login details for the whole swap.
+ready_body="$(pr_env_comment_body 232 abcdef1234567 hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak \
+  https://console.example.com https://api.pr-232.example.com https://web.pr-232.example.com \
+  https://api.cluster.example.com:6443 false)"
+updating_body="$(pr_env_comment_deploying_body fffffff111111 "${ready_body}")"
+case "${updating_body}" in
+  *"<!-- hypershell-pr-environment -->"*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment missing hidden marker' ;;
+esac
+case "${updating_body}" in
+  *'## HyperShell environment updating to commit `fffffff`'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment missing updating heading' ;;
+esac
+case "${updating_body}" in
+  *'may not be fully responsive during the update'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment missing unresponsive-during-update note' ;;
+esac
+case "${updating_body}" in
+  *'| Fact | Value |'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment dropped the access-fact table' ;;
+esac
+case "${updating_body}" in
+  *'| Namespaces | Platform: `hypershell-ci-pr-232` Keycloak: `hypershell-ci-pr-232-keycloak` |'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment dropped namespace facts' ;;
+esac
+case "${updating_body}" in
+  *'| OpenShift console | https://console.example.com |'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment dropped console URL' ;;
+esac
+case "${updating_body}" in
+  *'oc login --server=https://api.cluster.example.com:6443 --web'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment dropped CLI login' ;;
+esac
+case "${updating_body}" in
+  *'abcdef1'*) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment kept the previous commit SHA' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+# A still-in-progress first deploy has no table yet; a cancelled run that
+# never reached ready must keep posting the no-facts placeholder.
+still_deploying="$(pr_env_comment_deploying_body fffffff111111 "${deploying_body}")"
+case "${still_deploying}" in
+  *'| Fact | Value |'*) FAIL=$((FAIL + 1)); echo 'FAIL: in-progress first deploy must not invent a table' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+case "${still_deploying}" in
+  *'Deploying commit `fffffff` to an ephemeral OpenShift environment.'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: in-progress first deploy missing updated SHA' ;;
+esac
+# A mid-reconcile comment already has the table; the next deploying edit
+# must keep it and only advance the SHA.
+second_update="$(pr_env_comment_deploying_body 1234567890abc "${updating_body}")"
+case "${second_update}" in
+  *'## HyperShell environment updating to commit `1234567`'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: second updating comment missing new SHA heading' ;;
+esac
+case "${second_update}" in
+  *'| Namespaces | Platform: `hypershell-ci-pr-232` Keycloak: `hypershell-ci-pr-232-keycloak` |'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: second updating comment dropped namespace facts' ;;
+esac
+case "${second_update}" in
+  *'fffffff'*) FAIL=$((FAIL + 1)); echo 'FAIL: second updating comment kept the previous commit SHA' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
 
 # --- Comment body ---
 body="$(pr_env_comment_body 232 abcdef1234567 hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak \

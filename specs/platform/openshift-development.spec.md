@@ -320,13 +320,25 @@ its hostname rather than `oc exec`. The imported realm only allows
 `hypershell-frontend` redirect URIs to the web-console Route origin
 (`https://<web-console-host>/auth/callback` and `https://<web-console-host>`)
 so the BFF authorization-code callback succeeds. Wildcard redirect URIs SHALL
-NOT be registered.
+NOT be registered. The console host SHALL be stamped on the
+`render-realm-config` init container as `HYPERSHELL_CONSOLE_HOST`, not only on
+the `keycloak` container: `oc set env` without `-c` only patches
+`spec.containers` on OpenShift, and `start-dev --import-realm` on an empty H2
+store (a pod recycle) would otherwise restore the localhost defaults and
+Keycloak would reject the BFF callback (`Invalid parameter: redirect_uri`).
+The stamp SHALL be a strategic-merge patch of those two env vars. A
+get-modify-replace of the live Deployment races status updates and fails with
+`the object has been modified`.
 
 - GIVEN a developer runs `make openshift-up`
 - WHEN the deployment is ready
 - THEN `hypershell-frontend` redirect URIs include the web-console Route `/auth/callback`
+- AND the `render-realm-config` init container env `HYPERSHELL_CONSOLE_HOST` is
+  the web-console Route host
 - AND the driver obtained the seed API token from the Keycloak Route
 - AND Keycloak accepts the BFF `redirect_uri` for that console host
+- AND Keycloak still accepts that `redirect_uri` after a pod recycle that
+  re-runs `--import-realm`
 
 #### Scenario: Seeding reuses existing named resources
 

@@ -469,19 +469,23 @@ same login guidance `make openshift-up` prints at the end of a successful
 bring-up, so the comment and the command agree.
 
 The workflow SHALL post the marked comment as the first step of a deploy run,
-before cluster login, deploy, or e2e, stating that the environment is
-deploying to commit `<sha>` and containing no access facts yet. This keeps the
-access comment near the top of the pull request's timeline: because it is
+before cluster login, deploy, or e2e. When the pull request has no marked
+comment yet (first deploy), that comment SHALL state that the environment is
+deploying to commit `<sha>` and SHALL contain no access facts yet. This keeps
+the access comment near the top of the pull request's timeline: because it is
 normally the first comment the workflow ever adds, later edits do not need to
 reorder it among other bots' checks and comments. Once the environment is
 ready, the workflow SHALL edit that same marked comment in place with the
 access facts rather than posting a second comment. On each later deployment
 for the same pull request, the workflow SHALL repeat this sequence against the
-one marked comment: an early edit stating the environment is deploying to the
-new commit, then a final edit stating it has been updated to commit `<sha>`
-with refreshed login details. The `<sha>` in the final comment SHALL be the
-commit whose digest swap completed, so the comment never claims a commit the
-swap did not deploy.
+one marked comment: an early edit stating the environment is updating to the
+new commit and may not be fully responsive during the update, while retaining
+the existing access-fact table (namespaces, console URL, API Route URL,
+web-console Route URL, and CLI login do not change from reconcile to
+reconcile), then a final edit stating it has been updated to
+commit `<sha>` with refreshed login details. The `<sha>` in the final comment
+SHALL be the commit whose digest swap completed, so the comment never claims a
+commit the swap did not deploy.
 
 The comment SHALL NOT contain any credential. It SHALL include an `oc login`
 template using the `--web` flag (for example `oc login --server=<api-url>
@@ -513,9 +517,15 @@ public artifact.
 #### Scenario: Comment updated on each new commit
 
 - GIVEN a pull request already has an access comment that carries the marker
+  and an access-fact table
 - WHEN a new commit's deploy run starts
 - THEN the workflow SHALL edit that marked comment to say the environment is
-  deploying to the new commit
+  updating to the new commit
+- AND the comment SHALL note that the environment may not be fully responsive
+  during the update
+- AND the comment SHALL retain the existing access-fact table
+- AND the workflow SHALL NOT replace the comment with the first-deploy
+  placeholder that has no access facts
 - AND WHEN that commit's digest swap completes
 - THEN the workflow SHALL edit the same marked comment again to say the
   environment was updated to commit `<sha>`
@@ -647,6 +657,24 @@ organization, allowlist, or OAuth App does not require an overlay edit.
 - AND GitHub SHALL NOT redirect to the `hypershell-ci-pr-232-keycloak` Route host
 - AND the callback SHALL complete the broker login against that pull request's
   Keycloak
+
+#### Scenario: Keycloak recycle keeps the console redirect URIs
+
+`start-dev --import-realm` only loads the rendered realm into an empty data
+dir. Recycle after an OAuth-secret change SHALL re-import
+`hypershell-frontend` redirect URIs for the web-console Route, not the
+localhost defaults from the overlay. `make openshift-up` SHALL stamp
+`HYPERSHELL_CONSOLE_HOST` on the `render-realm-config` init container so that
+import is durable. The workflow SHALL skip the recycle when the oauth-secret
+annotation already matches.
+
+- GIVEN `make openshift-up` has stamped the web-console Route host on
+  `render-realm-config`
+- WHEN CI recycles Keycloak because the GitHub OAuth secret hash changed
+- THEN `--import-realm` re-imports `hypershell-frontend` redirect URIs for that
+  console host
+- AND Keycloak SHALL NOT reject the BFF `redirect_uri` with
+  `Invalid parameter: redirect_uri`
 
 #### Scenario: Missing GitHub OAuth configuration fails bring-up
 

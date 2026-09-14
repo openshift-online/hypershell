@@ -483,6 +483,36 @@ json.dump(doc, sys.stdout)
 ' "${console_host}"
 }
 
+# Strategic-merge patch that stamps Route-derived Keycloak env on the named
+# containers. HYPERSHELL_CONSOLE_HOST is read by init container
+# render-realm-config, not by the keycloak container. `oc set env` without -c
+# only patches spec.containers on OpenShift, so a later start-dev --import-realm
+# on empty H2 would restore localhost frontend redirect URIs. A full-object
+# replace races Deployment status updates ("the object has been modified").
+keycloak_route_env_patch() {
+  local kc_hostname="$1"
+  local console_host="$2"
+  python3 -c 'import json,sys
+kc_hostname, console_host = sys.argv[1], sys.argv[2]
+json.dump({
+    "spec": {
+        "template": {
+            "spec": {
+                "initContainers": [{
+                    "name": "render-realm-config",
+                    "env": [{"name": "HYPERSHELL_CONSOLE_HOST", "value": console_host}],
+                }],
+                "containers": [{
+                    "name": "keycloak",
+                    "env": [{"name": "KC_HOSTNAME", "value": kc_hostname}],
+                }],
+            }
+        }
+    }
+}, sys.stdout)
+' "${kc_hostname}" "${console_host}"
+}
+
 # SKIP_SEED and SEED_STRICT apply to Kind and OpenShift. KIND_* names remain aliases.
 skip_seed() {
   case "${SKIP_SEED:-${KIND_SKIP_SEED:-}}" in

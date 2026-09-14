@@ -154,19 +154,54 @@ pr_env_should_reap_instance_workload() {
   return 0
 }
 
-# pr_env_comment_deploying_body <head-sha>
+# pr_env_comment_access_facts <body>
 #
-# Render the placeholder comment a deploy run posts immediately on start,
-# before the environment exists or any access facts are known. Carries the
-# same hidden marker as pr_env_comment_body, so the later "ready" update
-# edits this comment in place rather than posting a second one. Because this
-# step runs first in the job -- before cluster login, deploy, or e2e -- it is
-# normally the first comment this workflow ever adds to the pull request,
-# which is what keeps the access comment near the top of the pull request's
-# timeline instead of appearing after other bots' checks/comments.
+# Print the access-fact table and everything after it from an existing marked
+# comment, or return non-zero when the body has no table. Namespaces, console
+# URL, API Route URL, web-console Route URL, and the CLI login do not change
+# from reconcile to reconcile, so a later deploying edit keeps this block
+# instead of replacing the comment with the first-deploy placeholder.
+pr_env_comment_access_facts() {
+  local body="${1:-}"
+  local prefix="${body%%"| Fact | Value |"*}"
+  [[ "${prefix}" != "${body}" ]] || return 1
+  printf '%s' "| Fact | Value |${body#*"| Fact | Value |"}"
+}
+
+# pr_env_comment_deploying_body <head-sha> [existing-body]
+#
+# Render the in-progress comment a deploy run posts immediately on start,
+# before cluster login, deploy, or e2e. Carries the same hidden marker as
+# pr_env_comment_body, so the later "ready" update edits this comment in
+# place rather than posting a second one.
+#
+# First deploy (no existing-body, or an existing-body with no access-fact
+# table): a placeholder with the head SHA and no access facts. That is
+# normally the first comment this workflow ever adds, which keeps the access
+# comment near the top of the pull request's timeline.
+#
+# Later reconcile (existing-body already has the access-fact table): the
+# heading states the environment is updating to the new commit, and the
+# existing table is retained so login details stay visible while the swap
+# runs.
 pr_env_comment_deploying_body() {
   local head_sha="$1"
+  local existing="${2:-}"
   local short_sha="${head_sha:0:7}"
+  local facts=""
+  if facts="$(pr_env_comment_access_facts "${existing}")"; then
+    cat <<EOF
+${PR_ENV_COMMENT_MARKER}
+## HyperShell environment updating to commit \`${short_sha}\`
+
+Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The
+environment may not be fully responsive during the update. This comment will
+update in place once the environment is ready.
+
+${facts}
+EOF
+    return 0
+  fi
   cat <<EOF
 ${PR_ENV_COMMENT_MARKER}
 ## HyperShell environment deploying
