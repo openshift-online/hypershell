@@ -124,27 +124,26 @@ h1.pf-v5-c-title.pf-m-3xl,
 }
 
 /* Form inputs */
+/*
+ * PatternFly 5 normally draws this border with ::before (top/right/left)
+ * plus an ::after hairline (bottom only, widened natively on :focus-within).
+ * That split rendering goes sub-pixel-inconsistent between a standalone
+ * form-control (username) and one nested in a flex .pf-v5-c-input-group
+ * (password + reveal button), making one look thicker than the other.
+ * Painting a single explicit border directly on the element keeps both
+ * fields pixel-identical regardless of their parent layout.
+ */
 .pf-v5-c-form-control {
-  --pf-v5-c-form-control--BorderTopColor: #e0e0e0;
-  --pf-v5-c-form-control--BorderRightColor: #e0e0e0;
-  --pf-v5-c-form-control--BorderBottomColor: #e0e0e0;
-  --pf-v5-c-form-control--BorderLeftColor: #e0e0e0;
-  --pf-v5-c-form-control--hover--BorderBottomColor: #0066cc;
-  --pf-v5-c-form-control--focus--BorderBottomColor: #0066cc;
-  --pf-v5-c-form-control--m-expanded--BorderBottomColor: #0066cc;
-  --pf-v5-c-form-control--BackgroundColor: #ffffff;
-  --pf-v5-c-form-control--Color: #151515;
-  --pf-v5-c-form-control--OutlineOffset: 0;
-  --pf-v5-c-form-control--after--BorderBottomColor: #e0e0e0;
-  --pf-v5-c-form-control--hover__after--BorderBottomColor: #0066cc;
-  --pf-v5-c-form-control--focus__after--BorderBottomColor: #0066cc;
+  box-sizing: border-box !important;
   background-color: #ffffff !important;
-  border-color: #e0e0e0 !important;
   color: #151515 !important;
+  border: 1px solid #e0e0e0 !important;
+  transition: border-color 0.2s ease;
 }
 
-.pf-v5-c-form-control::before {
-  border-color: #e0e0e0 !important;
+.pf-v5-c-form-control::before,
+.pf-v5-c-form-control::after {
+  border: none !important;
 }
 
 .pf-v5-c-form-control input {
@@ -152,16 +151,7 @@ h1.pf-v5-c-title.pf-m-3xl,
   color: #151515 !important;
 }
 
-.pf-v5-c-form-control::after {
-  border-bottom-color: #e0e0e0 !important;
-  transition: border-bottom-color 0.2s ease;
-}
-
-.pf-v5-c-form-control:hover::after,
-.pf-v5-c-form-control:focus-within::after {
-  border-bottom-color: #0066cc !important;
-}
-
+.pf-v5-c-form-control:hover,
 .pf-v5-c-form-control:focus-within,
 .pf-v5-c-form-control:focus {
   border-color: #0066cc !important;
@@ -425,28 +415,18 @@ h1.pf-v5-c-title.pf-m-3xl,
   }
 
   .pf-v5-c-form-control {
-    --pf-v5-c-form-control--BorderTopColor: #3c3f42;
-    --pf-v5-c-form-control--BorderRightColor: #3c3f42;
-    --pf-v5-c-form-control--BorderBottomColor: #3c3f42;
-    --pf-v5-c-form-control--BorderLeftColor: #3c3f42;
-    --pf-v5-c-form-control--BackgroundColor: #1b1d21;
-    --pf-v5-c-form-control--Color: #e0e0e0;
-    --pf-v5-c-form-control--after--BorderBottomColor: #3c3f42;
     background-color: #1b1d21 !important;
-    border-color: #3c3f42 !important;
     color: #e0e0e0 !important;
+    border: 1px solid #3c3f42 !important;
   }
 
-  .pf-v5-c-form-control::before {
-    border-color: #3c3f42 !important;
+  .pf-v5-c-form-control::before,
+  .pf-v5-c-form-control::after {
+    border: none !important;
   }
 
   .pf-v5-c-form-control input {
     color: #e0e0e0 !important;
-  }
-
-  .pf-v5-c-form-control::after {
-    border-bottom-color: #3c3f42 !important;
   }
 
   .pf-v5-c-form__label-text {
@@ -498,11 +478,7 @@ h1.pf-v5-c-title.pf-m-3xl,
     color: #a2a2a2 !important;
   }
 
-  .pf-v5-c-form-control:hover::after,
-  .pf-v5-c-form-control:focus-within::after {
-    border-bottom-color: #1fa7f8 !important;
-  }
-
+  .pf-v5-c-form-control:hover,
   .pf-v5-c-form-control:focus-within,
   .pf-v5-c-form-control:focus {
     border-color: #1fa7f8 !important;
