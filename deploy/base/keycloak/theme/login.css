@@ -138,7 +138,7 @@ h1.pf-v5-c-title.pf-m-3xl,
   background-color: #ffffff !important;
   color: #151515 !important;
   border: 1px solid #e0e0e0 !important;
-  transition: border-color 0.2s ease;
+  transition: border-bottom-color 0.2s ease;
 }
 
 .pf-v5-c-form-control::before,
@@ -151,10 +151,18 @@ h1.pf-v5-c-title.pf-m-3xl,
   color: #151515 !important;
 }
 
+/*
+ * Highlight only the bottom edge on hover/focus. The password field's
+ * right edge sits flush against the reveal button's left border inside
+ * .pf-v5-c-input-group; recoloring all four sides here would turn that
+ * edge blue while the button's edge stays gray, producing a mismatched
+ * seam. Leaving the right/top/left edges gray keeps that seam consistent
+ * with the button's own default state.
+ */
 .pf-v5-c-form-control:hover,
 .pf-v5-c-form-control:focus-within,
 .pf-v5-c-form-control:focus {
-  border-color: #0066cc !important;
+  border-bottom-color: #0066cc !important;
   outline: none !important;
 }
 
@@ -481,7 +489,7 @@ h1.pf-v5-c-title.pf-m-3xl,
   .pf-v5-c-form-control:hover,
   .pf-v5-c-form-control:focus-within,
   .pf-v5-c-form-control:focus {
-    border-color: #1fa7f8 !important;
+    border-bottom-color: #1fa7f8 !important;
   }
 
   .pf-v5-c-button.pf-m-primary {
