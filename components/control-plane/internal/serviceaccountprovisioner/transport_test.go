@@ -43,7 +43,12 @@ func TestListenAndServeServesPlaintextProvisionerCalls(t *testing.T) {
 
 	callCtx, callCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer callCancel()
-	response, err := client.Provision(callCtx, &pb.ProvisionRequest{Spec: &pb.ServiceAccountSpec{GatewayId: "gateway-id"}})
+	// WaitForReady retries past the connection racing ListenAndServe's own
+	// goroutine binding the listener above: without it, gRPC's default dial
+	// fails fast on the first "connection refused" instead of retrying up to
+	// callCtx's deadline, making this test flaky under CI scheduling delay.
+	response, err := client.Provision(callCtx, &pb.ProvisionRequest{Spec: &pb.ServiceAccountSpec{GatewayId: "gateway-id"}},
+		grpc.WaitForReady(true))
 	if err != nil {
 		t.Fatalf("Provision() over plaintext gRPC error = %v", err)
 	}
