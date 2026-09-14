@@ -135,6 +135,19 @@ require_swap_registry() {
   fi
 }
 
+# Laptop GOARCH for native compile stages (BUILDARCH). Distinct from
+# swap_target_goarch, which is the cluster architecture (TARGETARCH).
+swap_build_goarch() {
+  case "$(uname -m)" in
+    x86_64) printf 'amd64' ;;
+    aarch64|arm64) printf 'arm64' ;;
+    *)
+      error "Unsupported laptop architecture '$(uname -m)'. Swap builds support amd64 and arm64."
+      return 1
+      ;;
+  esac
+}
+
 # GOARCH for OpenShift swap images. Laptop architecture is not used: ROSA and
 # most OpenShift nodes are amd64, while developer laptops may be arm64.
 # SWAP_PLATFORM (linux/amd64 or linux/arm64) wins; otherwise the first node's

@@ -1623,12 +1623,14 @@ push_component_image() {
   local repo
   repo="$(swap_image_repository "${component}")" || exit 1
   local push_ref="${repo}:${tag}"
-  local target_arch
+  local build_arch target_arch
+  build_arch="$(swap_build_goarch)" || exit 1
   target_arch="$(swap_target_goarch)" || exit 1
 
-  info "Building ${component} from working tree for linux/${target_arch}..."
+  info "Building ${component} from working tree for linux/${target_arch} (native compile linux/${build_arch})..."
   ${CONTAINER_ENGINE} build --platform "linux/${target_arch}" -t "${LOCAL_IMAGE}" \
     -f "${REPO_ROOT}/${DOCKERFILE}" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} \
+    --build-arg "BUILDARCH=${build_arch}" \
     --build-arg "TARGETARCH=${target_arch}" \
     --build-arg "TARGETOS=linux" \
     "${REPO_ROOT}/${BUILD_CONTEXT}"

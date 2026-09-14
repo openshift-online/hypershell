@@ -1510,6 +1510,24 @@ except Exception:
   fi
   fi
 
+  # ── gateway list: collection GET must 200 even with no RoleBindings ──
+  # OpenShift RBAC_DEFAULT_ROLES= leaves developer with only hypershell-users.
+  # The list handler returns an empty items array; 403 is "Gateways could not
+  # be loaded" in the web console (rbac-enforcement Error Response Opacity).
+  show_cmd "curl ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 200"
+  DEV_LIST_FILE=$(mktemp)
+  DEV_LIST_STATUS=$(_driver_curl -o "${DEV_LIST_FILE}" -w '%{http_code}' \
+    "${API_HOST}/api/hypershell/v1/gateways" \
+    -H "Authorization: Bearer ${DEV_TOKEN}" 2>/dev/null || true)
+  DEV_LIST_KIND=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("kind",""))' \
+    "${DEV_LIST_FILE}" 2>/dev/null || true)
+  rm -f "${DEV_LIST_FILE}"
+  if [[ "${DEV_LIST_STATUS}" == "200" && "${DEV_LIST_KIND}" == "GatewayList" ]]; then
+    pass "Developer user: gateway list allowed (HTTP 200 GatewayList)"
+  else
+    fail_test "Developer user: gateway list returned HTTP ${DEV_LIST_STATUS:-none} kind=${DEV_LIST_KIND:-<none>} (want 200 GatewayList)"
+  fi
+
   # ── gateway create: follows the deployment's RBAC_DEFAULT_ROLES ──
   # Kind leaves RBAC_DEFAULT_ROLES unset, so the API default (gateway:creator)
   # applies and every authenticated user can create (HYPERSHELL-262). OpenShift

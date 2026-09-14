@@ -632,11 +632,16 @@ The swap build SHALL target the OpenShift node architecture, not the laptop
 architecture. When `SWAP_PLATFORM` is set (`linux/amd64` or `linux/arm64`),
 the driver SHALL use that architecture. When it is unset, the driver SHALL read
 the architecture from the cluster nodes. The driver SHALL pass
-`--platform linux/<arch>` to the container build. Component Dockerfiles SHALL
-pin Red Hat Hardened Image manifests per architecture (`amd64` and `arm64`)
-and SHALL select the pin with `TARGETARCH` (and `BUILDARCH` for a native Go
-toolchain). A single-arch pin SHALL NOT be used: that produces `Exec format
-error` when an arm64 laptop image is pulled by amd64 nodes.
+`--platform linux/<arch>` to the container build and SHALL pass `TARGETARCH`
+for that architecture. Component Dockerfiles SHALL pin Red Hat Hardened Image
+manifests per architecture (`amd64` and `arm64`) and SHALL select the runtime
+pin with `TARGETARCH`. Compile stages that cannot run under qemu SHALL select
+a native toolchain with `BUILDARCH` from the laptop architecture (`uname -m`):
+Go cross-compiles with `GOARCH=${TARGETARCH}`; the web-console Vite/esbuild
+step SHALL run on the `BUILDARCH` Node image, then install production native
+addons (including `sodium-native`) for `TARGETARCH`. A single-arch pin SHALL
+NOT be used: that produces `Exec format error` when an arm64 laptop image is
+pulled by amd64 nodes.
 
 Because more than one developer can share one cluster, each working-tree image
 SHALL have an immutable identity scoped to the source commit and to
@@ -683,8 +688,20 @@ build, which run the baseline image, and the exact image each one runs.
 - AND the OpenShift nodes are amd64
 - WHEN the developer runs `make openshift-api-server-up`
 - THEN the scripts build the API server with `--platform linux/amd64`
-- AND the Dockerfiles select the amd64 HI digest pins
+- AND the scripts pass `BUILDARCH=arm64` and `TARGETARCH=amd64`
+- AND the Dockerfiles select the amd64 HI digest pins for the runtime
 - AND the migrate init container SHALL start without `Exec format error`
+
+#### Scenario: Swap web console compiles Vite natively
+
+- GIVEN the developer laptop is arm64
+- AND the OpenShift nodes are amd64
+- WHEN the developer runs `make openshift-web-console-up`
+- THEN the scripts pass `BUILDARCH=arm64` and `TARGETARCH=amd64`
+- AND `react-router build` (Vite/esbuild) SHALL run on the arm64 Node builder,
+  not under qemu for linux/amd64
+- AND the runtime image SHALL be linux/amd64 with production native addons
+  installed for amd64
 
 #### Scenario: Swap without SWAP_REGISTRY stops
 

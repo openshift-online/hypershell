@@ -122,6 +122,14 @@ assert_eq "amd64" "$(SWAP_PLATFORM=linux/amd64 swap_target_goarch)" "SWAP_PLATFO
 assert_eq "amd64" "$(SWAP_ARCH=x86_64 SWAP_PLATFORM= swap_target_goarch)" "SWAP_ARCH x86_64"
 assert_eq "arm64" "$(SWAP_PLATFORM=linux/arm64 swap_target_goarch)" "SWAP_PLATFORM linux/arm64"
 SWAP_PLATFORM=linux/ppc64le assert_fail "unsupported SWAP_PLATFORM" swap_target_goarch
+case "$(uname -m)" in
+  x86_64) _expected_build_arch=amd64 ;;
+  aarch64|arm64) _expected_build_arch=arm64 ;;
+  *) _expected_build_arch="" ;;
+esac
+if [[ -n "${_expected_build_arch}" ]]; then
+  assert_eq "${_expected_build_arch}" "$(swap_build_goarch)" "laptop BUILDARCH matches uname -m"
+fi
 unset SWAP_PLATFORM SWAP_ARCH
 assert_eq "sha256:d3f6ac0a7627fee89b55f34745e09fc64d0073e807719a66f6b4534a96541eb6" \
   "$(printf '%s\n' \
@@ -1066,6 +1074,13 @@ else
   echo 'FAIL: swap build does not pass TARGETARCH for the cluster node architecture'
 fi
 if grep -A80 '^push_component_image()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'BUILDARCH'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap build does not pass BUILDARCH for the laptop architecture'
+fi
+if grep -A80 '^push_component_image()' "${SCRIPT_DIR}/drivers/openshift.sh" \
   | grep -q -- '--platform'; then
   PASS=$((PASS + 1))
 else
@@ -1093,6 +1108,14 @@ if grep -q 'GOARCH="${TARGETARCH' "${REPO_ROOT}/components/api-server/Dockerfile
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: Go Dockerfiles do not honor TARGETARCH for OpenShift swap cross-compile'
+fi
+if grep -q 'build-${BUILDARCH}' "${REPO_ROOT}/components/web-console/Dockerfile" \
+  && grep -q 'AS bundle' "${REPO_ROOT}/components/web-console/Dockerfile" \
+  && grep -q 'build-${TARGETARCH}' "${REPO_ROOT}/components/web-console/Dockerfile"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: web-console Dockerfile does not compile on BUILDARCH and bundle native addons on TARGETARCH'
 fi
 if grep -q 'OPENSHIFT_IMAGE_REGISTRY' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh" "${REPO_ROOT}/Makefile"; then
   FAIL=$((FAIL + 1))

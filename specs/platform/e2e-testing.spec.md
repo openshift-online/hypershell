@@ -407,6 +407,15 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 - THEN the API SHALL return `403 Forbidden` (the developer lacks the platform-scoped `gateway:creator` role)
 - AND the test SHALL record a pass for the denial
 
+#### Scenario: Openshell User May List Gateways
+
+- GIVEN a valid OIDC token has been acquired for the `developer` user
+- AND the API server's `RBAC_DEFAULT_ROLES` does not include `gateway:creator`
+- AND the developer has no per-gateway RoleBinding
+- WHEN the developer calls `GET /api/hypershell/v1/gateways`
+- THEN the API SHALL return 200 with a `GatewayList` body
+- AND the console SHALL NOT show "Gateways could not be loaded"
+
 #### Scenario: Default Creator Binding Allows Gateway Create
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
