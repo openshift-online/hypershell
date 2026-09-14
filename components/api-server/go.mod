@@ -14,7 +14,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/segmentio/ksuid v1.0.2
 	github.com/spf13/cobra v0.0.5
-	github.com/spf13/pflag v1.0.5
+	github.com/spf13/pflag v1.0.10
 	github.com/uptrace/opentelemetry-go-extra/otelgorm v0.3.2
 	github.com/yaacov/tree-search-language v0.0.0-20190923184055-1c2dad2e354b
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0
