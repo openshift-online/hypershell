@@ -224,7 +224,10 @@ spec:
 # gateway:creator so E2E_OIDC_GRANT=client_credentials can obtain admin tokens
 # without a GitHub login. Standard token exchange is enabled so the suite can
 # impersonate the seeded developer principal. Distinct from
-# hypershell-provisioner (manage-clients / manage-users). The "description"
+# hypershell-provisioner (manage-clients / manage-users / manage-authorization,
+# the last needed to manage the hypershell-e2e-token-exchange authorization
+# policy on realm-management; see keycloak/client.go EnsureE2ETokenExchange).
+# The "description"
 # field below is kept short because Keycloak's CLIENT.DESCRIPTION column is
 # VARCHAR(255); exceeding that fails the whole realm import at boot.
 apiVersion: v1
@@ -723,7 +726,7 @@ data:
           "enabled": true,
           "serviceAccountClientId": "hypershell-provisioner",
           "clientRoles": {
-            "realm-management": ["manage-clients", "manage-users"]
+            "realm-management": ["manage-clients", "manage-users", "manage-authorization"]
           }
         },
         {
@@ -738,7 +741,7 @@ data:
       ],
       "clientScopeMappings": {
         "hypershell-provisioner": [
-          { "client": "realm-management", "roles": ["manage-clients", "manage-users"] }
+          { "client": "realm-management", "roles": ["manage-clients", "manage-users", "manage-authorization"] }
         ],
         "hypershell-e2e": [
           { "client": "realm-management", "roles": ["impersonation"] }
