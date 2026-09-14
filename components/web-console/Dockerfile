@@ -4,8 +4,8 @@
 # Bump amd64 and arm64 together when changing tags.
 ARG TARGETARCH
 
-FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:7d3b87dbb6bbf8fc85c865f8a00c5355961dae0e0e4ead15d530af3c8d6e3ebe AS build-amd64
-FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:5034714f7a4bdd7423231f880b0863b8e69c5aa9b8f5ab69ed1cd1e76760f0e0 AS build-arm64
+FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:d745ec2a0bbd683bb74cde03d43d473f2e5616deebf01e30241ef89f8a036136 AS build-amd64
+FROM registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:184209155ace74fcd587b15dfd7e8604f56241444252a0fb0363186e9945f271 AS build-arm64
 FROM build-${TARGETARCH} AS build
 
 USER root
@@ -37,8 +37,8 @@ RUN pnpm run build:web \
   && pnpm --filter @openshift-online/hypershell-web-console-bff deploy --prod /tmp/web-console \
   && cp -R components/web-console/build/client /tmp/web-console/public
 
-FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:6725f3730de000b6255b97d31e2ef53916f35397b1fb779bdb8d4a3a1c84ad50 AS runtime-amd64
-FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:8b3a067f10336acb6798f4d8251882fed107c90116b69a469e02472ecc1c7648 AS runtime-arm64
+FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:a0db612946134e94e808c303eaf31b335bd632a46ea5eea74f33b03a05c5f838 AS runtime-amd64
+FROM registry.access.redhat.com/hi/nodejs:24.18.1@sha256:fe0ecc3423492daf5b7ba8c441bfe04baa94773c9d28eb4768fbc337d4997d52 AS runtime-arm64
 FROM runtime-${TARGETARCH}
 
 LABEL org.opencontainers.image.title="HyperShell web console" \
