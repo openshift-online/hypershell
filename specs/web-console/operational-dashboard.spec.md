@@ -388,10 +388,10 @@ The default layout template (`defaultDashboardLayoutTemplate`) SHALL place these
 | Widget type | Layout item `i` | Default position (4-column) |
 | --- | --- | --- |
 | `section-title` | `section-title#platform-adoption` | Full width, row 0 (platform adoption header) |
-| `usage-summary` | `usage-summary#1` | Column 0, platform adoption |
-| `gateway-status` | `gateway-status#1` | Columns 1–2, platform adoption, spans two columns |
-| `provisioned-sandboxes` | `provisioned-sandboxes#1` | Column 3, platform adoption |
-| `registered-users` | `registered-users#1` | Column 3, platform adoption second row; height `REGISTERED_USERS_WIDGET_HEIGHT` (see RU-06) |
+| `usage-summary` | `usage-summary#1` | Column 0, platform adoption first row; height `REGISTERED_USERS_WIDGET_HEIGHT` (see RU-06) |
+| `registered-users` | `registered-users#1` | Columns 1–2, platform adoption first row; height `REGISTERED_USERS_WIDGET_HEIGHT` (see RU-06) |
+| `provisioned-sandboxes` | `provisioned-sandboxes#1` | Column 3, platform adoption first row |
+| `gateway-status` | `gateway-status#1` | Column 3, platform adoption second row; height `ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT` |
 | `section-title` | `section-title#hub-cluster` | Full width, hub cluster header row |
 | `system-summary` | `system-summary#1` | Column 0, hub cluster |
 | `memory` | `memory#1` | Column 1, hub cluster |
@@ -419,7 +419,7 @@ Users SHALL be able to add widgets from the drawer, drag to rearrange, and remov
 
 ### Requirement: OP-DASH-11 -- Layout Persistence
 
-The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v24`.
+The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v30`.
 
 On mount, a saved template SHALL be loaded when it parses as valid JSON and contains an array entry for every responsive variant (`xl`, `lg`, `md`, `sm`). Invalid or corrupt saved state SHALL fall back to the default template without surfacing an error to the user.
 
@@ -664,7 +664,7 @@ The inventory summary widget SHALL use the same `DescriptionList` summary presen
 
 The `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` widgets SHALL use the shared `StatusDonutChart` stack (OP-DASH-16) with labels from `inventoryProviders`, `inventoryRegions`, and `inventoryStatus` keys respectively.
 
-Adding the two-column region donut to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v26` (OP-DASH-11). Aligning `gateway-status` height with `usage-summary` SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v27`. Adding `managed-database-status` to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v28`.
+Adding the two-column region donut to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v26` (OP-DASH-11). Aligning `gateway-status` height with `usage-summary` SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v27`. Adding `managed-database-status` to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v28`. Promoting the Users adoption widget to columns 1–2 and relocating `gateway-status` to column 3 second row SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v30`.
 
 #### Scenario: Default layout includes inventory summary
 

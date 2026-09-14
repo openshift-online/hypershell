@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -160,7 +161,7 @@ func (c *registeredUsersCollector) loadSnapshot(ctx context.Context, evaluationT
 	}
 
 	if err := c.activityDao.PruneBefore(ctx, startDate); err != nil {
-		return nil, err
+		glog.Warningf("user daily activity pruning failed: %v", err)
 	}
 
 	return buildUserAdoptionSnapshot(
