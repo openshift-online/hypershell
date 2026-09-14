@@ -16,9 +16,9 @@
     "typecheck": "tsc --project tsconfig.app.json --noEmit && tsc --project tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@hookform/resolvers": "5.5.7",
+    "@hookform/resolvers": "5.9.1",
     "@openshift-online/hypershell-domain-probes": "workspace:0.0.0",
-    "shiki": "4.4.1"
+    "shiki": "4.4.3"
   },
   "peerDependencies": {
     "@patternfly/react-core": "6.6.0",
