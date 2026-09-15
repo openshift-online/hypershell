@@ -28,15 +28,19 @@ spec:
           value: $(params.release)
         - name: snapshot
           value: $(params.snapshot)
-        - name: revision
-          value: $(params.taskGitRevision)
+        - name: pipeline-run
+          value: $(context.pipelineRun.name)
+        - name: pipeline-namespace
+          value: $(context.pipelineRun.namespace)
       taskSpec:
         params:
           - name: release
             type: string
           - name: snapshot
             type: string
-          - name: revision
+          - name: pipeline-run
+            type: string
+          - name: pipeline-namespace
             type: string
         results:
           - name: bundle
@@ -63,21 +67,30 @@ spec:
                 value: $(params.release)
               - name: SNAPSHOT
                 value: $(params.snapshot)
-              - name: PIPELINE_REVISION
-                value: $(params.revision)
+              - name: PIPELINE_RUN
+                value: $(params.pipeline-run)
+              - name: PIPELINE_NAMESPACE
+                value: $(params.pipeline-namespace)
               - name: BUNDLE_RESULT
                 value: $(results.bundle.path)
             script: |
               #!/usr/bin/env bash
               set -euo pipefail
-              [[ "$PIPELINE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+              # Use the commit that Tekton resolved, even if main has since changed.
+              pipeline_revision=$(kubectl get pipelineruns.tekton.dev "$PIPELINE_RUN" \
+                -n "$PIPELINE_NAMESPACE" \
+                -o jsonpath='{.status.provenance.refSource.digest.sha1}')
+              if [[ ! "$pipeline_revision" =~ ^[0-9a-f]{40}$ ]]; then
+                echo 'The PipelineRun has no valid resolved Git commit.' >&2
+                exit 1
+              fi
               source_dir=$(mktemp -d)
               trap 'rm -rf "$source_dir"' EXIT
               git -C "$source_dir" init --quiet
               git -C "$source_dir" remote add origin https://github.com/openshift-online/hypershell.git
               git -C "$source_dir" fetch --quiet --filter=blob:none origin \
-                main:refs/remotes/origin/main "$PIPELINE_REVISION"
-              git -C "$source_dir" checkout --quiet "$PIPELINE_REVISION" -- scripts/release_bundle.py
+                main:refs/remotes/origin/main "$pipeline_revision"
+              git -C "$source_dir" checkout --quiet "$pipeline_revision" -- scripts/release_bundle.py
               python3 "$source_dir/scripts/release_bundle.py" \
                 --release "$RELEASE" --snapshot "$SNAPSHOT" \
                 --source-directory "$source_dir" --result-path "$BUNDLE_RESULT"

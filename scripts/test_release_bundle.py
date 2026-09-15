@@ -1,6 +1,11 @@
 """Check release gates and the bundle contents without cluster access."""
 
 import copy
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -88,6 +93,57 @@ class ReleaseBundleTests(unittest.TestCase):
         snapshot["metadata"]["creationTimestamp"] = "2026-09-16T12:00:00Z"
         newer, _ = bundle.make_bundle(release, snapshot)
         self.assertGreater(newer, retry)
+
+
+class PipelineBootstrapTests(unittest.TestCase):
+    def run_bootstrap(self, revision, read_status=0):
+        pipeline = Path(__file__).resolve().parents[1] / "pipelines/release-bundle/pipeline.yaml"
+        script = textwrap.dedent(pipeline.read_text().split("            script: |\n", 1)[1])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            commands = root / "commands"
+            stubs = {
+                "kubectl": 'printf "%s\\n" "$*" >> "$COMMAND_LOG"\n'
+                           'printf "%s" "$RESOLVED_REVISION"\nexit "$READ_STATUS"\n',
+                "git": 'printf "git %s\\n" "$*" >> "$COMMAND_LOG"\n',
+                "python3": 'printf "publisher started\\n" >> "$COMMAND_LOG"\n',
+            }
+            for name, body in stubs.items():
+                executable = root / name
+                executable.write_text("#!/bin/sh\n" + body)
+                executable.chmod(0o755)
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                       COMMAND_LOG=str(commands), RESOLVED_REVISION=revision,
+                       READ_STATUS=str(read_status), PIPELINE_RUN="final-one",
+                       PIPELINE_NAMESPACE=bundle.NAMESPACE, RELEASE="release-one",
+                       SNAPSHOT="snapshot-one", BUNDLE_RESULT=str(root / "result"))
+            result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
+            return result, commands.read_text()
+
+    def test_script_uses_pipeline_commit_instead_of_main(self):
+        revision = "a" * 40
+        result, commands = self.run_bootstrap(revision)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("get pipelineruns.tekton.dev final-one -n " + bundle.NAMESPACE, commands)
+        self.assertIn("{.status.provenance.refSource.digest.sha1}", commands)
+        self.assertIn("main:refs/remotes/origin/main " + revision, commands)
+        self.assertIn("checkout --quiet " + revision + " -- scripts/release_bundle.py", commands)
+        self.assertIn("publisher started", commands)
+
+    def test_missing_or_invalid_commit_stops_before_fetch(self):
+        for revision in ("", "main", "a" * 39, "$(touch /tmp/unexpected)"):
+            with self.subTest(revision=revision):
+                result, commands = self.run_bootstrap(revision)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("no valid resolved Git commit", result.stderr)
+                self.assertNotIn("git ", commands)
+                self.assertNotIn("publisher started", commands)
+
+    def test_pipeline_read_failure_stops_publication(self):
+        result, commands = self.run_bootstrap("a" * 40, read_status=1)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("git ", commands)
+        self.assertNotIn("publisher started", commands)
 
 
 if __name__ == "__main__":
