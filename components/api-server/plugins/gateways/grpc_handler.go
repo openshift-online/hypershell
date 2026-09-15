@@ -132,6 +132,11 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 			return nil, err
 		}
 	}
+	if req.ObservedReleaseId != nil {
+		if err := grpcutil.ValidateStringField("observed_release_id", *req.ObservedReleaseId, false); err != nil {
+			return nil, err
+		}
+	}
 	if req.Status != nil {
 		if err := grpcutil.ValidateStringField("status", *req.Status, false); err != nil {
 			return nil, err
@@ -189,6 +194,12 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.ConsoleAddress != nil {
 		gateway.ConsoleAddress = req.ConsoleAddress
+	}
+	// observed_release_id is control-plane-owned: the control plane advances it
+	// (via this whole-row path, like phase/status/route_address) only after a new
+	// revision passes its health gates. It is readOnly to REST clients.
+	if req.ObservedReleaseId != nil {
+		gateway.ObservedReleaseId = req.ObservedReleaseId
 	}
 	if req.Oidc != nil {
 		gateway.Oidc = req.Oidc

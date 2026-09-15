@@ -249,6 +249,7 @@ func init() {
 	db.RegisterMigration(migrationAddActiveSandboxCount())
 	db.RegisterMigration(migrationDropDatabaseConfig())
 	db.RegisterMigration(migrationAddGatewayVersion())
+	db.RegisterMigration(migrationAddObservedReleaseId())
 	db.RegisterMigration(migrationDropFleetId())
 	db.RegisterMigration(migrationDropFleetsTable())
 	db.RegisterMigration(migrationAddTraceContext())

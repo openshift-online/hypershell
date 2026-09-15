@@ -108,7 +108,14 @@ type NamespaceConfig struct {
 }
 
 type GatewayConfig struct {
-	Image            string                  `yaml:"image"`
+	Image string `yaml:"image"`
+	// ReleaseID is the GatewayRelease the Image was resolved from (empty for a
+	// direct-image gateway). It is stamped onto the gateway Deployment as an
+	// annotation at apply time so the health loop can advance observed_release_id
+	// only to the release actually applied to the workload, never to a desired
+	// release the provisioning path has not yet rolled out. See
+	// gateway-release-rollout.spec.md.
+	ReleaseID        string                  `yaml:"releaseID"`
 	SupervisorImage  string                  `yaml:"supervisorImage"`
 	ServerDnsNames   []string                `yaml:"serverDnsNames"`
 	ExternalDns      string                  `yaml:"externalDns"`

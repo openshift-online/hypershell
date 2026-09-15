@@ -198,3 +198,15 @@ func migrationAddGatewayVersion() *gormigrate.Migration {
 		},
 	}
 }
+
+func migrationAddObservedReleaseId() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026091412000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS observed_release_id TEXT").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS observed_release_id").Error
+		},
+	}
+}

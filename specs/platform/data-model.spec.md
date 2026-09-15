@@ -87,6 +87,7 @@ erDiagram
         string status
         string phase
         string gateway_version
+        string observed_release_id
         time created_at
         time updated_at
         time deleted_at
@@ -178,6 +179,7 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 | `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
+| `observed_release_id` | string | Read-only (control-plane-owned) release currently rolled out and observed healthy; advanced only after a new revision passes its health gates. Distinct from the desired `release_id`. See [`gateway-release-rollout.spec.md`](./gateway-release-rollout.spec.md) |
 | `database` | JSONB | Database backend config: `{storageSize, image, externalSecretRef}` |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
 

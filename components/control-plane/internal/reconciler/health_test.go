@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
@@ -504,6 +505,162 @@ func TestIsRoutedGateway(t *testing.T) {
 				t.Fatalf("isRoutedGateway(%v) = %v, want %v", c.route, got, c.want)
 			}
 		})
+	}
+}
+
+// healthGatewayDeployment builds a gateway Deployment fixture with the given spec
+// and observed status (and optional applied-release annotation), so the
+// reconcile-level health-loop tests can drive ObserveGatewayRollout end to end.
+func healthGatewayDeployment(namespace, appliedRelease string, replicas, generation, observedGeneration, updated, total, available int32) *appsv1.Deployment {
+	r := replicas
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       gateway.GatewayDeploymentName,
+			Namespace:  namespace,
+			Generation: int64(generation),
+		},
+		Spec: appsv1.DeploymentSpec{Replicas: &r},
+		Status: appsv1.DeploymentStatus{
+			ObservedGeneration: int64(observedGeneration),
+			UpdatedReplicas:    updated,
+			Replicas:           total,
+			AvailableReplicas:  available,
+		},
+	}
+	if appliedRelease != "" {
+		deploy.Annotations = map[string]string{gateway.AppliedReleaseAnnotation: appliedRelease}
+	}
+	return deploy
+}
+
+// newSettledHealthRec builds a health reconciler wired for the non-routed
+// reconcileGatewayHealth path: the given clientset backs ObserveGatewayRollout,
+// and the route-teardown bookkeeping is pre-settled (with a fresh verification
+// stamp) so teardownRoute returns before touching any nil route/console clients.
+func newSettledHealthRec(clientset kubernetes.Interface, gatewayID string) *GatewayHealthReconciler {
+	now := fixedClock(time.Unix(2000, 0))
+	h := &GatewayHealthReconciler{
+		clientset:          clientset,
+		ingressMode:        gateway.IngressModeNone,
+		now:                now,
+		routeNotReadySince: make(map[string]time.Time),
+		routeTornDown:      make(map[string]bool),
+		routeVerifiedAt:    make(map[string]time.Time),
+	}
+	// Pre-settle teardown so it short-circuits (marker set, addresses empty, and
+	// the verification stamped now so no residual-absence probe is due this tick).
+	h.markRouteTornDown(gatewayID)
+	return h
+}
+
+// nonRoutedGateway builds a Gateway with no route configured, so the health loop
+// takes the non-routed path (no exposure/console work) and its phase is decided by
+// the Deployment rollout alone.
+func nonRoutedGateway(id, namespace, phase, status, observedReleaseID string) *pb.Gateway {
+	gw := &pb.Gateway{
+		Metadata:  &pb.ObjectReference{Id: id},
+		Namespace: namespace,
+		Phase:     &phase,
+		Status:    &status,
+	}
+	if observedReleaseID != "" {
+		gw.ObservedReleaseId = &observedReleaseID
+	}
+	return gw
+}
+
+// A new revision rolling out is owned by the provisioning path: the health loop
+// must leave the phase untouched and must NOT advance observed_release_id to a
+// release the workload has not finished rolling out. See gateway-release-rollout.spec.md.
+func TestReconcileGatewayHealth_RollingOutDefersAndDoesNotAdvance(t *testing.T) {
+	const namespace = "openshell-roll"
+	// Spec observed (gen==observed) but the updated replica is not yet rolled out
+	// while an old replica still serves: a roll in progress.
+	clientset := k8sfake.NewSimpleClientset(
+		healthGatewayDeployment(namespace, "rel-new", 1, 2, 2, 0, 1, 1),
+	)
+	h := newSettledHealthRec(clientset, "gw-1")
+
+	var updates []*pb.UpdateGatewayRequest
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, in *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		updates = append(updates, in)
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	gw := nonRoutedGateway("gw-1", namespace, "Provisioning", "", "rel-old")
+	ns, ready := h.reconcileGatewayHealth(context.Background(), client, gw)
+	if ns != namespace {
+		t.Errorf("namespace = %q, want %q", ns, namespace)
+	}
+	if ready {
+		t.Error("ready = true, want false during a rollout")
+	}
+	for _, u := range updates {
+		if u.ObservedReleaseId != nil {
+			t.Errorf("observed_release_id advanced to %q during a rollout; must be left until the roll completes", u.GetObservedReleaseId())
+		}
+		if u.Phase != nil {
+			t.Errorf("phase updated to %q during a rollout; the provisioning path owns this transition", u.GetPhase())
+		}
+	}
+}
+
+// Once the new revision is fully rolled out and healthy, the health loop advances
+// observed_release_id to the release actually applied to the workload (the
+// Deployment's annotation), not to whatever release may since have been desired.
+func TestReconcileGatewayHealth_AdvancesObservedToAppliedRelease(t *testing.T) {
+	const namespace = "openshell-adv"
+	// New revision fully rolled out and available, annotated with the applied release.
+	clientset := k8sfake.NewSimpleClientset(
+		healthGatewayDeployment(namespace, "rel-new", 1, 2, 2, 1, 1, 1),
+	)
+	h := newSettledHealthRec(clientset, "gw-1")
+
+	var advanced *pb.UpdateGatewayRequest
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, in *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		if in.ObservedReleaseId != nil {
+			advanced = in
+		}
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	// Already Running/Healthy with a lagging observed release, so the only write is
+	// the observed-release advance (no phase/status change).
+	gw := nonRoutedGateway("gw-1", namespace, "Running", "Healthy", "rel-old")
+	if _, ready := h.reconcileGatewayHealth(context.Background(), client, gw); !ready {
+		t.Fatal("ready = false, want true for a fully rolled-out healthy workload")
+	}
+	if advanced == nil {
+		t.Fatal("expected observed_release_id to be advanced, got no such update")
+	}
+	if advanced.GetObservedReleaseId() != "rel-new" {
+		t.Errorf("observed_release_id = %q, want %q (the applied release)", advanced.GetObservedReleaseId(), "rel-new")
+	}
+}
+
+// The health loop must never advance observed_release_id to a desired release the
+// workload has not yet applied. When the steady Deployment carries no
+// applied-release annotation (e.g. a release change committed but not yet
+// re-rendered), no observed-release write is issued even though the workload is
+// healthy. See gateway-release-rollout.spec.md.
+func TestReconcileGatewayHealth_DoesNotAdvanceWhenReleaseNotApplied(t *testing.T) {
+	const namespace = "openshell-noapply"
+	// Fully rolled out and healthy, but with NO applied-release annotation.
+	clientset := k8sfake.NewSimpleClientset(
+		healthGatewayDeployment(namespace, "", 1, 2, 2, 1, 1, 1),
+	)
+	h := newSettledHealthRec(clientset, "gw-1")
+
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, in *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		if in.ObservedReleaseId != nil {
+			t.Errorf("observed_release_id advanced to %q with no applied release on the workload", in.GetObservedReleaseId())
+		}
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	gw := nonRoutedGateway("gw-1", namespace, "Running", "Healthy", "rel-old")
+	if _, ready := h.reconcileGatewayHealth(context.Background(), client, gw); !ready {
+		t.Fatal("ready = false, want true for a fully rolled-out healthy workload")
 	}
 }
 
