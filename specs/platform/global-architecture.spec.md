@@ -9,7 +9,7 @@ HyperShell deploys as a global fleet management platform spanning multiple cloud
 
 **Platform delivery is GitOps pull, not hub push.** ArgoCD runs on *every* cluster and reconciles **only itself**: each cluster's ArgoCD pulls its own path from a single central GitOps repository ([`hypershell-gitops`](https://github.com/openshift-online/hypershell-gitops)) and applies the operator stack and HyperShell platform components locally. No cluster stores another cluster's kubeconfig, and no central ArgoCD pushes manifests outward. The GitOps repo is the single source of desired *platform* state; a bootstrap agent seeds each cluster (installs ArgoCD and points it at the cluster's own path), after which the cluster self-reconciles.
 
-> **Two reconciliation planes; do not conflate them.** (1) **Platform GitOps** (this section) deploys the operator stack and HyperShell components; it is *pull*, sourced from Git, per cluster. (2) **Control-plane tenant reconciliation** (see "Control Plane Self-Registration") provisions per-tenant OpenShell Gateway resources at runtime; each control plane self-registers via `POST /managed_clusters/registration` to obtain its `cluster_id`, then watches the API server via gRPC and reconciles the gateways assigned to that cluster. There is no distinction between "hub" and "spoke" control planes — every control plane, whether co-located with the API server or running on a remote ManagedCluster, follows the same self-registration model. Inverting the GitOps layer to pull does **not** change the control-plane tenant plane.
+> **Two reconciliation planes; do not conflate them.** (1) **Platform GitOps** (this section) deploys the operator stack and HyperShell components; it is *pull*, sourced from Git, per cluster. (2) **Control-plane tenant reconciliation** (see "Control Plane Self-Registration") provisions per-tenant OpenShell Gateway resources at runtime; each control plane self-registers via `POST /managed_clusters/registration` to obtain its `cluster_id`, then watches the API server via gRPC and reconciles the gateways assigned to that cluster. There is no distinction between "hub" and "spoke" control planes - every control plane, whether co-located with the API server or running on a remote ManagedCluster, follows the same self-registration model. Inverting the GitOps layer to pull does **not** change the control-plane tenant plane.
 
 > **Terminology.** "Gateway" is overloaded, so this document uses fully-qualified
 > names. **OpenShell Gateway** is the tenant workload (the pod, its Supervisor,
@@ -148,7 +148,7 @@ graph TB
 - Prometheus - aggregates metrics from this cloud's ManagedClusters
 - Grafana - cloud-level dashboards
 
-**Operational Role**: The control plane is the *tenant* reconciliation engine for the fleet. It self-registers via `POST /managed_clusters/registration` at startup to obtain its `cluster_id`, then watches the API server via gRPC and provisions the full set of OpenShell resources into ManagedClusters — not just OpenShell Gateways, but the tenant namespaces, per-tenant PKI, RBAC, ingress objects, CNPG databases, and supporting workloads each gateway depends on. This tenant plane is a runtime operation sourced from the Cloud Hub PostgreSQL, and is distinct from platform GitOps.
+**Operational Role**: The control plane is the *tenant* reconciliation engine for the fleet. It self-registers via `POST /managed_clusters/registration` at startup to obtain its `cluster_id`, then watches the API server via gRPC and provisions the full set of OpenShell resources into ManagedClusters - not just OpenShell Gateways, but the tenant namespaces, per-tenant PKI, RBAC, ingress objects, CNPG databases, and supporting workloads each gateway depends on. This tenant plane is a runtime operation sourced from the Cloud Hub PostgreSQL, and is distinct from platform GitOps.
 
 The *platform* layer beneath it is pull-based GitOps: each ManagedCluster's own ArgoCD installs and self-reconciles that cluster's operator stack and baseline config from its own path in the central GitOps repo. So responsibilities split cleanly: a cluster's local ArgoCD owns the cluster's platform (operators, CRDs, cluster-scoped config), and the Cloud Hub control plane owns the tenant resources layered on top. The control plane never installs the operator stack on a ManagedCluster; it assumes the cluster has already self-reconciled it from Git.
 
@@ -204,7 +204,7 @@ graph LR
 > Cloud Hub Keycloak**, bypassing the local Keycloak. Federating the
 > ManagedCluster Keycloak into the chain would let the control plane authenticate
 > locally and eliminate the cross-cloud secret dependency. See
-> "Control Plane Self-Registration — OIDC Authentication".
+> "Control Plane Self-Registration - OIDC Authentication".
 
 ### Gateway Authentication Flow
 
@@ -272,12 +272,12 @@ sequenceDiagram
 ```
 
 **Key Points**:
-- **Every control plane self-registers** via `POST /managed_clusters/registration` before opening gRPC watch streams. The registration is idempotent — restarts return the same `cluster_id`. This works identically for local development (fresh database, control plane registers locally and creates its own ManagedCluster record) and production deployments.
-- PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources — Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
+- **Every control plane self-registers** via `POST /managed_clusters/registration` before opening gRPC watch streams. The registration is idempotent - restarts return the same `cluster_id`. This works identically for local development (fresh database, control plane registers locally and creates its own ManagedCluster record) and production deployments.
+- PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources - Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
 - Runtime state owned by each OpenShell Gateway (active Sandboxes, provider credentials, live sessions) lives in that gateway's own database on its ManagedCluster, not in the Cloud Hub PostgreSQL. Where a fact could live in either store, this document names which one owns it.
 - Control Plane watches API server via gRPC streams, filtered by its registered `cluster_id`
 - Control Plane reconciles *tenant* resources into ManagedClusters (distinct from the platform GitOps pull below)
-- Gateway databases run in a dedicated ManagedDatabase namespace (`openshell-db-<hash>`) — a shared CNPG Cluster (`openshell-db`) with a per-gateway logical `Database` CR (`gw-<gateway-id>`) — not in the gateway namespace; only the DB credentials Secret is copied into the gateway namespace
+- Gateway databases run in a dedicated ManagedDatabase namespace (`openshell-db-<hash>`) - a shared CNPG Cluster (`openshell-db`) with a per-gateway logical `Database` CR (`gw-<gateway-id>`) - not in the gateway namespace; only the DB credentials Secret is copied into the gateway namespace
 
 ### Platform GitOps Pull Flow
 
@@ -313,8 +313,8 @@ sequenceDiagram
 
 ## Control Plane Self-Registration
 
-Every control plane — whether co-located with its API server on a Cloud Hub
-or running on a remote ManagedCluster — follows the same lifecycle: it
+Every control plane - whether co-located with its API server on a Cloud Hub
+or running on a remote ManagedCluster - follows the same lifecycle: it
 self-registers via `POST /managed_clusters/registration` at startup to obtain
 a stable `cluster_id`, then watches the API server via gRPC and reconciles
 only the gateways assigned to that `cluster_id`.
@@ -331,10 +331,13 @@ Every control plane uses an idempotent registration endpoint to obtain its
 `cluster_id` at startup:
 
 - **Endpoint**: `POST /api/hypershell/v1/managed_clusters/registration`
-- **Auth**: Bearer token from Keycloak, obtained via `client_credentials`
-  grant using the control plane's OIDC service-account client
+- **Auth**: When the API server has authentication enabled, a bearer token from
+  Keycloak obtained via `client_credentials` grant using the control plane's
+  OIDC service-account client. When the API server runs with authentication
+  disabled (local development), no token is sent and the control plane registers
+  by `name` alone; the startup path is otherwise identical.
 - **Idempotent**: returns the same stable KSUID `cluster_id` on repeated calls
-  with the same `name`
+  with the same identity and `name`
 - **Heartbeat**: after startup, the control plane re-calls `/registration` on
   a regular interval (default: 60 seconds) to update `last_seen_at`. These
   calls are no-ops for registration data and return the same `cluster_id`.
@@ -344,9 +347,12 @@ Every control plane uses an idempotent registration endpoint to obtain its
 
 ### OIDC Authentication
 
-The control plane authenticates to the API server using OIDC
-`client_credentials` grant. The OIDC chain depends on whether the
-cluster's local Keycloak is federated into the platform's identity chain.
+In any deployment where the API server has authentication enabled, the control
+plane authenticates to it using an OIDC `client_credentials` grant. The OIDC
+chain depends on whether the cluster's local Keycloak is federated into the
+platform's identity chain. In local development the API server can run with
+authentication disabled, in which case the control plane sends no token and this
+section does not apply; the registration and watch flow is otherwise unchanged.
 
 #### Target architecture (federated local Keycloak)
 
@@ -399,7 +405,7 @@ Each control plane instance gets a dedicated confidential Keycloak client:
 | Field | Value | Notes |
 |-------|-------|-------|
 | `clientId` | `hyp{N}-mc{NN}` | Compound key: hub instance + managed cluster index |
-| `publicClient` | `false` | Confidential — uses `client_credentials` grant |
+| `publicClient` | `false` | Confidential - uses `client_credentials` grant |
 | `serviceAccountsEnabled` | `true` | Machine-to-machine auth, no interactive user |
 | `standardFlowEnabled` | `false` | No browser login |
 | `directAccessGrantsEnabled` | `false` | No password grant |
@@ -428,11 +434,11 @@ clusters/<managed-cluster>/apps/hypershell/
 
 The kustomize overlay:
 
-- **Scales API server and web console to 0** — the remote control plane runs
+- **Scales API server and web console to 0** - the remote control plane runs
   only the controller
-- **Pins images by digest** — matching the hub instance's deployed image, so
+- **Pins images by digest** - matching the hub instance's deployed image, so
   the control plane runs the same code as the hub it watches
-- **Renames cluster-scoped RBAC** — prefixes `ClusterRole`/`ClusterRoleBinding`
+- **Renames cluster-scoped RBAC** - prefixes `ClusterRole`/`ClusterRoleBinding`
   names with the instance name (e.g., `hyp4-mc01-hypershell-controller`) to
   avoid collisions when multiple control plane instances coexist on one cluster
 - **Configures the controller env**:
@@ -458,7 +464,7 @@ must be **externally reachable** over TLS.
 **Current state**: Hub API servers expose only an HTTP `Route` (port 8000,
 edge TLS). The gRPC listener (port 9000) has no external route. The
 control-plane gRPC client hardcodes `grpc.WithTransportCredentials(
-insecure.NewCredentials())` — plaintext only.
+insecure.NewCredentials())` - plaintext only.
 
 **Required changes** (tracked as HYPERSHELL-333):
 
@@ -515,18 +521,22 @@ an idempotent registration endpoint. The registration SHALL return a stable
 
 ##### Scenario: Registration requires the managed-cluster-registrar role
 
-- GIVEN a bearer token without the `managed-cluster-registrar` realm role
+- GIVEN the API server has authentication enabled
+- AND a bearer token without the `managed-cluster-registrar` realm role
 - WHEN a client calls `POST /managed_clusters/registration`
 - THEN the API server SHALL reject the request with 403
 
 ##### Scenario: Local development on a fresh database
 
 - GIVEN a local development environment with an empty database
+- AND the API server runs with authentication disabled
 - AND a control plane configured with `HYPERSHELL_MANAGED_CLUSTER_NAME=local`
-- WHEN the control plane starts and calls `/registration`
-- THEN the API server SHALL create a ManagedCluster record named `local`
+- WHEN the control plane starts and calls `/registration` with no token
+- THEN the API server SHALL create a ManagedCluster record named `local`,
+  keyed on the name with an empty `oidc_subject`
 - AND return a `cluster_id` that the control plane uses to reconcile gateways
-- AND the system SHALL function identically to a production deployment
+- AND the startup path SHALL be identical to production apart from the absence
+  of a token
 
 #### Requirement: Control Plane Watches Only Its Own Gateways
 
@@ -1562,7 +1572,7 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Terraform for provisioning | IaC for VPC, subnet, and cluster lifecycle; cloud-agnostic |
 | Gateway OIDC clients on ManagedCluster | openshell CLI authenticates against Keycloak where the gateway runs (low latency) |
 | Shared Ingress Gateway for Tenant gRPC | A wildcard DNS record (`*.domain`) can only resolve to a single Load Balancer. A per-tenant gateway model (1 LB per tenant) fundamentally breaks wildcard routing, requiring per-tenant DNS automation and cert management. A shared Gateway allows N tenants to securely share 1 LB, 1 wildcard cert, and 1 static DNS record via `GRPCRoute` attachments. |
-| Unified self-registration for all control planes | Every control plane — whether co-located with the API server or running on a remote ManagedCluster — self-registers via `POST /managed_clusters/registration`. This eliminates the hub-push vs spoke-pull distinction: a Cloud Hub's own control plane is just another ManagedCluster. The model works identically from local development (fresh database) to production. Remote control planes need the hub's gRPC endpoint externally accessible over TLS (HYPERSHELL-333). |
+| Unified self-registration for all control planes | Every control plane - whether co-located with the API server or running on a remote ManagedCluster - self-registers via `POST /managed_clusters/registration`. This eliminates the hub-push vs spoke-pull distinction: a Cloud Hub's own control plane is just another ManagedCluster. The model works identically from local development (fresh database) to production. Remote control planes need the hub's gRPC endpoint externally accessible over TLS (HYPERSHELL-333). |
 | Control plane OIDC client on hub Keycloak (workaround) | The control plane needs a token the API server will accept. Until the ManagedCluster's local Keycloak is federated into the chain, registering the control plane client directly on the hub Keycloak is the simplest path. The gap is that the client secret must travel cross-cloud (via Vault/ExternalSecret), which the federated architecture would eliminate. |
 | `cluster_id` resolved at runtime, not in gitops | Hard-coding a `cluster_id` in gitops creates a chicken-and-egg problem (the ID doesn't exist until registration) and couples gitops to API server state. Runtime resolution via the registration endpoint keeps gitops declarative and makes control plane instances portable. |
 | Compound naming `hyp{N}-mc{NN}` | Encodes both the hub instance and the managed cluster index in a single slug, avoiding collisions across hubs and supporting multiple managed clusters per hub. Used consistently for namespace, Keycloak client, ExternalSecret key, and RBAC prefix. |
