@@ -421,6 +421,8 @@ Users SHALL be able to add widgets from the drawer, drag to rearrange, and remov
 
 The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v30`.
 
+Promoting the Users adoption widget to columns 1–2 and relocating `gateway-status` to column 3 second row (OP-DASH-10) SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v30`.
+
 On mount, a saved template SHALL be loaded when it parses as valid JSON and contains an array entry for every responsive variant (`xl`, `lg`, `md`, `sm`). Invalid or corrupt saved state SHALL fall back to the default template without surfacing an error to the user.
 
 Duplicate layout item `i` values in a single variant SHALL be deduplicated on save (first occurrence wins). Duplicate metric `widgetType` entries (every type except `section-title`) SHALL also be deduplicated on save (first occurrence wins). Multiple `section-title` instances with distinct `i` values SHALL be preserved.
@@ -664,7 +666,7 @@ The inventory summary widget SHALL use the same `DescriptionList` summary presen
 
 The `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` widgets SHALL use the shared `StatusDonutChart` stack (OP-DASH-16) with labels from `inventoryProviders`, `inventoryRegions`, and `inventoryStatus` keys respectively.
 
-Adding the two-column region donut to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v26` (OP-DASH-11). Aligning `gateway-status` height with `usage-summary` SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v27`. Adding `managed-database-status` to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v28`. Promoting the Users adoption widget to columns 1–2 and relocating `gateway-status` to column 3 second row SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v30`.
+Adding the two-column region donut to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v26` (OP-DASH-11). Aligning `gateway-status` height with `usage-summary` SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v27`. Adding `managed-database-status` to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v28`.
 
 #### Scenario: Default layout includes inventory summary
 
