@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	cryptoRand "crypto/rand"
+	"crypto/x509"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	// register postgres driver and use typed error codes for status mapping
@@ -41,22 +43,16 @@ func (r *externalDatabaseReconciler) Reconcile(ctx context.Context, _ dynamic.In
 	return nil
 }
 
-// Delete drops the gateway's external database and role. Cleanup is
-// unconditional, single-shot and best-effort: the gateway is already removed
-// from the API server, there is no tombstone and no retry queue, so no later
-// event re-delivers this work.
-//
-// It therefore always returns nil. A failure is logged at ERROR naming the
-// gateway and ManagedDatabase IDs (never credentials) so the orphaned role and
-// database are discoverable; operators reclaim them with the runbook in
-// openshell-gateway-database-external.spec.md § Operator Runbook. Returning an
-// error instead would strand gateway finalization on a retry that never
-// succeeds.
+// Delete drops the gateway database and role. A configured admin Secret uses
+// the live delete queue for retries. Legacy mode retains best-effort cleanup.
 func (r *externalDatabaseReconciler) Delete(ctx context.Context, _ dynamic.Interface, clientset kubernetes.Interface, gatewayID string) error {
 	if gatewayID == "" || r.cfg.CredentialsNamespace == "" {
 		return nil
 	}
 	if err := DeleteExternalDatabaseResources(ctx, clientset, r.cfg, gatewayID); err != nil {
+		if r.cfg.CredentialsSecretName != "" {
+			return err
+		}
 		log.Printf("ERROR gateway %s: external database cleanup failed on ManagedDatabase %s; role and database %q may remain on the external server and require manual removal (see the external database spec's operator runbook): %v",
 			gatewayID, r.cfg.ManagedDatabaseID, externalGatewayDBName(gatewayID), err)
 	}
@@ -141,19 +137,54 @@ func readExternalAdminSecret(ctx context.Context, clientset kubernetes.Interface
 		return nil, fmt.Errorf("connection_secret validation: %w", err)
 	}
 
-	secret, err := clientset.CoreV1().Secrets(credentialsNamespace).Get(ctx, externalCredentialsSecretName, metav1.GetOptions{})
+	params, err := readAdminSecret(ctx, clientset, credentialsNamespace, externalCredentialsSecretName)
+	if err == nil && params.sslmode == "" {
+		params.sslmode = "require"
+	}
+	return params, err
+}
+
+// readExternalAdminCredentials uses the configured Secret or the legacy reference.
+func readExternalAdminCredentials(ctx context.Context, clientset kubernetes.Interface, cfg ExternalDBConfig) (*externalAdminParams, error) {
+	if cfg.CredentialsSecretName == "" {
+		return readExternalAdminSecret(ctx, clientset, cfg.CredentialsNamespace)
+	}
+	params, err := readAdminSecret(ctx, clientset, cfg.CredentialsNamespace, cfg.CredentialsSecretName)
+	if err != nil {
+		return nil, err
+	}
+	// The controller override is an opt-in production path. Require both
+	// certificate and hostname verification before any SQL operation.
+	if params.sslmode == "" {
+		params.sslmode = "verify-full"
+	}
+	if params.sslmode != "verify-full" {
+		return nil, fmt.Errorf("admin Secret %s/%s requires sslmode=verify-full", cfg.CredentialsNamespace, cfg.CredentialsSecretName)
+	}
+	if !x509.NewCertPool().AppendCertsFromPEM([]byte(params.sslrootcert)) {
+		return nil, fmt.Errorf("admin Secret %s/%s requires a valid PEM sslrootcert", cfg.CredentialsNamespace, cfg.CredentialsSecretName)
+	}
+	port, err := strconv.Atoi(params.port)
+	if err != nil || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("admin Secret %s/%s has an invalid port", cfg.CredentialsNamespace, cfg.CredentialsSecretName)
+	}
+	return params, nil
+}
+
+func readAdminSecret(ctx context.Context, clientset kubernetes.Interface, credentialsNamespace, secretName string) (*externalAdminParams, error) {
+	secret, err := clientset.CoreV1().Secrets(credentialsNamespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			return nil, fmt.Errorf("secret %q not found in namespace %q", externalCredentialsSecretName, credentialsNamespace)
+			return nil, fmt.Errorf("secret %q not found in namespace %q", secretName, credentialsNamespace)
 		}
-		return nil, fmt.Errorf("read Secret %q in namespace %q: %w", externalCredentialsSecretName, credentialsNamespace, err)
+		return nil, fmt.Errorf("read Secret %q in namespace %q: %w", secretName, credentialsNamespace, err)
 	}
 
 	get := func(key string) string { return string(secret.Data[key]) }
 	required := []string{"host", "port", "user", "password"}
 	for _, k := range required {
 		if get(k) == "" {
-			return nil, fmt.Errorf("secret %q in namespace %q is missing required key %q", externalCredentialsSecretName, credentialsNamespace, k)
+			return nil, fmt.Errorf("secret %q in namespace %q is missing required key %q", secretName, credentialsNamespace, k)
 		}
 	}
 
@@ -162,9 +193,6 @@ func readExternalAdminSecret(ctx context.Context, clientset kubernetes.Interface
 		dbname = "postgres"
 	}
 	sslmode := get("sslmode")
-	if sslmode == "" {
-		sslmode = "require"
-	}
 	switch sslmode {
 	case "disable":
 		log.Printf("WARN external DB credentials in namespace %s: sslmode=disable is insecure; use verify-full for production", credentialsNamespace)
@@ -327,7 +355,7 @@ func mapConnErrorToStatus(err error) string {
 // admin role's CREATEDB and CREATEROLE attributes, and returns a
 // closed-vocabulary status string. It is side-effect-free on the server.
 func ProbeExternalServer(ctx context.Context, clientset kubernetes.Interface, cfg ExternalDBConfig) string {
-	params, err := readExternalAdminSecret(ctx, clientset, cfg.CredentialsNamespace)
+	params, err := readExternalAdminCredentials(ctx, clientset, cfg)
 	if err != nil {
 		log.Printf("INFO external DB probe (namespace %s): %s: %v", cfg.CredentialsNamespace, ExternalDBStatusSecretInvalid, err)
 		return ExternalDBStatusSecretInvalid
@@ -381,7 +409,7 @@ func ReconcileExternalDatabaseResources(
 	gatewayID string,
 	cfg ExternalDBConfig,
 ) error {
-	params, err := readExternalAdminSecret(ctx, clientset, cfg.CredentialsNamespace)
+	params, err := readExternalAdminCredentials(ctx, clientset, cfg)
 	if err != nil {
 		return fmt.Errorf("read external admin credentials: %w", err)
 	}
@@ -455,6 +483,14 @@ func ReconcileExternalDatabaseResources(
 	// server. Recover by deleting the tenant Secret, which makes the branch above
 	// re-apply a fresh password on the next reconcile.
 
+	// A non-superuser needs membership to create a database owned by the
+	// gateway role. PostgreSQL 16 and later do not grant SET ROLE on creation.
+	if cfg.CredentialsSecretName != "" {
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("GRANT %s TO %s", pgQuoteIdent(pgName), pgQuoteIdent(params.user))); err != nil {
+			return fmt.Errorf("grant gateway role to database admin: %w", err)
+		}
+	}
+
 	// Database: create if absent.
 	var dbExists bool
 	if err := db.QueryRowContext(ctx,
@@ -484,30 +520,8 @@ func ReconcileExternalDatabaseResources(
 		return fmt.Errorf("GRANT CONNECT for gateway %s: %w", gatewayID, err)
 	}
 
-	// Write or refresh the tenant credentials Secret.
-	//
-	// Tenant TLS: cap at "require" when the admin connection uses "verify-full".
-	// Verifying the server certificate from the gateway pod needs the CA bundle
-	// mounted into that pod, which is the deferred CA-distribution follow-up in
-	// the spec. Until then the tenant connection is encrypted but unverified.
-	tenantSSLMode := params.sslmode
-	if tenantSSLMode == "verify-full" || tenantSSLMode == "verify-ca" {
-		tenantSSLMode = "require"
-	}
-	tenantQ := url.Values{"sslmode": {tenantSSLMode}}
-	tenantBase := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s",
-		url.QueryEscape(pgName), url.QueryEscape(password), params.host, params.port, pgName)
-	dbURI := tenantBase + "?" + tenantQ.Encode()
-
-	desiredData := map[string][]byte{
-		"host":     []byte(params.host),
-		"port":     []byte(params.port),
-		"dbname":   []byte(pgName),
-		"user":     []byte(pgName),
-		"password": []byte(password),
-		"sslmode":  []byte(tenantSSLMode),
-		"uri":      []byte(dbURI),
-	}
+	// The gateway receives its own credentials and the public CA bundle.
+	desiredData := externalTenantSecretData(params, pgName, password)
 	desiredLabels := map[string]string{
 		"app.kubernetes.io/name":       "openshell",
 		"app.kubernetes.io/component":  "database",
@@ -553,9 +567,7 @@ func ReconcileExternalDatabaseResources(
 // gateway's database and role on the external server. Idempotent: absent
 // objects are treated as success.
 //
-// A non-nil error means the objects may still exist on the server. Deletion is
-// single-shot (see externalDatabaseReconciler.Delete), so the caller logs the
-// failure rather than scheduling a retry.
+// A non-nil error means the objects may still exist on the server.
 func DeleteExternalDatabaseResources(
 	ctx context.Context,
 	clientset kubernetes.Interface,
@@ -566,7 +578,7 @@ func DeleteExternalDatabaseResources(
 		return nil
 	}
 
-	params, err := readExternalAdminSecret(ctx, clientset, cfg.CredentialsNamespace)
+	params, err := readExternalAdminCredentials(ctx, clientset, cfg)
 	if err != nil {
 		return fmt.Errorf("cannot read external admin credentials: %w", err)
 	}
@@ -577,6 +589,10 @@ func DeleteExternalDatabaseResources(
 	}
 	defer release()
 
+	return deleteExternalSQLResources(ctx, db, gatewayID)
+}
+
+func deleteExternalSQLResources(ctx context.Context, db *sql.DB, gatewayID string) error {
 	pgName := externalGatewayDBName(gatewayID)
 
 	// Terminate active backends so DROP DATABASE is not blocked.
@@ -593,7 +609,10 @@ func DeleteExternalDatabaseResources(
 	// Drop the gateway database. This is a cluster-level operation and must
 	// come before DROP ROLE because the role owns the database.
 	var dbExists bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", pgName).Scan(&dbExists); err == nil && dbExists {
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", pgName).Scan(&dbExists); err != nil {
+		return fmt.Errorf("check database before cleanup: %w", err)
+	}
+	if dbExists {
 		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", pgQuoteIdent(pgName))); err != nil {
 			return fmt.Errorf("DROP DATABASE failed: %w", err)
 		}
@@ -602,13 +621,36 @@ func DeleteExternalDatabaseResources(
 
 	// Drop role (safe once the database it owned is gone).
 	var roleExists bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", pgName).Scan(&roleExists); err == nil && roleExists {
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", pgName).Scan(&roleExists); err != nil {
+		return fmt.Errorf("check role before cleanup: %w", err)
+	}
+	if roleExists {
 		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP ROLE %s", pgQuoteIdent(pgName))); err != nil {
 			return fmt.Errorf("DROP ROLE failed: %w", err)
 		}
 		log.Printf("INFO dropped external role %s for gateway %s", pgName, gatewayID)
 	}
 	return nil
+}
+
+// externalTenantCAPath matches the projected CA file in the gateway Deployment.
+const externalTenantCAPath = "/etc/openshell-db/ca.crt"
+
+func externalTenantSecretData(params *externalAdminParams, pgName, password string) map[string][]byte {
+	q := url.Values{"sslmode": {params.sslmode}}
+	data := map[string][]byte{
+		"host": []byte(params.host), "port": []byte(params.port),
+		"dbname": []byte(pgName), "user": []byte(pgName),
+		"password": []byte(password), "sslmode": []byte(params.sslmode),
+	}
+	if params.sslrootcert != "" {
+		data["sslrootcert"] = []byte(params.sslrootcert)
+		q.Set("sslrootcert", externalTenantCAPath)
+	}
+	uri := url.URL{Scheme: "postgresql", User: url.UserPassword(pgName, password),
+		Host: net.JoinHostPort(params.host, params.port), Path: "/" + pgName, RawQuery: q.Encode()}
+	data["uri"] = []byte(uri.String())
+	return data
 }
 
 // pgQuoteIdent quotes a PostgreSQL identifier to prevent SQL injection.

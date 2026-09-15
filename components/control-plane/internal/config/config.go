@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // Database provider values for DATABASE_PROVIDER. DatabaseProviderDeployment
@@ -84,6 +86,10 @@ type Config struct {
 	// (see internal/reconciler.ManagedDatabaseReconciler), so gateways backed
 	// by CNPG remain compatible even when this default is "deployment".
 	DatabaseProvider string
+
+	// GatewayDatabaseAdminSecretName names the admin Secret in Namespace.
+	// A non-empty value selects the controller-local database path.
+	GatewayDatabaseAdminSecretName string
 }
 
 func Load() (*Config, error) {
@@ -107,7 +113,17 @@ func Load() (*Config, error) {
 
 		GatewayReconcileWorkers: getEnvInt("GATEWAY_RECONCILE_WORKERS", DefaultGatewayReconcileWorkers, 1),
 
-		DatabaseProvider: databaseProvider,
+		DatabaseProvider:               databaseProvider,
+		GatewayDatabaseAdminSecretName: os.Getenv("GATEWAY_DATABASE_ADMIN_SECRET_NAME"),
+	}
+
+	if cfg.GatewayDatabaseAdminSecretName != "" {
+		if problems := validation.IsDNS1123Subdomain(cfg.GatewayDatabaseAdminSecretName); len(problems) != 0 {
+			return nil, fmt.Errorf("invalid GATEWAY_DATABASE_ADMIN_SECRET_NAME: %s", strings.Join(problems, "; "))
+		}
+		if problems := validation.IsDNS1123Label(cfg.Namespace); len(problems) != 0 {
+			return nil, fmt.Errorf("invalid HYPERSHELL_NAMESPACE for GATEWAY_DATABASE_ADMIN_SECRET_NAME: %s", strings.Join(problems, "; "))
+		}
 	}
 
 	if cfg.GRPCServerAddr == "" {

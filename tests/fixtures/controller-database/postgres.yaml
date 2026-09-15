@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-database
+  namespace: database-secret-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway-database
+  template:
+    metadata:
+      labels:
+        app: gateway-database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+          command: [sh, -c]
+          args:
+            - >-
+              cp /fixture/server.key /tmp/server.key &&
+              chown postgres:postgres /tmp/server.key && chmod 600 /tmp/server.key &&
+              exec docker-entrypoint.sh postgres -c ssl=on
+              -c ssl_cert_file=/fixture/server.crt -c ssl_key_file=/tmp/server.key
+          env:
+            - name: POSTGRES_PASSWORD
+              value: fixture-root
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: [pg_isready, -h, 127.0.0.1, -U, postgres]
+            periodSeconds: 2
+          volumeMounts:
+            - name: fixture
+              mountPath: /fixture
+              readOnly: true
+            - name: fixture
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: fixture
+          secret:
+            secretName: database-fixture
+            defaultMode: 292
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-database
+  namespace: database-secret-test
+spec:
+  selector:
+    app: gateway-database
+  ports:
+    - port: 5432
+      targetPort: 5432

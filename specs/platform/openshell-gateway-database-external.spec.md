@@ -1,6 +1,6 @@
 # OpenShell Gateway Database Specification - External Provider
 
-**Date:** 2026-09-07
+**Date:** 2026-09-15
 **Status:** Active
 **Parent:** [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) - gateway database provisioning
 
@@ -25,6 +25,138 @@ statements itself, over a short-lived administrative connection. No operator is
 required and no in-cluster PostgreSQL workload is created.
 
 PostgreSQL is the only supported backend.
+
+### Requirement: Controller Database Admin Secret
+
+`GATEWAY_DATABASE_ADMIN_SECRET_NAME` MAY select a PostgreSQL admin Secret in
+`HYPERSHELL_NAMESPACE`. A non-empty value SHALL select the controller-local
+provisioning path. The value SHALL be a valid Secret name, without a namespace
+prefix. The controller SHALL skip its `ManagedDatabase` watch, database lookup,
+and CNPG startup check in this mode. It SHALL use the external SQL provisioner
+for gateways assigned to this controller. It SHALL NOT provision a server.
+
+#### Scenario: Override enabled
+
+- GIVEN a controller with a configured admin Secret name
+- WHEN it provisions a gateway
+- THEN it SHALL use that Secret, even if the gateway has a `database_id`
+- AND it SHALL create a separate SQL database and login role for that gateway
+- AND it SHALL NOT read or provision a `ManagedDatabase`
+
+#### Scenario: Override absent
+
+- GIVEN the variable is unset or empty
+- WHEN the controller starts
+- THEN the existing database selection and watch behavior SHALL remain active
+
+### Requirement: Admin Credential Synchronization
+
+The Secret SHALL contain `host`, `port`, `user`, `password`, and `sslrootcert`.
+`sslrootcert` SHALL contain a PEM CA bundle. `dbname` MAY select the maintenance
+database and defaults to `postgres`. `sslmode` defaults to `verify-full` and
+SHALL NOT select a weaker mode for this override. The controller SHALL read the
+current Secret for each database provisioning or cleanup attempt. It SHALL NOT
+write the admin Secret or log credential values.
+
+The provisioning account SHALL have `CREATEDB`, `CREATEROLE`, and permission to
+manage the gateway roles and terminate their sessions. The controller SHALL grant
+each gateway role to that account so a non-superuser can create its database.
+
+#### Scenario: Non-superuser provisioning account
+
+- GIVEN a PostgreSQL account with the required privileges and no superuser access
+- WHEN the controller provisions and deletes a gateway
+- THEN it SHALL create and remove the gateway database and role successfully
+
+The Secret MAY be synchronized from a secret manager by External Secrets
+Operator. GitOps configuration SHALL contain Secret references and field mappings;
+it SHALL NOT contain production passwords. Provisioning SHALL fail and retry
+when credentials are unavailable or invalid. It SHALL NOT use another database
+provider as a fallback.
+
+#### Scenario: Secret arrives after the controller
+
+- GIVEN the selected Secret does not exist
+- WHEN the controller receives a gateway
+- THEN provisioning SHALL fail without creating a database server
+- WHEN synchronization creates a valid Secret
+- THEN a later retry SHALL provision the gateway
+
+#### Scenario: Admin password changes
+
+- GIVEN the server password and synchronized Secret have been updated
+- WHEN a provisioning or cleanup attempt starts
+- THEN it SHALL use the current credentials without a controller restart
+
+### Requirement: Gateway Database Certificate Verification
+
+In override mode, both admin and gateway connections SHALL use `verify-full`.
+The controller SHALL copy the CA bundle into `openshell-gateway-db-credentials`,
+mount that key read-only in the gateway, and reference its path in the gateway
+DSN. It SHALL NOT copy admin credentials into the gateway namespace. This CA
+propagation SHALL also preserve `verify-ca` and `verify-full` when explicitly
+selected through the existing external provider.
+
+#### Scenario: Trusted server
+
+- GIVEN a server certificate signed by the configured CA with a matching hostname
+- WHEN the controller and gateway connect
+- THEN both connections SHALL verify the certificate and succeed
+
+#### Scenario: Untrusted server or wrong hostname
+
+- GIVEN an untrusted server certificate or a hostname mismatch
+- WHEN the controller or gateway connects
+- THEN the connection SHALL fail without a TLS downgrade
+
+### Requirement: Observable Database Cleanup Failures
+
+For the override, gateway deletion SHALL remove its SQL database and role.
+An absent object SHALL count as already removed. A failed existence query,
+connection, or DROP statement SHALL NOT count as successful cleanup. The
+controller SHALL return the error to the gateway retry queue and record an
+`IncompleteFinalization` Warning Event in the controller namespace. The Event
+SHALL identify the gateway and Secret reference without credential values.
+
+Retries use the existing in-memory queue. A controller restart can lose a pending
+delete event; this change SHALL NOT claim recovery across restarts. The operator
+runbook SHALL describe how to find and remove remaining SQL resources. The
+controller SHALL never delete the admin Secret or the PostgreSQL server.
+
+#### Scenario: Database is unavailable during deletion
+
+- GIVEN a gateway delete event and an unavailable database
+- WHEN cleanup fails
+- THEN the controller SHALL record the failure and return an error
+- WHEN the database becomes available during the same controller process
+- THEN a queued retry SHALL remove the database and role
+
+#### Scenario: Cleanup query fails
+
+- GIVEN a failed database or role existence query
+- WHEN cleanup processes the result
+- THEN it SHALL return an error instead of reporting that the object is absent
+
+### Requirement: Compatibility and Deployment Scope
+
+The override SHALL preserve the API, schema, and SDK contracts. The API still
+assigns `database_id`; its default `deployment` provider still creates a
+`ManagedDatabase` record per gateway. This controller ignores and retains those
+records. Database inventory therefore does not represent its SQL databases.
+Existing API registration requirements for `cnpg` and `external` still apply.
+
+Configure the override before provisioning gateways that use it. The configured
+server must be correct for all assigned gateways. Enabling the override, changing
+the endpoint, or removing the override SHALL NOT migrate data. The contracts below
+describe the existing path; the override requirements above take precedence for
+controllers that set the variable.
+
+#### Scenario: Existing API clients
+
+- GIVEN an existing client and the API's default database provider
+- WHEN the client creates a gateway for a controller with the override
+- THEN the API SHALL keep its existing request, response, and record behavior
+- AND the controller SHALL use its configured Secret for SQL provisioning
 
 ### Contracts this spec builds on
 
@@ -74,7 +206,7 @@ responsibility, out-of-band, before an `external` ManagedDatabase is created:
 5. **Server-side log verbosity restricted.** `CREATE ROLE` and `ALTER ROLE`
    statements carry the plaintext password in the statement text (the PostgreSQL
    wire protocol has no separate credential-binding channel for these statements).
-   Operators SHOULD set `log_statement` to `'mod'` or lower, or enable server-side
+   Operators SHOULD set `log_statement` to `'none'`, or enable server-side
    log redaction, on any external server used with this provider. HyperShell
    redacts credentials in its own application logs and error messages; server-side
    redaction is the operator's responsibility and HyperShell cannot enforce it.
@@ -544,8 +676,7 @@ files in the tenant namespace. `sslmode=verify-full` is the recommended hardenin
 is opt-in: when the admin Secret carries `sslrootcert`, the reconciler SHALL
 propagate the CA into the tenant namespace and set `verify-full`, which requires the
 gateway workload to mount and reference the CA. Distributing/mounting the CA into the
-gateway workload is tracked as a follow-up; v1 MAY ship with `require` as the
-enforced default and `verify-full` behind that follow-up.
+gateway workload SHALL use the mounted CA without reducing the requested TLS mode.
 
 #### Scenario: Credentials Secret written with the default TLS mode
 

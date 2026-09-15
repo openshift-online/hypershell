@@ -32,9 +32,17 @@ func TestManagedDatabaseWatchEligible(t *testing.T) {
 			if !tt.dynamic {
 				gotDynamic = nil
 			}
-			if got := managedDatabaseWatchEligible(gotTyped, gotDynamic); got != tt.want {
+			if got := managedDatabaseWatchEligible(gotTyped, gotDynamic, ""); got != tt.want {
 				t.Fatalf("eligible = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestManagedDatabaseWatchDisabledWithSecret(t *testing.T) {
+	typed := &kubernetes.Clientset{}
+	dynamic := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	if managedDatabaseWatchEligible(typed, dynamic, "gateway-postgres") {
+		t.Fatal("ManagedDatabase watch must be disabled with a controller database Secret")
 	}
 }

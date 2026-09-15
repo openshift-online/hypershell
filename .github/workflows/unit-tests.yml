@@ -124,6 +124,10 @@ jobs:
       - name: Run control plane unit tests
         working-directory: components/control-plane
         run: go test -count=1 ./...
+      - name: Test controller database Secret with PostgreSQL TLS
+        env:
+          CONTAINER_ENGINE: docker
+        run: bash scripts/test-controller-database-secret.sh
 
   test-cli:
     name: Go - CLI

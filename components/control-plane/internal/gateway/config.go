@@ -63,18 +63,17 @@ type CNPGConfig struct {
 	ClusterNamespace string
 }
 
-// ExternalDBConfig locates the admin credentials for an external
-// ManagedDatabase. CredentialsNamespace is the value of
-// ManagedDatabase.connection_secret: the NAMESPACE holding the credentials, not
-// a Secret name. It must satisfy the hypershell-managed-db- prefix rule, and
-// the control plane reads exactly one fixed-name Secret
-// (hypershell-managed-db-credentials) inside it.
-//
-// ManagedDatabaseID is carried for diagnostics only: single-shot cleanup logs
-// it so an operator can tie an orphaned role/database back to its registration.
+// ExternalDBConfig locates PostgreSQL admin credentials. A configured
+// CredentialsSecretName selects a Secret in the controller namespace.
+// Otherwise, CredentialsNamespace comes from ManagedDatabase.connection_secret
+// and must use the hypershell-managed-db- prefix. That path reads the fixed
+// hypershell-managed-db-credentials Secret. ManagedDatabaseID is for diagnostics.
 type ExternalDBConfig struct {
 	CredentialsNamespace string
-	ManagedDatabaseID    string
+	// CredentialsSecretName selects a controller-configured Secret.
+	// Empty uses the fixed name and namespace rules for ManagedDatabase.
+	CredentialsSecretName string
+	ManagedDatabaseID     string
 }
 
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.

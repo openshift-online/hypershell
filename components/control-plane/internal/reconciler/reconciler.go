@@ -1438,6 +1438,7 @@ type GatewayReconciler struct {
 	keycloakClient        *keycloak.Client
 	keycloakConfig        *gateway.KeycloakConfig
 	exposure              exposure.Port
+	databaseSecret        string
 }
 
 func NewGatewayReconciler(
@@ -1448,6 +1449,7 @@ func NewGatewayReconciler(
 	controlPlaneNamespace string,
 	keycloakConfig *gateway.KeycloakConfig,
 	exposurePort exposure.Port,
+	databaseSecret string,
 ) (*GatewayReconciler, error) {
 	manifests, err := gateway.LoadGatewayManifests(manifestsDir)
 	if err != nil {
@@ -1492,6 +1494,7 @@ func NewGatewayReconciler(
 		keycloakClient:        kcClient,
 		keycloakConfig:        keycloakConfig,
 		exposure:              exposurePort,
+		databaseSecret:        databaseSecret,
 	}, nil
 }
 
@@ -1530,7 +1533,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		forgetGatewayProvisionObservation(event.ResourceID)
 		var deleteDBConfig databaseConfig
 		var deleteErrs []error
-		if gw.DatabaseId != "" {
+		if r.databaseSecret != "" || gw.DatabaseId != "" {
 			var dbErr error
 			deleteDBConfig, dbErr = r.resolveDatabaseConfig(ctx, gw)
 			if dbErr != nil {
@@ -1711,7 +1714,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	var dbConfig databaseConfig
-	if gw.DatabaseId != "" {
+	if r.databaseSecret != "" || gw.DatabaseId != "" {
 		var resolveErr error
 		dbConfig, resolveErr = r.resolveDatabaseConfig(ctx, gw)
 		if resolveErr != nil {
@@ -2504,6 +2507,16 @@ func (r *GatewayReconciler) resolveReleaseImage(ctx context.Context, gw *pb.Gate
 }
 
 func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Gateway) (databaseConfig, error) {
+	if r.databaseSecret != "" {
+		return databaseConfig{
+			Provider: "external",
+			ExternalDB: gateway.ExternalDBConfig{
+				CredentialsNamespace:  r.controlPlaneNamespace,
+				CredentialsSecretName: r.databaseSecret,
+			},
+		}, nil
+	}
+
 	if gw.DatabaseId == "" {
 		return databaseConfig{}, fmt.Errorf("gateway has no database_id; assign a ManagedDatabase to the gateway")
 	}

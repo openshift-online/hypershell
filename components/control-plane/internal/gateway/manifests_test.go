@@ -231,3 +231,50 @@ func TestApplyCredentialDriverDeploymentOverrides_VaultAddsVolume(t *testing.T) 
 		t.Errorf("expected volume name vault-sa-token, got %v", vol["name"])
 	}
 }
+
+func TestGatewayDatabaseCAMount(t *testing.T) {
+	manifests, err := LoadGatewayManifests("../../manifests/gateway")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, objects := range manifests {
+		for _, object := range objects {
+			if object.GetKind() != "Deployment" || object.GetName() != "openshell-gateway" {
+				continue
+			}
+			volumes, _, _ := unstructured.NestedSlice(object.Object, "spec", "template", "spec", "volumes")
+			projected := false
+			for _, volume := range volumes {
+				v := volume.(map[string]interface{})
+				if v["name"] != "database-ca" {
+					continue
+				}
+				secret := v["secret"].(map[string]interface{})
+				items := secret["items"].([]interface{})
+				item := items[0].(map[string]interface{})
+				if secret["secretName"] != tenantGatewayDBSecretName || secret["optional"] != true || len(items) != 1 || item["key"] != "sslrootcert" || item["path"] != "ca.crt" {
+					t.Fatal("CA volume must project only the optional public CA")
+				}
+				projected = true
+			}
+			if !projected {
+				t.Fatal("database CA volume is missing")
+			}
+			containers, _, _ := unstructured.NestedSlice(object.Object, "spec", "template", "spec", "containers")
+			for _, container := range containers {
+				c := container.(map[string]interface{})
+				if c["name"] != "openshell-gateway" {
+					continue
+				}
+				for _, mount := range c["volumeMounts"].([]interface{}) {
+					m := mount.(map[string]interface{})
+					if m["name"] == "database-ca" && m["mountPath"] == "/etc/openshell-db" && m["readOnly"] == true {
+						return
+					}
+				}
+			}
+			t.Fatal("gateway has no read-only database CA mount")
+		}
+	}
+	t.Fatal("gateway deployment not found")
+}

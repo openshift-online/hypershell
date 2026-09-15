@@ -303,9 +303,12 @@ func DeleteGatewayResources(
 		cleanupCtx, cleanupCancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cleanupCancel()
 		if delErr := dbReconciler.Delete(cleanupCtx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
-			// Transient error (server unreachable, DDL failure): return so the
-			// delete-reconcile retries. Terminal errors (admin secret unreadable)
-			// are handled inside Delete and return nil; in-cluster cleanup still runs.
+			reason := "Database cleanup failed. Check controller database configuration and retry cleanup."
+			if opts.ExternalDB.CredentialsSecretName != "" {
+				reason = fmt.Sprintf("Database cleanup failed using Secret %s/%s. Check controller logs and retry cleanup.",
+					opts.ExternalDB.CredentialsNamespace, opts.ExternalDB.CredentialsSecretName)
+			}
+			recordOrphan(ctx, opts, "PostgreSQLDatabase", externalGatewayDBName(opts.GatewayID), reason)
 			return fmt.Errorf("database cleanup for gateway %s: %w", opts.GatewayID, delErr)
 		}
 	} else {

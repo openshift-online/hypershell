@@ -704,11 +704,18 @@ if [[ -n "$GW_DB_ID" ]]; then
 fi
 if [[ -n "$DB_GW_NAMESPACE" ]]; then
   dim "  Database namespace: ${DB_GW_NAMESPACE}"
-else
+elif [[ -z "${GATEWAY_DATABASE_ADMIN_SECRET_NAME:-}" ]]; then
   fail_test "Could not resolve database namespace for gateway ${GW_ID}"
 fi
 
-if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
+if [[ -n "${GATEWAY_DATABASE_ADMIN_SECRET_NAME:-}" ]]; then
+  DB_TEST_NAME=$($CLI -n "$GW_NAMESPACE" get secret openshell-gateway-db-credentials -o jsonpath='{.data.dbname}' | base64 -d)
+  if bash tests/fixtures/controller-database/assert-kind.sh provision "$DB_TEST_NAME" "$GW_NAMESPACE" "$DB_GW_NAMESPACE"; then
+    pass "Secret override uses the shared TLS server and bypasses ManagedDatabase provisioning"
+  else
+    fail_test "Secret override database checks failed"
+  fi
+elif [[ "${DB_PROVIDER}" == "cnpg" ]]; then
   # CNPG provider: verify Database CR, DatabaseRole CR, and client TLS
   CNPG_GW_NAMESPACE="${DB_GW_NAMESPACE}"
   CNPG_CR_NAME="gw-$(echo "${GW_ID}" | tr '[:upper:]' '[:lower:]')"
@@ -1924,7 +1931,7 @@ else
     e2e_dump_namespace_gc_logs "${E2E_HS_NAMESPACE}" "$CLI"
   fi
 
-  if [[ "${DB_PROVIDER}" == "deployment" && -n "${GW_DB_ID:-}" ]]; then
+  if [[ "${DB_PROVIDER}" == "deployment" && -n "${GW_DB_ID:-}" && -z "${GATEWAY_DATABASE_ADMIN_SECRET_NAME:-}" ]]; then
     dim "  Waiting for dedicated ManagedDatabase ${GW_DB_ID} and namespace ${DB_GW_NAMESPACE} to be deleted..."
     DB_GONE=false
     DB_GC_DEADLINE=$(($(date +%s) + E2E_GC_TIMEOUT))
@@ -1943,6 +1950,14 @@ else
       pass "Dedicated deployment database deleted with gateway: ${GW_DB_ID}"
     else
       fail_test "ManagedDatabase ${GW_DB_ID} or namespace ${DB_GW_NAMESPACE} remained after gateway deletion"
+    fi
+  fi
+
+  if [[ -n "${GATEWAY_DATABASE_ADMIN_SECRET_NAME:-}" && -n "${DB_TEST_NAME:-}" ]]; then
+    if bash tests/fixtures/controller-database/assert-kind.sh delete "$DB_TEST_NAME"; then
+      pass "Secret override removed the gateway database and role"
+    else
+      fail_test "Secret override left a gateway database or role"
     fi
   fi
 

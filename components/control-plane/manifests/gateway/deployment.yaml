@@ -73,6 +73,9 @@ spec:
             - name: tls-cert
               mountPath: /etc/openshell-tls/server
               readOnly: true
+            - name: database-ca
+              mountPath: /etc/openshell-db
+              readOnly: true
             - name: tmp
               mountPath: /tmp
           ports:
@@ -127,5 +130,13 @@ spec:
           secret:
             secretName: openshell-server-tls
             defaultMode: 288
+        - name: database-ca
+          secret:
+            secretName: openshell-gateway-db-credentials
+            optional: true
+            defaultMode: 288
+            items:
+              - key: sslrootcert
+                path: ca.crt
         - name: tmp
           emptyDir: {}

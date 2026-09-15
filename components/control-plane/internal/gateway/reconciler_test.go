@@ -3,6 +3,11 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -577,4 +582,32 @@ func TestReconcileRouteResourcesTLSIssuer(t *testing.T) {
 			t.Errorf("destinationCACertificate = %q, want the secret ca.crt", tls["destinationCACertificate"])
 		}
 	})
+}
+
+func TestNamedDatabaseCleanupRecordsFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	client, err := kubernetes.NewForConfig(&rest.Config{Host: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dynamicClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	recorded := false
+	opts := ReconcileOpts{GatewayID: "test", DatabaseProvider: "external",
+		ExternalDB: ExternalDBConfig{CredentialsNamespace: "hypershell", CredentialsSecretName: "missing-admin"},
+		RecordOrphan: func(_ context.Context, kind, name, reason string) {
+			if kind != "PostgreSQLDatabase" || name != "gw_test" || !strings.Contains(reason, "hypershell/missing-admin") {
+				t.Fatalf("cleanup warning lacks resource or Secret reference: %s %s %s", kind, name, reason)
+			}
+			recorded = true
+		},
+	}
+	if err := DeleteGatewayResources(context.Background(), dynamicClient, client, "gateway-test", opts); err == nil {
+		t.Fatal("cleanup failure did not reach the retry queue")
+	}
+	if !recorded {
+		t.Fatal("cleanup failure did not record a warning")
+	}
 }
