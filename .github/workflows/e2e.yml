@@ -660,9 +660,11 @@ jobs:
   # e2e-irrelevant PRs skip the suite, and PR Environment skips Deploy
   # PR environment with the same gate. Polls that check because GitHub
   # Actions `needs:` cannot cross independently-triggered workflows.
+  # FIXME: Enable gating on failure for OpenShift E2E tests again once we fix the insufficient resource issues for these tests
   e2e-openshift:
     name: OpenShift
     needs: plan-images
+    continue-on-error: true
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
