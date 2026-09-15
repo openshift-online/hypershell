@@ -53,10 +53,14 @@ Set `spec.finalPipeline` to this pipeline through the Git resolver. Use
 SHA, and `pipelines/release-bundle/pipeline.yaml`. Set `useEmptyDir: true` and
 `serviceAccountName: build-pipeline-hypershell-api-server-main`.
 
-Give this service account `get` access to `releases` and `snapshots` in API group
-`appstudio.redhat.com` in the tenant namespace. It does not need list, watch,
-update, or Git write access. The existing build account supplies the Quay write
-credential through Tekton credential initialization. Do not put a token in Git.
+Bind this service account to the approved `konflux-viewer-bot-actions` ClusterRole
+in the tenant namespace. The config repository rejects custom roles. The viewer
+role permits reads of Releases, Snapshots, and other Konflux resources. It does
+not grant writes. The publisher uses only `get` on Releases and Snapshots.
+
+The existing build account already has Quay write access. Reuse its credential
+through Tekton credential initialization and the `select-oci-auth` helper. No new
+Quay token or repository is required. Do not put a token in Git.
 
 The first run verifies the actual namespace permissions and registry credential.
 If either is missing, the run fails and publishes no bundle. The source PR alone
