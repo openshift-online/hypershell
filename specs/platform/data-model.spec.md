@@ -212,6 +212,40 @@ A GatewayNetwork SHALL define how gateways communicate. The `topology` field ind
 - WHEN gateways join the network
 - THEN all spoke gateways SHALL route through the hub gateway
 
+### Requirement: Managed Cluster Self-Registration
+
+The API server SHALL expose an idempotent registration endpoint at
+`POST /api/hypershell/v1/managed_clusters/registration` for spoke
+control-planes to self-register. The endpoint SHALL require the
+`managed-cluster-registrar` realm role. See
+[`global-architecture.spec.md` — Managed Cluster Pull Model](./global-architecture.spec.md#managed-cluster-pull-model)
+for the full spoke-pull architecture.
+
+#### Scenario: First registration creates a ManagedCluster
+
+- GIVEN a spoke control-plane with valid OIDC credentials and the
+  `managed-cluster-registrar` role
+- WHEN it calls `POST /managed_clusters/registration` with `name: hyp4-mc01`
+- THEN the API server SHALL create a ManagedCluster record
+- AND return `{ "cluster_id": "<KSUID>" }`
+- AND set `last_seen_at` to the current timestamp
+
+#### Scenario: Repeated registration is idempotent
+
+- GIVEN a ManagedCluster `hyp4-mc01` already exists (registered by the same
+  OIDC subject)
+- WHEN the spoke calls `POST /managed_clusters/registration` with
+  `name: hyp4-mc01` again
+- THEN the API server SHALL return the **same** `cluster_id`
+- AND update `last_seen_at`
+- AND SHALL NOT create a duplicate record
+
+#### Scenario: Registration without the required role is rejected
+
+- GIVEN a bearer token without the `managed-cluster-registrar` realm role
+- WHEN a client calls `POST /managed_clusters/registration`
+- THEN the API server SHALL return 403 Forbidden
+
 ## API Reference
 
 All routes under `/api/hypershell/v1/`:
