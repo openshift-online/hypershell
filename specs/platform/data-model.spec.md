@@ -215,15 +215,16 @@ A GatewayNetwork SHALL define how gateways communicate. The `topology` field ind
 ### Requirement: Managed Cluster Self-Registration
 
 The API server SHALL expose an idempotent registration endpoint at
-`POST /api/hypershell/v1/managed_clusters/registration` for spoke
-control-planes to self-register. The endpoint SHALL require the
-`managed-cluster-registrar` realm role. See
-[`global-architecture.spec.md` — Managed Cluster Pull Model](./global-architecture.spec.md#managed-cluster-pull-model)
-for the full spoke-pull architecture.
+`POST /api/hypershell/v1/managed_clusters/registration` for control planes
+to self-register. Every control plane — whether co-located with the API
+server or running on a remote ManagedCluster — uses this endpoint at startup.
+The endpoint SHALL require the `managed-cluster-registrar` realm role. See
+[`global-architecture.spec.md` — Control Plane Self-Registration](./global-architecture.spec.md#control-plane-self-registration)
+for the full architecture.
 
 #### Scenario: First registration creates a ManagedCluster
 
-- GIVEN a spoke control-plane with valid OIDC credentials and the
+- GIVEN a control plane with valid OIDC credentials and the
   `managed-cluster-registrar` role
 - WHEN it calls `POST /managed_clusters/registration` with `name: hyp4-mc01`
 - THEN the API server SHALL create a ManagedCluster record
@@ -234,7 +235,7 @@ for the full spoke-pull architecture.
 
 - GIVEN a ManagedCluster `hyp4-mc01` already exists (registered by the same
   OIDC subject)
-- WHEN the spoke calls `POST /managed_clusters/registration` with
+- WHEN the control plane calls `POST /managed_clusters/registration` with
   `name: hyp4-mc01` again
 - THEN the API server SHALL return the **same** `cluster_id`
 - AND update `last_seen_at`
@@ -263,7 +264,7 @@ All routes under `/api/hypershell/v1/`:
 | GET/PATCH/DELETE | `/gateway_releases/{id}` | Get/Update/Delete |
 | GET/POST | `/managed_clusters` | List/Create |
 | GET/PATCH/DELETE | `/managed_clusters/{id}` | Get/Update/Delete |
-| POST | `/managed_clusters/registration` | Self-register spoke; idempotent on (oidc_subject, name); updates last_seen_at on every call |
+| POST | `/managed_clusters/registration` | Self-register control plane; idempotent on (oidc_subject, name); updates last_seen_at on every call |
 | GET/POST | `/managed_databases` | List/Create |
 | GET/PATCH/DELETE | `/managed_databases/{id}` | Get/Update/Delete |
 
