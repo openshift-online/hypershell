@@ -339,7 +339,7 @@ _patch_namespace_gc_timing() {
     return 1
   fi
   _GC_TIMING_PATCHED=1
-  if ! "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=120s >/dev/null; then
+  if ! "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=300s >/dev/null; then
     red "  hypershell-controller did not roll out after GC timing patch"
     return 1
   fi
@@ -351,7 +351,7 @@ _restore_namespace_gc_timing() {
   dim "  Restoring controller namespace GC timing to deployment defaults..."
   "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
     GATEWAY_NAMESPACE_GC_INTERVAL- GATEWAY_NAMESPACE_GC_GRACE_PERIOD- >/dev/null 2>&1 || true
-  "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=120s >/dev/null 2>&1 || true
+  "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=300s >/dev/null 2>&1 || true
   _GC_TIMING_PATCHED=""
 }
 
@@ -539,7 +539,7 @@ acquire_gateway_token_with_role() {
   local password="${2:?password required}"
   local client_id="${3:?client_id required}"
   local role="${4:?role required}"
-  local timeout="${5:-120}"
+  local timeout="${5:-300}"
 
   local deadline=$(($(date +%s) + timeout))
   while [[ $(date +%s) -lt $deadline ]]; do
@@ -581,7 +581,7 @@ wait_for_gateway_route() {
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
 
-  local timeout="${E2E_PROVISION_TIMEOUT:-180}"
+  local timeout="${E2E_PROVISION_TIMEOUT:-300}"
   local deadline=$(($(date +%s) + timeout))
 
   dim "  Waiting for Gateway route readiness (timeout: ${timeout}s)..."

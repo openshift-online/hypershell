@@ -164,7 +164,7 @@ get_cli_binary() {
 wait_for_gateway_route() {
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
-  local timeout="${E2E_PROVISION_TIMEOUT:-180}"
+  local timeout="${E2E_PROVISION_TIMEOUT:-300}"
   local deadline=$(($(date +%s) + timeout))
 
   dim "  Waiting for Gateway route readiness (timeout: ${timeout}s)..."

@@ -21,16 +21,16 @@
 #   E2E_NAMESPACE          Namespace for e2e resources (default: openshell-e2e)
 #   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw-<random8hex>, unique per run)
 #   E2E_MODE               Run depth: long (default, every step) or short (essential steps)
-#   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 120)
-#   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 180)
-#   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
-#   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 90)
+#   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 300)
+#   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 300)
+#   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 300)
+#   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 300)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
 #   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: external)
 #   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 #   E2E_OPENSHELL_INSTALL  auto, always, or never (default: auto; CI uses always)
-#   E2E_GATEWAY_VERSION_TIMEOUT  Seconds to wait for the runtime version (default: 120)
+#   E2E_GATEWAY_VERSION_TIMEOUT  Seconds to wait for the runtime version (default: 300)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

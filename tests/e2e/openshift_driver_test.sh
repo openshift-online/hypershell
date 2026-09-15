@@ -36,7 +36,7 @@ oc() {
     *"get gateway shared-gateway -n openshift-ingress"*) printf '%s\n' 'Programmed=True' ;;
     *"get grpcroute openshell-gateway -n tenant-a"*) printf '%s\n' 'Accepted=True' ;;
     *"set env deployment/hypershell-controller -n test-team -c controller GATEWAY_NAMESPACE_GC_INTERVAL=30s GATEWAY_NAMESPACE_GC_GRACE_PERIOD=30s"*) : ;;
-    *"rollout status deployment/hypershell-controller -n test-team --timeout=120s"*) : ;;
+    *"rollout status deployment/hypershell-controller -n test-team --timeout=300s"*) : ;;
     *"set env deployment/hypershell-controller -n test-team -c controller GATEWAY_NAMESPACE_GC_INTERVAL- GATEWAY_NAMESPACE_GC_GRACE_PERIOD-"*) : ;;
     *) return 1 ;;
   esac
