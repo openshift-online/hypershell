@@ -284,9 +284,13 @@ describe("evaluateGithubOrgGate", () => {
     expect(onLookupError).not.toHaveBeenCalled();
   });
 
-  it("admits a login when Keycloak has no stored GitHub token", async () => {
+  it("denies a login when Keycloak reports a linked identity with no stored token", async () => {
+    const onLookupError = vi.fn();
     const fetchImpl = vi.fn((input: Parameters<typeof fetch>[0]) => {
       const href = hrefOf(input);
+      if (href.includes("/public_members/")) {
+        return Promise.resolve(new Response("not found", { status: 404 }));
+      }
       if (href.endsWith("/broker/github/token")) {
         return Promise.resolve(new Response("No token stored", { status: 404 }));
       }
@@ -298,8 +302,13 @@ describe("evaluateGithubOrgGate", () => {
         ...baseInput,
         allowlistRaw: "",
         fetchImpl,
+        onLookupError,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
+    expect(onLookupError).toHaveBeenCalledTimes(1);
+    expect(String(onLookupError.mock.calls[0]?.[0])).toMatch(
+      /linked GitHub identity with no stored broker token/u,
+    );
   });
 
   it("denies when GitHub org lookup fails", async () => {

@@ -59,10 +59,14 @@ export function githubIdentityAllowed(input: {
  * membership uses the Keycloak-stored GitHub token against
  * `/user/memberships/orgs/{org}` (and `/user/orgs` as a fallback).
  *
- * A Keycloak session with no readable GitHub identity (seeded password users)
- * is admitted: broker V1 returns 403 without `broker/read-token`, or 404 when
- * nothing is stored. That is the GitHub linkage check, not a JWT username
- * guess. Any other lookup failure is a denial.
+ * A Keycloak session with no GitHub identity at all (seeded password users)
+ * is admitted: broker V1 returns 403 when the access token was never granted
+ * `broker/read-token`, which only happens for accounts that never went
+ * through the GitHub broker. That is the GitHub linkage check, not a JWT
+ * username guess. A session that *is* GitHub-linked but whose token cannot be
+ * read back (broker V1 404, "nothing is stored") fails closed rather than
+ * being admitted, since we cannot verify org membership for it. Any other
+ * lookup failure is also a denial.
  */
 export async function evaluateGithubOrgGate(
   input: GithubOrgGateInput,
@@ -260,8 +264,12 @@ async function fetchBrokerGithubToken(input: {
   oidcIssuer: string;
 }): Promise<{ linked: true; token: string } | { linked: false }> {
   // storeToken + addReadTokenRoleOnCreate. Keycloak V1 retrieveToken:
-  // 403 if the access token has no broker/read-token (password users),
-  // 404 if the user is linked but nothing is stored. 200 is a GitHub login.
+  // 403 if the access token has no broker/read-token, meaning the account
+  // never went through the GitHub broker (password users) - safe to treat
+  // as "not linked". 404 means the user *is* linked to the GitHub provider
+  // but Keycloak has nothing stored for it; that is a verifiable identity we
+  // failed to verify, so it must not be treated the same as "not linked".
+  // 200 is a GitHub login.
   const issuer = input.oidcIssuer.replace(/\/+$/u, "");
   const response = await input.fetchImpl(`${issuer}/broker/github/token`, {
     headers: {
@@ -270,8 +278,13 @@ async function fetchBrokerGithubToken(input: {
     },
     signal: AbortSignal.timeout(githubRequestTimeoutMs),
   });
-  if (response.status === 403 || response.status === 404) {
+  if (response.status === 403) {
     return { linked: false };
+  }
+  if (response.status === 404) {
+    throw new Error(
+      "Keycloak reports a linked GitHub identity with no stored broker token (HTTP 404)",
+    );
   }
   if (!response.ok) {
     throw new Error(
