@@ -1,22 +1,45 @@
 # Control Plane
 
-**Date:** 2026-08-03
+**Date:** 2026-09-15
 **Status:** Active
 
 ## Overview
 
-The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into actual Kubernetes resources across managed clusters. It follows the informer-reconciler pattern without depending on controller-runtime.
+The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into actual Kubernetes resources. It follows the informer-reconciler pattern without depending on controller-runtime.
+
+The control plane runs in one of two modes depending on deployment topology:
+
+| Mode | Deployment | gRPC target | Reconciles into | Credential |
+|------|-----------|-------------|----------------|------------|
+| **Hub** (default) | On the Cloud Hub alongside the API server | Localhost / in-cluster Service | Remote ManagedClusters via kubeconfig secrets | Hub holds ManagedCluster kubeconfigs |
+| **Spoke** | On a ManagedCluster, one instance per hub it watches | Remote Cloud Hub API server over TLS | The local cluster only (filtered by `cluster_id`) | Spoke holds OIDC client credentials to the hub |
+
+Both modes use the same binary and reconciler code. The difference is operational: a spoke authenticates to the hub via OIDC `client_credentials`, self-registers at startup to obtain its `cluster_id`, and reconciles only its own gateways locally. See [`global-architecture.spec.md` — Managed Cluster Pull Model](./global-architecture.spec.md#managed-cluster-pull-model).
 
 ## Architecture
 
+**Hub mode:**
+
 ```
-API Server (PostgreSQL)
-  │  gRPC watch streams per Kind
+API Server (PostgreSQL via CNPG)
+  │  gRPC watch streams per Kind (in-cluster)
   ▼
 Control Plane (Watcher + Reconciler)
-  │  reconciles into K8s resources
+  │  reconciles into K8s resources via kubeconfig
   ▼
 Managed Clusters (Gateway pods, Services, Configs)
+```
+
+**Spoke mode:**
+
+```
+Cloud Hub API Server (remote, over TLS)
+  │  gRPC watch streams per Kind (external, OIDC-authenticated)
+  ▼
+Spoke Control Plane (Watcher + Reconciler)
+  │  reconciles into K8s resources locally (in-cluster)
+  ▼
+This Cluster (Gateway pods, Services, Configs)
 ```
 
 ## Components
@@ -180,3 +203,6 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | Separate module from API server | Independent lifecycle, separate deployment |
 | No controller-runtime dependency | Lightweight, custom reconciliation without CRD overhead |
 | Multi-cluster client pool | Each managed cluster gets its own KubeClient for isolation |
+| Same binary for hub and spoke | The spoke runs the same control-plane binary with different env vars (OIDC creds, remote gRPC addr, `HYPERSHELL_MANAGED_CLUSTER_NAME`). No code fork or separate build — operational configuration only. |
+| Self-registration before watch | The spoke calls `/managed_clusters/registration` before opening `WatchGateways`, so it always has a valid `cluster_id` to filter on. A 403 (missing role) exits immediately to surface misconfiguration. |
+| `cluster_id` filter on watch events | The spoke processes only events matching its own `cluster_id`, preventing it from attempting to reconcile gateways on other clusters. This is a client-side filter; server-side filtering is a future optimization. |

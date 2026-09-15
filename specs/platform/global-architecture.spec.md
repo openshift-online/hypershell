@@ -1,6 +1,6 @@
 # Global Architecture
 
-**Date:** 2026-08-14
+**Date:** 2026-09-15
 **Status:** Active
 
 ## Overview
@@ -9,7 +9,7 @@ HyperShell deploys as a global fleet management platform spanning multiple cloud
 
 **Platform delivery is GitOps pull, not hub push.** ArgoCD runs on *every* cluster and reconciles **only itself**: each cluster's ArgoCD pulls its own path from a single central GitOps repository ([`hypershell-gitops`](https://github.com/openshift-online/hypershell-gitops)) and applies the operator stack and HyperShell platform components locally. No cluster stores another cluster's kubeconfig, and no central ArgoCD pushes manifests outward. The GitOps repo is the single source of desired *platform* state; a bootstrap agent seeds each cluster (installs ArgoCD and points it at the cluster's own path), after which the cluster self-reconciles.
 
-> **Two distinct reconciliation planes; do not conflate them.** (1) **Platform GitOps** (this section) deploys the operator stack and HyperShell components; it is *pull*, sourced from Git, per cluster. (2) **Control-plane tenant reconciliation** (see "Control Plane Reconciliation Flow") provisions per-tenant OpenShell Gateway resources at runtime; it is *push* from the Cloud Hub control plane into ManagedClusters, sourced from the Cloud Hub PostgreSQL (the source of truth for tenant desired state) and driven by gRPC watch events. Inverting the GitOps layer to pull does **not** change the control-plane tenant plane.
+> **Three reconciliation planes; do not conflate them.** (1) **Platform GitOps** (this section) deploys the operator stack and HyperShell components; it is *pull*, sourced from Git, per cluster. (2) **Control-plane tenant reconciliation (hub-push)** (see "Control Plane Reconciliation Flow") provisions per-tenant OpenShell Gateway resources at runtime; it is *push* from the Cloud Hub control plane into ManagedClusters, sourced from the Cloud Hub PostgreSQL (the source of truth for tenant desired state) and driven by gRPC watch events. (3) **Control-plane tenant reconciliation (spoke-pull)** (see "Managed Cluster Pull Model") is the alternative: a spoke control-plane instance runs on the ManagedCluster itself, watches the Cloud Hub API server via gRPC, self-registers, and reconciles only the gateways assigned to its own `cluster_id` — locally, with no inbound kubeconfig from the hub. Planes (2) and (3) are mutually exclusive per ManagedCluster; both produce the same tenant resources. Inverting the GitOps layer to pull does **not** change the control-plane tenant plane.
 
 > **Terminology.** "Gateway" is overloaded, so this document uses fully-qualified
 > names. **OpenShell Gateway** is the tenant workload (the pod, its Supervisor,
@@ -100,9 +100,12 @@ graph TB
     IK -->|Federation| M3K
 
     %% Control-plane tenant plane (runtime, DB-sourced) - distinct from GitOps pull above
-    ACP -->|Reconcile tenants| M1GW
-    ACP -->|Reconcile tenants| M2GW
-    ICP -->|Reconcile tenants| M3GW
+    ACP -->|"Hub-push: reconcile tenants"| M1GW
+    ACP -->|"Hub-push: reconcile tenants"| M2GW
+    ICP -->|"Hub-push: reconcile tenants"| M3GW
+
+    %% Spoke-pull: ManagedCluster watches Cloud Hub gRPC (reverse direction)
+    M3GW -.->|"Spoke-pull: watch hub gRPC"| AAPI
     
     M1P -->|Metrics| AP
     M2P -->|Metrics| AP
@@ -154,14 +157,22 @@ The *platform* layer beneath it is pull-based GitOps: each ManagedCluster's own 
 **Purpose**: Hosts OpenShell Gateway workloads - the OpenShell Gateway pod, its Supervisor, and the Sandboxes it launches to execute user sessions. Multiple per cloud, deployed close to users (regional).
 
 **Components**:
-- ArgoCD - self-reconciles this ManagedCluster's operator stack and baseline config from its own path in the central GitOps repo (pull); the Cloud Hub control plane layers tenant resources on top at runtime
-- Keycloak - federates to Cloud Hub Keycloak, holds OIDC clients for OpenShell Gateways on this cluster
+- ArgoCD - self-reconciles this ManagedCluster's operator stack and baseline config from its own path in the central GitOps repo (pull); tenant resources are layered on top at runtime by either the Cloud Hub control plane (hub-push) or a local spoke control-plane (spoke-pull)
+- Keycloak - federates to Cloud Hub Keycloak (or to the Global Keycloak directly if no Cloud Hub Keycloak is in the chain), holds OIDC clients for OpenShell Gateways on this cluster and (in spoke-pull mode) the spoke control-plane's service-account client
 - Vault - keystore for gateway secrets
 - PostgreSQL (cloud-managed gateway database server) - one database and login role per gateway (`gw_<gateway-id>`)
 - Prometheus - local metrics (forwarded to Cloud Hub)
 - Gateway namespaces (each contains: OpenShell Gateway pod, Supervisor, Sandboxes, DB credentials Secret, TLS secrets, RBAC)
+- **Spoke control-plane** (spoke-pull mode only) - a control-plane instance that watches the Cloud Hub API server via gRPC, self-registers via the registration endpoint, and reconciles only gateways matching its `cluster_id`. API server and web console replicas are scaled to 0; only the controller runs. See "Managed Cluster Pull Model".
 
 **Operational Role**: Runs OpenShell Gateway workloads and the Sandboxes they spawn. Users authenticate openshell CLI against Keycloak on the ManagedCluster where their OpenShell Gateway lives.
+
+**Two tenant reconciliation modes** (mutually exclusive per cluster):
+
+| Mode | Tenant reconciler | Credential direction | Use case |
+|------|-------------------|---------------------|----------|
+| **Hub-push** (default) | Cloud Hub control plane | Hub holds ManagedCluster kubeconfig | Hub and ManagedCluster in the same cloud/network |
+| **Spoke-pull** | Spoke control-plane on the ManagedCluster | Spoke holds OIDC client credentials to the hub API | Cross-cloud (e.g., IBM ManagedCluster watching an AWS Cloud Hub) |
 
 ## Data Flows
 
@@ -181,17 +192,21 @@ graph LR
     Cloud -->|Federates| MC
     
     MC -->|Holds| Clients[Gateway OIDC Clients]
+    MC -->|Holds| SpokeClient["Spoke OIDC Client<br/>(spoke-pull mode)"]
     
     style RHSSO fill:#e74c3c
     style Global fill:#3498db
     style Cloud fill:#f39c12
     style MC fill:#2ecc71
     style Clients fill:#95a5a6
+    style SpokeClient fill:#d5f5e3
 ```
 
 **Federation Path**: Red Hat SSO → Global Keycloak → Cloud Keycloak → ManagedCluster Keycloak
 
 **Client Registration**: Gateway OIDC clients are registered in the ManagedCluster Keycloak where the gateway runs.
+
+**Spoke-pull OIDC (target)**: The spoke control-plane's OIDC client is registered on the ManagedCluster's local Keycloak. Federation carries the token up the chain so the Cloud Hub API server accepts it. **Current gap**: this federation path is not yet implemented for the spoke-pull topology; the spoke client is registered directly on the Cloud Hub Keycloak as a workaround (see "Managed Cluster Pull Model").
 
 ### Gateway Authentication Flow
 
@@ -290,6 +305,309 @@ sequenceDiagram
 - The central GitOps repo is the single source of truth for **platform** desired state (operators, CRDs, HyperShell component manifests). It is *not* the source of truth for tenant gateways; those live in the Cloud Hub PostgreSQL and flow through the control plane (above).
 - `bin/bootstrap <cluster>` (in `hypershell-gitops`) performs the one-time seed: install the OpenShift GitOps operator, then `oc apply -k clusters/<cluster>/gitops` (the app-of-apps). Steady-state reconciliation is pull-only.
 - A hub outage does not stop a ManagedCluster from reconciling its platform; each cluster is self-sufficient against Git.
+
+
+## Managed Cluster Pull Model
+
+The default control-plane reconciliation mode is **hub-push**: the Cloud Hub
+control plane holds a kubeconfig for each ManagedCluster and pushes tenant
+resources into it. This works when hub and ManagedCluster share a network
+(same cloud, same region, or a stable VPN), but breaks when the ManagedCluster
+is in a different cloud where the hub cannot reach its API server, or where
+storing cross-cloud kubeconfigs is unacceptable.
+
+The **spoke-pull** mode inverts the credential direction: a control-plane
+instance runs on the ManagedCluster itself, watches the Cloud Hub API server
+over the public internet via gRPC, and reconciles only the gateways assigned
+to its own `cluster_id`. The hub never holds the ManagedCluster's kubeconfig.
+
+### Architecture
+
+```mermaid
+sequenceDiagram
+    participant Spoke as Spoke Control Plane<br/>(ManagedCluster)
+    participant KC as Hub Keycloak
+    participant API as Hub API Server<br/>(Cloud Hub)
+    participant DB as Hub PostgreSQL
+
+    Note over Spoke: Spoke has OIDC client credentials<br/>for the hub Keycloak (client_credentials grant)
+
+    Spoke->>KC: POST /token (client_credentials)
+    KC-->>Spoke: access_token (managed-cluster-registrar role)
+
+    Spoke->>API: POST /managed_clusters/registration<br/>(Bearer token, name + metadata)
+    API->>DB: UPSERT managed_cluster (idempotent)
+    DB-->>API: cluster_id (stable KSUID)
+    API-->>Spoke: 200 {cluster_id}
+    Note over Spoke: HYPERSHELL_CLUSTER_ID resolved at runtime
+
+    loop gRPC watch streams
+        Spoke->>API: WatchGateways (filtered by cluster_id)
+        API-->>Spoke: Gateway events
+        Spoke->>Spoke: Reconcile locally (kubectl apply<br/>into own cluster, no remote kubeconfig)
+    end
+```
+
+### Self-Registration
+
+The spoke uses an idempotent registration endpoint to obtain its `cluster_id`
+at startup:
+
+- **Endpoint**: `POST /api/hypershell/v1/managed_clusters/registration`
+- **Auth**: Bearer token from the hub Keycloak, obtained via `client_credentials`
+  grant using the spoke's OIDC service-account client
+- **Idempotent**: returns the same stable KSUID `cluster_id` on repeated calls
+  with the same `name`
+- **`HYPERSHELL_CLUSTER_ID`**: resolved at runtime from the registration response;
+  **SHALL NOT appear in gitops manifests**. The spoke stores it in memory and uses
+  it to filter gRPC watch events to only its own gateways.
+
+### Spoke OIDC Authentication
+
+The spoke control-plane authenticates to the hub API server using OIDC
+`client_credentials` grant. The OIDC chain for a spoke depends on whether the
+ManagedCluster's local Keycloak is federated into the platform's identity chain.
+
+#### Target architecture (federated local Keycloak)
+
+```mermaid
+graph LR
+    RHSSO[Red Hat SSO]
+    Global[Global Keycloak]
+    Cloud[Cloud Hub Keycloak]
+    MC[ManagedCluster Keycloak]
+    Spoke[Spoke Control Plane]
+
+    RHSSO -->|Federates| Global
+    Global -->|Federates| Cloud
+    Cloud -->|Federates| MC
+
+    Spoke -->|client_credentials| MC
+    MC -->|token exchange or<br/>brokered validation| Cloud
+
+    style RHSSO fill:#e74c3c
+    style Global fill:#3498db
+    style Cloud fill:#f39c12
+    style MC fill:#2ecc71
+    style Spoke fill:#d5f5e3
+```
+
+In the target architecture, the spoke authenticates against its own local
+Keycloak, which is federated to the Cloud Hub Keycloak. The hub API server
+trusts tokens from the Cloud Hub Keycloak; the ManagedCluster Keycloak either
+brokers or exchanges tokens so the spoke's credential is valid at the hub.
+This keeps the full Keycloak federation chain intact and means the spoke's
+client secret never leaves the ManagedCluster.
+
+> **Current gap (HYPERSHELL-297).** The ManagedCluster's local Keycloak is not
+> yet federated to the Cloud Hub Keycloak in the spoke-pull topology. As a
+> workaround, the spoke's OIDC client (`hyp{N}-mc{NN}`) is registered
+> **directly on the Cloud Hub Keycloak**, and the spoke's `OIDC_ISSUER` points
+> to the Cloud Hub Keycloak (e.g.,
+> `https://keycloak.hyp4.infra.hypershell.app/realms/hypershell`). This works
+> because the hub API server validates JWTs against its own Keycloak's JWKS.
+> The gap is that the spoke's client secret must be seeded into the
+> ManagedCluster's secret store (Vault / ExternalSecret) cross-cloud, and the
+> local Keycloak is bypassed entirely for spoke auth. Federating the
+> ManagedCluster Keycloak into the chain would let the spoke authenticate
+> locally and eliminate the cross-cloud secret dependency.
+
+#### Spoke OIDC client
+
+Each spoke gets a dedicated confidential Keycloak client:
+
+| Field | Value | Notes |
+|-------|-------|-------|
+| `clientId` | `hyp{N}-mc{NN}` | Compound key: hub instance + managed cluster index |
+| `publicClient` | `false` | Confidential — uses `client_credentials` grant |
+| `serviceAccountsEnabled` | `true` | Machine-to-machine auth, no interactive user |
+| `standardFlowEnabled` | `false` | No browser login |
+| `directAccessGrantsEnabled` | `false` | No password grant |
+| Realm role | `managed-cluster-registrar` | Authorizes `POST /managed_clusters/registration` |
+
+The client secret is generated by Keycloak, stored in the cloud's secret
+manager (e.g., IBM Cloud Secrets Manager at path `arbitrary/hyp{N}-mc{NN}`),
+and delivered to the spoke workload via `ExternalSecret` → `Secret`
+`hypershell-mc-config`. The secret **SHALL NOT** appear in git.
+
+### Spoke GitOps Structure
+
+Each spoke control-plane instance is a kustomize overlay under the
+ManagedCluster's directory in `hypershell-gitops`:
+
+```
+clusters/<managed-cluster>/apps/hypershell/
+├── <hubN>-mc<NN>/           # one spoke per hub instance
+│   ├── app.yaml             # ArgoCD Application descriptor
+│   ├── kustomization.yaml   # overlay on bases/hypershell/base
+│   └── managed-cluster-config.yaml  # ExternalSecret for OIDC creds
+├── <hubM>-mc<NN>/
+│   └── ...
+```
+
+The kustomize overlay:
+
+- **Scales API server and web console to 0** — the spoke runs only the
+  controller
+- **Pins images by digest** — matching the hub instance's deployed image, so
+  the spoke runs the same code as the hub it watches
+- **Renames cluster-scoped RBAC** — prefixes `ClusterRole`/`ClusterRoleBinding`
+  names with the spoke name (e.g., `hyp4-mc01-hypershell-controller`) to avoid
+  collisions when multiple spoke instances coexist on one cluster
+- **Configures the controller env**:
+
+| Env var | Value | Purpose |
+|---------|-------|---------|
+| `HYPERSHELL_GRPC_SERVER_ADDR` | `grpc.hyp{N}.infra.hypershell.app:443` | Hub gRPC endpoint (requires external gRPC route on hub; see HYPERSHELL-333) |
+| `HYPERSHELL_API_SERVER_URL` | `https://api.hyp{N}.infra.hypershell.app` | Hub REST API |
+| `HYPERSHELL_NAMESPACE` | `hyp{N}-mc{NN}` | Spoke's own namespace |
+| `HYPERSHELL_MANAGED_CLUSTER_NAME` | `hyp{N}-mc{NN}` | Display label (not identity) |
+| `GATEWAY_INGRESS_MODE` | `route` | Spoke provisions OpenShift Routes locally |
+| `GATEWAY_API_BASE_DOMAIN` | (cluster ingress subdomain) | For Route host derivation |
+| `OIDC_ISSUER` | Hub Keycloak realm URL | See OIDC gap above |
+| `OIDC_CLIENT_ID` | From ExternalSecret | |
+| `OIDC_CLIENT_SECRET` | From ExternalSecret | |
+
+### Hub gRPC External Access (HYPERSHELL-333)
+
+The spoke control-plane watches the hub API server via gRPC streaming RPCs.
+In the hub-push model, the gRPC connection is cluster-internal (localhost or
+in-cluster Service DNS). In the spoke-pull model, the gRPC endpoint must be
+**externally reachable** over TLS.
+
+**Current state**: Hub API servers expose only an HTTP `Route` (port 8000,
+edge TLS). The gRPC listener (port 9000) has no external route. The
+control-plane gRPC client hardcodes `grpc.WithTransportCredentials(
+insecure.NewCredentials())` — plaintext only.
+
+**Required changes** (tracked as HYPERSHELL-333):
+
+1. **Server-side TLS on gRPC**: enable `--grpc-enable-tls`,
+   `--grpc-tls-cert-file`, `--grpc-tls-key-file` (already supported by the
+   rh-trex-ai framework but not wired)
+2. **External gRPC route**: a passthrough `Route` on port 9000 (e.g.,
+   `grpc.hyp{N}.infra.hypershell.app`) so the spoke can reach the hub's gRPC
+   endpoint from another cloud
+3. **Client TLS**: replace `insecure.NewCredentials()` with
+   `credentials.NewTLS(tlsConfig)` in the control-plane gRPC client, using
+   the system trust store (the hub's gRPC cert chains to a publicly trusted CA)
+
+Until HYPERSHELL-333 is complete, the spoke cannot connect to the hub's gRPC
+endpoint. The `HYPERSHELL_GRPC_SERVER_ADDR` values in gitops are placeholders
+that will be updated once gRPC routes are provisioned.
+
+### Naming Convention
+
+Spoke instances use a compound key: `hyp{N}-mc{NN}`, where:
+
+- `{N}` is the hub instance number (e.g., `hyp0`, `hyp4`, `hyp6`)
+- `{NN}` is the zero-padded managed cluster index within that hub (e.g., `01`)
+
+Examples: `hyp0-mc01` (first managed cluster on hyp0), `hyp4-mc01` (first on
+hyp4), `hyp6-mc02` (second on hyp6). This naming is used consistently across
+namespace, ArgoCD Application, Keycloak client, ExternalSecret key, and RBAC
+prefix.
+
+### Requirements
+
+#### Requirement: Managed Cluster Self-Registration
+
+A spoke control-plane SHALL register itself with the Cloud Hub API server at
+startup via an idempotent registration endpoint. The registration SHALL return
+a stable `cluster_id` (KSUID) that the spoke uses to filter gRPC watch events.
+
+##### Scenario: First registration
+
+- GIVEN a spoke control-plane starting for the first time with
+  `HYPERSHELL_MANAGED_CLUSTER_NAME=hyp4-mc01` and valid OIDC credentials
+- WHEN it calls `POST /api/hypershell/v1/managed_clusters/registration`
+- THEN the hub SHALL create a ManagedCluster record and return a stable
+  `cluster_id`
+- AND the spoke SHALL store the `cluster_id` in memory (not in gitops)
+
+##### Scenario: Repeated registration is idempotent
+
+- GIVEN the spoke restarts or re-registers with the same name
+- WHEN it calls the registration endpoint again
+- THEN the hub SHALL return the **same** `cluster_id` as the first call
+- AND no duplicate ManagedCluster record SHALL be created
+
+##### Scenario: Registration requires the managed-cluster-registrar role
+
+- GIVEN a bearer token without the `managed-cluster-registrar` realm role
+- WHEN a client calls `POST /managed_clusters/registration`
+- THEN the hub SHALL reject the request with 403
+
+#### Requirement: Spoke Watches Only Its Own Gateways
+
+The spoke control-plane SHALL filter gRPC watch events by its `cluster_id` so
+it reconciles only the gateways assigned to it.
+
+##### Scenario: Gateway on a different cluster
+
+- GIVEN a spoke with `cluster_id=ABC` watching `WatchGateways`
+- WHEN the hub emits a Gateway event with `cluster_id=XYZ`
+- THEN the spoke SHALL ignore the event
+- AND SHALL NOT attempt to reconcile the gateway
+
+#### Requirement: Spoke Runs Only the Controller
+
+A spoke deployment SHALL scale the API server and web console replicas to 0.
+Only the controller (which watches the hub and reconciles locally) SHALL run.
+
+##### Scenario: Spoke deployment
+
+- GIVEN a spoke kustomize overlay
+- WHEN ArgoCD applies it
+- THEN the `hypershell-api-server` Deployment SHALL have `replicas: 0`
+- AND the `hypershell-web-console` Deployment SHALL have `replicas: 0`
+- AND the `hypershell-controller` Deployment SHALL have `replicas: 1`
+
+#### Requirement: Cluster-Scoped RBAC Uniqueness
+
+When multiple spoke instances coexist on a single cluster (one per hub), their
+cluster-scoped RBAC resources SHALL have unique names to avoid collisions.
+
+##### Scenario: Two spokes on one cluster
+
+- GIVEN `hyp0-mc01` and `hyp4-mc01` deployed on `hysh-ibm-01`
+- THEN `hyp0-mc01` SHALL use `ClusterRoleBinding` name
+  `hyp0-mc01-hypershell-controller`
+- AND `hyp4-mc01` SHALL use `ClusterRoleBinding` name
+  `hyp4-mc01-hypershell-controller`
+- AND no unprefixed `hypershell-controller` `ClusterRoleBinding` SHALL exist
+
+#### Requirement: ManagedCluster Keycloak Federation
+
+The ManagedCluster's local Keycloak SHALL be federated into the platform's
+Keycloak chain so that the spoke control-plane can authenticate locally. The
+federation chain SHALL be: ManagedCluster Keycloak → Cloud Hub Keycloak (or
+Global Keycloak) → Red Hat SSO.
+
+> **Gap.** This federation is not yet implemented for the spoke-pull topology.
+> The current workaround registers the spoke's OIDC client directly on the
+> Cloud Hub Keycloak. See "Spoke OIDC Authentication" above.
+
+##### Scenario: Spoke authenticates via local Keycloak
+
+- GIVEN a ManagedCluster Keycloak federated to the Cloud Hub Keycloak
+- AND a spoke OIDC client registered on the ManagedCluster Keycloak
+- WHEN the spoke performs a `client_credentials` grant
+- THEN the resulting token SHALL be accepted by the Cloud Hub API server
+- AND the spoke client secret SHALL never leave the ManagedCluster
+
+#### Requirement: Hub gRPC External Access
+
+The Cloud Hub API server's gRPC endpoint SHALL be externally accessible over
+TLS so that spoke control-planes in other clouds can establish watch streams.
+
+##### Scenario: Spoke connects to hub gRPC from another cloud
+
+- GIVEN an IBM ManagedCluster spoke and an AWS Cloud Hub
+- WHEN the spoke connects to `grpc.hyp{N}.infra.hypershell.app:443`
+- THEN the hub SHALL serve gRPC over TLS (publicly trusted certificate)
+- AND the spoke SHALL connect with system-trust TLS credentials
+- AND gRPC watch streams SHALL function identically to the in-cluster path
 
 
 ## Ingress Architecture
@@ -1198,6 +1516,7 @@ hypershell-gitops/
 │       │   └── repo-url-patch.yaml              # repo-config ConfigMap (fork here)
 │       ├── apps/                       # the overlays the Applications point at
 │       │   ├── hypershell/<inst>/      #   per-instance descriptor (app.yaml) + overlay
+│       │   ├── hypershell/<hubN>-mc<NN>/  # spoke-pull: spoke control-plane per hub (see below)
 │       │   ├── keycloak/
 │       │   ├── postgres/
 │       │   └── vault/
@@ -1247,3 +1566,7 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Terraform for provisioning | IaC for VPC, subnet, and cluster lifecycle; cloud-agnostic |
 | Gateway OIDC clients on ManagedCluster | openshell CLI authenticates against Keycloak where the gateway runs (low latency) |
 | Shared Ingress Gateway for Tenant gRPC | A wildcard DNS record (`*.domain`) can only resolve to a single Load Balancer. A per-tenant gateway model (1 LB per tenant) fundamentally breaks wildcard routing, requiring per-tenant DNS automation and cert management. A shared Gateway allows N tenants to securely share 1 LB, 1 wildcard cert, and 1 static DNS record via `GRPCRoute` attachments. |
+| Spoke-pull for cross-cloud ManagedClusters | When hub and ManagedCluster are in different clouds (e.g., AWS hub, IBM spoke), the hub cannot reliably hold the ManagedCluster's kubeconfig (network boundaries, credential rotation, blast radius). Inverting the credential direction — spoke watches hub gRPC — eliminates cross-cloud kubeconfig storage and lets the spoke self-register. The tradeoff is that the hub's gRPC endpoint must be externally accessible over TLS (HYPERSHELL-333). |
+| Spoke OIDC client on hub Keycloak (workaround) | The spoke needs a token the hub API server will accept. Until the ManagedCluster's local Keycloak is federated into the chain, registering the spoke client directly on the hub Keycloak is the simplest path. The gap is that the client secret must travel cross-cloud (via Vault/ExternalSecret), which the federated architecture would eliminate. |
+| `cluster_id` resolved at runtime, not in gitops | Hard-coding a `cluster_id` in gitops creates a chicken-and-egg problem (the ID doesn't exist until registration) and couples gitops to API server state. Runtime resolution via the registration endpoint keeps gitops declarative and makes spoke instances portable. |
+| Compound naming `hyp{N}-mc{NN}` | Encodes both the hub instance and the managed cluster index in a single slug, avoiding collisions across hubs and supporting multiple managed clusters per hub. Used consistently for namespace, Keycloak client, ExternalSecret key, and RBAC prefix. |
