@@ -657,9 +657,9 @@ jobs:
   # workflow just deployed (ephemeral-pr-environments.spec.md). Lives here so
   # the check is Tests / E2E / OpenShift, not nested under PR Environment.
   # Same plan-images / should_run gate as e2e-kind: docs-only and other
-  # e2e-irrelevant PRs skip the suite (the PR Environment still deploys).
-  # Polls the Deploy PR environment check because GitHub Actions `needs:`
-  # cannot cross independently-triggered workflows.
+  # e2e-irrelevant PRs skip the suite, and PR Environment skips Deploy
+  # PR environment with the same gate. Polls that check because GitHub
+  # Actions `needs:` cannot cross independently-triggered workflows.
   e2e-openshift:
     name: OpenShift
     needs: plan-images
