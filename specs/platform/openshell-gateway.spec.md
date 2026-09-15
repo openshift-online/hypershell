@@ -467,8 +467,8 @@ The gateway Deployment SHALL specify:
 - **Container image:** from the Gateway resource's `image` field
 - **Container args:** `--config /etc/openshell/gateway.toml`
 - **SecurityContext:** `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`
-- **Resource requests:** `cpu: 100m`, `memory: 256Mi`
-- **Resource limits:** `cpu: 500m`, `memory: 512Mi`
+- **Resource requests:** `cpu: 100m`, `memory: 512Mi`
+- **Resource limits:** `cpu: 500m`, `memory: 1Gi`
 - **Ports:** `grpc: 8080`, `health: 8081`, `metrics: 9090`
 - **Probes:**
   - Startup: `GET /healthz` on `health` port (period 2s, failureThreshold 30)
