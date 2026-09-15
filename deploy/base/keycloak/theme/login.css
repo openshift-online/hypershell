@@ -390,6 +390,12 @@ h1.pf-v5-c-title.pf-m-3xl,
   color: #4d4d4d !important;
 }
 
+/* "or" divider between password login and social/IDP buttons -- hide the lines, keep the label */
+.kc-login-divider::before,
+.kc-login-divider::after {
+  border-bottom: none !important;
+}
+
 /* Page footer */
 .pf-v5-c-login__footer {
   text-align: center;
