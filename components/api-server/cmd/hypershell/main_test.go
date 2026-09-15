@@ -7,9 +7,12 @@ import (
 
 func TestEnforceSafeLogVerbosity(t *testing.T) {
 	verbosity := flag.Lookup("v")
+	if verbosity == nil {
+		t.Fatal("glog verbosity flag v is not registered")
+	}
 	vmodule := flag.Lookup("vmodule")
-	if verbosity == nil || vmodule == nil {
-		t.Fatal("glog verbosity flags are not registered")
+	if vmodule == nil {
+		t.Fatal("glog verbosity flag vmodule is not registered")
 	}
 	originalVerbosity := verbosity.Value.String()
 	originalVModule := vmodule.Value.String()
