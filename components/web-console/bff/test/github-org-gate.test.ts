@@ -93,6 +93,7 @@ describe("evaluateGithubOrgGate", () => {
   const baseInput = {
     accessToken: "kc-access-token",
     githubApiOrigin: "https://api.github.com",
+    githubLinked: true,
     oidcIssuer: "https://sso.example.test/realms/hypershell",
     orgGate: "openshift-online",
     username: "alice",
@@ -256,7 +257,30 @@ describe("evaluateGithubOrgGate", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 
-  it("admits a login with no GitHub broker identity (password users)", async () => {
+  it("admits a login with no GitHub identity (password users) without calling GitHub", async () => {
+    const onLookupError = vi.fn();
+    const fetchImpl = vi.fn();
+
+    await expect(
+      evaluateGithubOrgGate({
+        ...baseInput,
+        allowlistRaw: "",
+        fetchImpl,
+        githubLinked: false,
+        onLookupError,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(onLookupError).not.toHaveBeenCalled();
+  });
+
+  it("denies a GitHub-linked login when Keycloak's broker-token endpoint returns 403", async () => {
+    // A 403 here used to be read as "no GitHub identity" and admitted
+    // unconditionally. That inference was unsafe: Keycloak returns the same
+    // 403 for a genuinely GitHub-linked session that merely lacks the broker
+    // read-token role. githubLinked: true (from the ID token's
+    // github-identity role) means this session IS known to be GitHub-linked,
+    // so a 403 must now deny rather than bypass the org check.
     const onLookupError = vi.fn();
     const fetchImpl = vi.fn((input: Parameters<typeof fetch>[0]) => {
       const href = hrefOf(input);
@@ -280,8 +304,11 @@ describe("evaluateGithubOrgGate", () => {
         fetchImpl,
         onLookupError,
       }),
-    ).resolves.toBe(true);
-    expect(onLookupError).not.toHaveBeenCalled();
+    ).resolves.toBe(false);
+    expect(onLookupError).toHaveBeenCalledTimes(1);
+    expect(String(onLookupError.mock.calls[0]?.[0])).toMatch(
+      /Keycloak GitHub broker token failed with HTTP 403/u,
+    );
   });
 
   it("denies a login when Keycloak reports a linked identity with no stored token", async () => {
@@ -309,7 +336,7 @@ describe("evaluateGithubOrgGate", () => {
     ).resolves.toBe(false);
     expect(onLookupError).toHaveBeenCalledTimes(1);
     expect(String(onLookupError.mock.calls[0]?.[0])).toMatch(
-      /linked GitHub identity with no stored broker token/u,
+      /Keycloak GitHub broker token failed with HTTP 404/u,
     );
   });
 
