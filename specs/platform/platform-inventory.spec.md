@@ -234,19 +234,18 @@ The widget catalog SHALL add these types:
 | --- | --- | --- | --- |
 | `managed-cluster-providers` | `managed-clusters` | Yes | Provider donut from `inventoryProviders`; legend ordered by descending count (PI-05) |
 | `managed-cluster-regions` | `managed-clusters` | Yes | Placement donut from `inventoryRegions` (`{region} ({provider})` keys); legend ordered by descending count (PI-05) |
-| `managed-clusters` | `managed-clusters` | No | `MetricCard` large number |
-| `managed-cluster-status` | `managed-clusters` | No | Status donut when ≤5 non-zero status buckets (PI-04) |
-| `managed-databases` | `managed-databases` | No | `MetricCard` large number |
 | `managed-database-status` | `managed-databases` | Yes | Status donut when ≤5 non-zero status buckets (PI-04) |
 
-Users MAY add optional widgets from the add-widgets drawer. Status and provider donut widgets SHALL omit sparklines.
+The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, or `managed-databases` widget types. Cluster and database totals SHALL be presented through `inventory-summary` (PI-06); status and dimension breakdowns SHALL use the default-layout donut widgets above (`web-console/operational-dashboard.spec.md` OP-DASH-20, OP-DASH-21).
+
+Users MAY add optional widgets from the add-widgets drawer when not already on the grid. Status and provider donut widgets SHALL omit sparklines.
 
 A dedicated **Platform inventory** dashboard route (`/dashboard/inventory`) SHALL NOT be introduced in version 1. Future work MAY add that route when the inventory summary exceeds eight rows or multiple full-width breakdown charts are required.
 
 #### Scenario: Status donut is suppressed for many statuses
 
-- GIVEN managed clusters have six distinct non-zero `status` values
-- WHEN the `managed-cluster-status` widget renders
+- GIVEN managed databases have six distinct non-zero `status` values
+- WHEN the `managed-database-status` widget renders
 - THEN the donut area SHALL render nothing
 - AND the widget title bar SHALL remain
 

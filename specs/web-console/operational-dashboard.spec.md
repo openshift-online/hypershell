@@ -658,7 +658,7 @@ The inventory summary widget SHALL use the same `DescriptionList` summary presen
 
 The `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` widgets SHALL use the shared `StatusDonutChart` stack (OP-DASH-16) with labels from `inventoryProviders`, `inventoryRegions`, and `inventoryStatus` keys respectively.
 
-Adding the two-column region donut to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v26` (OP-DASH-11). Aligning `gateway-status` height with `usage-summary` SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v27`. Adding `managed-database-status` to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v28`.
+Adding the two-column region donut to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v26` (OP-DASH-11). Aligning `gateway-status` height with `usage-summary` SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v27`. Adding `managed-database-status` to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v28`. Removing `managed-clusters`, `managed-cluster-status`, and `managed-databases` from the widget catalog SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v29`.
 
 #### Scenario: Default layout includes inventory summary
 
@@ -675,20 +675,12 @@ The widget catalog SHALL register optional inventory detail widgets defined in `
 
 - `managed-cluster-providers` - provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-20)
 - `managed-cluster-regions` - placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-20)
-- `managed-clusters` - large number tile for total managed clusters
-- `managed-cluster-status` - status donut driven by `managed-clusters.inventoryStatus`
-- `managed-databases` - large number tile for total managed databases
 - `managed-database-status` - status donut driven by `managed-databases.inventoryStatus` (on default layout; OP-DASH-20)
 
-These optional widget types SHALL be available in the add-widgets drawer. `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` SHALL also appear in `defaultDashboardLayoutTemplate` (OP-DASH-20).
+The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, or `managed-databases` widget types. Cluster and database totals SHALL be presented through `inventory-summary` (OP-DASH-20); status and dimension breakdowns SHALL use the default-layout donut widgets above.
+
+These optional widget types SHALL be available in the add-widgets drawer when not already on the grid. `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` SHALL also appear in `defaultDashboardLayoutTemplate` (OP-DASH-20).
 
 Status donut widgets SHALL reuse the shared `StatusDonutChart` stack (OP-DASH-16) with inventory-specific bucket labels from `inventoryStatus` keys. They SHALL NOT reuse gateway display-status colors or vocabulary.
 
 A separate `/dashboard/inventory` route SHALL NOT be added in version 1.
-
-#### Scenario: Operator adds managed cluster status donut
-
-- GIVEN the default layout is active and inventory metrics are connected
-- WHEN the operator adds `managed-cluster-status` from the widget drawer
-- THEN the grid SHALL render a status donut for managed cluster inventory
-- AND the widget SHALL omit a trend sparkline

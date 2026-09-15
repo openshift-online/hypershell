@@ -68,7 +68,6 @@ import {
   InventorySummaryCard,
   ManagedClusterProvidersCard,
   ManagedClusterRegionsCard,
-  ManagedClusterStatusCard,
   ManagedDatabaseStatusCard,
   MetricCard,
   NodeStatusCard,
@@ -82,7 +81,7 @@ import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v28";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v29";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
@@ -225,10 +224,6 @@ function createWidgetMapping(
     }
 
     if (metricType === "inventory-status") {
-      if (metricId === "managed-clusters") {
-        return <ManagedClusterStatusCard metric={metric} />;
-      }
-
       return <ManagedDatabaseStatusCard metric={metric} />;
     }
 
@@ -459,53 +454,6 @@ function createWidgetMapping(
           "",
           messages.widgetManagedClusterRegions,
           "inventory-regions",
-        ),
-    },
-    "managed-clusters": {
-      defaults: METRIC_WIDGET_DEFAULTS,
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.widgetManagedClusters),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-clusters",
-          "",
-          messages.widgetManagedClusters,
-          "metric",
-        ),
-    },
-    "managed-cluster-status": {
-      defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.widgetManagedClusterStatus),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-clusters",
-          "",
-          messages.widgetManagedClusterStatus,
-          "inventory-status",
-        ),
-    },
-    "managed-databases": {
-      defaults: METRIC_WIDGET_DEFAULTS,
-      config: {
-        icon: <DatabaseIcon />,
-        title: intl.formatMessage(messages.widgetManagedDatabases),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-databases",
-          "",
-          messages.widgetManagedDatabases,
-          "metric",
         ),
     },
     "managed-database-status": {

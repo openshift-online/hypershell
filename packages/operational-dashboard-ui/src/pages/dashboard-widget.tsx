@@ -169,22 +169,6 @@ export function ManagedClusterRegionsCard({
   );
 }
 
-export function ManagedClusterStatusCard({
-  metric,
-}: Readonly<{ metric: OperationalMetric }>) {
-  return (
-    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
-      <Content className="hypershell-dashboard-status-donut-card">
-        <InventoryStatusChart
-          ariaDescMessage={messages.managedClusterStatusAriaDesc}
-          ariaTitleMessage={messages.managedClusterStatusChartTitle}
-          metric={metric}
-        />
-      </Content>
-    </WidgetContent>
-  );
-}
-
 export function ManagedDatabaseStatusCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
