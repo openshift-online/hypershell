@@ -691,7 +691,8 @@ data:
           { "name": "hypershell-admins", "description": "HyperShell administrators" },
           { "name": "hypershell-users", "description": "HyperShell users" },
           { "name": "gateway:creator", "description": "HyperShell platform gateway creators (gateway:creator RBAC role)" },
-          { "name": "platform:admin", "description": "HyperShell platform administrators with global view and delete access (platform:admin RBAC role)" }
+          { "name": "platform:admin", "description": "HyperShell platform administrators with global view and delete access (platform:admin RBAC role)" },
+          { "name": "github-identity", "description": "Marks a session as GitHub-brokered; not an RBAC permission. Read by the web-console BFF to decide whether the GitHub org gate applies, without depending on the broker read-token permission check" }
         ]
       },
       "users": [
@@ -786,6 +787,12 @@ data:
           "identityProviderAlias": "github",
           "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
           "config": { "role": "gateway:creator", "syncMode": "FORCE" }
+        },
+        {
+          "name": "github-mark-linked",
+          "identityProviderAlias": "github",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "config": { "role": "github-identity", "syncMode": "FORCE" }
         }
       ]
     }
