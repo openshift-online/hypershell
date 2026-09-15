@@ -239,7 +239,22 @@ type ReconcileOpts struct {
 	// condition transitions. Nil means no reporting (progress is silently
 	// skipped).
 	ReportProgress ProgressReporter
+	// RecordOrphan, when set, records a durable, operator-visible signal that a
+	// gateway-owned resource was left unreclaimed during deletion with no
+	// automatic recovery path (e.g. a Keycloak client that could not be deleted
+	// because Keycloak was unavailable). It exists so a best-effort cleanup
+	// failure is never a silent orphan. Nil disables recording (the failure is
+	// only logged, matching legacy behavior). Implementations must not include
+	// secrets in any argument.
+	RecordOrphan OrphanRecorder
 }
+
+// OrphanRecorder records a durable, operator-visible signal that a gateway-owned
+// resource was left behind during deletion with no automatic recovery path.
+// resourceKind and resourceName identify the leaked resource; reason explains
+// why it was not reclaimed. Implementations must be best-effort and must never
+// carry secrets.
+type OrphanRecorder func(ctx context.Context, resourceKind, resourceName, reason string)
 
 // KeycloakClientAPI is the subset of keycloak.Client needed by the gateway package.
 type KeycloakClientAPI interface {

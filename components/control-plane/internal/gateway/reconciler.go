@@ -252,6 +252,11 @@ func DeleteGatewayResources(
 	if err := dynamicClient.Resource(crbGVR).Delete(ctx, crbName, metav1.DeleteOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			log.Printf("WARN failed to delete ClusterRoleBinding %s: %v", crbName, err)
+			// This cluster-scoped binding has no owning namespace to cascade-reap
+			// it and no reconciler that reclaims leaked bindings, so a failure here
+			// is a silent orphan unless it is recorded durably.
+			recordOrphan(ctx, opts, "ClusterRoleBinding", crbName,
+				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		}
 	} else {
 		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
@@ -279,12 +284,16 @@ func DeleteGatewayResources(
 		consoleClientID := kcClientID + "-console"
 		if err := opts.KeycloakClient.DeleteConsoleClient(ctx, consoleClientID); err != nil {
 			log.Printf("WARN failed to delete console client %s (orphaned): %v", consoleClientID, err)
+			recordOrphan(ctx, opts, "KeycloakClient", consoleClientID,
+				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
 			log.Printf("INFO deleted console client %s", consoleClientID)
 		}
 
 		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
 			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
+			recordOrphan(ctx, opts, "KeycloakClient", kcClientID,
+				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
 			log.Printf("INFO deleted keycloak client %s", kcClientID)
 		}
@@ -312,6 +321,16 @@ func DeleteGatewayResources(
 
 	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
 	return nil
+}
+
+// recordOrphan invokes opts.RecordOrphan if the caller wired one, so a
+// best-effort deletion failure that leaves a gateway-owned resource behind is
+// surfaced durably instead of only logged. It is a no-op when no recorder is
+// configured, keeping the best-effort branches backward compatible.
+func recordOrphan(ctx context.Context, opts ReconcileOpts, resourceKind, resourceName, reason string) {
+	if opts.RecordOrphan != nil {
+		opts.RecordOrphan(ctx, resourceKind, resourceName, reason)
+	}
 }
 
 // DeleteLabeledNamespaceResources reclaims this gateway's own in-namespace
