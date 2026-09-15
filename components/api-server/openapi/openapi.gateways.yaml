@@ -291,6 +291,27 @@ components:
               format: int32
               readOnly: true
               description: Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
+            provisioning_conditions:
+              type: array
+              readOnly: true
+              description: Ordered list of provisioning conditions describing sub-phase progress
+              items:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    description: Condition identifier (e.g., EnvironmentReady)
+                  condition_status:
+                    type: string
+                    enum:
+                      - Pending
+                      - InProgress
+                      - Complete
+                      - Failed
+                    description: Current status of this provisioning step
+                  message:
+                    type: string
+                    description: Human-readable detail (failure reason when Failed)
             created_by:
               type: string
               readOnly: true

@@ -19,6 +19,7 @@ node_modules/
 .npm/
 .react-router/
 build/
+!skills/build/
 coverage/
 dist/
 playwright-report/

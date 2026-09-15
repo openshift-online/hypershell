@@ -521,9 +521,7 @@ test("provisions a gateway on an existing managed cluster", async ({
     page.getByRole("tab", { name: "Connection", selected: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("status", {
-      name: "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
-    }),
+    page.getByText("Waiting for gateway provisioning..."),
   ).toBeVisible();
   // Operational values remain under the Details tab; the endpoint is unavailable.
   await page.getByRole("tab", { name: "Details" }).click();

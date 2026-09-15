@@ -2767,6 +2767,13 @@ components:
             format: int32
             readOnly: true
             type: integer
+          provisioning_conditions:
+            description: Ordered list of provisioning conditions describing sub-phase
+              progress
+            items:
+              $ref: "#/components/schemas/Gateway_allOf_provisioning_conditions"
+            readOnly: true
+            type: array
           created_by:
             description: "Username of the user who provisioned this gateway, resolved\
               \ from RBAC role bindings"
@@ -2795,6 +2802,13 @@ components:
         phase: phase
         image: image
         active_sandbox_count: 5
+        provisioning_conditions:
+        - condition_status: Pending
+          type: type
+          message: message
+        - condition_status: Pending
+          type: type
+          message: message
         kind: kind
         console_address: console_address
         route_address: route_address
@@ -2842,6 +2856,13 @@ components:
           phase: phase
           image: image
           active_sandbox_count: 5
+          provisioning_conditions:
+          - condition_status: Pending
+            type: type
+            message: message
+          - condition_status: Pending
+            type: type
+            message: message
           kind: kind
           console_address: console_address
           route_address: route_address
@@ -2870,6 +2891,13 @@ components:
           phase: phase
           image: image
           active_sandbox_count: 5
+          provisioning_conditions:
+          - condition_status: Pending
+            type: type
+            message: message
+          - condition_status: Pending
+            type: type
+            message: message
           kind: kind
           console_address: console_address
           route_address: route_address
@@ -3676,6 +3704,27 @@ components:
       - database_id
       - name
       - release_id
+      type: object
+    Gateway_allOf_provisioning_conditions:
+      example:
+        condition_status: Pending
+        type: type
+        message: message
+      properties:
+        type:
+          description: "Condition identifier (e.g., EnvironmentReady)"
+          type: string
+        condition_status:
+          description: Current status of this provisioning step
+          enum:
+          - Pending
+          - InProgress
+          - Complete
+          - Failed
+          type: string
+        message:
+          description: Human-readable detail (failure reason when Failed)
+          type: string
       type: object
     Role_allOf_permissions:
       type: object

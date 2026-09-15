@@ -29,6 +29,7 @@ Name | Type | Description | Notes
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
 **ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly] 
+**ProvisioningConditions** | Pointer to [**[]GatewayAllOfProvisioningConditions**](GatewayAllOfProvisioningConditions.md) | Ordered list of provisioning conditions describing sub-phase progress | [optional] [readonly] 
 **CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
 
 ## Methods
@@ -649,6 +650,31 @@ SetActiveSandboxCount sets ActiveSandboxCount field to given value.
 `func (o *Gateway) HasActiveSandboxCount() bool`
 
 HasActiveSandboxCount returns a boolean if a field has been set.
+
+### GetProvisioningConditions
+
+`func (o *Gateway) GetProvisioningConditions() []GatewayAllOfProvisioningConditions`
+
+GetProvisioningConditions returns the ProvisioningConditions field if non-nil, zero value otherwise.
+
+### GetProvisioningConditionsOk
+
+`func (o *Gateway) GetProvisioningConditionsOk() (*[]GatewayAllOfProvisioningConditions, bool)`
+
+GetProvisioningConditionsOk returns a tuple with the ProvisioningConditions field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetProvisioningConditions
+
+`func (o *Gateway) SetProvisioningConditions(v []GatewayAllOfProvisioningConditions)`
+
+SetProvisioningConditions sets ProvisioningConditions field to given value.
+
+### HasProvisioningConditions
+
+`func (o *Gateway) HasProvisioningConditions() bool`
+
+HasProvisioningConditions returns a boolean if a field has been set.
 
 ### GetCreatedBy
 
