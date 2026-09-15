@@ -1,20 +1,31 @@
-name: E2E OpenShift (main)
+name: E2E OpenShift (merge queue)
 
-# Bring-up-test-tear-down OpenShift e2e against hypershell-ci-main on every
-# push to main. Lives in its own workflow so Tests / E2E on pull_request
-# does not list a skipped "E2E OpenShift (main)" check. Pull-request
-# OpenShift e2e is Tests / E2E / OpenShift in e2e.yml, against the
-# ephemeral per-PR environment.
+# Bring-up-test-tear-down OpenShift e2e against an ephemeral per-entry
+# namespace on every GitHub merge queue entry for main. Mirrors
+# e2e-openshift-main.yml's push job -- there is no per-PR ephemeral
+# environment for a merge queue entry (PR Environment / pr-environment.yml
+# only triggers on pull_request), so Tests / E2E / OpenShift (e2e.yml) skips
+# OpenShift entirely on merge_group. This workflow fills that gap so the
+# merge gate actually exercises OpenShift, not just Kind.
+#
+# Lives in its own workflow, not as a job in e2e.yml, for the same reason as
+# e2e-openshift-main.yml: e2e.yml is invoked (via tests.yml) on every
+# pull_request and push too, so a merge_group-only job added there would show
+# up as a permanently skipped check on those events.
+#
+# The namespace is keyed by commit SHA (not a fixed shared name) because
+# GitHub can validate multiple merge queue entries concurrently; a shared
+# namespace with cancel-in-progress would let one entry's run tear down or
+# clobber another entry's in-flight environment.
 #
 # No hypershell-github-oauth Secret is provisioned here, so this is the
 # traditional admin/admin auth path (github_idp_enabled() in
 # scripts/cluster/drivers/openshift.sh is false), not GitHub brokering.
-# Seeding is deferred until this push's Konflux images are swapped in,
-# mirroring e2e-kind's push path. The environment is always torn down so
-# it does not linger on the shared cluster between runs.
+# Seeding is deferred until this entry's Konflux images are swapped in,
+# mirroring e2e-openshift-main.yml's push path.
 
 on:
-  push:
+  merge_group:
     branches:
       - main
 
@@ -23,18 +34,17 @@ permissions:
   checks: read
 
 concurrency:
-  group: e2e-openshift-main
+  group: e2e-openshift-merge-queue-${{ github.sha }}
   cancel-in-progress: true
 
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
   BASELINE_REGISTRY: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
-  OPENSHIFT_NAMESPACE: hypershell-ci-main
   KUBECONFIG: ${{ github.workspace }}/.kube/config
 
 jobs:
-  e2e-openshift-main:
-    name: E2E OpenShift (main)
+  e2e-openshift-merge-queue:
+    name: E2E OpenShift (merge queue)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -44,17 +54,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Short SHA keeps the namespace under the driver's 54-char RFC1123
+      # limit (validate_rfc1123_label in scripts/cluster/lib.sh) while still
+      # being unique per merge queue entry. Exported via GITHUB_ENV so every
+      # later step (including the always()-run teardown) sees the same value.
+      - name: Set namespace for this merge queue entry
+        run: echo "OPENSHIFT_NAMESPACE=hypershell-ci-mq-${GITHUB_SHA:0:8}" >> "${GITHUB_ENV}"
+
       - name: Compute changed files
         id: diff
         env:
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-          PUSH_SHA: ${{ github.sha }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.sha }}
         run: |
-          if [[ -z "${PUSH_BEFORE_SHA}" || "${PUSH_BEFORE_SHA}" =~ ^0+$ ]]; then
-            changed_files="$(git show --pretty=format: --name-only "${PUSH_SHA}")"
-          else
-            changed_files="$(git diff --name-only "${PUSH_BEFORE_SHA}...${PUSH_SHA}")"
-          fi
+          changed_files="$(git diff --name-only "${MERGE_GROUP_BASE_SHA}...${MERGE_GROUP_HEAD_SHA}")"
           {
             echo "changed_files<<EOF"
             echo "${changed_files}"
@@ -66,12 +79,12 @@ jobs:
         uses: ./.github/actions/detect-konflux-components
         with:
           changed-files: ${{ steps.diff.outputs.changed_files }}
-          pipeline-suffix: push
+          pipeline-suffix: merge-queue
 
       - name: Plan images and required Konflux builds
         id: plan
         env:
-          PUSH_SHA: ${{ github.sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.sha }}
           API_SERVER: ${{ steps.detect-konflux.outputs.api_server }}
           CONTROL_PLANE: ${{ steps.detect-konflux.outputs.control_plane }}
           WEB_CONSOLE: ${{ steps.detect-konflux.outputs.web_console }}
@@ -80,7 +93,7 @@ jobs:
           baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
           baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
 
-          tag="${PUSH_SHA}"
+          tag="on-merge-queue-${MERGE_GROUP_HEAD_SHA}"
           api_img="${baseline_api}"
           cp_img="${baseline_cp}"
           wc_img="${baseline_wc}"
@@ -142,7 +155,7 @@ jobs:
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: 'hypershell-api-server-main-on-push$'
+          check-regexp: 'hypershell-api-server-main-on-merge-queue$'
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
@@ -153,7 +166,7 @@ jobs:
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: 'hypershell-control-plane-main-on-push$'
+          check-regexp: 'hypershell-control-plane-main-on-merge-queue$'
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
@@ -164,7 +177,7 @@ jobs:
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.sha }}
-          check-regexp: 'hypershell-web-console-main-on-push$'
+          check-regexp: 'hypershell-web-console-main-on-merge-queue$'
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
@@ -202,7 +215,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: e2e-openshift-main-diagnostics
+          name: e2e-openshift-merge-queue-diagnostics
           path: e2e-diagnostics/
           retention-days: 7
 
