@@ -73,6 +73,41 @@
         "quay.io/opendatahub/odh-openshell-supervisor"
       ],
       "groupName": "OpenShell images"
+    },
+    {
+      "description": "PatternFly family: peer, dev, and web-console pins in one PR",
+      "matchManagers": ["npm"],
+      "matchPackageNames": [
+        "@patternfly/react-core",
+        "@patternfly/react-icons",
+        "@patternfly/react-table",
+        "@patternfly/react-charts",
+        "@patternfly/widgetized-dashboard"
+      ],
+      "groupName": "PatternFly"
+    },
+    {
+      "description": "Packages declared as both peer and dev in workspace UI packages",
+      "matchManagers": ["npm"],
+      "matchFileNames": [
+        "packages/gateway-management-ui/package.json",
+        "packages/operational-dashboard-ui/package.json"
+      ],
+      "matchDepTypes": ["peerDependencies", "devDependencies"],
+      "matchPackageNames": [
+        "@tanstack/react-query",
+        "react",
+        "react-dom",
+        "react-hook-form",
+        "react-intl",
+        "zod",
+        "victory-area",
+        "victory-core",
+        "victory-group",
+        "victory-tooltip",
+        "victory-voronoi-container"
+      ],
+      "groupName": "workspace UI peer providers"
     }
   ]
 }
