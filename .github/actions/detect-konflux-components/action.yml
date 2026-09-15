@@ -1,0 +1,56 @@
+name: Detect Konflux components
+description: >
+  Maps a set of changed files to the api-server / control-plane / web-console
+  component flags for one Konflux pipeline suffix (pull-request, merge-queue,
+  or push). These patterns MUST mirror each component's event-specific
+  Konflux CEL trigger in
+  .tekton/hypershell-<component>-main-<pipeline-suffix>.yaml. Centralized
+  here so a new watched path only has to change in one place instead of
+  being replayed by hand in every workflow that needs to know whether a
+  component's Konflux pipeline will build a fresh image.
+
+inputs:
+  changed-files:
+    description: Newline-separated list of changed file paths.
+    required: true
+  pipeline-suffix:
+    description: Konflux pipeline suffix (pull-request, merge-queue, or push).
+    required: true
+
+outputs:
+  api_server:
+    description: "true if the api-server component's Konflux pipeline would fire"
+    value: ${{ steps.detect.outputs.api_server }}
+  control_plane:
+    description: "true if the control-plane component's Konflux pipeline would fire"
+    value: ${{ steps.detect.outputs.control_plane }}
+  web_console:
+    description: "true if the web-console component's Konflux pipeline would fire"
+    value: ${{ steps.detect.outputs.web_console }}
+
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      env:
+        CHANGED_FILES: ${{ inputs.changed-files }}
+        PIPELINE_SUFFIX: ${{ inputs.pipeline-suffix }}
+      run: |
+        api_server=false
+        control_plane=false
+        web_console=false
+
+        if grep -qE "^components/api-server/|^\.tekton/hypershell-api-server-main-${PIPELINE_SUFFIX}\.yaml$" <<<"${CHANGED_FILES}"; then
+          api_server=true
+        fi
+        if grep -qE "^components/control-plane/|^\.tekton/hypershell-control-plane-main-${PIPELINE_SUFFIX}\.yaml$|^Dockerfile$" <<<"${CHANGED_FILES}"; then
+          control_plane=true
+        fi
+        if grep -qE "^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-${PIPELINE_SUFFIX}\.yaml$" <<<"${CHANGED_FILES}"; then
+          web_console=true
+        fi
+
+        echo "api_server=${api_server}" >> "${GITHUB_OUTPUT}"
+        echo "control_plane=${control_plane}" >> "${GITHUB_OUTPUT}"
+        echo "web_console=${web_console}" >> "${GITHUB_OUTPUT}"

@@ -44,54 +44,59 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Plan images and required Konflux builds
-        id: plan
+      - name: Compute changed files
+        id: diff
         env:
           PUSH_BEFORE_SHA: ${{ github.event.before }}
           PUSH_SHA: ${{ github.sha }}
         run: |
-          baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
-          baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
-          baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
-
           if [[ -z "${PUSH_BEFORE_SHA}" || "${PUSH_BEFORE_SHA}" =~ ^0+$ ]]; then
             changed_files="$(git show --pretty=format: --name-only "${PUSH_SHA}")"
           else
             changed_files="$(git diff --name-only "${PUSH_BEFORE_SHA}...${PUSH_SHA}")"
           fi
+          {
+            echo "changed_files<<EOF"
+            echo "${changed_files}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
 
-          api_server=false
-          control_plane=false
-          web_console=false
-          # These patterns MUST mirror each component's on-push Konflux CEL
-          # trigger in .tekton/hypershell-<component>-main-push.yaml.
-          if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-push\.yaml$' <<<"${changed_files}"; then
-            api_server=true
-          fi
-          if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-push\.yaml$|^Dockerfile$' <<<"${changed_files}"; then
-            control_plane=true
-          fi
-          if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-push\.yaml$' <<<"${changed_files}"; then
-            web_console=true
-          fi
+      - name: Detect Konflux components
+        id: detect-konflux
+        uses: ./.github/actions/detect-konflux-components
+        with:
+          changed-files: ${{ steps.diff.outputs.changed_files }}
+          pipeline-suffix: push
+
+      - name: Plan images and required Konflux builds
+        id: plan
+        env:
+          PUSH_SHA: ${{ github.sha }}
+          API_SERVER: ${{ steps.detect-konflux.outputs.api_server }}
+          CONTROL_PLANE: ${{ steps.detect-konflux.outputs.control_plane }}
+          WEB_CONSOLE: ${{ steps.detect-konflux.outputs.web_console }}
+        run: |
+          baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
+          baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
+          baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
 
           tag="${PUSH_SHA}"
           api_img="${baseline_api}"
           cp_img="${baseline_cp}"
           wc_img="${baseline_wc}"
-          echo "wait_api_server=${api_server}" >> "${GITHUB_OUTPUT}"
-          echo "wait_control_plane=${control_plane}" >> "${GITHUB_OUTPUT}"
-          echo "wait_web_console=${web_console}" >> "${GITHUB_OUTPUT}"
+          echo "wait_api_server=${API_SERVER}" >> "${GITHUB_OUTPUT}"
+          echo "wait_control_plane=${CONTROL_PLANE}" >> "${GITHUB_OUTPUT}"
+          echo "wait_web_console=${WEB_CONSOLE}" >> "${GITHUB_OUTPUT}"
 
-          if [[ "${api_server}" == "true" ]]; then
+          if [[ "${API_SERVER}" == "true" ]]; then
             api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
             echo "  api-server -> ${api_img} (waiting for Konflux build)"
           fi
-          if [[ "${control_plane}" == "true" ]]; then
+          if [[ "${CONTROL_PLANE}" == "true" ]]; then
             cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
             echo "  control-plane -> ${cp_img} (waiting for Konflux build)"
           fi
-          if [[ "${web_console}" == "true" ]]; then
+          if [[ "${WEB_CONSOLE}" == "true" ]]; then
             wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
             echo "  web-console -> ${wc_img} (waiting for Konflux build)"
           fi
