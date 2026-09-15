@@ -213,10 +213,14 @@ A GatewayNetwork SHALL define how gateways communicate. The `topology` field ind
 
 The API server SHALL expose an idempotent registration endpoint at
 `POST /api/hypershell/v1/managed_clusters/registration` for control planes
-to self-register. Every control plane — whether co-located with the API
-server or running on a remote ManagedCluster — uses this endpoint at startup.
-The endpoint SHALL require the `managed-cluster-registrar` realm role. See
-[`global-architecture.spec.md` — Control Plane Self-Registration](./global-architecture.spec.md#control-plane-self-registration)
+to self-register. Every control plane - whether co-located with the API
+server or running on a remote ManagedCluster - uses this endpoint at startup,
+and so does a control plane in local development against an API server with
+authentication disabled. When the API server has authentication enabled, the
+endpoint SHALL require the `managed-cluster-registrar` realm role; when
+authentication is disabled (local development) the endpoint accepts the call
+unauthenticated and keys the record on `name` alone. See
+[`global-architecture.spec.md` - Control Plane Self-Registration](./global-architecture.spec.md#control-plane-self-registration)
 for the full architecture.
 
 #### Scenario: First registration creates a ManagedCluster
@@ -240,9 +244,19 @@ for the full architecture.
 
 #### Scenario: Registration without the required role is rejected
 
-- GIVEN a bearer token without the `managed-cluster-registrar` realm role
+- GIVEN the API server has authentication enabled
+- AND a bearer token without the `managed-cluster-registrar` realm role
 - WHEN a client calls `POST /managed_clusters/registration`
 - THEN the API server SHALL return 403 Forbidden
+
+#### Scenario: Registration without authentication in local development
+
+- GIVEN the API server runs with authentication disabled
+- WHEN a control plane calls `POST /managed_clusters/registration` with
+  `name: local` and no token
+- THEN the API server SHALL create a ManagedCluster record keyed on `name`
+- AND leave `oidc_subject` empty
+- AND return `{ "cluster_id": "<KSUID>" }`
 
 ## API Reference
 
