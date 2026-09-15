@@ -9,10 +9,12 @@ func TestEnforceSafeLogVerbosity(t *testing.T) {
 	verbosity := flag.Lookup("v")
 	if verbosity == nil {
 		t.Fatal("glog verbosity flag v is not registered")
+		return
 	}
 	vmodule := flag.Lookup("vmodule")
 	if vmodule == nil {
 		t.Fatal("glog verbosity flag vmodule is not registered")
+		return
 	}
 	originalVerbosity := verbosity.Value.String()
 	originalVModule := vmodule.Value.String()
