@@ -122,7 +122,7 @@ When OIDC is enabled, the route SHALL require dashboard-operator authorization m
 
 ### Requirement: PI-03 -- Dashboard-Operator Authorization
 
-The managed cluster List endpoint SHALL be readable by **dashboard operators**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` OP-DASH-04) and registered user inventory (`platform/registered-users.spec.md` RU-03):
+Managed cluster and managed database List endpoints SHALL be readable by **dashboard operators**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` OP-DASH-04) and registered user inventory (`platform/registered-users.spec.md` RU-03):
 
 - Caller holds an effective `platform:admin` RoleBinding (including JWT-synced realm role), **or**
 - Caller holds an effective `gateway:creator` RoleBinding (existing behavior)
@@ -131,7 +131,7 @@ Holding only the legacy Keycloak realm role `hypershell-admins` SHALL NOT grant 
 
 All other callers SHALL be denied List access with HTTP `403`.
 
-The RBAC middleware SHALL treat `managed_clusters` collection List (`GET` with empty resource ID) with the same dashboard-inventory access helper used for `users`. Singleton Get authorization for these resources MAY retain the existing `gateway:creator` requirement.
+The RBAC middleware SHALL treat `managed_clusters` and `managed_databases` collection List (`GET` with empty resource ID) with the same dashboard-inventory access helper used for `users`. Singleton Get authorization for these resources MAY retain the existing `gateway:creator` requirement.
 
 #### Scenario: Platform admin without gateway:creator can list clusters
 
