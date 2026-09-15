@@ -202,53 +202,34 @@ h1.pf-v5-c-title.pf-m-3xl,
   --pf-v5-c-input-group--item--BorderLeftColor: #e0e0e0 !important;
 }
 
-.pf-v5-c-button.pf-m-control::before {
-  border-color: #e0e0e0 !important;
-}
-
-.pf-v5-c-button.pf-m-control {
-  border-left-color: #e0e0e0 !important;
-  --pf-v5-c-button--m-control--BackgroundColor: #ffffff;
-  --pf-v5-c-button--m-control--hover--BackgroundColor: #ffffff;
-  --pf-v5-c-button--m-control--focus--BackgroundColor: #ffffff;
-  --pf-v5-c-button--m-control--active--BackgroundColor: #ffffff;
-  --pf-v5-c-button--m-control--BorderColor: #e0e0e0;
-  --pf-v5-c-button--m-control--after--BorderBottomColor: #e0e0e0;
-  --pf-v5-c-button--m-control--hover--after--BorderBottomColor: #0066cc;
-  --pf-v5-c-button--m-control--focus--after--BorderBottomColor: #0066cc;
-  --pf-v5-c-button--m-control--active--after--BorderBottomColor: #0066cc;
-  background-color: #ffffff !important;
-  border-color: #e0e0e0 !important;
-  color: #707070 !important;
-  transition: color 0.2s ease, border-color 0.2s ease;
-}
-
 /*
- * The control button's ::after border is composed from four separate
- * top/right/bottom/left color variables. We only drove the bottom one (for
- * the underline-style hover highlight), leaving top/right at PatternFly's
- * own default (--pf-v5-global--BorderColor--300, #f0f0f0) -- nearly
- * invisible against the white card, so the button looked borderless on top
- * next to the password input's visibly bordered #e0e0e0 edge.
+ * Same technique as .pf-v5-c-form-control above: PatternFly draws this
+ * button's border via a ::after overlay, and its m-control variant natively
+ * widens that overlay's bottom edge to 2px on hover/focus/active
+ * (--pf-v5-c-button--m-control--hover--after--BorderBottomWidth defaults to
+ * BorderWidth--md), while the adjacent text input only ever recolors its
+ * 1px bottom edge. Painting one explicit border directly on the button and
+ * only ever changing its color (never its width) keeps the eye-toggle's
+ * hover highlight the same 1px thickness as the input's.
  */
-.pf-v5-c-button.pf-m-control::after {
-  border-top-color: #e0e0e0 !important;
-  border-right-color: #e0e0e0 !important;
-  border-bottom-color: #e0e0e0 !important;
-  transition: border-bottom-color 0.2s ease;
+.pf-v5-c-button.pf-m-control {
+  box-sizing: border-box !important;
+  border: 1px solid #e0e0e0 !important;
+  background-color: #ffffff !important;
+  color: #707070 !important;
+  transition: color 0.2s ease, border-bottom-color 0.2s ease;
 }
 
-.pf-v5-c-button.pf-m-control:hover::after,
-.pf-v5-c-button.pf-m-control:focus::after,
-.pf-v5-c-button.pf-m-control:active::after {
-  border-bottom-color: #0066cc !important;
+.pf-v5-c-button.pf-m-control::before,
+.pf-v5-c-button.pf-m-control::after {
+  border: none !important;
 }
 
 .pf-v5-c-button.pf-m-control:hover,
 .pf-v5-c-button.pf-m-control:focus,
 .pf-v5-c-button.pf-m-control:active {
   color: #0066cc !important;
-  border-color: #0066cc !important;
+  border-bottom-color: #0066cc !important;
   background-color: #ffffff !important;
   box-shadow: none !important;
   outline: none !important;
@@ -396,6 +377,16 @@ h1.pf-v5-c-title.pf-m-3xl,
   border-bottom: none !important;
 }
 
+/*
+ * PatternFly's Login component draws a border-top on .pf-v5-c-login__main-
+ * footer-band by default, used here to separate the "No account? Register"
+ * link from whatever sits above it (the Sign In button when no social/IDP
+ * buttons are configured). Remove it to keep the card divider-free.
+ */
+.pf-v5-c-login__main-footer-band {
+  border-top: none !important;
+}
+
 /* Page footer */
 .pf-v5-c-login__footer {
   text-align: center;
@@ -460,28 +451,15 @@ h1.pf-v5-c-title.pf-m-3xl,
   }
 
   .pf-v5-c-button.pf-m-control {
-    border-left-color: #3c3f42 !important;
-    --pf-v5-c-button--m-control--BackgroundColor: #1b1d21;
-    --pf-v5-c-button--m-control--hover--BackgroundColor: #1b1d21;
-    --pf-v5-c-button--m-control--focus--BackgroundColor: #1b1d21;
-    --pf-v5-c-button--m-control--active--BackgroundColor: #1b1d21;
-    --pf-v5-c-button--m-control--BorderColor: #3c3f42;
-    --pf-v5-c-button--m-control--after--BorderBottomColor: #3c3f42;
+    box-sizing: border-box !important;
+    border: 1px solid #3c3f42 !important;
     background-color: #1b1d21 !important;
-    border-color: #3c3f42 !important;
     color: #a2a2a2 !important;
   }
 
+  .pf-v5-c-button.pf-m-control::before,
   .pf-v5-c-button.pf-m-control::after {
-    border-top-color: #3c3f42 !important;
-    border-right-color: #3c3f42 !important;
-    border-bottom-color: #3c3f42 !important;
-  }
-
-  .pf-v5-c-button.pf-m-control:hover,
-  .pf-v5-c-button.pf-m-control:focus,
-  .pf-v5-c-button.pf-m-control:active {
-    background-color: #1b1d21 !important;
+    border: none !important;
   }
 
   .pf-v5-c-button.pf-m-control i.fa-eye,
@@ -516,17 +494,11 @@ h1.pf-v5-c-title.pf-m-3xl,
     color: #151515 !important;
   }
 
-  .pf-v5-c-button.pf-m-control:hover::after,
-  .pf-v5-c-button.pf-m-control:focus::after,
-  .pf-v5-c-button.pf-m-control:active::after {
-    border-bottom-color: #1fa7f8 !important;
-  }
-
   .pf-v5-c-button.pf-m-control:hover,
   .pf-v5-c-button.pf-m-control:focus,
   .pf-v5-c-button.pf-m-control:active {
     color: #1fa7f8 !important;
-    border-color: #1fa7f8 !important;
+    border-bottom-color: #1fa7f8 !important;
     background-color: #1b1d21 !important;
   }
 
