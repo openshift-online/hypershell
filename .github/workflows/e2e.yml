@@ -21,10 +21,12 @@ name: E2E
 #
 # E2E OpenShift lives here (Tests / E2E / OpenShift), not inside the PR
 # Environment workflow. On origin pull_request it polls the "Deploy PR
-# environment" check, then runs the suite against that namespace. Fork PRs,
-# merge_group, and push skip it (no per-PR environment). Push to main uses
-# the separate e2e-openshift-main.yml workflow (bring-up-test-tear-down)
-# so that job does not appear as a skipped check on pull requests.
+# environment" check, then runs the suite against that namespace. Fork PRs
+# and push skip it (no per-PR environment). Push to main uses the separate
+# e2e-openshift-main.yml workflow (bring-up-test-tear-down), and merge_group
+# uses the separate e2e-openshift-merge-queue.yml workflow (same pattern,
+# against the merge queue's ephemeral commit), each so that job does not
+# appear as a skipped check on pull requests.
 on:
   workflow_call:
     inputs:
