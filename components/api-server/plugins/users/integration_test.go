@@ -137,3 +137,34 @@ func TestUserGet_AllowedForAuthorizedCaller(t *testing.T) {
 	Expect(user.Username).NotTo(BeEmpty())
 	Expect(user.CreatedAt).NotTo(BeNil())
 }
+
+// TestUserUpsert_ConcurrentFirstTimeProvisioning guards against the
+// check-then-act race in Upsert: two requests JIT-provisioning the same
+// brand-new OIDC identity at once must not let the losing goroutine see a
+// raw unique-constraint error instead of the persisted user.
+func TestUserUpsert_ConcurrentFirstTimeProvisioning(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	userService := users.Service(&environments.Environment().Services)
+	username := fmt.Sprintf("concurrent-user-%d", time.Now().UnixNano())
+
+	const concurrency = 8
+	ids := make([]string, concurrency)
+	errs := make([]error, concurrency)
+	done := make(chan int, concurrency)
+	for i := range concurrency {
+		go func(i int) {
+			ids[i], errs[i] = userService.UpsertByUsername(context.Background(), username, nil, nil)
+			done <- i
+		}(i)
+	}
+	for range concurrency {
+		<-done
+	}
+
+	for i := range concurrency {
+		Expect(errs[i]).NotTo(HaveOccurred())
+		Expect(ids[i]).NotTo(BeEmpty())
+		Expect(ids[i]).To(Equal(ids[0]))
+	}
+}
