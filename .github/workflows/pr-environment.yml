@@ -71,31 +71,49 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Plan images and required Konflux builds
-        id: plan
+      # Use a three-dot (merge-base) diff so a component change that landed
+      # on the base branch *after* this PR forked is never misattributed to
+      # the PR, matching the E2E workflow's plan-images job.
+      - name: Compute changed files
+        id: diff
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
+          {
+            echo "changed_files<<EOF"
+            echo "${changed_files}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Detect Konflux components
+        id: detect-konflux
+        uses: ./.github/actions/detect-konflux-components
+        with:
+          changed-files: ${{ steps.diff.outputs.changed_files }}
+          pipeline-suffix: pull-request
+
+      - name: Plan images and required Konflux builds
+        id: plan
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          API_SERVER: ${{ steps.detect-konflux.outputs.api_server }}
+          CONTROL_PLANE: ${{ steps.detect-konflux.outputs.control_plane }}
+          WEB_CONSOLE: ${{ steps.detect-konflux.outputs.web_console }}
+        run: |
           # Deploy is unconditional for a PR environment, but only components this
           # PR actually built get their on-pr image (waited for and swapped by
-          # digest). Patterns MUST mirror each component's pull-request Konflux CEL
-          # trigger, matching the E2E workflow's plan-images job.
-          changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
-          api_konflux=false; cp_konflux=false; wc_konflux=false
-          if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-pull-request\.yaml$' <<<"${changed_files}"; then api_konflux=true; fi
-          if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-pull-request\.yaml$|^Dockerfile$' <<<"${changed_files}"; then cp_konflux=true; fi
-          if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-pull-request\.yaml$' <<<"${changed_files}"; then wc_konflux=true; fi
-
+          # digest).
           tag="on-pr-${PR_HEAD_SHA}"
           # Empty image refs leave the component on whatever make openshift-up
           # deployed (baseline). Only components this PR actually built are
           # swapped, so we do not re-roll unchanged deployments every run.
           api_img=""; cp_img=""; wc_img=""
           wait_api=false; wait_cp=false; wait_wc=false
-          if [[ "${api_konflux}" == "true" ]]; then api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"; wait_api=true; fi
-          if [[ "${cp_konflux}" == "true" ]]; then cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"; wait_cp=true; fi
-          if [[ "${wc_konflux}" == "true" ]]; then wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"; wait_wc=true; fi
+          if [[ "${API_SERVER}" == "true" ]]; then api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"; wait_api=true; fi
+          if [[ "${CONTROL_PLANE}" == "true" ]]; then cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"; wait_cp=true; fi
+          if [[ "${WEB_CONSOLE}" == "true" ]]; then wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"; wait_wc=true; fi
 
           {
             echo "api_server_image=${api_img}"
