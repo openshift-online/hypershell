@@ -212,6 +212,55 @@ A GatewayNetwork SHALL define how gateways communicate. The `topology` field ind
 - WHEN gateways join the network
 - THEN all spoke gateways SHALL route through the hub gateway
 
+### Requirement: Managed Cluster Self-Registration
+
+The API server SHALL expose an idempotent registration endpoint at
+`POST /api/hypershell/v1/managed_clusters/registration` for control planes
+to self-register. Every control plane - whether co-located with the API
+server or running on a remote ManagedCluster - uses this endpoint at startup,
+and so does a control plane in local development against an API server with
+authentication disabled. When the API server has authentication enabled, the
+endpoint SHALL require the `managed-cluster-registrar` realm role; when
+authentication is disabled (local development) the endpoint accepts the call
+unauthenticated and keys the record on `name` alone. See
+[`global-architecture.spec.md` - Control Plane Self-Registration](./global-architecture.spec.md#control-plane-self-registration)
+for the full architecture.
+
+#### Scenario: First registration creates a ManagedCluster
+
+- GIVEN a control plane with valid OIDC credentials and the
+  `managed-cluster-registrar` role
+- WHEN it calls `POST /managed_clusters/registration` with `name: hyp4-mc01`
+- THEN the API server SHALL create a ManagedCluster record
+- AND return `{ "cluster_id": "<KSUID>" }`
+- AND set `last_seen_at` to the current timestamp
+
+#### Scenario: Repeated registration is idempotent
+
+- GIVEN a ManagedCluster `hyp4-mc01` already exists (registered by the same
+  OIDC subject)
+- WHEN the control plane calls `POST /managed_clusters/registration` with
+  `name: hyp4-mc01` again
+- THEN the API server SHALL return the **same** `cluster_id`
+- AND update `last_seen_at`
+- AND SHALL NOT create a duplicate record
+
+#### Scenario: Registration without the required role is rejected
+
+- GIVEN the API server has authentication enabled
+- AND a bearer token without the `managed-cluster-registrar` realm role
+- WHEN a client calls `POST /managed_clusters/registration`
+- THEN the API server SHALL return 403 Forbidden
+
+#### Scenario: Registration without authentication in local development
+
+- GIVEN the API server runs with authentication disabled
+- WHEN a control plane calls `POST /managed_clusters/registration` with
+  `name: local` and no token
+- THEN the API server SHALL create a ManagedCluster record keyed on `name`
+- AND leave `oidc_subject` empty
+- AND return `{ "cluster_id": "<KSUID>" }`
+
 ## API Reference
 
 All routes under `/api/hypershell/v1/`:
@@ -229,7 +278,7 @@ All routes under `/api/hypershell/v1/`:
 | GET/PATCH/DELETE | `/gateway_releases/{id}` | Get/Update/Delete |
 | GET/POST | `/managed_clusters` | List/Create |
 | GET/PATCH/DELETE | `/managed_clusters/{id}` | Get/Update/Delete |
-| POST | `/managed_clusters/registration` | Self-register spoke; idempotent on (oidc_subject, name); updates last_seen_at on every call |
+| POST | `/managed_clusters/registration` | Self-register control plane; idempotent on (oidc_subject, name); updates last_seen_at on every call |
 | GET/POST | `/managed_databases` | List/Create |
 | GET/PATCH/DELETE | `/managed_databases/{id}` | Get/Update/Delete |
 

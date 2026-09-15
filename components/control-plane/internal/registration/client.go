@@ -13,7 +13,8 @@ import (
 )
 
 // ErrForbidden is returned when the API server responds 403.
-// This is non-retryable: the spoke lacks the required Keycloak role.
+// This is non-retryable: the control plane lacks the required Keycloak role.
+// It can only occur when the API server has authentication enabled.
 var ErrForbidden = fmt.Errorf("registration denied: missing managed-cluster-registrar role in Keycloak")
 
 // TokenSource can produce a bearer token.
@@ -21,7 +22,11 @@ type TokenSource interface {
 	Token() (string, error)
 }
 
-// Client registers a spoke control-plane with the hub API server.
+// Client registers a control plane with the API server. Registration is
+// unconditional: every control plane registers on startup. When tokens is nil
+// (the API server runs with authentication disabled, e.g. local development) the
+// request carries no Authorization header and the server keys the record on name
+// alone; otherwise the bearer token's OIDC subject keys the record.
 type Client struct {
 	apiServerURL string
 	clusterName  string
@@ -29,7 +34,8 @@ type Client struct {
 	httpClient   *http.Client
 }
 
-// NewClient creates a registration Client.
+// NewClient creates a registration Client. tokens may be nil when the API server
+// runs with authentication disabled; in that case no bearer token is sent.
 func NewClient(apiServerURL, clusterName string, tokens TokenSource) *Client {
 	return &Client{
 		apiServerURL: strings.TrimRight(apiServerURL, "/"),
@@ -51,9 +57,15 @@ type registrationResponse struct {
 // Returns (clusterID, nil) on success, (ErrForbidden, nil) on 403, or an
 // error for transient failures that should be retried.
 func (c *Client) Register(ctx context.Context) (string, error) {
-	token, err := c.tokens.Token()
-	if err != nil {
-		return "", fmt.Errorf("get OIDC token: %w", err)
+	// tokens is nil when the API server runs with authentication disabled; the
+	// request is then sent unauthenticated and the server keys the record on name.
+	var token string
+	if c.tokens != nil {
+		t, err := c.tokens.Token()
+		if err != nil {
+			return "", fmt.Errorf("get OIDC token: %w", err)
+		}
+		token = t
 	}
 
 	body, err := json.Marshal(registrationRequest{Name: c.clusterName})
@@ -67,7 +79,9 @@ func (c *Client) Register(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("build registration request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

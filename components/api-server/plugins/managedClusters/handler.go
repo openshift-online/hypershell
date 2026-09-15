@@ -61,20 +61,24 @@ func (h managedClusterHandler) Register(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ctx := r.Context()
-	token, tokenErr := auth.TokenFromContext(ctx)
-	if tokenErr != nil || token == nil {
-		handlers.HandleError(r.Context(), w, errors.Unauthenticated("missing identity"))
-		return
-	}
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		handlers.HandleError(r.Context(), w, errors.Unauthenticated("invalid token claims"))
-		return
-	}
-	oidcSubject, _ := claims["sub"].(string)
-	if oidcSubject == "" {
-		handlers.HandleError(r.Context(), w, errors.Unauthenticated("missing sub claim"))
-		return
+	// Registration is unconditional. When the API server has authentication
+	// enabled, the RBAC/JWT middleware has already validated the caller (and its
+	// managed-cluster-registrar role) before this handler runs, so a token is
+	// present here; its OIDC subject keys the record. When authentication is
+	// disabled (local development) no token is present, so the record is keyed on
+	// name alone with an empty subject.
+	oidcSubject := ""
+	if token, tokenErr := auth.TokenFromContext(ctx); tokenErr == nil && token != nil {
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			handlers.HandleError(r.Context(), w, errors.Unauthenticated("invalid token claims"))
+			return
+		}
+		oidcSubject, _ = claims["sub"].(string)
+		if oidcSubject == "" {
+			handlers.HandleError(r.Context(), w, errors.Unauthenticated("missing sub claim"))
+			return
+		}
 	}
 
 	description := ""

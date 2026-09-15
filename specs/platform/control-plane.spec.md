@@ -1,22 +1,30 @@
 # Control Plane
 
-**Date:** 2026-08-03
+**Date:** 2026-09-15
 **Status:** Active
 
 ## Overview
 
-The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into actual Kubernetes resources across managed clusters. It follows the informer-reconciler pattern without depending on controller-runtime.
+The HyperShell control plane is a Go service that watches the API server via gRPC streaming RPCs and reconciles the desired state (Gateway and related resources in the database) into actual Kubernetes resources. It follows the informer-reconciler pattern without depending on controller-runtime.
+
+Every control plane instance follows the same lifecycle regardless of where it runs: it self-registers via `POST /managed_clusters/registration` at startup to obtain its `cluster_id`, then watches the API server via gRPC and reconciles the gateways assigned to that cluster. Registration is unconditional - it happens on every startup whether or not OIDC is configured, so the same startup path runs in local development (no auth) and in multi-cloud production. The same binary and reconciler code runs whether the control plane is co-located with the API server on a Cloud Hub or running on a remote ManagedCluster. See [`global-architecture.spec.md` - Control Plane Self-Registration](./global-architecture.spec.md#control-plane-self-registration).
 
 ## Architecture
 
 ```
+Keycloak (OIDC client_credentials)
+  │  access_token (managed-cluster-registrar role)
+  ▼
+Control Plane ──► POST /managed_clusters/registration → cluster_id
+  │  gRPC watch streams per Kind (filtered by cluster_id)
+  ▼
 API Server (PostgreSQL via CNPG)
-  │  gRPC watch streams per Kind
+  │  Gateway events
   ▼
 Control Plane (Watcher + Reconciler)
-  │  reconciles into K8s resources
+  │  reconciles into K8s resources on managed cluster(s)
   ▼
-Managed Clusters (Gateway pods, Services, Configs)
+ManagedCluster(s) (Gateway pods, Services, Configs)
 ```
 
 ## Components
@@ -61,30 +69,51 @@ Holds connection configuration for the API server gRPC endpoint, Kubernetes clie
 
 ## Requirements
 
-### Requirement: Spoke Self-Registration at Startup
+### Requirement: Self-Registration at Startup
 
-Before opening any gRPC watch stream, the control plane SHALL call
-`POST /api/hypershell/v1/managed_clusters/registration` using its OIDC
-`client_credentials` token. The registration endpoint is idempotent; the returned
-`cluster_id` is stable across restarts. The control plane SHALL use this `cluster_id`
-as the cluster filter for `WatchGateways` for the lifetime of the process.
+Before opening any gRPC watch stream, every control plane SHALL call
+`POST /api/hypershell/v1/managed_clusters/registration` to obtain its `cluster_id`.
+Registration is unconditional: it runs on every startup regardless of where the
+control plane runs and regardless of whether OIDC is configured. The registration
+endpoint is idempotent; the returned `cluster_id` is stable across restarts. The
+control plane SHALL use this `cluster_id` as the cluster filter for `WatchGateways`
+for the lifetime of the process.
 
-`HYPERSHELL_MANAGED_CLUSTER_NAME` (unique per spoke, set in gitops) is the only
-cluster-identity configuration required. `HYPERSHELL_CLUSTER_ID` SHALL NOT appear in
-gitops -- it is resolved at runtime via registration.
+The control plane's registration identity resolves as follows:
+
+- When OIDC `client_credentials` are configured, the control plane authenticates
+  with its OIDC token and the API server derives the durable identity from the
+  token subject (`oidc_subject`). This is the production path.
+- When OIDC is not configured (local development, no auth), the control plane
+  registers by `name` alone and the API server treats that name as the identity.
+
+`HYPERSHELL_MANAGED_CLUSTER_NAME` (unique per control plane instance, set in
+configuration or gitops) is the only cluster-identity configuration required, and
+is always sent as the registration `name`. `HYPERSHELL_CLUSTER_ID` SHALL NOT appear
+in gitops - it is resolved at runtime via registration.
 
 After startup, the control plane SHALL call `/registration` on a regular interval
-(default: 60 seconds) to update `last_seen_at` on the hub. These subsequent calls are
+(default: 60 seconds) to update `last_seen_at`. These subsequent calls are
 no-ops for registration data and return the same `cluster_id`. See
 `platform/managed-cluster-registration.spec.md` for full registration semantics.
 
 #### Scenario: Successful startup registration
 
-- GIVEN the spoke service account has `managed-cluster-registrar` in Keycloak
+- GIVEN the control plane service account has `managed-cluster-registrar` in Keycloak
 - AND `HYPERSHELL_MANAGED_CLUSTER_NAME` is set
 - WHEN the control plane starts
 - THEN it calls `POST /managed_clusters/registration` before opening `WatchGateways`
 - AND uses the returned `cluster_id` to filter the watch stream to this cluster's gateways
+
+#### Scenario: Local development on a fresh database
+
+- GIVEN a local development environment with an empty database
+- AND OIDC authentication is disabled (no `managed-cluster-registrar` token available)
+- AND `HYPERSHELL_MANAGED_CLUSTER_NAME=local`
+- WHEN the control plane starts and calls `/registration`
+- THEN the API server creates a ManagedCluster record named `local`, keyed on the name
+- AND returns a `cluster_id` that the control plane uses to reconcile gateways
+- AND the startup path is identical to production apart from the absence of a token
 
 #### Scenario: Transient failure retried with backoff
 
@@ -102,8 +131,8 @@ no-ops for registration data and return the same `cluster_id`. See
 
 #### Scenario: Re-registration after restart returns same cluster_id
 
-- GIVEN a spoke that previously registered and received `cluster_id: X`
-- WHEN the spoke restarts and calls `/registration` again
+- GIVEN a control plane that previously registered and received `cluster_id: X`
+- WHEN the control plane restarts and calls `/registration` again
 - THEN the response is 200 with the same `cluster_id: X`
 - AND `last_seen_at` is updated on the `ManagedCluster` record
 
@@ -188,3 +217,6 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | Separate module from API server | Independent lifecycle, separate deployment |
 | No controller-runtime dependency | Lightweight, custom reconciliation without CRD overhead |
 | Multi-cluster client pool | Each managed cluster gets its own KubeClient for isolation |
+| Same binary everywhere | The control plane runs the same binary whether co-located with the API server or on a remote ManagedCluster. The only difference is operational configuration (OIDC creds, gRPC address, `HYPERSHELL_MANAGED_CLUSTER_NAME`). No code fork or separate build. |
+| Self-registration before watch | Every control plane calls `/managed_clusters/registration` before opening `WatchGateways`, so it always has a valid `cluster_id` to filter on. Registration is unconditional and works with or without OIDC: production uses the OIDC token identity, local dev (no auth) registers by name alone. When auth is enabled, a 403 (missing `managed-cluster-registrar` role) exits immediately to surface misconfiguration. This works identically from local dev (fresh database) to production. |
+| `cluster_id` filter on watch events | The control plane processes only the gateways matching its own `cluster_id`, so it never reconciles another cluster's gateways. The filter is applied server-side: the control plane passes its `cluster_id` in the `WatchGateways` request and in its seed listing, and the API server returns only matching gateways. |
