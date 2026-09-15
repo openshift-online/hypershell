@@ -2,6 +2,7 @@ package rbac
 
 import (
 	"os"
+	"strings"
 
 	"github.com/gorilla/mux"
 
@@ -19,6 +20,7 @@ func init() {
 
 		userService := users.Service(envServices)
 		rbService := roleBindings.Service(envServices)
+		activityRecorder := users.ActivityRecorder(envServices)
 
 		if userService != nil {
 			provisioner := rbac.NewUserProvisioner(userService)
@@ -30,10 +32,19 @@ func init() {
 		}
 		if rbService != nil {
 			enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
-			authzConfig := rbac.AuthzConfig{
-				EnforceRBAC: enforceRBAC,
+			var serviceAccounts []string
+			if sa := os.Getenv("RBAC_SERVICE_ACCOUNTS"); sa != "" {
+				for _, s := range strings.Split(sa, ",") {
+					if trimmed := strings.TrimSpace(s); trimmed != "" {
+						serviceAccounts = append(serviceAccounts, trimmed)
+					}
+				}
 			}
-			rbacMiddleware := rbac.NewRBACAuthzMiddleware(rbService, authzConfig)
+			authzConfig := rbac.AuthzConfig{
+				EnforceRBAC:     enforceRBAC,
+				ServiceAccounts: serviceAccounts,
+			}
+			rbacMiddleware := rbac.NewRBACAuthzMiddleware(rbService, authzConfig, activityRecorder)
 			apiV1Router.Use(rbacMiddleware.AuthorizeApi)
 		}
 	})

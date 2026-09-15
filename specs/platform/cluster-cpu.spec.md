@@ -100,7 +100,7 @@ The BFF SHALL NOT contact the Kubernetes API directly for CPU in version 1.
 
 The web-console BFF SHALL expose `GET /api/metrics/cluster-cpu` as a same-origin route that:
 
-1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` OP-DASH-04: `hypershell-admins` or `platform:admin`)
+1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` OP-DASH-04: `platform:admin` only)
 2. Executes Prometheus instant queries for hub-cluster CPU (CC-03)
 3. Returns JSON:
 
@@ -118,7 +118,7 @@ On Prometheus failure, timeout, or non-success Prometheus response status, the B
 
 #### Scenario: Dashboard administrator receives CPU cores
 
-- GIVEN OIDC is enabled and the caller has `hypershell-admins` or `platform:admin`
+- GIVEN OIDC is enabled and the caller has `platform:admin`
 - AND Prometheus returns successful instant-query results
 - WHEN the caller sends `GET /api/metrics/cluster-cpu`
 - THEN the BFF SHALL respond with HTTP `200` and the CC-04 JSON body

@@ -134,7 +134,7 @@ When Prometheus is unreachable or returns a non-`200` status, or when the Promet
 
 The `/api/metrics/gateways` route SHALL be exempt from the general `/api/*` proxy handler: it does not forward to the API server, it does not require or forward a bearer token, and it does not require a Prometheus authentication header in its current form.
 
-When OIDC is enabled, the route SHALL require **dashboard-operator authorization** matching `web-console/operational-dashboard.spec.md` OP-DASH-04 (`hypershell-admins` or `platform:admin`). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled, no session or role is required.
+When OIDC is enabled, the route SHALL require **dashboard-operator authorization** matching `web-console/operational-dashboard.spec.md` OP-DASH-04 (`platform:admin` only). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled, no session or role is required.
 
 Fleet-wide phase counts from Prometheus are intentionally **not** filtered by per-gateway RoleBindings; this route is restricted to dashboard administrators who are authorized to view platform-wide operational data. The operational dashboard gateway-status widget consumes this same route (`operational-dashboard.spec.md` OP-DASH-23). Per-user gateway visibility for the gateway collection table remains on the RBAC-scoped HyperShell REST list API (`web-console/architecture.spec.md` WEB-DATA-01).
 
@@ -165,7 +165,7 @@ Fleet-wide phase counts from Prometheus are intentionally **not** filtered by pe
 
 #### Scenario: Dashboard administrator can fetch gateway phase counts
 
-- GIVEN OIDC is enabled and the caller has `hypershell-admins` or `platform:admin`
+- GIVEN OIDC is enabled and the caller has `platform:admin`
 - AND Prometheus returns successful `hypershell_gateways_total` samples
 - WHEN the SPA calls `GET /api/metrics/gateways`
 - THEN the BFF SHALL respond with HTTP `200`

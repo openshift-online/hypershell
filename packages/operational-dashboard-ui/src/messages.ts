@@ -367,13 +367,48 @@ export const messages = defineMessages({
   },
   registeredUsers: {
     id: "app.dashboard.widget.registeredUsers",
-    defaultMessage: "Registered users",
+    defaultMessage: "Users",
     description: "Title for the registered users dashboard widget.",
+  },
+  registeredUsersAdded7Days: {
+    id: "app.dashboard.registeredUsers.added7Days",
+    defaultMessage: "Added (7 days)",
+    description: "Stat label for users added in the last 7 days.",
+  },
+  registeredUsersAdded30Days: {
+    id: "app.dashboard.registeredUsers.added30Days",
+    defaultMessage: "Added (30 days)",
+    description: "Stat label for users added in the last 30 days.",
+  },
+  registeredUsersHero: {
+    id: "app.dashboard.registeredUsers.hero",
+    defaultMessage: "{value} Registered users",
+    description: "Hero line for the Users adoption widget.",
   },
   registeredUsersSummary: {
     id: "app.dashboard.summary.registeredUsers",
-    defaultMessage: "Registered users",
+    defaultMessage: "Users",
     description: "Summary label for registered users.",
+  },
+  registeredUsersUniqueLogins: {
+    id: "app.dashboard.registeredUsers.uniqueLogins",
+    defaultMessage: "Unique logins",
+    description: "Metric name in registered users login sparkline tooltips.",
+  },
+  registeredUsersUniqueLogins7Days: {
+    id: "app.dashboard.registeredUsers.uniqueLogins7Days",
+    defaultMessage: "Unique logins (7 days)",
+    description: "Stat label for unique logins in the last 7 days.",
+  },
+  registeredUsersUniqueLogins30Days: {
+    id: "app.dashboard.registeredUsers.uniqueLogins30Days",
+    defaultMessage: "Unique logins (30 days)",
+    description: "Stat label for unique logins in the last 30 days.",
+  },
+  registeredUsersUniqueLoginsPerDay: {
+    id: "app.dashboard.registeredUsers.uniqueLoginsPerDay",
+    defaultMessage: "Unique logins per day",
+    description: "Title above the registered users login sparkline.",
   },
   resetToDefault: {
     id: "app.dashboard.resetToDefault",
@@ -431,13 +466,13 @@ export const messages = defineMessages({
   },
   summaryTrendDecrease: {
     id: "app.dashboard.summary.trendDecrease",
-    defaultMessage: "{percent}% decrease",
+    defaultMessage: "{percent}% decrease in {subject}",
     description:
       "Tooltip for a usage summary metric that decreased since the start of its trend.",
   },
   summaryTrendIncrease: {
     id: "app.dashboard.summary.trendIncrease",
-    defaultMessage: "{percent}% increase",
+    defaultMessage: "{percent}% increase in {subject}",
     description:
       "Tooltip for a usage summary metric that increased since the start of its trend.",
   },

@@ -183,7 +183,7 @@ production.
 | CLI client | `hypershell-cli` (public, standard flow + device authorization grant, used by `hsctl login`) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account) |
 | Control plane client | `hypershell-control-plane` (confidential, service account, client_credentials) |
-| Admin user | `admin` / `admin` (role: `hypershell-admins`) |
+| Admin user | `admin` / `admin` (roles: `hypershell-admins`, `platform:admin`, `gateway:creator`) |
 | Developer user | `developer` / `developer` (role: `hypershell-users`) |
 | OIDC Issuer URL | `https://keycloak.hypershell.localhost/realms/hypershell` |
 | Admin Console | `https://keycloak.hypershell.localhost/admin/` |

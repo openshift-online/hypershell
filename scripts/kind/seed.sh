@@ -66,6 +66,11 @@ if [[ -z "${api_reachable}" ]]; then
   warn "API server did not answer through the port-forward; seeding may fail"
 fi
 
+# Keycloak --import-realm does not update existing users when keycloak.yaml
+# gains new realm roles. Reconcile before minting tokens so admin/admin carries
+# platform:admin for dashboard access (OP-DASH-04).
+reconcile_keycloak_seed_users
+
 # Obtain a Bearer token from Keycloak for API calls.
 API_AUTH_HEADER=""
 info "Obtaining API token from Keycloak..."

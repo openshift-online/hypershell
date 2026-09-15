@@ -5,7 +5,7 @@ import { messages } from "../messages";
 
 const METRIC_WIDGET_HEIGHT = 3;
 const METRIC_ROW_GAP = 1;
-const METRIC_ROW_STEP = METRIC_WIDGET_HEIGHT + METRIC_ROW_GAP;
+export const METRIC_ROW_STEP = METRIC_WIDGET_HEIGHT + METRIC_ROW_GAP;
 /** Full-width section title row at the top of the dashboard grid. */
 export const TITLE_WIDGET_HEIGHT = 1;
 export const DASHBOARD_COLUMN_COUNT = 4;
@@ -20,14 +20,19 @@ const BASE_SUMMARY_WIDGET_HEIGHT = (SUMMARY_COLUMN_HEIGHT - METRIC_ROW_GAP) / 2;
 export const USAGE_SUMMARY_WIDGET_HEIGHT = BASE_SUMMARY_WIDGET_HEIGHT + 1;
 /** Gateway status matches usage summary height in the platform adoption section. */
 export const GATEWAY_STATUS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT;
+/** Taller widget for the Users adoption card (stat grid and sparkline). */
+export const REGISTERED_USERS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT + 2;
+/** Gateway status height in the platform adoption right column. */
+export const ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT =
+  REGISTERED_USERS_WIDGET_HEIGHT - METRIC_ROW_STEP;
 /** One row taller than usage summary; fits exception status rows on pods and nodes. */
-export const SYSTEM_SUMMARY_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT + 1;
+export const SYSTEM_SUMMARY_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT;
 /** Stats list and P95 note. */
 export const PROVISION_TIME_WIDGET_HEIGHT = METRIC_WIDGET_HEIGHT + 1;
 const ADOPTION_SECTION_START_Y = TITLE_ROW_OFFSET;
 /** Grid row for the hub cluster section title. */
 const HUB_CLUSTER_TITLE_Y =
-  ADOPTION_SECTION_START_Y + GATEWAY_STATUS_WIDGET_HEIGHT + METRIC_ROW_GAP;
+  ADOPTION_SECTION_START_Y + REGISTERED_USERS_WIDGET_HEIGHT + METRIC_ROW_GAP;
 /** Grid row where hub-cluster capacity widgets begin (below hub cluster title). */
 export const HUB_CLUSTER_START_Y = HUB_CLUSTER_TITLE_Y + TITLE_ROW_OFFSET;
 /** Grid row for the platform inventory section title. */
@@ -83,7 +88,7 @@ const fourColumnLayout = [
     y: 0,
   },
   {
-    h: USAGE_SUMMARY_WIDGET_HEIGHT,
+    h: REGISTERED_USERS_WIDGET_HEIGHT,
     i: "usage-summary#1",
     title: "Usage summary",
     w: 1,
@@ -92,11 +97,11 @@ const fourColumnLayout = [
     y: ADOPTION_SECTION_START_Y,
   },
   {
-    h: GATEWAY_STATUS_WIDGET_HEIGHT,
-    i: "gateway-status#1",
-    title: "Gateway status",
+    h: REGISTERED_USERS_WIDGET_HEIGHT,
+    i: "registered-users#1",
+    title: "Users",
     w: 2,
-    widgetType: "gateway-status",
+    widgetType: "registered-users",
     x: 1,
     y: ADOPTION_SECTION_START_Y,
   },
@@ -110,11 +115,11 @@ const fourColumnLayout = [
     y: ADOPTION_SECTION_START_Y,
   },
   {
-    h: METRIC_WIDGET_HEIGHT,
-    i: "registered-users#1",
-    title: "Registered users",
+    h: ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
+    i: "gateway-status#1",
+    title: "Gateway status",
     w: 1,
-    widgetType: "registered-users",
+    widgetType: "gateway-status",
     x: 3,
     y: ADOPTION_SECTION_START_Y + METRIC_ROW_STEP,
   },
@@ -256,9 +261,9 @@ function stackMobileY(
 const mobileLayoutOrder = [
   "section-title#platform-adoption",
   "usage-summary",
-  "gateway-status",
-  "provisioned-sandboxes",
   "registered-users",
+  "provisioned-sandboxes",
+  "gateway-status",
   "section-title#hub-cluster",
   "system-summary",
   "memory",

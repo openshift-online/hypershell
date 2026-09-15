@@ -3,6 +3,7 @@ package rbac
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/golang/glog"
 
@@ -23,6 +24,10 @@ const HypershellAdminRole = "hypershell-admins"
 
 type UserProvisioner interface {
 	UpsertFromJWT(ctx context.Context, payload *auth.Payload) (userID string, err error)
+}
+
+type DailyActivityRecorder interface {
+	RecordDailyActivity(ctx context.Context, userID string, at time.Time)
 }
 
 func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSyncer) func(http.Handler) http.Handler {

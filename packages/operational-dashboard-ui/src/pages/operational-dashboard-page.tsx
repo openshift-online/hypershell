@@ -41,17 +41,17 @@ import type { OperationalDashboardMetrics } from "../application/dashboard-types
 import type { DashboardProbe } from "../application/dashboard-probes";
 import { noopDashboardProbePublisher } from "../application/dashboard-probes";
 import {
+  ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
   defaultDashboardLayoutTemplate,
   DASHBOARD_COLUMN_COUNT,
-  GATEWAY_STATUS_WIDGET_HEIGHT,
-  NODE_STATUS_WIDGET_HEIGHT,
   INVENTORY_SUMMARY_WIDGET_HEIGHT,
   localizeDashboardLayoutTemplate,
+  NODE_STATUS_WIDGET_HEIGHT,
   PROVISION_TIME_WIDGET_HEIGHT,
+  REGISTERED_USERS_WIDGET_HEIGHT,
   SECTION_TITLE_WIDGET_TYPE,
   SYSTEM_SUMMARY_WIDGET_HEIGHT,
   TITLE_WIDGET_HEIGHT,
-  USAGE_SUMMARY_WIDGET_HEIGHT,
 } from "../dashboard/dashboard-layout-template";
 import {
   getActiveWidgetTypes,
@@ -77,12 +77,13 @@ import {
   SystemSummaryCard,
   SectionTitleCard,
   UsageSummaryCard,
+  UsersCard,
 } from "./dashboard-widget";
 import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v28";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v30";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
@@ -177,6 +178,7 @@ function createWidgetMapping(
     titleMessage: (typeof messages)[keyof typeof messages],
     metricType:
       | "metric"
+      | "users"
       | "gateway-status"
       | "node-status"
       | "pod-capacity"
@@ -202,6 +204,10 @@ function createWidgetMapping(
           </EmptyState>
         </Bullseye>
       );
+    }
+
+    if (metricType === "users") {
+      return <UsersCard metric={metric} />;
     }
 
     if (metricType === "metric") {
@@ -274,8 +280,8 @@ function createWidgetMapping(
     },
     "usage-summary": {
       defaults: {
-        h: USAGE_SUMMARY_WIDGET_HEIGHT,
-        maxH: USAGE_SUMMARY_WIDGET_HEIGHT + 2,
+        h: REGISTERED_USERS_WIDGET_HEIGHT,
+        maxH: REGISTERED_USERS_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
@@ -299,25 +305,30 @@ function createWidgetMapping(
       renderWidget: () => <SystemSummaryCard metrics={metrics.metrics} />,
     },
     "registered-users": {
-      defaults: METRIC_WIDGET_DEFAULTS,
+      defaults: {
+        h: REGISTERED_USERS_WIDGET_HEIGHT,
+        maxH: REGISTERED_USERS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 2,
+      },
       config: {
         icon: <UsersIcon />,
         title: intl.formatMessage(messages.registeredUsers),
       },
-      renderWidget: () =>
-        renderMetric(
-          "registered-users",
-          "",
-          messages.registeredUsers,
-          "metric",
-        ),
+      renderWidget: () => (
+        <UsersCard
+          metric={metrics.metrics.find(
+            (metric) => metric.id === "registered-users",
+          )}
+        />
+      ),
     },
     "gateway-status": {
       defaults: {
-        h: GATEWAY_STATUS_WIDGET_HEIGHT,
-        maxH: GATEWAY_STATUS_WIDGET_HEIGHT + 2,
+        h: ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
+        maxH: REGISTERED_USERS_WIDGET_HEIGHT,
         minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 2,
+        w: 1,
       },
       config: {
         icon: <ClusterIcon />,

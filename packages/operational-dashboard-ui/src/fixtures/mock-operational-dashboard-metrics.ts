@@ -1,8 +1,31 @@
 import type { OperationalDashboardMetrics } from "../application/dashboard-types";
 
+function buildRegisteredUsersTrendPoints(): {
+  label: string;
+  value: number;
+}[] {
+  const points: { label: string; value: number }[] = [];
+  const today = new Date();
+  const utcToday = Date.UTC(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    today.getUTCDate(),
+  );
+
+  for (let offset = 29; offset >= 0; offset -= 1) {
+    const day = new Date(utcToday - offset * 24 * 60 * 60 * 1000);
+    points.push({
+      label: day.toISOString().slice(0, 10),
+      value: 120 + (29 - offset) * 6,
+    });
+  }
+
+  return points;
+}
+
 /**
  * Storybook and local-dev fixture shaped like `createDashboardControlPlaneAdapter`
- * output: instantaneous values only (no trend series in production v1).
+ * output, including registered-user adoption fields.
  */
 export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
   Object.freeze({
@@ -22,7 +45,14 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
         value: "214",
       }),
       Object.freeze({
+        createdLast7Days: "12",
+        createdLast30Days: "48",
         id: "registered-users",
+        trend: Object.freeze({
+          points: Object.freeze(buildRegisteredUsersTrendPoints()),
+        }),
+        uniqueLoginsLast7Days: "186",
+        uniqueLoginsLast30Days: "312",
         value: "450",
       }),
       Object.freeze({

@@ -300,8 +300,8 @@ func TestIsAuthorized_UsersInventoryRequiresDashboardOperator(t *testing.T) {
 		t.Error("platform:admin should list users")
 	}
 
-	if !isAuthorized(http.MethodGet, "users", "", "", nil, []string{HypershellAdminRole}) {
-		t.Error("hypershell-admins JWT role should list users")
+	if isAuthorized(http.MethodGet, "users", "", "", nil, []string{HypershellAdminRole}) {
+		t.Error("hypershell-admins JWT role alone must not list users")
 	}
 
 	if isAuthorized(http.MethodGet, "users", "user-1", "user-1", creatorOnly, nil) {
@@ -328,8 +328,8 @@ func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *
 		t.Error("gateway:creator should list managed_databases")
 	}
 
-	if !isAuthorized(http.MethodGet, "managed_clusters", "", "", nil, []string{HypershellAdminRole}) {
-		t.Error("hypershell-admins JWT role should list managed_clusters")
+	if isAuthorized(http.MethodGet, "managed_clusters", "", "", nil, []string{HypershellAdminRole}) {
+		t.Error("hypershell-admins JWT role alone must not list managed_clusters")
 	}
 
 	platformAdmin := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}
@@ -367,7 +367,7 @@ func TestExtractResourceInfoRecognizesNestedServiceAccountRoutes(t *testing.T) {
 }
 
 func TestServiceAccountAuthorizationConcealsDeniedMutations(t *testing.T) {
-	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true}, nil)
 	for _, test := range []struct {
 		method string
 		path   string
@@ -410,7 +410,7 @@ func TestServiceAccountAuthorizationConcealsDeniedMutations(t *testing.T) {
 // request reaches the handler.
 func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	reached := false
@@ -436,7 +436,7 @@ func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 
 func TestAuthorizeApiDeniesGatewayCreatorOnUsersList(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	router.Handle("/api/hypershell/v1/users", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -482,7 +482,7 @@ func TestIsAuthorized_RegistrationOnlyForPost(t *testing.T) {
 
 func TestAuthorizeApi_RegistrationBypasesUserIDGate(t *testing.T) {
 	lookup := authorizationLookup{bindings: nil}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	reached := false
@@ -511,7 +511,7 @@ func TestAuthorizeApi_RegistrationBypasesUserIDGate(t *testing.T) {
 
 func TestAuthorizeApi_RegistrationDeniedWithoutRole(t *testing.T) {
 	lookup := authorizationLookup{bindings: nil}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	router.Handle("/api/hypershell/v1/managed_clusters/registration", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -537,7 +537,7 @@ func TestAuthorizeApi_RegistrationDeniedWithoutRole(t *testing.T) {
 
 func TestAuthorizeApiConcealsDeniedUsersGet(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	router.Handle("/api/hypershell/v1/users/{id}", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

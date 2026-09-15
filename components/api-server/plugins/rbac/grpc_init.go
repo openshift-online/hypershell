@@ -16,11 +16,12 @@ import (
 )
 
 type lazyRBACInterceptor struct {
-	once        sync.Once
-	lookup      pkgrbac.RoleBindingLookup
-	provisioner pkgrbac.UserProvisioner
-	syncer      pkgrbac.JWTRoleSyncer
-	config      pkgrbac.AuthzConfig
+	once             sync.Once
+	lookup           pkgrbac.RoleBindingLookup
+	provisioner      pkgrbac.UserProvisioner
+	syncer           pkgrbac.JWTRoleSyncer
+	activityRecorder pkgrbac.DailyActivityRecorder
+	config           pkgrbac.AuthzConfig
 }
 
 func (l *lazyRBACInterceptor) init(ctx context.Context) {
@@ -41,6 +42,7 @@ func (l *lazyRBACInterceptor) init(ctx context.Context) {
 		if userService != nil {
 			l.provisioner = pkgrbac.NewUserProvisioner(userService)
 		}
+		l.activityRecorder = users.ActivityRecorder(envServices)
 
 		var serviceAccounts []string
 		if sa := os.Getenv("RBAC_SERVICE_ACCOUNTS"); sa != "" {
@@ -66,7 +68,7 @@ func init() {
 		if lazy.lookup == nil {
 			return handler(ctx, req)
 		}
-		interceptor := pkgrbac.RBACUnaryInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.config)
+		interceptor := pkgrbac.RBACUnaryInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.config)
 		return interceptor(ctx, req, info, handler)
 	})
 
@@ -75,7 +77,7 @@ func init() {
 		if lazy.lookup == nil {
 			return handler(srv, ss)
 		}
-		interceptor := pkgrbac.RBACStreamInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.config)
+		interceptor := pkgrbac.RBACStreamInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.config)
 		return interceptor(srv, ss, info, handler)
 	})
 }
