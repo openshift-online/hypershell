@@ -1,13 +1,15 @@
 name: PR Environment
 
-# Ephemeral OpenShift environment for every origin pull request
-# (ephemeral-pr-environments.spec.md, HYPERSHELL-240).
+# Ephemeral OpenShift environment for origin pull requests whose e2e-relevant
+# paths changed (ephemeral-pr-environments.spec.md, HYPERSHELL-240).
 #
 # Deploys the full stack into a per-PR namespace group on a shared target
 # cluster, keeps it continuously deployed to the PR's head commit, and posts a
-# single access comment. The environment lives independently of any CI run
-# (out-of-band reaper, deploy/e2e/reaper) so a developer can use it as a live
-# debug target.
+# single access comment. Docs-only and other e2e-irrelevant PRs skip Deploy
+# PR environment: that job would only bring up a baseline main stack, which
+# is not a distinct environment. The gate matches Tests / E2E (plan-images
+# should_run). The environment lives independently of any CI run (out-of-band
+# reaper, deploy/e2e/reaper) so a developer can use it as a live debug target.
 #
 # The OpenShift e2e suite does NOT run here. Tests / E2E / OpenShift (e2e.yml,
 # invoked by tests.yml) waits on this workflow's "Deploy PR environment" check
@@ -59,6 +61,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
+      should_run: ${{ steps.plan.outputs.should_run }}
       api_server_image: ${{ steps.plan.outputs.api_server_image }}
       control_plane_image: ${{ steps.plan.outputs.control_plane_image }}
       web_console_image: ${{ steps.plan.outputs.web_console_image }}
@@ -71,21 +74,54 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect changed components
+        id: detect
+        run: bash .github/scripts/detect-components.sh
+
       - name: Plan images and required Konflux builds
         id: plan
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          DETECT_API_SERVER: ${{ steps.detect.outputs.api_server }}
+          DETECT_CONTROL_PLANE: ${{ steps.detect.outputs.control_plane }}
+          DETECT_E2E: ${{ steps.detect.outputs.e2e }}
+          DETECT_PR_TEST: ${{ steps.detect.outputs.pr_test }}
         run: |
-          # Deploy is unconditional for a PR environment, but only components this
-          # PR actually built get their on-pr image (waited for and swapped by
-          # digest). Patterns MUST mirror each component's pull-request Konflux CEL
-          # trigger, matching the E2E workflow's plan-images job.
+          # should_run MUST match the E2E workflow's plan-images job:
+          # detect-components flags for api-server, control-plane, e2e, and
+          # pr-test, plus the web-console Konflux CEL trigger. An
+          # e2e-irrelevant PR would only deploy a baseline main environment.
+          # Konflux wait patterns MUST mirror each component's pull-request
+          # CEL trigger, matching the E2E workflow's plan-images job.
           changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
           api_konflux=false; cp_konflux=false; wc_konflux=false
           if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-pull-request\.yaml$' <<<"${changed_files}"; then api_konflux=true; fi
           if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-pull-request\.yaml$|^Dockerfile$' <<<"${changed_files}"; then cp_konflux=true; fi
           if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-pull-request\.yaml$' <<<"${changed_files}"; then wc_konflux=true; fi
+
+          api_changed="${DETECT_API_SERVER:-false}"
+          cp_changed="${DETECT_CONTROL_PLANE:-false}"
+          e2e_changed="${DETECT_E2E:-false}"
+          pr_test_changed="${DETECT_PR_TEST:-false}"
+
+          e2e_relevant=false
+          if [[ "${api_changed}" == "true" || "${cp_changed}" == "true" || \
+                "${e2e_changed}" == "true" || "${pr_test_changed}" == "true" || \
+                "${wc_konflux}" == "true" ]]; then
+            e2e_relevant=true
+          fi
+
+          if [[ "${e2e_relevant}" != "true" ]]; then
+            echo "No e2e-relevant components changed -- skipping PR environment deploy"
+            {
+              echo "should_run=false"
+              echo "wait_api_server=false"
+              echo "wait_control_plane=false"
+              echo "wait_web_console=false"
+            } >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
 
           tag="on-pr-${PR_HEAD_SHA}"
           # Empty image refs leave the component on whatever make openshift-up
@@ -98,6 +134,7 @@ jobs:
           if [[ "${wc_konflux}" == "true" ]]; then wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"; wait_wc=true; fi
 
           {
+            echo "should_run=true"
             echo "api_server_image=${api_img}"
             echo "control_plane_image=${cp_img}"
             echo "web_console_image=${wc_img}"
@@ -110,7 +147,9 @@ jobs:
   deploy:
     name: Deploy PR environment
     needs: plan-images
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.plan-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:

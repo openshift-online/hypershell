@@ -18,15 +18,19 @@
 
 ## Purpose
 
-HyperShell delivers a live OpenShift environment for every open pull request and
-keeps that environment in continuous deployment for the life of the pull request.
-When a pull request opens, CI deploys the full stack into a per-PR ephemeral
-namespace group on a shared target OpenShift cluster, waits for Konflux to build
-the pull request's component images, swaps those images into the environment,
-and posts a pull-request comment telling the developer how to log in. When
-e2e-relevant paths changed, Tests / E2E / OpenShift waits for that deploy
-check, then runs the OpenShift e2e suite against the live namespace (the same
-`plan-images` / `should_run` gate Kind uses). When a later commit is pushed to
+HyperShell delivers a live OpenShift environment for every origin pull request
+whose e2e-relevant paths changed, and keeps that environment in continuous
+deployment for the life of the pull request. An origin PR that changes only
+e2e-irrelevant paths SHALL NOT receive an environment: deploying would only
+recreate a baseline `main` stack, which is not a distinct target for the author
+or for Tests / E2E / OpenShift. When an e2e-relevant pull request opens, CI
+deploys the full stack into a per-PR ephemeral namespace group on a shared
+target OpenShift cluster, waits for Konflux to build the pull request's
+component images, swaps those images into the environment, and posts a
+pull-request comment telling the developer how to log in. Tests / E2E /
+OpenShift waits for that deploy check, then runs the OpenShift e2e suite
+against the live namespace (the same `plan-images` / `should_run` gate Kind
+uses, which also gates Deploy PR environment). When a later commit is pushed to
 the same pull request, CI does not create a second environment: it reuses the
 existing one, waits for Konflux to rebuild the changed images, swaps them in,
 updates the comment to say the environment now runs that commit, and Tests /
@@ -150,14 +154,18 @@ request.
 
 ### Requirement: Continuous Deployment Across the Pull-Request Lifecycle
 
-The workflow SHALL keep the pull request's environment continuously deployed to
-the pull request's current head commit for the life of the pull request. It SHALL
-trigger on origin-repository pull-request `opened`, `reopened`, and `synchronize`
-(a new commit pushed to the pull-request branch). A dedicated release workflow
-SHALL trigger on `closed` (which covers both merge and close) to release the
-environment (see the Timebox and Reaping requirement), so open and synchronize
-runs do not list a skipped Release check. Neither workflow SHALL trigger on
-`merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
+The workflow SHALL keep an e2e-relevant pull request's environment continuously
+deployed to the pull request's current head commit for the life of the pull
+request. It SHALL trigger on origin-repository pull-request `opened`, `reopened`,
+and `synchronize` (a new commit pushed to the pull-request branch) so
+`plan-images` can evaluate `should_run` against the pull request's three-dot
+diff. The workflow SHALL NOT use `on.pull_request.paths` filters for this gate:
+those consider only the files in the latest push, which would skip a later
+docs-only commit on a still-e2e-relevant pull request. A dedicated release
+workflow SHALL trigger on `closed` (which covers both merge and close) to
+release the environment (see the Timebox and Reaping requirement), so open and
+synchronize runs do not list a skipped Release check. Neither workflow SHALL
+trigger on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
 merge-queue gate; this workflow does not share a namespace with a merge-queue SHA.
 
 The workflow SHALL run only for pull requests targeting the origin repository.
@@ -165,9 +173,17 @@ Fork pull requests SHALL NOT receive cluster credentials and SHALL NOT get an
 environment (see Pull-Request Trust Boundary). The workflow SHALL NOT use
 `pull_request_target`.
 
-On every deploying trigger (`opened`, `reopened`, `synchronize`), the workflow
-SHALL run `make openshift-up` unconditionally, whether or not the environment
-already exists. Because `make openshift-up` is idempotent and reconciling
+A deploying run is an origin-repository `opened`, `reopened`, or `synchronize`
+event whose `plan-images` job sets `should_run=true` using the same e2e-relevant
+path gate `e2e-testing.spec.md` defines (api-server, control-plane,
+web-console/gateway-management-ui Konflux paths, deploy manifests, e2e tests,
+and pr-test). When `should_run` is false, the workflow SHALL skip
+`Deploy PR environment`: it SHALL NOT log in to the cluster, SHALL NOT run
+`make openshift-up`, and SHALL NOT post or update the access comment.
+
+On every deploying run, the workflow SHALL run `make openshift-up`
+unconditionally, whether or not the environment already exists. Because
+`make openshift-up` is idempotent and reconciling
 (`openshift-development.spec.md`), one code path both creates the environment on
 first run and reconciles it to the current overlay on later runs; the workflow
 SHALL NOT branch on a "does the environment exist" check before deciding whether
@@ -191,7 +207,7 @@ reconcile SHALL preserve any active per-namespace component swap the same way
 
 #### Scenario: Pull request opens
 
-- GIVEN a pull request is opened and has no environment yet
+- GIVEN an e2e-relevant pull request is opened and has no environment yet
 - WHEN the workflow runs
 - THEN it SHALL run `make openshift-up` with `OPENSHIFT_NAMESPACE=hypershell-ci-pr-<number>`
 - AND the environment SHALL be created and deployed
@@ -210,13 +226,23 @@ reconcile SHALL preserve any active per-namespace component swap the same way
 - AND it SHALL update the access comment to reflect the new head commit (see
   Pull-Request Comment)
 
-#### Scenario: Deploy runs unconditionally
+#### Scenario: Deploy runs unconditionally once gated in
 
-- GIVEN a deploying trigger for a pull request
+- GIVEN a deploying run for a pull request (`should_run=true`)
 - WHEN the workflow reaches the deploy step
 - THEN it SHALL invoke `make openshift-up` regardless of whether the environment
   already exists
 - AND it SHALL NOT skip deployment based on a prior-existence check
+
+#### Scenario: E2e-irrelevant pull request skips deploy
+
+- GIVEN an origin pull request whose three-dot diff contains only
+  e2e-irrelevant paths (for example `docs/` or `components/sdk-typescript/`)
+- WHEN the PR Environment workflow runs
+- THEN `plan-images` SHALL set `should_run=false`
+- AND the `Deploy PR environment` job SHALL be skipped
+- AND the workflow SHALL NOT consume a cluster namespace
+- AND Tests / E2E / OpenShift SHALL skip as `e2e-testing.spec.md` defines
 
 #### Scenario: Overlapping runs serialize per pull request
 
@@ -316,7 +342,8 @@ every later e2e-relevant deployment for that pull request, using the same
 `plan-images` / `should_run` gate the Kind e2e job uses, so each e2e-relevant
 commit is validated against a live environment the same way Kind validates it.
 An origin PR that changes only e2e-irrelevant paths SHALL skip Tests / E2E /
-OpenShift; the PR Environment deploy itself remains unconditional. On failure
+OpenShift and SHALL skip `Deploy PR environment`, using the same
+`plan-images` / `should_run` gate. On failure
 the job SHALL collect the diagnostics `e2e-testing.spec.md` defines. Whether
 the suite passes or fails, the environment SHALL survive (see Timebox and
 Reaping), so a developer can inspect a failing run on the live environment.
@@ -335,8 +362,8 @@ distinct checks.
 - WHEN Tests / E2E / OpenShift sees the `Deploy PR environment` check succeed
 - THEN it SHALL run the OpenShift e2e suite against the environment
 - AND it SHALL run the suite again on each later e2e-relevant commit's deployment
-- AND an origin PR with `should_run=false` SHALL skip this job while the
-  environment remains deployed
+- AND an origin PR with `should_run=false` SHALL skip this job and SHALL skip
+  `Deploy PR environment`
 
 #### Scenario: Environment survives a failing run
 
@@ -926,7 +953,8 @@ exists).
 |----------|-----------|
 | Namespace name from the pull-request number (`hypershell-ci-pr-<number>`) | A short, stable, collision-free identifier that every run for a pull request derives without external state; fits well within the DNS-label bound that keeps `-keycloak` under 63 characters. Branch names and commit SHAs are not stable for the life of one pull request |
 | Same lifecycle labels as `make openshift-up`, with `pr-<number>` as the environment id | Reuses `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment` so status and cleanup tooling stay one selector set; the `pr-` prefix lets the reaper ignore local environments. CI must be able to patch namespaces; failing closed beats an unlabeled environment the reaper cannot see |
-| `make openshift-up` on every deploying trigger, unconditionally | The command is already idempotent and reconciling, so one code path creates on first run and reconciles on later runs; branching on "does it exist" would duplicate logic and risk drift |
+| Skip `Deploy PR environment` when `should_run` is false | An e2e-irrelevant PR would only deploy baseline `main` images. That consumes a shared-cluster namespace without giving the author a distinct environment or the OpenShift e2e suite a distinct target. The same `plan-images` / `should_run` gate Kind uses keeps deploy and Tests / E2E / OpenShift in lockstep |
+| `make openshift-up` on every deploying run, unconditionally | The command is already idempotent and reconciling, so one code path creates on first run and reconciles on later runs; branching on "does it exist" would duplicate logic and risk drift |
 | Seed after every image swap; reuse existing named resources, except `dev-gateway` | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) rather than POST a second copy. `dev-gateway` is the one exception: Keycloak runs on in-memory storage with no persistent volume, so a Keycloak pod restart discards its dynamically-provisioned OIDC client while the `dev-gateway` row survives untouched in PostgreSQL, and the reconciler deliberately never auto-recreates a missing client (`openshell-gateway-keycloak.spec.md`, "Existing gateway client is missing"). Reusing a `dev-gateway` that predates the current Keycloak instance would permanently strand it in status `Keycloak client is missing`, so seeding deletes and recreates it on every run instead. This is a stopgap until Keycloak has durable storage across restarts |
 | CI stamps `hypershell.redhat.io/expires-at`; `make openshift-up` does not | The timebox is a pull-request cost bound, not a local-dev contract. Stamping from the workflow after bring-up refreshes active PRs without time-boxing developer namespaces |
 | Origin `pull_request` only; Kind remains the merge-queue gate | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
