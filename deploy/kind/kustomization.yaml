@@ -88,6 +88,8 @@ patches:
                     value: "hypershell-api-server.hypershell-system.svc.cluster.local:9000"
                   - name: HYPERSHELL_API_SERVER_URL
                     value: "http://hypershell-api-server.hypershell-system.svc.cluster.local:8000"
+                  - name: HYPERSHELL_MANAGED_CLUSTER_NAME
+                    value: "local-kind"
                   - name: OTEL_EXPORTER_OTLP_ENDPOINT
                     value: "http://otel-collector.hypershell-system.svc.cluster.local:4317"
             dnsConfig:
