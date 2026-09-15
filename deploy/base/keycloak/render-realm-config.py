@@ -3,7 +3,8 @@
 
 Keycloak --import-realm does not substitute ${VAR:default} placeholders
 (upstream keycloak#20199). This script is the init-container renderer: it
-loads the ConfigMap JSON, applies env-gated GitHub IdP / e2e-client values,
+loads the ConfigMap JSON, applies env-gated GitHub IdP / e2e-client values
+(omitting the privileged hypershell-e2e identity unless it is enabled),
 and (on OpenShift) replaces hypershell-frontend redirect URIs with the
 web-console Route origin so they survive Keycloak pod restarts. start-dev
 uses an ephemeral H2 store, so any admin-API mutation of redirect URIs is
@@ -36,10 +37,16 @@ def render_realm(realm: dict[str, Any], environ: dict[str, str] | None = None) -
         config["clientId"] = env.get("PR_ENV_GITHUB_CLIENT_ID", "")
         config["clientSecret"] = env.get("PR_ENV_GITHUB_CLIENT_SECRET", "")
 
+    clients: list[dict[str, Any]] = []
     for client in realm.get("clients") or []:
         client_id = client.get("clientId")
         if client_id == "hypershell-e2e":
-            client["enabled"] = e2e_enabled
+            # Omit the privileged CI client from Kind, local OpenShift, and
+            # hub imports. A disabled-but-present client still has a UUID, and
+            # the control plane must not grant token-exchange from it.
+            if not e2e_enabled:
+                continue
+            client["enabled"] = True
             client["secret"] = env.get("HYPERSHELL_E2E_CLIENT_SECRET", "")
         if client_id == "hypershell-frontend" and console_host:
             # Exact console origin only. Wildcard redirect URIs are forbidden
@@ -48,6 +55,29 @@ def render_realm(realm: dict[str, Any], environ: dict[str, str] | None = None) -
                 f"https://{console_host}/auth/callback",
                 f"https://{console_host}",
             ]
+        clients.append(client)
+    realm["clients"] = clients
+
+    e2e_user = "service-account-hypershell-e2e"
+    users: list[dict[str, Any]] = []
+    for user in realm.get("users") or []:
+        is_e2e_sa = (
+            user.get("username") == e2e_user
+            or user.get("serviceAccountClientId") == "hypershell-e2e"
+        )
+        if is_e2e_sa and not e2e_enabled:
+            continue
+        if is_e2e_sa:
+            user["enabled"] = True
+        users.append(user)
+    realm["users"] = users
+
+    mappings = realm.get("clientScopeMappings") or {}
+    if e2e_enabled:
+        realm["clientScopeMappings"] = mappings
+    else:
+        mappings.pop("hypershell-e2e", None)
+        realm["clientScopeMappings"] = mappings
 
     return realm
 

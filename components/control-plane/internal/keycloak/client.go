@@ -66,6 +66,7 @@ func (c *Client) Realm() string {
 type keycloakClient struct {
 	ID         string            `json:"id,omitempty"`
 	ClientID   string            `json:"clientId"`
+	Enabled    bool              `json:"enabled"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
@@ -428,20 +429,30 @@ type authzPolicy struct {
 // EnsureE2ETokenExchange grants the hypershell-e2e client FGAP v1
 // token-exchange onto targetClientUUID and, when present, hypershell-frontend.
 // Area 4 exchanges onto the per-gateway client; area 9 exchanges onto the
-// frontend API audience. Kind and other realms without hypershell-e2e skip
-// the grant so password-grant flows stay unchanged.
+// frontend API audience. Skip unless that client exists and is enabled: a
+// present-but-disabled representation (Kind, local OpenShift, hub) must not
+// enable admin-fine-grained-authz or attach token-exchange policies on the
+// gateway reconcile path.
 func (c *Client) EnsureE2ETokenExchange(ctx context.Context, targetClientUUID string) error {
 	if targetClientUUID == "" {
 		return fmt.Errorf("target client UUID is required for token-exchange")
 	}
 
-	e2eUUID, err := c.getClientUUID(ctx, e2eClientID)
+	e2e, err := c.getClient(ctx, e2eClientID)
 	if err != nil {
 		return fmt.Errorf("look up %s client: %w", e2eClientID, err)
 	}
-	if e2eUUID == "" {
+	if e2e == nil {
 		log.Printf("INFO keycloak: %s client not present; skipping token-exchange grants", e2eClientID)
 		return nil
+	}
+	if !e2e.Enabled {
+		log.Printf("INFO keycloak: %s client is present but disabled; skipping token-exchange grants", e2eClientID)
+		return nil
+	}
+	e2eUUID := e2e.ID
+	if e2eUUID == "" {
+		return fmt.Errorf("keycloak client %s is enabled but has no id", e2eClientID)
 	}
 
 	rmUUID, err := c.getClientUUID(ctx, realmManagementClientID)
@@ -706,23 +717,34 @@ func (c *Client) createProtocolMappers(ctx context.Context, clientUUID, gatewayN
 	return nil
 }
 
-func (c *Client) getClientUUID(ctx context.Context, clientID string) (string, error) {
+func (c *Client) getClient(ctx context.Context, clientID string) (*keycloakClient, error) {
 	path := fmt.Sprintf("/admin/realms/%s/clients?clientId=%s", c.realm, url.QueryEscape(clientID))
 	respBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	var clients []keycloakClient
 	if err := json.Unmarshal(respBody, &clients); err != nil {
-		return "", fmt.Errorf("parse client list: %w", err)
+		return nil, fmt.Errorf("parse client list: %w", err)
 	}
-	for _, kc := range clients {
-		if kc.ClientID == clientID {
-			return kc.ID, nil
+	for i := range clients {
+		if clients[i].ClientID == clientID {
+			return &clients[i], nil
 		}
 	}
-	return "", nil
+	return nil, nil
+}
+
+func (c *Client) getClientUUID(ctx context.Context, clientID string) (string, error) {
+	kc, err := c.getClient(ctx, clientID)
+	if err != nil {
+		return "", err
+	}
+	if kc == nil {
+		return "", nil
+	}
+	return kc.ID, nil
 }
 
 func (c *Client) listClientRoles(ctx context.Context, clientUUID string) ([]keycloakRole, error) {

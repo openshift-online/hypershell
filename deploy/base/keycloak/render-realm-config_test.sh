@@ -55,8 +55,12 @@ assert_eq '["https://console.hypershell.localhost/*", "https://console.hypershel
   "${kind_redirects}" "Kind keeps localhost frontend redirect URIs"
 kind_idp="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(json.dumps(next(i for i in realm["identityProviders"] if i["alias"]=="github")["enabled"]))' "${WORKDIR}/kind.json")"
 assert_eq 'false' "${kind_idp}" "Kind leaves GitHub IdP disabled as JSON boolean"
-kind_e2e="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(json.dumps(next(c for c in realm["clients"] if c["clientId"]=="hypershell-e2e")["enabled"]))' "${WORKDIR}/kind.json")"
-assert_eq 'false' "${kind_e2e}" "Kind leaves hypershell-e2e disabled as JSON boolean"
+kind_e2e="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(any(c.get("clientId")=="hypershell-e2e" for c in realm["clients"]))' "${WORKDIR}/kind.json")"
+assert_eq 'False' "${kind_e2e}" "Kind omits hypershell-e2e from the imported realm"
+kind_e2e_user="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(any(u.get("serviceAccountClientId")=="hypershell-e2e" or u.get("username")=="service-account-hypershell-e2e" for u in realm["users"]))' "${WORKDIR}/kind.json")"
+assert_eq 'False' "${kind_e2e_user}" "Kind omits service-account-hypershell-e2e from the imported realm"
+kind_e2e_mapping="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print("hypershell-e2e" in (realm.get("clientScopeMappings") or {}))' "${WORKDIR}/kind.json")"
+assert_eq 'False' "${kind_e2e_mapping}" "Kind omits hypershell-e2e impersonation clientScopeMappings"
 
 # --- OpenShift console host: exact callback URIs, no localhost wildcards ---
 env -i PATH="${PATH}" \
@@ -89,6 +93,12 @@ assert_eq 'openid,email,profile,roles' \
 pr_mappers="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(",".join(sorted({m["identityProviderMapper"] for m in realm["identityProviderMappers"]})))' "${WORKDIR}/pr.json")"
 assert_eq 'oidc-hardcoded-role-idp-mapper' \
   "${pr_mappers}" "GitHub IdP hardcoded-role mapper uses the Keycloak 26 provider id"
+pr_e2e="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(json.dumps(next(c for c in realm["clients"] if c["clientId"]=="hypershell-e2e")["enabled"]))' "${WORKDIR}/pr.json")"
+assert_eq 'true' "${pr_e2e}" "PR env imports hypershell-e2e enabled"
+pr_e2e_user="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(json.dumps(next(u["enabled"] for u in realm["users"] if u.get("serviceAccountClientId")=="hypershell-e2e")))' "${WORKDIR}/pr.json")"
+assert_eq 'true' "${pr_e2e_user}" "PR env enables service-account-hypershell-e2e"
+pr_e2e_mapping="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print("impersonation" in (realm.get("clientScopeMappings") or {}).get("hypershell-e2e", [{}])[0].get("roles", []))' "${WORKDIR}/pr.json")"
+assert_eq 'True' "${pr_e2e_mapping}" "PR env keeps hypershell-e2e impersonation clientScopeMappings"
 
 if grep -q 'value: "token-exchange,admin-fine-grained-authz:v1"' "${REALM_YAML}"; then
   PASS=$((PASS + 1))

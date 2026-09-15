@@ -621,7 +621,11 @@ API bearer is that session's access token, so a denied login SHALL NOT produce a
 token the BFF can forward. The API server is not separately org-gated; e2e and
 control-plane callers keep using their own service-account clients. These are
 developer environments; the BFF check avoids a custom Keycloak image. Kind and
-local SHALL leave `GITHUB_ORG_GATE` unset so seeded password users stay ungated.
+local SHALL leave `GITHUB_ORG_GATE` unset when the GitHub Secret is absent. When
+the gate is on, a Keycloak session with no readable GitHub broker identity
+(seeded password users: Keycloak `GET /broker/github/token` returns 403 or 404)
+SHALL still receive a HyperShell session. GitHub-brokered identities remain
+subject to the organization and allowlist checks.
 The organization name, the allowlist, the GitHub OAuth client id and secret, and
 the stable callback URL SHALL come from configuration, not code, so a different
 organization, allowlist, or OAuth App does not require an overlay edit.
@@ -750,9 +754,18 @@ the service-account and token-exchange path so the suite still calls those
 functions.
 
 The realm SHALL include a dedicated confidential client `hypershell-e2e` whose
-service account holds `platform:admin` and `gateway:creator`. The workflow SHALL
-NOT reuse `hypershell-provisioner` for e2e (that client holds `manage-clients`
-and `manage-users`). After `make openshift-up`, CI SHALL read the `hypershell-e2e`
+service account holds `platform:admin` and `gateway:creator`. That client, its
+service-account user, and the `realm-management: impersonation`
+clientScopeMapping SHALL be present in the **imported** realm only when
+`HYPERSHELL_E2E_CLIENT_ENABLED` is true (the `hypershell-github-oauth` Secret
+in a pull-request environment). Kind, local OpenShift without that Secret, and
+hub/ibm SHALL import a realm that omits that client, user, and mapping -- not a
+disabled copy. A disabled leftover from an earlier import SHALL still be a
+no-op: the control plane SHALL grant FGAP v1 token-exchange onto gateway and
+frontend clients only when `hypershell-e2e` exists **and is enabled**. The
+workflow SHALL NOT reuse `hypershell-provisioner` for e2e (that client holds
+`manage-clients` and `manage-users`). After `make openshift-up`, CI SHALL read
+the `hypershell-e2e`
 client secret from the deployed Keycloak namespace (a Kubernetes Secret in
 `hypershell-ci-pr-<number>-keycloak`) and SHALL NOT take it from a repo secret
 that cannot match a per-PR realm. The e2e suite's admin `acquire_oidc_token`
@@ -780,6 +793,22 @@ appear in logs, the pull-request comment, or public artifacts.
 - AND the token SHALL carry `platform:admin` and `gateway:creator`
 - AND CI SHALL have read that client secret from the Keycloak namespace after
   `make openshift-up`
+
+#### Scenario: Kind and hub omit the e2e identity
+
+- GIVEN Kind, local OpenShift without `hypershell-github-oauth`, or hub/ibm
+- WHEN Keycloak imports the rendered realm
+- THEN the imported realm SHALL NOT contain client `hypershell-e2e`
+- AND SHALL NOT contain user `service-account-hypershell-e2e`
+- AND SHALL NOT contain `clientScopeMappings` for `hypershell-e2e`
+
+#### Scenario: Present-but-disabled e2e client does not mutate production realms
+
+- GIVEN a Keycloak realm that still has client `hypershell-e2e` with `enabled: false`
+- WHEN the control plane reconciles a gateway client
+- THEN `EnsureE2ETokenExchange` SHALL skip
+- AND it SHALL NOT enable `admin-fine-grained-authz` on `realm-management`
+- AND it SHALL NOT attach a token-exchange policy to the gateway or frontend client
 
 #### Scenario: CI acquires the developer HyperShell API token by impersonation
 
@@ -911,5 +940,5 @@ exists).
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |
 | Authenticated users get `platform:admin` and `gateway:creator`; developer tier by impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no admin-or-developer account picker. A seeded `gateway:viewer` / `openshell-user` principal plus impersonation lets an admin still verify the developer boundary with the same login |
-| Dedicated `hypershell-e2e` client; secret read from the deployed Keycloak | Brokered GitHub users have no password grant. A per-PR realm cannot share a repo-held provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. `E2E_OIDC_GRANT` keeps Kind and manual OpenShift on the password grant |
+| Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a repo-held provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and manual OpenShift on the password grant |
 | Deprecate `e2e-openshell.sh` now, remove it later; leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded. Team members still run it, so it is deprecated first (notice + docs pointing at the shared harness) and removed later once that usage migrates. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component stays until both scripts are gone |

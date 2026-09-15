@@ -57,8 +57,12 @@ export function githubIdentityAllowed(input: {
  * next without a GitHub token, so members who keep their membership public
  * still get in when the OAuth App is not approved by the org. Private
  * membership uses the Keycloak-stored GitHub token against
- * `/user/memberships/orgs/{org}` (and `/user/orgs` as a fallback). Any
- * lookup failure is a denial.
+ * `/user/memberships/orgs/{org}` (and `/user/orgs` as a fallback).
+ *
+ * A Keycloak session with no readable GitHub identity (seeded password users)
+ * is admitted: broker V1 returns 403 without `broker/read-token`, or 404 when
+ * nothing is stored. That is the GitHub linkage check, not a JWT username
+ * guess. Any other lookup failure is a denial.
  */
 export async function evaluateGithubOrgGate(
   input: GithubOrgGateInput,
@@ -88,11 +92,15 @@ export async function evaluateGithubOrgGate(
     ) {
       return true;
     }
-    const githubToken = await fetchBrokerGithubToken({
+    const broker = await fetchBrokerGithubToken({
       accessToken: input.accessToken,
       fetchImpl,
       oidcIssuer: input.oidcIssuer,
     });
+    if (!broker.linked) {
+      return true;
+    }
+    const githubToken = broker.token;
     if (
       await isActiveOrgMember({
         fetchImpl,
@@ -250,10 +258,10 @@ async function fetchBrokerGithubToken(input: {
   accessToken: string;
   fetchImpl: typeof fetch;
   oidcIssuer: string;
-}): Promise<string> {
-  // Requires the GitHub IdP to set storeToken and addReadTokenRoleOnCreate
-  // so this user's access token can read the stored GitHub token. Without
-  // the broker read-token role Keycloak returns 403 and the org gate denies.
+}): Promise<{ linked: true; token: string } | { linked: false }> {
+  // storeToken + addReadTokenRoleOnCreate. Keycloak V1 retrieveToken:
+  // 403 if the access token has no broker/read-token (password users),
+  // 404 if the user is linked but nothing is stored. 200 is a GitHub login.
   const issuer = input.oidcIssuer.replace(/\/+$/u, "");
   const response = await input.fetchImpl(`${issuer}/broker/github/token`, {
     headers: {
@@ -262,6 +270,9 @@ async function fetchBrokerGithubToken(input: {
     },
     signal: AbortSignal.timeout(githubRequestTimeoutMs),
   });
+  if (response.status === 403 || response.status === 404) {
+    return { linked: false };
+  }
   if (!response.ok) {
     throw new Error(
       `Keycloak GitHub broker token failed with HTTP ${String(response.status)}`,
@@ -275,7 +286,7 @@ async function fetchBrokerGithubToken(input: {
       "Keycloak GitHub broker token response had no access_token",
     );
   }
-  return token;
+  return { linked: true, token };
 }
 
 function readBrokerAccessToken(

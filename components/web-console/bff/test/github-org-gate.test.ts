@@ -256,6 +256,52 @@ describe("evaluateGithubOrgGate", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 
+  it("admits a login with no GitHub broker identity (password users)", async () => {
+    const onLookupError = vi.fn();
+    const fetchImpl = vi.fn((input: Parameters<typeof fetch>[0]) => {
+      const href = hrefOf(input);
+      if (href.includes("/public_members/")) {
+        return Promise.resolve(new Response("not found", { status: 404 }));
+      }
+      if (href.endsWith("/broker/github/token")) {
+        return Promise.resolve(
+          new Response("Client not authorized to retrieve tokens", {
+            status: 403,
+          }),
+        );
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
+
+    await expect(
+      evaluateGithubOrgGate({
+        ...baseInput,
+        allowlistRaw: "",
+        fetchImpl,
+        onLookupError,
+      }),
+    ).resolves.toBe(true);
+    expect(onLookupError).not.toHaveBeenCalled();
+  });
+
+  it("admits a login when Keycloak has no stored GitHub token", async () => {
+    const fetchImpl = vi.fn((input: Parameters<typeof fetch>[0]) => {
+      const href = hrefOf(input);
+      if (href.endsWith("/broker/github/token")) {
+        return Promise.resolve(new Response("No token stored", { status: 404 }));
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
+
+    await expect(
+      evaluateGithubOrgGate({
+        ...baseInput,
+        allowlistRaw: "",
+        fetchImpl,
+      }),
+    ).resolves.toBe(true);
+  });
+
   it("denies when GitHub org lookup fails", async () => {
     const fetchImpl = vi.fn(() =>
       Promise.resolve(new Response("nope", { status: 401 })),

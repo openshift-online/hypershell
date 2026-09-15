@@ -369,13 +369,13 @@ export async function registerAuth(
       const tokenSet = toTokenSet(tokens);
 
       // Pull-request environments set GITHUB_ORG_GATE so interactive GitHub
-      // logins are limited to org members and allowlisted usernames. Kind and
-      // local leave it unset, so password users are not checked.
+      // logins are limited to org members and allowlisted usernames. Sessions
+      // with no GitHub broker identity (password users) are admitted there.
+      const username =
+        typeof claims?.preferred_username === "string"
+          ? claims.preferred_username
+          : undefined;
       if (config.githubOrgGate && config.oidcIssuer) {
-        const username =
-          typeof claims?.preferred_username === "string"
-            ? claims.preferred_username
-            : undefined;
         const allowed = await evaluateGithubOrgGate({
           accessToken: tokenSet.accessToken,
           allowlistRaw: config.githubUsernameAllowlist,
@@ -409,8 +409,8 @@ export async function registerAuth(
       persistTokenSet(request, tokenSet);
       if (claims) {
         request.session.set("sub", claims.sub);
-        if (typeof claims.preferred_username === "string") {
-          request.session.set("preferredUsername", claims.preferred_username);
+        if (username !== undefined) {
+          request.session.set("preferredUsername", username);
         }
         if (typeof claims.email === "string") {
           request.session.set("email", claims.email);

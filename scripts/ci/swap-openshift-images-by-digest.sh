@@ -37,7 +37,10 @@ inspect_digest() {
     digest="$(skopeo inspect --format '{{.Digest}}' "docker://${ref}" 2>/dev/null || true)"
   fi
   if [[ "${digest}" != sha256:* ]] && command -v "${KUBECTL}" >/dev/null 2>&1; then
-    digest="$("${KUBECTL}" image info "${ref}" -o jsonpath='{.digest}' 2>/dev/null || true)"
+    # `oc image info -o jsonpath` is not supported on several oc versions and
+    # silently returns empty. Parse the JSON digest instead.
+    digest="$("${KUBECTL}" image info "${ref}" -o json 2>/dev/null \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("digest") or "")' 2>/dev/null || true)"
   fi
   printf '%s' "${digest}"
 }

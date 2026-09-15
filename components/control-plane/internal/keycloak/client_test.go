@@ -614,6 +614,7 @@ type tokenExchangeFake struct {
 	mu sync.Mutex
 
 	e2ePresent     bool
+	e2eEnabled     bool
 	policyExists   bool
 	alreadyGranted map[string]bool
 	createdPolicy  bool
@@ -637,6 +638,7 @@ func newTokenExchangeServer(t *testing.T, fake *tokenExchangeFake) *httptest.Ser
 			fake.mu.Lock()
 			fake.lookedUp = append(fake.lookedUp, clientID)
 			e2ePresent := fake.e2ePresent
+			e2eEnabled := fake.e2eEnabled
 			fake.mu.Unlock()
 
 			w.Header().Set("Content-Type", "application/json")
@@ -646,7 +648,11 @@ func newTokenExchangeServer(t *testing.T, fake *tokenExchangeFake) *httptest.Ser
 					_ = json.NewEncoder(w).Encode([]keycloakClient{})
 					return
 				}
-				_ = json.NewEncoder(w).Encode([]keycloakClient{{ID: teTestE2EUUID, ClientID: e2eClientID}})
+				_ = json.NewEncoder(w).Encode([]keycloakClient{{
+					ID:       teTestE2EUUID,
+					ClientID: e2eClientID,
+					Enabled:  e2eEnabled,
+				}})
 			case realmManagementClientID:
 				_ = json.NewEncoder(w).Encode([]keycloakClient{{ID: teTestRealmMgmtUUID, ClientID: realmManagementClientID}})
 			case frontendClientID:
@@ -762,7 +768,7 @@ func newTokenExchangeServer(t *testing.T, fake *tokenExchangeFake) *httptest.Ser
 func TestEnsureE2ETokenExchangeGrantsGatewayAndFrontend(t *testing.T) {
 	t.Parallel()
 
-	fake := &tokenExchangeFake{e2ePresent: true}
+	fake := &tokenExchangeFake{e2ePresent: true, e2eEnabled: true}
 	server := newTokenExchangeServer(t, fake)
 	defer server.Close()
 
@@ -804,11 +810,32 @@ func TestEnsureE2ETokenExchangeSkipsMissingE2EClient(t *testing.T) {
 	}
 }
 
+func TestEnsureE2ETokenExchangeSkipsDisabledE2EClient(t *testing.T) {
+	t.Parallel()
+
+	fake := &tokenExchangeFake{e2ePresent: true, e2eEnabled: false}
+	server := newTokenExchangeServer(t, fake)
+	defer server.Close()
+
+	client := NewClient(server.URL, testRealm, testAdminClientID, t.Name())
+	if err := client.EnsureE2ETokenExchange(t.Context(), teTestTargetUUID); err != nil {
+		t.Fatalf("EnsureE2ETokenExchange() error = %v", err)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.createdPolicy || len(fake.enabledClients) > 0 || len(fake.attachedPerms) > 0 {
+		t.Errorf("granted token-exchange for a disabled hypershell-e2e client (enabled=%v attached=%v createdPolicy=%v)",
+			fake.enabledClients, fake.attachedPerms, fake.createdPolicy)
+	}
+}
+
 func TestEnsureE2ETokenExchangeSkipsAlreadyGrantedPermission(t *testing.T) {
 	t.Parallel()
 
 	fake := &tokenExchangeFake{
 		e2ePresent:   true,
+		e2eEnabled:   true,
 		policyExists: true,
 		alreadyGranted: map[string]bool{
 			teTestTargetPerm:   true,

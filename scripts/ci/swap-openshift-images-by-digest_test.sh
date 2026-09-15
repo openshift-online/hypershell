@@ -78,7 +78,7 @@ rm -f "${STUB_BIN}/skopeo"
 cat > "${STUB_BIN}/oc" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$1" == "image" && "$2" == "info" ]]; then
-  echo 'sha256:fromoc'
+  echo '{"digest":"sha256:fromoc"}'
   exit 0
 fi
 exit 1
@@ -86,7 +86,7 @@ EOF
 chmod +x "${STUB_BIN}/oc"
 assert_eq 'quay.io/org/img@sha256:fromoc' \
   "$(resolve_by_digest 'quay.io/org/img:on-pr-abc123')" \
-  'oc image info pins when skopeo is missing'
+  'oc image info -o json pins when skopeo is missing'
 
 echo "swap-by-digest tests: ${PASS} passed, ${FAIL} failed"
 [[ "${FAIL}" -eq 0 ]]

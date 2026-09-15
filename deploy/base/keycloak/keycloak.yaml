@@ -217,16 +217,20 @@ spec:
       targetPort: 8080
 ---
 # hypershell-e2e client: confidential CI client for the OpenShift pull-request
-# e2e suite (ephemeral-pr-environments.spec.md). Disabled by default so Kind,
-# local, and stage realms do not ship an enabled admin client with a well-known
-# secret. PR environments set e2e-client-enabled=true and a random secret via
-# hypershell-github-oauth. Its service account holds platform:admin +
-# gateway:creator so E2E_OIDC_GRANT=client_credentials can obtain admin tokens
-# without a GitHub login. Standard token exchange is enabled so the suite can
-# impersonate the seeded developer principal. Distinct from
-# hypershell-provisioner (manage-clients / manage-users / manage-authorization,
-# the last needed to manage the hypershell-e2e-token-exchange authorization
-# policy on realm-management; see keycloak/client.go EnsureE2ETokenExchange).
+# e2e suite (ephemeral-pr-environments.spec.md). The render-realm-config init
+# container omits this client, its service-account user, and the impersonation
+# clientScopeMapping unless HYPERSHELL_E2E_CLIENT_ENABLED=true, so Kind, local,
+# and hub imported realms do not contain the privileged identity. A disabled
+# leftover in an already-imported realm is still skipped by
+# EnsureE2ETokenExchange (enabled==true, not mere presence). PR environments
+# set e2e-client-enabled=true and a random secret via hypershell-github-oauth.
+# The service account holds platform:admin + gateway:creator so
+# E2E_OIDC_GRANT=client_credentials can obtain admin tokens without a GitHub
+# login. Standard token exchange stays off; Area 4 uses FGAP v1 token-exchange
+# granted at gateway reconcile. Distinct from hypershell-provisioner
+# (manage-clients / manage-users / manage-authorization, the last needed to
+# manage the hypershell-e2e-token-exchange authorization policy on
+# realm-management; see keycloak/client.go EnsureE2ETokenExchange).
 # The "description"
 # field below is kept short because Keycloak's CLIENT.DESCRIPTION column is
 # VARCHAR(255); exceeding that fails the whole realm import at boot.
@@ -731,7 +735,7 @@ data:
         },
         {
           "username": "service-account-hypershell-e2e",
-          "enabled": true,
+          "enabled": false,
           "serviceAccountClientId": "hypershell-e2e",
           "realmRoles": ["platform:admin", "gateway:creator"],
           "clientRoles": {

@@ -1145,5 +1145,22 @@ describe("web-console BFF with OIDC enabled", () => {
       expect(callback.statusCode).toBe(302);
       expect(callback.headers.location).toBe("/auth/denied");
     });
+
+    it("creates a session when Keycloak has no GitHub broker identity", async () => {
+      oidcCtx.brokerStatus = 403;
+      oidcCtx.githubOrgs = [];
+      gatedApp = await buildApp(gatedConfig());
+      const callback = await completeOidcLogin(gatedApp);
+
+      expect(callback.statusCode).toBe(302);
+      expect(callback.headers.location).toBe("/");
+
+      const session = await gatedApp.inject({
+        headers: { cookie: sessionCookie(callback) },
+        method: "GET",
+        url: "/auth/session",
+      });
+      expect(session.json()).toMatchObject({ authenticated: true });
+    });
   });
 });
