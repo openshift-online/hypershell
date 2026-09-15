@@ -292,7 +292,9 @@ describe("evaluateGithubOrgGate", () => {
         return Promise.resolve(new Response("not found", { status: 404 }));
       }
       if (href.endsWith("/broker/github/token")) {
-        return Promise.resolve(new Response("No token stored", { status: 404 }));
+        return Promise.resolve(
+          new Response("No token stored", { status: 404 }),
+        );
       }
       return Promise.resolve(new Response("not found", { status: 404 }));
     });
