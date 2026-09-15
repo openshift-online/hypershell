@@ -421,6 +421,8 @@ Users SHALL be able to add widgets from the drawer, drag to rearrange, and remov
 
 The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v30`.
 
+Promoting the Users adoption widget to columns 1–2 and relocating `gateway-status` to column 3 second row (OP-DASH-10) SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v30`.
+
 On mount, a saved template SHALL be loaded when it parses as valid JSON and contains an array entry for every responsive variant (`xl`, `lg`, `md`, `sm`). Invalid or corrupt saved state SHALL fall back to the default template without surfacing an error to the user.
 
 Duplicate layout item `i` values in a single variant SHALL be deduplicated on save (first occurrence wins). Duplicate metric `widgetType` entries (every type except `section-title`) SHALL also be deduplicated on save (first occurrence wins). Multiple `section-title` instances with distinct `i` values SHALL be preserved.
