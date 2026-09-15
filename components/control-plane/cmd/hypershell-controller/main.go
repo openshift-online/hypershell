@@ -39,8 +39,9 @@ import (
 const defaultManifestsDir = "/manifests/gateway"
 
 // registerWithBackoff calls regClient.Register with exponential backoff until it
-// succeeds. A 403 response is non-retryable: the spoke lacks the required Keycloak
-// role, so it logs a fatal message and exits immediately.
+// succeeds. A 403 response is non-retryable: the control plane lacks the required
+// Keycloak role (only possible when the API server has authentication enabled),
+// so it returns immediately so the caller can exit.
 func registerWithBackoff(ctx context.Context, regClient *registration.Client) (string, error) {
 	backoff := time.Second
 	const maxBackoff = 60 * time.Second
@@ -54,7 +55,7 @@ func registerWithBackoff(ctx context.Context, regClient *registration.Client) (s
 			return "", fmt.Errorf("managed-cluster-registrar role not assigned in Keycloak; assign the role and restart: %w", err)
 		}
 
-		log.Printf("WARN spoke registration failed (retrying in %s): %v", backoff, err)
+		log.Printf("WARN registration failed (retrying in %s): %v", backoff, err)
 		select {
 		case <-ctx.Done():
 			return "", fmt.Errorf("registration cancelled: %w", ctx.Err())
@@ -84,11 +85,7 @@ func main() {
 
 	log.Printf("INFO hypershell-controller starting")
 	log.Printf("INFO grpc=%s api=%s namespace=%s database_provider=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace, cfg.DatabaseProvider)
-	if cfg.ClusterID != "" {
-		log.Printf("INFO managed-cluster mode: scoping gateway watch/seed/health to cluster_id=%s", cfg.ClusterID)
-	} else {
-		log.Printf("INFO single-cluster mode: handling all gateways (no cluster_id filter)")
-	}
+	log.Printf("INFO self-registration name=%s (cluster_id resolved at registration)", cfg.ManagedClusterName)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -127,44 +124,48 @@ func main() {
 		log.Printf("INFO OIDC authentication disabled for gRPC connections")
 	}
 
-	// Spoke self-registration: resolve cluster_id at runtime before any gRPC watch.
-	// Requires both HYPERSHELL_MANAGED_CLUSTER_NAME and OIDC credentials.
-	if cfg.ManagedClusterName != "" && tokenProvider != nil {
-		regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, tokenProvider)
+	// Self-registration is unconditional: every control plane resolves its
+	// cluster_id at runtime before any gRPC watch, whether or not OIDC is
+	// configured, so the same startup path runs in local development and in
+	// production. When OIDC is unset (auth-disabled API server, e.g. local
+	// development) the token source is nil and the record is keyed on the cluster
+	// name alone; otherwise the OIDC subject keys the record.
+	var regTokens registration.TokenSource
+	if tokenProvider != nil {
+		regTokens = tokenProvider
+	}
+	regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, regTokens)
 
-		clusterID, regErr := registerWithBackoff(ctx, regClient)
-		if regErr != nil {
-			log.Fatalf("FATAL spoke registration failed: %v", regErr)
-		}
-		cfg.ClusterID = clusterID
-		log.Printf("INFO spoke registered as cluster_id=%s (name=%s)", cfg.ClusterID, cfg.ManagedClusterName)
+	clusterID, regErr := registerWithBackoff(ctx, regClient)
+	if regErr != nil {
+		log.Fatalf("FATAL registration failed: %v", regErr)
+	}
+	cfg.ClusterID = clusterID
+	log.Printf("INFO registered as cluster_id=%s (name=%s)", cfg.ClusterID, cfg.ManagedClusterName)
 
-		// Heartbeat: re-register every 60s to update last_seen_at on the hub.
-		go func() {
-			ticker := time.NewTicker(60 * time.Second)
-			defer ticker.Stop()
-			var consecutiveFailures int
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					if _, err := regClient.Register(ctx); err != nil {
-						consecutiveFailures++
-						if consecutiveFailures >= 5 {
-							log.Printf("ERROR heartbeat has failed %d consecutive times; hub may be unreachable: %v", consecutiveFailures, err)
-						} else {
-							log.Printf("WARN heartbeat registration failed: %v", err)
-						}
+	// Heartbeat: re-register every 60s to update last_seen_at on the API server.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		var consecutiveFailures int
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := regClient.Register(ctx); err != nil {
+					consecutiveFailures++
+					if consecutiveFailures >= 5 {
+						log.Printf("ERROR heartbeat has failed %d consecutive times; API server may be unreachable: %v", consecutiveFailures, err)
 					} else {
-						consecutiveFailures = 0
+						log.Printf("WARN heartbeat registration failed: %v", err)
 					}
+				} else {
+					consecutiveFailures = 0
 				}
 			}
-		}()
-	} else if cfg.ManagedClusterName != "" {
-		log.Printf("WARN HYPERSHELL_MANAGED_CLUSTER_NAME is set but OIDC is not configured; skipping self-registration")
-	}
+		}
+	}()
 
 	conn, err := grpc.NewClient(cfg.GRPCServerAddr, dialOpts...)
 	if err != nil {
