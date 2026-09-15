@@ -1,0 +1,75 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: hypershell-release-bundle
+spec:
+  description: Publish a bundle after the managed release succeeds.
+  params:
+    - name: release
+      type: string
+    - name: releasePlan
+      type: string
+    - name: snapshot
+      type: string
+    - name: taskGitUrl
+      type: string
+    - name: taskGitRevision
+      type: string
+  workspaces:
+    - name: release-workspace
+  results:
+    - name: bundle
+      description: The bundle image reference with its digest.
+      value: $(tasks.publish.results.bundle)
+  tasks:
+    - name: publish
+      params:
+        - name: release
+          value: $(params.release)
+        - name: snapshot
+          value: $(params.snapshot)
+        - name: revision
+          value: $(params.taskGitRevision)
+      taskSpec:
+        params:
+          - name: release
+            type: string
+          - name: snapshot
+            type: string
+          - name: revision
+            type: string
+        results:
+          - name: bundle
+            type: string
+        steps:
+          - name: publish
+            image: quay.io/konflux-ci/release-service-utils@sha256:3cb03b14ac9d90ff27070036ce2b50712e65aa285daeb28852254a745bb25dfc
+            computeResources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+            env:
+              - name: RELEASE
+                value: $(params.release)
+              - name: SNAPSHOT
+                value: $(params.snapshot)
+              - name: PIPELINE_REVISION
+                value: $(params.revision)
+              - name: BUNDLE_RESULT
+                value: $(results.bundle.path)
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              [[ "$PIPELINE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+              source_dir=$(mktemp -d)
+              trap 'rm -rf "$source_dir"' EXIT
+              git -C "$source_dir" init --quiet
+              git -C "$source_dir" remote add origin https://github.com/openshift-online/hypershell.git
+              git -C "$source_dir" fetch --quiet --filter=blob:none origin \
+                main:refs/remotes/origin/main "$PIPELINE_REVISION"
+              git -C "$source_dir" checkout --quiet "$PIPELINE_REVISION" -- scripts/release_bundle.py
+              python3 "$source_dir/scripts/release_bundle.py" \
+                --release "$RELEASE" --snapshot "$SNAPSHOT" \
+                --source-directory "$source_dir" --result-path "$BUNDLE_RESULT"
