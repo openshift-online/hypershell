@@ -438,7 +438,7 @@ data:
           "standardFlowEnabled": false,
           "directAccessGrantsEnabled": false,
           "secret": "control-plane-secret",
-          "defaultClientScopes": ["profile"],
+          "defaultClientScopes": ["profile", "roles"],
           "protocolMappers": [
             {
               "name": "audience",
@@ -692,7 +692,8 @@ data:
           { "name": "hypershell-users", "description": "HyperShell users" },
           { "name": "gateway:creator", "description": "HyperShell platform gateway creators (gateway:creator RBAC role)" },
           { "name": "platform:admin", "description": "HyperShell platform administrators with global view and delete access (platform:admin RBAC role)" },
-          { "name": "github-identity", "description": "Marks a session as GitHub-brokered; not an RBAC permission. Read by the web-console BFF to decide whether the GitHub org gate applies, without depending on the broker read-token permission check" }
+          { "name": "github-identity", "description": "Marks a session as GitHub-brokered; not an RBAC permission. Read by the web-console BFF to decide whether the GitHub org gate applies, without depending on the broker read-token permission check" },
+          { "name": "managed-cluster-registrar", "description": "Authorizes control planes to self-register as managed clusters via POST /managed_clusters/registration" }
         ]
       },
       "users": [
@@ -703,6 +704,12 @@ data:
           "clientRoles": {
             "realm-management": ["manage-clients", "manage-users", "manage-authorization"]
           }
+        },
+        {
+          "username": "service-account-hypershell-control-plane",
+          "enabled": true,
+          "serviceAccountClientId": "hypershell-control-plane",
+          "realmRoles": ["managed-cluster-registrar"]
         },
         {
           "username": "service-account-hypershell-e2e",

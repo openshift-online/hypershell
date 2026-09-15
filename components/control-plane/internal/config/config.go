@@ -22,6 +22,14 @@ const DefaultGatewayDatabaseAdminDir = "/etc/hypershell/gateway-database"
 // specs/platform/gateway-reconcile-concurrency.spec.md.
 const DefaultGatewayReconcileWorkers = 4
 
+// DefaultManagedClusterName is the fallback registration name when
+// HYPERSHELL_MANAGED_CLUSTER_NAME is unset. Registration is unconditional, so a
+// control plane always needs a stable name to register under. In local
+// development (authentication disabled) this name is the record's identity, so it
+// must be stable across restarts; "local" is a fixed literal rather than a
+// per-pod value for that reason. Production overrides it with a unique name.
+const DefaultManagedClusterName = "local"
+
 type Config struct {
 	GRPCServerAddr string
 	APIServerURL   string
@@ -29,18 +37,21 @@ type Config struct {
 	LogLevel       string
 
 	// ClusterID is this control-plane's managed-cluster identity (a Gateway
-	// cluster_id / KSUID). When set, the control-plane restricts the gateways it
-	// watches, seeds, and health-checks to those whose cluster_id matches, so a
-	// managed-cluster spoke only ever provisions its own gateways (the pull
-	// model). Empty preserves the single-cluster behaviour of handling every
-	// gateway. Sourced from HYPERSHELL_CLUSTER_ID; in production, resolved at
-	// runtime via spoke self-registration and should NOT be set in gitops.
+	// cluster_id / KSUID). The control-plane restricts the gateways it watches,
+	// seeds, and health-checks to those whose cluster_id matches, so it only ever
+	// provisions its own gateways (the pull model). It is resolved at runtime from
+	// the self-registration response and should NOT be set in gitops. Sourced from
+	// HYPERSHELL_CLUSTER_ID only as an escape hatch (e.g. tests); normally empty
+	// at load and populated by registration.
 	ClusterID string
 
-	// ManagedClusterName is the human-readable name of this spoke cluster, unique
-	// per fleet (e.g. hyp0-mc1). When set together with OIDC credentials, the
-	// control plane self-registers on startup, resolving ClusterID dynamically.
-	// Sourced from HYPERSHELL_MANAGED_CLUSTER_NAME.
+	// ManagedClusterName is the human-readable name of this control plane, used as
+	// its registration identity. Every control plane self-registers on startup
+	// using this name (see cmd/hypershell-controller): when OIDC is configured the
+	// registered record is keyed on the OIDC subject, and when the API server runs
+	// with authentication disabled (local development) it is keyed on this name
+	// alone. Sourced from HYPERSHELL_MANAGED_CLUSTER_NAME; defaults to
+	// DefaultManagedClusterName when unset so registration is always unconditional.
 	ManagedClusterName string
 
 	// ServiceAccountProvisionerAddress is the in-cluster bind address for the
@@ -89,7 +100,7 @@ func Load() (*Config, error) {
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
 		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
 		ClusterID:                        getEnv("HYPERSHELL_CLUSTER_ID", ""),
-		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
+		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", DefaultManagedClusterName),
 		ServiceAccountProvisionerAddress: getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS", ""),
 
 		NamespaceGCEnabled:     getEnvBool("GATEWAY_NAMESPACE_GC_ENABLED", true),
