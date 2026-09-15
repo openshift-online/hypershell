@@ -931,22 +931,68 @@ identities may use the environment:
 
 The organization gate and the allowlist SHALL be enforced by the web-console BFF
 after the OIDC callback, using the Keycloak-stored GitHub token
-(`storeToken`) to call GitHub `GET /user/orgs` and comparing
-`preferred_username` against the allowlist. This is a weaker guarantee than a
-Keycloak first-broker-login SPI: Keycloak may still issue an SSO session, but
-the BFF SHALL NOT persist a HyperShell session for a denied user. The console's
-API bearer is that session's access token, so a denied login SHALL NOT produce a
-token the BFF can forward. The API server is not separately org-gated; e2e and
-control-plane callers keep using their own service-account clients. These are
-developer environments; the BFF check avoids a custom Keycloak image. Kind and
-local SHALL leave `GITHUB_ORG_GATE` unset when the GitHub Secret is absent. When
-the gate is on, a Keycloak session with no readable GitHub broker identity
-(seeded password users: Keycloak `GET /broker/github/token` returns 403 or 404)
-SHALL still receive a HyperShell session. GitHub-brokered identities remain
-subject to the organization and allowlist checks.
+(`storeToken`) to call GitHub `GET /user/memberships/orgs/{org}` (falling back
+to `GET /user/orgs`) and comparing `preferred_username` against the allowlist.
+This is a weaker guarantee than a Keycloak first-broker-login SPI: Keycloak may
+still issue an SSO session, but the BFF SHALL NOT persist a HyperShell session
+for a denied user. The console's API bearer is that session's access token, so
+a denied login SHALL NOT produce a token the BFF can forward. The API server is
+not separately org-gated; e2e and control-plane callers keep using their own
+service-account clients. These are developer environments; the BFF check
+avoids a custom Keycloak image. Kind and local SHALL leave `GITHUB_ORG_GATE`
+unset when the GitHub Secret is absent.
+
+The BFF SHALL NOT decide "does this session have a GitHub identity to gate" by
+probing whether Keycloak's `GET /broker/github/token` endpoint returns 403.
+That status code is ambiguous: Keycloak returns it both for a session with no
+GitHub federated identity at all (seeded password users) and for a genuinely
+GitHub-linked session that simply was not granted the broker `read-token` role
+(for example, an existing password account later linked to GitHub through
+"Handle Existing Account" in the first-broker-login flow, which does not run
+the `addReadTokenRoleOnCreate` hook because it fires only when a *new* user is
+created). Treating every 403 as "not linked, so admit" collapses that
+distinction and lets a real GitHub identity - member or not - through the gate
+whenever the role grant did not happen, which defeats the gate entirely. The
+realm's "github" identity provider SHALL instead FORCE-sync a dedicated
+`github-identity` realm role (via `oidc-hardcoded-role-idp-mapper`) onto every
+GitHub login, and the BFF SHALL read that role from the ID token to decide
+linkage. A session without `github-identity` (seeded password users) SHALL
+still receive a HyperShell session with no GitHub API calls. A session that
+carries `github-identity` SHALL have its org membership or allowlist status
+positively confirmed against the GitHub API; any failure to do so, including a
+403 or 404 from `GET /broker/github/token`, SHALL deny the login rather than
+admit it.
+
 The organization name, the allowlist, the GitHub OAuth client id and secret, and
 the stable callback URL SHALL come from configuration, not code, so a different
 organization, allowlist, or OAuth App does not require an overlay edit.
+
+#### Known gap: the gate applies only to the web-console login path
+
+This BFF check governs the `hypershell-frontend` client's `/auth/callback`
+route only. It does not extend to Keycloak itself, so any client that
+completes the GitHub broker login directly - notably `hypershell-cli`, a
+public client with a loopback redirect (`http://127.0.0.1:*`) intended for
+local CLI use - obtains a session the same way any OAuth CLI tool does,
+without ever calling the BFF. The realm's GitHub identity provider mappers
+(`github-grant-platform-admin`, `github-grant-gateway-creator`) grant
+`platform:admin` and `gateway:creator` to every GitHub login unconditionally,
+so a token obtained this way carries full platform privileges regardless of
+`openshift-online` membership.
+
+This is an accepted gap, not an oversight: closing it at the Keycloak level
+requires a first-broker-login authenticator (script or custom SPI) that calls
+the GitHub org API before granting realm roles, which in turn requires a
+custom Keycloak image. Diverging the PR-environment Keycloak image from the
+production image was rejected as a bigger risk than the gap itself - these are
+throwaway, per-PR developer/debug environments on a shared e2e cluster with no
+production data, the cluster does not hand out kubeconfigs or credentials to
+anyone outside this workflow's own service accounts, and a bad actor able to
+reach this login flow has no path to the underlying Kubernetes/OpenShift
+credentials for the shared cluster from it. `oc login --web` is a separate,
+cluster-level OAuth flow (against the OpenShift built-in OAuth server, not
+`hypershell-frontend` or `hypershell-cli`) and is not gated by this check
+either, for the same reason.
 
 #### Scenario: Organization member authenticates
 
