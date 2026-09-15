@@ -22,7 +22,8 @@ skills/
 ├── build/
 │   ├── reconcile/            # Meta-orchestrator: reads this file, executes waves
 │   ├── full-stack-pipeline/  # Single-spec wave-based implementation pipeline
-│   └── dev-cluster/          # Kind cluster lifecycle for local testing
+│   ├── dev-cluster/          # Kind cluster lifecycle for local testing
+│   └── patternfly/           # PatternFly 6 component selection and implementation patterns
 ├── deploy/
 │   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
 │   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, CNPG, kustomize)

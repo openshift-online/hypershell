@@ -235,6 +235,10 @@ type ReconcileOpts struct {
 	// resources, so an in-flight pass does not recreate them behind a concurrent
 	// health-loop teardown. Nil disables the re-check (the pass proceeds).
 	RouteStillDesired func(ctx context.Context) (bool, error)
+	// ReportProgress is called at provisioning step boundaries to report
+	// condition transitions. Nil means no reporting (progress is silently
+	// skipped).
+	ReportProgress ProgressReporter
 	// RecordOrphan, when set, records a durable, operator-visible signal that a
 	// gateway-owned resource was left unreclaimed during deletion with no
 	// automatic recovery path (e.g. a Keycloak client that could not be deleted

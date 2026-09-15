@@ -417,7 +417,9 @@ jobs:
       # retain successful merge-queue checks. A non-success conclusion fails the
       # step instead of letting E2E run against a stale baseline image.
       - name: Wait for api-server Konflux build
+        id: wait-api-server
         if: needs.plan-images.outputs.wait_api_server == 'true'
+        continue-on-error: true
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -425,13 +427,12 @@ jobs:
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
-          # Only success proves that the selected commit-tagged image was pushed.
-          # The action defaults to "success,skipped"; a skipped build never
-          # pushes the image, so pin strict success to keep the image guarantee.
           allowed-conclusions: success
 
       - name: Wait for control-plane Konflux build
+        id: wait-control-plane
         if: needs.plan-images.outputs.wait_control_plane == 'true'
+        continue-on-error: true
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -439,13 +440,12 @@ jobs:
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
-          # Only success proves that the selected commit-tagged image was pushed.
-          # The action defaults to "success,skipped"; a skipped build never
-          # pushes the image, so pin strict success to keep the image guarantee.
           allowed-conclusions: success
 
       - name: Wait for web-console Konflux build
+        id: wait-web-console
         if: needs.plan-images.outputs.wait_web_console == 'true'
+        continue-on-error: true
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -453,10 +453,33 @@ jobs:
           repo-token: ${{ github.token }}
           wait-interval: 30
           checks-discovery-timeout: 900
-          # Only success proves that the selected commit-tagged image was pushed.
-          # The action defaults to "success,skipped"; a skipped build never
-          # pushes the image, so pin strict success to keep the image guarantee.
           allowed-conclusions: success
+
+      - name: Gate on Konflux builds
+        env:
+          API_WAIT: ${{ needs.plan-images.outputs.wait_api_server }}
+          API_RESULT: ${{ steps.wait-api-server.outcome }}
+          CP_WAIT: ${{ needs.plan-images.outputs.wait_control_plane }}
+          CP_RESULT: ${{ steps.wait-control-plane.outcome }}
+          WC_WAIT: ${{ needs.plan-images.outputs.wait_web_console }}
+          WC_RESULT: ${{ steps.wait-web-console.outcome }}
+        run: |
+          failed=()
+          if [[ "${API_WAIT}" == "true" && "${API_RESULT}" != "success" ]]; then
+            failed+=("api-server")
+          fi
+          if [[ "${CP_WAIT}" == "true" && "${CP_RESULT}" != "success" ]]; then
+            failed+=("control-plane")
+          fi
+          if [[ "${WC_WAIT}" == "true" && "${WC_RESULT}" != "success" ]]; then
+            failed+=("web-console")
+          fi
+
+          if [[ ${#failed[@]} -gt 0 ]]; then
+            echo "::error::Konflux image builds failed for: ${failed[*]}. E2E tests cannot run without fresh container images. This is a Konflux infrastructure issue, not an e2e test failure. Re-run this workflow once the Konflux builds pass, or check the Konflux pipeline runs for build errors."
+            exit 1
+          fi
+          echo "All required Konflux builds succeeded."
 
       - name: Swap component images
         env:
