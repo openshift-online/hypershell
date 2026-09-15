@@ -2,6 +2,7 @@ package users
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm/clause"
@@ -129,7 +130,7 @@ func (d *sqlUserDao) CountCreatedSince(ctx context.Context, since time.Time) (in
 	g2 := (*d.sessionFactory).New(ctx)
 	var count int64
 	if err := g2.Model(&User{}).Where("created_at >= ?", since.UTC()).Count(&count).Error; err != nil {
-		return 0, err
+		return 0, fmt.Errorf("count users created since: %w", err)
 	}
 	return count, nil
 }

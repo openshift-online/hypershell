@@ -2,6 +2,7 @@ package users
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm/clause"
@@ -38,7 +39,10 @@ func (d *sqlUserActivityDao) UpsertDailyActivity(ctx context.Context, userID str
 		UserID:       userID,
 		ActivityDate: utcCalendarDate(activityDate),
 	}
-	return g2.Clauses(clause.OnConflict{DoNothing: true}).Create(row).Error
+	if err := g2.Clauses(clause.OnConflict{DoNothing: true}).Create(row).Error; err != nil {
+		return fmt.Errorf("upsert daily activity: %w", err)
+	}
+	return nil
 }
 
 func (d *sqlUserActivityDao) DailyUniqueLoginCounts(
@@ -58,7 +62,7 @@ func (d *sqlUserActivityDao) DailyUniqueLoginCounts(
 		Group("activity_date").
 		Find(&rows).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("count daily unique logins: %w", err)
 	}
 
 	counts := make(map[string]int64, len(rows))
@@ -70,5 +74,8 @@ func (d *sqlUserActivityDao) DailyUniqueLoginCounts(
 
 func (d *sqlUserActivityDao) PruneBefore(ctx context.Context, cutoffDate time.Time) error {
 	g2 := (*d.sessionFactory).New(ctx)
-	return g2.Where("activity_date < ?", utcCalendarDate(cutoffDate)).Delete(&UserDailyActivity{}).Error
+	if err := g2.Where("activity_date < ?", utcCalendarDate(cutoffDate)).Delete(&UserDailyActivity{}).Error; err != nil {
+		return fmt.Errorf("prune daily activity: %w", err)
+	}
+	return nil
 }
