@@ -478,6 +478,11 @@ insecure.NewCredentials())` - plaintext only.
 3. **Client TLS**: replace `insecure.NewCredentials()` with
    `credentials.NewTLS(tlsConfig)` in the control-plane gRPC client, using
    the system trust store (the hub's gRPC cert chains to a publicly trusted CA)
+4. **OIDC authentication on gRPC watch**: the externally exposed gRPC endpoint
+   SHALL enforce the caller's OIDC token (the same `client_credentials` token
+   used for REST registration) and scope watch streams to the caller's own
+   `cluster_id`. The current in-cluster JWT bypass cannot hold once the
+   endpoint is internet-facing
 
 Until HYPERSHELL-333 is complete, remote control planes cannot connect to the
 hub's gRPC endpoint. The `HYPERSHELL_GRPC_SERVER_ADDR` values in gitops are
@@ -515,7 +520,7 @@ an idempotent registration endpoint. The registration SHALL return a stable
 
 ##### Scenario: Repeated registration is idempotent
 
-- GIVEN the control plane restarts or re-registers with the same name
+- GIVEN the control plane restarts or re-registers with the same `(oidc_subject, name)` pair (or `name` alone when authentication is disabled)
 - WHEN it calls the registration endpoint again
 - THEN the API server SHALL return the **same** `cluster_id` as the first call
 - AND no duplicate ManagedCluster record SHALL be created
@@ -541,15 +546,20 @@ an idempotent registration endpoint. The registration SHALL return a stable
 
 #### Requirement: Control Plane Watches Only Its Own Gateways
 
-The control plane SHALL filter gRPC watch events by its `cluster_id` so it
-reconciles only the gateways assigned to it.
+The API server SHALL scope gRPC watch streams to the caller's `cluster_id`
+so each control plane receives only its own gateways. The control plane
+passes its `cluster_id` in the `WatchGateways` request; the API server
+authorizes it against the caller's authenticated identity and returns only
+matching gateways.
 
-##### Scenario: Gateway on a different cluster
+##### Scenario: Gateway on a different cluster is not streamed
 
 - GIVEN a control plane with `cluster_id=ABC` watching `WatchGateways`
-- WHEN the API server emits a Gateway event with `cluster_id=XYZ`
-- THEN the control plane SHALL ignore the event
-- AND SHALL NOT attempt to reconcile the gateway
+- AND a Gateway exists with `cluster_id=XYZ`
+- WHEN the API server evaluates watch events
+- THEN the API server SHALL NOT emit the `cluster_id=XYZ` Gateway to the
+  `cluster_id=ABC` stream
+- AND the control plane SHALL NOT receive or reconcile the gateway
 
 #### Requirement: Remote Control Plane Runs Only the Controller
 
@@ -603,6 +613,8 @@ Global Keycloak) → Red Hat SSO.
 
 The Cloud Hub API server's gRPC endpoint SHALL be externally accessible over
 TLS so that remote control planes in other clouds can establish watch streams.
+The endpoint SHALL enforce OIDC authentication and authorize the caller's
+`cluster_id` so that each control plane receives only its own gateways.
 
 ##### Scenario: Remote control plane connects from another cloud
 
@@ -610,7 +622,12 @@ TLS so that remote control planes in other clouds can establish watch streams.
 - WHEN the control plane connects to `grpc.hyp{N}.infra.hypershell.app:443`
 - THEN the hub SHALL serve gRPC over TLS (publicly trusted certificate)
 - AND the control plane SHALL connect with system-trust TLS credentials
+- AND the control plane SHALL present its OIDC token (the same
+  `client_credentials` token used for REST registration)
+- AND the API server SHALL authenticate the token and scope the watch stream
+  to the caller's `cluster_id`
 - AND gRPC watch streams SHALL function identically to the in-cluster path
+  (except for the added authentication requirement)
 
 
 ## Ingress Architecture
