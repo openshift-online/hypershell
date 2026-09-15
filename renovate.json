@@ -69,8 +69,7 @@
         "quay.io/opendatahub/odh-openshell-gateway",
         "quay.io/opendatahub/odh-openshell-supervisor"
       ],
-      "groupName": "OpenShell images",
-      "automerge": true
+      "groupName": "OpenShell images"
     }
   ]
 }
