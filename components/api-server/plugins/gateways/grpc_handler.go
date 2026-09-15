@@ -196,6 +196,24 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	if req.Route != nil {
 		gateway.Route = req.Route
 	}
+	if len(req.ProvisioningConditions) > 0 {
+		type conditionJSON struct {
+			Type            string `json:"type"`
+			ConditionStatus string `json:"condition_status"`
+			Message         string `json:"message"`
+		}
+		conditions := make([]conditionJSON, 0, len(req.ProvisioningConditions))
+		for _, c := range req.ProvisioningConditions {
+			conditions = append(conditions, conditionJSON{
+				Type:            c.Type,
+				ConditionStatus: conditionStatusFromProto(c.ConditionStatus),
+				Message:         c.Message,
+			})
+		}
+		data, _ := json.Marshal(conditions)
+		s := string(data)
+		gateway.ProvisioningConditions = &s
+	}
 	// active_sandbox_count is deliberately not settable here: it is
 	// control-plane owned and mutated only via AdjustActiveSandboxCount /
 	// SetActiveSandboxCount so this whole-row replace cannot clobber it.

@@ -22,7 +22,8 @@ skills/
 ├── build/
 │   ├── reconcile/            # Meta-orchestrator: reads this file, executes waves
 │   ├── full-stack-pipeline/  # Single-spec wave-based implementation pipeline
-│   └── dev-cluster/          # Kind cluster lifecycle for local testing
+│   ├── dev-cluster/          # Kind cluster lifecycle for local testing
+│   └── patternfly/           # PatternFly 6 component selection and implementation patterns
 ├── deploy/
 │   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
 │   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, CNPG, kustomize)
@@ -48,9 +49,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-04 (scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
-**Spec corpus**: 48 spec files; the coverage table tracks 39 analyzed feature/spec groups after adding OpenShell Gateway Console, OpenShift Development, Operational Dashboard, Registered Users, Cluster Memory, Cluster CPU, Cluster Pods, Cluster Nodes, and Gateway Provision Time
-**Codebase commit**: `c9d68e0` (rebased HYPERSHELL-276 initial dashboard data branch; section titles + last-refreshed header; partial metric-source failure; NaN/Infinity display fallback; layout persistence v23)
+**Last analyzed**: 2026-09-14 (scoped analysis of specs/platform/gateway-deletion-finalization.spec.md for HYPERSHELL-182; closed the no-silent-orphan gap G1: best-effort deletion failures for gateway-owned resources with no automatic recovery path -- leaked ClusterRoleBinding, leaked Keycloak gateway/console clients, and Keycloak clients skipped when the stored identity is unresolvable or the provisioner is deconfigured -- now emit a durable IncompleteFinalization Warning Event in the control-plane namespace instead of only logging; in-namespace sweep G2 already satisfied; the last full-corpus analysis remains 2026-08-31)
+**Spec corpus**: 49 spec files; the coverage table tracks 39 analyzed feature/spec groups after adding OpenShell Gateway Console, OpenShift Development, Operational Dashboard, Registered Users, Cluster Memory, Cluster CPU, Cluster Pods, Cluster Nodes, and Gateway Provision Time
+**Codebase commit**: `608da30` (Update Konflux references; then HYPERSHELL-182 gateway deletion finalization: OrphanRecorder callback on ReconcileOpts + recordIncompleteFinalizationEvent durable Event)
 
 ### Coverage Summary
 
