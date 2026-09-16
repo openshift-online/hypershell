@@ -145,6 +145,14 @@ case "${deploying_body}" in
   *'may not be fully responsive'*) FAIL=$((FAIL + 1)); echo 'FAIL: first-deploy placeholder must not warn about an existing environment' ;;
   *) PASS=$((PASS + 1)) ;;
 esac
+case "${deploying_body}" in
+  *'/pr-extend'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing /pr-extend' ;;
+esac
+case "${deploying_body}" in
+  *'destroyed once e2e testing concludes'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing destroy-after-e2e wording' ;;
+esac
 
 # A later reconcile must keep the existing table: those facts do not change
 # from run to run, and wiping them hides login details for the whole swap.
@@ -293,16 +301,16 @@ case "${updated_body}" in
 esac
 # Unretained comment advertises /pr-extend and never implies the env persists.
 case "${body}" in
-  *'destroyed after the e2e run'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing ephemeral wording' ;;
-esac
-case "${body}" in
   *'/pr-extend'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing /pr-extend' ;;
 esac
 case "${body}" in
-  *'/pr-destroy'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing /pr-destroy' ;;
+  *'keep this environment active'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing keep-active wording' ;;
+esac
+case "${body}" in
+  *'destroyed once e2e testing concludes'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing destroy-after-e2e wording' ;;
 esac
 case "${body}" in
   *'refreshed on every new commit'*) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment implied persistence' ;;
@@ -318,7 +326,16 @@ case "${retained_body}" in
   *) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment missing inactivity timebox' ;;
 esac
 case "${retained_body}" in
-  *'destroyed after the e2e run'*) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment said env is about to be destroyed' ;;
+  *'destroyed once e2e testing concludes'*) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment said env is about to be destroyed' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+retained_deploying="$(pr_env_comment_deploying_body abcdef1234567 '' true)"
+case "${retained_deploying}" in
+  *'retained and renewed on every commit'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment missing retained wording' ;;
+esac
+case "${retained_deploying}" in
+  *'destroyed once e2e testing concludes'*) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment said env is about to be destroyed' ;;
   *) PASS=$((PASS + 1)) ;;
 esac
 

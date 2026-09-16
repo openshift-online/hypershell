@@ -42,6 +42,7 @@ runs:
         PR_NUMBER: ${{ inputs.pr_number }}
         PR_HEAD_SHA: ${{ inputs.head_sha }}
         PR_ENV_PHASE: deploying
+        PR_ENV_RETAINED: ${{ inputs.retained }}
       run: bash scripts/ci/upsert-pr-comment.sh
 
     - name: Install oc, skopeo, and openshell CLI

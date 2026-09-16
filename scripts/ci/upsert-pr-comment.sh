@@ -26,7 +26,7 @@
 #   PR_ENV_UPDATED                "true" for the per-commit update wording
 #                                 ("ready" phase only)
 #   PR_ENV_RETAINED               "true" when the pull request is marked
-#                                 retained ("ready" phase only)
+#                                 retained (lifetime wording on both phases)
 #   PLATFORM_NS / KEYCLOAK_NS     namespace group ("ready" phase only)
 #   CONSOLE_URL / API_URL / WEB_URL / CLUSTER_API_URL   access URLs
 #                                 ("ready" phase only)
@@ -54,7 +54,7 @@ case "${phase}" in
     if [[ -n "${existing_id}" ]]; then
       existing_body="$(gh api "repos/${repo}/issues/comments/${existing_id}" --jq .body)"
     fi
-    body="$(pr_env_comment_deploying_body "${PR_HEAD_SHA}" "${existing_body}")"
+    body="$(pr_env_comment_deploying_body "${PR_HEAD_SHA}" "${existing_body}" "${PR_ENV_RETAINED:-false}")"
     ;;
   ready)
     body="$(pr_env_comment_body \

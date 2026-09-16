@@ -727,13 +727,13 @@ same login guidance `make openshift-up` prints at the end of a successful
 bring-up, so the comment and the command agree.
 
 The comment SHALL make the environment's lifetime explicit. On an unretained
-pull request, the comment SHALL state that the environment is ephemeral -- it is
-destroyed after the e2e run -- and SHALL advertise the `/pr-extend` command as the
-way to keep it, and `/pr-destroy` as the way to free it early. Once the pull request
-is retained, the comment SHALL instead state that the environment is retained,
-that it is renewed on every commit, and that it is reclaimed after the inactivity
-timebox unless destroyed with `/pr-destroy` or the pull request is closed. The comment SHALL never
-imply an unretained environment will persist.
+pull request, including the in-progress deploying placeholder, the comment SHALL
+tell the developer to comment `/pr-extend` to keep the environment active, and
+SHALL state that otherwise it is destroyed once e2e testing concludes. Once the
+pull request is retained, the comment SHALL instead state that the environment is
+retained, that it is renewed on every commit, and that it is reclaimed after the
+inactivity timebox unless destroyed with `/pr-destroy` or the pull request is
+closed. The comment SHALL never imply an unretained environment will persist.
 
 The workflow SHALL post the marked comment as the first step of a deploy run,
 before cluster login, deploy, or e2e. When the pull request has no marked
@@ -768,6 +768,8 @@ public artifact.
 - WHEN the deploy job starts, before cluster login or deploy
 - THEN it SHALL post one pull-request comment stating the environment is
   deploying to the head commit
+- AND the comment SHALL tell the developer to comment `/pr-extend` to keep it
+  active, otherwise it is destroyed once e2e testing concludes
 - AND the comment SHALL contain the hidden marker `<!-- hypershell-pr-environment -->`
 - AND the comment SHALL contain no access facts or credential
 
@@ -812,16 +814,18 @@ public artifact.
 
 - GIVEN an unretained pull request whose environment becomes ready
 - WHEN the workflow edits the access comment
-- THEN the comment SHALL state the environment is destroyed after the e2e run
-- AND it SHALL tell the developer to comment `/pr-extend` to keep it
-- AND it SHALL mention `/pr-destroy` as the way to free it early
+- THEN the comment SHALL tell the developer to comment `/pr-extend` to keep it
+  active
+- AND it SHALL state that otherwise the environment is destroyed once e2e
+  testing concludes
 
 #### Scenario: Comment reflects a retained environment
 
 - GIVEN a pull request has been `/pr-extend`ed
 - WHEN the workflow next edits the access comment
 - THEN the comment SHALL state the environment is retained and renewed on each commit
-- AND it SHALL state it is reclaimed after the inactivity timebox unless released
+- AND it SHALL state it is reclaimed after the inactivity timebox unless
+  destroyed with `/pr-destroy` or the pull request is closed
 - AND it SHALL NOT tell the reader the environment is about to be destroyed
 
 ### Requirement: Pull-Request Trust Boundary

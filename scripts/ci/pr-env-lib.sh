@@ -241,12 +241,34 @@ pr_env_comment_access_facts() {
   printf '%s' "| Fact | Value |${body#*"| Fact | Value |"}"
 }
 
-# pr_env_comment_deploying_body <head-sha> [existing-body]
+# pr_env_comment_lifetime <retained>
+#
+# Lifetime paragraph for access comments. Unretained environments advertise
+# /pr-extend and state they are destroyed once e2e testing concludes. Retained
+# environments are renewed on each commit and reclaimed after the inactivity
+# timebox.
+pr_env_comment_lifetime() {
+  if [[ "${1:-}" == "true" ]]; then
+    cat <<EOF
+This environment is retained and renewed on every commit. It is reclaimed after
+the inactivity timebox unless you comment \`/pr-destroy\` or the pull request is
+closed.
+EOF
+  else
+    cat <<EOF
+Comment \`/pr-extend\` to keep this environment active. Otherwise it is destroyed once e2e testing concludes.
+EOF
+  fi
+}
+
+# pr_env_comment_deploying_body <head-sha> [existing-body] [retained]
 #
 # Render the in-progress comment a deploy run posts immediately on start,
 # before cluster login, deploy, or e2e. Carries the same hidden marker as
 # pr_env_comment_body, so the later "ready" update edits this comment in
-# place rather than posting a second one.
+# place rather than posting a second one. Always states how to /pr-extend
+# (or that the environment is already retained) so the first comment a
+# developer sees is not silent about lifetime.
 #
 # First deploy (no existing-body, or an existing-body with no access-fact
 # table): a placeholder with the head SHA and no access facts. That is
@@ -260,8 +282,10 @@ pr_env_comment_access_facts() {
 pr_env_comment_deploying_body() {
   local head_sha="$1"
   local existing="${2:-}"
+  local retained="${3:-false}"
   local short_sha="${head_sha:0:7}"
-  local facts=""
+  local lifetime facts=""
+  lifetime="$(pr_env_comment_lifetime "${retained}")"
   if facts="$(pr_env_comment_access_facts "${existing}")"; then
     cat <<EOF
 ${PR_ENV_COMMENT_MARKER}
@@ -270,6 +294,8 @@ ${PR_ENV_COMMENT_MARKER}
 Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The
 environment may not be fully responsive during the update. This comment will
 update in place once the environment is ready.
+
+${lifetime}
 
 ${facts}
 EOF
@@ -281,28 +307,9 @@ ${PR_ENV_COMMENT_MARKER}
 
 Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This
 comment will update in place once the environment is ready.
-EOF
-}
 
-# pr_env_comment_lifetime <retained>
-#
-# Lifetime paragraph for the access comment. Unretained environments are
-# destroyed after e2e and advertise /pr-extend. Retained environments are
-# renewed on each commit and reclaimed after the inactivity timebox.
-pr_env_comment_lifetime() {
-  if [[ "${1:-}" == "true" ]]; then
-    cat <<EOF
-This environment is retained and renewed on every commit. It is reclaimed after
-the inactivity timebox unless you comment \`/pr-destroy\` or the pull request is
-closed.
+${lifetime}
 EOF
-  else
-    cat <<EOF
-This environment is ephemeral: it is destroyed after the e2e run. Comment
-\`/pr-extend\` to keep it as a live debug target. Comment \`/pr-destroy\` to free a
-retained environment early.
-EOF
-  fi
 }
 
 # pr_env_comment_body <pr-number> <head-sha> <platform-ns> <keycloak-ns> \
