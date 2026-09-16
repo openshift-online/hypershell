@@ -194,6 +194,46 @@ func TestIsAuthorized_GatewayCreatorCanAccessGatewayReleases(t *testing.T) {
 	}
 }
 
+func TestIsAuthorized_PlatformAdminCanListGatewayReleases(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
+		t.Error("platform:admin should list gateway_releases")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCanGetGatewayRelease(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodGet, "gateway_releases", "release-1", "", bindings, nil) {
+		t.Error("platform:admin should get gateway_releases by id")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCanDeleteGatewayRelease(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodDelete, "gateway_releases", "release-1", "", bindings, nil) {
+		t.Error("platform:admin should delete gateway_releases")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCannotCreateGatewayRelease(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodPost, "gateway_releases", "", "", bindings, nil) {
+		t.Error("platform:admin must not create gateway_releases without gateway:creator")
+	}
+}
+
 func strPtr(s string) *string {
 	return &s
 }

@@ -35,6 +35,10 @@
     "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     "description": "Supporting text on the operational dashboard page."
   },
+  "app.dashboard.gatewayReleases.summaryAriaLabel": {
+    "defaultMessage": "Gateways by release",
+    "description": "Accessible label for the gateway releases stat panel in the dashboard."
+  },
   "app.dashboard.gatewayStatus.ariaDesc": {
     "defaultMessage": "Gateway count by status",
     "description": "Accessible description for the gateway status donut chart."
@@ -123,6 +127,10 @@
     "defaultMessage": "Metric could not be determined",
     "description": "Fallback when a dashboard metric value is non-finite or cannot be shown as a number."
   },
+  "app.dashboard.metricSource.gatewayReleaseDistribution": {
+    "defaultMessage": "Gateway releases",
+    "description": "Label for the gateway release distribution metric source in partial-load warnings."
+  },
   "app.dashboard.metricUnavailable.body": {
     "defaultMessage": "This information is not currently available.",
     "description": "Recovery guidance when an individual dashboard metric is missing."
@@ -190,6 +198,34 @@
   "app.dashboard.podStatus.unused": {
     "defaultMessage": "Unused",
     "description": "Legend label for unused pod capacity slots."
+  },
+  "app.dashboard.provisionReliability.ariaDesc": {
+    "defaultMessage": "Gateway provision success and failure counts",
+    "description": "Accessible description for the provision reliability donut chart."
+  },
+  "app.dashboard.provisionReliability.chartTitle": {
+    "defaultMessage": "Gateway provision reliability chart",
+    "description": "Accessible title for the provision reliability donut chart."
+  },
+  "app.dashboard.provisionReliability.failures": {
+    "defaultMessage": "Failures",
+    "description": "Legend label for failed gateway provisions."
+  },
+  "app.dashboard.provisionReliability.hourlySuccessRate": {
+    "defaultMessage": "Hourly success rate",
+    "description": "Title for the hourly provision success-rate sparkline in the provision reliability widget."
+  },
+  "app.dashboard.provisionReliability.last24Hours": {
+    "defaultMessage": "Last 24 hours",
+    "description": "Caption documenting the rolling 24-hour provision reliability lookback window."
+  },
+  "app.dashboard.provisionReliability.rate": {
+    "defaultMessage": "{rate}%",
+    "description": "Center title for the provision reliability donut showing the 24-hour success rate."
+  },
+  "app.dashboard.provisionReliability.successes": {
+    "defaultMessage": "Successes",
+    "description": "Legend label for successful gateway provisions."
   },
   "app.dashboard.provisionTime.average": {
     "defaultMessage": "Average",
@@ -307,6 +343,10 @@
     "defaultMessage": "Pods",
     "description": "Summary label for pod utilization."
   },
+  "app.dashboard.summary.provisionSuccessRate24h": {
+    "defaultMessage": "Success rate (24h)",
+    "description": "Summary label for the rolling 24-hour gateway provision success rate."
+  },
   "app.dashboard.summary.provisionTime": {
     "defaultMessage": "Provision time (average)",
     "description": "Summary label for average gateway provision time."
@@ -391,6 +431,10 @@
     "defaultMessage": "CPU",
     "description": "Title for the CPU utilization dashboard widget."
   },
+  "app.dashboard.widget.gatewayReleases": {
+    "defaultMessage": "Gateway releases",
+    "description": "Title for the gateway releases dashboard widget."
+  },
   "app.dashboard.widget.gatewayStatus": {
     "defaultMessage": "Gateway status",
     "description": "Title for the gateway status dashboard widget."
@@ -422,6 +466,10 @@
   "app.dashboard.widget.pods": {
     "defaultMessage": "Pods",
     "description": "Title for the pods utilization dashboard widget."
+  },
+  "app.dashboard.widget.provisionReliability": {
+    "defaultMessage": "Gateway provision reliability",
+    "description": "Title for the gateway provision reliability dashboard widget."
   },
   "app.dashboard.widget.provisionTime": {
     "defaultMessage": "Gateway provision time",

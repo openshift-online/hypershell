@@ -42,12 +42,14 @@ import {
 } from "../dashboard/operational-metric-display";
 import { TrendSparklineChart } from "../dashboard/trend-sparkline-chart";
 import { getGatewayExceptionStatusCounts } from "../dashboard/gateway-exception-status-counts";
+import { GatewayReleasesChart } from "../dashboard/gateway-releases-chart";
 import { GatewayStatusChart } from "../dashboard/gateway-status-chart";
 import { InventoryStatusChart } from "../dashboard/inventory-status-chart";
 import { ManagedClusterProvidersChart } from "../dashboard/managed-cluster-providers-chart";
 import { ManagedClusterRegionsChart } from "../dashboard/managed-cluster-regions-chart";
 import { NodeStatusChart } from "../dashboard/node-status-chart";
 import { PodCapacityChart } from "../dashboard/pod-capacity-chart";
+import { ProvisionReliabilityChart } from "../dashboard/provision-reliability-chart";
 import { ProvisionTimeChart } from "../dashboard/provision-time-chart";
 import { isPodCapacityMetric } from "../dashboard/pod-capacity-metric";
 import {
@@ -378,6 +380,51 @@ export function ProvisionTimeCard({
     <WidgetContent>
       <Content className="hypershell-dashboard-provision-time-card">
         <ProvisionTimeChart metric={metric} />
+      </Content>
+    </WidgetContent>
+  );
+}
+
+export function GatewayReleasesCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  return (
+    <WidgetContent>
+      <Content className="hypershell-dashboard-provision-time-card">
+        <GatewayReleasesChart metric={metric} />
+      </Content>
+    </WidgetContent>
+  );
+}
+
+function SummaryProvisionSuccessRateValue({
+  metric,
+}: Readonly<{ metric: OperationalMetric | undefined }>) {
+  const intl = useIntl();
+
+  if (!metric?.provisionOutcomes) {
+    return <SummaryUnavailableValue />;
+  }
+
+  const rate = metric.provisionOutcomes.successRatePercent;
+  if (!isDisplayableOperationalMetricValue(rate)) {
+    return <SummaryUnavailableValue />;
+  }
+
+  return (
+    <span>
+      {intl.formatMessage(messages.provisionReliabilityRate, { rate })}
+    </span>
+  );
+}
+
+export function ProvisionReliabilityCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  return (
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
+      <Content className="hypershell-dashboard-status-donut-card">
+        <ProvisionReliabilityChart metric={metric} />
       </Content>
     </WidgetContent>
   );
@@ -1024,6 +1071,18 @@ export function SystemSummaryCard({
             <SummaryProvisionDurationValue
               metric={metrics.find((metric) => metric.id === "provision-time")}
               valueKey="mean"
+            />
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+        <DescriptionListGroup>
+          <DescriptionListTerm>
+            <FormattedMessage {...messages.provisionSuccessRate24h} />
+          </DescriptionListTerm>
+          <DescriptionListDescription>
+            <SummaryProvisionSuccessRateValue
+              metric={metrics.find(
+                (metric) => metric.id === "provision-reliability",
+              )}
             />
           </DescriptionListDescription>
         </DescriptionListGroup>

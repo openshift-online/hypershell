@@ -25,6 +25,10 @@ func (d *countingActivityDao) DailyUniqueLoginCounts(context.Context, time.Time,
 	return nil, nil
 }
 
+func (d *countingActivityDao) CountDistinctUsersWithActivity(context.Context, time.Time, time.Time) (int64, error) {
+	return 0, nil
+}
+
 func (d *countingActivityDao) PruneBefore(context.Context, time.Time) error {
 	return nil
 }

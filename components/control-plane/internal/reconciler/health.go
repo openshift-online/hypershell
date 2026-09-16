@@ -392,7 +392,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		return namespace, ready
 	}
 	if isGatewayProvisionCompletion(phase, desiredPhase) {
-		observeGatewayProvisionDuration(ctx, response.GetGateway())
+		observeGatewayProvisionSuccess(ctx, response.GetGateway())
 	}
 
 	log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)

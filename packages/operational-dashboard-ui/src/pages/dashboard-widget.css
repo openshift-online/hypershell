@@ -246,3 +246,25 @@
   font-size: var(--pf-t--global--font--size--sm);
   margin-block-end: 0;
 }
+
+.hypershell-dashboard-provision-reliability {
+  --pf-v6-c-stack--m-gutter--Gap: var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-dashboard-provision-reliability__donut--healthy {
+  --pf-v6-chart-donut--label--title--Fill: var(
+    --pf-t--global--icon--color--status--success--default
+  );
+}
+
+.hypershell-dashboard-provision-reliability__donut--warning {
+  --pf-v6-chart-donut--label--title--Fill: var(
+    --pf-t--global--icon--color--status--warning--default
+  );
+}
+
+.hypershell-dashboard-provision-reliability__donut--danger {
+  --pf-v6-chart-donut--label--title--Fill: var(
+    --pf-t--global--icon--color--status--danger--default
+  );
+}

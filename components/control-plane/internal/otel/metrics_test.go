@@ -19,6 +19,7 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousReconcileQueueDepth := reconcileQueueDepth
 	previousReconcileQueueWaitDuration := reconcileQueueWaitDuration
 	previousGatewayProvisionDuration := gatewayProvisionDuration
+	previousGatewayProvisionOutcomes := gatewayProvisionOutcomes
 	previousReconcileErrors := reconcileErrors
 	previousWatchReconnects := watchReconnects
 
@@ -29,6 +30,7 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	reconcileQueueDepth = nil
 	reconcileQueueWaitDuration = nil
 	gatewayProvisionDuration = nil
+	gatewayProvisionOutcomes = nil
 	reconcileErrors = nil
 	watchReconnects = nil
 	t.Cleanup(func() {
@@ -37,6 +39,7 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		reconcileQueueDepth = previousReconcileQueueDepth
 		reconcileQueueWaitDuration = previousReconcileQueueWaitDuration
 		gatewayProvisionDuration = previousGatewayProvisionDuration
+		gatewayProvisionOutcomes = previousGatewayProvisionOutcomes
 		reconcileErrors = previousReconcileErrors
 		watchReconnects = previousWatchReconnects
 		_ = provider.Shutdown(context.Background())
@@ -93,6 +96,58 @@ func TestRecordGatewayProvisionDuration(t *testing.T) {
 	}
 
 	t.Fatal("gateway.provision.duration metric was not collected")
+}
+
+func TestRecordGatewayProvisionOutcome(t *testing.T) {
+	reader := testMetricsReader(t)
+
+	RecordGatewayProvisionOutcome(context.Background(), "success")
+	RecordGatewayProvisionOutcome(context.Background(), "failure")
+	RecordGatewayProvisionOutcome(context.Background(), "")
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect() returned an error: %v", err)
+	}
+
+	var found bool
+	var successCount, failureCount int64
+	for _, scope := range collected.ScopeMetrics {
+		for _, gotMetric := range scope.Metrics {
+			if gotMetric.Name != "gateway.provision.outcomes" {
+				continue
+			}
+			found = true
+			if gotMetric.Unit != "{outcome}" {
+				t.Fatalf("metric unit = %q, want {outcome}", gotMetric.Unit)
+			}
+			counter, ok := gotMetric.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("metric data type = %T, want int64 sum", gotMetric.Data)
+			}
+			for _, point := range counter.DataPoints {
+				outcome, ok := point.Attributes.Value(attribute.Key("outcome"))
+				if !ok {
+					t.Fatalf("missing outcome attribute on %v", point.Attributes)
+				}
+				switch outcome.AsString() {
+				case "success":
+					successCount = point.Value
+				case "failure":
+					failureCount = point.Value
+				default:
+					t.Fatalf("unexpected outcome = %q", outcome.AsString())
+				}
+			}
+		}
+	}
+
+	if !found {
+		t.Fatal("gateway.provision.outcomes metric was not collected")
+	}
+	if successCount != 1 || failureCount != 1 {
+		t.Fatalf("outcome counts = success %d, failure %d; want 1 each", successCount, failureCount)
+	}
 }
 
 func TestReconcileQueueMetrics(t *testing.T) {

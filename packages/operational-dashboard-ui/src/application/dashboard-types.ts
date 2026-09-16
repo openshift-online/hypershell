@@ -28,6 +28,12 @@ export interface OperationalMetricProvisionDuration {
   p95: string;
 }
 
+export interface OperationalMetricProvisionOutcomes {
+  failureCount24h: string;
+  successCount24h: string;
+  successRatePercent: string;
+}
+
 export interface OperationalMetric {
   createdLast7Days?: string;
   createdLast30Days?: string;
@@ -37,7 +43,10 @@ export interface OperationalMetric {
   inventoryStatus?: Record<string, number>;
   podPhases?: OperationalMetricPodPhases;
   provisionDuration?: OperationalMetricProvisionDuration;
+  provisionOutcomes?: OperationalMetricProvisionOutcomes;
+  releaseDistribution?: Record<string, number>;
   status?: OperationalMetricStatus;
+  successRateTrend?: OperationalMetricTrend;
   total?: string;
   trend?: OperationalMetricTrend;
   uniqueLoginsLast7Days?: string;
@@ -57,6 +66,7 @@ export type DashboardMetricSourceId =
   | "cluster-nodes"
   | "cluster-pods"
   | "gateway-metrics"
+  | "gateway-release-distribution"
   | "platform-inventory"
   | "registered-users";
 

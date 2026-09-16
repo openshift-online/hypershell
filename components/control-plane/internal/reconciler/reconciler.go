@@ -1844,10 +1844,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		var renderErr *gateway.RenderedConfigValidationError
 		if errors.As(err, &renderErr) {
 			reason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
-			r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), reason)
+			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), reason); failedGateway != nil {
+				observeGatewayProvisionFailure(ctx, event.ResourceID)
+			}
 			log.Printf("ERROR gateway %s generated configuration invalid in namespace %s: %v", gw.Name, namespace, renderErr.Err)
-		} else {
-			r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed))
+		} else if r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed)) {
+			observeGatewayProvisionFailure(ctx, event.ResourceID)
 		}
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
@@ -1888,7 +1890,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 			// The observation guard rejects work that started in Running or Degraded.
 			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
-				observeGatewayProvisionDuration(ctx, runningGateway)
+				observeGatewayProvisionSuccess(ctx, runningGateway)
 			}
 			// The new revision has passed its workload and route health gates: now
 			// report the release actually rolled out. This path just rendered the
@@ -1913,7 +1915,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		// The observation guard rejects work that started in Running or Degraded.
 		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
-			observeGatewayProvisionDuration(ctx, runningGateway)
+			observeGatewayProvisionSuccess(ctx, runningGateway)
 		}
 		// The new revision has passed its health gate: report the release rolled out.
 		// This path just rendered the Deployment from gw.ReleaseId, so the applied
@@ -2305,7 +2307,7 @@ func (r *GatewayReconciler) updateGatewayHealth(ctx context.Context, gatewayID, 
 	return response.GetGateway()
 }
 
-func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID string, phase string) {
+func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID string, phase string) bool {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
 		Id:    gatewayID,
@@ -2313,7 +2315,9 @@ func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID st
 	})
 	if err != nil {
 		log.Printf("WARN failed to update gateway %s phase to %s: %v", gatewayID, phase, err)
+		return false
 	}
+	return true
 }
 
 func conditionStatusToProto(s string) pb.ProvisioningConditionStatus {

@@ -17,6 +17,17 @@ export const messages = defineMessages({
       "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     description: "Supporting text on the operational dashboard page.",
   },
+  gatewayReleasesSummaryAriaLabel: {
+    id: "app.dashboard.gatewayReleases.summaryAriaLabel",
+    defaultMessage: "Gateways by release",
+    description:
+      "Accessible label for the gateway releases stat panel in the dashboard.",
+  },
+  gatewayReleasesWidget: {
+    id: "app.dashboard.widget.gatewayReleases",
+    defaultMessage: "Gateway releases",
+    description: "Title for the gateway releases dashboard widget.",
+  },
   gateways: {
     id: "app.dashboard.summary.gateways",
     defaultMessage: "Gateways",
@@ -176,6 +187,12 @@ export const messages = defineMessages({
     description:
       "Fallback when a dashboard metric value is non-finite or cannot be shown as a number.",
   },
+  metricSourceGatewayReleaseDistribution: {
+    id: "app.dashboard.metricSource.gatewayReleaseDistribution",
+    defaultMessage: "Gateway releases",
+    description:
+      "Label for the gateway release distribution metric source in partial-load warnings.",
+  },
   metricUnavailableBody: {
     id: "app.dashboard.metricUnavailable.body",
     defaultMessage: "This information is not currently available.",
@@ -286,6 +303,57 @@ export const messages = defineMessages({
     id: "app.dashboard.widget.provisionedGateways",
     defaultMessage: "Provisioned gateways",
     description: "Title for the provisioned gateways dashboard widget.",
+  },
+  provisionReliabilityAriaDesc: {
+    id: "app.dashboard.provisionReliability.ariaDesc",
+    defaultMessage: "Gateway provision success and failure counts",
+    description:
+      "Accessible description for the provision reliability donut chart.",
+  },
+  provisionReliabilityChartTitle: {
+    id: "app.dashboard.provisionReliability.chartTitle",
+    defaultMessage: "Gateway provision reliability chart",
+    description: "Accessible title for the provision reliability donut chart.",
+  },
+  provisionReliabilityFailures: {
+    id: "app.dashboard.provisionReliability.failures",
+    defaultMessage: "Failures",
+    description: "Legend label for failed gateway provisions.",
+  },
+  provisionReliabilityHourlySuccessRate: {
+    id: "app.dashboard.provisionReliability.hourlySuccessRate",
+    defaultMessage: "Hourly success rate",
+    description:
+      "Title for the hourly provision success-rate sparkline in the provision reliability widget.",
+  },
+  provisionReliabilityLast24Hours: {
+    id: "app.dashboard.provisionReliability.last24Hours",
+    defaultMessage: "Last 24 hours",
+    description:
+      "Caption documenting the rolling 24-hour provision reliability lookback window.",
+  },
+  provisionReliabilityRate: {
+    id: "app.dashboard.provisionReliability.rate",
+    defaultMessage: "{rate}%",
+    description:
+      "Center title for the provision reliability donut showing the 24-hour success rate.",
+  },
+  provisionReliabilitySuccesses: {
+    id: "app.dashboard.provisionReliability.successes",
+    defaultMessage: "Successes",
+    description: "Legend label for successful gateway provisions.",
+  },
+  provisionReliabilityWidget: {
+    id: "app.dashboard.widget.provisionReliability",
+    defaultMessage: "Gateway provision reliability",
+    description:
+      "Title for the gateway provision reliability dashboard widget.",
+  },
+  provisionSuccessRate24h: {
+    id: "app.dashboard.summary.provisionSuccessRate24h",
+    defaultMessage: "Success rate (24h)",
+    description:
+      "Summary label for the rolling 24-hour gateway provision success rate.",
   },
   provisionTime: {
     id: "app.dashboard.summary.provisionTime",

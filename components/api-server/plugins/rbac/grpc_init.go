@@ -3,7 +3,6 @@ package rbac
 import (
 	"context"
 	"os"
-	"strings"
 	"sync"
 
 	"google.golang.org/grpc"
@@ -44,18 +43,9 @@ func (l *lazyRBACInterceptor) init(ctx context.Context) {
 		}
 		l.activityRecorder = users.ActivityRecorder(envServices)
 
-		var serviceAccounts []string
-		if sa := os.Getenv("RBAC_SERVICE_ACCOUNTS"); sa != "" {
-			for _, s := range strings.Split(sa, ",") {
-				if trimmed := strings.TrimSpace(s); trimmed != "" {
-					serviceAccounts = append(serviceAccounts, trimmed)
-				}
-			}
-		}
-
 		l.config = pkgrbac.AuthzConfig{
 			EnforceRBAC:     os.Getenv("RBAC_ENFORCE") == "true",
-			ServiceAccounts: serviceAccounts,
+			ServiceAccounts: pkgrbac.ServiceAccountsFromEnv(),
 		}
 	})
 }

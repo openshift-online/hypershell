@@ -5,7 +5,19 @@ import { createDashboardControlPlaneAdapter } from "./dashboard-control-plane";
 import type { PlatformInventoryMetricsResponse } from "./platform-inventory-aggregation";
 
 const fetchMock = vi.fn();
-const apiFactory = vi.fn(() => ({}) as unknown as SDKClient);
+const gatewaysListMock = vi.fn();
+const gatewayReleasesListMock = vi.fn();
+const apiFactory = vi.fn(
+  () =>
+    ({
+      gateways: {
+        list: gatewaysListMock,
+      },
+      gatewayReleases: {
+        list: gatewayReleasesListMock,
+      },
+    }) as unknown as SDKClient,
+);
 
 const adapter = createDashboardControlPlaneAdapter(apiFactory);
 const context = {
@@ -28,6 +40,26 @@ const mockGatewayProvisionDurationResponse = {
   observation_count: 2,
   p50_seconds: 288,
   p95_seconds: 726,
+};
+
+const mockGatewayProvisionOutcomesResponse = {
+  failure_count_24h: 1,
+  hourly_success_rate: [
+    {
+      failure_count: 1,
+      hour: "2026-08-09T12:00",
+      success_count: 4,
+      success_rate_percent: 80,
+    },
+    {
+      failure_count: 0,
+      hour: "2026-08-09T13:00",
+      success_count: 5,
+      success_rate_percent: 100,
+    },
+  ],
+  success_count_24h: 9,
+  success_rate_percent: 90,
 };
 
 const defaultGatewayPhaseCounts = {
@@ -63,7 +95,14 @@ interface RegisteredUsersMockResponse {
 interface DashboardMetricsMockOptions {
   activeSandboxes?: number;
   omitProvisionDuration?: boolean;
+  omitProvisionOutcomes?: boolean;
   platformInventory?: PlatformInventoryMetricsResponse;
+  provisionOutcomes?: Omit<
+    typeof mockGatewayProvisionOutcomesResponse,
+    "success_rate_percent"
+  > & {
+    success_rate_percent: number | null;
+  };
   registeredUsers?: RegisteredUsersMockResponse;
 }
 
@@ -155,6 +194,21 @@ function mockClusterMetricsResponses(
         ok: true,
       });
     }
+    if (url === "/api/metrics/gateway-provision-outcomes") {
+      if (options.omitProvisionOutcomes) {
+        return Promise.resolve({
+          ok: false,
+          status: 502,
+        });
+      }
+      return Promise.resolve({
+        json: () =>
+          Promise.resolve(
+            options.provisionOutcomes ?? mockGatewayProvisionOutcomesResponse,
+          ),
+        ok: true,
+      });
+    }
     return Promise.reject(new Error(`unexpected fetch url: ${url}`));
   });
 }
@@ -199,12 +253,49 @@ function resolveStandardPrometheusSupportRoutes(
       ok: true,
     });
   }
+  if (url === "/api/metrics/gateway-provision-outcomes") {
+    if (options.omitProvisionOutcomes) {
+      return Promise.resolve({
+        ok: false,
+        status: 502,
+      });
+    }
+    return Promise.resolve({
+      json: () =>
+        Promise.resolve(
+          options.provisionOutcomes ?? mockGatewayProvisionOutcomesResponse,
+        ),
+      ok: true,
+    });
+  }
   return undefined;
 }
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
+  gatewaysListMock.mockReset();
+  gatewayReleasesListMock.mockReset();
+  gatewaysListMock.mockResolvedValue({
+    items: [
+      { release_id: "rel-1" },
+      { release_id: "rel-1" },
+      { release_id: "rel-2" },
+      { release_id: "" },
+    ],
+    page: 1,
+    size: 100,
+    total: 4,
+  });
+  gatewayReleasesListMock.mockResolvedValue({
+    items: [
+      { id: "rel-1", name: "OpenShell 2.0" },
+      { id: "rel-2", name: "OpenShell 2.1" },
+    ],
+    page: 1,
+    size: 100,
+    total: 2,
+  });
 });
 
 afterEach(() => {
@@ -246,6 +337,9 @@ describe("createDashboardControlPlaneAdapter", () => {
     const nodesMetric = metrics.metrics.find((metric) => metric.id === "nodes");
     const provisionTimeMetric = metrics.metrics.find(
       (metric) => metric.id === "provision-time",
+    );
+    const provisionReliabilityMetric = metrics.metrics.find(
+      (metric) => metric.id === "provision-reliability",
     );
 
     expect(gatewaysMetric?.value).toBe("150");
@@ -296,12 +390,27 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(provisionTimeMetric).toEqual({
       id: "provision-time",
       provisionDuration: {
-        mean: "5.25",
-        p50: "4.80",
-        p95: "12.10",
+        mean: "315.00",
+        p50: "288.00",
+        p95: "726.00",
       },
-      unit: "minutes",
-      value: "5.25",
+      unit: "sec",
+      value: "315.00",
+    });
+    expect(provisionReliabilityMetric).toEqual({
+      id: "provision-reliability",
+      provisionOutcomes: {
+        failureCount24h: "1",
+        successCount24h: "9",
+        successRatePercent: "90.0",
+      },
+      successRateTrend: {
+        points: [
+          { label: "2026-08-09T12:00", value: 80 },
+          { label: "2026-08-09T13:00", value: 100 },
+        ],
+      },
+      value: "90.0",
     });
     expect(fetchMock).toHaveBeenCalledWith("/api/metrics/cluster-memory", {
       credentials: "same-origin",
@@ -372,7 +481,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(sandboxesMetric?.value).toBe("5");
   });
 
-  it("maps gateway provision duration histogram into average, P50, and P95 minutes", async () => {
+  it("maps gateway provision duration histogram into average, P50, and P95 seconds", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
     const metrics = await adapter.getOperationalMetrics(context);
@@ -383,13 +492,58 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(provisionTimeMetric).toEqual({
       id: "provision-time",
       provisionDuration: {
-        mean: "5.25",
-        p50: "4.80",
-        p95: "12.10",
+        mean: "315.00",
+        p50: "288.00",
+        p95: "726.00",
       },
-      unit: "minutes",
-      value: "5.25",
+      unit: "sec",
+      value: "315.00",
     });
+  });
+
+  it("maps gateway provision outcomes into provision reliability", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const provisionReliabilityMetric = metrics.metrics.find(
+      (metric) => metric.id === "provision-reliability",
+    );
+
+    expect(provisionReliabilityMetric).toEqual({
+      id: "provision-reliability",
+      provisionOutcomes: {
+        failureCount24h: "1",
+        successCount24h: "9",
+        successRatePercent: "90.0",
+      },
+      successRateTrend: {
+        points: [
+          { label: "2026-08-09T12:00", value: 80 },
+          { label: "2026-08-09T13:00", value: 100 },
+        ],
+      },
+      value: "90.0",
+    });
+  });
+
+  it("omits provision reliability when success rate is null", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2, undefined, {
+      provisionOutcomes: {
+        failure_count_24h: 0,
+        hourly_success_rate: [],
+        success_count_24h: 0,
+        success_rate_percent: null,
+      },
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-reliability"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-time"),
+    ).toBeDefined();
   });
 
   it("omits provision time when the BFF provision duration route is unavailable", async () => {
@@ -411,6 +565,9 @@ describe("createDashboardControlPlaneAdapter", () => {
     );
 
     expect(provisionTimeMetric).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-reliability"),
+    ).toBeDefined();
     expect(memoryMetric).toEqual({
       id: "memory",
       total: "1",
@@ -419,6 +576,26 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
     expect(
       metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
+  });
+
+  it("omits provision reliability when the BFF provision outcomes route is unavailable", async () => {
+    mockClusterMetricsResponses(
+      1024 ** 3,
+      512 * 1024 ** 2,
+      defaultGatewayPhaseCounts,
+      {
+        omitProvisionOutcomes: true,
+      },
+    );
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-reliability"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-time"),
     ).toBeDefined();
   });
 
@@ -805,6 +982,8 @@ describe("createDashboardControlPlaneAdapter", () => {
 
   it("fails when every metric source is unavailable", async () => {
     fetchMock.mockRejectedValue(new Error("network down"));
+    gatewaysListMock.mockRejectedValue(new Error("network down"));
+    gatewayReleasesListMock.mockRejectedValue(new Error("network down"));
 
     await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
       "All operational dashboard metric sources failed",
@@ -1014,6 +1193,48 @@ describe("createDashboardControlPlaneAdapter", () => {
       uniqueLoginsLast30Days: "312",
       value: "450",
     });
+  });
+
+  it("aggregates gateway release distribution into gateway-releases metric", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const gatewayReleasesMetric = metrics.metrics.find(
+      (metric) => metric.id === "gateway-releases",
+    );
+
+    expect(gatewayReleasesMetric).toEqual({
+      id: "gateway-releases",
+      releaseDistribution: {
+        "OpenShell 2.0": 2,
+        "OpenShell 2.1": 1,
+        unknown: 1,
+      },
+      value: "4",
+    });
+    expect(gatewaysListMock).toHaveBeenCalledWith(
+      { orderBy: "name asc", page: 1, size: 100 },
+      { signal: undefined },
+    );
+    expect(gatewayReleasesListMock).toHaveBeenCalledWith(
+      { orderBy: "name asc", page: 1, size: 100 },
+      { signal: undefined },
+    );
+  });
+
+  it("omits gateway-releases when gateway list aggregation fails", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    gatewaysListMock.mockRejectedValue(new Error("gateway list failed"));
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(metrics.failedSources).toEqual(["gateway-release-distribution"]);
+    expect(
+      metrics.metrics.find((metric) => metric.id === "gateway-releases"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
   });
 
   it("omits optional registered user adoption fields when degraded", async () => {

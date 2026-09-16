@@ -15,6 +15,7 @@ const activityRetentionDays = 30
 type UserActivityDao interface {
 	UpsertDailyActivity(ctx context.Context, userID string, activityDate time.Time) error
 	DailyUniqueLoginCounts(ctx context.Context, startDate time.Time, endDate time.Time) (map[string]int64, error)
+	CountDistinctUsersWithActivity(ctx context.Context, startDate time.Time, endDate time.Time) (int64, error)
 	PruneBefore(ctx context.Context, cutoffDate time.Time) error
 }
 
@@ -70,6 +71,23 @@ func (d *sqlUserActivityDao) DailyUniqueLoginCounts(
 		counts[row.ActivityDate.UTC().Format("2006-01-02")] = row.Count
 	}
 	return counts, nil
+}
+
+func (d *sqlUserActivityDao) CountDistinctUsersWithActivity(
+	ctx context.Context,
+	startDate time.Time,
+	endDate time.Time,
+) (int64, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var count int64
+	err := g2.Model(&UserDailyActivity{}).
+		Where("activity_date >= ? AND activity_date <= ?", utcCalendarDate(startDate), utcCalendarDate(endDate)).
+		Select("COUNT(DISTINCT user_id)").
+		Scan(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("count distinct users with activity: %w", err)
+	}
+	return count, nil
 }
 
 func (d *sqlUserActivityDao) PruneBefore(ctx context.Context, cutoffDate time.Time) error {

@@ -3,6 +3,7 @@ package rbac
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -24,6 +25,22 @@ type BindingSummary struct {
 type AuthzConfig struct {
 	EnforceRBAC     bool
 	ServiceAccounts []string
+}
+
+// ServiceAccountsFromEnv reads RBAC_SERVICE_ACCOUNTS as a comma-separated allowlist.
+func ServiceAccountsFromEnv() []string {
+	serviceAccountEnv := os.Getenv("RBAC_SERVICE_ACCOUNTS")
+	if serviceAccountEnv == "" {
+		return nil
+	}
+
+	serviceAccounts := make([]string, 0)
+	for _, entry := range strings.Split(serviceAccountEnv, ",") {
+		if trimmed := strings.TrimSpace(entry); trimmed != "" {
+			serviceAccounts = append(serviceAccounts, trimmed)
+		}
+	}
+	return serviceAccounts
 }
 
 type rbacAuthzMiddleware struct {
@@ -344,6 +361,15 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "role_bindings" {
 		return len(bindings) > 0
+	}
+
+	if resource == "gateway_releases" {
+		if hasPlatformAdmin(bindings) {
+			if method == http.MethodGet || method == http.MethodDelete {
+				return true
+			}
+		}
+		return hasGatewayCreator(bindings)
 	}
 
 	return hasGatewayCreator(bindings)

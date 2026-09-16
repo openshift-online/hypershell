@@ -190,6 +190,11 @@ production.
 | OIDC Issuer URL | `https://keycloak.hypershell.localhost/realms/hypershell` |
 | Admin Console | `https://keycloak.hypershell.localhost/admin/` |
 
+Dashboard-operator access (operational dashboard, user inventory, managed
+inventory metrics) requires the `platform:admin` Keycloak realm role, which is
+JWT-synced to a `platform:admin` RoleBinding. The legacy `hypershell-admins`
+group alone does not grant dashboard access.
+
 ### OIDC
 
 Keycloak is configured with `KC_HOSTNAME=https://keycloak.hypershell.localhost`,

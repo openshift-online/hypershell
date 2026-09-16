@@ -13,6 +13,10 @@ import type {
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
 
 import {
+  aggregateGatewayReleaseDistribution,
+  buildGatewayReleasesMetric,
+} from "./gateway-release-distribution-aggregation";
+import {
   platformInventoryMetricsResponseToMetrics,
   type PlatformInventoryMetricsResponse,
 } from "./platform-inventory-aggregation";
@@ -20,7 +24,6 @@ import {
 type DashboardApiFactory = (correlationId: string) => SDKClient;
 
 const gibibyteDivisor = 1024 ** 3;
-const secondsPerMinute = 60;
 
 interface ClusterMemoryResponse {
   available_bytes: number;
@@ -56,6 +59,20 @@ interface GatewayProvisionDurationResponse {
   observation_count: number;
   p50_seconds: number;
   p95_seconds: number;
+}
+
+interface GatewayProvisionHourlySuccessRate {
+  failure_count: number;
+  hour: string;
+  success_count: number;
+  success_rate_percent: number;
+}
+
+interface GatewayProvisionOutcomesResponse {
+  failure_count_24h: number;
+  hourly_success_rate: GatewayProvisionHourlySuccessRate[];
+  success_count_24h: number;
+  success_rate_percent: number | null;
 }
 
 interface GatewaySandboxesResponse {
@@ -217,8 +234,58 @@ async function fetchClusterNodesMetric(
   };
 }
 
-function formatProvisionMinutesFromSeconds(seconds: number): string {
-  return (seconds / secondsPerMinute).toFixed(2);
+function formatProvisionSeconds(seconds: number): string {
+  return seconds.toFixed(2);
+}
+
+function formatSuccessRatePercent(value: number): string {
+  return value.toFixed(1);
+}
+
+async function fetchGatewayProvisionOutcomesMetric(
+  signal?: AbortSignal,
+): Promise<OperationalMetric | undefined> {
+  try {
+    const response = await fetch("/api/metrics/gateway-provision-outcomes", {
+      credentials: "same-origin",
+      signal,
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const body = (await response.json()) as GatewayProvisionOutcomesResponse;
+    if (body.success_rate_percent === null) {
+      return undefined;
+    }
+
+    const successRatePercent = formatSuccessRatePercent(
+      body.success_rate_percent,
+    );
+    const hourlyPoints = body.hourly_success_rate.map((point) => ({
+      label: point.hour,
+      value: point.success_rate_percent,
+    }));
+
+    return {
+      id: "provision-reliability",
+      provisionOutcomes: {
+        failureCount24h: String(body.failure_count_24h),
+        successCount24h: String(body.success_count_24h),
+        successRatePercent,
+      },
+      ...(hourlyPoints.length >= 2
+        ? {
+            successRateTrend: {
+              points: hourlyPoints,
+            },
+          }
+        : {}),
+      value: successRatePercent,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 async function fetchGatewayProvisionDurationMetric(
@@ -234,9 +301,9 @@ async function fetchGatewayProvisionDurationMetric(
     }
 
     const body = (await response.json()) as GatewayProvisionDurationResponse;
-    const mean = formatProvisionMinutesFromSeconds(body.mean_seconds);
-    const p50 = formatProvisionMinutesFromSeconds(body.p50_seconds);
-    const p95 = formatProvisionMinutesFromSeconds(body.p95_seconds);
+    const mean = formatProvisionSeconds(body.mean_seconds);
+    const p50 = formatProvisionSeconds(body.p50_seconds);
+    const p95 = formatProvisionSeconds(body.p95_seconds);
 
     return {
       id: "provision-time",
@@ -245,7 +312,7 @@ async function fetchGatewayProvisionDurationMetric(
         p50,
         p95,
       },
-      unit: "minutes",
+      unit: "sec",
       value: mean,
     };
   } catch {
@@ -323,11 +390,15 @@ async function fetchGatewayPrometheusMetrics(
 
   const metrics: OperationalMetric[] = [gatewayMetric, sandboxMetric];
 
-  const provisionTimeMetric = await fetchGatewayProvisionDurationMetric(
-    context.signal,
-  );
+  const [provisionTimeMetric, provisionReliabilityMetric] = await Promise.all([
+    fetchGatewayProvisionDurationMetric(context.signal),
+    fetchGatewayProvisionOutcomesMetric(context.signal),
+  ]);
   if (provisionTimeMetric !== undefined) {
     metrics.push(provisionTimeMetric);
+  }
+  if (provisionReliabilityMetric !== undefined) {
+    metrics.push(provisionReliabilityMetric);
   }
 
   return metrics;
@@ -349,6 +420,19 @@ async function fetchRegisteredUsersMetric(
   const body = (await response.json()) as RegisteredUsersResponse;
 
   return [registeredUsersResponseToMetric(body)];
+}
+
+async function fetchGatewayReleaseDistributionMetrics(
+  context: DashboardInvocationContext,
+  apiFactory: DashboardApiFactory,
+): Promise<OperationalMetric[]> {
+  const client = apiFactory(context.correlationId);
+  const aggregate = await aggregateGatewayReleaseDistribution(
+    client,
+    context.signal,
+  );
+
+  return [buildGatewayReleasesMetric(aggregate)];
 }
 
 async function fetchPlatformInventoryMetrics(
@@ -388,6 +472,11 @@ const metricSources: readonly MetricSourceDefinition[] = [
   {
     id: "platform-inventory",
     fetch: async (context) => fetchPlatformInventoryMetrics(context),
+  },
+  {
+    id: "gateway-release-distribution",
+    fetch: async (context, apiFactory) =>
+      fetchGatewayReleaseDistributionMetrics(context, apiFactory),
   },
   {
     id: "cluster-memory",

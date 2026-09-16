@@ -20,9 +20,11 @@ interface SparklineDatum {
 const SPARKLINE_PLOT_HEIGHT = 56;
 
 export function TrendSparklineChart({
+  caption,
   trend,
   title,
 }: Readonly<{
+  caption?: string;
   trend: OperationalMetricTrend;
   title: string;
 }>) {
@@ -89,7 +91,8 @@ export function TrendSparklineChart({
         </ChartGroup>
       </div>
       <small className="hypershell-dashboard-sparkline-chart__caption">
-        {intl.formatMessage(messages.trendLastDays, { days: trendDayCount })}
+        {caption ??
+          intl.formatMessage(messages.trendLastDays, { days: trendDayCount })}
       </small>
     </div>
   );
