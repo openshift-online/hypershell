@@ -1294,7 +1294,6 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 	return nil
 }
 
-
 func reconcileCredentialDriverResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
@@ -1972,4 +1971,3 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
 	return nil
 }
-
