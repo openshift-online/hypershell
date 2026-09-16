@@ -7,7 +7,10 @@
   "prConcurrentLimit": 6,
   "extends": ["github>konflux-ci/mintmaker-presets:cve-automerge-critical"],
   "tekton": {
-    "fileMatch": ["\\.yaml$", "\\.yml$"],
+    "managerFilePatterns": [
+      "/\\.yaml$/",
+      "/\\.yml$/"
+    ],
     "includePaths": [".tekton/**"],
     "automerge": true
   },
