@@ -141,6 +141,24 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	newGeneration := current.Generation
 	if desiredStateChanged(current, gateway) {
 		newGeneration = current.Generation + 1
+		// A new desired generation restarts provisioning: drop the prior
+		// generation's progress so the control plane repopulates it from the
+		// beginning. Clearing (rather than merging) is what lets a step legitimately
+		// return to Pending/InProgress when the workload is genuinely re-provisioned.
+		gateway.ProvisioningConditions = nil
+	} else {
+		// Same generation: provisioning conditions only move forward. Redundant
+		// control-plane reconcile passes -- a watch re-seed on reconnect, or two
+		// controller pods overlapping during a rollout (neither serialized end to
+		// end) -- replay earlier-stage conditions, and last-writer-wins would let a
+		// completed step flip back to InProgress. Merging under this row's advisory
+		// lock keeps a Running gateway from ever reporting an unfinished step. See
+		// specs/platform/openshell-gateway-health.spec.md.
+		merged, mergeErr := mergeMonotonicProvisioningConditions(current.ProvisioningConditions, gateway.ProvisioningConditions)
+		if mergeErr != nil {
+			return nil, errors.GeneralError("merge provisioning conditions for gateway %s: %s", gateway.ID, mergeErr)
+		}
+		gateway.ProvisioningConditions = merged
 	}
 	gateway.Generation = newGeneration
 	if gateway.ObservedGeneration != current.ObservedGeneration {
