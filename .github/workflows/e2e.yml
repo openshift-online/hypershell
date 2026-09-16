@@ -515,7 +515,6 @@ jobs:
         env:
           E2E_INFRA_DRIVER: kind
           E2E_OPENSHELL_INSTALL: always
-          E2E_OPENSHELL_CLI_IMAGE: quay.io/opendatahub/odh-openshell-cli:v0.0.116-rhaiv.6
           # Test the candidate installer before its public main URL is available.
           OPENSHELL_INSTALL_SCRIPT_URL: file://${{ github.workspace }}/scripts/install-openshell.sh
           # Mirror the provider used to create this matrix job's cluster.

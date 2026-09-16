@@ -167,9 +167,9 @@ _E2E_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Override the CLI version to install instead of deriving it from
 # gateway_version. Accepts any GitHub release tag (e.g. v0.0.116, dev).
 : "${E2E_OPENSHELL_VERSION:=}"
-# Container image to extract the CLI from (e.g. quay.io/opendatahub/odh-openshell-cli:v0.0.116-rhaiv.6).
-# When set, the CLI is copied out of the image instead of downloaded from GitHub.
-: "${E2E_OPENSHELL_CLI_IMAGE:=}"
+# Container image to extract the CLI from. When set, the CLI is copied out of
+# the image instead of downloaded from GitHub. Set to empty to disable.
+: "${E2E_OPENSHELL_CLI_IMAGE:=quay.io/opendatahub/odh-openshell-cli:v0.0.116-rhaiv.6}"
 # Upstream install script the console links to (installScriptUrl in the UI).
 : "${OPENSHELL_INSTALL_SCRIPT_URL:=https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh}"
 # Bounded wait for the control plane to reconcile gateway_version from the
