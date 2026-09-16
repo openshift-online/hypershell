@@ -595,14 +595,22 @@ func TestGatewayReconciler_Handle_GatedPhases_ReconcilesKeycloakAndBypassesKuber
 			}
 
 			phaseVal := phase
+			// Set generation == observed_generation so the convergence gate fires
+			// and Kubernetes re-provisioning is bypassed. Only converged gateways
+			// take the Keycloak-drift-only path; non-converged gateways fall through
+			// to full reconciliation regardless of phase.
+			genVal := int64(1)
+			obsGenVal := int64(1)
 			event := watcher.Event[*pb.Gateway]{
 				Type:       watcher.EventUpdated,
 				ResourceID: gatewayID,
 				Resource: &pb.Gateway{
-					Metadata:  &pb.ObjectReference{Id: gatewayID},
-					Name:      gatewayName,
-					Namespace: "openshell-0011223344556677",
-					Phase:     &phaseVal,
+					Metadata:           &pb.ObjectReference{Id: gatewayID},
+					Name:               gatewayName,
+					Namespace:          "openshell-0011223344556677",
+					Phase:              &phaseVal,
+					Generation:         genVal,
+					ObservedGeneration: &obsGenVal,
 				},
 			}
 
@@ -670,11 +678,14 @@ func TestWatchGateways_KeycloakRetryPreservesGatedPayload(t *testing.T) {
 	clientID := gatewayName + "-" + gatewayID
 	clientUUID := "uuid-keycloak-queue-retry"
 	phase := "Running"
+	convergenceGen := int64(1)
 	gw := &pb.Gateway{
-		Metadata:  &pb.ObjectReference{Id: gatewayID},
-		Name:      gatewayName,
-		Namespace: "openshell-0011223344556677",
-		Phase:     &phase,
+		Metadata:           &pb.ObjectReference{Id: gatewayID},
+		Name:               gatewayName,
+		Namespace:          "openshell-0011223344556677",
+		Phase:              &phase,
+		Generation:         convergenceGen,
+		ObservedGeneration: &convergenceGen,
 	}
 
 	mockKC := newMockKeycloakAdminServer(t, clientID, clientUUID, map[string]interface{}{
@@ -815,14 +826,17 @@ func TestGatewayReconciler_Handle_GatedPhase_IdempotentWhenAlreadyEnabled(t *tes
 	}
 
 	phase := "Running"
+	obsGen := int64(1)
 	event := watcher.Event[*pb.Gateway]{
 		Type:       watcher.EventUpdated,
 		ResourceID: gatewayID,
 		Resource: &pb.Gateway{
-			Metadata:  &pb.ObjectReference{Id: gatewayID},
-			Name:      gatewayName,
-			Namespace: "openshell-0011223344556677",
-			Phase:     &phase,
+			Metadata:           &pb.ObjectReference{Id: gatewayID},
+			Name:               gatewayName,
+			Namespace:          "openshell-0011223344556677",
+			Phase:              &phase,
+			Generation:         1,
+			ObservedGeneration: &obsGen,
 		},
 	}
 
@@ -852,14 +866,17 @@ func TestGatewayReconciler_Handle_GatedPhase_KeycloakUnconfigured(t *testing.T) 
 	}
 
 	phase := "Running"
+	obsGen := int64(1)
 	event := watcher.Event[*pb.Gateway]{
 		Type:       watcher.EventUpdated,
 		ResourceID: "gw-no-keycloak",
 		Resource: &pb.Gateway{
-			Metadata:  &pb.ObjectReference{Id: "gw-no-keycloak"},
-			Name:      "my-gateway",
-			Namespace: "openshell-0011223344556677",
-			Phase:     &phase,
+			Metadata:           &pb.ObjectReference{Id: "gw-no-keycloak"},
+			Name:               "my-gateway",
+			Namespace:          "openshell-0011223344556677",
+			Phase:              &phase,
+			Generation:         1,
+			ObservedGeneration: &obsGen,
 		},
 	}
 
@@ -901,14 +918,17 @@ func TestGatewayReconciler_Handle_GatedPhase_ReportsMissingClientWithoutKubernet
 	}
 
 	phase := "Running"
+	obsGen := int64(1)
 	event := watcher.Event[*pb.Gateway]{
 		Type:       watcher.EventUpdated,
 		ResourceID: gatewayID,
 		Resource: &pb.Gateway{
-			Metadata:  &pb.ObjectReference{Id: gatewayID},
-			Name:      gatewayName,
-			Namespace: "openshell-0011223344556677",
-			Phase:     &phase,
+			Metadata:           &pb.ObjectReference{Id: gatewayID},
+			Name:               gatewayName,
+			Namespace:          "openshell-0011223344556677",
+			Phase:              &phase,
+			Generation:         1,
+			ObservedGeneration: &obsGen,
 		},
 	}
 
@@ -983,11 +1003,14 @@ func TestGatewayReconciler_Handle_GatedPhase_InvalidIdentityIsTerminal(t *testin
 		),
 	}
 	phase := "Running"
+	obsGen := int64(1)
 	gatewayResource := &pb.Gateway{
-		Metadata: &pb.ObjectReference{Id: gatewayID},
-		Name:     "current-name",
-		Phase:    &phase,
-		Oidc:     &oidc,
+		Metadata:           &pb.ObjectReference{Id: gatewayID},
+		Name:               "current-name",
+		Phase:              &phase,
+		Oidc:               &oidc,
+		Generation:         1,
+		ObservedGeneration: &obsGen,
 	}
 	event := watcher.Event[*pb.Gateway]{
 		Type:       watcher.EventUpdated,
@@ -1062,14 +1085,17 @@ func TestGatewayReconciler_Handle_GatedPhase_InvalidIdentityStatusFailureRetries
 		),
 	}
 	phase := "Running"
+	obsGen := int64(1)
 	event := watcher.Event[*pb.Gateway]{
 		Type:       watcher.EventUpdated,
 		ResourceID: gatewayID,
 		Resource: &pb.Gateway{
-			Metadata: &pb.ObjectReference{Id: gatewayID},
-			Name:     "current-name",
-			Phase:    &phase,
-			Oidc:     &oidc,
+			Metadata:           &pb.ObjectReference{Id: gatewayID},
+			Name:               "current-name",
+			Phase:              &phase,
+			Oidc:               &oidc,
+			Generation:         1,
+			ObservedGeneration: &obsGen,
 		},
 	}
 
@@ -1125,10 +1151,13 @@ func TestGatewayReconciler_Handle_GatedPhase_ClearsMissingStatusAfterKeycloakRec
 		),
 	}
 	phase := "Running"
+	obsGen := int64(1)
 	gatewayResource := &pb.Gateway{
-		Metadata: &pb.ObjectReference{Id: gatewayID},
-		Name:     gatewayName,
-		Phase:    &phase,
+		Metadata:           &pb.ObjectReference{Id: gatewayID},
+		Name:               gatewayName,
+		Phase:              &phase,
+		Generation:         1,
+		ObservedGeneration: &obsGen,
 	}
 	event := watcher.Event[*pb.Gateway]{
 		Type:       watcher.EventUpdated,
@@ -1193,15 +1222,18 @@ func TestGatewayReconciler_Handle_GatedPhase_ClearsInvalidStatusAfterIdentityRec
 		),
 	}
 	phase := "Running"
+	obsGen := int64(1)
 	invalidStatus := gatewayKeycloakClientInvalidStatus
 	event := watcher.Event[*pb.Gateway]{
 		Type:       watcher.EventUpdated,
 		ResourceID: gatewayID,
 		Resource: &pb.Gateway{
-			Metadata: &pb.ObjectReference{Id: gatewayID},
-			Name:     gatewayName,
-			Phase:    &phase,
-			Status:   &invalidStatus,
+			Metadata:           &pb.ObjectReference{Id: gatewayID},
+			Name:               gatewayName,
+			Phase:              &phase,
+			Status:             &invalidStatus,
+			Generation:         1,
+			ObservedGeneration: &obsGen,
 		},
 	}
 
@@ -1258,15 +1290,18 @@ func TestGatewayReconciler_Handle_GatedPhase_UsesPersistedClientIdentityAfterRen
 				),
 			}
 			phase := "Running"
+			obsGen := int64(1)
 			oidcValue := string(oidcJSON)
 			event := watcher.Event[*pb.Gateway]{
 				Type:       watcher.EventUpdated,
 				ResourceID: gatewayID,
 				Resource: &pb.Gateway{
-					Metadata: &pb.ObjectReference{Id: gatewayID},
-					Name:     "renamed-gateway",
-					Phase:    &phase,
-					Oidc:     &oidcValue,
+					Metadata:           &pb.ObjectReference{Id: gatewayID},
+					Name:               "renamed-gateway",
+					Phase:              &phase,
+					Oidc:               &oidcValue,
+					Generation:         1,
+					ObservedGeneration: &obsGen,
 				},
 			}
 
@@ -1316,14 +1351,17 @@ func TestGatewayReconciler_Handle_GatedPhase_PropagatesKeycloakLookupError(t *te
 	}
 
 	phase := "Running"
+	obsGen := int64(1)
 	event := watcher.Event[*pb.Gateway]{
 		Type:       watcher.EventUpdated,
 		ResourceID: gatewayID,
 		Resource: &pb.Gateway{
-			Metadata:  &pb.ObjectReference{Id: gatewayID},
-			Name:      gatewayName,
-			Namespace: "openshell-0011223344556677",
-			Phase:     &phase,
+			Metadata:           &pb.ObjectReference{Id: gatewayID},
+			Name:               gatewayName,
+			Namespace:          "openshell-0011223344556677",
+			Phase:              &phase,
+			Generation:         1,
+			ObservedGeneration: &obsGen,
 		},
 	}
 
@@ -1373,14 +1411,17 @@ func TestGatewayReconciler_Handle_GatedPhase_PropagatesKeycloakUpdateError(t *te
 	}
 
 	phase := "Degraded"
+	obsGen := int64(1)
 	event := watcher.Event[*pb.Gateway]{
 		Type:       watcher.EventUpdated,
 		ResourceID: gatewayID,
 		Resource: &pb.Gateway{
-			Metadata:  &pb.ObjectReference{Id: gatewayID},
-			Name:      gatewayName,
-			Namespace: "openshell-0011223344556677",
-			Phase:     &phase,
+			Metadata:           &pb.ObjectReference{Id: gatewayID},
+			Name:               gatewayName,
+			Namespace:          "openshell-0011223344556677",
+			Phase:              &phase,
+			Generation:         1,
+			ObservedGeneration: &obsGen,
 		},
 	}
 

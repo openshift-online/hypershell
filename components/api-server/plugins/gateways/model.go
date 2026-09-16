@@ -37,7 +37,7 @@ type Gateway struct {
 	ActiveSandboxCount     *int    `json:"active_sandbox_count"`
 	ProvisioningConditions *string `json:"provisioning_conditions" gorm:"type:jsonb"`
 	Generation             int64   `json:"generation" gorm:"not null;default:1"`
-	ObservedGeneration     int64   `json:"observed_generation" gorm:"not null;default:1"`
+	ObservedGeneration     int64   `json:"observed_generation" gorm:"not null;default:0"`
 }
 
 type GatewayList []*Gateway

@@ -224,24 +224,22 @@ func migrationAddObservedReleaseId() *gormigrate.Migration {
 }
 
 func migrationAddGenerationTracking() *gormigrate.Migration {
-	type Gateway struct {
-		db.Model
-		Generation         int64 `gorm:"not null;default:1"`
-		ObservedGeneration int64 `gorm:"not null;default:1"`
-	}
-
 	return &gormigrate.Migration{
 		ID: "2026081912000006",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Gateway{})
+			// Backfill existing rows to generation=1/observed_generation=1 (converged)
+			// so the convergence gate does not re-provision already-running gateways
+			// when this migration first runs.
+			if err := tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1").Error; err != nil {
+				return err
+			}
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS observed_generation BIGINT NOT NULL DEFAULT 1").Error
 		},
 		Rollback: func(tx *gorm.DB) error {
-			for _, col := range []string{"generation", "observed_generation"} {
-				if err := tx.Migrator().DropColumn(&Gateway{}, col); err != nil {
-					return err
-				}
+			if err := tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS generation").Error; err != nil {
+				return err
 			}
-			return nil
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS observed_generation").Error
 		},
 	}
 }
