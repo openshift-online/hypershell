@@ -44,10 +44,11 @@ the full stack into a per-PR ephemeral namespace group on a shared target
 OpenShift cluster, waits for Konflux to build the pull request's component
 images, swaps those images into the environment, and posts a pull-request comment
 telling the developer how to log in and how to `/pr-extend`. Tests / E2E / OpenShift
-waits for that deploy check, then runs the OpenShift e2e suite against the live
-namespace (the same `plan-images` / `should_run` gate Kind uses, which also gates
-Deploy PR environment). Unless the pull request is marked retained, CI then
-destroys the environment. The per-PR namespace is deterministic from the
+then runs the OpenShift e2e suite against the live namespace (the same
+`plan-images` / `should_run` gate Kind uses, which also gates Deploy PR
+environment, and only after Unit succeeds so a red unit job never deploys).
+Unless the pull request is marked retained, CI then destroys the environment.
+The per-PR namespace is deterministic from the
 pull-request number, so a retained pull request reuses the same environment
 across commits rather than accumulating environments.
 
@@ -182,30 +183,34 @@ behind. Destroying the environment SHALL use the same teardown as
 gateway and database namespaces, and per-namespace swaps), so a torn-down
 ephemeral cycle leaves no HyperShell-owned residue.
 
-The workflow SHALL trigger on origin-repository pull-request `opened`,
-`reopened`, and `synchronize` (a new commit pushed to the pull-request branch) so
-`plan-images` can evaluate `should_run` against the pull request's three-dot
-diff. The workflow SHALL NOT use `on.pull_request.paths` filters for this gate:
-those consider only the files in the latest push, which would skip a later
-docs-only commit on a still-e2e-relevant pull request. A dedicated destroy
-workflow SHALL trigger on `closed` (which covers both merge and close) to
-destroy a retained environment (see the Timebox and Reaping requirement), so open
-and synchronize runs do not list a skipped Destroy check. Neither workflow SHALL
-trigger on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
-merge-queue gate; this workflow does not share a namespace with a merge-queue SHA.
+Deploy PR environment and Tests / E2E / OpenShift SHALL run as jobs of
+`.github/workflows/e2e.yml`, the Tests e2e stage invoked after Unit succeeds
+(`e2e-testing.spec.md`). They SHALL share that workflow's `plan-images`
+`should_run` gate, so an e2e-irrelevant pull request does not consume a
+cluster namespace, and a unit failure never deploys. OpenShift SHALL
+`needs:` Deploy PR environment; there SHALL be no cross-workflow poller
+between deploy and the suite. `/pr-extend` and `/pr-destroy` live in
+`.github/workflows/pr-environment-commands.yml` (`issue_comment`). A dedicated
+destroy workflow SHALL trigger on `closed` (which covers both merge and close)
+to destroy a retained environment (see the Timebox and Reaping requirement), so
+Tests runs do not list a skipped Destroy check. None of these jobs SHALL run
+on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
+merge-queue gate; this environment does not share a namespace with a
+merge-queue SHA.
 
-The workflow SHALL run only for pull requests targeting the origin repository.
-Fork pull requests SHALL NOT receive cluster credentials and SHALL NOT get an
-environment (see Pull-Request Trust Boundary). The workflow SHALL NOT use
-`pull_request_target`.
+Deploy and OpenShift SHALL run only for pull requests targeting the origin
+repository. Fork pull requests SHALL NOT receive cluster credentials and SHALL
+NOT get an environment (see Pull-Request Trust Boundary). The workflows SHALL
+NOT use `pull_request_target`.
 
-A deploying run is an origin-repository `opened`, `reopened`, or `synchronize`
-event whose `plan-images` job sets `should_run=true` using the same e2e-relevant
-path gate `e2e-testing.spec.md` defines (api-server, control-plane,
+A deploying run is an origin-repository `pull_request` whose `plan-images` job
+sets `should_run=true` using the same e2e-relevant path gate
+`e2e-testing.spec.md` defines (api-server, control-plane,
 web-console/gateway-management-ui Konflux paths, deploy manifests, e2e tests,
-and pr-test). When `should_run` is false, the workflow SHALL skip
-`Deploy PR environment`: it SHALL NOT log in to the cluster, SHALL NOT run
-`make openshift-up`, and SHALL NOT post or update the access comment.
+and pr-test). When `should_run` is false, or when the e2e stage does not run
+because Unit failed, CI SHALL skip `Deploy PR environment`: it SHALL NOT log
+in to the cluster, SHALL NOT run `make openshift-up`, and SHALL NOT post or
+update the access comment.
 
 On every deploying run, the workflow SHALL run `make openshift-up`
 unconditionally, whether or not the environment already exists. Because
@@ -222,13 +227,15 @@ tears the environment down in-run rather than leaving it for the reaper.
 `make openshift-up` itself SHALL NOT stamp or refresh that timebox; local
 environments are not time-boxed by this spec.
 
-The teardown that ends a non-retained cycle SHALL run after Tests / E2E /
-OpenShift concludes for that commit, so the suite has a live target and the
-developer still sees a green or red e2e check; the teardown outcome SHALL NOT
-mask the e2e result. The environment SHALL survive a failing run only when the
-pull request is marked retained (see Extend and Destroy Controls); an
-unretained failing run SHALL still be destroyed, and a developer who wants to
-inspect a failure SHALL `/pr-extend`, which redeploys a fresh environment.
+The teardown that ends a non-retained cycle SHALL be the last step of
+Tests / E2E / OpenShift, after diagnostics, so the suite has a live target.
+It SHALL run on success, failure, and cancel of that job. The only skip is
+when the pull request is marked retained (`pr-environment/pr-extended`). A
+teardown failure SHALL fail Tests / E2E / OpenShift. A failed or cancelled
+Deploy PR environment SHALL likewise destroy an unretained environment,
+because OpenShift will not start. An unretained failing run SHALL still be
+destroyed, and a developer who wants to inspect a failure SHALL `/pr-extend`,
+which redeploys a fresh environment.
 
 Deploying runs for the same pull request SHALL serialize on a per-pull-request
 concurrency group. A newer run SHALL cancel or queue an older in-flight run for
@@ -259,7 +266,7 @@ SHALL preserve any active per-namespace component swap the same way
 - WHEN the cycle concludes
 - THEN the workflow SHALL still destroy the environment
 - AND it SHALL NOT leave a failed environment on the shared cluster
-- AND the e2e check SHALL still report its pass/fail result
+- AND a teardown failure SHALL fail Tests / E2E / OpenShift
 
 #### Scenario: Commit pushed to a retained pull request
 
@@ -287,7 +294,7 @@ SHALL preserve any active per-namespace component swap the same way
 
 - GIVEN an origin pull request whose three-dot diff contains only
   e2e-irrelevant paths (for example `docs/` or `components/sdk-typescript/`)
-- WHEN the PR Environment workflow runs
+- WHEN the Tests e2e stage runs
 - THEN `plan-images` SHALL set `should_run=false`
 - AND the `Deploy PR environment` job SHALL be skipped
 - AND the workflow SHALL NOT consume a cluster namespace
@@ -499,8 +506,7 @@ artifact across the stack.
 ### Requirement: E2E Execution Against the Environment
 
 After the environment is deployed and the pull request's images are swapped in,
-Tests / E2E / OpenShift SHALL wait for the `Deploy PR environment` check to
-succeed, then run the OpenShift e2e suite against it, exactly as
+Tests / E2E / OpenShift SHALL run the OpenShift e2e suite against it, exactly as
 `e2e-testing.spec.md` and `openshift-development.spec.md` define: it SHALL run
 `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials bash tests/e2e/e2e-openshell.sh` against a KUBECONFIG
 context pointed at the environment, exercising the same test areas the Kind suite
@@ -514,22 +520,23 @@ OpenShift and SHALL skip `Deploy PR environment`, using the same
 the job SHALL collect the diagnostics `e2e-testing.spec.md` defines before the
 environment is torn down. The environment SHALL survive the run only when the
 pull request is marked retained (see Extend and Destroy Controls); otherwise the
-ephemeral cycle SHALL destroy it after the suite concludes, pass or fail. A
+ephemeral cycle SHALL destroy it after the suite concludes, including on
+failure or cancel. A
 developer who wants to inspect a failing run SHALL `/pr-extend`, which redeploys a
 fresh environment for the current head commit.
 
 The e2e suite's authentication SHALL set `E2E_OIDC_GRANT=client_credentials` and
 use the non-interactive path this spec defines (see Automated E2E Authentication),
 because the environment's interactive login is GitHub-brokered and brokered users
-have no password grant. The suite lives in the Tests workflow, not inside the
-PR Environment deploy job, so a deploy failure and an e2e failure surface as
-distinct checks.
+have no password grant. Deploy and the suite live as distinct jobs in the Tests
+e2e stage so a deploy failure and an e2e failure surface as distinct checks;
+teardown is a last step of OpenShift and fails that check if destroy fails.
 
 #### Scenario: E2E runs on every e2e-relevant deployment
 
 - GIVEN the environment is deployed and the pull request's images are swapped in
 - AND `plan-images` set `should_run=true` (e2e-relevant paths changed)
-- WHEN Tests / E2E / OpenShift sees the `Deploy PR environment` check succeed
+- WHEN Tests / E2E / OpenShift starts after `Deploy PR environment` succeeds
 - THEN it SHALL run the OpenShift e2e suite against the environment
 - AND it SHALL run the suite again on each later e2e-relevant commit's deployment
 - AND an origin PR with `should_run=false` SHALL skip this job and SHALL skip
@@ -728,12 +735,14 @@ bring-up, so the comment and the command agree.
 
 The comment SHALL make the environment's lifetime explicit. On an unretained
 pull request, including the in-progress deploying placeholder, the comment SHALL
-tell the developer to comment `/pr-extend` to keep the environment active, and
-SHALL state that otherwise it is destroyed once e2e testing concludes. Once the
-pull request is retained, the comment SHALL instead state that the environment is
-retained, that it is renewed on every commit, and that it is reclaimed after the
-inactivity timebox unless destroyed with `/pr-destroy` or the pull request is
-closed. The comment SHALL never imply an unretained environment will persist.
+tell the developer to comment `/pr-extend` to keep the environment active, SHALL
+state that otherwise it is destroyed once e2e testing concludes, and SHALL state
+that `/pr-extend` redeploys the environment if it has already been destroyed.
+Once the pull request is retained, the comment SHALL instead state that the
+environment is retained, that it is renewed on every commit, and that it is
+reclaimed after the inactivity timebox unless destroyed with `/pr-destroy` or
+the pull request is closed. The comment SHALL never imply an unretained
+environment will persist.
 
 The workflow SHALL post the marked comment as the first step of a deploy run,
 before cluster login, deploy, or e2e. When the pull request has no marked
@@ -770,6 +779,8 @@ public artifact.
   deploying to the head commit
 - AND the comment SHALL tell the developer to comment `/pr-extend` to keep it
   active, otherwise it is destroyed once e2e testing concludes
+- AND the comment SHALL state that `/pr-extend` redeploys the environment if it
+  has already been destroyed
 - AND the comment SHALL contain the hidden marker `<!-- hypershell-pr-environment -->`
 - AND the comment SHALL contain no access facts or credential
 
@@ -818,6 +829,8 @@ public artifact.
   active
 - AND it SHALL state that otherwise the environment is destroyed once e2e
   testing concludes
+- AND it SHALL state that `/pr-extend` redeploys the environment if it has
+  already been destroyed
 
 #### Scenario: Comment reflects a retained environment
 
@@ -1225,7 +1238,8 @@ exists).
 | One GitHub OAuth App and one stable callback | GitHub does not allow wildcard redirect URIs and limits callback URLs, so per-PR Keycloak Routes cannot be registered as GitHub callbacks. A cluster-scoped callback, like the shared Gateway, is the identity infrastructure this workflow depends on |
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
-| In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment right after e2e, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
+| In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment as the last step of Tests / E2E / OpenShift unless retained, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
+| Deploy lives in the e2e stage after Unit, not a parallel PR Environment workflow | A separate workflow would deploy even when Unit fails and would need a cross-workflow poller for the suite. Putting Deploy PR environment in `e2e.yml` behind the same `should_run` gate means unit failure skips deploy, OpenShift can `needs:` deploy, and teardown can be a last step of the suite job |
 | Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway/database namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway and ManagedDatabase namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |

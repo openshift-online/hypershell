@@ -138,8 +138,12 @@ case "${deploying_body}" in
   *) PASS=$((PASS + 1)) ;;
 esac
 case "${deploying_body}" in
-  *'Deploying commit `abcdef1` to an ephemeral OpenShift environment.'*) PASS=$((PASS + 1)) ;;
+  *'Deploying commit `abcdef1` to an ephemeral OpenShift environment. This comment will update in place once the environment is ready.'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: first-deploy placeholder missing deploying wording' ;;
+esac
+case "${deploying_body}" in
+  *$'. This\ncomment'*) FAIL=$((FAIL + 1)); echo 'FAIL: deploying sentence must not wrap at 80 chars' ;;
+  *) PASS=$((PASS + 1)) ;;
 esac
 case "${deploying_body}" in
   *'may not be fully responsive'*) FAIL=$((FAIL + 1)); echo 'FAIL: first-deploy placeholder must not warn about an existing environment' ;;
@@ -152,6 +156,10 @@ esac
 case "${deploying_body}" in
   *'destroyed once e2e testing concludes'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing destroy-after-e2e wording' ;;
+esac
+case "${deploying_body}" in
+  *'already been destroyed'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing redeploy-if-destroyed wording' ;;
 esac
 
 # A later reconcile must keep the existing table: those facts do not change
@@ -313,6 +321,10 @@ case "${body}" in
   *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing destroy-after-e2e wording' ;;
 esac
 case "${body}" in
+  *'already been destroyed'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing redeploy-if-destroyed wording' ;;
+esac
+case "${body}" in
   *'refreshed on every new commit'*) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment implied persistence' ;;
   *) PASS=$((PASS + 1)) ;;
 esac
@@ -338,6 +350,13 @@ case "${retained_deploying}" in
   *'destroyed once e2e testing concludes'*) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment said env is about to be destroyed' ;;
   *) PASS=$((PASS + 1)) ;;
 esac
+
+assert_eq 'true' "$(printf '%s' '[{"name":"pr-environment/pr-extended"}]' \
+  | pr_env_label_list_has 'pr-environment/pr-extended')" 'label list has retained'
+assert_eq 'false' "$(printf '%s' '[]' \
+  | pr_env_label_list_has 'pr-environment/pr-extended')" 'empty label list is not retained'
+assert_eq 'false' "$(printf '%s' '[{"name":"other"}]' \
+  | pr_env_label_list_has 'pr-environment/pr-extended')" 'unrelated labels are not retained'
 
 printf 'pr-env-lib tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

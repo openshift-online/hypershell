@@ -10,8 +10,8 @@ name: PR Environment Commands
 # and do not change retained state or use cluster credentials for their own
 # body.
 #
-# Shares the per-PR concurrency group with pr-environment.yml so a command
-# cannot race an in-flight deploy or teardown.
+# Shares the per-PR concurrency group with E2E / Deploy PR environment and
+# E2E / OpenShift so a command cannot race an in-flight deploy or teardown.
 
 on:
   issue_comment:

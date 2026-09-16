@@ -586,7 +586,7 @@ The system SHALL provide an independently-triggered GitHub Actions workflow at `
 
 ### Requirement: CI Unit Test Workflow
 
-The unit-test and e2e stages SHALL be ordered by a single orchestrator workflow at `.github/workflows/tests.yml` rather than by cross-workflow status-check polling. `tests.yml` SHALL own the `pull_request`, `push` (to `main`), `merge_group`, and `workflow_dispatch` triggers, the concurrency group, and SHALL call `unit-tests.yml` and `e2e.yml` as reusable workflows (`on: workflow_call`) wired with native `needs:` edges. `unit` SHALL depend only on `detect-changes`, and `e2e` SHALL declare `needs: [detect-changes, unit]` so it starts only after the unit-test stage concludes successfully. Because GitHub Actions skips a job by default if any needed job failed OR was skipped, `e2e` SHALL also declare `if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result != 'failure' }}`, so a PR touching only e2e-owned paths (every job inside `unit` path-filtered away, making the `unit` caller job itself resolve to `skipped`) still runs `e2e` instead of silently skipping it. This gates only the expensive stage: the Kind-based e2e run SHALL NOT start for a SHA whose unit tests failed, and such a failure SHALL surface as a clean red `Tests CI Gate` check rather than a misleading e2e environment failure. There SHALL be no in-workflow job that polls for a preceding Tests or Checks stage's status check. The one cross-workflow poller exception is Tests / E2E / OpenShift waiting on the independent `Deploy PR environment` check (see CI E2E Workflow). The stage workflows SHALL NOT declare their own event triggers (only `workflow_call`) so they never run as standalone duplicates. `tests.yml` SHALL NOT be gated by, and SHALL NOT gate, the separate `checks.yml` workflow (see the CI Checks Workflow requirement); the two run fully concurrently.
+The unit-test and e2e stages SHALL be ordered by a single orchestrator workflow at `.github/workflows/tests.yml` rather than by cross-workflow status-check polling. `tests.yml` SHALL own the `pull_request`, `push` (to `main`), `merge_group`, and `workflow_dispatch` triggers, the concurrency group, and SHALL call `unit-tests.yml` and `e2e.yml` as reusable workflows (`on: workflow_call`) wired with native `needs:` edges. `unit` SHALL depend only on `detect-changes`, and `e2e` SHALL declare `needs: [detect-changes, unit]` so it starts only after the unit-test stage concludes successfully. Because GitHub Actions skips a job by default if any needed job failed OR was skipped, `e2e` SHALL also declare `if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result != 'failure' }}`, so a PR touching only e2e-owned paths (every job inside `unit` path-filtered away, making the `unit` caller job itself resolve to `skipped`) still runs `e2e` instead of silently skipping it. This gates only the expensive stage: the Kind-based e2e run SHALL NOT start for a SHA whose unit tests failed, and such a failure SHALL surface as a clean red `Tests CI Gate` check rather than a misleading e2e environment failure. There SHALL be no in-workflow job that polls for a preceding Tests or Checks stage's status check, and there SHALL be no cross-workflow poller for Deploy PR environment: that job SHALL live in `e2e.yml` so OpenShift can `needs:` it. The stage workflows SHALL NOT declare their own event triggers (only `workflow_call`) so they never run as standalone duplicates. `tests.yml` SHALL NOT be gated by, and SHALL NOT gate, the separate `checks.yml` workflow (see the CI Checks Workflow requirement); the two run fully concurrently.
 
 Change detection SHALL run exactly once per workflow, in a `detect-changes` job in `tests.yml` (invoking `.github/scripts/detect-components.sh`), whose per-component outputs are passed into each stage as `with:` inputs; the stage workflows SHALL NOT detect changes internally and SHALL gate their jobs on `inputs.<component>`. Because each stage is a reusable-workflow call, its individual jobs surface as `Unit / <job>` and `E2E / <job>` checks rather than a single per-stage check. `tests.yml` SHALL therefore provide a `tests-gate` job (`Tests CI Gate`) covering the `unit` and `e2e` stages together, which SHALL run with `if: always()`, read both stages' rolled-up `result` via `needs`, and fail unless `detect-changes` succeeded and neither stage failed or cancelled (a fully skipped stage SHALL pass the gate). Because it always runs, it is never left pending by path-filtered skips, so this is one of the two checks to mark required in branch protection (the other being `checks.yml`'s own `Checks CI Gate`).
 
@@ -626,8 +626,8 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 
 - GIVEN a pull request is opened or updated
 - WHEN the `tests.yml` orchestrator runs
-- THEN the `e2e` stage SHALL declare `needs: [detect-changes, unit]` so no e2e job (including image planning and Kind creation) starts until the `unit` stage concludes successfully
-- AND a failing `unit` stage SHALL leave the entire e2e stage un-started (skipped), so Kind is never created for a SHA with failing unit tests
+- THEN the `e2e` stage SHALL declare `needs: [detect-changes, unit]` so no e2e job (including image planning, Kind creation, and Deploy PR environment) starts until the `unit` stage concludes successfully
+- AND a failing `unit` stage SHALL leave the entire e2e stage un-started (skipped), so Kind is never created and no per-PR OpenShift environment is deployed for a SHA with failing unit tests
 - AND a failure in the separate `checks.yml` workflow SHALL NOT prevent the `e2e` stage from starting
 
 #### Scenario: E2E Still Runs When Unit Is Entirely Path-Filtered Out
@@ -641,7 +641,7 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 
 The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/e2e.yml` (`on: workflow_call`) that runs the e2e test suite against Kind and, on origin pull requests, against the ephemeral OpenShift PR environment. It SHALL run as the final stage of `tests.yml`, which triggers on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. Like the unit stage, it SHALL receive the changed-component flags as `workflow_call` inputs and gate its jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result (together with unit's) up into the required check, so it has no summary or gate job of its own. The orchestrator's `needs: [detect-changes, unit]` edge (with the `if:` override described in the CI Unit Test Workflow requirement, so a `unit` skip does not also skip `e2e`) SHALL ensure Kind is never created until the unit-test stage succeeds; the e2e workflow itself SHALL NOT contain a job that polls for that gate, or for the separate `checks.yml` workflow. The workflow SHALL still gate Kind jobs on Konflux image builds completing (an external build system it cannot order with `needs:`) and pull those images by digest -- it SHALL NOT rebuild component images itself.
 
-On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift` (check: Tests / E2E / OpenShift). That job SHALL declare `needs: plan-images` and SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR skips the OpenShift suite as well as Kind. The independent PR Environment workflow SHALL use the same `should_run` gate for `Deploy PR environment`, so an e2e-irrelevant origin PR does not consume a cluster namespace for a baseline `main` environment. When the job runs, it SHALL poll the independent `Deploy PR environment` check until it succeeds, then run the OpenShift e2e suite against the live per-PR namespace as `ephemeral-pr-environments.spec.md` defines. GitHub Actions `needs:` cannot order independently-triggered workflows, so this poller is the allowed exception to the no-cross-workflow-poller rule for Unit vs Checks. Fork PRs, `merge_group`, and `push` SHALL skip that job (no per-PR environment). Push to `main` SHALL run the bring-up-test-tear-down OpenShift job from a dedicated workflow (`.github/workflows/e2e-openshift-main.yml`) that does not run on pull requests, so it does not appear as a skipped Tests check.
+On origin `pull_request` events, `e2e.yml` SHALL run a job named `Deploy PR environment` (check: Tests / E2E / Deploy PR environment) and a job named `OpenShift` (check: Tests / E2E / OpenShift). Both SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR skips deploy and the OpenShift suite as well as Kind. OpenShift SHALL declare `needs: [plan-images, deploy]` and SHALL start only after that deploy job succeeds. After the suite, including on failure or cancel, OpenShift SHALL destroy the unretained environment as `ephemeral-pr-environments.spec.md` defines; a teardown failure SHALL fail the OpenShift check. The only skip for that teardown is a retained pull request (`pr-environment/pr-extended`). Fork PRs, `merge_group`, and `push` SHALL skip those jobs (no per-PR environment). Push to `main` SHALL run the bring-up-test-tear-down OpenShift job from a dedicated workflow (`.github/workflows/e2e-openshift-main.yml`) that does not run on pull requests, so it does not appear as a skipped Tests check.
 
 #### Scenario: PR Triggers Workflow
 
@@ -651,15 +651,17 @@ On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift
 - WHEN the `e2e` stage runs
 - THEN it SHALL: check out the repository, use the changed-component flags passed in as inputs, create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind`, and report the CI status
 
-#### Scenario: OpenShift E2E Waits On Deploy PR Environment
+#### Scenario: OpenShift E2E Needs Deploy PR Environment
 
 - GIVEN an origin pull request whose e2e-relevant components changed
-- AND whose `Deploy PR environment` check is still running
-- WHEN Tests / E2E / OpenShift starts
+- AND whose `Deploy PR environment` job is still running
+- WHEN Tests / E2E / OpenShift is evaluated
 - THEN it SHALL have required `plan-images` with `should_run=true`, matching Kind
-- AND it SHALL poll that check until it concludes `success`
+- AND it SHALL `needs:` that deploy job rather than polling a check
 - AND it SHALL then run `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials bash tests/e2e/e2e-openshell.sh` against the per-PR namespace
+- AND after the suite, including on failure or cancel, it SHALL destroy the environment unless the pull request is marked retained
 - AND a fork PR, `merge_group` event, `push` event, or origin PR with `should_run=false` SHALL skip this job
+- AND a failing `unit` stage SHALL skip deploy and this job
 
 #### Scenario: Tests Pass
 
@@ -680,7 +682,7 @@ On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift
 - WHEN the `e2e` workflow evaluates the change detection outputs
 - THEN `plan-images` SHALL set `should_run=false`
 - AND both the Kind and OpenShift e2e jobs SHALL be skipped
-- AND the PR Environment `Deploy PR environment` job SHALL be skipped
+- AND the `Deploy PR environment` job SHALL be skipped
 - AND the workflow SHALL report `success` (to avoid blocking merges)
 
 #### Scenario: Infrastructure-Only Changes (No Source Components)
@@ -893,9 +895,10 @@ deploy/
                               (passing detection as inputs), gated with
                               native `needs:`
   unit-tests.yml           -- Tests unit-test stage (reusable, on: workflow_call)
-  e2e.yml                  -- Tests e2e stage (reusable, on: workflow_call)
+  e2e.yml                  -- Tests e2e stage (reusable, on: workflow_call);
+                              includes Deploy PR environment and OpenShift
   e2e-openshift-main.yml   -- push-to-main OpenShift bring-up-test-tear-down
-  pr-environment.yml       -- ephemeral PR env deploy (open/reopen/synchronize)
+  pr-environment-commands.yml -- /pr-extend and /pr-destroy (issue_comment)
   pr-environment-destroy.yml -- ephemeral PR env teardown (closed: merge or close)
 ```
 

@@ -8,9 +8,9 @@ name: Tests
 # Tests without a cross-workflow poller, and this repo deliberately avoids
 # that pattern for Unit vs Checks. Each triggers its own `detect-changes`
 # job rather than sharing one, which is the cost of that split. The one
-# exception is Tests / E2E / OpenShift, which polls the independent
-# "Deploy PR environment" check (PR Environment workflow) because that
-# environment is the suite's target.
+# exception is Tests / E2E / OpenShift, which needs the Deploy PR
+# environment job in e2e.yml (same should_run gate, after Unit) because
+# that environment is the suite's target.
 #
 # Within this workflow, unit and e2e are reusable workflows (on:
 # workflow_call) wired with native `needs:` gating: e2e joins on unit
@@ -52,11 +52,12 @@ on:
 
 # Union of the permissions the called workflows need. A reusable workflow can
 # never be granted more than its caller, so this ceiling must cover e2e's
-# `checks: read` (Konflux build waits) in addition to the shared `contents:
-# read`.
+# `checks: read` (Konflux build waits) and `pull-requests: write` (access
+# comment) in addition to the shared `contents: read`.
 permissions:
   contents: read
   checks: read
+  pull-requests: write
 
 concurrency:
   group: tests-${{ github.event.pull_request.number || github.ref }}
@@ -122,6 +123,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      pull-requests: write
     secrets: inherit
     with:
       api_server: ${{ needs.detect-changes.outputs.api_server }}

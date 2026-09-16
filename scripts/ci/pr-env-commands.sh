@@ -61,7 +61,7 @@ origin_head() {
 
 has_retained_label() {
   gh api "repos/${repo}/issues/${PR_NUMBER}/labels" \
-    --jq --arg name "${PR_ENV_RETAINED_LABEL}" '[.[].name] | index($name) != null'
+    | pr_env_label_list_has "${PR_ENV_RETAINED_LABEL}"
 }
 
 add_retained_label() {

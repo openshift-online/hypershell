@@ -142,6 +142,16 @@ pr_env_permission_is_authorized() {
   return 1
 }
 
+# pr_env_label_list_has <name>
+#
+# Read a GitHub issue/PR labels JSON array from stdin and print "true" if a
+# label named <name> is present, otherwise "false". Pure jq so callers can
+# pipe `gh api .../labels` into it; gh --jq does not accept jq --arg.
+pr_env_label_list_has() {
+  local name="$1"
+  jq -r --arg name "${name}" '[.[].name] | index($name) != null'
+}
+
 # pr_env_select_latest_command
 #
 # Read TSV rows from stdin: created_at<TAB>user<TAB>permission<TAB>body.
@@ -244,9 +254,9 @@ pr_env_comment_access_facts() {
 # pr_env_comment_lifetime <retained>
 #
 # Lifetime paragraph for access comments. Unretained environments advertise
-# /pr-extend and state they are destroyed once e2e testing concludes. Retained
-# environments are renewed on each commit and reclaimed after the inactivity
-# timebox.
+# /pr-extend (keep if still up, redeploy if already destroyed) and state they
+# are destroyed once e2e testing concludes. Retained environments are renewed
+# on each commit and reclaimed after the inactivity timebox.
 pr_env_comment_lifetime() {
   if [[ "${1:-}" == "true" ]]; then
     cat <<EOF
@@ -256,7 +266,7 @@ closed.
 EOF
   else
     cat <<EOF
-Comment \`/pr-extend\` to keep this environment active. Otherwise it is destroyed once e2e testing concludes.
+Comment \`/pr-extend\` to keep this environment active. Otherwise it is destroyed once e2e testing concludes. If it has already been destroyed, \`/pr-extend\` redeploys it.
 EOF
   fi
 }
@@ -291,9 +301,7 @@ pr_env_comment_deploying_body() {
 ${PR_ENV_COMMENT_MARKER}
 ## HyperShell environment updating to commit \`${short_sha}\`
 
-Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The
-environment may not be fully responsive during the update. This comment will
-update in place once the environment is ready.
+Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The environment may not be fully responsive during the update. This comment will update in place once the environment is ready.
 
 ${lifetime}
 
@@ -305,8 +313,7 @@ EOF
 ${PR_ENV_COMMENT_MARKER}
 ## HyperShell environment deploying
 
-Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This
-comment will update in place once the environment is ready.
+Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This comment will update in place once the environment is ready.
 
 ${lifetime}
 EOF
