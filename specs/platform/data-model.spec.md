@@ -265,6 +265,48 @@ permanently mask drift.
 - THEN `generation` SHALL remain N
 - AND the Gateway SHALL remain converged
 
+### Requirement: Monotonic Provisioning Conditions
+
+`provisioning_conditions` is a user-facing progress ladder (see
+[gateway-provisioning-progress.spec.md](gateway-provisioning-progress.spec.md)).
+The control plane's provisioning path is not serialized end to end: a watch
+re-seed on reconnect, or two controller pods overlapping during a rollout, can
+replay earlier-stage conditions for the same `generation`. A last-writer-wins
+persist would let a completed step flip back to an earlier state, so a Gateway
+that has reached `phase` `Running` could transiently report an unfinished step.
+
+The API server SHALL enforce provisioning-condition progress monotonically per
+generation, under the same per-row lock that guards `generation`:
+
+- When an update advances `generation` (a desired-spec change), the API server
+  SHALL clear the prior generation's `provisioning_conditions` so the new
+  provisioning cycle repopulates them from the beginning.
+- When an update does not advance `generation`, the API server SHALL merge the
+  incoming conditions onto the persisted ones so that, per condition type, the
+  status only moves forward along `Pending` -> `InProgress` -> `Complete`. A
+  `Failed` status SHALL always be accepted (an operator must see a real
+  failure), and a condition SHALL be able to recover from `Failed`. A condition
+  present only in the persisted document SHALL be retained so a narrower write
+  cannot drop a step that already completed.
+
+#### Scenario: Redundant reconcile pass does not regress a completed step
+- GIVEN a Gateway at `generation` N whose `GatewayHealthy` condition is `Complete`
+- WHEN a redundant reconcile pass writes `GatewayHealthy` as `InProgress` at the
+  same `generation`
+- THEN the API server SHALL keep `GatewayHealthy` as `Complete`
+
+#### Scenario: Spec change restarts provisioning conditions
+- GIVEN a converged Gateway at `generation` N with all conditions `Complete`
+- WHEN a client updates a desired-spec field, advancing `generation` to N+1
+- THEN the API server SHALL clear `provisioning_conditions`
+- AND the control plane SHALL repopulate them for the new generation
+
+#### Scenario: Failure surfaces over a completed step
+- GIVEN a Gateway at `generation` N whose `GatewayDeployed` condition is `Complete`
+- WHEN a reconcile pass writes `GatewayDeployed` as `Failed` at the same
+  `generation`
+- THEN the API server SHALL record `GatewayDeployed` as `Failed`
+
 ### Requirement: Canary Release Strategy
 
 A GatewayRelease SHALL support canary deployment via `rollout_strategy`, `canary_percent`, and `canary_duration` fields.
