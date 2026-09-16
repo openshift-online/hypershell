@@ -748,6 +748,15 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		}
 	}
 
+	// Manifests applied successfully: acknowledge the generation we converged on.
+	// Readiness/health below only affects phase, not convergence. On failure
+	// above we returned without writing, so the change is retried. The gateway is
+	// now converged, so the convergence gate suppresses further re-provisioning
+	// passes; the continuous health reconciler owns promoting the phase to Running
+	// and finalizing the GatewayHealthy provisioning condition to Complete once the
+	// workload (and, for a routed gateway, its route) is observed ready.
+	r.updateObservedGeneration(ctx, event.ResourceID, gw.Generation)
+
 	// Manifests are applied, but the gateway is not Running until its workload is
 	// observed Ready. Wait within the provisioning readiness window; if the
 	// Deployment never becomes ready, set Degraded and record why.
@@ -791,12 +800,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				log.Printf("WARN gateway %s: %v", gw.Name, err)
 				return err
 			}
-			// Fully rolled out and healthy: acknowledge the generation we converged on
-			// only now. Writing earlier (right after manifest apply) would latch the
-			// gateway converged while still awaiting route readiness, so the convergence
-			// gate would suppress the later pass that finalizes GatewayHealthy to
-			// Complete. See openshell-gateway-health.spec.md.
-			r.updateObservedGeneration(ctx, event.ResourceID, gw.Generation)
 			log.Printf("INFO gateway %s provisioned and route ready in namespace %s", gw.Name, namespace)
 		} else {
 			// Route gate not yet passed: hold at Provisioning and do NOT advance the
@@ -819,10 +822,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			log.Printf("WARN gateway %s: %v", gw.Name, err)
 			return err
 		}
-		// Fully rolled out and healthy: acknowledge the generation we converged on.
-		// See the routed branch above for why this is deferred until Running/Complete
-		// rather than written right after manifest apply.
-		r.updateObservedGeneration(ctx, event.ResourceID, gw.Generation)
 		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
 	}
 
