@@ -15,7 +15,10 @@ The component images are in `quay.io/redhat-services-prod`.
 The bundle also records `manifests.git.url` and `manifests.git.revision`. The
 revision is the newest component source commit in the accepted Snapshot. All
 component revisions must be ancestors of that commit, and that commit must be
-in the fetched history of `main`. The publisher checks that the workload base,
+in the fetched history of `main`. Sibling component commits are allowed when
+another component commit in the Snapshot contains both. If no Snapshot component
+commit contains every component revision, publication fails. SHA sort order does
+not affect this rule. The publisher checks that the workload base,
 Keycloak theme, and dashboard metrics component exist at that revision. It does
 not select the current head of `main`, which can advance while a release waits.
 This is an additive field in the version 1 bundle format.

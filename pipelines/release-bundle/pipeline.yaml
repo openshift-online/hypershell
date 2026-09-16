@@ -202,17 +202,22 @@ spec:
                   for revision in revisions:
                       run("git", "merge-base", "--is-ancestor", revision,
                           "refs/remotes/origin/main", cwd=source_directory)
-                  selected = revisions[0]
-                  for revision in revisions[1:]:
-                      try:
-                          run("git", "merge-base", "--is-ancestor", selected, revision, cwd=source_directory)
-                      except subprocess.CalledProcessError as error:
-                          if error.returncode != 1:
-                              raise
-                          # Divergent histories cannot form one manifest/image release unit.
-                          run("git", "merge-base", "--is-ancestor", revision, selected, cwd=source_directory)
+                  selected = None
+                  for candidate in revisions:
+                      for revision in revisions:
+                          try:
+                              run("git", "merge-base", "--is-ancestor", revision, candidate,
+                                  cwd=source_directory)
+                          except subprocess.CalledProcessError as error:
+                              if error.returncode != 1:
+                                  raise
+                              # Try another Snapshot commit if this one lacks a component.
+                              break
                       else:
-                          selected = revision
+                          selected = candidate
+                          break
+                  require(selected is not None,
+                          "No Snapshot component commit contains all component revisions")
                   for path in MANIFEST_PATHS:
                       run("git", "cat-file", "-e", selected + ":" + path + "/kustomization.yaml",
                           cwd=source_directory)

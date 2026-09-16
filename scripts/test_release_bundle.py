@@ -3,6 +3,7 @@
 import copy
 import os
 import json
+from itertools import permutations
 import sys
 from pathlib import Path
 import subprocess
@@ -199,8 +200,30 @@ class ManifestSourceTests(unittest.TestCase):
         self.git("checkout", "--quiet", "main")
         self.git("merge", "--quiet", "--no-ff", "side", "-m", "merge side")
         self.git("update-ref", "refs/remotes/origin/main", "HEAD")
-        with self.assertRaises(subprocess.CalledProcessError):
+        with self.assertRaisesRegex(ValueError, "No Snapshot component commit"):
             self.source([self.new, side])
+
+    def test_common_descendant_is_selected_in_every_candidate_order(self):
+        self.git("checkout", "--quiet", "-b", "side", self.old)
+        side = self.commit("side")
+        self.git("checkout", "--quiet", "main")
+        self.git("merge", "--quiet", "--no-ff", "side", "-m", "merge side")
+        merged = self.git("rev-parse", "HEAD")
+        self.git("update-ref", "refs/remotes/origin/main", merged)
+        # Control traversal order so Git-generated SHA values cannot hide the bug.
+        for order in permutations([self.new, side, merged]):
+            with self.subTest(order=order), patch.object(bundle, "sorted", return_value=list(order), create=True):
+                self.assertEqual(self.source(order)["git"]["revision"], merged)
+
+    def test_git_errors_are_not_treated_as_missing_ancestors(self):
+        original_run = bundle.run
+        def run(*args, **kwargs):
+            if args[:3] == ("git", "merge-base", "--is-ancestor") and args[4] != "refs/remotes/origin/main":
+                raise subprocess.CalledProcessError(128, args)
+            return original_run(*args, **kwargs)
+        with patch.object(bundle, "run", side_effect=run), self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.source([self.old, self.new])
+        self.assertEqual(raised.exception.returncode, 128)
 
 
 class PipelineBootstrapTests(unittest.TestCase):
@@ -221,7 +244,9 @@ class PipelineBootstrapTests(unittest.TestCase):
             stubs = {
                 "kubectl": 'case "$2" in releases.appstudio.redhat.com) cat "$FIXTURES/release.json";; '
                            'snapshots.appstudio.redhat.com) cat "$FIXTURES/snapshot.json";; *) exit 1;; esac\n',
-                "git": 'if [ "$1" = "cat-file" ] && [ "$MISSING_MANIFEST" = "1" ]; then exit 1; fi; exit "$GIT_STATUS"\n',
+                "git": 'if [ "$1" = "merge-base" ] && [ "$4" != "refs/remotes/origin/main" ]; then '
+                       r'[ "$3" = "$4" ] || [ "$3" \< "$4" ] || exit 1; fi; '
+                       'if [ "$1" = "cat-file" ] && [ "$MISSING_MANIFEST" = "1" ]; then exit 1; fi; exit "$GIT_STATUS"\n',
                 "oras": 'case "$1" in resolve) for last; do :; done; '
                         '[ "$last" != "$UNAVAILABLE_IMAGE" ] || exit 1; case "$last" in *@*) '
                         'printf "%s\\n" "${last##*@}";; *) printf "{}\\n" | sha256sum | '
