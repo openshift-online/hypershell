@@ -66,6 +66,11 @@ func TestObserveReadiness(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Pin Gateway API placement env vars so the test is isolated from
+			// the exported Makefile variables (e.g. GATEWAY_API_GATEWAY_NAMESPACE
+			// set by a prior kind-up run in the same shell session).
+			t.Setenv("GATEWAY_API_GATEWAY_NAMESPACE", "openshift-ingress")
+			t.Setenv("GATEWAY_API_GATEWAY_NAME", "")
 			// Seed through Create rather than NewSimpleClientset(objs...): the
 			// simple tracker's constructor-seeding does not index objects
 			// retrievably in this client version.

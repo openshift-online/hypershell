@@ -14,8 +14,6 @@ import (
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	_ = os.Setenv("API_ENV", "integration_testing")
-	_ = os.Setenv("DB_FACTORY_MODE", "external")
 	_ = os.Setenv("RBAC_ENFORCE", "true")
 	glog.Infof("Starting users integration test using go version %s", runtime.Version())
 	helper := test.NewHelper(&testing.T{})
