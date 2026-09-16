@@ -23,6 +23,11 @@ COMPONENTS = (
     "hypershell-web-console-main",
 )
 BUNDLE_REPOSITORY = BUILD_PREFIX + COMPONENTS[0]
+MANIFEST_PATHS = (
+    "deploy/hub",
+    "deploy/base/keycloak/theme",
+    "deploy/gitops-base/components/openshift-dashboard-metrics",
+)
 MEDIA_TYPE = "application/vnd.hypershell.release.v1+json"
 
 
@@ -116,12 +121,33 @@ def resource(kind, reference):
     return json.loads(run("kubectl", "get", kind, name, "-n", namespace, "-o", "json"))
 
 
+def manifest_source(components, source_directory):
+    """Select a fixed Snapshot commit that contains all component revisions."""
+    revisions = sorted({component["source"]["git"]["revision"] for component in components})
+    for revision in revisions:
+        run("git", "merge-base", "--is-ancestor", revision,
+            "refs/remotes/origin/main", cwd=source_directory)
+    selected = revisions[0]
+    for revision in revisions[1:]:
+        try:
+            run("git", "merge-base", "--is-ancestor", selected, revision, cwd=source_directory)
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 1:
+                raise
+            # Divergent histories cannot form one manifest/image release unit.
+            run("git", "merge-base", "--is-ancestor", revision, selected, cwd=source_directory)
+        else:
+            selected = revision
+    for path in MANIFEST_PATHS:
+        run("git", "cat-file", "-e", selected + ":" + path + "/kustomization.yaml",
+            cwd=source_directory)
+    return {"git": {"url": SOURCE_URL, "revision": selected}}
+
+
 def publish(release, snapshot, source_directory, result_path):
     tag, bundle = make_bundle(release, snapshot)
+    bundle["manifests"] = manifest_source(bundle["components"], source_directory)
     for component in bundle["components"]:
-        # The pipeline fetches main from the fixed public source repository.
-        run("git", "merge-base", "--is-ancestor", component["source"]["git"]["revision"],
-            "refs/remotes/origin/main", cwd=source_directory)
         require(run("oras", "resolve", component["image"]) == component["image"].split("@")[1],
                 "Released image is not available by digest: " + component["image"])
     # Konflux credentials can be scoped to a repository. ORAS needs a host entry.
