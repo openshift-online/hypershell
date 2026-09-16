@@ -107,7 +107,8 @@
         "victory-tooltip",
         "victory-voronoi-container"
       ],
-      "groupName": "workspace UI peer providers"
+      "groupName": "workspace UI peer providers",
+      "automerge": true
     }
   ]
 }
