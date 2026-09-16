@@ -34,7 +34,8 @@ and coordinates the deletion requirements defined in:
 - [`openshell-gateway-service-accounts.spec.md`](./openshell-gateway-service-accounts.spec.md)
   - service-account client revocation and deletion, and the API-server pre-delete barrier.
 - [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)
-  - per-gateway database cleanup and ManagedDatabase deletion.
+  - per-gateway database and role cleanup on the gateway database server, and
+    the `PostgreSQLDatabase` orphan signal.
 - [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)
   - credential-namespace RBAC cleanup.
 
@@ -54,8 +55,8 @@ finalization and no-silent-orphan guarantees that span all of them.
   - **Out-of-namespace resources** - resources that live outside the gateway's
     namespace and are not reached by the namespace cascade: the cluster-scoped
     ClusterRoleBinding, the gateway/console/service-account Keycloak clients, the
-    per-gateway database and login role on the registered PostgreSQL server, and
-    any credential-namespace RBAC.
+    per-gateway database and login role on the platform's gateway database
+    server, and any credential-namespace RBAC.
 - **Finalization** - the point at which a Gateway's teardown is complete: every
   owned resource has been reclaimed or confirmed already absent, or its residue
   has been handed to an explicit, documented recovery path. The soft-deleted row
@@ -91,8 +92,9 @@ resource classes is:
 2. The cluster-scoped ClusterRoleBinding created for the gateway.
 3. The gateway's Keycloak clients: the gateway client, the console client, and
    every service-account client.
-4. The gateway's database and login role (`gw_<gatewayID>`) on the PostgreSQL
-   server registered as its ManagedDatabase.
+4. The gateway's database and login role (`gw_<gatewayID>`) on the platform's
+   gateway database server, reached with the admin credentials mounted into the
+   controller.
 5. Any credential-namespace RBAC (Role and RoleBinding) the gateway created in a
    separate credential namespace.
 
@@ -185,7 +187,7 @@ the no-silent-orphan signal below.
 
 Deletion SHALL be safe across a transient loss of the API server or the watch
 stream. When a read the teardown depends on cannot be confirmed (for example
-resolving the gateway's database configuration, or confirming liveness), the
+loading the delete event's enrichment, or confirming liveness), the
 control plane SHALL NOT make a destructive assumption from the unconfirmed read;
 it SHALL defer and retry rather than proceed on a stale or failed view. The watch
 client SHALL reconnect with bounded backoff, and the delete event SHALL NOT be
@@ -303,6 +305,20 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
 - AND that signal SHALL survive the deletion of the gateway's namespace
 - AND it SHALL NOT contain any secret
 
+#### Scenario: Failed database cleanup is recorded as a PostgreSQLDatabase orphan
+
+- GIVEN a Gateway delete whose database cleanup fails (the server is unreachable,
+  the existence query fails, or a `DROP` fails)
+- WHEN the control plane returns the error for retry
+- THEN it SHALL also record an `IncompleteFinalization` Warning Event in the
+  control-plane namespace with resource kind `PostgreSQLDatabase` and resource
+  name `gw_<gatewayID>`, on that first failure and not only after retries stop
+- AND the Event SHALL name the reason without any credential or connection string
+- AND because the retry queue is in-memory, that Event SHALL be the durable
+  signal an operator uses if the controller restarts before a retry succeeds
+  (recovery per the runbook in
+  [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md))
+
 #### Scenario: Invalid stored identity does not silently orphan the client
 
 - GIVEN a Gateway delete whose stored OIDC client identity is invalid or not
@@ -341,7 +357,7 @@ recreate any owned resource.
 | Finalization is modeled on soft-delete + delete tombstone + reconcile-queue retry, not a Kubernetes finalizer | The Gateway's source of truth is Postgres, not a Kubernetes object, so there is no object to carry a finalizer or `deletionTimestamp`. Durability comes from the soft-deleted row, the delete event's resource snapshot, and the reconcile queue's indefinite bounded-backoff retry with anti-resurrection tombstones. |
 | Enumeration is authoritative and independent of the namespace cascade | The namespace cascade cannot reach out-of-namespace resources, and it does not run at all when the namespace is shared, pre-existing, or already terminating. Enumerating every owned class explicitly prevents a leak whenever the cascade is absent or incomplete. |
 | In-namespace sweep must cover every owned type | The label-based fallback sweep is the only cleanup when the cascade does not run. If it enumerates a fixed subset of types, a newly added owned type leaks silently. Requiring full coverage keeps the fallback honest as the resource set grows. |
-| Required-inline vs recovery-path split | Some residue has a real recovery path (namespaces via periodic GC; Keycloak clients via attribute-keyed orphan reconciliation) and can be safely handed off; other residue (databases, service-account clients) has no sweep and must be retried inline until it succeeds. The split makes explicit which failures keep the delete retrying and which are legitimately deferred. |
+| Required-inline vs recovery-path split | Some residue has a real recovery path (namespaces via periodic GC; Keycloak clients via attribute-keyed orphan reconciliation) and can be safely handed off; other residue (databases, service-account clients) has no sweep and must be retried inline until it succeeds. The split makes explicit which failures keep the delete retrying and which are legitimately deferred. Because the retry queue does not survive a controller restart, database cleanup additionally records a `PostgreSQLDatabase` orphan Event on its first failure so the leftover is never known only to a lost in-memory retry. |
 | No-silent-orphan requires a durable signal, not just a log | Once the Postgres row is soft-deleted, a controller log line is the only trace of a leaked out-of-namespace resource with no recovery path, and it is easily lost. A durable Kubernetes Event in the control-plane namespace (mirroring the GC `GarbageCollected` Event) gives operators a queryable record without exposing secrets. |
 | Unconfirmed reads defer rather than assume | Treating a failed read as "already cleaned" during an API outage would let a transient disconnection cause a real orphan. Deferring to a later retry is the only safe response, consistent with the namespace GC's abort-the-sweep-on-list-failure rule. |
 | Delete events must not be silently dropped | Dropping a delete event for a cluster-scoped subscriber when enrichment fails shifts all recovery onto the namespace GC, which cannot reclaim Keycloak clients or databases. Surfacing the drop (and recording it when no recovery path covers it) preserves the no-silent-orphan guarantee. |

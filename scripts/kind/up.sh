@@ -257,20 +257,42 @@ echo ""
 
 # --- Stand-in PostgreSQL server ---
 # Provision a standalone PostgreSQL in a dedicated namespace so the control
-# plane has a real server to probe and issue per-gateway DDL against.
+# plane has a real server to probe and issue per-gateway DDL against. It stands
+# in for the cloud-managed server (AWS RDS / IBM Cloud DB) production points at.
 #
-# The admin credentials live in their own reserved-prefix namespace
-# (hypershell-managed-db-kind), NOT in the HyperShell instance namespace: that
-# mirrors production, where the platform team stages the credentials
-# out-of-band, normally before HyperShell is installed. The Secret inside it has
-# the fixed name hypershell-managed-db-credentials, and
-# ManagedDatabase.connection_secret names the NAMESPACE.
+# The server MUST serve TLS: the control plane connects with sslmode=verify-full
+# for both its admin session and every gateway's tenant connection, so it needs
+# a certificate whose SAN matches the host in the admin Secret and a CA bundle
+# to verify it against. A throwaway CA + server certificate is generated with
+# scripts/gen-postgres-tls.sh on the first run and stored in Secret postgres-tls
+# (external-cloud-db); later runs reuse it so the CA handed to the controller
+# keeps matching the certificate the running server presents.
 header "Stand-in PostgreSQL server"
 EXTERNAL_PG_NS="external-cloud-db"
 EXTERNAL_PG_PASSWORD="hypershell-kind-admin-password"
-EXTERNAL_CREDS_NS="hypershell-managed-db-kind"
+EXTERNAL_PG_HOST="postgres.${EXTERNAL_PG_NS}.svc.cluster.local"
+EXTERNAL_PG_TLS_SECRET="postgres-tls"
+GATEWAY_DB_ADMIN_SECRET="hypershell-gateway-database-admin"
 info "Deploying standalone PostgreSQL in namespace '${EXTERNAL_PG_NS}'..."
 kube create namespace "${EXTERNAL_PG_NS}" --dry-run=client -o yaml | kube apply -f -
+
+if kube get secret "${EXTERNAL_PG_TLS_SECRET}" -n "${EXTERNAL_PG_NS}" >/dev/null 2>&1; then
+  success "TLS Secret '${EXTERNAL_PG_TLS_SECRET}' already exists - reusing its CA"
+else
+  info "Generating throwaway CA and server certificate for ${EXTERNAL_PG_HOST}..."
+  _pg_tls_dir="$(mktemp -d)"
+  bash "${REPO_ROOT}/scripts/gen-postgres-tls.sh" "${_pg_tls_dir}" \
+    "${EXTERNAL_PG_HOST}" "postgres.${EXTERNAL_PG_NS}.svc" "postgres"
+  kube create secret generic "${EXTERNAL_PG_TLS_SECRET}" \
+    -n "${EXTERNAL_PG_NS}" \
+    --from-file=tls.crt="${_pg_tls_dir}/tls.crt" \
+    --from-file=tls.key="${_pg_tls_dir}/tls.key" \
+    --from-file=ca.crt="${_pg_tls_dir}/ca.crt" \
+    --dry-run=client -o yaml | kube apply -f -
+  rm -rf "${_pg_tls_dir}"
+  success "TLS Secret '${EXTERNAL_PG_TLS_SECRET}' created"
+fi
+
 kube apply -f - <<'EXTERNAL_PG_EOF'
 apiVersion: apps/v1
 kind: Deployment
@@ -279,6 +301,8 @@ metadata:
   namespace: external-cloud-db
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: postgres
@@ -305,6 +329,22 @@ spec:
           image: postgres:15
           securityContext:
             allowPrivilegeEscalation: false
+          # PostgreSQL refuses a private key that is group/world readable
+          # unless it is owned by root with mode 0640. Secret volume files are
+          # root-owned 0644 by default, so copy the key out, hand it to the
+          # postgres user (the entrypoint still runs as root at this point and
+          # drops to uid 999 afterwards) and lock it down before exec'ing the
+          # stock entrypoint with SSL enabled.
+          command: ["sh", "-c"]
+          args:
+            - >-
+              cp /tls/tls.key /tmp/server.key &&
+              chown postgres:postgres /tmp/server.key &&
+              chmod 600 /tmp/server.key &&
+              exec docker-entrypoint.sh postgres
+              -c ssl=on
+              -c ssl_cert_file=/tls/tls.crt
+              -c ssl_key_file=/tmp/server.key
           env:
             - name: POSTGRES_PASSWORD
               value: hypershell-kind-admin-password
@@ -317,6 +357,14 @@ spec:
               command: ["pg_isready", "-U", "postgres"]
             initialDelaySeconds: 5
             periodSeconds: 3
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: postgres-tls
 ---
 apiVersion: v1
 kind: Service
@@ -331,25 +379,36 @@ spec:
       targetPort: 5432
 EXTERNAL_PG_EOF
 info "Waiting for the stand-in PostgreSQL to be ready..."
-kube wait --for=condition=available deployment/postgres -n "${EXTERNAL_PG_NS}" --timeout=120s
-success "Stand-in PostgreSQL ready"
-info "Creating credentials namespace '${EXTERNAL_CREDS_NS}'..."
-kube create namespace "${EXTERNAL_CREDS_NS}" --dry-run=client -o yaml | kube apply -f -
-info "Creating admin Secret 'hypershell-managed-db-credentials' in ${EXTERNAL_CREDS_NS}..."
-# sslmode=disable is acceptable ONLY because this stand-in server is in-cluster
-# and never reachable from outside. Any real server must use sslmode=require at
-# minimum (verify-full with an inline PEM sslrootcert is the recommended
-# hardening).
-kube create secret generic hypershell-managed-db-credentials \
-  -n "${EXTERNAL_CREDS_NS}" \
-  --from-literal=host="postgres.${EXTERNAL_PG_NS}.svc.cluster.local" \
+kube rollout status deployment/postgres -n "${EXTERNAL_PG_NS}" --timeout=120s
+success "Stand-in PostgreSQL ready (TLS on)"
+
+# The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
+# mounted from its own namespace at /etc/hypershell/gateway-database
+# (deploy/base/controller.yaml), and refuses to start without it. It must exist
+# BEFORE the kustomize apply below so the controller pod can mount it. Its
+# sslrootcert is the CA that signed the stand-in server's certificate, and
+# sslmode is pinned to verify-full: the controller rejects anything weaker.
+info "Creating admin Secret '${GATEWAY_DB_ADMIN_SECRET}' in ${KIND_NAMESPACE}..."
+_pg_ca_file="$(mktemp)"
+kube get secret "${EXTERNAL_PG_TLS_SECRET}" -n "${EXTERNAL_PG_NS}" \
+  -o go-template='{{index .data "ca.crt" | base64decode}}' > "${_pg_ca_file}"
+if [[ ! -s "${_pg_ca_file}" ]]; then
+  rm -f "${_pg_ca_file}"
+  error "Secret ${EXTERNAL_PG_TLS_SECRET} in ${EXTERNAL_PG_NS} has no ca.crt; delete it and re-run kind-up"
+  exit 1
+fi
+kube create secret generic "${GATEWAY_DB_ADMIN_SECRET}" \
+  -n "${KIND_NAMESPACE}" \
+  --from-literal=host="${EXTERNAL_PG_HOST}" \
   --from-literal=port="5432" \
   --from-literal=user="postgres" \
   --from-literal=password="${EXTERNAL_PG_PASSWORD}" \
   --from-literal=dbname="postgres" \
-  --from-literal=sslmode="disable" \
+  --from-literal=sslmode="verify-full" \
+  --from-file=sslrootcert="${_pg_ca_file}" \
   --dry-run=client -o yaml | kube apply -f -
-success "Admin credentials namespace and Secret created"
+rm -f "${_pg_ca_file}"
+success "Admin Secret '${GATEWAY_DB_ADMIN_SECRET}' created"
 echo ""
 
 # --- Deploy all components via kustomize ---
@@ -358,8 +417,9 @@ header "Deploying Components"
 # The database-external component sets DB_SSLMODE=disable and injects the
 # hypershell-db-app Secret pointing at the stand-in server provisioned above.
 # The API server and its migrate init container both read from that server;
-# gateways use it too, via their per-gateway databases (gw_<id>) created by the
-# control plane.
+# gateways use it too, via their per-gateway databases (gw_<id>) that the
+# control plane creates with the hypershell-gateway-database-admin credentials
+# over sslmode=verify-full.
 _db_overlay_extra=$'\ncomponents:\n  - ../kind/database-external'
 
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then

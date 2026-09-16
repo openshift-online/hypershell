@@ -241,7 +241,7 @@ oc -n hypershell patch deploy hypershell-api-server --type=json -p "[
     \"--db-password-file=/secrets/db.password\", \"--db-sslmode=disable\",
     \"--jwk-cert-url=https://keycloak-keycloak.$BASE_DOMAIN/realms/hypershell/protocol/openid-connect/certs\",
     \"--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi\",
-    \"--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks\"
+    \"--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks\"
   ]}
 ]"
 
@@ -264,24 +264,29 @@ oc -n hypershell set env deploy/hypershell-controller \
   GATEWAY_OIDC_ISSUER_URL="https://keycloak-keycloak.$BASE_DOMAIN/realms/hypershell"
 ```
 
-### 6.2: Register the PostgreSQL server
+### 6.2: Configure the gateway database server
 
 The controller provisions each gateway's database and login role on an externally
-provisioned PostgreSQL server. Create the credentials namespace and Secret before
-registering the server as a ManagedDatabase (see step 8.1):
+provisioned PostgreSQL server. It reads the admin connection from the
+`hypershell-gateway-database-admin` Secret mounted at `/etc/hypershell/gateway-database`
+and refuses to start until that Secret exists with valid files. Create it **before**
+the controller rollout, with the server's CA bundle; `sslmode` is always
+`verify-full`:
 
 ```bash
-oc create namespace hypershell-managed-db-gcp
-oc -n hypershell-managed-db-gcp create secret generic hypershell-managed-db-credentials \
+oc -n hypershell create secret generic hypershell-gateway-database-admin \
   --from-literal=host=<server-host> \
   --from-literal=port=5432 \
   --from-literal=user=<admin-user> \
   --from-literal=password=<admin-password> \
   --from-literal=dbname=postgres \
-  --from-literal=sslmode=require
+  --from-literal=sslmode=verify-full \
+  --from-file=sslrootcert=<server-ca-bundle.pem>
+oc -n hypershell rollout restart deploy/hypershell-controller
 ```
 
-The admin role needs `CREATEDB` and `CREATEROLE`; it does not need superuser.
+The admin role needs `CREATEDB`, `CREATEROLE` and `pg_signal_backend`; it does not
+need superuser. There is no database resource to create through the API.
 
 ### 6.3: Deploy the web console with OIDC
 
@@ -399,14 +404,7 @@ RELEASE=$(curl -sk -X POST "$API/gateway_releases" -H 'Content-Type: application
   -d "{\"name\":\"openshell-0.0.109\",\"image\":\"quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0\"}")
 RELEASE_ID=$(echo "$RELEASE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-# ManagedDatabase: connection_secret names the NAMESPACE holding the admin
-# credentials Secret created in step 6.2.
-DB=$(curl -sk -X POST "$API/managed_databases" -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $TOKEN" \
-  -d "{\"name\":\"gcp-db\",\"connection_secret\":\"hypershell-managed-db-gcp\",\"region\":\"us-central1\",\"engine\":\"postgresql\"}")
-DB_ID=$(echo "$DB" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
-
-echo "Cluster=$CLUSTER_ID Release=$RELEASE_ID DB=$DB_ID"
+echo "Cluster=$CLUSTER_ID Release=$RELEASE_ID"
 ```
 
 ### 8.2: Create the Gateway
@@ -417,7 +415,6 @@ GATEWAY=$(curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' \
   \"name\": \"gcp-test-gw\",
   \"cluster_id\": \"$CLUSTER_ID\",
   \"release_id\": \"$RELEASE_ID\",
-  \"database_id\": \"$DB_ID\",
   \"namespace\": \"openshell-gcptest\",
   \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0\",
   \"route\": \"{\\\"enabled\\\": true}\"
@@ -551,9 +548,9 @@ If a custom domain with wildcard DNS is configured later:
 | Controller logs `OIDC authentication disabled for gRPC` | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, or `OIDC_CLIENT_SECRET` env vars missing | Set all three OIDC env vars on the controller deployment |
 | Controller gets `Unauthenticated: missing authorization token` on gRPC | Controller image lacks OIDC token provider (old pinned digest) | Upgrade controller to `:latest` image |
 | API server `relation "users" does not exist` or `column "X" missing` | Init container (migration) uses old image with older schema | Update init container image to `:latest` to match the main container |
-| ManagedDatabase status `Failed: secret_invalid` | `connection_secret` is not a `hypershell-managed-db-` namespace holding `hypershell-managed-db-credentials` | Create the namespace and Secret (Step 6.2) |
-| ManagedDatabase status `Failed: unreachable` / `auth_failed` | The cluster cannot reach the server, or the admin credentials are wrong | Check egress to the server and the Secret's `host`/`user`/`password` |
-| ManagedDatabase status `Failed: insufficient_privilege` | The admin role lacks `CREATEDB` or `CREATEROLE` | Grant both on the server |
+| Controller crash-loops with `gateway database admin credentials` in the log | `hypershell-gateway-database-admin` is missing, lacks a required key (`host`/`port`/`user`/`password`/`sslrootcert`), or sets `sslmode` to anything but `verify-full` | Create or fix the Secret (Step 6.2) and restart the controller |
+| Gateway stuck with `DatabaseReady: Failed`; controller log shows connection, auth or TLS errors | The cluster cannot reach the server, the admin credentials are wrong, or the CA bundle does not match the server certificate | Check egress to the server and the Secret's `host`/`user`/`password`/`sslrootcert`; the reconcile retries on its own |
+| Gateway `DatabaseReady: Failed`; controller log shows a permission error on `CREATE DATABASE`/`CREATE ROLE` | The admin role lacks `CREATEDB` or `CREATEROLE` | Grant both on the server |
 | Gateway pod `CreateContainerConfigError` on `uri` key | DB credentials secret has `url` key but gateway expects `uri` | `:latest` controller creates the correct `uri` key; if migrating from old controller, patch the secret |
 | Controller `403 Forbidden` managing Keycloak clients | `hypershell-control-plane` SA missing `realm-management` roles | Assign roles via Keycloak admin API (Step 5.1) |
 | Web console crashes with `SESSION_SECRET is required` | `SESSION_SECRET` env var not set when `OIDC_ISSUER` is present | Set `SESSION_SECRET` to a random hex string |
@@ -609,8 +606,9 @@ resolution.
 ### Gateway database provisioning
 
 The controller provisions each gateway's database and login role (`gw_<gateway-id>`)
-directly on the PostgreSQL server the `ManagedDatabase` registers, using a
-short-lived admin connection read from `hypershell-managed-db-credentials` in the
-`connection_secret` namespace. No database workload and no operator run in the
-cluster; the gateway namespace receives only the `openshell-gateway-db-credentials`
-Secret.
+directly on the PostgreSQL server named by the `hypershell-gateway-database-admin`
+Secret mounted into it, using a short-lived `verify-full` admin connection whose
+files are re-read on every operation. No database workload and no operator run in
+the cluster, and nothing in the API refers to databases; the gateway namespace
+receives only the `openshell-gateway-db-credentials` Secret (its own role, database,
+`uri` and the server CA as `sslrootcert`).

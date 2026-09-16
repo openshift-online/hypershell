@@ -44,10 +44,14 @@ resources:
 patches:
   # --- select Route ingress mode for the control-plane reconciler ---
   # Strategic-merge on the env list (merged by name): adds GATEWAY_INGRESS_MODE,
-  # overrides GATEWAY_API_BASE_DOMAIN, and sets per-tenant gateway database +
+  # overrides GATEWAY_API_BASE_DOMAIN, and sets the gateway, supervisor and
   # sandbox-base images to point at the cluster-internal registry (which ROKS
   # nodes can reach, unlike quay.io/ghcr.io/docker.io). GATEWAY_API_GATEWAY_NAME
-  # is unused in route mode and is left as-is.
+  # is unused in route mode and is left as-is. Gateway databases are created on
+  # the server named by Secret hypershell-gateway-database-admin (inherited
+  # from deploy/openshift: the bundled hypershell-postgres, or an IBM Cloud
+  # Databases instance when that Secret is replaced), so no database image is
+  # configured here.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment

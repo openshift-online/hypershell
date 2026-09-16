@@ -17,7 +17,6 @@ import (
 
 var args struct {
 	clusterId       string
-	databaseId      string
 	externalDns     string
 	image           string
 	name            string
@@ -46,7 +45,6 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.clusterId, "cluster-id", "", "cluster_id value.")
-	fs.StringVar(&args.databaseId, "database-id", "", "database_id value.")
 	fs.StringVar(&args.externalDns, "external-dns", "", "external_dns value.")
 	fs.StringVar(&args.image, "image", "", "image value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
@@ -84,9 +82,6 @@ func run(cmd *cobra.Command, argv []string) error {
 		request := map[string]interface{}{}
 		if args.clusterId != "" {
 			request["cluster_id"] = args.clusterId
-		}
-		if args.databaseId != "" {
-			request["database_id"] = args.databaseId
 		}
 		if args.externalDns != "" {
 			request["external_dns"] = args.externalDns

@@ -27,7 +27,6 @@ const previewGateway: GatewayConnection = {
 const previewGatewayResource: GatewayRecord = {
   clusterId: "",
   createdAt: "2026-08-10T14:30:00Z",
-  databaseId: "database-1",
   externalDns: "gateway.example.test",
   id: "gateway-b",
   name: "OpenShell gateway",

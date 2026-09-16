@@ -12,6 +12,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
 // TestGRPCGatewayRejectsUnknownPhase proves the API server enforces the
@@ -19,7 +20,7 @@ import (
 // a create or update with a phase outside the canonical set is rejected with
 // InvalidArgument and never persisted, while a canonical phase is accepted.
 func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -40,11 +41,10 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 
 	badPhase := "Booting"
 	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "reject-create",
-		ClusterId:  "test-cluster_id",
-		ReleaseId:  "test-release_id",
-		DatabaseId: "test-database_id",
-		Phase:      &badPhase,
+		Name:      "reject-create",
+		ClusterId: "test-cluster_id",
+		ReleaseId: "test-release_id",
+		Phase:     &badPhase,
 	})
 	Expect(err).To(HaveOccurred(), "create with an unknown phase must be rejected")
 	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
@@ -52,11 +52,10 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 	// A canonical phase on create is accepted.
 	goodPhase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "accept-create",
-		ClusterId:  "test-cluster_id",
-		ReleaseId:  "test-release_id",
-		DatabaseId: "test-database_id",
-		Phase:      &goodPhase,
+		Name:      "accept-create",
+		ClusterId: "test-cluster_id",
+		ReleaseId: "test-release_id",
+		Phase:     &goodPhase,
 	})
 	Expect(err).NotTo(HaveOccurred())
 
@@ -83,10 +82,9 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 
 	// An absent phase is accepted so the field stays optional.
 	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "accept-absent-phase",
-		ClusterId:  "test-cluster_id",
-		ReleaseId:  "test-release_id",
-		DatabaseId: "test-database_id",
+		Name:      "accept-absent-phase",
+		ClusterId: "test-cluster_id",
+		ReleaseId: "test-release_id",
 	})
 	Expect(err).NotTo(HaveOccurred(), "create without a phase must be accepted")
 }
@@ -97,7 +95,7 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 // can still be patched on unrelated fields, because validation only fires when a
 // write actually sets phase.
 func TestGatewayPatchNotTouchingPhaseAcceptsLegacyRecord(t *testing.T) {
-	h, client := registerIntegration(t)
+	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -120,17 +118,16 @@ func TestGatewayPatchNotTouchingPhaseAcceptsLegacyRecord(t *testing.T) {
 // TestRESTGatewayRejectsUnknownPhase proves the REST create path enforces the
 // same canonical phase vocabulary with HTTP 400.
 func TestRESTGatewayRejectsUnknownPhase(t *testing.T) {
-	h, client := registerIntegration(t)
+	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
 	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name:       "reject-rest-create",
-		ClusterId:  "test-cluster_id",
-		ReleaseId:  "test-release_id",
-		DatabaseId: "test-database_id",
-		Phase:      openapi.PtrString("Booting"),
+		Name:      "reject-rest-create",
+		ClusterId: "test-cluster_id",
+		ReleaseId: "test-release_id",
+		Phase:     openapi.PtrString("Booting"),
 	}).Execute()
 	Expect(err).To(HaveOccurred(), "REST create with an unknown phase must be rejected")
 	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))

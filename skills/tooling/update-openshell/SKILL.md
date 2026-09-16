@@ -76,7 +76,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `specs/platform/openshell-gateway-credentials.spec.md` | example manifests | Spec citation |
 | `specs/platform/global-architecture.spec.md` | version in the API-compat note | Also re-check the `v1beta1` claim (see below) |
 | `components/pr-test/e2e-openshell-roks.sh` | `GW_IMAGE`, `GW_SUPERVISOR_IMAGE` defaults | ROKS e2e |
-| `specs/platform/openshell-gateway-database.spec.md` | example gateway image refs | **Was pinned to a git SHA, not a semver tag** - normalize to the release tag |
+| `specs/platform/openshell-gateway-database.spec.md` | none since the 2026-09-16 rewrite (no gateway image refs remain) | Keep in the discovery grep; historically **was pinned to a git SHA, not a semver tag** |
 | `scripts/kind/lib.sh` | `GATEWAY_IMAGE` default | Local Kind |
 | `skills/deploy/ibm-cluster/SKILL.md` | mirror + `openshell gateway add` commands + `v1beta1` API-version note | ROKS mirror docs |
 

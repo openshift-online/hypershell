@@ -9,22 +9,24 @@ import (
 )
 
 // DatabaseReconciler provisions and removes a gateway's database on the
-// PostgreSQL server registered as its ManagedDatabase. Reconcile creates the
-// per-gateway database and role and writes the tenant credentials Secret.
-// Delete drops them. A non-nil error signals a transient failure that the
-// caller should retry; cleanup is unconditional and single-shot (no tombstone,
-// no retry queue), so a failed drop is logged rather than retried.
+// PostgreSQL server the control plane's mounted admin credentials point at.
+// Reconcile creates the per-gateway database and role and writes the tenant
+// credentials Secret. Delete drops them. A non-nil error from either signals
+// that the work is incomplete and the caller should retry.
 type DatabaseReconciler interface {
 	Reconcile(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, tenantNamespace, gatewayID string) error
 	Delete(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, gatewayID string) error
 }
 
 // newDatabaseReconciler constructs the DatabaseReconciler for opts. The admin
-// credentials namespace (ManagedDatabase.connection_secret) is required: without
-// it there is no server to issue DDL against.
+// credentials directory is required: it is validated at controller startup, so
+// an empty value here is a wiring error, not an operator error.
 func newDatabaseReconciler(opts ReconcileOpts) (DatabaseReconciler, error) {
-	if opts.ExternalDB.CredentialsNamespace == "" {
-		return nil, fmt.Errorf("database connection_secret (credentials namespace) is required for gateway database reconciliation")
+	if opts.databaseReconciler != nil {
+		return opts.databaseReconciler, nil
 	}
-	return &externalDatabaseReconciler{cfg: opts.ExternalDB}, nil
+	if opts.Database.AdminCredentialsDir == "" {
+		return nil, fmt.Errorf("gateway database admin credentials directory is required for database reconciliation")
+	}
+	return &databaseReconciler{cfg: opts.Database}, nil
 }

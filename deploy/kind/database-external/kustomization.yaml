@@ -5,8 +5,9 @@ resources:
   - hypershell-db-secret.yaml
 
 patches:
-  # The stand-in server does not terminate TLS; switch sslmode from require to
-  # disable in both the migrate init container and the api-server container.
+  # The API server has no CA bundle for the stand-in server's throwaway TLS
+  # certificate in Kind; switch sslmode from require to disable in both the
+  # migrate init container and the api-server container.
   - target:
       kind: Deployment
       name: hypershell-api-server

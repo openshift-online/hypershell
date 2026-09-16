@@ -69,8 +69,8 @@ YAML. Those are follow-up implementation work.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase) only
-where a scenario provisions one.
+GatewayNetwork, GatewayRelease, ManagedCluster) only where a scenario
+provisions one.
 
 ## Architecture
 
@@ -162,8 +162,7 @@ a selector either, because the target name already fixes the infrastructure.
 - GIVEN an OpenShift environment exists
 - WHEN the developer runs `make openshift-teardown` or `make openshift-down`
 - THEN both commands remove the environment namespace group (the platform
-  project, the `${OPENSHIFT_NAMESPACE}-keycloak` project, and the
-  `hypershell-managed-db-${OPENSHIFT_NAMESPACE}` credentials project)
+  project and the `${OPENSHIFT_NAMESPACE}-keycloak` project)
 - AND neither command attempts to destroy the OpenShift cluster
 
 ### Requirement: OpenShift Lifecycle Up and Down
@@ -196,10 +195,10 @@ the working-tree image is active.
 
 Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
 developer needs for a working gateway -- a ManagedCluster, a
-GatewayRelease, a ManagedDatabase, and a Gateway -- with the OpenShift Route and
+GatewayRelease, and a Gateway -- with the OpenShift Route and
 OIDC values for the environment, so that one command produces a working gateway and
 the OpenShift workflow matches the Kind workflow. Seeding SHALL be reuse-or-create
-for the named seed resources `local-openshift`, `dev-release`, and `openshell-db`:
+for the named seed resources `local-openshift` and `dev-release`:
 when a resource with that name already exists, the command SHALL reuse its id and
 SHALL NOT POST a second copy. Gateway names are not unique in the API, so a second
 `make openshift-up` or `make openshift-seed` against a namespace that already has a
@@ -221,13 +220,13 @@ The platform database SHALL be the bundled PostgreSQL Deployment that
 `deploy/base/` provides, with its connection info in the `hypershell-db-app`
 Secret (`user`/`password`/`host`/`port`/`dbname`). It stands in for an externally
 provisioned server. `make openshift-up` SHALL NOT read a database selector and
-SHALL NOT inspect the cluster to choose a database. Seeding SHALL register the same
-server as the ManagedDatabase: `make openshift-up` SHALL create the
-`hypershell-managed-db-${OPENSHIFT_NAMESPACE}` credentials project containing the
-`hypershell-managed-db-credentials` Secret with the server's admin connection, and
-SHALL create the ManagedDatabase with `connection_secret` set to that project name.
-The credentials project belongs to the environment namespace group and shares its
-lifecycle.
+SHALL NOT inspect the cluster to choose a database. The same server SHALL be the
+gateway database server: the bundled PostgreSQL SHALL serve TLS with a self-signed
+CA the scripts generate, and `make openshift-up` SHALL create the
+`hypershell-gateway-database-admin` Secret in the platform project with the server's
+admin connection, `sslmode: verify-full` and that CA as `sslrootcert`, before the
+controller starts. No credentials project is created and no database resource is
+seeded through the API.
 
 The OpenShift overlay SHALL derive `GATEWAY_API_HTTP_LISTENER_NAME` from the
 shared Gateway's actual listener (preferring one literally named `grpc` for
@@ -242,8 +241,7 @@ back to when the override is unset, both reproduce as GRPCRoute or HTTPRoute sta
 The `make openshift-down` command SHALL delete the applied manifests and SHALL
 remove every project in the environment namespace group: the platform project
 the developer selected with `OPENSHIFT_NAMESPACE` or the current `oc project`,
-the companion `${OPENSHIFT_NAMESPACE}-keycloak` project, and the
-`hypershell-managed-db-${OPENSHIFT_NAMESPACE}` credentials project. `make
+and the companion `${OPENSHIFT_NAMESPACE}-keycloak` project. `make
 openshift-teardown` SHALL be the same command. OpenShift does not create the
 cluster, so teardown cannot destroy it; the Kind-shaped target exists for
 compatibility. Without `FORCE=true`, down SHALL refuse namespaces that lack
@@ -257,17 +255,16 @@ is forbidden, the command SHALL delete HyperShell resources inside both projects
 (including the bundled Keycloak workload, which is unlabeled), wait for those
 deletes, and leave the projects.
 
-Gateway and ManagedDatabase workloads do not live in the platform project. The
-control plane creates sibling namespaces (`openshell-<hex>`, `openshell-db-<hex>`)
-stamped with `hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>` as
+Gateway workloads do not live in the platform project. The control plane
+creates sibling namespaces (`openshell-<hex>`) stamped with `hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>` as
 `openshell-gateway-namespace-gc.spec.md` defines. Periodic GC cannot reap those
 after the platform project is gone, because only that instance's controller
 selects on its own identity, and deleting the project kills the controller.
 `make openshift-down` SHALL therefore delete every namespace labeled
 `hypershell.redhat.io/managed=true`,
 `app.kubernetes.io/managed-by=hypershell-control-plane`, and
-`hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>`, including ManagedDatabase
-namespaces, after the platform project is removed (or when that project is already
+`hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>` after the platform project
+is removed (or when that project is already
 absent) so the controller cannot recreate them from API state. It SHALL NOT
 delete namespaces labeled for a different instance. An empty instance identity
 SHALL refuse that selector rather than match unlabeled leftovers. This cleanup
@@ -302,8 +299,7 @@ those from the developer machine.
 - WHEN the developer runs `make openshift-up`
 - THEN the scripts render and apply the API server, the control plane, the web
   console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
-- AND the scripts seed a ManagedCluster, a GatewayRelease, a
-  ManagedDatabase, and a Gateway
+- AND the scripts seed a ManagedCluster, a GatewayRelease, and a Gateway
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 
@@ -348,8 +344,8 @@ get-modify-replace of the live Deployment races status updates and fails with
 
 #### Scenario: Seeding reuses existing named resources
 
-- GIVEN the environment already has a ManagedCluster named `local-openshift`, a
-  GatewayRelease named `dev-release`, and a ManagedDatabase named `openshell-db`
+- GIVEN the environment already has a ManagedCluster named `local-openshift` and a
+  GatewayRelease named `dev-release`
 - WHEN the developer runs `make openshift-up` or `make openshift-seed`
 - THEN the command reuses those existing resources
 
@@ -364,11 +360,11 @@ get-modify-replace of the live Deployment races status updates and fails with
 #### Scenario: Remove the deployment
 
 - GIVEN a HyperShell deployment exists from `make openshift-up`
-- AND that environment has created gateway and ManagedDatabase namespaces labeled
+- AND that environment has created gateway namespaces labeled
   `hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>`
 - WHEN the developer runs `make openshift-down` or `make openshift-teardown`
-- THEN the scripts delete the platform project, the companion `-keycloak` project,
-  and the `hypershell-managed-db-${OPENSHIFT_NAMESPACE}` credentials project
+- THEN the scripts delete the platform project and the companion `-keycloak`
+  project
 - AND the command does not return until every project in the group is gone, or until
   project deletion is forbidden and HyperShell resources in those projects have been
   removed
@@ -411,9 +407,8 @@ to a shared name that collides. A derived default SHALL be a valid RFC 1123 DNS 
 `[a-z0-9-]` replaced by `-`, and truncated to the length limit -- because raw
 identity values such as `kube:admin` or `user@redhat.com` are not valid DNS labels.
 
-`OPENSHIFT_NAMESPACE` SHALL be a valid RFC 1123 DNS label of at most 41 characters,
-so that the derived `${OPENSHIFT_NAMESPACE}-keycloak` and
-`hypershell-managed-db-${OPENSHIFT_NAMESPACE}` namespaces stay within the
+`OPENSHIFT_NAMESPACE` SHALL be a valid RFC 1123 DNS label of at most 54 characters,
+so that the derived `${OPENSHIFT_NAMESPACE}-keycloak` namespace stays within the
 63-character DNS-label limit for Kubernetes namespaces. The command SHALL validate
 the name and the derived name before it creates any resource, and SHALL stop with a
 clear error when either name is invalid. The scripts SHALL derive the `-keycloak`
@@ -457,8 +452,8 @@ a different HyperShell environment, so an accidental down cannot erase an
 unrelated project. `FORCE=true make openshift-down` SHALL skip that ownership
 check and SHALL still refuse reserved names (`default`, `kube-*`,
 `openshift-*`). When project deletion is forbidden, the command SHALL remove
-HyperShell resources inside the platform, keycloak, and database credentials
-projects and SHALL leave the projects.
+HyperShell resources inside the platform and keycloak projects and SHALL leave
+the projects.
 `make openshift-teardown` SHALL perform the same steps.
 
 #### Scenario: Two developers share one cluster
@@ -528,8 +523,7 @@ only a namespace parameterization, so the overlay stays derived from the base
 rather than patching Keycloak into a shared namespace. This is why the spec keeps
 Keycloak in its own namespace.
 
-Together, the platform namespace, its `-keycloak` namespace, and the
-`hypershell-managed-db-${OPENSHIFT_NAMESPACE}` database credentials namespace form the
+Together, the platform namespace and its `-keycloak` namespace form the
 deployment's namespace group. The namespaces SHALL share one lifecycle: the
 scripts create missing ones with `oc new-project`, apply Keycloak while that
 project is selected, switch back to the platform project for the remaining
@@ -612,11 +606,10 @@ hangs while loading JWKS and the rollout never completes.
 
 #### Scenario: The namespace group shares one lifecycle
 
-- GIVEN a deployment has a platform namespace, its `-keycloak` namespace, and its
-  `hypershell-managed-db-` credentials namespace
+- GIVEN a deployment has a platform namespace and its `-keycloak` namespace
 - WHEN the developer runs `make openshift-down` or `make openshift-teardown`
 - THEN every namespace in the group is removed together
-- AND neither the `-keycloak` namespace nor the credentials namespace is left behind
+- AND the `-keycloak` namespace is not left behind
 
 ### Requirement: Component Swap on OpenShift
 

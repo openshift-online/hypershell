@@ -1,16 +1,15 @@
 # Domain model
 
-The API models top-level placement, release, database, gateway, network, and gateway-scoped automation resources. Tenancy is enforced through platform-level and per-gateway RBAC rather than resource grouping.
+The API models top-level placement, release, gateway, network, and gateway-scoped automation resources. Gateway databases are not API resources; the control plane provisions them from a mounted admin credential Secret. Tenancy is enforced through platform-level and per-gateway RBAC rather than resource grouping.
 
 Authoritative source: specs/platform/data-model.spec.md; specs/security/rbac-enforcement.spec.md
 
-### Current API relationships. Resources are top-level; placement, release, and database references converge on Gateway, while service accounts are scoped to one Gateway.
+### Current API relationships. Resources are top-level; placement and release references converge on Gateway, while service accounts are scoped to one Gateway.
 
 ```mermaid
 erDiagram
   ManagedCluster ||--o{ Gateway : hosts
   GatewayRelease ||--o{ Gateway : deployed_as
-  ManagedDatabase ||--o{ Gateway : backed_by
   Gateway ||--o{ OpenShellGatewayServiceAccount : authorizes
   Gateway ||--o| GatewayNetwork : hub_gateway
   ManagedCluster {
@@ -18,14 +17,6 @@ erDiagram
     string name
     string provider
     string region
-    string status
-  }
-  ManagedDatabase {
-    string id PK
-    string name
-    string provider
-    string region
-    string engine
     string status
   }
   GatewayRelease {
@@ -40,7 +31,6 @@ erDiagram
     string name
     string cluster_id FK
     string release_id FK
-    string database_id FK
     string namespace
     string phase
     string status

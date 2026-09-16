@@ -23,14 +23,14 @@ Managed Clusters (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, ManagedDatabases, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md).
 
 ### Reconciler
 
 The Reconciler receives resource events from the Watcher and converges the Kubernetes state on managed clusters to match. Key responsibilities:
 
 - Deploy/update Gateway workloads on target clusters
-- Provision per-gateway PostgreSQL databases and roles on the PostgreSQL server registered by the gateway's ManagedDatabase (resolved via the gateway's `database_id`)
+- Provision per-gateway PostgreSQL databases and roles on the platform's gateway database server, using the admin credential Secret mounted into the controller
 - Configure TLS certificates via cert-manager
 - Create GRPCRoute and BackendTLSPolicy for external gateway exposure
 - Inject OIDC authentication configuration into gateway deployments
@@ -46,7 +46,7 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 | Sub-Spec | Scope |
 |---|---|
 | [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) | Core provisioning: GatewayReconciler, manifest templating, deployment resources, RBAC, OpenShift adjustments |
-| [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | Per-gateway PostgreSQL provisioning on registered servers, credential security, deletion protection |
+| [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | Per-gateway PostgreSQL provisioning from the mounted admin credential Secret, TLS `verify-full`, credential security, cleanup |
 | [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) | TLS certificate management via cert-manager, SAN management, cert rotation |
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
@@ -126,7 +126,7 @@ The control plane SHALL reconcile Gateway resources into Kubernetes Deployments,
 - GIVEN a new Gateway resource appears via the watch stream
 - WHEN the reconciler processes it
 - THEN it SHALL create the corresponding K8s resources on the cluster identified by `cluster_id`:
-  - A per-gateway PostgreSQL database and role on the ManagedDatabase's server (resolved via `database_id`) and the tenant credentials Secret - see [database spec](./openshell-gateway-database.spec.md)
+  - A per-gateway PostgreSQL database and role on the gateway database server (admin credentials read from the mounted Secret) and the tenant credentials Secret - see [database spec](./openshell-gateway-database.spec.md)
   - cert-manager Issuer and Certificate resources for TLS - see [TLS spec](./openshell-gateway-tls.spec.md)
   - JWT key generation Job (`openshell-gateway-certgen`)
   - Gateway Deployment, Service, ServiceAccounts, Roles, RoleBindings, ConfigMap, NetworkPolicies
@@ -134,28 +134,20 @@ The control plane SHALL reconcile Gateway resources into Kubernetes Deployments,
   - OIDC configuration in gateway.toml (when `oidc.issuer` is set) - see [OIDC spec](./openshell-gateway-oidc.spec.md)
 - AND set the Gateway's `phase` to `Provisioning` while applying manifests, and to `Running` only after the `openshell-gateway` Deployment is observed Ready - see [health spec](./openshell-gateway-health.spec.md)
 
-### Requirement: ManagedDatabase Reconciliation
+### Requirement: Gateway Database Admin Credentials
 
-The control plane SHALL reconcile each ManagedDatabase as a connectivity and capability check against the externally provisioned PostgreSQL server it registers. It SHALL create no Kubernetes resource for a ManagedDatabase.
+The control plane SHALL read the gateway database server's administrative connection from the Secret mounted at `GATEWAY_DATABASE_ADMIN_DIR` (default `/etc/hypershell/gateway-database`), SHALL validate the mounted files at startup and refuse to start when they are invalid, and SHALL NOT model the database server as an API resource. There is no database reconciler: per-gateway databases are provisioned and cleaned up by the GatewayReconciler.
 
-#### Scenario: New ManagedDatabase Created
-- GIVEN a new ManagedDatabase resource appears via the watch stream
-- WHEN the ManagedDatabaseReconciler processes it
-- THEN it SHALL read the admin credentials Secret from the ManagedDatabase's `connection_secret` namespace
-- AND it SHALL verify the admin role can create databases and roles on the server
-- AND it SHALL update the ManagedDatabase status in the API server
+#### Scenario: Controller starts with valid admin credential files
+- GIVEN the admin Secret is mounted with `host`, `port`, `user`, `password` and a PEM `sslrootcert`
+- WHEN the control plane starts
+- THEN it SHALL validate the files without connecting to the server
+- AND it SHALL serve watch streams for Gateways, GatewayReleases, ManagedClusters and GatewayNetworks
 
-#### Scenario: ManagedDatabase Deletion
-- GIVEN a ManagedDatabase deletion event from the watch stream
-- AND no Gateways reference this ManagedDatabase via `database_id`
-- WHEN the ManagedDatabaseReconciler processes it
-- THEN it SHALL perform no action on the PostgreSQL server
-- AND it SHALL delete no Kubernetes resource
-
-#### Scenario: ManagedDatabase Deletion Blocked
-- GIVEN a ManagedDatabase that is referenced by one or more Gateways
-- WHEN a user attempts to delete the ManagedDatabase
-- THEN the API server SHALL reject the deletion with HTTP 409
+#### Scenario: Controller refuses to start on invalid admin credential files
+- GIVEN a required admin credential file is missing, or `sslmode` is present with a value other than `verify-full`
+- WHEN the control plane starts
+- THEN it SHALL log a fatal error naming the file and exit non-zero
 
 See [database spec](./openshell-gateway-database.spec.md) for full provisioning details.
 

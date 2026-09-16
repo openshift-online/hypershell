@@ -161,9 +161,7 @@ export const InventorySummary: Story = {
     await expect(canvas.getByText("Inventory summary")).toBeVisible();
     await expect(canvas.getByText("Cluster providers")).toBeVisible();
     await expect(canvas.getByText("Cluster regions")).toBeVisible();
-    await expect(canvas.getByText("Database status")).toBeVisible();
     await expect(canvas.getByText("Clusters")).toBeVisible();
-    await expect(canvas.getByText("Databases")).toBeVisible();
   },
 };
 

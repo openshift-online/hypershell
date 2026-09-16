@@ -30,8 +30,6 @@ type Gateway struct {
 	Name      string     `json:"name"`
 	ClusterId string     `json:"cluster_id"`
 	ReleaseId string     `json:"release_id"`
-	// Server-assigned ManagedDatabase identifier; client-supplied values are ignored
-	DatabaseId string `json:"database_id"`
 	// API-assigned Kubernetes namespace derived from the Gateway identifier
 	Namespace   string  `json:"namespace"`
 	ExternalDns *string `json:"external_dns,omitempty"`
@@ -73,12 +71,11 @@ type _Gateway Gateway
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGateway(name string, clusterId string, releaseId string, databaseId string, namespace string) *Gateway {
+func NewGateway(name string, clusterId string, releaseId string, namespace string) *Gateway {
 	this := Gateway{}
 	this.Name = name
 	this.ClusterId = clusterId
 	this.ReleaseId = releaseId
-	this.DatabaseId = databaseId
 	this.Namespace = namespace
 	return &this
 }
@@ -321,30 +318,6 @@ func (o *Gateway) GetReleaseIdOk() (*string, bool) {
 // SetReleaseId sets field value
 func (o *Gateway) SetReleaseId(v string) {
 	o.ReleaseId = v
-}
-
-// GetDatabaseId returns the DatabaseId field value
-func (o *Gateway) GetDatabaseId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.DatabaseId
-}
-
-// GetDatabaseIdOk returns a tuple with the DatabaseId field value
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetDatabaseIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.DatabaseId, true
-}
-
-// SetDatabaseId sets field value
-func (o *Gateway) SetDatabaseId(v string) {
-	o.DatabaseId = v
 }
 
 // GetNamespace returns the Namespace field value
@@ -975,7 +948,6 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	toSerialize["name"] = o.Name
 	toSerialize["cluster_id"] = o.ClusterId
 	toSerialize["release_id"] = o.ReleaseId
-	toSerialize["database_id"] = o.DatabaseId
 	toSerialize["namespace"] = o.Namespace
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns
@@ -1042,7 +1014,6 @@ func (o *Gateway) UnmarshalJSON(data []byte) (err error) {
 		"name",
 		"cluster_id",
 		"release_id",
-		"database_id",
 		"namespace",
 	}
 

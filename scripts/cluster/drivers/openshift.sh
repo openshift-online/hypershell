@@ -9,7 +9,7 @@ MANAGED_LABEL="app.kubernetes.io/managed-by"
 MANAGED_VALUE="hypershell-lifecycle"
 PART_OF_LABEL="app.kubernetes.io/part-of"
 PART_OF_VALUE="hypershell"
-# Control-plane stamps on gateway and ManagedDatabase namespaces. Must match
+# Control-plane stamps on gateway namespaces. Must match
 # components/control-plane/internal/gateway/namespace.go (ManagedLabel,
 # ManagedByValue, InstanceLabel). Distinct from MANAGED_VALUE above, which marks
 # the platform/keycloak namespace group.
@@ -74,23 +74,17 @@ resolve_openshift_namespace() {
 }
 
 validate_namespace_group() {
-  # 41 characters keeps the derived hypershell-managed-db- namespace (22-char
-  # reserved prefix) inside the 63-character DNS-label limit.
-  validate_rfc1123_label "${OPENSHIFT_NAMESPACE}" 41 || exit 1
+  # 54 characters keeps the derived "${ns}-keycloak" project inside the
+  # 63-character DNS-label limit.
+  validate_rfc1123_label "${OPENSHIFT_NAMESPACE}" 54 || exit 1
   OPENSHIFT_KEYCLOAK_NAMESPACE="$(keycloak_namespace_for "${OPENSHIFT_NAMESPACE}")"
   validate_rfc1123_label "${OPENSHIFT_KEYCLOAK_NAMESPACE}" 63 || exit 1
-  OPENSHIFT_DB_CREDENTIALS_NAMESPACE="hypershell-managed-db-${OPENSHIFT_NAMESPACE}"
-  validate_rfc1123_label "${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}" 63 || exit 1
   if is_reserved_cluster_namespace "${OPENSHIFT_NAMESPACE}"; then
     error "Namespace '${OPENSHIFT_NAMESPACE}' is a reserved cluster namespace. Choose a different project."
     exit 1
   fi
   if is_reserved_cluster_namespace "${OPENSHIFT_KEYCLOAK_NAMESPACE}"; then
     error "Derived Keycloak namespace '${OPENSHIFT_KEYCLOAK_NAMESPACE}' is reserved. Choose a different platform name."
-    exit 1
-  fi
-  if is_reserved_cluster_namespace "${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}"; then
-    error "Derived database credentials namespace '${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}' is reserved. Choose a different platform name."
     exit 1
   fi
 }
@@ -242,28 +236,73 @@ ensure_namespace_group() {
   OPENSHIFT_ENVIRONMENT_ID="${env_id}"
   ensure_project "${OPENSHIFT_NAMESPACE}" "${env_id}"
   ensure_project "${OPENSHIFT_KEYCLOAK_NAMESPACE}" "${env_id}"
-  ensure_project "${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}" "${env_id}"
-  ensure_database_credentials_secret
+  ensure_gateway_database_admin_secret
   use_project "${OPENSHIFT_NAMESPACE}"
-  success "Namespace group ${OPENSHIFT_NAMESPACE} + ${OPENSHIFT_KEYCLOAK_NAMESPACE} + ${OPENSHIFT_DB_CREDENTIALS_NAMESPACE} (environment ${env_id})"
+  success "Namespace group ${OPENSHIFT_NAMESPACE} + ${OPENSHIFT_KEYCLOAK_NAMESPACE} (environment ${env_id})"
 }
 
-# ensure_database_credentials_secret writes the admin connection for the bundled
-# PostgreSQL Deployment into the reserved-prefix credentials namespace. In
-# production a platform team stages this Secret out-of-band for a cloud-managed
-# server; this ephemeral environment stands in for that server, so the values
-# mirror deploy/base/postgres.yaml. The Secret name is fixed by contract
-# (openshell-gateway-database.spec.md § Connection Namespace And Secret).
-ensure_database_credentials_secret() {
-  oc_cli create secret generic hypershell-managed-db-credentials \
-    -n "${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}" \
-    --from-literal=host="hypershell-postgres.${OPENSHIFT_NAMESPACE}.svc.cluster.local" \
+# ensure_gateway_database_admin_secret stages the controller's single admin
+# credential Secret, hypershell-gateway-database-admin, in the platform project.
+# deploy/base/controller.yaml mounts it at /etc/hypershell/gateway-database and
+# the controller refuses to start without it, so it must exist before the
+# overlay is applied. In production a platform team supplies it for a
+# cloud-managed server (deploy/components/gateway-database-admin-secret); this
+# ephemeral environment stands in with the bundled PostgreSQL Deployment, so the
+# values mirror deploy/base/postgres.yaml's hypershell-db-app.
+#
+# The controller always connects with sslmode=verify-full, so the bundled server
+# has to serve TLS: a throwaway CA + server certificate for
+# hypershell-postgres.<ns>.svc.cluster.local is generated once
+# (scripts/gen-postgres-tls.sh) into Secret hypershell-postgres-tls, which the
+# Deployment mounts, and that CA is what the admin Secret carries as sslrootcert.
+# Later runs reuse the existing TLS Secret so the CA keeps matching the
+# certificate the running server presents.
+ensure_gateway_database_admin_secret() {
+  local ns="${OPENSHIFT_NAMESPACE}"
+  local host="hypershell-postgres.${ns}.svc.cluster.local"
+  local tls_dir ca_file
+  if oc_cli get secret hypershell-postgres-tls -n "${ns}" >/dev/null 2>&1; then
+    info "TLS Secret hypershell-postgres-tls already exists in ${ns}; reusing its CA"
+  else
+    info "Generating TLS certificate for ${host}..."
+    tls_dir="$(mktemp -d)"
+    if ! bash "${REPO_ROOT}/scripts/gen-postgres-tls.sh" "${tls_dir}" \
+      "${host}" "hypershell-postgres.${ns}.svc" "hypershell-postgres"; then
+      rm -rf "${tls_dir}"
+      error "Failed to generate the PostgreSQL TLS certificate"
+      return 1
+    fi
+    oc_cli create secret generic hypershell-postgres-tls \
+      -n "${ns}" \
+      --from-file=tls.crt="${tls_dir}/tls.crt" \
+      --from-file=tls.key="${tls_dir}/tls.key" \
+      --from-file=ca.crt="${tls_dir}/ca.crt" \
+      --dry-run=client -o yaml | oc_cli apply -f - >/dev/null
+    rm -rf "${tls_dir}"
+    success "TLS Secret hypershell-postgres-tls created"
+  fi
+
+  ca_file="$(mktemp)"
+  oc_cli get secret hypershell-postgres-tls -n "${ns}" \
+    -o go-template='{{index .data "ca.crt" | base64decode}}' > "${ca_file}" 2>/dev/null || true
+  if [[ ! -s "${ca_file}" ]]; then
+    rm -f "${ca_file}"
+    error "Secret hypershell-postgres-tls in ${ns} has no ca.crt; delete it and re-run openshift-up"
+    return 1
+  fi
+  info "Creating admin Secret hypershell-gateway-database-admin in ${ns}..."
+  oc_cli create secret generic hypershell-gateway-database-admin \
+    -n "${ns}" \
+    --from-literal=host="${host}" \
     --from-literal=port="5432" \
     --from-literal=user="hypershell" \
     --from-literal=password="hypershell-dev" \
     --from-literal=dbname="hypershell" \
-    --from-literal=sslmode="disable" \
+    --from-literal=sslmode="verify-full" \
+    --from-file=sslrootcert="${ca_file}" \
     --dry-run=client -o yaml | oc_cli apply -f - >/dev/null
+  rm -f "${ca_file}"
+  success "Admin Secret hypershell-gateway-database-admin staged (sslmode=verify-full)"
 }
 
 discover_gateway_base_domain() {
@@ -646,6 +685,12 @@ apply_rendered_overlay() {
   rm -f "${rendered}"
 }
 
+# apply_postgres_fallback applies deploy/base/postgres.yaml with its pinned
+# runAsUser/fsGroup stripped so the restricted-v2 SCC can assign identities from
+# the project range. The overlay render below omits Deployment/Service
+# hypershell-postgres for that reason (see apply_overlay): the manifest stays in
+# deploy/openshift/kustomization.yaml so `kustomize build` consumers (deploy/ibm)
+# remain self-contained, but this driver applies it exactly once, from here.
 apply_postgres_fallback() {
   info "Deploying the bundled PostgreSQL Deployment (dev stand-in for an externally provisioned server)"
   local rendered
@@ -664,12 +709,6 @@ apply_postgres_fallback() {
   fi
   oc_cli apply -f "${rendered}"
   rm -f "${rendered}"
-}
-
-configure_postgres_fallback_ssl() {
-  # migrate is an initContainer; omit -c so oc sets both init and app containers.
-  oc_cli set env deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" \
-    DB_SSLMODE=disable >/dev/null
 }
 
 developer_omit_kinds() {
@@ -695,14 +734,19 @@ apply_overlay() {
   info "Applying HyperShell in project ${OPENSHIFT_NAMESPACE}..."
   use_project "${OPENSHIFT_NAMESPACE}"
   apply_postgres_fallback
+  # hypershell-postgres (Deployment + Service) is omitted here because
+  # apply_postgres_fallback already applied it with the pinned uid/fsGroup
+  # stripped; re-applying the unstripped base manifest would roll the
+  # Deployment onto a pod the restricted-v2 SCC rejects. The bundled server
+  # serves TLS (hypershell-postgres-tls), so the overlay's DB_SSLMODE=require for
+  # the API server holds as-is.
   if ! rendered="$(render_openshift_manifests \
     --only-namespace "${OPENSHIFT_NAMESPACE}" \
     --omit-kinds "${omit_kinds}" \
-    --omit-names hypershell-sandbox-scc)"; then
+    --omit-names hypershell-sandbox-scc,hypershell-postgres)"; then
     exit 1
   fi
   apply_rendered_overlay "${rendered}"
-  configure_postgres_fallback_ssl
 
   success "Overlay applied"
 }
@@ -976,7 +1020,7 @@ seed_via_api() {
     echo "${resp}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true
   }
 
-  local seed_failed="" CLUSTER_ID="" RELEASE_ID="" DATABASE_ID="" GATEWAY_ID=""
+  local seed_failed="" CLUSTER_ID="" RELEASE_ID="" GATEWAY_ID=""
   local raw http body
 
   raw="$(api_exec GET /api/hypershell/v1/managed_clusters)"
@@ -1028,31 +1072,6 @@ seed_via_api() {
   fi
 
   if [[ -z "${seed_failed}" ]]; then
-    raw="$(api_exec GET /api/hypershell/v1/managed_databases)"
-    http="$(printf '%s' "${raw}" | tail -1)"
-    body="$(printf '%s' "${raw}" | sed '$d')"
-    if [[ "${http}" == "200" ]]; then
-      DATABASE_ID="$(printf '%s' "${body}" | json_named_id openshell-db)"
-    fi
-    if [[ -z "${seed_failed}" && -z "${DATABASE_ID}" ]]; then
-      info "Creating ManagedDatabase..."
-      raw="$(api_exec POST /api/hypershell/v1/managed_databases \
-        "{\"name\":\"openshell-db\",\"connection_secret\":\"${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}\"}")"
-      http="$(printf '%s' "${raw}" | tail -1)"
-      body="$(printf '%s' "${raw}" | sed '$d')"
-      if [[ "${http}" != "201" && "${http}" != "200" ]]; then
-        warn "ManagedDatabase creation failed (HTTP ${http}): ${body:-no response}"
-        seed_failed=true
-      else
-        DATABASE_ID="$(extract_id "${body}")"
-        success "ManagedDatabase created: ${DATABASE_ID}"
-      fi
-    elif [[ -z "${seed_failed}" ]]; then
-      success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
-    fi
-  fi
-
-  if [[ -z "${seed_failed}" ]]; then
     raw="$(api_exec GET /api/hypershell/v1/gateways)"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
@@ -1079,7 +1098,7 @@ seed_via_api() {
     local oidc
     oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     raw="$(api_exec POST /api/hypershell/v1/gateways \
-      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
+      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     GATEWAY_ID="$(extract_id "${body}")"
@@ -1215,7 +1234,7 @@ delete_hypershell_resources() {
     --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1 || true
   oc_cli delete deploy,svc,secret \
     -n "${ns}" \
-    hypershell-postgres hypershell-db-app \
+    hypershell-postgres hypershell-db-app hypershell-postgres-tls hypershell-gateway-database-admin \
     --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1 || true
   oc_cli delete secret \
     -n "${ns}" \
@@ -1280,16 +1299,16 @@ instance_managed_namespace_selector() {
     "${CP_INSTANCE_LABEL}" "${instance}"
 }
 
-# Delete gateway and ManagedDatabase namespaces this instance created. Periodic
-# GC cannot do this after the platform project is gone. Never delete the
-# platform or keycloak projects through this selector.
+# Delete gateway namespaces this instance created. Periodic GC cannot do this
+# after the platform project is gone. Never delete the platform or keycloak
+# projects through this selector.
 delete_instance_managed_namespaces() {
   local instance="$1"
   if [[ -z "${instance}" ]]; then
     error "Refusing to delete instance-managed namespaces with an empty instance identity"
     return 1
   fi
-  info "Removing gateway and database namespaces for instance ${instance}"
+  info "Removing gateway namespaces for instance ${instance}"
   local selector names ns failed=""
   selector="$(instance_managed_namespace_selector "${instance}")"
   names="$(oc_cli get namespace -l "${selector}" \
@@ -1323,7 +1342,7 @@ cluster_down() {
   resolve_openshift_namespace
   validate_namespace_group
 
-  local ok_platform=false ok_keycloak=false ok_db=false
+  local ok_platform=false ok_keycloak=false
   if namespace_exists "${OPENSHIFT_NAMESPACE}"; then
     verify_owned_namespace "${OPENSHIFT_NAMESPACE}"
     ok_platform=true
@@ -1332,12 +1351,8 @@ cluster_down() {
     verify_owned_namespace "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
     ok_keycloak=true
   fi
-  if namespace_exists "${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}"; then
-    verify_owned_namespace "${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}"
-    ok_db=true
-  fi
-  if [[ "${ok_platform}" != "true" && "${ok_keycloak}" != "true" && "${ok_db}" != "true" ]]; then
-    info "No namespace group found for ${OPENSHIFT_NAMESPACE} / ${OPENSHIFT_KEYCLOAK_NAMESPACE} / ${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}; still reaping instance-managed leftovers"
+  if [[ "${ok_platform}" != "true" && "${ok_keycloak}" != "true" ]]; then
+    info "No namespace group found for ${OPENSHIFT_NAMESPACE} / ${OPENSHIFT_KEYCLOAK_NAMESPACE}; still reaping instance-managed leftovers"
   fi
 
   # Shared deletion path with the PR-environment reaper so adding a resource
@@ -1350,15 +1365,8 @@ cluster_down() {
     error "Failed to tear down ${OPENSHIFT_NAMESPACE}"
     return 1
   fi
-  # The database credentials project is specific to this driver (the shared
-  # teardown script only knows the platform and keycloak namespaces), so it is
-  # still removed here.
-  if [[ "${ok_db}" == "true" ]]; then
-    info "Removing database credentials project ${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}"
-    remove_project "${OPENSHIFT_DB_CREDENTIALS_NAMESPACE}"
-  fi
   clear_all_openshift_swaps
-  success "Environment ${OPENSHIFT_NAMESPACE} (and its Keycloak and database credentials projects) removed"
+  success "Environment ${OPENSHIFT_NAMESPACE} (and its Keycloak project) removed"
 }
 
 # OpenShift has no cluster to destroy. Keep the Kind-shaped target as an alias.

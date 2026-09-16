@@ -49,20 +49,6 @@ func (StaticImageDefaults) DefaultSupervisorImage() string {
 	return os.Getenv("GATEWAY_SUPERVISOR_IMAGE")
 }
 
-// ExternalDBConfig locates the admin credentials for the PostgreSQL server a
-// ManagedDatabase registers. CredentialsNamespace is the value of
-// ManagedDatabase.connection_secret: the NAMESPACE holding the credentials, not
-// a Secret name. It must satisfy the hypershell-managed-db- prefix rule, and
-// the control plane reads exactly one fixed-name Secret
-// (hypershell-managed-db-credentials) inside it.
-//
-// ManagedDatabaseID is carried for diagnostics only: single-shot cleanup logs
-// it so an operator can tie an orphaned role/database back to its registration.
-type ExternalDBConfig struct {
-	CredentialsNamespace string
-	ManagedDatabaseID    string
-}
-
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
 // It is overridable via GATEWAY_SANDBOX_IMAGE so clusters whose nodes cannot
 // reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror.
@@ -171,9 +157,13 @@ type ReconcileOpts struct {
 	IsOpenShift    bool
 	HasCertManager bool
 	HasGatewayAPI  bool
-	// ExternalDB carries the admin Secret reference for the gateway's
-	// registered PostgreSQL server.
-	ExternalDB            ExternalDBConfig
+	// Database locates the mounted PostgreSQL admin credentials every gateway
+	// database is provisioned with (see database.go).
+	Database DatabaseConfig
+	// databaseReconciler, when set, replaces the DatabaseReconciler built from
+	// Database. It is a test seam for exercising provisioning and deletion
+	// without a PostgreSQL server; production wiring leaves it nil.
+	databaseReconciler    DatabaseReconciler
 	ControlPlaneNamespace string
 	Images                ImageDefaults
 	// SkipNetworkPolicies disables creation of the per-tenant gateway

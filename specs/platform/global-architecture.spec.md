@@ -157,7 +157,7 @@ The *platform* layer beneath it is pull-based GitOps: each ManagedCluster's own 
 - ArgoCD - self-reconciles this ManagedCluster's operator stack and baseline config from its own path in the central GitOps repo (pull); the Cloud Hub control plane layers tenant resources on top at runtime
 - Keycloak - federates to Cloud Hub Keycloak, holds OIDC clients for OpenShell Gateways on this cluster
 - Vault - keystore for gateway secrets
-- PostgreSQL (cloud-managed, registered as a ManagedDatabase) - one database and login role per gateway (`gw_<gateway-id>`)
+- PostgreSQL (cloud-managed gateway database server) - one database and login role per gateway (`gw_<gateway-id>`)
 - Prometheus - local metrics (forwarded to Cloud Hub)
 - Gateway namespaces (each contains: OpenShell Gateway pod, Supervisor, Sandboxes, DB credentials Secret, TLS secrets, RBAC)
 
@@ -233,7 +233,7 @@ sequenceDiagram
     participant API as API Server<br/>(Cloud Hub)
     participant DB as PostgreSQL<br/>(Cloud Hub)
     participant CP as Control Plane<br/>(Cloud Hub)
-    participant GDB as Gateway PostgreSQL<br/>(ManagedDatabase)
+    participant GDB as Gateway PostgreSQL<br/>(cloud-managed server)
     participant MC as ManagedCluster<br/>K8s API
 
     User->>API: POST /gateways
@@ -258,7 +258,7 @@ sequenceDiagram
 - Runtime state owned by each OpenShell Gateway (active Sandboxes, provider credentials, live sessions) lives in that gateway's own database on its ManagedCluster, not in the Cloud Hub PostgreSQL. Where a fact could live in either store, this document names which one owns it.
 - Control Plane watches API server via gRPC streams
 - Control Plane reconciles *tenant* resources into ManagedClusters via kubeconfig secrets (runtime push; distinct from the platform GitOps pull below)
-- Gateway databases live on a cloud-managed PostgreSQL server registered as a ManagedDatabase - one database and login role per gateway (`gw_<gateway-id>`) - not in any cluster; only the DB credentials Secret is written into the gateway namespace
+- Gateway databases live on a cloud-managed PostgreSQL server whose admin credentials are mounted into the control plane - one database and login role per gateway (`gw_<gateway-id>`) - not in any cluster; only the DB credentials Secret is written into the gateway namespace
 
 ### Platform GitOps Pull Flow
 
@@ -945,10 +945,12 @@ clusters** as a cloud-managed database (AWS RDS/Aurora, IBM Cloud Databases) by 
 platform team or IaC. No database operator and no in-cluster PostgreSQL workload runs
 in any production tier.
 
-For gateway databases, HyperShell registers each pre-existing server as a
-ManagedDatabase and provisions one database and one login role per gateway inside it.
-HyperShell never creates, resizes, or deletes a server. There is a single provisioning
-model with no provider selection. See
+For gateway databases, each HyperShell installation is given one administrative
+credential set for its pre-existing server - the `hypershell-gateway-database-admin`
+Secret mounted into the control plane - and provisions one database and one login
+role per gateway inside that server over a `verify-full` TLS connection. HyperShell
+never creates, resizes, or deletes a server, and the server is not an API resource.
+There is a single provisioning model with no provider selection. See
 [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
 
 Cloud-managed servers supply the backup, point-in-time recovery, and HA properties the
@@ -958,22 +960,23 @@ platform relies on, so HyperShell does not reimplement them.
 
 #### Requirement: Externally Provisioned Gateway Database Servers
 
-Gateway database servers SHALL be provisioned outside the clusters and registered as
-ManagedDatabases. The control plane SHALL provision each gateway's database and role on
-the registered server with in-process DDL, and SHALL write only the
-`openshell-gateway-db-credentials` Secret into the gateway namespace.
+Gateway database servers SHALL be provisioned outside the clusters and their admin
+credentials supplied to the control plane as a mounted Secret. The control plane SHALL
+provision each gateway's database and role on that server with in-process DDL, and
+SHALL write only the `openshell-gateway-db-credentials` Secret into the gateway
+namespace.
 
 ##### Scenario: Gateway Database Provisioning
 
-- GIVEN a Gateway resource with a `database_id` referencing a ManagedDatabase
+- GIVEN a Gateway resource and a control plane with valid mounted admin credentials
 - WHEN the control plane reconciles the Gateway
-- THEN it SHALL create the database and login role `gw_<gateway-id>` on the registered server
+- THEN it SHALL create the database and login role `gw_<gateway-id>` on the server
 - AND it SHALL create no PostgreSQL workload in any cluster
 - AND it SHALL write the `openshell-gateway-db-credentials` Secret into the gateway namespace
 
-#### Requirement: Database Lifecycle Independence
+#### Requirement: Database Server Lifecycle Independence
 
-ManagedDatabase resources SHALL have an independent lifecycle from Gateways. A single registered server MAY serve multiple gateways, each via its own database and role.
+The gateway database server SHALL have an independent lifecycle from Gateways: HyperShell never creates or deletes it, and a single server serves every gateway of the installation, each via its own database and role.
 
 ## Namespace Strategy
 
@@ -1004,7 +1007,7 @@ graph TB
         end
     end
     
-    subgraph DBNS["cloud-managed PostgreSQL (ManagedDatabase)"]
+    subgraph DBNS["cloud-managed PostgreSQL (gateway database server)"]
         DB[(PostgreSQL server)]
         DBR[Database + login role<br/>gw_<gateway-id>]
         DB --> DBR
@@ -1036,7 +1039,7 @@ This namespace-per-gateway strategy provides:
 - Isolation boundary for RBAC and network policies
 - Resource quotas per gateway
 - Self-contained workload lifecycle (delete namespace = delete gateway workload; the gateway database is dropped independently)
-- One shared server per ManagedDatabase, reducing the Postgres footprint across gateways
+- One shared server per installation, reducing the Postgres footprint across gateways
 
 ## Installer Pipeline
 

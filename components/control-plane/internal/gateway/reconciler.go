@@ -96,7 +96,7 @@ func ReconcileGateway(
 	dbReconciler, err := newDatabaseReconciler(opts)
 	if err != nil {
 		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - the database service is unavailable")
-		return fmt.Errorf("database provider for gateway in namespace %s: %w", nsConfig.Name, err)
+		return fmt.Errorf("database reconciler for gateway in namespace %s: %w", nsConfig.Name, err)
 	}
 	if err := dbReconciler.Reconcile(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID); err != nil {
 		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to provision the gateway database")
@@ -267,17 +267,20 @@ func DeleteGatewayResources(
 		}
 	}
 
-	if dbReconciler, err := newDatabaseReconciler(opts); err == nil {
-		cleanupCtx, cleanupCancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cleanupCancel()
-		if delErr := dbReconciler.Delete(cleanupCtx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
-			// Transient error (server unreachable, DDL failure): return so the
-			// delete-reconcile retries. Terminal errors (admin secret unreadable)
-			// are handled inside Delete and return nil; in-cluster cleanup still runs.
-			return fmt.Errorf("database cleanup for gateway %s: %w", opts.GatewayID, delErr)
-		}
-	} else {
-		log.Printf("WARN gateway %s: cannot construct database reconciler for delete: %v", opts.GatewayID, err)
+	dbReconciler, err := newDatabaseReconciler(opts)
+	if err != nil {
+		return fmt.Errorf("database reconciler for gateway %s delete: %w", opts.GatewayID, err)
+	}
+	cleanupCtx, cleanupCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cleanupCancel()
+	if delErr := dbReconciler.Delete(cleanupCtx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
+		// The database and role may still exist on the server. Record the
+		// leftover so it is operator-visible even if the controller restarts and
+		// loses the queued retry, then return the error so the delete-reconcile
+		// retries (gateway-deletion-finalization.spec.md).
+		recordOrphan(ctx, opts, "PostgreSQLDatabase", gatewayDBName(opts.GatewayID),
+			fmt.Sprintf("database cleanup failed during gateway deletion; the gateway database and role may remain on the server and the delete will be retried: %v", delErr))
+		return fmt.Errorf("database cleanup for gateway %s: %w", opts.GatewayID, delErr)
 	}
 
 	for _, credNS := range credentialNamespaces {

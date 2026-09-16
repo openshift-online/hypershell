@@ -21,7 +21,7 @@ export const DASHBOARD_METRIC_SOURCE_METRIC_IDS: Readonly<
   ],
   "gateway-release-distribution": ["gateway-releases"],
   "registered-users": ["registered-users"],
-  "platform-inventory": ["managed-clusters", "managed-databases"],
+  "platform-inventory": ["managed-clusters"],
   "cluster-memory": ["memory"],
   "cluster-cpu": ["cpu"],
   "cluster-pods": ["pods"],

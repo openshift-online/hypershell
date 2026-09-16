@@ -368,5 +368,5 @@ The steps above use generic OpenShift defaults. On specific cloud providers, ove
 | Ingress mode | `gateway-api` (via `cloud-hub-ingress-bootstrap`) | `route` (via `deploy/ibm` overlay + **image mirroring**) | `route` (direct, no mirroring) |
 | Cert-manager | Install via OperatorHub | Mirror + apply manually (ROKS OperatorHub broken) | Install via OperatorHub |
 | Image sourcing | Build or use `:latest` | **Mirror all images** into internal registry (nodes isolated) | Use published `:latest` (full egress) |
-| Tenant database | Externally provisioned server registered as a ManagedDatabase | Same (IBM Cloud Databases) | Same (cloud-managed PostgreSQL) |
+| Tenant database | Externally provisioned server; admin credentials + CA in the `hypershell-gateway-database-admin` Secret mounted into the controller | Same (IBM Cloud Databases) | Same (cloud-managed PostgreSQL) |
 | Namespace | `hypershell-system` (same) | `hypershell-system` (same) | `hypershell-system` (same) |

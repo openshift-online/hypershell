@@ -53,6 +53,14 @@ spec:
               value: quay.io/opendatahub/odh-openshell-gateway:v0.0.116-rhaiv.6
             - name: GATEWAY_SUPERVISOR_IMAGE
               value: quay.io/opendatahub/odh-openshell-supervisor:v0.0.116-rhaiv.6
+            # Directory the gateway database admin credentials Secret is mounted
+            # at (one file per key). The controller refuses to start without it.
+            - name: GATEWAY_DATABASE_ADMIN_DIR
+              value: /etc/hypershell/gateway-database
+          volumeMounts:
+            - name: gateway-database-admin
+              mountPath: /etc/hypershell/gateway-database
+              readOnly: true
           ports:
             - containerPort: 9443
               name: provisioner
@@ -80,6 +88,17 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        # PostgreSQL admin credentials for gateway database provisioning. Keys:
+        # host, port, user, password, sslrootcert (PEM CA bundle) required;
+        # dbname and sslmode (verify-full only) optional. Staged out-of-band by
+        # the platform team, for example through External Secrets Operator
+        # (deploy/components/gateway-database-admin-secret). See
+        # specs/platform/openshell-gateway-database.spec.md.
+        - name: gateway-database-admin
+          secret:
+            secretName: hypershell-gateway-database-admin
+            defaultMode: 288
 ---
 apiVersion: v1
 kind: Service

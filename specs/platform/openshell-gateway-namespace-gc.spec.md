@@ -176,8 +176,7 @@ Environment teardown is a separate path. When the platform project is deleted,
 this controller is gone and cannot run periodic GC. `make openshift-down` and the
 pull-request reaper SHALL delete namespaces labeled
 `hypershell.redhat.io/instance=<the platform namespace>` as
-`openshift-development.spec.md` and `ephemeral-pr-environments.spec.md` define,
-including ManagedDatabase namespaces that this sweep excludes.
+`openshift-development.spec.md` and `ephemeral-pr-environments.spec.md` define.
 
 #### Scenario: Orphaned gateway namespace reaped after grace period
 

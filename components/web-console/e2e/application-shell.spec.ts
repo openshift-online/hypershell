@@ -4,7 +4,6 @@ import { expect, test } from "@playwright/test";
 const gateway = {
   cluster_id: "cluster-east",
   created_at: "2026-08-10T14:30:00Z",
-  database_id: "database-1",
   external_dns: "gateway.example.test",
   href: "/api/hypershell/v1/gateways/openshell-gateway-test",
   id: "openshell-gateway-test",
@@ -471,7 +470,6 @@ test("provisions a gateway on an existing managed cluster", async ({
       body: JSON.stringify({
         cluster_id: "cluster-east",
         created_at: null,
-        database_id: "",
         external_dns: "",
         href: "/api/hypershell/v1/gateways/gateway-1",
         id: "gateway-1",
@@ -504,7 +502,6 @@ test("provisions a gateway on an existing managed cluster", async ({
   );
   await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Gateway release")).toHaveCount(0);
-  await expect(page.getByLabel("Managed database")).toHaveCount(0);
   await expect(page.getByText(/create|register/iu)).toHaveCount(0);
   await page.getByLabel("Gateway name").fill("team-gateway");
   await page.getByRole("button", { name: "Provision gateway" }).click();
@@ -531,7 +528,6 @@ test("provisions a gateway on an existing managed cluster", async ({
   await expect(page.getByText("Not available")).toHaveCount(1);
   expect(requestBody).toEqual({
     cluster_id: "cluster-east",
-    database_id: "",
     name: "team-gateway",
     release_id: "",
     route: '{"enabled":true}',

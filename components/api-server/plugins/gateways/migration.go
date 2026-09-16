@@ -62,7 +62,7 @@ func migration() *gormigrate.Migration {
 // renumbering and fails with "pq: got 2 parameters but the statement requires 1".
 // Explicit "ADD COLUMN IF NOT EXISTS" avoids the introspection path entirely and
 // stays schema-equivalent to what AutoMigrate produced in already-migrated
-// environments. See plugins/managedDatabases/migration.go for the same pattern.
+// environments.
 func migrationAddProvisioningFields() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026080712000001",
@@ -219,6 +219,47 @@ func migrationAddObservedReleaseId() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS observed_release_id").Error
+		},
+	}
+}
+
+// migrationDropDatabaseId removes the Gateway.database_id placement column.
+// Gateway databases are provisioned by the control plane from admin
+// credentials mounted into the controller pod, so the API server no longer
+// tracks a database per gateway.
+func migrationDropDatabaseId() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026091600000002",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS database_id").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS database_id TEXT NOT NULL DEFAULT ''").Error
+		},
+	}
+}
+
+// migrationDropManagedDatabasesTable drops the orphaned table of the removed
+// ManagedDatabase resource. The rollback recreates a minimal table with the
+// framework's Model columns so older binaries can start against the schema.
+func migrationDropManagedDatabasesTable() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026091600000003",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("DROP TABLE IF EXISTS managed_databases").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				CREATE TABLE IF NOT EXISTS managed_databases (
+					id TEXT PRIMARY KEY,
+					created_at TIMESTAMPTZ,
+					updated_at TIMESTAMPTZ,
+					deleted_at TIMESTAMPTZ,
+					name TEXT,
+					connection_secret TEXT,
+					status TEXT
+				)
+			`).Error
 		},
 	}
 }

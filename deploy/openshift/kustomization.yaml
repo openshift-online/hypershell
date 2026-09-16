@@ -2,8 +2,13 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   # The bundled PostgreSQL Deployment stands in for an externally provisioned
-  # server in this ephemeral dev/e2e environment. Production overlays (hub, ibm)
-  # omit it and point hypershell-db-app at a cloud-managed server.
+  # server in this ephemeral dev/e2e environment. The hub overlay omits it and
+  # points hypershell-db-app at a cloud-managed server. It serves TLS from the
+  # hypershell-postgres-tls Secret, which is NOT part of this overlay: the
+  # OpenShift driver (scripts/cluster/drivers/openshift.sh) generates it along
+  # with the controller's hypershell-gateway-database-admin Secret before
+  # applying these manifests. Anyone applying this overlay directly must create
+  # both Secrets first (see deploy/components/gateway-database-admin-secret).
   - ../base/postgres.yaml
   - ../base/keycloak/
   - ../base
@@ -143,7 +148,7 @@ patches:
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"
       - op: add
         path: /spec/template/spec/containers/0/command/-
-        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
+        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
   # Shared-cluster e2e cannot spare surge pods. A 1-replica RollingUpdate is
   # maxUnavailable:0 / maxSurge:1, so a digest swap needs two pods and the
   # new one sits Pending. Recreate kills the old replica first. Production
@@ -184,4 +189,3 @@ patches:
       spec:
         strategy:
           type: Recreate
-

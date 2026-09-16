@@ -373,16 +373,13 @@ for gw in data.get('items', []):
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
   e2e_apply_seed_ids_from_gateway_json "$EXISTING_GW" "$GW_NAME"
 else
-  # database_id is a required request property but its value is server-owned:
-  # placement assigns the first-created ManagedDatabase.
-  E2E_DATABASE_ID=""
   if ! e2e_ensure_seed_ids; then
     fail_test "Could not discover seeded cluster/release ids"
     exit 1
   fi
-  dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; database_id is assigned by server-side placement"
+  dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; the gateway database is provisioned by the control plane"
 
-  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, database_id: <placement placeholder>, oidc: ...}'"
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(e2e_gateway_create_body "$GW_NAME")
   CREATE_RESPONSE=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Content-Type: application/json" \
@@ -393,24 +390,20 @@ else
   # Detect the error case explicitly: otherwise the error object's id is mistaken
   # for a gateway id and the provisioning poll spins on a nonexistent gateway until
   # timeout, masking the real api-server failure.
-  IFS=$'\t' read -r CREATE_KIND CREATE_F1 CREATE_F2 CREATE_F3 <<< "$(echo "$CREATE_RESPONSE" | python3 -c "
+  IFS=$'\t' read -r CREATE_KIND CREATE_F1 CREATE_F2 <<< "$(echo "$CREATE_RESPONSE" | python3 -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
 except Exception:
-    print('PARSE\t\t\t'); sys.exit(0)
+    print('PARSE\t\t'); sys.exit(0)
 if d.get('kind') == 'Error':
-    print('ERROR\t%s\t%s\t' % (d.get('code', ''), d.get('reason', ''))); sys.exit(0)
-print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('database_id', '')))
+    print('ERROR\t%s\t%s' % (d.get('code', ''), d.get('reason', ''))); sys.exit(0)
+print('OK\t%s\t%s' % (d.get('id', ''), d.get('namespace', '')))
 " 2>/dev/null)" || true
 
   if [[ "$CREATE_KIND" == "OK" && -n "$CREATE_F1" ]]; then
     GW_ID="$CREATE_F1"
     GW_NAMESPACE="$CREATE_F2"
-    if [[ -z "$CREATE_F3" ]]; then
-      fail_test "Gateway creation succeeded without a server-assigned database_id"
-      exit 1
-    fi
     pass "Gateway created: ${GW_NAME} (${GW_ID})"
   else
     fail_test "Failed to create gateway"
@@ -650,11 +643,28 @@ else
   dim "  - Certgen job status: ${CERTGEN_STATUS:-unknown}"
 fi
 
-# The gateway database itself lives on the registered PostgreSQL server; the
-# tenant credentials Secret is what proves it was provisioned.
+# The gateway database itself lives on the PostgreSQL server named by the
+# controller's hypershell-gateway-database-admin Secret; the tenant credentials
+# Secret is what proves it was provisioned. The control plane always hands the
+# gateway a verify-full connection, so the Secret must pin sslmode=verify-full
+# and carry the server CA bundle (sslrootcert) the gateway verifies against.
 show_cmd "$CLI get secret openshell-gateway-db-credentials -n $GW_NAMESPACE"
 if $CLI get secret openshell-gateway-db-credentials -n "$GW_NAMESPACE" &>/dev/null; then
   pass "Database credentials secret exists in gateway namespace"
+  DB_SSLMODE=$($CLI get secret openshell-gateway-db-credentials -n "$GW_NAMESPACE" \
+    -o jsonpath='{.data.sslmode}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  DB_SSLROOTCERT_LEN=$($CLI get secret openshell-gateway-db-credentials -n "$GW_NAMESPACE" \
+    -o jsonpath='{.data.sslrootcert}' 2>/dev/null | base64 -d 2>/dev/null | wc -c | tr -d ' ' || echo 0)
+  if [[ "$DB_SSLMODE" == "verify-full" ]]; then
+    pass "Database credentials pin sslmode=verify-full"
+  else
+    fail_test "Database credentials sslmode is '${DB_SSLMODE:-<empty>}', expected verify-full"
+  fi
+  if [[ "${DB_SSLROOTCERT_LEN:-0}" -gt 0 ]]; then
+    pass "Database credentials carry a server CA bundle (sslrootcert)"
+  else
+    fail_test "Database credentials have no sslrootcert CA bundle"
+  fi
 else
   fail_test "Database credentials secret not found in gateway namespace"
 fi
@@ -1497,7 +1507,6 @@ body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
-    'database_id': 'e2e-database',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -1669,7 +1678,6 @@ body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
-    'database_id': 'e2e-database',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],

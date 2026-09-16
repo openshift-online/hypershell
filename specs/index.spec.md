@@ -28,10 +28,10 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 
 | Path | Domain | Primary Entities | Components | Depends On |
 |------|--------|-----------------|------------|------------|
-| `platform/data-model.spec.md` | platform | Fleet, Gateway, GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase | API, CP | - |
+| `platform/data-model.spec.md` | platform | Gateway, GatewayNetwork, GatewayRelease, ManagedCluster | API, CP | - |
 | `platform/control-plane.spec.md` | platform | Watcher, Reconciler, gRPC streams | CP | data-model |
 | `platform/openshell-gateway.spec.md` | platform | Gateway, GatewayReconciler, provisioning | CP | data-model, control-plane |
-| `platform/openshell-gateway-database.spec.md` | platform | PostgreSQL provisioning, credential security | CP | openshell-gateway |
+| `platform/openshell-gateway-database.spec.md` | platform | Mounted admin credential Secret, per-gateway PostgreSQL provisioning, TLS verify-full, cleanup | CP, deploy | openshell-gateway, gateway-deletion-finalization |
 | `platform/openshell-gateway-tls.spec.md` | platform | cert-manager, TLS certificates, SAN management | CP | openshell-gateway |
 | `platform/openshell-gateway-routing.spec.md` | platform | GRPCRoute, BackendTLSPolicy, NetworkPolicy | CP | openshell-gateway, openshell-gateway-tls |
 | `platform/openshell-gateway-oidc.spec.md` | platform | OIDC authentication, gateway.toml injection | CP | openshell-gateway, openshell-gateway-tls |
@@ -46,7 +46,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `web-console/operational-dashboard.spec.md` | web-console | Widgetized operational dashboard, Prometheus-backed metrics adapter, admin access | WEB | web-console/architecture, gateway-metrics-dashboard, platform-inventory, registered-users, UI standards |
 | `web-console/tracing.spec.md` | web-console | Browser OTel trace sink, BFF W3C propagation, telemetry ingest, dev Jaeger | WEB, BFF | web-console/architecture, domain-observability, local-development |
 | `platform/gateway-metrics-dashboard.spec.md` | platform | Prometheus gateway phase metric, BFF metrics proxy, GatewayMetricsDashboard, operational dashboard gateway counts | API, WEB, deploy | data-model, web-console/architecture, local-development |
-| `platform/platform-inventory.spec.md` | platform | Managed cluster and database inventory Prometheus collectors and operational dashboard widgets | API, WEB | web-console/operational-dashboard, managed-cluster-registration, rbac-enforcement |
+| `platform/platform-inventory.spec.md` | platform | Managed cluster inventory Prometheus collectors and operational dashboard widgets | API, WEB | web-console/operational-dashboard, managed-cluster-registration, rbac-enforcement |
 | `platform/registered-users.spec.md` | platform | Registered user inventory API, Prometheus count, and operational dashboard widget | API, WEB | rbac-enforcement, web-console/operational-dashboard |
 | `platform/cluster-memory.spec.md` | platform | Hub cluster memory utilization for operational dashboard | WEB, deploy | web-console/operational-dashboard, gateway-metrics-dashboard, local-development |
 | `platform/cluster-cpu.spec.md` | platform | Hub cluster CPU utilization for operational dashboard | WEB, deploy | web-console/operational-dashboard, cluster-memory, gateway-metrics-dashboard, local-development |

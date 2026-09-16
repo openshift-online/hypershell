@@ -40,15 +40,17 @@ checks manually with `make check`.
 | **GatewayNetwork** | Network connectivity topology between gateways |
 | **GatewayRelease** | Versioned container images for gateway deployments |
 | **ManagedCluster** | Kubernetes cluster registered into the platform |
-| **ManagedDatabase** | Database instance provisioned for gateway use |
 
 All resources are top-level; there is no Fleet/Sector grouping. Tenancy is
 enforced by RBAC (platform-level and per-gateway), not by a resource grouping.
+Gateway databases are not API resources: the control plane provisions one
+PostgreSQL database and role per gateway on the server named by the mounted
+`hypershell-gateway-database-admin` Secret (`specs/platform/openshell-gateway-database.spec.md`).
 
 ## Resource Flow
 
 ```
-Clusters/DBs Registered -> Release Published ->
+Clusters Registered -> Release Published ->
 Gateway Deployed on Cluster -> Network Mesh Established -> Traffic Flows
 ```
 

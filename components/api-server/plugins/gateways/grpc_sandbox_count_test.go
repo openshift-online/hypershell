@@ -10,13 +10,14 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
 // newSandboxCountClient spins up the integration server and returns an
 // authenticated gateway gRPC client plus the authenticated context.
 func newSandboxCountClient(t *testing.T) (pb.GatewayServiceClient, context.Context) {
 	t.Helper()
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -38,10 +39,9 @@ func newSandboxCountClient(t *testing.T) (pb.GatewayServiceClient, context.Conte
 
 func createGatewayForSandboxCount(ctx context.Context, client pb.GatewayServiceClient, name string) *pb.Gateway {
 	created, err := client.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       name,
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
+		Name:      name,
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
 	})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(created.Gateway.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))

@@ -93,7 +93,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-down` | Remove the `hypershell-system` namespace and its resources. Leaves the Kind cluster running. |
 | `make kind-teardown` | Destroy the Kind cluster and stop cloud-provider-kind. |
 | `make kind-status` | Show cluster info, pods, services, and which components are swapped. |
-| `make kind-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding. Reuses existing named seed resources (`local-kind`, `dev-release`, `openshell-db`, `dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
+| `make kind-seed` | Re-run ManagedCluster, GatewayRelease, and Gateway seeding. Reuses existing named seed resources (`local-kind`, `dev-release`, `dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
 | `make kind-prereqs` | Build the pinned `cloud-provider-kind` binary into `bin/`. `kind-up` runs this; use it alone when the binary is missing. |
 | `make kind-env` | Print `export` statements for the current Kind make variables. |
 | `make kind-fix-ports` | Re-establish host port 443 forwarding to the Gateway's ephemeral port. |
@@ -390,10 +390,10 @@ command stops with an error.
 | Target | Use |
 |--------|-----|
 | `make openshift-up` | Deploy the stack into the current oc project (`OPENSHIFT_NAMESPACE` override) and companion `${name}-keycloak`. Does not create an OpenShift cluster. Waits for component rollouts, then seeds unless `SKIP_SEED=true`. |
-| `make openshift-down` | Delete the platform and Keycloak projects, then delete gateway and ManagedDatabase namespaces labeled `hypershell.redhat.io/instance=<platform ns>`. If project deletion is forbidden, strip HyperShell resources and leave the projects. Without ownership labels the command refuses; `FORCE=true make openshift-down` overrides that check. Reserved names (`default`, `kube-*`, `openshift-*`) stay refused. |
+| `make openshift-down` | Delete the platform and Keycloak projects, then delete gateway namespaces labeled `hypershell.redhat.io/instance=<platform ns>`. If project deletion is forbidden, strip HyperShell resources and leave the projects. Without ownership labels the command refuses; `FORCE=true make openshift-down` overrides that check. Reserved names (`default`, `kube-*`, `openshift-*`) stay refused. |
 | `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
 | `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |
-| `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding via API and Keycloak Routes from this machine. Reuses existing named seed resources (`local-openshift`, `dev-release`, `openshell-db`, `dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
+| `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, and Gateway seeding via API and Keycloak Routes from this machine. Reuses existing named seed resources (`local-openshift`, `dev-release`, `dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
 | `make openshift-api-server-up` | Build, push an immutable image to `SWAP_REGISTRY`, and point the API server Deployment at that ref. Requires `SWAP_REGISTRY`. |
 | `make openshift-api-server-down` | Revert the API server to the baseline registry image. |
 | `make openshift-control-plane-up` | Build, push, and swap the control plane. |
@@ -426,7 +426,7 @@ overlay ClusterRole and ClusterRoleBinding with names prefixed
 `hypershell-controller`), plus the privileged SCC RoleBinding, applies the
 manifests (with prune scoped to this environment), registers the web-console
 Route as the Keycloak `hypershell-frontend` redirect URI, seeds a
-ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway from this machine
+ManagedCluster, GatewayRelease, and Gateway from this machine
 against the API and Keycloak Routes (the API server image has no `curl`), and
 prints the API, web-console, and Keycloak Routes. The overlay sets
 `API_ENV=development_oidc` on the API server so `--enable-jwt=true` is not
@@ -562,8 +562,10 @@ so per-tenant gateways work without port-forward workarounds.
 
 ### Creating a gateway with OIDC
 
-`make kind-up` seeds ManagedCluster, GatewayRelease, and ManagedDatabase
-but does not create a Gateway. Create one via the API:
+`make kind-up` seeds ManagedCluster and GatewayRelease but does not create a
+Gateway. The gateway database server needs no API resource: the control plane
+reads the `hypershell-gateway-database-admin` Secret that `kind-up` creates.
+Create a Gateway via the API:
 
 ```bash
 # Get the seeded resource IDs
@@ -577,7 +579,6 @@ curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
     \"name\": \"dev-gateway\",
     \"cluster_id\": \"${CLUSTER_ID}\",
     \"release_id\": \"${RELEASE_ID}\",
-    \"database_id\": \"\",
     \"oidc\": \"{\\\"issuer\\\":\\\"https://keycloak.hypershell.localhost/realms/hypershell\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}\"
   }"
 ```

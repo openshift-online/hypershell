@@ -12,10 +12,11 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
 func TestGRPCProvisioningConditionsRoundTrip(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -36,11 +37,10 @@ func TestGRPCProvisioningConditionsRoundTrip(t *testing.T) {
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "conditions-roundtrip",
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
-		Phase:      &phase,
+		Name:      "conditions-roundtrip",
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
+		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	gatewayID := created.Gateway.Metadata.Id
@@ -100,7 +100,7 @@ func TestGRPCProvisioningConditionsRoundTrip(t *testing.T) {
 }
 
 func TestGRPCProvisioningConditionsProgressionToComplete(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -121,11 +121,10 @@ func TestGRPCProvisioningConditionsProgressionToComplete(t *testing.T) {
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "conditions-progression",
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
-		Phase:      &phase,
+		Name:      "conditions-progression",
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
+		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	gatewayID := created.Gateway.Metadata.Id
@@ -167,7 +166,7 @@ func TestGRPCProvisioningConditionsProgressionToComplete(t *testing.T) {
 }
 
 func TestGRPCProvisioningConditionsWithIdP(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -188,11 +187,10 @@ func TestGRPCProvisioningConditionsWithIdP(t *testing.T) {
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "conditions-with-idp",
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
-		Phase:      &phase,
+		Name:      "conditions-with-idp",
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
+		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	gatewayID := created.Gateway.Metadata.Id
@@ -219,7 +217,7 @@ func TestGRPCProvisioningConditionsWithIdP(t *testing.T) {
 }
 
 func TestGRPCProvisioningConditionsFailedWithMessage(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -240,11 +238,10 @@ func TestGRPCProvisioningConditionsFailedWithMessage(t *testing.T) {
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "conditions-failed-msg",
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
-		Phase:      &phase,
+		Name:      "conditions-failed-msg",
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
+		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	gatewayID := created.Gateway.Metadata.Id
@@ -278,7 +275,7 @@ func TestGRPCProvisioningConditionsFailedWithMessage(t *testing.T) {
 }
 
 func TestRESTGatewayReturnsProvisioningConditions(t *testing.T) {
-	h, client := registerIntegration(t)
+	h, client := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -299,11 +296,10 @@ func TestRESTGatewayReturnsProvisioningConditions(t *testing.T) {
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "conditions-rest-get",
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
-		Phase:      &phase,
+		Name:      "conditions-rest-get",
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
+		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	gatewayID := created.Gateway.Metadata.Id
@@ -341,7 +337,7 @@ func TestRESTGatewayReturnsProvisioningConditions(t *testing.T) {
 }
 
 func TestRESTGatewayListIncludesProvisioningConditions(t *testing.T) {
-	h, client := registerIntegration(t)
+	h, client := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -362,11 +358,10 @@ func TestRESTGatewayListIncludesProvisioningConditions(t *testing.T) {
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "conditions-rest-list",
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
-		Phase:      &phase,
+		Name:      "conditions-rest-list",
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
+		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	gatewayID := created.Gateway.Metadata.Id
@@ -397,7 +392,7 @@ func TestRESTGatewayListIncludesProvisioningConditions(t *testing.T) {
 }
 
 func TestRESTProvisioningConditionsNotSettableViaPatch(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -422,7 +417,7 @@ func TestRESTProvisioningConditionsNotSettableViaPatch(t *testing.T) {
 }
 
 func TestGRPCProvisioningConditionsPreservedOnUnrelatedUpdate(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -443,11 +438,10 @@ func TestGRPCProvisioningConditionsPreservedOnUnrelatedUpdate(t *testing.T) {
 
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "conditions-preserve",
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
-		Phase:      &phase,
+		Name:      "conditions-preserve",
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
+		Phase:     &phase,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	gatewayID := created.Gateway.Metadata.Id

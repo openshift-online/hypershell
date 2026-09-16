@@ -13,7 +13,6 @@ export interface GatewayRecord {
   consoleUrl?: string;
   createdAt?: string;
   createdBy?: string;
-  databaseId: string;
   externalDns?: string;
   gatewayVersion?: string;
   id: string;

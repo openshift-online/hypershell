@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// DefaultGatewayDatabaseAdminDir is where the controller Deployment mounts the
+// PostgreSQL admin credentials Secret used to provision gateway databases. One
+// file per Secret key: host, port, user, password, sslrootcert, and optionally
+// dbname and sslmode. See specs/platform/openshell-gateway-database.spec.md.
+const DefaultGatewayDatabaseAdminDir = "/etc/hypershell/gateway-database"
+
 // DefaultGatewayReconcileWorkers is the fallback size of the gateway reconcile
 // worker pool when GATEWAY_RECONCILE_WORKERS is unset or invalid. It matches the
 // control plane's historical hardcoded pool size, so an unset variable preserves
@@ -68,6 +74,12 @@ type Config struct {
 	// External CA issuer configuration for Route passthrough mode
 	ExternalCAIssuerName string
 	ExternalCAIssuerKind string
+
+	// GatewayDatabaseAdminDir is the directory holding the mounted PostgreSQL
+	// admin credentials for gateway database provisioning. Sourced from
+	// GATEWAY_DATABASE_ADMIN_DIR; the controller refuses to start unless it holds
+	// a complete, verify-full credential set (see gateway.ValidateAdminCredentialsDir).
+	GatewayDatabaseAdminDir string
 }
 
 func Load() (*Config, error) {
@@ -92,6 +104,8 @@ func Load() (*Config, error) {
 
 		ExternalCAIssuerName: getEnv("EXTERNAL_CA_ISSUER_NAME", ""),
 		ExternalCAIssuerKind: getEnv("EXTERNAL_CA_ISSUER_KIND", "ClusterIssuer"),
+
+		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 	}
 
 	if cfg.GRPCServerAddr == "" {

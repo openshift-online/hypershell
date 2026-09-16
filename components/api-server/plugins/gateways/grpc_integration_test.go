@@ -14,6 +14,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
 type bearerToken struct {
@@ -31,7 +32,7 @@ func (b *bearerToken) RequireTransportSecurity() bool {
 }
 
 func TestGRPCGatewayCRUD(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -54,7 +55,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		Name:        "TestName",
 		ClusterId:   "TestClusterId",
 		ReleaseId:   "TestReleaseId",
-		DatabaseId:  "TestDatabaseId",
 		ExternalDns: func() *string { s := "TestExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "TestTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
@@ -68,9 +68,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 
 	gatewayID := created.Gateway.Metadata.Id
 	gatewayNamespace := created.Gateway.Namespace
-	gatewayDatabaseID := created.Gateway.DatabaseId
-	Expect(gatewayDatabaseID).NotTo(BeEmpty())
-	Expect(gatewayDatabaseID).NotTo(Equal(createReq.DatabaseId), "client-supplied database_id must be ignored")
 
 	getReq := &pb.GetGatewayRequest{Id: gatewayID}
 	retrieved, err := grpcClient.GetGateway(ctx, getReq)
@@ -89,7 +86,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		Name:        func() *string { s := "UpdatedName"; return &s }(),
 		ClusterId:   func() *string { s := "UpdatedClusterId"; return &s }(),
 		ReleaseId:   func() *string { s := "UpdatedReleaseId"; return &s }(),
-		DatabaseId:  func() *string { s := "UpdatedDatabaseId"; return &s }(),
 		ExternalDns: func() *string { s := "UpdatedExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "UpdatedTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
@@ -100,7 +96,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(updated.Gateway.Metadata.Id).To(Equal(gatewayID))
 	Expect(updated.Gateway.Namespace).To(Equal(gatewayNamespace))
-	Expect(updated.Gateway.DatabaseId).To(Equal(gatewayDatabaseID), "database_id update must be ignored")
 
 	retrieved, err = grpcClient.GetGateway(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
@@ -124,7 +119,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 }
 
 func TestGRPCWatchGateways(t *testing.T) {
-	h, client := registerIntegration(t)
+	h, client := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -236,7 +231,7 @@ func TestGRPCWatchGateways(t *testing.T) {
 }
 
 func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -256,10 +251,9 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 	grpcClient := pb.NewGatewayServiceClient(conn)
 
 	createReq := &pb.CreateGatewayRequest{
-		Name:       "delete-watch-test",
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
+		Name:      "delete-watch-test",
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
 	}
 	created, err := grpcClient.CreateGateway(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())
@@ -308,7 +302,7 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 // header is what closes the list-watch gap: without it, the client could list
 // state and then miss an event that fires before the subscription registers.
 func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -339,7 +333,7 @@ func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
 }
 
 func TestGRPCGatewayErrorHandling(t *testing.T) {
-	h, _ := registerIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()

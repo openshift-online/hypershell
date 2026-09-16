@@ -93,8 +93,9 @@ namespace name in its `BeforeCreate` hook; the control plane mirrors the prefix 
   (e.g., `openshell-bdd12bb523f166db`). Prefix `openshell-`.
 * **Per-gateway database:** a PostgreSQL database and login role, both named
   `gw_<gateway-id>`, created by the control plane on the externally provisioned
-  server registered as the gateway's ManagedDatabase. No Kubernetes resource
-  represents it, and one server may back many gateways.
+  gateway database server whose admin credentials are mounted into the controller
+  (`hypershell-gateway-database-admin`). No Kubernetes resource represents it, and
+  one server backs every gateway of the installation.
 * **Database credentials in the tenant namespace:** only the
   `openshell-gateway-db-credentials` Secret is written into `openshell-<hash>`; the
   database itself never runs in the cluster.
@@ -136,8 +137,10 @@ require per-instance control-plane isolation are deployed once per cluster:
  │       ├── ServiceAccount: hypershell-controller
  │       ├── Secret:         hypershell-db-app  (external platform DB connection)
  │       │                                  ▲ (hardcoded volumeMount)
+ │       ├── Secret:         hypershell-gateway-database-admin  (gateway DB server admin + CA)
+ │       │                                  ▲ (volumeMount /etc/hypershell/gateway-database)
  │       ├── Deployment: hypershell-api-server ──┤
- │       ├── Deployment: hypershell-controller ──┘
+ │       ├── Deployment: hypershell-controller ──┴──┘
  │       └── Deployment: hypershell-web-console
  │
  ├── Control Plane Instance 1
@@ -145,11 +148,6 @@ require per-instance control-plane isolation are deployed once per cluster:
  │       ├── ServiceAccount: hypershell-controller
  │       ├── Secret:         hypershell-db-app
  │       └── Deployment:     hypershell-api-server, hypershell-controller, ...
- │
- ├── Database credential namespaces (created by the operator out-of-band - §6.2)
- │   └── Namespace: hypershell-managed-db-us-east-1   (reserved prefix)
- │       └── Secret: hypershell-managed-db-credentials  (fixed name; the only Secret read here)
- │             ▲ referenced by ManagedDatabase.connection_secret
  │
  └── Dynamic Tenant Gateways (created by the controller at runtime - §4)
      ├── Namespace: openshell-bdd12bb523f166db (Tenant A)
@@ -174,11 +172,10 @@ require per-instance control-plane isolation are deployed once per cluster:
 | `<instance>` (e.g., `hyp0`, `hyp1`) | Namespace | Control Plane Instance | Isolates the control plane instance. |
 | `hypershell-controller` | ServiceAccount | Control Plane Instance | Runs the controller; subject of the prefixed ClusterRoleBinding. |
 | `hypershell-db-app` | Secret | Control Plane Instance | Connection details for the externally provisioned platform database; hardcoded in volume mounts. **No suffix**; must not be renamed (§1). |
-| `hypershell-managed-db-<name>` | Namespace | Shared Platform | **Reserved prefix.** Operator-created namespace holding the administrative connection credentials for a PostgreSQL server registered as a `ManagedDatabase`. A `ManagedDatabase.connection_secret` reference is a bare **namespace** name - never `namespace/name` - that MUST carry this prefix and MUST be a valid DNS-1123 label. Provisioned out-of-band, normally before HyperShell itself, so the credentials do not depend on the control plane instance namespace existing. Not created, modified or deleted by HyperShell. See [`openshell-gateway-database.spec.md`](../../platform/openshell-gateway-database.spec.md). |
-| `hypershell-managed-db-credentials` | Secret | Shared Platform | **Fixed name.** The only Secret HyperShell reads inside a `hypershell-managed-db-<name>` namespace: admin `host`/`port`/`user`/`password` (+ optional `dbname`, `sslmode`, `sslrootcert`) for the registered server. The reserved namespace prefix combined with this fixed name is a security boundary, not a convention: together they stop an API-level reference from causing the control plane to read an unrelated Secret such as `hypershell-db-app`. No Secret holding anything other than database admin credentials may take this name in such a namespace. |
+| `hypershell-gateway-database-admin` | Secret | Control Plane Instance | Administrative connection to the gateway database server: `host`/`port`/`user`/`password`/`sslrootcert` (+ optional `dbname`, `sslmode=verify-full`). Mounted read-only into `hypershell-controller` at `/etc/hypershell/gateway-database`; the control plane reads it from the filesystem and never looks a database Secret up by name through the API. The name is deployment configuration and MAY be changed in an overlay together with the volume. Not created, modified or deleted by HyperShell. See [`openshell-gateway-database.spec.md`](../../platform/openshell-gateway-database.spec.md). |
 | `hypershell-api-server`, `hypershell-controller`, `hypershell-web-console` | Deployment | Control Plane Instance | Core components; no suffix (§1). |
-| `gw_<gateway-id>` | PostgreSQL database and role | ManagedDatabase server | Per-gateway database and login role on the registered external server (§4). |
+| `gw_<gateway-id>` | PostgreSQL database and role | Gateway database server | Per-gateway database and login role on the external server named by `hypershell-gateway-database-admin` (§4). |
 | `openshell-<hash>` | Namespace | Tenant Gateway | Gateway workload namespace; generated by the controller at runtime (§4). |
 | `openshell-gateway` | Deployment, ServiceAccount | Tenant Gateway | The gateway application and its identity. |
-| `openshell-gateway-db-credentials` | Secret | Tenant Gateway | DB credentials written into the tenant namespace; the DB itself lives on the external server. |
+| `openshell-gateway-db-credentials` | Secret | Tenant Gateway | DB credentials (`uri` with `sslmode=verify-full`, plus the server CA as `sslrootcert`) written into the tenant namespace; the DB itself lives on the external server. |
 | `openshell-gateway-*` | NetworkPolicy | Tenant Gateway | Tenant-specific network isolation policies. |

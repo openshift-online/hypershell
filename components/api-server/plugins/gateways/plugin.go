@@ -9,7 +9,6 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
-	"github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
@@ -29,63 +28,16 @@ type ServiceLocator struct {
 	list    services.GenericService
 }
 
-type dbLookupAdapter struct {
-	svc managedDatabases.ManagedDatabaseService
-}
-
-// FindOldest returns the earliest-created ManagedDatabase, or "" when none are
-// registered. Ordering is creation timestamp ascending with ID ascending as the
-// tie-break, so the choice is deterministic and concurrent gateway creations
-// agree without coordination. IDs are time-sortable KSUIDs, so the tie-break
-// agrees with creation order.
-func (a *dbLookupAdapter) FindOldest(ctx context.Context) (string, error) {
-	all, err := a.svc.All(ctx)
-	if err != nil {
-		return "", err
-	}
-	return pickOldestManagedDatabase(all), nil
-}
-
-// pickOldestManagedDatabase returns the ID of the earliest-created
-// ManagedDatabase, or "" when none are registered. Ordering is creation
-// timestamp ascending with ID ascending as the tie-break, so the result is
-// deterministic and independent of the order the DAO returned rows in. IDs are
-// time-sortable KSUIDs, so the tie-break agrees with creation order.
-func pickOldestManagedDatabase(all managedDatabases.ManagedDatabaseList) string {
-	var oldest *managedDatabases.ManagedDatabase
-	for _, db := range all {
-		if db == nil {
-			continue
-		}
-		if oldest == nil ||
-			db.CreatedAt.Before(oldest.CreatedAt) ||
-			(db.CreatedAt.Equal(oldest.CreatedAt) && db.ID < oldest.ID) {
-			oldest = db
-		}
-	}
-	if oldest == nil {
-		return ""
-	}
-	return oldest.ID
-}
-
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewGatewayDao(&env.Database.SessionFactory)
 	RegisterGatewayMetrics(dao)
 
 	return ServiceLocator{
 		gateway: func() GatewayService {
-			var placement PlacementResolver
-			mdSvc := managedDatabases.Service(&env.Services)
-			if mdSvc != nil {
-				placement = NewDatabasePlacement(&dbLookupAdapter{svc: mdSvc})
-			}
-
 			return NewGatewayService(
 				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 				dao,
 				events.Service(&env.Services),
-				placement,
 			)
 		},
 		list: newGatewayListService(&env.Database.SessionFactory),
@@ -197,4 +149,6 @@ func init() {
 	db.RegisterMigration(migrationDropFleetsTable())
 	db.RegisterMigration(migrationAddTraceContext())
 	db.RegisterMigration(migrationAddProvisioningConditions())
+	db.RegisterMigration(migrationDropDatabaseId())
+	db.RegisterMigration(migrationDropManagedDatabasesTable())
 }

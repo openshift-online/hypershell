@@ -26,10 +26,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
@@ -62,187 +60,6 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 
 	log.Printf("INFO reconciling ManagedCluster %s (event=%d)", event.ResourceID, event.Type)
 	return nil
-}
-
-type ManagedDatabaseReconciler struct {
-	mu                    sync.Mutex
-	active                map[string]struct{}
-	pending               map[string]watcher.Event[*pb.ManagedDatabase]
-	dynamicClient         dynamic.Interface
-	clientset             kubernetes.Interface
-	grpcConn              *grpc.ClientConn
-	controlPlaneNamespace string
-	lastSeen              map[string]*pb.ManagedDatabase
-}
-
-func NewManagedDatabaseReconciler(
-	dynamicClient dynamic.Interface,
-	clientset kubernetes.Interface,
-	grpcConn *grpc.ClientConn,
-	controlPlaneNamespace string,
-) *ManagedDatabaseReconciler {
-	return &ManagedDatabaseReconciler{
-		active:                make(map[string]struct{}),
-		pending:               make(map[string]watcher.Event[*pb.ManagedDatabase]),
-		lastSeen:              make(map[string]*pb.ManagedDatabase),
-		dynamicClient:         dynamicClient,
-		clientset:             clientset,
-		grpcConn:              grpcConn,
-		controlPlaneNamespace: controlPlaneNamespace,
-	}
-}
-
-// Handle reconciles one ManagedDatabase event, serializing per resource ID.
-func (r *ManagedDatabaseReconciler) Handle(ctx context.Context, event watcher.Event[*pb.ManagedDatabase]) error {
-	if event.Type != watcher.EventDeleted && event.Resource != nil {
-		r.rememberManagedDatabase(event.ResourceID, event.Resource)
-	}
-	r.mu.Lock()
-	if _, busy := r.active[event.ResourceID]; busy {
-		r.pending[event.ResourceID] = event
-		r.mu.Unlock()
-		return nil
-	}
-	r.active[event.ResourceID] = struct{}{}
-	r.mu.Unlock()
-	firstErr := r.handleOne(ctx, event)
-	current := event
-	for {
-		r.mu.Lock()
-		next, hasPending := r.pending[current.ResourceID]
-		if hasPending {
-			delete(r.pending, current.ResourceID)
-		} else {
-			delete(r.active, current.ResourceID)
-		}
-		r.mu.Unlock()
-		if !hasPending {
-			break
-		}
-		current = next
-		if err := r.handleOne(ctx, current); err != nil {
-			log.Printf("ERROR handling pending managed database %s: %v", current.ResourceID, err)
-		}
-	}
-	return firstErr
-}
-
-func (r *ManagedDatabaseReconciler) handleOne(ctx context.Context, event watcher.Event[*pb.ManagedDatabase]) (reconcileErr error) {
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedDatabase", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
-	defer func() { endSpan(reconcileErr) }()
-
-	if r.clientset == nil || r.dynamicClient == nil {
-		return fmt.Errorf("reconcile ManagedDatabase %s: Kubernetes typed and dynamic clients are required", event.ResourceID)
-	}
-	db := event.Resource
-	if event.Type == watcher.EventDeleted {
-		if db == nil {
-			db = r.lastSeenManagedDatabase(event.ResourceID)
-			if db == nil {
-				return fmt.Errorf("delete ManagedDatabase %s: event has no resource and no last-seen resource is available", event.ResourceID)
-			}
-		}
-		// Retain the authoritative tombstone until cleanup succeeds so a retry can
-		// still proceed if a mixed-version API server later sends only the ID.
-		r.rememberManagedDatabase(event.ResourceID, db)
-	} else {
-		if db == nil {
-			log.Printf("WARN ManagedDatabase event %s has nil resource, skipping", event.ResourceID)
-			return nil
-		}
-		r.rememberManagedDatabase(event.ResourceID, db)
-		if r.grpcConn == nil {
-			return fmt.Errorf("reconcile ManagedDatabase %s: gRPC client is required before updating status", event.ResourceID)
-		}
-	}
-	err := r.handleDatabase(ctx, event, db)
-	if err == nil && event.Type == watcher.EventDeleted {
-		r.forgetManagedDatabase(event.ResourceID)
-	}
-	return err
-}
-
-func (r *ManagedDatabaseReconciler) rememberManagedDatabase(id string, db *pb.ManagedDatabase) {
-	if id == "" || db == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.lastSeen == nil {
-		r.lastSeen = make(map[string]*pb.ManagedDatabase)
-	}
-	r.lastSeen[id] = proto.Clone(db).(*pb.ManagedDatabase)
-}
-
-func (r *ManagedDatabaseReconciler) lastSeenManagedDatabase(id string) *pb.ManagedDatabase {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if db := r.lastSeen[id]; db != nil {
-		return proto.Clone(db).(*pb.ManagedDatabase)
-	}
-	return nil
-}
-
-func (r *ManagedDatabaseReconciler) forgetManagedDatabase(id string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.lastSeen, id)
-}
-
-// handleDatabase reconciles a ManagedDatabase as a connectivity and capability
-// probe of the PostgreSQL server it registers. HyperShell never provisions that
-// server, so this creates no Kubernetes resource.
-func (r *ManagedDatabaseReconciler) handleDatabase(ctx context.Context, event watcher.Event[*pb.ManagedDatabase], db *pb.ManagedDatabase) error {
-	if event.Type == watcher.EventDeleted {
-		// The server is not provisioned by HyperShell; only the per-gateway DDL
-		// objects (roles and databases) are cleaned up by the gateway reconciler
-		// when each gateway is deleted. The ManagedDatabase itself is register-only.
-		log.Printf("INFO ManagedDatabase %s deleted, no control-plane resources to clean up", event.ResourceID)
-		return nil
-	}
-
-	log.Printf("INFO reconciling ManagedDatabase %s name=%s (event=%d)",
-		event.ResourceID, db.Name, event.Type)
-
-	if db.GetConnectionSecret() == "" {
-		newStatus := gateway.ExternalDBStatusSecretInvalid
-		r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, managedDatabaseStatus(db), newStatus)
-		log.Printf("WARN ManagedDatabase %s has no connection_secret; cannot probe the registered server", event.ResourceID)
-		return nil
-	}
-
-	cfg := gateway.ExternalDBConfig{
-		CredentialsNamespace: db.GetConnectionSecret(),
-		ManagedDatabaseID:    event.ResourceID,
-	}
-	newStatus := gateway.ProbeExternalServer(ctx, r.clientset, cfg)
-	r.updateManagedDatabaseStatusIfChanged(ctx, event.ResourceID, managedDatabaseStatus(db), newStatus)
-	return nil
-}
-
-func managedDatabaseStatus(db *pb.ManagedDatabase) string {
-	if db == nil || db.Status == nil {
-		return ""
-	}
-	return *db.Status
-}
-
-func (r *ManagedDatabaseReconciler) updateManagedDatabaseStatusIfChanged(ctx context.Context, id, current, desired string) {
-	if current == desired {
-		return
-	}
-	r.updateManagedDatabaseStatus(ctx, id, desired)
-}
-
-func (r *ManagedDatabaseReconciler) updateManagedDatabaseStatus(ctx context.Context, id, status string) {
-	client := pb.NewManagedDatabaseServiceClient(r.grpcConn)
-	_, err := client.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{
-		Id:     id,
-		Status: &status,
-	})
-	if err != nil {
-		log.Printf("WARN failed to update ManagedDatabase %s status to %s: %v", id, status, err)
-	}
 }
 
 // Control-plane-owned GatewayRelease status values (see
@@ -525,6 +342,9 @@ type GatewayReconciler struct {
 	externalCAIssuerName  string
 	externalCAIssuerKind  string
 	ingressBaseDomain     string
+	// database locates the mounted admin credentials every gateway database is
+	// provisioned with; validated once at controller startup.
+	database gateway.DatabaseConfig
 }
 
 func NewGatewayReconciler(
@@ -537,7 +357,11 @@ func NewGatewayReconciler(
 	exposurePort exposure.Port,
 	externalCAIssuerName string,
 	externalCAIssuerKind string,
+	database gateway.DatabaseConfig,
 ) (*GatewayReconciler, error) {
+	if database.AdminCredentialsDir == "" {
+		return nil, fmt.Errorf("gateway database admin credentials directory is required")
+	}
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
@@ -588,6 +412,7 @@ func NewGatewayReconciler(
 		externalCAIssuerName:  externalCAIssuerName,
 		externalCAIssuerKind:  externalCAIssuerKind,
 		ingressBaseDomain:     ingressBaseDomain,
+		database:              database,
 	}, nil
 }
 
@@ -624,33 +449,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 	if event.Type == watcher.EventDeleted {
 		forgetGatewayProvisionObservation(event.ResourceID)
-		var deleteDBConfig gateway.ExternalDBConfig
 		var deleteErrs []error
-		if gw.DatabaseId != "" {
-			var dbErr error
-			deleteDBConfig, dbErr = r.resolveDatabaseConfig(ctx, gw)
-			if dbErr != nil {
-				// Deletion must be idempotent. When the ManagedDatabase is already
-				// gone (a legitimate delete ordering) there is no DB config left to
-				// resolve and nothing more to tear down for it, so treat NotFound as
-				// already-cleaned and continue finalizing the gateway. Appending it to
-				// deleteErrs instead would fail the whole delete-reconcile, which the
-				// watcher retries every 30s -- forever, because the ManagedDatabase
-				// never comes back. Any other error still fails so it is retried.
-				if status.Code(dbErr) == codes.NotFound {
-					log.Printf("INFO gateway %s: ManagedDatabase %s already deleted; skipping database cleanup", event.ResourceID, gw.DatabaseId)
-				} else {
-					deleteErrs = append(deleteErrs, fmt.Errorf("resolve database config for deleted gateway %s: %w", event.ResourceID, dbErr))
-				}
-			}
-		}
 
 		namespace, namespaceErr := gatewayNamespace(gw)
 		if namespaceErr != nil {
 			// Without a recorded namespace there is nothing deterministic to clean
-			// up. Continue with ManagedDatabase deletion rather than leaking a
-			// dedicated deployment database; NamespaceGC remains the namespace
-			// backstop.
+			// up; NamespaceGC remains the namespace backstop.
 			log.Printf("WARN gateway %s deleted but %v; skipping namespace cleanup", event.ResourceID, namespaceErr)
 		} else {
 			log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
@@ -659,7 +463,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				HasCertManager:        r.hasCertManager,
 				HasGatewayAPI:         r.hasGatewayAPI,
 				SkipNetworkPolicies:   r.skipNetworkPolicies,
-				ExternalDB:            deleteDBConfig,
+				Database:              r.database,
 				ControlPlaneNamespace: r.controlPlaneNamespace,
 				GatewayID:             event.ResourceID,
 				GatewayName:           gw.Name,
@@ -794,22 +598,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return nil
 	}
 
-	// External-db-only: every gateway must resolve its database_id to a registered
-	// ManagedDatabase before any workload is applied. resolveDatabaseConfig reports a
-	// missing database_id and an id that resolves to no record. Both are non-recoverable
-	// configuration anomalies (the API server assigns database_id at creation), so settle
-	// to Failed with a human-readable reason rather than leaving the gateway Provisioning
-	// for retry. See specs/platform/openshell-gateway-database.spec.md
-	// § Gateway Database Resolution.
-	dbConfig, resolveErr := r.resolveDatabaseConfig(ctx, gw)
-	if resolveErr != nil {
-		reason := fmt.Sprintf("gateway database resolution failed: %v", resolveErr)
-		r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), reason)
-		log.Printf("ERROR gateway %s database resolution failed: %v", gw.Name, resolveErr)
-		reconcileErr = fmt.Errorf("resolve database config for gateway %s: %w", gw.Name, resolveErr)
-		return reconcileErr
-	}
-
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
@@ -898,7 +686,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		HasCertManager:        r.hasCertManager,
 		HasGatewayAPI:         r.hasGatewayAPI,
 		SkipNetworkPolicies:   r.skipNetworkPolicies,
-		ExternalDB:            dbConfig,
+		Database:              r.database,
 		ControlPlaneNamespace: r.controlPlaneNamespace,
 		GatewayID:             event.ResourceID,
 		UpdateRouteAddress:    r.makeRouteAddressUpdater(event.ResourceID),
@@ -1639,31 +1427,6 @@ func (r *GatewayReconciler) resolveReleaseImage(ctx context.Context, gw *pb.Gate
 	}
 
 	return rel.Image, nil
-}
-
-func (r *GatewayReconciler) resolveDatabaseConfig(ctx context.Context, gw *pb.Gateway) (gateway.ExternalDBConfig, error) {
-	if gw.DatabaseId == "" {
-		return gateway.ExternalDBConfig{}, fmt.Errorf("gateway has no database_id; assign a ManagedDatabase to the gateway")
-	}
-
-	client := pb.NewManagedDatabaseServiceClient(r.grpcConn)
-	resp, err := client.GetManagedDatabase(ctx, &pb.GetManagedDatabaseRequest{Id: gw.DatabaseId})
-	if err != nil {
-		return gateway.ExternalDBConfig{}, fmt.Errorf("resolve ManagedDatabase %s: %w", gw.DatabaseId, err)
-	}
-
-	db := resp.ManagedDatabase
-	if db == nil {
-		return gateway.ExternalDBConfig{}, fmt.Errorf("gateway configuration error: ManagedDatabase %s returned empty payload", gw.DatabaseId)
-	}
-	if db.GetConnectionSecret() == "" {
-		return gateway.ExternalDBConfig{}, fmt.Errorf("ManagedDatabase %s has no connection_secret", gw.DatabaseId)
-	}
-
-	return gateway.ExternalDBConfig{
-		CredentialsNamespace: db.GetConnectionSecret(),
-		ManagedDatabaseID:    gw.DatabaseId,
-	}, nil
 }
 
 func (r *GatewayReconciler) makeOIDCUpdater(gatewayID string) func(ctx context.Context, oidcJSON string) error {

@@ -51,13 +51,11 @@ func NewGatewayService(
 	lockFactory db.LockFactory,
 	gatewayDao GatewayDao,
 	events services.EventService,
-	placement PlacementResolver,
 ) GatewayService {
 	return &sqlGatewayService{
 		lockFactory: lockFactory,
 		gatewayDao:  gatewayDao,
 		events:      events,
-		placement:   placement,
 	}
 }
 
@@ -67,7 +65,6 @@ type sqlGatewayService struct {
 	lockFactory db.LockFactory
 	gatewayDao  GatewayDao
 	events      services.EventService
-	placement   PlacementResolver
 }
 
 func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
@@ -106,21 +103,6 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 }
 
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
-	// database_id is server-owned. Clear any value that reached the business
-	// layer from an API client before selecting the configured placement strategy.
-	gateway.DatabaseId = ""
-	if s.placement != nil {
-		if err := s.placement.Resolve(ctx, gateway); err != nil {
-			if IsPlacementValidationError(err) {
-				return nil, errors.Validation("gateway placement is invalid: %s", err)
-			}
-			return nil, errors.GeneralError("gateway placement failed: %s", err)
-		}
-	}
-	if gateway.DatabaseId == "" {
-		return nil, errors.GeneralError("gateway placement did not assign database_id")
-	}
-
 	gateway.CaptureTraceContext(ctx)
 	gateway, err := s.gatewayDao.Create(ctx, gateway)
 	if err != nil {

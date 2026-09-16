@@ -73,7 +73,7 @@ steps. The ordering reflects the actual dependency chain in the reconciler.
 | # | Condition Type | User-Facing Label | What it covers |
 |---|---|---|---|
 | 1 | `EnvironmentReady` | Preparing environment | Namespace creation, RBAC setup, cluster prerequisites |
-| 2 | `DatabaseReady` | Provisioning database | ManagedDatabase resolution, per-gateway DDL, credential Secret |
+| 2 | `DatabaseReady` | Provisioning database | Admin credential read, per-gateway DDL, credential Secret |
 | 3 | `IdentityProviderReady` | Configuring identity provider | Keycloak client provisioning, OIDC config persistence |
 | 4 | `GatewayDeployed` | Deploying gateway | TLS certificates, config validation, Deployment, Service, NetworkPolicy, routing resources |
 | 5 | `GatewayHealthy` | Verifying gateway health | Deployment readiness, route readiness, phase transition to `Running` |
@@ -180,7 +180,7 @@ conditions are `Complete`.
 #### Scenario: Step failure sets condition to Failed
 
 - GIVEN the GatewayReconciler is processing the `DatabaseReady` step
-- WHEN the ManagedDatabase resolution or DDL provisioning fails
+- WHEN the per-gateway DDL provisioning fails
 - THEN it SHALL set `DatabaseReady` to `Failed`
 - AND it SHALL populate `message` with a high-level, user-facing failure reason
 - AND the `message` SHALL NOT expose low-level infrastructure details (e.g.,
@@ -348,8 +348,8 @@ only the user-facing summary.
 
 #### Scenario: Database provisioning error produces a user-facing message
 
-- GIVEN the ManagedDatabase DDL provisioning fails because the registered
-  PostgreSQL server is unreachable
+- GIVEN the per-gateway DDL provisioning fails because the gateway database
+  server is unreachable
 - WHEN the control plane sets `DatabaseReady` to `Failed`
 - THEN the `message` SHALL be a user-facing summary (e.g., "Database
   provisioning failed - the database service is currently unavailable")

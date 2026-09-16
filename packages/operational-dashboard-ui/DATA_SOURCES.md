@@ -34,7 +34,7 @@ Dashboard-operator BFF routes require `platform:admin` (OP-DASH-04).
 | `gateway-metrics`              | `GET /api/metrics/gateways`, `GET /api/metrics/gateway-sandboxes`, `GET /api/metrics/gateway-provision-duration`, `GET /api/metrics/gateway-provision-outcomes` | `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, `provision-reliability` |
 | `registered-users`             | `GET /api/metrics/registered-users`                                                                                                                             | `registered-users`                                                                         |
 | `gateway-release-distribution` | SDK `GET /api/hypershell/v1/gateways`, `GET /api/hypershell/v1/gateway_releases`                                                                                | `gateway-releases`                                                                         |
-| `platform-inventory`           | `GET /api/metrics/platform-inventory`                                                                                                                           | `managed-clusters`, `managed-databases`                                                    |
+| `platform-inventory`           | `GET /api/metrics/platform-inventory`                                                                                                                           | `managed-clusters`                                                                         |
 | `cluster-memory`               | `GET /api/metrics/cluster-memory`                                                                                                                               | `memory`                                                                                   |
 | `cluster-cpu`                  | `GET /api/metrics/cluster-cpu`                                                                                                                                  | `cpu`                                                                                      |
 | `cluster-pods`                 | `GET /api/metrics/cluster-pods`                                                                                                                                 | `pods`                                                                                     |
@@ -51,23 +51,22 @@ Widget types in `operational-dashboard-page.tsx` map to `OperationalMetric` ids
 from the adapter. Summary cards (`usage-summary`, `system-summary`) read
 multiple metrics from the same payload.
 
-| Widget type                 | Metric ID                               | Notes                                                                                                                           |
-| --------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `gateway-status`            | `provisioned-gateways`                  | Fleet-wide phase counts from `hypershell_gateways_total`. Display status via `gatewayPhaseCountsToDisplayStatusCounts`.         |
-| `gateway-releases`          | `gateway-releases`                      | Per-release counts from paginated gateway and gateway-release list APIs. Spec: `platform/gateway-release-distribution.spec.md`. |
-| `registered-users`          | `registered-users`                      | See [Registered users](#registered-users) below.                                                                                |
-| `provision-time`            | `provision-time`                        | See [Provision time](#provision-time) below.                                                                                    |
-| `provision-reliability`     | `provision-reliability`                 | See [Provision reliability](#provision-reliability) below.                                                                      |
-| `memory`                    | `memory`                                | Node-exporter `node_memory_*` bytes, mapped to GiB.                                                                             |
-| `cpu`                       | `cpu`                                   | Node-exporter `node_cpu_seconds_total` capacity and 5m non-idle rate, mapped to whole cores.                                    |
-| `pods`                      | `pods`                                  | kube-state-metrics allocatable pod capacity, live pod count, and phase breakdown.                                               |
-| `nodes`                     | `nodes`                                 | kube-state-metrics `kube_node_info` total and Ready condition.                                                                  |
-| `inventory-summary`         | `managed-clusters`, `managed-databases` | Totals, 30-day cluster creations, and status icons (OP-DASH-20).                                                                |
-| `managed-cluster-providers` | `managed-clusters`                      | Provider donut from `inventoryProviders`.                                                                                       |
-| `managed-cluster-regions`   | `managed-clusters`                      | Region donut from `inventoryRegions` (`{region} ({provider})` keys).                                                            |
-| `managed-database-status`   | `managed-databases`                     | Status donut from `inventoryStatus`.                                                                                            |
-| `usage-summary`             | several                                 | Gateways (`provisioned-gateways`), sandboxes (`provisioned-sandboxes`), users (`registered-users`).                             |
-| `system-summary`            | several                                 | Provision time and reliability metrics from `gateway-metrics` source.                                                           |
+| Widget type                 | Metric ID               | Notes                                                                                                                           |
+| --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `gateway-status`            | `provisioned-gateways`  | Fleet-wide phase counts from `hypershell_gateways_total`. Display status via `gatewayPhaseCountsToDisplayStatusCounts`.         |
+| `gateway-releases`          | `gateway-releases`      | Per-release counts from paginated gateway and gateway-release list APIs. Spec: `platform/gateway-release-distribution.spec.md`. |
+| `registered-users`          | `registered-users`      | See [Registered users](#registered-users) below.                                                                                |
+| `provision-time`            | `provision-time`        | See [Provision time](#provision-time) below.                                                                                    |
+| `provision-reliability`     | `provision-reliability` | See [Provision reliability](#provision-reliability) below.                                                                      |
+| `memory`                    | `memory`                | Node-exporter `node_memory_*` bytes, mapped to GiB.                                                                             |
+| `cpu`                       | `cpu`                   | Node-exporter `node_cpu_seconds_total` capacity and 5m non-idle rate, mapped to whole cores.                                    |
+| `pods`                      | `pods`                  | kube-state-metrics allocatable pod capacity, live pod count, and phase breakdown.                                               |
+| `nodes`                     | `nodes`                 | kube-state-metrics `kube_node_info` total and Ready condition.                                                                  |
+| `inventory-summary`         | `managed-clusters`      | Totals, 30-day cluster creations, and status icons (OP-DASH-20).                                                                |
+| `managed-cluster-providers` | `managed-clusters`      | Provider donut from `inventoryProviders`.                                                                                       |
+| `managed-cluster-regions`   | `managed-clusters`      | Region donut from `inventoryRegions` (`{region} ({provider})` keys).                                                            |
+| `usage-summary`             | several                 | Gateways (`provisioned-gateways`), sandboxes (`provisioned-sandboxes`), users (`registered-users`).                             |
+| `system-summary`            | several                 | Provision time and reliability metrics from `gateway-metrics` source.                                                           |
 
 `provisioned-sandboxes` has no standalone widget; it appears only in the usage
 summary sandboxes row (`hypershell_gateways_active_sandboxes_total` sum).

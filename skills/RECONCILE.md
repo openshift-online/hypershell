@@ -60,7 +60,7 @@ skills/
 | Platform - Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
 | Platform - Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
 | Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
-| Platform - Gateway DB | 1 | 14 | 11 | 0 | 3 | 0 | 79% |
+| Platform - Gateway DB | 1 | 12 | 10 | 2 | 0 | 0 | 83% |
 | Platform - Gateway TLS | 1 | 7 | 3 | 2 | 2 | 0 | 57% |
 | Platform - Gateway OIDC | 1 | 9 | 6 | 1 | 2 | 0 | 72% |
 | Platform - Gateway Routing | 1 | 18 | 6 | 4 | 8 | 0 | 44% |
@@ -86,7 +86,7 @@ skills/
 | Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **39** | **292** | **251** | **15** | **13** | **5** | **86%** |
+| **TOTAL** | **39** | **335** | **281** | **22** | **27** | **5** | **84%** |
 
 ### Spec Dependency Order
 
@@ -256,7 +256,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 |---|-------------|--------|-----|---------------|------|
 | CP-1 | gRPC watch streams (6 kinds) | Present | No checkpoint/resume-token on reconnect | `watcher/watcher.go` | - |
 | CP-2a | Deploy Gateway workloads | Present | - | `gateway/reconciler.go` | - |
-| CP-2b | Provision the per-gateway database | Present | GatewayReconciler issues CREATE ROLE/CREATE DATABASE on the registered server and writes the tenant credentials Secret | `reconciler.go`, `gateway/external_db.go` | W8 ✅ |
+| CP-2b | Provision the per-gateway database | Present | GatewayReconciler re-reads the mounted admin Secret, issues CREATE ROLE/GRANT/CREATE DATABASE over `verify-full` and writes the tenant credentials Secret (with CA) | `reconciler.go`, `gateway/database.go` | EXT-DB ✅ |
 | CP-2c | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | - |
 | CP-2d | GRPCRoute + BackendTLSPolicy | Present | - | `reconcileGatewayAPIResources()` | - |
 | CP-2e | OIDC config injection | Present | - | `ApplyConfigOverrides()` | - |
@@ -293,21 +293,22 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 ### openshell-gateway-database.spec.md
 
+> Re-baselined 2026-09-16 (branch `external-db-only`): the ManagedDatabase resource, Gateway `database_id`, database placement and the `hypershell-managed-db-*` credentials namespaces were removed. The controller now reads one mounted admin Secret (`hypershell-gateway-database-admin`, `GATEWAY_DATABASE_ADMIN_DIR`) and always connects with `sslmode=verify-full`. Rows D1-D14 below replace the earlier W8 rows; the W8 wave log further down is historical and is left as written.
+
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| D1 | ManagedDatabase Reconciliation | Present | ManagedDatabaseReconciler probes the registered server and publishes status | `reconciler.go` | W8 ✅ |
-| D2 | Per-gateway database, role and Secret | Present | GatewayReconciler issues DDL on the registered server and writes the tenant credentials Secret | `gateway/external_db.go` | W8 ✅ |
-| D3 | ManagedDatabase Deletion Protection | Present | API rejects delete (409) when gateways reference it | `plugins/managedDatabases/service.go` | W8 ✅ |
-| D4 | Gateway Database Resolution (auto db) | Present | database_id is server-owned: placement assigns the first-created ManagedDatabase | `plugins/gateways/placement.go` | W8 ✅ |
-| D5 | Gateway Credentials Secret (tenant namespace) | Present | `openshell-gateway-db-credentials` created in tenant NS with host/port/dbname/user/password/uri | `gateway/reconciler.go` | W8 ✅ |
-| D6 | Database Provisioning Readiness | Present | Provisioning waits for the per-gateway DDL and the tenant credentials Secret before deploying the workload | `gateway/external_db.go` | W8 ✅ |
-| D7 | Database Credential Security (crypto/rand) | Present | 32-byte hex password; create-or-skip semantics | `gateway/reconciler.go` | W8 ✅ |
-| D8 | Manual Credential Rotation | Removed | HyperShell does not rotate per-gateway database credentials (openshell-gateway-database.spec.md § No Credential Rotation) | - | - |
-| D9 | Gateway workload uses Deployment + env from Secret | Present | openshell-gateway-db-credentials Secret referenced in Deployment | `deployment.yaml` | W1 ✅ |
-| D11 | Per-gateway cleanup on deletion | Present | `DROP DATABASE`/`DROP ROLE` on the registered server; the tenant Secret goes with the namespace | `gateway/external_db.go` | W8 ✅ |
-| D12 | DROP COLUMN migration for database_config | Missing | database_config column still in DB schema; no DROP COLUMN migration added | - | Future |
-| D13 | Database field immutability | Missing | No API validation prevents database_id reassignment | - | Future |
-| D14 | Gateway Deletion Protection (active sandboxes) | Missing | No sandbox check on delete | - | Future |
+| D1 | Admin Credential Mount | Present | Files read from `GATEWAY_DATABASE_ADMIN_DIR` on every operation; Secret volume in `deploy/base/controller.yaml` | `gateway/database.go`, `config/config.go` | EXT-DB ✅ |
+| D2 | Startup Precondition | Present | Required files, PEM `sslrootcert`, port range and `sslmode=verify-full` validated; `log.Fatalf` on failure; no connection at startup | `cmd/hypershell-controller/main.go`, `gateway/database.go` | EXT-DB ✅ |
+| D3 | Per-Gateway Database Provisioning | Present | `CREATE ROLE ... LOGIN`, `GRANT gw_<id> TO <admin>`, `CREATE DATABASE ... OWNER`, `REVOKE/GRANT CONNECT`; password reuse + `ALTER ROLE` repair | `gateway/database.go` | EXT-DB ✅ |
+| D4 | Gateway Credentials Secret (uri + sslrootcert) | Present | Tenant Secret carries `sslmode=verify-full`, CA bundle and `uri` with `sslrootcert=/etc/openshell-db/ca.crt`; no admin values | `gateway/database.go` | EXT-DB ✅ |
+| D5 | CA Bundle Rotation | Partial | Tenant `sslrootcert` rewritten on reconcile when the admin bundle changes; gateway pod restart is a documented operator step | `gateway/database.go` | EXT-DB |
+| D6 | Gateway Workload Type (Deployment) | Present | Always Deployment; CA projected at `/etc/openshell-db/ca.crt`, `--db-url $(OPENSHELL_DB_URL)` | `manifests/gateway/deployment.yaml` | EXT-DB ✅ |
+| D7 | Per-Gateway Cleanup (retry + IncompleteFinalization) | Present | Terminate backends, `DROP DATABASE ... WITH (FORCE)`, `DROP ROLE`; failure returns error and records `PostgreSQLDatabase gw_<id>` orphan Event | `gateway/database.go`, `gateway/reconciler.go` | EXT-DB ✅ |
+| D8 | Gateway Deletion With Active Sandboxes (Advisory) | Present | Count surfaced as a warning; delete never gated on it | `gateway/reconciler.go` | NGC ✅ |
+| D9 | No Credential Rotation | Present | Password reused from the tenant Secret; `ALTER ROLE` only as repair | `gateway/database.go` | EXT-DB ✅ |
+| D10 | Database Credential Security (crypto/rand, redaction, verify-full only) | Present | 32-byte hex password; driver errors wrapped; no weaker `sslmode` accepted anywhere | `gateway/database.go` | EXT-DB ✅ |
+| D11 | No Database Surface in the API and CLI | Present | `plugins/managedDatabases` and its OpenAPI/proto/SDK/CLI/UI surface removed; `database_id` reserved (not renumbered) on `Gateway`/`CreateGatewayRequest`/`UpdateGatewayRequest` and dropped from OpenAPI, both SDKs, the CLI and the web console; migrations `2026091600000002`/`2026091600000003` drop the column and table | `components/api-server/proto/hypershell/v1/gateways.proto`, `plugins/gateways/migration.go` | EXT-DB ✅ |
+| D12 | Development Environments Use the Same Path | Present | `scripts/kind/up.sh` generates the stand-in CA, serves TLS, creates `hypershell-gateway-database-admin` with `verify-full`; OpenShift driver follows | `scripts/kind/up.sh`, `scripts/cluster/drivers/openshift.sh` | EXT-DB |
 
 ### openshell-gateway-tls.spec.md
 
@@ -858,7 +859,7 @@ Waves execute in this order because every later consumer depends on the public c
 | W5 | Gateway Proto Schema + API Fields | ✅ Complete |
 | W6 | Gateway Deletion + Cleanup + Route Removal | ✅ Complete |
 
-**Wave 5 summary:** Added 5 gateway provisioning fields (image, server_dns_names, route_address, oidc, route) across proto, OpenAPI, model, migration, presenters, and gRPC/HTTP handlers. Control plane reconciler populates GatewayConfig from proto fields. (`database_config` field added in W5 was superseded by CNPG ManagedDatabase integration in W8 and has been removed.)
+**Wave 5 summary:** Added 5 gateway provisioning fields (image, server_dns_names, route_address, oidc, route) across proto, OpenAPI, model, migration, presenters, and gRPC/HTTP handlers. Control plane reconciler populates GatewayConfig from proto fields. (`database_config` field added in W5 was superseded by CNPG ManagedDatabase integration in W8 and has been removed. Historical note: ManagedDatabase itself was removed on 2026-09-16; see the openshell-gateway-database.spec.md gap table.)
 
 **Wave 6 summary:** Implemented `DeleteGatewayResources()` with label-based deletion of all namespaced resources + per-tenant ClusterRoleBinding cleanup. Added in-memory namespace cache for DELETED event handling (gRPC DELETE events have nil resource). Changed ClusterRoleBinding to per-tenant naming (`...-<namespace>`). Added `deleteGatewayAPIResources()` for route removal when routing disabled. ownerReferences deferred - explicit deletion covers the cleanup need.
 
@@ -884,7 +885,7 @@ Waves execute in this order because every later consumer depends on the public c
 **Scope:** D1-D11, D-SR updates, G18, R3, R6, R9, R12, R13, R15, R16, R18
 **Dependency:** Wave 5, Wave 6
 
-**Wave 8 partial summary (d1fc36b):** CNPG operator integration complete: ManagedDatabaseReconciler (Cluster CRs), GatewayReconciler (DatabaseRole/Database/Secret CRs), ManagedDatabase deletion protection, gateway fleet/database auto-resolution, CNPG operator detection, credential rotation updated to CNPG Secret approach (no ALTER ROLE). `database_config` field removed from API, SDK, CLI (pb.go + OpenAPI models still need `make proto` + `make generate`). Items R12, R13, R15, R16, R18 (routing) and G18 remain pending.
+**Wave 8 partial summary (d1fc36b) - historical; the ManagedDatabase resource and CNPG path were later removed (2026-09-16 re-baseline in the openshell-gateway-database.spec.md gap table):** CNPG operator integration complete: ManagedDatabaseReconciler (Cluster CRs), GatewayReconciler (DatabaseRole/Database/Secret CRs), ManagedDatabase deletion protection, gateway fleet/database auto-resolution, CNPG operator detection, credential rotation updated to CNPG Secret approach (no ALTER ROLE). `database_config` field removed from API, SDK, CLI (pb.go + OpenAPI models still need `make proto` + `make generate`). Items R12, R13, R15, R16, R18 (routing) and G18 remain pending.
 
 Remaining routing items:
 1. ~~Require `GATEWAY_API_GATEWAY_NAME` env var~~ R3: already Present
