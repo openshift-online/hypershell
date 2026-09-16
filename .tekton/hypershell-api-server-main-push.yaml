@@ -1,4 +1,4 @@
-# Run the release bundle check with support for partial release artifact lists.
+# Trigger a release bundle to verify Renovate updates on the delivery branch.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
