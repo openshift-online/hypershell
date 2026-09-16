@@ -67,6 +67,6 @@
     "victory-voronoi-container": "37.3.6"
   },
   "engines": {
-    "node": ">=24.18.1"
+    "node": ">=24.11.0"
   }
 }

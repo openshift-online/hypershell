@@ -12,7 +12,7 @@ API-backed workflows enter application use cases through capability-shaped ports
 
 ## Prerequisites
 
-- Node.js 24.18.1 or newer in the 24.x line (see the repository `.node-version`)
+- Node.js 24.18.1 (recommended; see the repository `.node-version`). Minimum supported: 24.11.0.
 - pnpm 11.15.1
 
 Install the pinned pnpm artifact without relying on Node's bundled Corepack:
