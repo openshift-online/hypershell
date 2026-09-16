@@ -14,7 +14,7 @@ source_dir=$(mktemp -d)
 trap 'rm -rf "$source_dir"' EXIT
 git -C "$source_dir" init --quiet
 git -C "$source_dir" remote add origin https://github.com/openshift-online/hypershell.git
-# Fetch main only to check the ancestry of the component source revisions.
+# Fetch history to select and check the fixed Snapshot manifest revision.
 git -C "$source_dir" fetch --quiet --filter=blob:none origin main:refs/remotes/origin/main
 python3 - --release "$RELEASE" --snapshot "$SNAPSHOT" \
   --source-directory "$source_dir" --result-path "$BUNDLE_RESULT" <<'PYTHON_PUBLISHER'

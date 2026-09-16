@@ -25,6 +25,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/watch"
@@ -863,6 +864,10 @@ func deployGateway(
 				applyConfigHashAnnotation(ctx, clientset, obj, nsConfig.Name)
 			}
 
+			if obj.GetKind() == "Deployment" && obj.GetName() == GatewayDeploymentName {
+				applyAppliedReleaseAnnotation(obj, nsConfig.Gateway.ReleaseID)
+			}
+
 			if hasTrustedCA && obj.GetKind() == "Deployment" {
 				applyTrustedCAOverrides(obj)
 			}
@@ -938,11 +943,83 @@ func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespa
 // whose readiness gates the Gateway `Running` phase.
 const GatewayDeploymentName = "openshell-gateway"
 
+// AppliedReleaseAnnotation records, on the gateway Deployment's metadata, the
+// GatewayRelease id the Deployment's current pod template was rendered from. The
+// control plane stamps it at apply time so the continuous health loop can advance
+// observed_release_id only to the release actually applied to the workload -- not
+// to a desired release the provisioning path has committed to the database but not
+// yet rolled out. Empty for a direct-image gateway. See
+// gateway-release-rollout.spec.md.
+const AppliedReleaseAnnotation = "hypershell.redhat.io/applied-release-id"
+
+// AppliedRelease returns the GatewayRelease id the given gateway Deployment was
+// rendered from, read from AppliedReleaseAnnotation, or "" when unset (a
+// direct-image gateway, or a Deployment applied before this annotation existed).
+func AppliedRelease(deploy *appsv1.Deployment) string {
+	if deploy == nil {
+		return ""
+	}
+	return deploy.Annotations[AppliedReleaseAnnotation]
+}
+
+// deploymentRolloutComplete judges a Deployment's rollout on its *new* revision,
+// not on any still-Ready old pod. It reports complete=true only when the
+// Deployment's spec change has been observed by its controller, its updated
+// replicas are available at the desired count, and no old replicas remain. It
+// also reports rollingOut=true when a new revision is still being rolled out
+// (spec not yet observed, updated replicas not yet at desired, or old replicas
+// still terminating), so callers can distinguish an in-progress rollout from a
+// steady-state degradation of the current revision. With maxUnavailable:0 and a
+// positive maxSurge, a still-Ready old pod would satisfy a plain
+// ReadyReplicas>=desired check while the new revision is still starting or
+// crash-looping; judging on the updated replicas closes that gap. When the
+// updated revision is fully rolled out but its pods are not all available, the
+// current revision is unhealthy (rollingOut=false). See
+// gateway-release-rollout.spec.md.
+func deploymentRolloutComplete(deploy *appsv1.Deployment) (complete bool, rollingOut bool, reason string) {
+	desired := int32(1)
+	if deploy.Spec.Replicas != nil {
+		desired = *deploy.Spec.Replicas
+	}
+	if desired < 1 {
+		return false, false, "deployment has zero desired replicas"
+	}
+	if deploy.Status.ObservedGeneration < deploy.Generation {
+		return false, true, "waiting for deployment spec update to be observed"
+	}
+	if deploy.Status.UpdatedReplicas < desired {
+		return false, true, fmt.Sprintf("%d/%d updated replicas rolled out", deploy.Status.UpdatedReplicas, desired)
+	}
+	if deploy.Status.Replicas > deploy.Status.UpdatedReplicas {
+		old := deploy.Status.Replicas - deploy.Status.UpdatedReplicas
+		if deploy.Status.AvailableReplicas < deploy.Status.Replicas {
+			// With maxUnavailable:0 the old replica(s) are kept running until the
+			// updated revision becomes available, so an unavailable pod during the
+			// surge window means the new revision is not up yet (e.g.
+			// ImagePullBackOff or a slow start), not that an old replica is winding
+			// down. Report that truthfully so an operator debugging a stuck roll is
+			// not misdirected to a healthy-looking termination message.
+			return false, true, fmt.Sprintf("updated revision not yet available; %d old replica(s) retained", old)
+		}
+		return false, true, fmt.Sprintf("waiting for %d old replica(s) to terminate", old)
+	}
+	if deploy.Status.AvailableReplicas < desired {
+		return false, false, fmt.Sprintf("%d/%d updated replicas available", deploy.Status.AvailableReplicas, desired)
+	}
+	return true, false, ""
+}
+
 // DeploymentReadiness performs a single, non-blocking check of a Deployment's
 // readiness. It returns ready=true when ready replicas meet or exceed desired
 // replicas. When the Deployment is not ready, reason carries a short
 // human-readable descriptor (e.g. "1/2 replicas ready" or "deployment not
 // found") suitable for the Gateway `status` field.
+//
+// This is the general readiness primitive used for auxiliary workloads (the
+// per-gateway console and the embedded database). The gateway workload's own
+// rollout is judged on the *new* revision instead, via ObserveGatewayRollout /
+// deploymentRolloutComplete, so a still-Ready old pod cannot mask an unready new
+// revision during a release roll. See gateway-release-rollout.spec.md.
 func DeploymentReadiness(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (ready bool, reason string, err error) {
 	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -965,13 +1042,42 @@ func DeploymentReadiness(ctx context.Context, clientset kubernetes.Interface, na
 	return false, fmt.Sprintf("%d/%d replicas ready", deploy.Status.ReadyReplicas, desired), nil
 }
 
+// ObserveGatewayRollout reports the gateway Deployment's revision-aware readiness,
+// whether a new revision is still rolling out, and the GatewayRelease the ready
+// revision was actually rendered from (AppliedReleaseAnnotation). The health
+// reconciler uses rollingOut to leave an in-progress rollout to the provisioning
+// path (which owns the Provisioning -> Running/Degraded transition and preserves
+// the last-good workload) rather than flapping the phase, and uses appliedRelease
+// to advance observed_release_id only to the release actually on the workload --
+// never to a desired release the provisioning path has not yet applied. It returns
+// rollingOut=false with reason "deployment not found" when the Deployment does not
+// yet exist. See gateway-release-rollout.spec.md.
+func ObserveGatewayRollout(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (ready bool, rollingOut bool, appliedRelease string, reason string, err error) {
+	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return false, false, "", "deployment not found", nil
+		}
+		return false, false, "", "", fmt.Errorf("get deployment %s/%s: %w", namespace, name, err)
+	}
+	complete, rollingOut, reason := deploymentRolloutComplete(deploy)
+	return complete, rollingOut, AppliedRelease(deploy), reason, nil
+}
+
+// gatewayReadyPollInterval is how often WaitForGatewayReady re-observes the
+// gateway workload while waiting for readiness. It is a package variable so tests
+// can shorten it; production keeps the 2s cadence.
+var gatewayReadyPollInterval = 2 * time.Second
+
 // WaitForGatewayReady blocks until the openshell-gateway Deployment reaches
-// readiness or the timeout elapses. It returns ready=true on readiness, or
-// ready=false with the last observed reason when the provisioning readiness
+// readiness or the timeout elapses. Readiness is judged on the new revision
+// (see ObserveGatewayRollout), so a still-Ready old pod cannot let a defective
+// release be reported ready during a roll. It returns ready=true on readiness,
+// or ready=false with the last observed reason when the provisioning readiness
 // window expires without the workload becoming ready.
-func WaitForGatewayReady(ctx context.Context, clientset *kubernetes.Clientset, namespace string, timeout time.Duration) (bool, string) {
+func WaitForGatewayReady(ctx context.Context, clientset kubernetes.Interface, namespace string, timeout time.Duration) (bool, string) {
 	deadline := time.After(timeout)
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(gatewayReadyPollInterval)
 	defer ticker.Stop()
 
 	lastReason := "not ready"
@@ -982,7 +1088,7 @@ func WaitForGatewayReady(ctx context.Context, clientset *kubernetes.Clientset, n
 		case <-deadline:
 			return false, lastReason
 		case <-ticker.C:
-			ready, reason, err := DeploymentReadiness(ctx, clientset, namespace, GatewayDeploymentName)
+			ready, _, _, reason, err := ObserveGatewayRollout(ctx, clientset, namespace, GatewayDeploymentName)
 			if err != nil {
 				lastReason = err.Error()
 				continue
@@ -1163,6 +1269,25 @@ func applyConfigHashAnnotation(ctx context.Context, clientset *kubernetes.Client
 	}
 	annotations["hypershell.redhat.io/config-hash"] = hashStr
 	_ = unstructured.SetNestedMap(obj.Object, annotations, "spec", "template", "metadata", "annotations")
+}
+
+// applyAppliedReleaseAnnotation stamps the gateway Deployment's metadata with the
+// GatewayRelease id its pod template was rendered from, so the health loop can
+// advance observed_release_id only to the release actually applied. It is set on
+// the Deployment metadata (not the pod template) so it is a pure marker that does
+// not itself trigger a rollout; the image change that accompanies a real release
+// repoint is what rolls the workload. A direct-image gateway (empty releaseID)
+// gets no annotation. See gateway-release-rollout.spec.md.
+func applyAppliedReleaseAnnotation(obj *unstructured.Unstructured, releaseID string) {
+	if releaseID == "" {
+		return
+	}
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[AppliedReleaseAnnotation] = releaseID
+	obj.SetAnnotations(annotations)
 }
 
 func applyOpenShiftOverrides(obj *unstructured.Unstructured) {

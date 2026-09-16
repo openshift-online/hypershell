@@ -12,6 +12,21 @@ media type `application/vnd.hypershell.release.v1+json`. Each component has its
 released image reference, with a SHA-256 digest, and its source Git revision.
 The component images are in `quay.io/redhat-services-prod`.
 
+The bundle also records `manifests.git.url` and `manifests.git.revision`. The
+revision is the newest component source commit in the accepted Snapshot. All
+component revisions must be ancestors of that commit, and that commit must be
+in the fetched history of `main`. Sibling component commits are allowed when
+another component commit in the Snapshot contains both. If no Snapshot component
+commit contains every component revision, publication fails. SHA sort order does
+not affect this rule. The publisher checks that the workload base,
+Keycloak theme, and dashboard metrics component exist at that revision. It does
+not select the current head of `main`, which can advance while a release waits.
+This is an additive field in the version 1 bundle format.
+
+Changes under `deploy/`, or to the bundle publisher, trigger the API-server push
+build. That build records the new commit in a Snapshot, so a manifest-only change
+can produce a bundle while retaining the other two component images.
+
 The bundle is a release record. It is not a workload image or a Tekton task
 bundle. Consumers must select the bundle tags and download the JSON layer.
 
@@ -51,7 +66,8 @@ Snapshot; it does not add a test that waits for all builds from one commit.
 The tag uses the Snapshot creation time and a hash of the Release UID. The OCI
 creation time also uses the Snapshot time. A retry of an old release does not
 receive a new creation time. Retries of the same Release produce the same content
-and digest. Consumers must retain and use the bundle digest.
+and digest for a fixed publisher version. A publisher upgrade can change the
+bundle format for an old Release. Consumers must retain and use the bundle digest.
 
 ## Enable the pipeline through a merge request
 
@@ -69,7 +85,8 @@ Set `spec.finalPipeline` to this pipeline through the Git resolver. Use
 Each new run resolves the pipeline from `main`. The pipeline includes the
 publisher code, so a change to `main` during the run cannot change that code.
 The publisher does not need a resolved Git revision or PipelineRun provenance.
-It fetches main only to check the ancestry of the component source revisions.
+It fetches main to check source ancestry and the manifest files at the selected
+Snapshot commit.
 
 Bind this service account to the approved `konflux-viewer-bot-actions` ClusterRole
 in the tenant namespace. The config repository rejects custom roles. The viewer
@@ -101,8 +118,8 @@ spec:
 
 A promotion must download the selected Freight digest with `oci-download` and
 select media type `application/vnd.hypershell.release.v1+json`. It can then read
-the component references from the JSON and commit the three image digest changes
-to `hypershell-gitops`. Argo CD in the destination cluster pulls that commit.
+the component references and manifest revision from the JSON and commit the three
+image digest changes and shared manifest refs to `hypershell-gitops`. Argo CD in the destination cluster pulls that commit.
 
 Kargo selects the latest eligible tag at each poll. It does not guarantee a
 separate deployment for every intermediate release. A later deployment step must

@@ -276,6 +276,10 @@ components:
               type: string
               readOnly: true
               description: Runtime version from the last successful gateway health response
+            observed_release_id:
+              type: string
+              readOnly: true
+              description: Release the control plane has rolled out and observed healthy, advanced only after a new revision passes its health gates; distinct from the desired release_id and populated by the control plane
             oidc:
               type: string
               readOnly: true

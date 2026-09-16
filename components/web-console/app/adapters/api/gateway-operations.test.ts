@@ -65,6 +65,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     kind: "Gateway",
     name: "Team gateway",
     namespace: "openshell",
+    observed_release_id: "",
     oidc: "",
     phase: "",
     provisioning_conditions: "",

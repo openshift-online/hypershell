@@ -31,6 +31,7 @@ type Gateway struct {
 	RouteAddress           *string `json:"route_address"`
 	ConsoleAddress         *string `json:"console_address"`
 	GatewayVersion         *string `json:"gateway_version"`
+	ObservedReleaseId      *string `json:"observed_release_id"`
 	Oidc                   *string `json:"oidc" gorm:"type:jsonb"`
 	Route                  *string `json:"route" gorm:"type:jsonb"`
 	CredentialDriver       *string `json:"credential_driver" gorm:"type:jsonb"`

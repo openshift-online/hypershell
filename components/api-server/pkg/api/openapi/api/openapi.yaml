@@ -2750,6 +2750,12 @@ components:
             description: Runtime version from the last successful gateway health response
             readOnly: true
             type: string
+          observed_release_id:
+            description: "Release the control plane has rolled out and observed healthy,\
+              \ advanced only after a new revision passes its health gates; distinct\
+              \ from the desired release_id and populated by the control plane"
+            readOnly: true
+            type: string
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -2801,6 +2807,7 @@ components:
         external_dns: external_dns
         phase: phase
         image: image
+        observed_release_id: observed_release_id
         active_sandbox_count: 5
         provisioning_conditions:
         - condition_status: Pending
@@ -2855,6 +2862,7 @@ components:
           external_dns: external_dns
           phase: phase
           image: image
+          observed_release_id: observed_release_id
           active_sandbox_count: 5
           provisioning_conditions:
           - condition_status: Pending
@@ -2890,6 +2898,7 @@ components:
           external_dns: external_dns
           phase: phase
           image: image
+          observed_release_id: observed_release_id
           active_sandbox_count: 5
           provisioning_conditions:
           - condition_status: Pending

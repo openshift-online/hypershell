@@ -3,6 +3,7 @@
 import copy
 import os
 import json
+from itertools import permutations
 import sys
 from pathlib import Path
 import subprocess
@@ -129,12 +130,108 @@ class ReleaseBundleTests(unittest.TestCase):
                     bundle.make_bundle(release, snapshot)
 
 
+class ManifestSourceTests(unittest.TestCase):
+    def setUp(self):
+        # Commit hooks export Git paths. Keep fixture operations in the fixture.
+        environment = patch.dict(os.environ, {
+            key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+        }, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.git("init", "--quiet", "--initial-branch=main")
+        self.git("config", "core.hooksPath", str(self.root / "empty-hooks"))
+        self.git("config", "commit.gpgsign", "false")
+        self.git("config", "user.name", "Test")
+        self.git("config", "user.email", "test@example.com")
+        for path in bundle.MANIFEST_PATHS:
+            target = self.root / path / "kustomization.yaml"
+            target.parent.mkdir(parents=True)
+            target.write_text("resources: []\n")
+        self.old = self.commit("initial")
+        self.middle = self.commit("middle")
+        self.new = self.commit("new")
+        self.git("update-ref", "refs/remotes/origin/main", self.new)
+
+    def git(self, *args):
+        return subprocess.check_output(["git", *args], cwd=self.root, text=True).strip()
+
+    def commit(self, message):
+        self.git("add", ".")
+        self.git("commit", "--quiet", "--allow-empty", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def source(self, revisions):
+        components = [{"source": {"git": {"revision": revision}}} for revision in revisions]
+        return bundle.manifest_source(components, self.root)
+
+    def test_selects_newest_snapshot_commit_not_current_main(self):
+        expected = {"git": {"url": bundle.SOURCE_URL, "revision": self.middle}}
+        self.assertEqual(self.source([self.old, self.middle, self.old]), expected)
+        self.assertEqual(self.source([self.middle, self.old, self.old]), expected)
+        later = self.commit("main advances while a release waits")
+        self.git("update-ref", "refs/remotes/origin/main", later)
+        self.assertEqual(self.source([self.old, self.middle, self.old]), expected)
+
+    def test_manifest_only_commit_can_advance_with_older_other_images(self):
+        (self.root / bundle.MANIFEST_PATHS[0] / "kustomization.yaml").write_text("resources: []\n# changed\n")
+        manifest_change = self.commit("manifest change")
+        self.git("update-ref", "refs/remotes/origin/main", manifest_change)
+        self.assertEqual(self.source([manifest_change, self.old, self.middle])["git"]["revision"], manifest_change)
+
+    def test_missing_manifest_base_stops_selection(self):
+        (self.root / bundle.MANIFEST_PATHS[1] / "kustomization.yaml").unlink()
+        missing = self.commit("remove required manifest base")
+        self.git("update-ref", "refs/remotes/origin/main", missing)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.source([self.old, missing])
+
+    def test_unmerged_revision_stops_selection(self):
+        self.git("checkout", "--quiet", "-b", "unmerged", self.old)
+        unmerged = self.commit("unmerged")
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.source([self.old, unmerged])
+
+    def test_divergent_component_revisions_stop_selection(self):
+        self.git("checkout", "--quiet", "-b", "side", self.old)
+        side = self.commit("side")
+        self.git("checkout", "--quiet", "main")
+        self.git("merge", "--quiet", "--no-ff", "side", "-m", "merge side")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        with self.assertRaisesRegex(ValueError, "No Snapshot component commit"):
+            self.source([self.new, side])
+
+    def test_common_descendant_is_selected_in_every_candidate_order(self):
+        self.git("checkout", "--quiet", "-b", "side", self.old)
+        side = self.commit("side")
+        self.git("checkout", "--quiet", "main")
+        self.git("merge", "--quiet", "--no-ff", "side", "-m", "merge side")
+        merged = self.git("rev-parse", "HEAD")
+        self.git("update-ref", "refs/remotes/origin/main", merged)
+        # Control traversal order so Git-generated SHA values cannot hide the bug.
+        for order in permutations([self.new, side, merged]):
+            with self.subTest(order=order), patch.object(bundle, "sorted", return_value=list(order), create=True):
+                self.assertEqual(self.source(order)["git"]["revision"], merged)
+
+    def test_git_errors_are_not_treated_as_missing_ancestors(self):
+        original_run = bundle.run
+        def run(*args, **kwargs):
+            if args[:3] == ("git", "merge-base", "--is-ancestor") and args[4] != "refs/remotes/origin/main":
+                raise subprocess.CalledProcessError(128, args)
+            return original_run(*args, **kwargs)
+        with patch.object(bundle, "run", side_effect=run), self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.source([self.old, self.new])
+        self.assertEqual(raised.exception.returncode, 128)
+
+
 class PipelineBootstrapTests(unittest.TestCase):
     def test_embedded_publisher_matches_source(self):
         pipeline = renderer.PIPELINE.read_text()
         self.assertEqual(pipeline, renderer.render(pipeline, renderer.PUBLISHER.read_text()))
 
-    def run_bootstrap(self, git_status=0, partial_release=False, unavailable_image=""):
+    def run_bootstrap(self, git_status=0, partial_release=False, unavailable_image="", missing_manifest=False):
         script = textwrap.dedent(renderer.PIPELINE.read_text().split(renderer.SCRIPT_MARKER, 1)[1])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -147,12 +244,14 @@ class PipelineBootstrapTests(unittest.TestCase):
             stubs = {
                 "kubectl": 'case "$2" in releases.appstudio.redhat.com) cat "$FIXTURES/release.json";; '
                            'snapshots.appstudio.redhat.com) cat "$FIXTURES/snapshot.json";; *) exit 1;; esac\n',
-                "git": 'exit "$GIT_STATUS"\n',
+                "git": 'if [ "$1" = "merge-base" ] && [ "$4" != "refs/remotes/origin/main" ]; then '
+                       r'[ "$3" = "$4" ] || [ "$3" \< "$4" ] || exit 1; fi; '
+                       'if [ "$1" = "cat-file" ] && [ "$MISSING_MANIFEST" = "1" ]; then exit 1; fi; exit "$GIT_STATUS"\n',
                 "oras": 'case "$1" in resolve) for last; do :; done; '
                         '[ "$last" != "$UNAVAILABLE_IMAGE" ] || exit 1; case "$last" in *@*) '
                         'printf "%s\\n" "${last##*@}";; *) printf "{}\\n" | sha256sum | '
                         'cut -d " " -f 1 | sed "s/^/sha256:/";; esac;; '
-                        'push) printf "{}\\n" > manifest.json;; *) exit 1;; esac\n',
+                        'push) cp bundle.json "$FIXTURES/published.json"; printf "{}\\n" > manifest.json;; *) exit 1;; esac\n',
                 "select-oci-auth": "printf '%s' '{\"auths\":{\"quay.io\":{\"auth\":\"dGVzdDp0ZXN0\"}}}'\n",
                 "python3": 'exec "$TEST_PYTHON" "$@"\n',
             }
@@ -162,9 +261,13 @@ class PipelineBootstrapTests(unittest.TestCase):
                 executable.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
                        COMMAND_LOG=str(commands), FIXTURES=str(root), TEST_PYTHON=sys.executable,
-                       GIT_STATUS=str(git_status), UNAVAILABLE_IMAGE=unavailable_image, RELEASE=bundle.NAMESPACE + "/release-one",
+                       GIT_STATUS=str(git_status), MISSING_MANIFEST="1" if missing_manifest else "0",
+                       UNAVAILABLE_IMAGE=unavailable_image, RELEASE=bundle.NAMESPACE + "/release-one",
                        SNAPSHOT=bundle.NAMESPACE + "/snapshot-one", BUNDLE_RESULT=str(root / "result"))
             result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
+            if result.returncode == 0:
+                published = json.loads((root / "published.json").read_text())
+                self.assertEqual(published["manifests"], {"git": {"url": bundle.SOURCE_URL, "revision": "3" * 40}})
             reference = (root / "result").read_text() if (root / "result").exists() else None
             return result, commands.read_text(), reference
 
@@ -191,6 +294,14 @@ class PipelineBootstrapTests(unittest.TestCase):
         self.assertIsNone(reference)
         self.assertIn("oras resolve " + image, commands)
         self.assertNotIn("oras push", commands)
+        self.assertNotIn("select-oci-auth", commands)
+
+    def test_missing_manifest_stops_publication_before_registry_access(self):
+        result, commands, reference = self.run_bootstrap(missing_manifest=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(reference)
+        self.assertIn("git cat-file -e", commands)
+        self.assertNotIn("oras", commands)
         self.assertNotIn("select-oci-auth", commands)
 
     def test_failed_source_fetch_stops_publication(self):
