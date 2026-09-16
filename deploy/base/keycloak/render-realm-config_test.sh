@@ -48,7 +48,7 @@ extract_realm >"${WORKDIR}/hypershell-realm.json"
 python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "${WORKDIR}/hypershell-realm.json"
 
 # --- Kind / no console host: localhost redirect URIs stay, GitHub IdP off ---
-env -i PATH="${PATH}" python3 "${RENDER}" \
+env -i PATH="${PATH}" HOME="${HOME}" python3 "${RENDER}" \
   "${WORKDIR}/hypershell-realm.json" "${WORKDIR}/kind.json"
 kind_redirects="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); client=next(c for c in realm["clients"] if c["clientId"]=="hypershell-frontend"); print(json.dumps(client["redirectUris"]))' "${WORKDIR}/kind.json")"
 assert_eq '["https://console.hypershell.localhost/*", "https://console.hypershell.localhost:*"]' \
@@ -63,7 +63,7 @@ kind_e2e_mapping="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1
 assert_eq 'False' "${kind_e2e_mapping}" "Kind omits hypershell-e2e impersonation clientScopeMappings"
 
 # --- OpenShift console host: exact callback URIs, no localhost wildcards ---
-env -i PATH="${PATH}" \
+env -i PATH="${PATH}" HOME="${HOME}" \
   HYPERSHELL_CONSOLE_HOST='web-console-hypershell-ci-pr-267.apps.rosa.example.com' \
   PR_ENV_GITHUB_IDP_ENABLED=true \
   PR_ENV_GITHUB_CLIENT_ID='Iv1.example' \

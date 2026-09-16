@@ -1,5 +1,18 @@
 BINARY_NAME=hypershell
 CONTAINER_ENGINE?=$(shell command -v podman 2>/dev/null || echo docker)
+
+# On macOS, testcontainers-go cannot discover the Podman socket automatically.
+# Export DOCKER_HOST and disable the Ryuk reaper so testcontainers works with
+# Podman Machine without requiring the user to set these manually.
+ifeq ($(shell uname -s),Darwin)
+  ifndef DOCKER_HOST
+    _PODMAN_SOCK:=$(shell podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null)
+    ifneq ($(_PODMAN_SOCK),)
+      export DOCKER_HOST:=unix://$(_PODMAN_SOCK)
+      export TESTCONTAINERS_RYUK_DISABLED:=true
+    endif
+  endif
+endif
 POSTGRES_IMAGE=postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
 OPENAPI_SPEC=$(abspath openapi/openapi.yaml)
 SDK_GENERATOR_DIR=$(abspath ../../scripts/sdk-generator)
