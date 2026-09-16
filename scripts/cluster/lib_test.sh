@@ -67,6 +67,27 @@ assert_fail "uppercase rejected" validate_rfc1123_label "Alice" 54
 assert_fail "underscore rejected" validate_rfc1123_label "alice_dev" 54
 assert_eq "tok" "$(printf '%s' '{"access_token":"tok","expires_in":60}' | json_string_field access_token)" "json_string_field access_token"
 assert_eq "abc-id" "$(printf '%s' '[{"id":"abc-id","clientId":"hypershell-frontend"}]' | json_first_id)" "json_first_id"
+# Presenters emit id before name. The old grep ("name" then "id" in one object)
+# misses this shape and re-POSTs a second dev-gateway on every openshift-seed.
+_api_list='{"kind":"GatewayList","page":1,"size":100,"total":1,"items":[{"id":"2FhMpQzXBzABC","kind":"Gateway","href":"/api/hypershell/v1/gateways/2FhMpQzXBzABC","created_at":"2026-09-14T00:00:00Z","updated_at":"2026-09-14T00:00:00Z","name":"dev-gateway","cluster_id":"c1","release_id":"r1"}]}'
+assert_eq "2FhMpQzXBzABC" "$(printf '%s' "${_api_list}" | json_named_id dev-gateway)" \
+  "json_named_id finds id-before-name list items"
+assert_eq "id-default" "$(printf '%s' '{"items":[{"name":"other","id":"id-other"},{"name":"dev-gateway","id":"id-default"}]}' | json_named_id dev-gateway)" \
+  "json_named_id finds name-before-id list items"
+assert_eq "" "$(printf '%s' "${_api_list}" | json_named_id missing-gateway)" \
+  "json_named_id is empty when the name is absent"
+assert_eq "" "$(printf '%s' 'not-json' | json_named_id dev-gateway)" \
+  "json_named_id is empty on invalid JSON"
+_pretty_list='{
+  "items": [
+    {
+      "id": "pretty-id",
+      "name": "dev-gateway"
+    }
+  ]
+}'
+assert_eq "pretty-id" "$(printf '%s' "${_pretty_list}" | json_named_id dev-gateway)" \
+  "json_named_id finds pretty-printed list items"
 assert_ok "internal registry svc:port is cluster-local" \
   registry_host_is_cluster_local 'image-registry.openshift-image-registry.svc:5000'
 assert_ok "cluster.local registry is cluster-local" \
@@ -101,6 +122,14 @@ assert_eq "amd64" "$(SWAP_PLATFORM=linux/amd64 swap_target_goarch)" "SWAP_PLATFO
 assert_eq "amd64" "$(SWAP_ARCH=x86_64 SWAP_PLATFORM= swap_target_goarch)" "SWAP_ARCH x86_64"
 assert_eq "arm64" "$(SWAP_PLATFORM=linux/arm64 swap_target_goarch)" "SWAP_PLATFORM linux/arm64"
 SWAP_PLATFORM=linux/ppc64le assert_fail "unsupported SWAP_PLATFORM" swap_target_goarch
+case "$(uname -m)" in
+  x86_64) _expected_build_arch=amd64 ;;
+  aarch64|arm64) _expected_build_arch=arm64 ;;
+  *) _expected_build_arch="" ;;
+esac
+if [[ -n "${_expected_build_arch}" ]]; then
+  assert_eq "${_expected_build_arch}" "$(swap_build_goarch)" "laptop BUILDARCH matches uname -m"
+fi
 unset SWAP_PLATFORM SWAP_ARCH
 assert_eq "sha256:d3f6ac0a7627fee89b55f34745e09fc64d0073e807719a66f6b4534a96541eb6" \
   "$(printf '%s\n' \
@@ -148,6 +177,52 @@ merged="$(printf '%s' '{"id":"x","redirectUris":["https://console.hypershell.loc
 assert_eq '["https://console.apps.example.com/auth/callback", "https://console.apps.example.com"]' \
   "$(printf '%s' "${merged}" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["redirectUris"]))')" \
   "keycloak_client_with_console_redirects replaces Kind localhost URIs"
+_kc_patch="$(keycloak_route_env_patch 'https://keycloak.apps.example.com' 'web-console.apps.example.com')"
+assert_eq 'https://keycloak.apps.example.com' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"])')" \
+  "keycloak_route_env_patch sets KC_HOSTNAME on the keycloak container"
+assert_eq 'keycloak' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["containers"][0]["name"])')" \
+  "keycloak_route_env_patch targets container keycloak"
+assert_eq 'web-console.apps.example.com' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["initContainers"][0]["env"][0]["value"])')" \
+  "keycloak_route_env_patch sets HYPERSHELL_CONSOLE_HOST on render-realm-config"
+assert_eq 'render-realm-config' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["initContainers"][0]["name"])')" \
+  "keycloak_route_env_patch targets init container render-realm-config"
+assert_eq 'HYPERSHELL_CONSOLE_HOST' \
+  "$(printf '%s' "${_kc_patch}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["spec"]["template"]["spec"]["initContainers"][0]["env"][0]["name"])')" \
+  "keycloak_route_env_patch names the console-host env var"
+if grep -A14 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'keycloak_route_env_patch'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: openshift-up does not stamp Keycloak route env via keycloak_route_env_patch'
+fi
+if grep -A14 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q -- '--type=strategic'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: openshift-up does not strategic-merge patch Keycloak route env'
+fi
+if grep -A14 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -Eq 'replace -f|set env deployment/keycloak'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: openshift-up still replaces or set-envs the Keycloak Deployment'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -A25 'Recycle Keycloak when GitHub OAuth secret changes' "${REPO_ROOT}/.github/workflows/pr-environment.yml" | grep -q 'already matches; skip recycle'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: PR env workflow recycles Keycloak even when the oauth-secret hash is unchanged'
+fi
+if grep 'Keycloak:' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'admin/admin'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Keycloak banner still prints admin/admin outside the test-user branch'
+else
+  PASS=$((PASS + 1))
+fi
 if grep -A3 '^cluster_teardown()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cluster_down'; then
   PASS=$((PASS + 1))
 else
@@ -212,6 +287,35 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_down does not use the -dev- cluster-scoped prefix'
 fi
+if grep -A80 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete_instance_managed_namespaces'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_down does not delete instance-managed gateway namespaces'
+fi
+if grep -A20 '^delete_instance_managed_namespaces()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'empty instance identity'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: delete_instance_managed_namespaces does not refuse an empty instance'
+fi
+_selector_got="$(bash -c '
+  # shellcheck source=lib.sh
+  source "'"${SCRIPT_DIR}"'/lib.sh"
+  # shellcheck source=drivers/openshift.sh
+  source "'"${SCRIPT_DIR}"'/drivers/openshift.sh"
+  instance_managed_namespace_selector alice
+')"
+assert_eq \
+  'hypershell.redhat.io/managed=true,app.kubernetes.io/managed-by=hypershell-control-plane,hypershell.redhat.io/instance=alice' \
+  "${_selector_got}" \
+  "instance selector stamps managed + managed-by + instance"
+if grep -A80 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'still reaping instance-managed leftovers'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift cluster_down returns early when the platform project is already gone'
+fi
 if grep -E 'delete clusterrole(binding)? "hypershell-controller' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift down deletes unprefixed cluster-scoped names (would hit stage)'
@@ -255,6 +359,35 @@ if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'ski
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_up does not honor SKIP_SEED'
+fi
+if grep -q 'extract_named_id' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  || grep -Fq '[^}]*"id"' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seed still greps name-then-id (misses API list JSON)'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -q 'json_named_id local-openshift' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'json_named_id dev-release' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'json_named_id openshell-db' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'json_named_id dev-gateway' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seed_via_api does not look up existing resources with json_named_id'
+fi
+if grep -Fq '[^}]*"id"' "${REPO_ROOT}/scripts/kind/seed.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Kind seed still greps name-then-id (misses API list JSON)'
+else
+  PASS=$((PASS + 1))
+fi
+if grep -q 'json_named_id local-kind' "${REPO_ROOT}/scripts/kind/seed.sh" \
+  && grep -q 'json_named_id dev-gateway' "${REPO_ROOT}/scripts/kind/seed.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Kind seed does not look up existing resources with json_named_id'
 fi
 if grep -B2 'db_provider="\$(effective_database_provider)"' "${SCRIPT_DIR}/drivers/openshift.sh" >/dev/null \
   && grep -A20 'Creating ManagedDatabase' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'provider='; then
@@ -941,6 +1074,13 @@ else
   echo 'FAIL: swap build does not pass TARGETARCH for the cluster node architecture'
 fi
 if grep -A80 '^push_component_image()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'BUILDARCH'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: swap build does not pass BUILDARCH for the laptop architecture'
+fi
+if grep -A80 '^push_component_image()' "${SCRIPT_DIR}/drivers/openshift.sh" \
   | grep -q -- '--platform'; then
   PASS=$((PASS + 1))
 else
@@ -969,6 +1109,14 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: Go Dockerfiles do not honor TARGETARCH for OpenShift swap cross-compile'
 fi
+if grep -q 'build-${BUILDARCH}' "${REPO_ROOT}/components/web-console/Dockerfile" \
+  && grep -q 'AS bundle' "${REPO_ROOT}/components/web-console/Dockerfile" \
+  && grep -q 'build-${TARGETARCH}' "${REPO_ROOT}/components/web-console/Dockerfile"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: web-console Dockerfile does not compile on BUILDARCH and bundle native addons on TARGETARCH'
+fi
 if grep -q 'OPENSHIFT_IMAGE_REGISTRY' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh" "${REPO_ROOT}/Makefile"; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: OPENSHIFT_IMAGE_REGISTRY is still present; swaps use SWAP_REGISTRY'
@@ -992,6 +1140,26 @@ if grep -q 'PULL_SECRET:-${KIND_PULL_SECRET' "${REPO_ROOT}/scripts/kind/up.sh"; 
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: kind-up does not accept PULL_SECRET with KIND_PULL_SECRET alias'
+fi
+# Keycloak has no persistent storage (start-dev on in-memory H2), so a Keycloak
+# pod restart discards dev-gateway's OIDC client while its row survives in
+# PostgreSQL, permanently sticking it in "Keycloak client is missing" (the
+# reconciler never auto-recreates a missing client). Until Keycloak gets
+# durable storage, seed_via_api must delete and recreate dev-gateway on every
+# run instead of reusing whatever it finds.
+if awk '/^seed_via_api\(\)/,0' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -A20 'json_named_id dev-gateway' | grep -q 'api_exec DELETE "/api/hypershell/v1/gateways/\${GATEWAY_ID}"'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seed_via_api does not delete an existing dev-gateway before recreating it'
+fi
+if awk '/^seed_via_api\(\)/,0' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'dev-gateway already exists'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift seed_via_api still reuses an existing dev-gateway instead of recreating it'
+else
+  PASS=$((PASS + 1))
 fi
 
 printf 'OpenShift lifecycle tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"

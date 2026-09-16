@@ -25,7 +25,7 @@ This spec covers the **e2e driver interface contract** (for all targets), the **
 
 This spec owns the driver interface contract and the **OpenShift e2e driver** (`tests/e2e/drivers/openshift.sh`) so a user can run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster the user is already logged in to (via `oc login`) -- the target environment for scale and performance testing. Bring-up is a precondition: `make openshift-up` (specified in `openshift-development.spec.md`) deploys the blessed `deploy/openshift/` overlay into the current `oc` project (`OPENSHIFT_NAMESPACE` overrides), companion `${OPENSHIFT_NAMESPACE}-keycloak`, and the per-environment `${OPENSHIFT_NAMESPACE}-dev-*` cluster-scoped RBAC. This spec does not duplicate that lifecycle. Automated OpenShift pull-request CI is specified in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). The deprecation window for `components/pr-test/e2e-openshell.sh` is specified there as well.
 
-Manual OpenShift e2e and performance runs remain in scope here. Kind CI, including the merge-queue gate, remains in scope here. The OpenShift pull-request environment job is not this spec.
+Manual OpenShift e2e and performance runs remain in scope here. Kind CI, including the merge-queue gate, remains in scope here. The OpenShift pull-request *environment* (bring-up, image swap, access comment, reaping) is specified in `ephemeral-pr-environments.spec.md`. The Tests / E2E / OpenShift job that runs the suite against that environment lives in `.github/workflows/e2e.yml` and is specified here as an additional job of the CI E2E Workflow.
 
 ## Architecture
 
@@ -334,6 +334,15 @@ The admin OIDC token from area 1 authenticates the API calls in areas 2--8 and 1
 - THEN the test SHALL poll the API until the gateway phase is `Running` or `E2E_PROVISION_TIMEOUT` seconds have elapsed
 - AND a timeout SHALL be reported as a test failure
 
+#### Scenario: Seeded Cluster and Release Discovery
+
+- GIVEN the HyperShell API is reachable and the suite has an admin bearer token
+- WHEN area 2 looks up the seeded managed cluster and gateway release
+- THEN it SHALL query `GET /managed_clusters` and `GET /gateway_releases` through `api_curl` and select by `E2E_SEED_CLUSTER_NAME` / `E2E_SEED_RELEASE_NAME`
+- AND on `E2E_INFRA_DRIVER=kind` those names SHALL default to `local-kind` / `dev-release`
+- AND on `E2E_INFRA_DRIVER=openshift` those names SHALL default to `local-openshift` / `dev-release`
+- AND when either id is missing, the suite SHALL fail the area and print whether each list body was empty, an API `Error` (code and reason), or unparseable, plus a re-seed hint (`SEED_STRICT=true make openshift-seed` or `make kind-seed`)
+
 #### Scenario: Infrastructure Verification
 
 - GIVEN a gateway has reached `Running` phase
@@ -380,7 +389,7 @@ count is an advisory recent value that may lag real time (see
 
 ### Requirement: Developer RBAC Enforcement
 
-The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`. This tier is a legitimate *user* of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator`, so it MUST NOT be able to create gateways via the HyperShell API. The suite SHALL assert both halves -- the allowed operation succeeds and the denied operation returns `403 Forbidden`.
+The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`. This tier is a legitimate *user* of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow the API server's `RBAC_DEFAULT_ROLES`: empty (OpenShift/production) MUST return `403 Forbidden`; unset Kind default `gateway:creator` MUST return 2xx. The suite SHALL read that env from the `hypershell-api-server` Deployment rather than branching on `E2E_INFRA_DRIVER`. The sandbox half SHALL succeed in both postures.
 
 #### Scenario: Openshell User May Create a Sandbox
 
@@ -393,13 +402,32 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 #### Scenario: Openshell User May Not Create a Gateway
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
+- AND the API server's `RBAC_DEFAULT_ROLES` does not include `gateway:creator` (OpenShift sets the env to empty; production isolation)
 - WHEN the developer calls `POST /api/hypershell/v1/gateways` with that token
 - THEN the API SHALL return `403 Forbidden` (the developer lacks the platform-scoped `gateway:creator` role)
 - AND the test SHALL record a pass for the denial
 
+#### Scenario: Openshell User May List Gateways
+
+- GIVEN a valid OIDC token has been acquired for the `developer` user
+- AND the API server's `RBAC_DEFAULT_ROLES` does not include `gateway:creator`
+- AND the developer has no per-gateway RoleBinding
+- WHEN the developer calls `GET /api/hypershell/v1/gateways`
+- THEN the API SHALL return 200 with a `GatewayList` body
+- AND the console SHALL NOT show "Gateways could not be loaded"
+
+#### Scenario: Default Creator Binding Allows Gateway Create
+
+- GIVEN a valid OIDC token has been acquired for the `developer` user
+- AND `RBAC_DEFAULT_ROLES` is unset on the API server (Kind; the process default is `gateway:creator`)
+- WHEN the developer calls `POST /api/hypershell/v1/gateways` with that token
+- THEN the API SHALL return 2xx (HYPERSHELL-262 default-role bootstrap)
+- AND the test SHALL delete the created gateway
+
 #### Scenario: Unexpected Success Is a Failure
 
 - GIVEN the `developer` user attempts to create a gateway
+- AND `RBAC_DEFAULT_ROLES` does not include `gateway:creator`
 - WHEN the API returns a 2xx status despite the missing `gateway:creator` role
 - THEN the test SHALL record a failure (RBAC not enforced)
 - AND the test SHALL delete the erroneously-created gateway to leave a clean state
@@ -558,7 +586,7 @@ The system SHALL provide an independently-triggered GitHub Actions workflow at `
 
 ### Requirement: CI Unit Test Workflow
 
-The unit-test and e2e stages SHALL be ordered by a single orchestrator workflow at `.github/workflows/tests.yml` rather than by cross-workflow status-check polling. `tests.yml` SHALL own the `pull_request`, `push` (to `main`), `merge_group`, and `workflow_dispatch` triggers, the concurrency group, and SHALL call `unit-tests.yml` and `e2e.yml` as reusable workflows (`on: workflow_call`) wired with native `needs:` edges. `unit` SHALL depend only on `detect-changes`, and `e2e` SHALL declare `needs: [detect-changes, unit]` so it starts only after the unit-test stage concludes successfully. Because GitHub Actions skips a job by default if any needed job failed OR was skipped, `e2e` SHALL also declare `if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result != 'failure' }}`, so a PR touching only e2e-owned paths (every job inside `unit` path-filtered away, making the `unit` caller job itself resolve to `skipped`) still runs `e2e` instead of silently skipping it. This gates only the expensive stage: the Kind-based e2e run SHALL NOT start for a SHA whose unit tests failed, and such a failure SHALL surface as a clean red `Tests CI Gate` check rather than a misleading e2e environment failure. There SHALL be no in-workflow job that polls for a preceding stage's status check. The stage workflows SHALL NOT declare their own event triggers (only `workflow_call`) so they never run as standalone duplicates. `tests.yml` SHALL NOT be gated by, and SHALL NOT gate, the separate `checks.yml` workflow (see the CI Checks Workflow requirement); the two run fully concurrently.
+The unit-test and e2e stages SHALL be ordered by a single orchestrator workflow at `.github/workflows/tests.yml` rather than by cross-workflow status-check polling. `tests.yml` SHALL own the `pull_request`, `push` (to `main`), `merge_group`, and `workflow_dispatch` triggers, the concurrency group, and SHALL call `unit-tests.yml` and `e2e.yml` as reusable workflows (`on: workflow_call`) wired with native `needs:` edges. `unit` SHALL depend only on `detect-changes`, and `e2e` SHALL declare `needs: [detect-changes, unit]` so it starts only after the unit-test stage concludes successfully. Because GitHub Actions skips a job by default if any needed job failed OR was skipped, `e2e` SHALL also declare `if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result != 'failure' }}`, so a PR touching only e2e-owned paths (every job inside `unit` path-filtered away, making the `unit` caller job itself resolve to `skipped`) still runs `e2e` instead of silently skipping it. This gates only the expensive stage: the Kind-based e2e run SHALL NOT start for a SHA whose unit tests failed, and such a failure SHALL surface as a clean red `Tests CI Gate` check rather than a misleading e2e environment failure. There SHALL be no in-workflow job that polls for a preceding Tests or Checks stage's status check. The one cross-workflow poller exception is Tests / E2E / OpenShift waiting on the independent `Deploy PR environment` check (see CI E2E Workflow). The stage workflows SHALL NOT declare their own event triggers (only `workflow_call`) so they never run as standalone duplicates. `tests.yml` SHALL NOT be gated by, and SHALL NOT gate, the separate `checks.yml` workflow (see the CI Checks Workflow requirement); the two run fully concurrently.
 
 Change detection SHALL run exactly once per workflow, in a `detect-changes` job in `tests.yml` (invoking `.github/scripts/detect-components.sh`), whose per-component outputs are passed into each stage as `with:` inputs; the stage workflows SHALL NOT detect changes internally and SHALL gate their jobs on `inputs.<component>`. Because each stage is a reusable-workflow call, its individual jobs surface as `Unit / <job>` and `E2E / <job>` checks rather than a single per-stage check. `tests.yml` SHALL therefore provide a `tests-gate` job (`Tests CI Gate`) covering the `unit` and `e2e` stages together, which SHALL run with `if: always()`, read both stages' rolled-up `result` via `needs`, and fail unless `detect-changes` succeeded and neither stage failed or cancelled (a fully skipped stage SHALL pass the gate). Because it always runs, it is never left pending by path-filtered skips, so this is one of the two checks to mark required in branch protection (the other being `checks.yml`'s own `Checks CI Gate`).
 
@@ -611,7 +639,9 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 
 ### Requirement: CI E2E Workflow
 
-The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/e2e.yml` (`on: workflow_call`) that runs the e2e test suite against a Kind cluster. It SHALL run as the final stage of `tests.yml`, which triggers on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. Like the unit stage, it SHALL receive the changed-component flags as `workflow_call` inputs and gate its jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result (together with unit's) up into the required check, so it has no summary or gate job of its own. The orchestrator's `needs: [detect-changes, unit]` edge (with the `if:` override described in the CI Unit Test Workflow requirement, so a `unit` skip does not also skip `e2e`) SHALL ensure Kind is never created until the unit-test stage succeeds; the e2e workflow itself SHALL NOT contain a job that polls for that gate, or for the separate `checks.yml` workflow. The workflow SHALL still gate on Konflux image builds completing (an external build system it cannot order with `needs:`) and pull those images by digest -- it SHALL NOT rebuild component images itself.
+The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/e2e.yml` (`on: workflow_call`) that runs the e2e test suite against Kind and, on origin pull requests, against the ephemeral OpenShift PR environment. It SHALL run as the final stage of `tests.yml`, which triggers on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. Like the unit stage, it SHALL receive the changed-component flags as `workflow_call` inputs and gate its jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result (together with unit's) up into the required check, so it has no summary or gate job of its own. The orchestrator's `needs: [detect-changes, unit]` edge (with the `if:` override described in the CI Unit Test Workflow requirement, so a `unit` skip does not also skip `e2e`) SHALL ensure Kind is never created until the unit-test stage succeeds; the e2e workflow itself SHALL NOT contain a job that polls for that gate, or for the separate `checks.yml` workflow. The workflow SHALL still gate Kind jobs on Konflux image builds completing (an external build system it cannot order with `needs:`) and pull those images by digest -- it SHALL NOT rebuild component images itself.
+
+On origin `pull_request` events, `e2e.yml` SHALL also run a job named `OpenShift` (check: Tests / E2E / OpenShift). That job SHALL declare `needs: plan-images` and SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR skips the OpenShift suite as well as Kind. The independent PR Environment workflow SHALL use the same `should_run` gate for `Deploy PR environment`, so an e2e-irrelevant origin PR does not consume a cluster namespace for a baseline `main` environment. When the job runs, it SHALL poll the independent `Deploy PR environment` check until it succeeds, then run the OpenShift e2e suite against the live per-PR namespace as `ephemeral-pr-environments.spec.md` defines. GitHub Actions `needs:` cannot order independently-triggered workflows, so this poller is the allowed exception to the no-cross-workflow-poller rule for Unit vs Checks. Fork PRs, `merge_group`, and `push` SHALL skip that job (no per-PR environment). Push to `main` SHALL run the bring-up-test-tear-down OpenShift job from a dedicated workflow (`.github/workflows/e2e-openshift-main.yml`) that does not run on pull requests, so it does not appear as a skipped Tests check.
 
 #### Scenario: PR Triggers Workflow
 
@@ -620,6 +650,16 @@ The system SHALL provide a reusable GitHub Actions workflow at `.github/workflow
 - AND Konflux has built images for changed components
 - WHEN the `e2e` stage runs
 - THEN it SHALL: check out the repository, use the changed-component flags passed in as inputs, create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind`, and report the CI status
+
+#### Scenario: OpenShift E2E Waits On Deploy PR Environment
+
+- GIVEN an origin pull request whose e2e-relevant components changed
+- AND whose `Deploy PR environment` check is still running
+- WHEN Tests / E2E / OpenShift starts
+- THEN it SHALL have required `plan-images` with `should_run=true`, matching Kind
+- AND it SHALL poll that check until it concludes `success`
+- AND it SHALL then run `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials bash tests/e2e/e2e-openshell.sh` against the per-PR namespace
+- AND a fork PR, `merge_group` event, `push` event, or origin PR with `should_run=false` SHALL skip this job
 
 #### Scenario: Tests Pass
 
@@ -638,7 +678,9 @@ The system SHALL provide a reusable GitHub Actions workflow at `.github/workflow
 
 - GIVEN the PR modifies only files outside the e2e-relevant component paths (e.g., only `docs/` or `components/sdk-typescript/`)
 - WHEN the `e2e` workflow evaluates the change detection outputs
-- THEN the e2e job SHALL be skipped
+- THEN `plan-images` SHALL set `should_run=false`
+- AND both the Kind and OpenShift e2e jobs SHALL be skipped
+- AND the PR Environment `Deploy PR environment` job SHALL be skipped
 - AND the workflow SHALL report `success` (to avoid blocking merges)
 
 #### Scenario: Infrastructure-Only Changes (No Source Components)
@@ -852,6 +894,9 @@ deploy/
                               native `needs:`
   unit-tests.yml           -- Tests unit-test stage (reusable, on: workflow_call)
   e2e.yml                  -- Tests e2e stage (reusable, on: workflow_call)
+  e2e-openshift-main.yml   -- push-to-main OpenShift bring-up-test-tear-down
+  pr-environment.yml       -- ephemeral PR env deploy (open/reopen/synchronize)
+  pr-environment-release.yml -- ephemeral PR env teardown (closed: merge or close)
 ```
 
 `components/pr-test/e2e-openshell.sh` SHALL be deprecated as `ephemeral-pr-environments.spec.md` specifies. Removal is deferred until manual usage migrates; the ROKS variant is out of that deprecation.
@@ -873,8 +918,8 @@ deploy/
 | `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--8 and 11 |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (local dev only; unused when `E2E_OIDC_GRANT=client_credentials`) |
 | `E2E_OIDC_GRANT` | `password` | Token grant for `acquire_oidc_token` and `acquire_gateway_token_with_role`: `password` (Kind and manual OpenShift) or `client_credentials` (GitHub-brokered pull-request environments, see `ephemeral-pr-environments.spec.md`) |
-| `E2E_SEED_CLUSTER_NAME` | `local-kind` on kind; unset otherwise | Pin seed discovery to this managed-cluster name. Unset means the first list item |
-| `E2E_SEED_RELEASE_NAME` | `dev-release` on kind; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
+| `E2E_SEED_CLUSTER_NAME` | `local-kind` on kind; `local-openshift` on openshift; unset otherwise | Pin seed discovery to this managed-cluster name. Unset means the first list item |
+| `E2E_SEED_RELEASE_NAME` | `dev-release` on kind and openshift; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
 | `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
 | `E2E_DEV_PASSWORD` | `developer` | Password for the developer OIDC user (local dev only) |
 | `OPENSHELL_BIN` | `openshell` | Path to the openshell CLI binary |
@@ -1005,7 +1050,7 @@ The system SHALL provide a `make e2e-performance` target. The target SHALL run `
 
 The performance harness (`tests/e2e/e2e-performance.sh`) SHALL be infrastructure-agnostic. It SHALL call only the driver interface functions for infrastructure operations. It SHALL select the driver the same way the e2e suite does: auto-detected from the current KUBECONFIG context, with `E2E_INFRA_DRIVER` as an override. It SHALL exit with a non-zero status at startup if `E2E_INFRA_DRIVER` names a missing driver, and SHALL list the available drivers. It SHALL NOT contain any `kubectl`-only, `oc`-only, or `kind`-only command.
 
-The harness SHALL obtain the seeded cluster, release, and managed database ids the same way the e2e suite does: it SHALL query the API through `api_curl` and reuse the shared seeding helpers in `tests/e2e/lib.sh`, never hardcoding ids. When `E2E_SEED_CLUSTER_NAME` / `E2E_SEED_RELEASE_NAME` are set, discovery SHALL select the matching name; when they are unset it SHALL take the first list item (the single-seed Kind/CI layout). On `E2E_INFRA_DRIVER=kind` those names SHALL default to the `make kind-up` seeds (`local-kind`, `dev-release`). Every diagnostic or resource-inspection command SHALL invoke the Kubernetes CLI through `$(get_cli_binary)`, so it resolves to `kubectl` on Kind and `oc` on OpenShift with no change to the harness.
+The harness SHALL obtain the seeded cluster, release, and managed database ids the same way the e2e suite does: it SHALL query the API through `api_curl` and reuse the shared seeding helpers in `tests/e2e/lib.sh`, never hardcoding ids. When `E2E_SEED_CLUSTER_NAME` / `E2E_SEED_RELEASE_NAME` are set, discovery SHALL select the matching name; when they are unset it SHALL take the first list item (the single-seed Kind/CI layout). On `E2E_INFRA_DRIVER=kind` those names SHALL default to the `make kind-up` seeds (`local-kind`, `dev-release`). On `E2E_INFRA_DRIVER=openshift` they SHALL default to the `make openshift-seed` names (`local-openshift`, `dev-release`). When discovery cannot resolve both ids, it SHALL report whether each list body was an empty collection, an API `Error` (code and reason), or unparseable, and SHALL hint to re-run `SEED_STRICT=true make openshift-seed` (or `make kind-seed`). Every diagnostic or resource-inspection command SHALL invoke the Kubernetes CLI through `$(get_cli_binary)`, so it resolves to `kubectl` on Kind and `oc` on OpenShift with no change to the harness.
 
 The OpenShift driver is specified alongside this contract in `openshift-development.spec.md`; the performance harness uses it for OpenShift runs (see [Scope](#scope)). The harness SHALL contain no infra-specific code: it works with either driver with no change. OpenShift runs are manual and on-demand; the performance test is not wired into CI for any target (see [Design Decisions](#design-decisions)).
 
@@ -1462,7 +1507,7 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | CI pulls Konflux-built images, not rebuild | Images are built by Konflux (the existing build pipeline). The e2e workflow gates on those builds and pulls images by digest, avoiding duplicate builds and ensuring CI tests the exact images that ship. This is expected to cover HYPERSHELL-16 |
 | Diagnostic artifacts only on failure | Uploading pod logs, events, and describes on every run wastes GitHub Actions storage. Conditional upload on failure provides debugging information when needed |
 | 20-minute CI timeout | Kind cluster creation takes ~2 min, image pulls ~1-2 min, e2e tests ~5-8 min. A 20-minute ceiling provides margin for slow GitHub runners while preventing runaway jobs |
-| e2e workflow skips for irrelevant changes | SDK-only or docs-only PRs do not affect the e2e path. Skipping avoids CI time and Konflux build overhead. The `detect-components.sh` infrastructure tracks `api_server`, `control_plane`, `pr_test`, and `e2e` component paths for "should we re-run e2e" decisions. Separately, Konflux image builds only trigger on changes under `components/<name>/` source paths -- the workflow checks the actual diff to distinguish e2e-relevant infrastructure changes (which use baseline images) from source changes (which require Konflux-built images) |
+| e2e workflow skips for irrelevant changes | SDK-only or docs-only PRs do not affect the e2e path. Skipping avoids CI time, Konflux wait overhead, and a shared-cluster PR namespace that would only run baseline `main` images. The `detect-components.sh` infrastructure tracks `api_server`, `control_plane`, `pr_test`, and `e2e` component paths for "should we re-run e2e" decisions; `Deploy PR environment` uses that same `should_run` gate. Separately, Konflux image builds only trigger on changes under `components/<name>/` source paths -- the workflow checks the actual diff to distinguish e2e-relevant infrastructure changes (which use baseline images) from source changes (which require Konflux-built images) |
 | `make kind-up` accepts image overrides | Passing `IMAGE_TAG=<digest>` or per-component image variables to `make kind-up` allows CI to deploy Konflux-built images directly without a separate load step. Developers can also use this to test specific image versions locally |
 | Backward-compatible migration | The refactoring does not change `make kind-up`. `scripts/kind/up.sh` can be migrated to use `kustomize build deploy/kind/` incrementally. The spec defines the target state; the migration path is incremental |
 | OpenShift e2e runs use `make openshift-up` as the environment | This spec owns the driver the suite calls. `openshift-development.spec.md` owns bring-up: `make openshift-up`, the `deploy/openshift/` overlay (Routes, Keycloak NetworkPolicy, SCC), namespace rewrite, `${OPENSHIFT_NAMESPACE}-dev-*` cluster RBAC, and cluster bootstrap. Automated OpenShift pull-request CI and the `e2e-openshell.sh` deprecation window live in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) and are not duplicated here |

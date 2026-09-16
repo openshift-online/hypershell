@@ -1,0 +1,61 @@
+name: Release PR Environment
+
+# Tears down the ephemeral OpenShift environment when an origin pull request
+# merges or closes (ephemeral-pr-environments.spec.md). Lives in its own
+# workflow so open/synchronize runs of pr-environment.yml do not list a
+# skipped "Release PR environment" check. GitHub's pull_request `closed`
+# event covers both merge and close-without-merge.
+#
+# Shares the per-PR concurrency group with pr-environment.yml so a close
+# cancels an in-flight deploy rather than racing it. The out-of-band reaper
+# (deploy/e2e/reaper) is the backstop when this event does not fire.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-env-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Release PR environment
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
+      KUBECONFIG: ${{ github.workspace }}/.kube/config
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install oc
+        run: |
+          mkdir -p "$(dirname "${KUBECONFIG}")"
+          curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+            | sudo tar -xz -C /usr/local/bin oc kubectl
+          oc version --client
+
+      - name: Log in to the target cluster
+        env:
+          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
+          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
+        run: |
+          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
+            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
+            exit 1
+          fi
+          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
+
+      # Primary release path. The out-of-band reaper is the backstop when this
+      # event does not fire. If teardown cannot confirm the release, fail so an
+      # operator frees the environment.
+      - name: Remove environment (make openshift-down)
+        run: make openshift-down

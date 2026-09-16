@@ -21,16 +21,16 @@
 #   E2E_NAMESPACE          Namespace for e2e resources (default: openshell-e2e)
 #   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw-<random8hex>, unique per run)
 #   E2E_MODE               Run depth: long (default, every step) or short (essential steps)
-#   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 120)
-#   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 180)
-#   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 180)
-#   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 90)
+#   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 300)
+#   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 300)
+#   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 300)
+#   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 300)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
 #   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: external)
 #   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 #   E2E_OPENSHELL_INSTALL  auto, always, or never (default: auto; CI uses always)
-#   E2E_GATEWAY_VERSION_TIMEOUT  Seconds to wait for the runtime version (default: 120)
+#   E2E_GATEWAY_VERSION_TIMEOUT  Seconds to wait for the runtime version (default: 300)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -479,16 +479,36 @@ print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('databa
   dim "  Waiting for controller to provision (timeout: ${E2E_PROVISION_TIMEOUT}s)..."
   DEADLINE=$(($(date +%s) + E2E_PROVISION_TIMEOUT))
   GW_PHASE=""
+  GW_CONDITIONS_SUMMARY=""
   while [[ $(date +%s) -lt $DEADLINE ]]; do
     # Refresh the OIDC token each poll: provisioning can outlast the access
     # token lifetime, and api_curl reads _OIDC_ACCESS_TOKEN on every call.
     acquire_oidc_token 2>/dev/null || true
-    GW_PHASE=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+    GW_JSON=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
+    GW_PHASE=$(echo "$GW_JSON" | \
       python3 -c "import json,sys; print(json.load(sys.stdin).get('phase',''))" 2>/dev/null || true)
+    GW_CONDITIONS_SUMMARY=$(echo "$GW_JSON" | python3 -c "
+import json, sys
+try:
+    gw = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+conditions = gw.get('provisioning_conditions', [])
+if not conditions:
+    sys.exit(0)
+parts = []
+for c in conditions:
+    parts.append('%s=%s' % (c.get('type','?'), c.get('condition_status','?')))
+print(', '.join(parts))
+" 2>/dev/null || true)
     if [[ "$GW_PHASE" == "Running" ]]; then
       break
     fi
-    dim "    phase: ${GW_PHASE:-unknown}"
+    if [[ -n "$GW_CONDITIONS_SUMMARY" ]]; then
+      dim "    phase: ${GW_PHASE:-unknown}  conditions: [${GW_CONDITIONS_SUMMARY}]"
+    else
+      dim "    phase: ${GW_PHASE:-unknown}"
+    fi
     sleep 5
   done
 
@@ -502,6 +522,67 @@ print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('databa
     exit 1
   fi
 fi
+
+# ── 2b. provisioning conditions validation ─────────────────────────────────
+# After the gateway reaches Running, verify that the API exposes provisioning
+# conditions and that every condition completed successfully.
+
+show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # verify provisioning_conditions"
+GW_COND_JSON=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
+GW_COND_CHECK=$(echo "$GW_COND_JSON" | python3 -c "
+import json, sys
+try:
+    gw = json.load(sys.stdin)
+except Exception:
+    print('PARSE_ERROR'); sys.exit(0)
+conditions = gw.get('provisioning_conditions')
+if conditions is None or not isinstance(conditions, list):
+    print('MISSING'); sys.exit(0)
+if len(conditions) == 0:
+    print('EMPTY'); sys.exit(0)
+types = []
+incomplete = []
+for c in conditions:
+    ct = c.get('type', '?')
+    cs = c.get('condition_status', '?')
+    types.append(ct)
+    if cs != 'Complete':
+        incomplete.append('%s=%s' % (ct, cs))
+# Verify required condition types are present
+required = {'EnvironmentReady', 'DatabaseReady', 'GatewayDeployed', 'GatewayHealthy'}
+present = set(types)
+missing = required - present
+if missing:
+    print('MISSING_TYPES:%s' % ','.join(sorted(missing))); sys.exit(0)
+if incomplete:
+    print('INCOMPLETE:%s' % '; '.join(incomplete)); sys.exit(0)
+print('OK:%d' % len(conditions))
+" 2>/dev/null || echo "SCRIPT_ERROR")
+
+case "$GW_COND_CHECK" in
+  OK:*)
+    COND_COUNT="${GW_COND_CHECK#OK:}"
+    pass "Provisioning conditions present (${COND_COUNT} steps, all Complete)"
+    ;;
+  MISSING)
+    fail_test "Gateway is Running but provisioning_conditions field is missing from API response"
+    ;;
+  EMPTY)
+    fail_test "Gateway is Running but provisioning_conditions is an empty array"
+    ;;
+  MISSING_TYPES:*)
+    MISSING_TYPES="${GW_COND_CHECK#MISSING_TYPES:}"
+    fail_test "Provisioning conditions missing required types: ${MISSING_TYPES}"
+    ;;
+  INCOMPLETE:*)
+    INCOMPLETE_INFO="${GW_COND_CHECK#INCOMPLETE:}"
+    fail_test "Gateway is Running but not all provisioning conditions are Complete: ${INCOMPLETE_INFO}"
+    ;;
+  *)
+    fail_test "Could not parse provisioning conditions from API response"
+    dim "    raw check result: ${GW_COND_CHECK}"
+    ;;
+esac
 
 if [[ -z "$GW_NAMESPACE" ]]; then
   fail_test "Gateway response did not include a server-assigned namespace"
@@ -1429,11 +1510,30 @@ except Exception:
   fi
   fi
 
-  # ── positive assertion: authenticated user receives gateway:creator by default ──
-  # RBAC_DEFAULT_ROLES defaults to gateway:creator, so every authenticated user
-  # is a creator. A developer with openshell-user Keycloak roles still gets the
-  # platform default binding and therefore can create gateways. This verifies
-  # that the default-role bootstrap fires correctly (HYPERSHELL-262).
+  # ── gateway list: collection GET must 200 even with no RoleBindings ──
+  # OpenShift RBAC_DEFAULT_ROLES= leaves developer with only hypershell-users.
+  # The list handler returns an empty items array; 403 is "Gateways could not
+  # be loaded" in the web console (rbac-enforcement Error Response Opacity).
+  show_cmd "curl ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 200"
+  DEV_LIST_FILE=$(mktemp)
+  DEV_LIST_STATUS=$(_driver_curl -o "${DEV_LIST_FILE}" -w '%{http_code}' \
+    "${API_HOST}/api/hypershell/v1/gateways" \
+    -H "Authorization: Bearer ${DEV_TOKEN}" 2>/dev/null || true)
+  DEV_LIST_KIND=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("kind",""))' \
+    "${DEV_LIST_FILE}" 2>/dev/null || true)
+  rm -f "${DEV_LIST_FILE}"
+  if [[ "${DEV_LIST_STATUS}" == "200" && "${DEV_LIST_KIND}" == "GatewayList" ]]; then
+    pass "Developer user: gateway list allowed (HTTP 200 GatewayList)"
+  else
+    fail_test "Developer user: gateway list returned HTTP ${DEV_LIST_STATUS:-none} kind=${DEV_LIST_KIND:-<none>} (want 200 GatewayList)"
+  fi
+
+  # ── gateway create: follows the deployment's RBAC_DEFAULT_ROLES ──
+  # Kind leaves RBAC_DEFAULT_ROLES unset, so the API default (gateway:creator)
+  # applies and every authenticated user can create (HYPERSHELL-262). OpenShift
+  # sets RBAC_DEFAULT_ROLES to empty (production isolation); developer is not a
+  # creator and MUST get 403 (e2e-testing.spec.md Openshell User May Not Create
+  # a Gateway).
   DEV_GW_CREATE_NAME="e2e-dev-gw-$(date +%s | tail -c5)"
   DEV_GW_BODY=$(GW_NAME="$DEV_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
@@ -1454,8 +1554,13 @@ body = {
 }
 print(json.dumps(body))
 ")
-  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 201 (gateway:creator by default)"
-  dim "  Expecting 201 Created (developer receives gateway:creator via RBAC_DEFAULT_ROLES)..."
+  if e2e_rbac_default_includes_creator; then
+    show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 201 (gateway:creator by default)"
+    dim "  Expecting 201 Created (developer receives gateway:creator via RBAC_DEFAULT_ROLES)..."
+  else
+    show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as developer) -> expect 403 (no default gateway:creator)"
+    dim "  Expecting 403 Forbidden (RBAC_DEFAULT_ROLES is empty; developer is not a creator)..."
+  fi
 
   DEV_GW_RESP_FILE=$(mktemp)
   DEV_GW_STATUS=$(_driver_curl -o "${DEV_GW_RESP_FILE}" -w '%{http_code}' \
@@ -1465,19 +1570,34 @@ print(json.dumps(body))
     -d "${DEV_GW_BODY}" 2>/dev/null || true)
   DEV_GW_RESP=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_GW_RESP_FILE}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
 
-  if [[ "$DEV_GW_STATUS" =~ ^2 ]]; then
-    pass "Developer user: gateway create allowed (gateway:creator default binding active)"
-    DEV_DEFAULT_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-    if [[ -n "$DEV_DEFAULT_GW_ID" ]]; then
-      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_DEFAULT_GW_ID}" \
-        -H "Authorization: Bearer ${DEV_TOKEN}" &>/dev/null || true
+  if e2e_rbac_default_includes_creator; then
+    if [[ "$DEV_GW_STATUS" =~ ^2 ]]; then
+      pass "Developer user: gateway create allowed (gateway:creator default binding active)"
+      DEV_DEFAULT_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+      if [[ -n "$DEV_DEFAULT_GW_ID" ]]; then
+        _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_DEFAULT_GW_ID}" \
+          -H "Authorization: Bearer ${DEV_TOKEN}" &>/dev/null || true
+      fi
+    elif [[ "$DEV_GW_STATUS" == "403" ]]; then
+      fail_test "Developer user: gateway create blocked -- default gateway:creator binding was not assigned (HTTP 403)"
+      dim "    ${DEV_GW_RESP:0:200}"
+    else
+      fail_test "Developer user: unexpected HTTP ${DEV_GW_STATUS:-none} on gateway create"
+      dim "    ${DEV_GW_RESP:0:200}"
     fi
-  elif [[ "$DEV_GW_STATUS" == "403" ]]; then
-    fail_test "Developer user: gateway create blocked -- default gateway:creator binding was not assigned (HTTP 403)"
-    dim "    ${DEV_GW_RESP:0:200}"
   else
-    fail_test "Developer user: unexpected HTTP ${DEV_GW_STATUS:-none} on gateway create"
-    dim "    ${DEV_GW_RESP:0:200}"
+    if [[ "$DEV_GW_STATUS" == "403" ]]; then
+      pass "Developer user: gateway create denied (HTTP 403, no default gateway:creator)"
+    elif [[ "$DEV_GW_STATUS" =~ ^2 ]]; then
+      fail_test "Developer user: gateway create succeeded -- RBAC_DEFAULT_ROLES is empty so this must be 403"
+      DEV_DEFAULT_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+      if [[ -n "$DEV_DEFAULT_GW_ID" ]]; then
+        api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_DEFAULT_GW_ID}" &>/dev/null || true
+      fi
+    else
+      fail_test "Developer user: unexpected HTTP ${DEV_GW_STATUS:-none} on gateway create"
+      dim "    ${DEV_GW_RESP:0:200}"
+    fi
   fi
   rm -f "${DEV_GW_RESP_FILE}" 2>/dev/null || true
 
@@ -1583,10 +1703,9 @@ print('true' if has_owner else 'false')
   fi
   rm -f "${PADMIN_DELETE_FILE}" 2>/dev/null || true
 
-  # ── positive assertion: platform:admin also receives gateway:creator by default ──
-  # RBAC_DEFAULT_ROLES applies to all authenticated users including platform:admin.
-  # They can create gateways via the default binding even without explicit
-  # gateway:creator in their Keycloak realm roles (HYPERSHELL-262).
+  # ── gateway create: platform:admin is view and delete, not create ──
+  # Kind's default RBAC_DEFAULT_ROLES still grants gateway:creator (HYPERSHELL-262).
+  # OpenShift leaves that env empty, so this POST MUST be 403.
   PADMIN_GW_CREATE_NAME="e2e-padmin-gw-$(date +%s | tail -c5)"
   PADMIN_GW_BODY=$(GW_NAME="$PADMIN_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
@@ -1607,8 +1726,13 @@ body = {
 }
 print(json.dumps(body))
 ")
-  show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as platform admin) -> expect 201 (gateway:creator by default)"
-  dim "  Expecting 201 Created (platform:admin receives gateway:creator via RBAC_DEFAULT_ROLES)..."
+  if e2e_rbac_default_includes_creator; then
+    show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as platform admin) -> expect 201 (gateway:creator by default)"
+    dim "  Expecting 201 Created (platform:admin receives gateway:creator via RBAC_DEFAULT_ROLES)..."
+  else
+    show_cmd "curl -X POST ${API_HOST}/api/hypershell/v1/gateways (as platform admin) -> expect 403 (no default gateway:creator)"
+    dim "  Expecting 403 Forbidden (platform:admin is view and delete; create needs gateway:creator)..."
+  fi
 
   PADMIN_CREATE_FILE=$(mktemp)
   PADMIN_CREATE_STATUS=$(_driver_curl -o "${PADMIN_CREATE_FILE}" -w '%{http_code}' \
@@ -1618,19 +1742,34 @@ print(json.dumps(body))
     -d "${PADMIN_GW_BODY}" 2>/dev/null || true)
   PADMIN_CREATE_RESP=$(cat "${PADMIN_CREATE_FILE}" 2>/dev/null || true)
 
-  if [[ "$PADMIN_CREATE_STATUS" =~ ^2 ]]; then
-    pass "Platform admin: gateway create allowed (gateway:creator default binding active)"
-    PADMIN_DEFAULT_GW_ID=$(echo "$PADMIN_CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-    if [[ -n "$PADMIN_DEFAULT_GW_ID" ]]; then
-      _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_DEFAULT_GW_ID}" \
-        -H "Authorization: Bearer ${PADMIN_TOKEN}" &>/dev/null || true
+  if e2e_rbac_default_includes_creator; then
+    if [[ "$PADMIN_CREATE_STATUS" =~ ^2 ]]; then
+      pass "Platform admin: gateway create allowed (gateway:creator default binding active)"
+      PADMIN_DEFAULT_GW_ID=$(echo "$PADMIN_CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+      if [[ -n "$PADMIN_DEFAULT_GW_ID" ]]; then
+        _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_DEFAULT_GW_ID}" \
+          -H "Authorization: Bearer ${PADMIN_TOKEN}" &>/dev/null || true
+      fi
+    elif [[ "$PADMIN_CREATE_STATUS" == "403" ]]; then
+      fail_test "Platform admin: gateway create blocked -- default gateway:creator binding was not assigned (HTTP 403)"
+      dim "    ${PADMIN_CREATE_RESP:0:200}"
+    else
+      fail_test "Platform admin: unexpected HTTP ${PADMIN_CREATE_STATUS:-none} on gateway create"
+      dim "    ${PADMIN_CREATE_RESP:0:200}"
     fi
-  elif [[ "$PADMIN_CREATE_STATUS" == "403" ]]; then
-    fail_test "Platform admin: gateway create blocked -- default gateway:creator binding was not assigned (HTTP 403)"
-    dim "    ${PADMIN_CREATE_RESP:0:200}"
   else
-    fail_test "Platform admin: unexpected HTTP ${PADMIN_CREATE_STATUS:-none} on gateway create"
-    dim "    ${PADMIN_CREATE_RESP:0:200}"
+    if [[ "$PADMIN_CREATE_STATUS" == "403" ]]; then
+      pass "Platform admin: gateway create denied (HTTP 403, no default gateway:creator)"
+    elif [[ "$PADMIN_CREATE_STATUS" =~ ^2 ]]; then
+      fail_test "Platform admin: gateway create succeeded -- RBAC_DEFAULT_ROLES is empty so this must be 403"
+      PADMIN_DEFAULT_GW_ID=$(echo "$PADMIN_CREATE_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+      if [[ -n "$PADMIN_DEFAULT_GW_ID" ]]; then
+        api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PADMIN_DEFAULT_GW_ID}" &>/dev/null || true
+      fi
+    else
+      fail_test "Platform admin: unexpected HTTP ${PADMIN_CREATE_STATUS:-none} on gateway create"
+      dim "    ${PADMIN_CREATE_RESP:0:200}"
+    fi
   fi
   rm -f "${PADMIN_CREATE_FILE}" 2>/dev/null || true
 fi

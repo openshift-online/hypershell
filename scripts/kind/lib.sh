@@ -59,6 +59,29 @@ seed_strict() {
   esac
 }
 
+# Id of the first HyperShell list item whose name matches. Field order in the
+# list payload is not stable (presenters emit id before name), so callers must
+# not grep "name" then "id" in one object. Empty on missing name or bad JSON.
+json_named_id() {
+  python3 -c 'import json,sys
+name=sys.argv[1]
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if isinstance(data, dict):
+    items=data.get("items") or []
+elif isinstance(data, list):
+    items=data
+else:
+    items=[]
+for it in items:
+    if isinstance(it, dict) and it.get("name") == name:
+        print(it.get("id") or "")
+        break
+' "$1"
+}
+
 # --- Cluster helpers ---
 
 cluster_exists() {

@@ -52,17 +52,27 @@ func ReconcileGateway(
 	manifests map[string][]*unstructured.Unstructured,
 	opts ReconcileOpts,
 ) error {
+	report := opts.ReportProgress
+	if report == nil {
+		report = func(string, string, string) {}
+	}
+
 	images := opts.Images
 	if images == nil {
 		images = StaticImageDefaults{}
 	}
 	ingressMode := gatewayIngressMode(opts)
 
+	// Step 1: EnvironmentReady
+	report(ConditionEnvironmentReady, StatusInProgress, "")
+
 	if err := EnsureManagedNamespace(ctx, clientset, nsConfig.Name, opts.ControlPlaneNamespace); err != nil {
+		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - unable to set up the gateway namespace")
 		return fmt.Errorf("ensure namespace %s: %w", nsConfig.Name, err)
 	}
 
 	if err := ValidateGatewayConfig(nsConfig.Gateway); err != nil {
+		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the gateway configuration is invalid")
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
 
@@ -83,37 +93,57 @@ func ReconcileGateway(
 		}
 	}
 
+	report(ConditionEnvironmentReady, StatusComplete, "")
+
+	// Step 2: DatabaseReady
+	report(ConditionDatabaseReady, StatusInProgress, "")
+
 	dbReconciler, err := newDatabaseReconciler(opts)
 	if err != nil {
+		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - the database service is unavailable")
 		return fmt.Errorf("database provider for gateway in namespace %s: %w", nsConfig.Name, err)
 	}
 	if err := dbReconciler.Reconcile(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID, opts.RotateDBCredentials); err != nil {
+		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to provision the gateway database")
 		return err
 	}
 
 	if nsConfig.Gateway.CredentialDriver == nil {
 		if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
+			report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to configure database credentials")
 			return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
 		}
 		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
 	} else {
 		if err := reconcileCredentialDriverResources(ctx, dynamicClient, clientset, nsConfig); err != nil {
+			report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to configure credential storage")
 			return fmt.Errorf("reconcile credential driver resources in %s: %w", nsConfig.Name, err)
 		}
 	}
 
+	report(ConditionDatabaseReady, StatusComplete, "")
+
+	// Step 3: IdentityProviderReady (only when Keycloak is configured)
+	if opts.Keycloak != nil {
+		report(ConditionIdentityProviderReady, StatusInProgress, "")
+		if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
+			report(ConditionIdentityProviderReady, StatusFailed, "Identity provider configuration failed - the authentication service is currently unavailable")
+			return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
+		}
+		report(ConditionIdentityProviderReady, StatusComplete, "")
+	}
+
+	// Step 4: GatewayDeployed
+	report(ConditionGatewayDeployed, StatusInProgress, "")
+
 	if opts.HasCertManager {
 		if err := reconcileCertManagerResources(ctx, dynamicClient, nsConfig); err != nil {
+			report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to provision TLS certificates")
 			return fmt.Errorf("reconcile cert-manager resources in %s: %w", nsConfig.Name, err)
 		}
 	} else {
+		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - certificate management is not available")
 		return fmt.Errorf("cert-manager is required but not available on the cluster: gateway deployment blocked for namespace %s", nsConfig.Name)
-	}
-
-	if opts.Keycloak != nil {
-		if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
-			return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
-		}
 	}
 
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
@@ -128,13 +158,16 @@ func ReconcileGateway(
 	// specs/platform/generated-gateway-config-validation.spec.md.
 	renderedTOML, err := RenderGatewayConfigTOML(manifests, nsConfig, images)
 	if err != nil {
+		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to generate gateway configuration")
 		return &RenderedConfigValidationError{Err: fmt.Errorf("render gateway configuration: %w", err)}
 	}
 	if err := ValidateRenderedGatewayConfig(renderedTOML, nsConfig.Gateway); err != nil {
+		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - the generated configuration is invalid")
 		return &RenderedConfigValidationError{Err: err}
 	}
 
 	if err := deployGateway(ctx, dynamicClient, clientset, nsConfig, manifests, images, opts, hasTrustedCA); err != nil {
+		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway in %s: %w", nsConfig.Name, err)
 	}
 
@@ -159,6 +192,7 @@ func ReconcileGateway(
 			// Swallowing it here would strand a partial route the phase gate then
 			// blocks any later event from repairing.
 			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
+				report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to configure network routing")
 				return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
 			}
 		} else {
@@ -185,6 +219,8 @@ func ReconcileGateway(
 	default:
 		log.Printf("INFO no ingress mode selected for %s (not OpenShift and no Gateway API); skipping tenant ingress", nsConfig.Name)
 	}
+
+	report(ConditionGatewayDeployed, StatusComplete, "")
 
 	log.Printf("INFO gateway reconciled in namespace %s", nsConfig.Name)
 	return nil
@@ -217,6 +253,11 @@ func DeleteGatewayResources(
 	if err := dynamicClient.Resource(crbGVR).Delete(ctx, crbName, metav1.DeleteOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			log.Printf("WARN failed to delete ClusterRoleBinding %s: %v", crbName, err)
+			// This cluster-scoped binding has no owning namespace to cascade-reap
+			// it and no reconciler that reclaims leaked bindings, so a failure here
+			// is a silent orphan unless it is recorded durably.
+			recordOrphan(ctx, opts, "ClusterRoleBinding", crbName,
+				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		}
 	} else {
 		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
@@ -244,12 +285,16 @@ func DeleteGatewayResources(
 		consoleClientID := kcClientID + "-console"
 		if err := opts.KeycloakClient.DeleteConsoleClient(ctx, consoleClientID); err != nil {
 			log.Printf("WARN failed to delete console client %s (orphaned): %v", consoleClientID, err)
+			recordOrphan(ctx, opts, "KeycloakClient", consoleClientID,
+				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
 			log.Printf("INFO deleted console client %s", consoleClientID)
 		}
 
 		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
 			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
+			recordOrphan(ctx, opts, "KeycloakClient", kcClientID,
+				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
 			log.Printf("INFO deleted keycloak client %s", kcClientID)
 		}
@@ -277,6 +322,16 @@ func DeleteGatewayResources(
 
 	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
 	return nil
+}
+
+// recordOrphan invokes opts.RecordOrphan if the caller wired one, so a
+// best-effort deletion failure that leaves a gateway-owned resource behind is
+// surfaced durably instead of only logged. It is a no-op when no recorder is
+// configured, keeping the best-effort branches backward compatible.
+func recordOrphan(ctx context.Context, opts ReconcileOpts, resourceKind, resourceName, reason string) {
+	if opts.RecordOrphan != nil {
+		opts.RecordOrphan(ctx, resourceKind, resourceName, reason)
+	}
 }
 
 // DeleteLabeledNamespaceResources reclaims this gateway's own in-namespace
@@ -1429,6 +1484,9 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 	if existingUUID != "" {
 		if err := kc.EnsureDeviceAuthorizationGrant(ctx, existingUUID); err != nil {
 			return fmt.Errorf("reconcile device authorization grant on keycloak client %s: %w", kcClientID, err)
+		}
+		if err := kc.EnsureE2ETokenExchange(ctx, existingUUID); err != nil {
+			return fmt.Errorf("reconcile e2e token-exchange on keycloak client %s: %w", kcClientID, err)
 		}
 		log.Printf("INFO reconciled keycloak client %s (uuid=%s)", kcClientID, existingUUID)
 	} else {

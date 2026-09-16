@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pr-env-reaper
+  namespace: hypershell-pr-reaper
+  labels:
+    app.kubernetes.io/part-of: hypershell
+    app.kubernetes.io/name: pr-env-reaper
+spec:
+  # Hourly. Expiry is a per-namespace annotation, so the exact cadence only
+  # bounds how long an expired environment lingers, not correctness. Edit this
+  # single field to change how often the reaper runs.
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: hypershell
+            app.kubernetes.io/name: pr-env-reaper
+        spec:
+          serviceAccountName: pr-env-reaper
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          # OpenShift SCC assigns a numeric UID. On a non-OpenShift cluster the
+          # ose-cli image must resolve to a non-root user or the pod fails
+          # admission (runAsNonRoot is set without runAsUser).
+          containers:
+            - name: reaper
+              # OVERRIDE: any image carrying bash + a Kubernetes CLI. ose-cli
+              # ships `oc`; PR_ENV_KUBECTL selects the binary the script calls.
+              image: registry.redhat.io/openshift4/ose-cli@sha256:f898cc139974e7753982d864b1351d28069e778bab9be89dcbf7b910e239fc01
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/bash", "/opt/reaper/reap-pr-environments.sh"]
+              env:
+                - name: PR_ENV_KUBECTL
+                  value: oc
+                # Flip to "true" to log decisions without deleting anything.
+                - name: PR_ENV_REAP_DRY_RUN
+                  value: "false"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              volumeMounts:
+                - name: reaper-scripts
+                  mountPath: /opt/reaper
+                  readOnly: true
+          volumes:
+            - name: reaper-scripts
+              configMap:
+                name: pr-env-reaper-scripts
+                defaultMode: 0555

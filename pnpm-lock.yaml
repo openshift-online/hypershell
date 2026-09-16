@@ -51,14 +51,14 @@ importers:
         specifier: 8.6.1
         version: 8.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(victory-area@37.3.6(react@19.2.8))(victory-axis@37.3.6(react@19.2.8))(victory-bar@37.3.6(react@19.2.8))(victory-box-plot@37.3.6(react@19.2.8))(victory-chart@37.3.6(react@19.2.8))(victory-core@37.3.6(react@19.2.8))(victory-create-container@37.3.6(react@19.2.8))(victory-cursor-container@37.3.6(react@19.2.8))(victory-group@37.3.6(react@19.2.8))(victory-legend@37.3.6(react@19.2.8))(victory-line@37.3.6(react@19.2.8))(victory-pie@37.3.6(react@19.2.8))(victory-scatter@37.3.6(react@19.2.8))(victory-stack@37.3.6(react@19.2.8))(victory-tooltip@37.3.6(react@19.2.8))(victory-voronoi-container@37.3.6(react@19.2.8))(victory-zoom-container@37.3.6(react@19.2.8))
       '@patternfly/react-core':
-        specifier: 6.6.0
-        version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 6.6.1
+        version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/react-icons':
-        specifier: 6.6.0
-        version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 6.6.1
+        version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/react-table':
-        specifier: 6.6.0
-        version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 6.6.1
+        version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/widgetized-dashboard':
         specifier: 1.0.0-prerelease.6
         version: 1.0.0-prerelease.6(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -81,8 +81,8 @@ importers:
         specifier: 7.82.0
         version: 7.82.0(react@19.2.8)
       react-intl:
-        specifier: 10.1.18
-        version: 10.1.18(@types/react@19.2.17)(react@19.2.8)
+        specifier: 10.1.25
+        version: 10.1.25(@types/react@19.2.17)(react@19.2.8)
       react-router:
         specifier: 8.3.0
         version: 8.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -306,14 +306,14 @@ importers:
         specifier: 9.39.5
         version: 9.39.5
       '@patternfly/react-core':
-        specifier: 6.6.0
-        version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 6.6.1
+        version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/react-icons':
-        specifier: 6.6.0
-        version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 6.6.1
+        version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/react-table':
-        specifier: 6.6.0
-        version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 6.6.1
+        version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@tanstack/eslint-plugin-query':
         specifier: 5.101.4
         version: 5.101.4(eslint@9.39.5(supports-color@7.2.0))(supports-color@7.2.0)(typescript@6.0.3)
@@ -369,8 +369,8 @@ importers:
         specifier: 7.82.0
         version: 7.82.0(react@19.2.8)
       react-intl:
-        specifier: 10.1.18
-        version: 10.1.18(@types/react@19.2.17)(react@19.2.8)
+        specifier: 10.1.25
+        version: 10.1.25(@types/react@19.2.17)(react@19.2.8)
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -399,11 +399,11 @@ importers:
         specifier: 8.6.1
         version: 8.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(victory-area@37.3.6(react@19.2.8))(victory-axis@37.3.6(react@19.2.8))(victory-bar@37.3.6(react@19.2.8))(victory-box-plot@37.3.6(react@19.2.8))(victory-chart@37.3.6(react@19.2.8))(victory-core@37.3.6(react@19.2.8))(victory-create-container@37.3.6(react@19.2.8))(victory-cursor-container@37.3.6(react@19.2.8))(victory-group@37.3.6(react@19.2.8))(victory-legend@37.3.6(react@19.2.8))(victory-line@37.3.6(react@19.2.8))(victory-pie@37.3.6(react@19.2.8))(victory-scatter@37.3.6(react@19.2.8))(victory-stack@37.3.6(react@19.2.8))(victory-tooltip@37.3.6(react@19.2.8))(victory-voronoi-container@37.3.6(react@19.2.8))(victory-zoom-container@37.3.6(react@19.2.8))
       '@patternfly/react-core':
-        specifier: 6.6.0
-        version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 6.6.1
+        version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/react-icons':
-        specifier: 6.6.0
-        version: 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: 6.6.1
+        version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@patternfly/widgetized-dashboard':
         specifier: 1.0.0-prerelease.6
         version: 1.0.0-prerelease.6(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -456,8 +456,8 @@ importers:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
       react-intl:
-        specifier: 10.1.18
-        version: 10.1.18(@types/react@19.2.17)(react@19.2.8)
+        specifier: 10.1.25
+        version: 10.1.25(@types/react@19.2.17)(react@19.2.8)
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -1032,11 +1032,14 @@ packages:
   '@formatjs/icu-messageformat-parser@3.5.15':
     resolution: {integrity: sha512-5o4grXKotAB3JqQuisLApHG43g17N+paoRTa92Jiz35Zvfemq0cVf4EDvuxyHAzmsJji7igaEowicLO/VmfJ8Q==}
 
+  '@formatjs/icu-messageformat-parser@3.5.17':
+    resolution: {integrity: sha512-cN9jhVqT7u0K9tix43fhjoUwL0nazyW6zsNIXs2QdPADr+nurPfYyssUiMqcSCGlPcCiqnYVxgSn7zBSuI+5Bg==}
+
   '@formatjs/icu-skeleton-parser@2.1.11':
     resolution: {integrity: sha512-j8cUmOJzVgkHuS0QiQ6ga76UIoLOFSAMWhs7aZJztH3aAdCOAE6vpC8KVvFB4cU10ON0y2/5oOVmPJ43s2lTwA==}
 
-  '@formatjs/intl@4.1.17':
-    resolution: {integrity: sha512-IxluRkzOZH8ahaDip5g8YH9kJi1munUZi9i1BJs1wVFQIY2pROoCSiOlybZegyiPsZlMaYfADkD99zP2xmBfjQ==}
+  '@formatjs/intl@4.1.20':
+    resolution: {integrity: sha512-q3gaFvc1mXrl0fcSY2QKSS+WzJxpbIXs48O+QLA3UsRtIwVhazvxtLrLGKEse5Mq4U8hAYyTB6Y9buU2ZRFz/w==}
 
   '@formatjs/ts-transformer@4.4.17':
     resolution: {integrity: sha512-20NZFTZhKyhtE0Nmiuwr6rh9FkA0L5dHkTi8pX8UNMwKmhVvEWK3yyra8MVmmOZ2PC5tIp9cqjo5H84UscSo6Q==}
@@ -1594,32 +1597,26 @@ packages:
       victory-zoom-container:
         optional: true
 
-  '@patternfly/react-core@6.6.0':
-    resolution: {integrity: sha512-MLYPcJvdDWHZqWcvEH2QhKtCg6APRfrDJ4o192/wc2LUaf4ViGVsVLKDMbaKCamhbGauv7KpffNCSy3fjRy4Bw==}
+  '@patternfly/react-core@6.6.1':
+    resolution: {integrity: sha512-1XEBj+RllMnx+nQNaQaEH08umNdW1/HoqiNiZVBrVACI7GAGqjNR/NOWCbfl3p/o6OggD3M3mlJPhCMmcoOaGg==}
     peerDependencies:
       react: ^17 || ^18 || ^19
       react-dom: ^17 || ^18 || ^19
 
-  '@patternfly/react-icons@6.6.0':
-    resolution: {integrity: sha512-cDDUm4PFxqeBo4PS08xO1eFd6CMTOppn5RS4fs2hAgu/vRFkPXuL0zZCkxgRg5asd/W4olEN7WrIAbvjKbHKiQ==}
+  '@patternfly/react-icons@6.6.1':
+    resolution: {integrity: sha512-EUHnTliMlUMNfaueyGTaNcdCDGN4CjLtQpNdSg6iWcl5oloHtUDEAIltP0nbCWnepMJDoM2YgjMlyjwWlkNzXg==}
     peerDependencies:
       react: ^17 || ^18 || ^19
       react-dom: ^17 || ^18 || ^19
-
-  '@patternfly/react-styles@6.6.0':
-    resolution: {integrity: sha512-u/HzJ48Cg6Nb12dIVbj4g31lMDVHPHVKRXkRuPBcuK6MQyAsxSfcyWVivW7Lga8TsNhFW26JWB5ay+IW5xpZ8A==}
 
   '@patternfly/react-styles@6.6.1':
     resolution: {integrity: sha512-hwByXA4wSpOIBJFtrYUdkFDIqvzHRP5yzvip/NHDlG0y/kXausOh5Z4m00SbTA6t7Hzudw5eU1lf+IOPCm5C6Q==}
 
-  '@patternfly/react-table@6.6.0':
-    resolution: {integrity: sha512-aOVSAbtXagey1xRI8oIkK3I/csh6S00p42qqOkh6G1s5vMZM7oVQH/Nvvq8gIwx4lZ3f1m7IkdD7My8nml0Bsw==}
+  '@patternfly/react-table@6.6.1':
+    resolution: {integrity: sha512-owyLpkhFg28nQWkTA3jnhmbe8FOX5vXqZntbrjse4BfdaBTOzsBxPqtBzbf6o214Q8OQBzC2Atgz9C3j0yFscQ==}
     peerDependencies:
       react: ^17 || ^18 || ^19
       react-dom: ^17 || ^18 || ^19
-
-  '@patternfly/react-tokens@6.6.0':
-    resolution: {integrity: sha512-oRUFYJAM9LKYTM9YRnd7rz3wB6ZoaBWit/Eu+EK22J4o5AhZRjLt0+ewXQ7I99dBP4c8BbnPEUFnxQYAroqNLg==}
 
   '@patternfly/react-tokens@6.6.1':
     resolution: {integrity: sha512-t7dDEJMnO3QkdIKyjbyKJznVYki9ONZG27Cn/9RXwaM0lDGCrgQEJXy2XoVUCdYhIdXZu+TGSEqXeNFYUyZECg==}
@@ -3089,8 +3086,8 @@ packages:
     resolution: {integrity: sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==}
     engines: {node: '>=12'}
 
-  intl-messageformat@11.2.12:
-    resolution: {integrity: sha512-KW70Xxfcvy7vV3qODfvShWkFDPMqKDAa4N+hSyVBWGNtVhTUFYaqlD/l88DaYPKiVcPP4rPQ3qnH7i5K82Mg7g==}
+  intl-messageformat@11.2.14:
+    resolution: {integrity: sha512-9f2VD1HFuxUvMw0RxsaP8WmMns6JRTnsNB/zghTFrp11ZktiXWwVDeZBPQchBKEmo+Gx/ZhxI7Qht7YglFD4PA==}
 
   ipaddr.js@2.4.0:
     resolution: {integrity: sha512-9VGk3HGanVE6JoZXHiCpnGy5X0jYDnN4EA4lntFPj+1vIWlFhIylq2CrrCOJH9EAhc5CYhq18F2Av2tgoAPsYQ==}
@@ -3746,8 +3743,8 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17 || ^18 || ^19
 
-  react-intl@10.1.18:
-    resolution: {integrity: sha512-4JMOYakqVn/IajJt8Ad341Iwd6RDtiP1WQZiHRcFpHDBhVW4E9T0vkypSOk69Adg3dEbIYOE4HKTehH/1sSwnw==}
+  react-intl@10.1.25:
+    resolution: {integrity: sha512-otONc4Dqk0HNDdM1xVtjVm1pfeADRDZUnNMOiDZBYCYTz4FxYcid6Y2PrzeY3+FspW6ieObXtc3+VFUJYbDDGg==}
     peerDependencies:
       '@types/react': '>=18.0.0'
       react: '>=18.0.0'
@@ -5130,13 +5127,17 @@ snapshots:
     dependencies:
       '@formatjs/icu-skeleton-parser': 2.1.11
 
+  '@formatjs/icu-messageformat-parser@3.5.17':
+    dependencies:
+      '@formatjs/icu-skeleton-parser': 2.1.11
+
   '@formatjs/icu-skeleton-parser@2.1.11': {}
 
-  '@formatjs/intl@4.1.17':
+  '@formatjs/intl@4.1.20':
     dependencies:
       '@formatjs/fast-memoize': 3.1.7
-      '@formatjs/icu-messageformat-parser': 3.5.15
-      intl-messageformat: 11.2.12
+      '@formatjs/icu-messageformat-parser': 3.5.17
+      intl-messageformat: 11.2.14
 
   '@formatjs/ts-transformer@4.4.17':
     dependencies:
@@ -5497,46 +5498,42 @@ snapshots:
       victory-voronoi-container: 37.3.6(react@19.2.8)
       victory-zoom-container: 37.3.6(react@19.2.8)
 
-  '@patternfly/react-core@6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@patternfly/react-core@6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@patternfly/react-icons': 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@patternfly/react-styles': 6.6.0
-      '@patternfly/react-tokens': 6.6.0
+      '@patternfly/react-icons': 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@patternfly/react-styles': 6.6.1
+      '@patternfly/react-tokens': 6.6.1
       focus-trap: 7.6.6
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
       react-dropzone: 14.4.1(react@19.2.8)
       tslib: 2.8.1
 
-  '@patternfly/react-icons@6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@patternfly/react-icons@6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
       tslib: 2.8.1
 
-  '@patternfly/react-styles@6.6.0': {}
-
   '@patternfly/react-styles@6.6.1': {}
 
-  '@patternfly/react-table@6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@patternfly/react-table@6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@patternfly/react-core': 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@patternfly/react-icons': 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@patternfly/react-styles': 6.6.0
-      '@patternfly/react-tokens': 6.6.0
+      '@patternfly/react-core': 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@patternfly/react-icons': 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@patternfly/react-styles': 6.6.1
+      '@patternfly/react-tokens': 6.6.1
       lodash: 4.18.1
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
       tslib: 2.8.1
 
-  '@patternfly/react-tokens@6.6.0': {}
-
   '@patternfly/react-tokens@6.6.1': {}
 
   '@patternfly/widgetized-dashboard@1.0.0-prerelease.6(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@patternfly/react-core': 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@patternfly/react-icons': 6.6.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@patternfly/react-core': 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@patternfly/react-icons': 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       clsx: 2.1.1
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -7140,10 +7137,10 @@ snapshots:
 
   internmap@2.0.3: {}
 
-  intl-messageformat@11.2.12:
+  intl-messageformat@11.2.14:
     dependencies:
       '@formatjs/fast-memoize': 3.1.7
-      '@formatjs/icu-messageformat-parser': 3.5.15
+      '@formatjs/icu-messageformat-parser': 3.5.17
 
   ipaddr.js@2.4.0: {}
 
@@ -7845,12 +7842,12 @@ snapshots:
     dependencies:
       react: 19.2.8
 
-  react-intl@10.1.18(@types/react@19.2.17)(react@19.2.8):
+  react-intl@10.1.25(@types/react@19.2.17)(react@19.2.8):
     dependencies:
-      '@formatjs/icu-messageformat-parser': 3.5.15
-      '@formatjs/intl': 4.1.17
+      '@formatjs/icu-messageformat-parser': 3.5.17
+      '@formatjs/intl': 4.1.20
       '@types/react': 19.2.17
-      intl-messageformat: 11.2.12
+      intl-messageformat: 11.2.14
       react: 19.2.8
 
   react-is@16.13.1: {}

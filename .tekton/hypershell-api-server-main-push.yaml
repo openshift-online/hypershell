@@ -1,3 +1,4 @@
+# Run the release bundle check with support for partial release artifact lists.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
@@ -7,9 +8,12 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
+    # Changes to this file also rebuild the API image for release pipeline checks.
+    # A successful managed release then runs the release bundle publisher.
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
       == "main" && ( "components/api-server/***".pathChanged() || ".tekton/hypershell-api-server-main-push.yaml".pathChanged()
-      )
+      || "deploy/***".pathChanged() || "pipelines/release-bundle/***".pathChanged()
+      || "scripts/release_bundle.py".pathChanged() || "scripts/render_release_bundle_pipeline.py".pathChanged() )
   labels:
     appstudio.openshift.io/application: hypershell-main
     appstudio.openshift.io/component: hypershell-api-server-main

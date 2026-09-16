@@ -18,18 +18,25 @@
 
 ## Purpose
 
-HyperShell delivers a live OpenShift environment for every open pull request and
-keeps that environment in continuous deployment for the life of the pull request.
-When a pull request opens, CI deploys the full stack into a per-PR ephemeral
-namespace group on a shared target OpenShift cluster, waits for Konflux to build
-the pull request's component images, swaps those images into the environment,
-runs the OpenShift e2e suite against it, and posts a pull-request comment telling
-the developer how to log in. When a later commit is pushed to the same pull
-request, CI does not create a second environment: it reuses the existing one,
-waits for Konflux to rebuild the changed images, swaps them in, reruns the e2e
-suite, and updates the comment to say the environment now runs that commit. The
-environment lives independently of any single CI run so a developer can use it as
-a live debug and development target, and it is reaped after a fixed timebox so an
+HyperShell delivers a live OpenShift environment for every origin pull request
+whose e2e-relevant paths changed, and keeps that environment in continuous
+deployment for the life of the pull request. An origin PR that changes only
+e2e-irrelevant paths SHALL NOT receive an environment: deploying would only
+recreate a baseline `main` stack, which is not a distinct target for the author
+or for Tests / E2E / OpenShift. When an e2e-relevant pull request opens, CI
+deploys the full stack into a per-PR ephemeral namespace group on a shared
+target OpenShift cluster, waits for Konflux to build the pull request's
+component images, swaps those images into the environment, and posts a
+pull-request comment telling the developer how to log in. Tests / E2E /
+OpenShift waits for that deploy check, then runs the OpenShift e2e suite
+against the live namespace (the same `plan-images` / `should_run` gate Kind
+uses, which also gates Deploy PR environment). When a later commit is pushed to
+the same pull request, CI does not create a second environment: it reuses the
+existing one, waits for Konflux to rebuild the changed images, swaps them in,
+updates the comment to say the environment now runs that commit, and Tests /
+E2E / OpenShift reruns the suite when `should_run` is true. The environment
+lives independently of any single CI run so a developer can use it as a live
+debug and development target, and it is reaped after a fixed timebox so an
 abandoned pull request cannot hold cluster resources.
 
 This spec owns the automated OpenShift pull-request CI workflow. The
@@ -147,23 +154,36 @@ request.
 
 ### Requirement: Continuous Deployment Across the Pull-Request Lifecycle
 
-The workflow SHALL keep the pull request's environment continuously deployed to
-the pull request's current head commit for the life of the pull request. It SHALL
-trigger on origin-repository pull-request `opened`, `reopened`, and `synchronize`
-(a new commit pushed to the pull-request branch), and it SHALL trigger on
-`closed` (which covers both merge and close) to release the environment (see the
-Timebox and Reaping requirement). It SHALL NOT trigger on `merge_group`. Kind
-e2e, as `e2e-testing.spec.md` defines, remains the merge-queue gate; this
-workflow does not share a namespace with a merge-queue SHA.
+The workflow SHALL keep an e2e-relevant pull request's environment continuously
+deployed to the pull request's current head commit for the life of the pull
+request. It SHALL trigger on origin-repository pull-request `opened`, `reopened`,
+and `synchronize` (a new commit pushed to the pull-request branch) so
+`plan-images` can evaluate `should_run` against the pull request's three-dot
+diff. The workflow SHALL NOT use `on.pull_request.paths` filters for this gate:
+those consider only the files in the latest push, which would skip a later
+docs-only commit on a still-e2e-relevant pull request. A dedicated release
+workflow SHALL trigger on `closed` (which covers both merge and close) to
+release the environment (see the Timebox and Reaping requirement), so open and
+synchronize runs do not list a skipped Release check. Neither workflow SHALL
+trigger on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
+merge-queue gate; this workflow does not share a namespace with a merge-queue SHA.
 
 The workflow SHALL run only for pull requests targeting the origin repository.
 Fork pull requests SHALL NOT receive cluster credentials and SHALL NOT get an
 environment (see Pull-Request Trust Boundary). The workflow SHALL NOT use
 `pull_request_target`.
 
-On every deploying trigger (`opened`, `reopened`, `synchronize`), the workflow
-SHALL run `make openshift-up` unconditionally, whether or not the environment
-already exists. Because `make openshift-up` is idempotent and reconciling
+A deploying run is an origin-repository `opened`, `reopened`, or `synchronize`
+event whose `plan-images` job sets `should_run=true` using the same e2e-relevant
+path gate `e2e-testing.spec.md` defines (api-server, control-plane,
+web-console/gateway-management-ui Konflux paths, deploy manifests, e2e tests,
+and pr-test). When `should_run` is false, the workflow SHALL skip
+`Deploy PR environment`: it SHALL NOT log in to the cluster, SHALL NOT run
+`make openshift-up`, and SHALL NOT post or update the access comment.
+
+On every deploying run, the workflow SHALL run `make openshift-up`
+unconditionally, whether or not the environment already exists. Because
+`make openshift-up` is idempotent and reconciling
 (`openshift-development.spec.md`), one code path both creates the environment on
 first run and reconciles it to the current overlay on later runs; the workflow
 SHALL NOT branch on a "does the environment exist" check before deciding whether
@@ -187,7 +207,7 @@ reconcile SHALL preserve any active per-namespace component swap the same way
 
 #### Scenario: Pull request opens
 
-- GIVEN a pull request is opened and has no environment yet
+- GIVEN an e2e-relevant pull request is opened and has no environment yet
 - WHEN the workflow runs
 - THEN it SHALL run `make openshift-up` with `OPENSHIFT_NAMESPACE=hypershell-ci-pr-<number>`
 - AND the environment SHALL be created and deployed
@@ -201,17 +221,28 @@ reconcile SHALL preserve any active per-namespace component swap the same way
 - AND it SHALL run `make openshift-up` to reconcile the environment
 - AND it SHALL wait for Konflux to build the new commit's images and swap them in
   by digest (see Image Gating and Swap)
-- AND it SHALL rerun the e2e suite against the environment
+- AND Tests / E2E / OpenShift SHALL rerun the e2e suite when `plan-images`
+  sets `should_run=true`
 - AND it SHALL update the access comment to reflect the new head commit (see
   Pull-Request Comment)
 
-#### Scenario: Deploy runs unconditionally
+#### Scenario: Deploy runs unconditionally once gated in
 
-- GIVEN a deploying trigger for a pull request
+- GIVEN a deploying run for a pull request (`should_run=true`)
 - WHEN the workflow reaches the deploy step
 - THEN it SHALL invoke `make openshift-up` regardless of whether the environment
   already exists
 - AND it SHALL NOT skip deployment based on a prior-existence check
+
+#### Scenario: E2e-irrelevant pull request skips deploy
+
+- GIVEN an origin pull request whose three-dot diff contains only
+  e2e-irrelevant paths (for example `docs/` or `components/sdk-typescript/`)
+- WHEN the PR Environment workflow runs
+- THEN `plan-images` SHALL set `should_run=false`
+- AND the `Deploy PR environment` job SHALL be skipped
+- AND the workflow SHALL NOT consume a cluster namespace
+- AND Tests / E2E / OpenShift SHALL skip as `e2e-testing.spec.md` defines
 
 #### Scenario: Overlapping runs serialize per pull request
 
@@ -241,7 +272,13 @@ SHALL overlap environment bring-up with the Konflux builds: it MAY run
 `make openshift-up` with baseline images while Konflux builds are still in
 flight, then wait for each changed component's build to conclude and swap that
 component's image by digest, so cluster reconcile time is hidden behind build
-time. Unchanged components SHALL keep baseline registry images. The workflow
+time. Bring-up SHALL set `SKIP_SEED=true` so the baseline image never receives the
+seed POST (a request-contract change against that stale image would 400). After
+the digest swap, the workflow SHALL run `make openshift-seed` so the seed
+exercises this pull request's contract. That seed SHALL reuse existing named seed
+resources on a later `synchronize` reconcile, except `dev-gateway`, which it SHALL
+delete and recreate rather than reuse or duplicate, as `openshift-development.spec.md`
+defines. Unchanged components SHALL keep baseline registry images. The workflow
 SHALL determine which components to wait for using the shared change-detection and
 Konflux-trigger-mirroring rules that `e2e-testing.spec.md` defines, so it never
 falls back to a baseline image while Konflux is building an image the pull request
@@ -276,7 +313,11 @@ artifact across the stack.
 - THEN the workflow SHALL wait for the control plane's Konflux build for the new
   head commit
 - AND it SHALL swap the new control plane image into the environment by digest
-  before running e2e
+  before the `Deploy PR environment` check succeeds
+- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster`,
+  `GatewayRelease`, and `ManagedDatabase` seed resources
+- AND it SHALL delete and recreate the existing `dev-gateway` rather than reuse
+  it or create a second Gateway named `dev-gateway`
 
 #### Scenario: Immutable digest is preferred over a mutable tag
 
@@ -291,33 +332,43 @@ artifact across the stack.
 ### Requirement: E2E Execution Against the Environment
 
 After the environment is deployed and the pull request's images are swapped in,
-the workflow SHALL run the OpenShift e2e suite against it, exactly as
+Tests / E2E / OpenShift SHALL wait for the `Deploy PR environment` check to
+succeed, then run the OpenShift e2e suite against it, exactly as
 `e2e-testing.spec.md` and `openshift-development.spec.md` define: it SHALL run
 `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials bash tests/e2e/e2e-openshell.sh` against a KUBECONFIG
 context pointed at the environment, exercising the same test areas the Kind suite
-exercises. The suite SHALL run on the pull request's first deployment and on every
-later deployment for that pull request, so each commit is validated against a live
-environment the same way the Kind e2e job validates each commit today. On failure
-the workflow SHALL collect the diagnostics `e2e-testing.spec.md` defines. Whether
+exercises. The suite SHALL run on the pull request's first e2e-relevant deployment and on
+every later e2e-relevant deployment for that pull request, using the same
+`plan-images` / `should_run` gate the Kind e2e job uses, so each e2e-relevant
+commit is validated against a live environment the same way Kind validates it.
+An origin PR that changes only e2e-irrelevant paths SHALL skip Tests / E2E /
+OpenShift and SHALL skip `Deploy PR environment`, using the same
+`plan-images` / `should_run` gate. On failure
+the job SHALL collect the diagnostics `e2e-testing.spec.md` defines. Whether
 the suite passes or fails, the environment SHALL survive (see Timebox and
 Reaping), so a developer can inspect a failing run on the live environment.
 
 The e2e suite's authentication SHALL set `E2E_OIDC_GRANT=client_credentials` and
 use the non-interactive path this spec defines (see Automated E2E Authentication),
 because the environment's interactive login is GitHub-brokered and brokered users
-have no password grant.
+have no password grant. The suite lives in the Tests workflow, not inside the
+PR Environment deploy job, so a deploy failure and an e2e failure surface as
+distinct checks.
 
-#### Scenario: E2E runs on every deployment
+#### Scenario: E2E runs on every e2e-relevant deployment
 
 - GIVEN the environment is deployed and the pull request's images are swapped in
-- WHEN the workflow reaches the test step
+- AND `plan-images` set `should_run=true` (e2e-relevant paths changed)
+- WHEN Tests / E2E / OpenShift sees the `Deploy PR environment` check succeed
 - THEN it SHALL run the OpenShift e2e suite against the environment
-- AND it SHALL run the suite again on each later commit's deployment
+- AND it SHALL run the suite again on each later e2e-relevant commit's deployment
+- AND an origin PR with `should_run=false` SHALL skip this job and SHALL skip
+  `Deploy PR environment`
 
 #### Scenario: Environment survives a failing run
 
 - GIVEN the e2e suite fails
-- WHEN the workflow finishes
+- WHEN Tests / E2E / OpenShift finishes
 - THEN it SHALL collect the failure diagnostics
 - AND the environment SHALL remain deployed for developer inspection
 
@@ -354,12 +405,28 @@ The reaper SHALL NOT delete namespaces that fail that match, including local
 environment identifier is not `pr-*`. It SHALL refuse reserved names
 (`default`, `kube-*`, `openshift-*`).
 
-On pull-request `closed` (merge or close), the workflow SHALL release the
+Gateway and ManagedDatabase namespaces are not in the namespace group and do not
+carry `hypershell.redhat.io/owned`. Periodic GC cannot reap them after the
+platform project is gone (`openshell-gateway-namespace-gc.spec.md`). When the
+reaper deletes a pull-request platform namespace, it SHALL also delete namespaces
+labeled `hypershell.redhat.io/managed=true`,
+`app.kubernetes.io/managed-by=hypershell-control-plane`, and
+`hypershell.redhat.io/instance=<that platform namespace>`, matching
+`make openshift-down`. It SHALL also reap those instance-labeled namespaces when
+the platform project is already absent and the instance identity is a
+`hypershell-ci-pr-<number>` platform name, so a previous incomplete teardown
+cannot leave `openshell-*` workloads behind. It SHALL NOT delete namespaces
+labeled for a different instance, including `hyp4`, `hyp5`, and local
+`make openshift-up` environments.
+
+On pull-request `closed` (merge or close), CI SHALL release the
 environment as the primary path by removing the namespace group the same way
-`make openshift-down` does. The timebox SHALL remain the backstop for the case
-where the close event does not fire or its release cannot be confirmed; when the
-release step cannot confirm the release, the workflow SHALL report the failure so
-an operator can free the environment.
+`make openshift-down` does. That release SHALL live in a `closed`-only workflow
+so open and synchronize runs do not list a skipped Release check. The timebox
+SHALL remain the backstop for the case where the close event does not fire or
+its release cannot be confirmed; when the release step cannot confirm the
+release, the workflow SHALL report the failure so an operator can free the
+environment.
 
 #### Scenario: Deploying run refreshes the expiry
 
@@ -376,8 +443,21 @@ an operator can free the environment.
 - AND the pull request was neither merged nor closed
 - WHEN the out-of-band reaper evaluates environments
 - THEN it SHALL delete the expired namespace group
+- AND it SHALL delete namespaces labeled
+  `hypershell.redhat.io/instance=<that platform namespace>`
 - AND it SHALL delete only namespaces matching the pull-request ownership labels
-  and `pr-*` environment identifier
+  and `pr-*` environment identifier, plus that instance's managed gateway and
+  database namespaces
+
+#### Scenario: Leftover instance namespaces are reaped after the project is gone
+
+- GIVEN the platform project `hypershell-ci-pr-267` is already absent
+- AND gateway namespaces remain labeled
+  `hypershell.redhat.io/instance=hypershell-ci-pr-267`
+- WHEN the out-of-band reaper evaluates environments
+- THEN it SHALL delete those leftover instance-managed namespaces
+- AND it SHALL NOT delete namespaces labeled for `hyp4`, `hyp5`, or a local
+  `make openshift-up` environment
 
 #### Scenario: Local environments are not reaped
 
@@ -417,37 +497,67 @@ namespace, the API Route URL, and the web-console Route URL -- presented as the
 same login guidance `make openshift-up` prints at the end of a successful
 bring-up, so the comment and the command agree.
 
-On the pull request's first deployment, the workflow SHALL post the initial
-comment once the environment is ready. On each later deployment for the same pull
-request, the workflow SHALL update the marked comment to state that the
-environment has been updated to commit `<sha>` and SHALL refresh the same login
-details. The `<sha>` in the comment SHALL be the commit whose digest swap
-completed, so the comment never claims a commit the swap did not deploy.
+The workflow SHALL post the marked comment as the first step of a deploy run,
+before cluster login, deploy, or e2e. When the pull request has no marked
+comment yet (first deploy), that comment SHALL state that the environment is
+deploying to commit `<sha>` and SHALL contain no access facts yet. This keeps
+the access comment near the top of the pull request's timeline: because it is
+normally the first comment the workflow ever adds, later edits do not need to
+reorder it among other bots' checks and comments. Once the environment is
+ready, the workflow SHALL edit that same marked comment in place with the
+access facts rather than posting a second comment. On each later deployment
+for the same pull request, the workflow SHALL repeat this sequence against the
+one marked comment: an early edit stating the environment is updating to the
+new commit and may not be fully responsive during the update, while retaining
+the existing access-fact table (namespaces, console URL, API Route URL,
+web-console Route URL, and CLI login do not change from reconcile to
+reconcile), then a final edit stating it has been updated to
+commit `<sha>` with refreshed login details. The `<sha>` in the final comment
+SHALL be the commit whose digest swap completed, so the comment never claims a
+commit the swap did not deploy.
 
-The comment SHALL NOT contain any credential. It MAY include an `oc login`
-template with the credential redacted (for example
-`oc login --server=<api-url> --token=<redacted>`). The credential itself SHALL be
-delivered only through a channel that only an authorized developer can read, and
-SHALL be short-lived and namespace-scoped, as `openshift-development.spec.md`
-requires. No kubeconfig, token, or password SHALL appear in the comment, the job
-logs, or a public artifact.
+The comment SHALL NOT contain any credential. It SHALL include an `oc login`
+template using the `--web` flag (for example `oc login --server=<api-url>
+--web`), so OpenShift drives the developer's browser through the same
+GitHub-organization-gated OAuth flow the web console uses and handles token
+issuance and refresh itself. No separate credential delivery step is needed: no
+kubeconfig, token, or password SHALL appear in the comment, the job logs, or a
+public artifact.
+
+#### Scenario: Deploying placeholder posted first
+
+- GIVEN a pull request is opened
+- WHEN the deploy job starts, before cluster login or deploy
+- THEN it SHALL post one pull-request comment stating the environment is
+  deploying to the head commit
+- AND the comment SHALL contain the hidden marker `<!-- hypershell-pr-environment -->`
+- AND the comment SHALL contain no access facts or credential
 
 #### Scenario: Initial comment on pull-request open
 
 - GIVEN a pull request is opened and its environment becomes ready
 - WHEN the workflow finishes deploying
-- THEN it SHALL post one pull-request comment with the namespaces, console URL,
-  API Route URL, and web-console Route URL
-- AND the comment SHALL contain the hidden marker `<!-- hypershell-pr-environment -->`
+- THEN it SHALL edit the marked comment in place with the namespaces, console
+  URL, API Route URL, and web-console Route URL, rather than posting a second
+  comment
 - AND the comment SHALL present the same login details `make openshift-up` prints
 - AND the comment SHALL NOT contain a credential
 
 #### Scenario: Comment updated on each new commit
 
 - GIVEN a pull request already has an access comment that carries the marker
-- WHEN a new commit's digest swap completes
-- THEN the workflow SHALL update that marked comment to say the environment was
-  updated to commit `<sha>`
+  and an access-fact table
+- WHEN a new commit's deploy run starts
+- THEN the workflow SHALL edit that marked comment to say the environment is
+  updating to the new commit
+- AND the comment SHALL note that the environment may not be fully responsive
+  during the update
+- AND the comment SHALL retain the existing access-fact table
+- AND the workflow SHALL NOT replace the comment with the first-deploy
+  placeholder that has no access facts
+- AND WHEN that commit's digest swap completes
+- THEN the workflow SHALL edit the same marked comment again to say the
+  environment was updated to commit `<sha>`
 - AND `<sha>` SHALL be the commit whose digest swap completed
 - AND the workflow SHALL NOT post a second access comment
 - AND the comment SHALL refresh the login details
@@ -457,7 +567,8 @@ logs, or a public artifact.
 - GIVEN the workflow delivers access details
 - WHEN a reader inspects the comment, the job logs, and public artifacts
 - THEN no kubeconfig, token, or password appears in any of them
-- AND the credential is available only through a secure channel
+- AND the `oc login` template uses `--web` so OpenShift issues the credential
+  interactively through the developer's own browser session
 
 ### Requirement: Pull-Request Trust Boundary
 
@@ -511,36 +622,46 @@ unset, the workflow SHALL fail before the access comment is posted, rather than
 leave an environment nobody can log into.
 
 The Keycloak SHALL configure a GitHub identity provider using that OAuth App
-and the OAuth `read:org` scope so it can read the authenticating user's
-organization membership. The realm SHALL restrict which GitHub identities may
-complete authentication:
+and the OAuth `read:org` scope so HyperShell can read the authenticating user's
+organization membership. Interactive login SHALL restrict which GitHub
+identities may use the environment:
 
 - **Organization membership is the default gate.** A GitHub user who is a member
   of the `openshift-online` organization SHALL be allowed to authenticate.
-- **An allowlist admits extra usernames outside the organization.** The realm
-  SHALL support an allowlist of individual GitHub usernames that MAY authenticate
-  even when they are not members of `openshift-online`, so an outside contributor
-  can log in without being added to the organization. The allowlist is
-  additive: it widens login beyond the organization gate, never narrows it, and
-  it does not grant the listed user a CI deploy.
-- **Everyone else is denied.** A GitHub user who is neither an `openshift-online`
-  member nor on the allowlist SHALL be denied at authentication; the environment
-  SHALL NOT create a HyperShell session for them.
+- **An allowlist admits extra usernames outside the organization.** The
+  environment SHALL support an allowlist of individual GitHub usernames that MAY
+  authenticate even when they are not members of `openshift-online`, so an
+  outside contributor can log in without being added to the organization. The
+  allowlist is additive: it widens login beyond the organization gate, never
+  narrows it, and it does not grant the listed user a CI deploy.
+- **Everyone else is denied.** A GitHub user who is neither an
+  `openshift-online` member nor on the allowlist SHALL be denied a HyperShell
+  session.
 
-The organization gate and the allowlist SHALL be enforced during authentication
-(for example through a first-broker-login flow step or an equivalent authenticator
-that checks `read:org` membership and the configured allowlist), not merely by
-post-hoc role assignment, so a denied user never obtains a token. The organization
-name, the allowlist, the GitHub OAuth client id and secret, and the stable
-callback URL SHALL come from configuration, not code, so a different
+The organization gate and the allowlist SHALL be enforced by the web-console BFF
+after the OIDC callback, using the Keycloak-stored GitHub token
+(`storeToken`) to call GitHub `GET /user/orgs` and comparing
+`preferred_username` against the allowlist. This is a weaker guarantee than a
+Keycloak first-broker-login SPI: Keycloak may still issue an SSO session, but
+the BFF SHALL NOT persist a HyperShell session for a denied user. The console's
+API bearer is that session's access token, so a denied login SHALL NOT produce a
+token the BFF can forward. The API server is not separately org-gated; e2e and
+control-plane callers keep using their own service-account clients. These are
+developer environments; the BFF check avoids a custom Keycloak image. Kind and
+local SHALL leave `GITHUB_ORG_GATE` unset when the GitHub Secret is absent. When
+the gate is on, a Keycloak session with no readable GitHub broker identity
+(seeded password users: Keycloak `GET /broker/github/token` returns 403 or 404)
+SHALL still receive a HyperShell session. GitHub-brokered identities remain
+subject to the organization and allowlist checks.
+The organization name, the allowlist, the GitHub OAuth client id and secret, and
+the stable callback URL SHALL come from configuration, not code, so a different
 organization, allowlist, or OAuth App does not require an overlay edit.
 
 #### Scenario: Organization member authenticates
 
 - GIVEN a GitHub user who is a member of `openshift-online`
 - WHEN they log in to a pull-request environment through GitHub
-- THEN Keycloak SHALL allow the authentication
-- AND SHALL create their HyperShell session
+- THEN the web console SHALL create their HyperShell session
 
 #### Scenario: Allowlisted non-member authenticates
 
@@ -548,15 +669,17 @@ organization, allowlist, or OAuth App does not require an overlay edit.
 - AND that username is on the environment's allowlist
 - AND an origin-repo pull request has already deployed the environment
 - WHEN they log in through GitHub
-- THEN Keycloak SHALL allow the authentication
+- THEN the web console SHALL create their HyperShell session
 - AND that allowlist entry SHALL NOT have caused CI to deploy a fork pull request
 
 #### Scenario: Non-member, non-allowlisted user is denied
 
 - GIVEN a GitHub user who is neither an `openshift-online` member nor allowlisted
 - WHEN they attempt to log in through GitHub
-- THEN Keycloak SHALL deny the authentication
-- AND SHALL NOT issue a token or create a session
+- THEN the web console SHALL deny the login
+- AND SHALL NOT create a HyperShell session
+- AND SHALL show an access-denied error in the console
+- AND SHALL NOT forward an API bearer on later `/api/*` calls from that login
 
 #### Scenario: GitHub redirects to the stable callback
 
@@ -567,6 +690,24 @@ organization, allowlist, or OAuth App does not require an overlay edit.
 - AND GitHub SHALL NOT redirect to the `hypershell-ci-pr-232-keycloak` Route host
 - AND the callback SHALL complete the broker login against that pull request's
   Keycloak
+
+#### Scenario: Keycloak recycle keeps the console redirect URIs
+
+`start-dev --import-realm` only loads the rendered realm into an empty data
+dir. Recycle after an OAuth-secret change SHALL re-import
+`hypershell-frontend` redirect URIs for the web-console Route, not the
+localhost defaults from the overlay. `make openshift-up` SHALL stamp
+`HYPERSHELL_CONSOLE_HOST` on the `render-realm-config` init container so that
+import is durable. The workflow SHALL skip the recycle when the oauth-secret
+annotation already matches.
+
+- GIVEN `make openshift-up` has stamped the web-console Route host on
+  `render-realm-config`
+- WHEN CI recycles Keycloak because the GitHub OAuth secret hash changed
+- THEN `--import-realm` re-imports `hypershell-frontend` redirect URIs for that
+  console host
+- AND Keycloak SHALL NOT reject the BFF `redirect_uri` with
+  `Invalid parameter: redirect_uri`
 
 #### Scenario: Missing GitHub OAuth configuration fails bring-up
 
@@ -640,9 +781,18 @@ the service-account and token-exchange path so the suite still calls those
 functions.
 
 The realm SHALL include a dedicated confidential client `hypershell-e2e` whose
-service account holds `platform:admin` and `gateway:creator`. The workflow SHALL
-NOT reuse `hypershell-provisioner` for e2e (that client holds `manage-clients`
-and `manage-users`). After `make openshift-up`, CI SHALL read the `hypershell-e2e`
+service account holds `platform:admin` and `gateway:creator`. That client, its
+service-account user, and the `realm-management: impersonation`
+clientScopeMapping SHALL be present in the **imported** realm only when
+`HYPERSHELL_E2E_CLIENT_ENABLED` is true (the `hypershell-github-oauth` Secret
+in a pull-request environment). Kind, local OpenShift without that Secret, and
+hub/ibm SHALL import a realm that omits that client, user, and mapping -- not a
+disabled copy. A disabled leftover from an earlier import SHALL still be a
+no-op: the control plane SHALL grant FGAP v1 token-exchange onto gateway and
+frontend clients only when `hypershell-e2e` exists **and is enabled**. The
+workflow SHALL NOT reuse `hypershell-provisioner` for e2e (that client holds
+`manage-clients` and `manage-users`). After `make openshift-up`, CI SHALL read
+the `hypershell-e2e`
 client secret from the deployed Keycloak namespace (a Kubernetes Secret in
 `hypershell-ci-pr-<number>-keycloak`) and SHALL NOT take it from a repo secret
 that cannot match a per-PR realm. The e2e suite's admin `acquire_oidc_token`
@@ -670,6 +820,22 @@ appear in logs, the pull-request comment, or public artifacts.
 - AND the token SHALL carry `platform:admin` and `gateway:creator`
 - AND CI SHALL have read that client secret from the Keycloak namespace after
   `make openshift-up`
+
+#### Scenario: Kind and hub omit the e2e identity
+
+- GIVEN Kind, local OpenShift without `hypershell-github-oauth`, or hub/ibm
+- WHEN Keycloak imports the rendered realm
+- THEN the imported realm SHALL NOT contain client `hypershell-e2e`
+- AND SHALL NOT contain user `service-account-hypershell-e2e`
+- AND SHALL NOT contain `clientScopeMappings` for `hypershell-e2e`
+
+#### Scenario: Present-but-disabled e2e client does not mutate production realms
+
+- GIVEN a Keycloak realm that still has client `hypershell-e2e` with `enabled: false`
+- WHEN the control plane reconciles a gateway client
+- THEN `EnsureE2ETokenExchange` SHALL skip
+- AND it SHALL NOT enable `admin-fine-grained-authz` on `realm-management`
+- AND it SHALL NOT attach a token-exchange policy to the gateway or frontend client
 
 #### Scenario: CI acquires the developer HyperShell API token by impersonation
 
@@ -787,7 +953,9 @@ exists).
 |----------|-----------|
 | Namespace name from the pull-request number (`hypershell-ci-pr-<number>`) | A short, stable, collision-free identifier that every run for a pull request derives without external state; fits well within the DNS-label bound that keeps `-keycloak` under 63 characters. Branch names and commit SHAs are not stable for the life of one pull request |
 | Same lifecycle labels as `make openshift-up`, with `pr-<number>` as the environment id | Reuses `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment` so status and cleanup tooling stay one selector set; the `pr-` prefix lets the reaper ignore local environments. CI must be able to patch namespaces; failing closed beats an unlabeled environment the reaper cannot see |
-| `make openshift-up` on every deploying trigger, unconditionally | The command is already idempotent and reconciling, so one code path creates on first run and reconciles on later runs; branching on "does it exist" would duplicate logic and risk drift |
+| Skip `Deploy PR environment` when `should_run` is false | An e2e-irrelevant PR would only deploy baseline `main` images. That consumes a shared-cluster namespace without giving the author a distinct environment or the OpenShift e2e suite a distinct target. The same `plan-images` / `should_run` gate Kind uses keeps deploy and Tests / E2E / OpenShift in lockstep |
+| `make openshift-up` on every deploying run, unconditionally | The command is already idempotent and reconciling, so one code path creates on first run and reconciles on later runs; branching on "does it exist" would duplicate logic and risk drift |
+| Seed after every image swap; reuse existing named resources, except `dev-gateway` | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) rather than POST a second copy. `dev-gateway` is the one exception: Keycloak runs on in-memory storage with no persistent volume, so a Keycloak pod restart discards its dynamically-provisioned OIDC client while the `dev-gateway` row survives untouched in PostgreSQL, and the reconciler deliberately never auto-recreates a missing client (`openshell-gateway-keycloak.spec.md`, "Existing gateway client is missing"). Reusing a `dev-gateway` that predates the current Keycloak instance would permanently strand it in status `Keycloak client is missing`, so seeding deletes and recreates it on every run instead. This is a stopgap until Keycloak has durable storage across restarts |
 | CI stamps `hypershell.redhat.io/expires-at`; `make openshift-up` does not | The timebox is a pull-request cost bound, not a local-dev contract. Stamping from the workflow after bring-up refreshes active PRs without time-boxing developer namespaces |
 | Origin `pull_request` only; Kind remains the merge-queue gate | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
 | Per-PR concurrency group | Two in-flight swaps on one namespace can leave mixed digests; cancelling or queuing the older run keeps the comment SHA honest |
@@ -795,9 +963,10 @@ exists).
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
 | Close releases as primary path, timebox as backstop | The merge/close event frees the environment promptly in the common case; the timebox covers the case where the event does not fire or release cannot be confirmed |
+| Reap instance-labeled gateway namespaces with the namespace group | Gateway and ManagedDatabase namespaces are siblings of the platform project, not inside it. Periodic GC dies with the controller, so down and the reaper must delete `hypershell.redhat.io/instance=<platform ns>` or e2e leftovers stay on the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
-| Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both during authentication (not by post-hoc roles) means a denied user never gets a token |
+| Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |
 | Authenticated users get `platform:admin` and `gateway:creator`; developer tier by impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no admin-or-developer account picker. A seeded `gateway:viewer` / `openshell-user` principal plus impersonation lets an admin still verify the developer boundary with the same login |
-| Dedicated `hypershell-e2e` client; secret read from the deployed Keycloak | Brokered GitHub users have no password grant. A per-PR realm cannot share a repo-held provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. `E2E_OIDC_GRANT` keeps Kind and manual OpenShift on the password grant |
+| Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a repo-held provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and manual OpenShift on the password grant |
 | Deprecate `e2e-openshell.sh` now, remove it later; leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded. Team members still run it, so it is deprecated first (notice + docs pointing at the shared harness) and removed later once that usage migrates. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component stays until both scripts are gone |

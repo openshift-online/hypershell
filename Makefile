@@ -229,7 +229,7 @@ check-dependency-age: test-dependency-age-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
 
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age test-release-bundle
 
 # ============================================================================
 # Git hooks
@@ -566,3 +566,7 @@ e2e-tracing:
 	@echo "    (requires: KIND_JAEGER=true make kind-up)"
 	@echo ""
 	@pnpm --filter @openshift-online/hypershell-web-console test:e2e:live
+
+.PHONY: test-release-bundle
+test-release-bundle:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_release_bundle.py

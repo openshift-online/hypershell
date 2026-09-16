@@ -91,7 +91,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-down` | Remove the `hypershell-system` namespace and its resources. Leaves the Kind cluster running. |
 | `make kind-teardown` | Destroy the Kind cluster and stop cloud-provider-kind. |
 | `make kind-status` | Show cluster info, pods, services, and which components are swapped. |
-| `make kind-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding. `kind-up` already seeds unless `SKIP_SEED=true`. |
+| `make kind-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding. Reuses existing named seed resources (`local-kind`, `dev-release`, `openshell-db`, `dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
 | `make kind-prereqs` | Build the pinned `cloud-provider-kind` binary into `bin/`. `kind-up` runs this; use it alone when the binary is missing. |
 | `make kind-env` | Print `export` statements for the current Kind make variables. |
 | `make kind-fix-ports` | Re-establish host port 443 forwarding to the Gateway's ephemeral port. |
@@ -383,10 +383,10 @@ command stops with an error.
 | Target | Use |
 |--------|-----|
 | `make openshift-up` | Deploy the stack into the current oc project (`OPENSHIFT_NAMESPACE` override) and companion `${name}-keycloak`. Does not create an OpenShift cluster. Waits for component rollouts, then seeds unless `SKIP_SEED=true`. |
-| `make openshift-down` | Delete the platform and Keycloak projects. If project deletion is forbidden, strip HyperShell resources and leave the projects. |
+| `make openshift-down` | Delete the platform and Keycloak projects, then delete gateway and ManagedDatabase namespaces labeled `hypershell.redhat.io/instance=<platform ns>`. If project deletion is forbidden, strip HyperShell resources and leave the projects. |
 | `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
 | `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |
-| `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding via API and Keycloak Routes from this machine. `openshift-up` already seeds unless `SKIP_SEED=true`. |
+| `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding via API and Keycloak Routes from this machine. Reuses existing named seed resources (`local-openshift`, `dev-release`, `openshell-db`, `dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
 | `make openshift-api-server-up` | Build, push an immutable image to `SWAP_REGISTRY`, and point the API server Deployment at that ref. Requires `SWAP_REGISTRY`. |
 | `make openshift-api-server-down` | Revert the API server to the baseline registry image. |
 | `make openshift-control-plane-up` | Build, push, and swap the control plane. |
@@ -516,8 +516,14 @@ port). Keycloak embeds this URL as the `iss` claim in tokens, so the issuer
 passed to `openshell gateway add` must match exactly. This requires host port
 443 to be forwarded -- if it isn't, run `make kind-fix-ports` first.
 
-The e2e test (`components/pr-test/e2e-openshell.sh`) uses the same port-forward
-fallback when no passthrough route is available.
+The legacy OpenShift e2e script (`components/pr-test/e2e-openshell.sh`) uses the
+same port-forward fallback when no passthrough route is available. That script is
+**deprecated** (see `specs/platform/ephemeral-pr-environments.spec.md`): the
+canonical pull-request OpenShift e2e path is the shared harness
+`tests/e2e/e2e-openshell.sh` run with `E2E_INFRA_DRIVER=openshift`, driven
+automatically by the ephemeral pull-request environment workflow. Prefer the
+shared harness for new work; the IBM ROKS variant (`e2e-openshell-roks.sh`) is
+unaffected.
 
 ### OpenShift (automatic)
 

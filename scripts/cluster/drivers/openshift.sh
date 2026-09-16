@@ -9,9 +9,34 @@ MANAGED_LABEL="app.kubernetes.io/managed-by"
 MANAGED_VALUE="hypershell-lifecycle"
 PART_OF_LABEL="app.kubernetes.io/part-of"
 PART_OF_VALUE="hypershell"
+# Control-plane stamps on gateway and ManagedDatabase namespaces. Must match
+# components/control-plane/internal/gateway/namespace.go (ManagedLabel,
+# ManagedByValue, InstanceLabel). Distinct from MANAGED_VALUE above, which marks
+# the platform/keycloak namespace group.
+CP_MANAGED_LABEL="hypershell.redhat.io/managed"
+CP_MANAGED_VALUE="true"
+CP_MANAGED_BY_VALUE="hypershell-control-plane"
+CP_INSTANCE_LABEL="hypershell.redhat.io/instance"
 
 oc_cli() {
   oc "$@"
+}
+
+# Whether this environment brokers interactive login to GitHub instead of the
+# realm's seeded admin/developer passwords
+# (ephemeral-pr-environments.spec.md: GitHub-Brokered Keycloak Authentication).
+# Brokered environments have no password grant, so seeding and the banner
+# must use the hypershell-e2e service account instead of admin/admin.
+github_idp_enabled() {
+  local enabled
+  enabled="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    -o jsonpath='{.data.idp-enabled}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  [[ "${enabled}" == "true" ]]
+}
+
+hypershell_e2e_client_secret() {
+  oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    -o jsonpath='{.data.e2e-client-secret}' 2>/dev/null | base64 -d 2>/dev/null || true
 }
 
 require_openshift_cluster() {
@@ -876,7 +901,10 @@ wait_for_named_rollout() {
 }
 
 wait_for_keycloak() {
-  wait_for_named_rollout keycloak "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+  # The shared e2e cluster can need to scale up a node for this pod (cluster
+  # autoscaler), which alone can take several minutes before it is even
+  # Scheduled. The default rollout timeout is too tight for that.
+  wait_for_named_rollout keycloak "${OPENSHIFT_KEYCLOAK_NAMESPACE}" 600s
 }
 
 configure_oidc_from_routes() {
@@ -902,9 +930,16 @@ configure_oidc_from_routes() {
   OPENSHIFT_KC_HOSTNAME="https://${kc_host}"
   OPENSHIFT_OIDC_ISSUER="https://${kc_host}/realms/hypershell"
 
-  info "Setting Keycloak KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}"
-  oc_cli set env deployment/keycloak -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
-    "KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME}" >/dev/null
+  info "Setting Keycloak KC_HOSTNAME=${OPENSHIFT_KC_HOSTNAME} and console redirect host ${console_host}"
+  # One strategic-merge patch so Keycloak rolls once. HYPERSHELL_CONSOLE_HOST is
+  # consumed by the render-realm-config init container: --import-realm after a
+  # pod recycle would otherwise restore localhost-only frontend redirect URIs
+  # and Keycloak would reject the BFF callback ("Invalid parameter: redirect_uri").
+  # `oc set env` without -c only patches spec.containers. A full-object replace
+  # races Deployment status updates ("the object has been modified").
+  keycloak_route_env_patch "${OPENSHIFT_KC_HOSTNAME}" "${console_host}" \
+    | oc_cli patch deployment/keycloak -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+      --type=strategic --patch-file=/dev/stdin >/dev/null
 
   info "Configuring web console OIDC"
   oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
@@ -914,6 +949,21 @@ configure_oidc_from_routes() {
     "OIDC_POST_LOGOUT_REDIRECT_URI=https://${console_host}" >/dev/null
   oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
     --from=secret/hypershell-oidc-session >/dev/null
+
+  if github_idp_enabled; then
+    local github_org github_allowlist
+    github_org="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+      -o jsonpath='{.data.org}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    github_allowlist="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+      -o jsonpath='{.data.allowlist}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+    info "Configuring web console GitHub org gate (${github_org:-openshift-online})"
+    oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
+      "GITHUB_ORG_GATE=${github_org:-openshift-online}" \
+      "GITHUB_USERNAME_ALLOWLIST=${github_allowlist}" >/dev/null
+  else
+    oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
+      GITHUB_ORG_GATE- GITHUB_USERNAME_ALLOWLIST- >/dev/null
+  fi
 
   info "Configuring control plane public gateway issuer"
   oc_cli set env deployment/hypershell-controller -n "${OPENSHIFT_NAMESPACE}" -c controller \
@@ -1027,11 +1077,28 @@ seed_via_api() {
     fi
     return 0
   fi
+  local -a token_args
+  if github_idp_enabled; then
+    # Brokered environments have no password grant (ephemeral-pr-environments
+    # .spec.md); seed as the hypershell-e2e service account instead, which
+    # holds platform:admin + gateway:creator for exactly this purpose.
+    local e2e_secret
+    e2e_secret="$(hypershell_e2e_client_secret)"
+    if [[ -z "${e2e_secret}" ]]; then
+      warn "GitHub IDP is enabled but hypershell-github-oauth has no e2e-client-secret; skip automatic seeding"
+      if seed_strict; then
+        error "Platform seeding failed and SEED_STRICT=true - failing"
+        return 1
+      fi
+      return 0
+    fi
+    token_args=(-d grant_type=client_credentials -d client_id=hypershell-e2e -d "client_secret=${e2e_secret}")
+  else
+    token_args=(-d grant_type=password -d client_id=hypershell-frontend -d username=admin -d password=admin)
+  fi
   info "Obtaining API token from Keycloak Route..."
   for i in $(seq 1 30); do
-    resp="$(openshift_curl -X POST "${kc_token_url}" \
-      -d grant_type=password -d client_id=hypershell-frontend \
-      -d username=admin -d password=admin || true)"
+    resp="$(openshift_curl -X POST "${kc_token_url}" "${token_args[@]}" || true)"
     token="$(printf '%s' "${resp}" | json_string_field access_token || true)"
     if [[ -n "${token}" ]]; then
       break
@@ -1061,12 +1128,6 @@ seed_via_api() {
     fi
   }
 
-  extract_named_id() {
-    local resp="$1" name="$2"
-    printf '%s' "${resp}" | grep -o "\"name\":\"${name}\"[^}]*\"id\":\"[^\"]*\"" \
-      | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | head -1 || true
-  }
-
   extract_id() {
     local resp="$1"
     if echo "${resp}" | grep -q '"kind":"Error"'; then
@@ -1083,7 +1144,7 @@ seed_via_api() {
   http="$(printf '%s' "${raw}" | tail -1)"
   body="$(printf '%s' "${raw}" | sed '$d')"
   if [[ "${http}" == "200" ]]; then
-    CLUSTER_ID="$(extract_named_id "${body}" local-openshift)"
+    CLUSTER_ID="$(printf '%s' "${body}" | json_named_id local-openshift)"
   fi
   if [[ -z "${CLUSTER_ID}" ]]; then
     info "Creating ManagedCluster..."
@@ -1107,7 +1168,7 @@ seed_via_api() {
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     if [[ "${http}" == "200" ]]; then
-      RELEASE_ID="$(extract_named_id "${body}" dev-release)"
+      RELEASE_ID="$(printf '%s' "${body}" | json_named_id dev-release)"
     fi
     if [[ -z "${RELEASE_ID}" ]]; then
       info "Creating GatewayRelease..."
@@ -1134,7 +1195,7 @@ seed_via_api() {
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     if [[ "${http}" == "200" ]]; then
-      DATABASE_ID="$(extract_named_id "${body}" openshell-db)"
+      DATABASE_ID="$(printf '%s' "${body}" | json_named_id openshell-db)"
     fi
     if [[ -n "${DATABASE_ID}" ]] && ! cnpg_available \
       && printf '%s' "${body}" | grep -Fq '"provider":"cnpg"'; then
@@ -1165,24 +1226,36 @@ seed_via_api() {
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     if [[ "${http}" == "200" ]]; then
-      GATEWAY_ID="$(extract_named_id "${body}" dev-gateway)"
+      GATEWAY_ID="$(printf '%s' "${body}" | json_named_id dev-gateway)"
     fi
+    # Keycloak runs start-dev on in-memory H2 with no persistent volume, so any
+    # Keycloak pod restart (a config change, node drain, upgrade) discards every
+    # dynamically-provisioned per-gateway OIDC client while dev-gateway's row
+    # survives untouched in PostgreSQL. Reusing that stale dev-gateway then
+    # permanently sticks it in status "Keycloak client is missing": the
+    # reconciler deliberately never auto-recreates a missing client, since doing
+    # so without also restoring RoleBindings and console mappers would leave it
+    # silently half-provisioned (openshell-gateway-keycloak.spec.md, "Existing
+    # gateway client is missing"). Until Keycloak has durable storage, always
+    # recreate dev-gateway here instead of reusing one that might predate the
+    # current Keycloak instance.
+    if [[ -n "${GATEWAY_ID}" ]]; then
+      info "Recreating dev-gateway ${GATEWAY_ID} (Keycloak has no persistent storage across restarts)..."
+      api_exec DELETE "/api/hypershell/v1/gateways/${GATEWAY_ID}" >/dev/null
+      GATEWAY_ID=""
+    fi
+    info "Creating Gateway with OIDC..."
+    local oidc
+    oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
+    raw="$(api_exec POST /api/hypershell/v1/gateways \
+      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
+    http="$(printf '%s' "${raw}" | tail -1)"
+    body="$(printf '%s' "${raw}" | sed '$d')"
+    GATEWAY_ID="$(extract_id "${body}")"
     if [[ -z "${GATEWAY_ID}" ]]; then
-      info "Creating Gateway with OIDC..."
-      local oidc
-      oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
-      raw="$(api_exec POST /api/hypershell/v1/gateways \
-        "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
-      http="$(printf '%s' "${raw}" | tail -1)"
-      body="$(printf '%s' "${raw}" | sed '$d')"
-      GATEWAY_ID="$(extract_id "${body}")"
-      if [[ -z "${GATEWAY_ID}" ]]; then
-        warn "Gateway creation failed (HTTP ${http}): ${body:-no response}"
-      else
-        success "Gateway created: ${GATEWAY_ID}"
-      fi
+      warn "Gateway creation failed (HTTP ${http}): ${body:-no response}"
     else
-      success "dev-gateway already exists: ${GATEWAY_ID}"
+      success "Gateway created: ${GATEWAY_ID}"
     fi
   fi
 
@@ -1206,10 +1279,14 @@ print_banner() {
   info "Namespace:     ${OPENSHIFT_NAMESPACE} (Keycloak: ${OPENSHIFT_KEYCLOAK_NAMESPACE})"
   info "HTTP API:      https://${OPENSHIFT_API_HOST}"
   info "Web Console:   https://${OPENSHIFT_CONSOLE_HOST}"
-  info "Keycloak:      ${OPENSHIFT_KC_HOSTNAME} (admin/admin)"
+  info "Keycloak:      ${OPENSHIFT_KC_HOSTNAME}"
   info "OIDC Issuer:   ${OPENSHIFT_OIDC_ISSUER}"
   info "Login:         https://${OPENSHIFT_CONSOLE_HOST}/auth/login"
-  info "Test users:    admin/admin (admins + users), developer/developer (users only)"
+  if github_idp_enabled; then
+    info "Interactive login is GitHub-brokered (openshift-online org, or allowlisted user)"
+  else
+    info "Test users:    admin/admin (admins + users), developer/developer (users only)"
+  fi
   echo ""
   info "API Server Logs:    oc logs -f -l app=hypershell-api-server -n ${OPENSHIFT_NAMESPACE}"
   info "Control Plane Logs: oc logs -f -l app=hypershell-controller -n ${OPENSHIFT_NAMESPACE}"
@@ -1361,6 +1438,53 @@ remove_project() {
   return 1
 }
 
+# Selector for namespaces this control-plane instance stamped. Empty instance is
+# refused by the caller; an empty label value would match unlabeled leftovers.
+instance_managed_namespace_selector() {
+  local instance="$1"
+  printf '%s=%s,%s=%s,%s=%s' \
+    "${CP_MANAGED_LABEL}" "${CP_MANAGED_VALUE}" \
+    "${MANAGED_LABEL}" "${CP_MANAGED_BY_VALUE}" \
+    "${CP_INSTANCE_LABEL}" "${instance}"
+}
+
+# Delete gateway and ManagedDatabase namespaces this instance created. Periodic
+# GC cannot do this after the platform project is gone. Never delete the
+# platform or keycloak projects through this selector.
+delete_instance_managed_namespaces() {
+  local instance="$1"
+  if [[ -z "${instance}" ]]; then
+    error "Refusing to delete instance-managed namespaces with an empty instance identity"
+    return 1
+  fi
+  info "Removing gateway and database namespaces for instance ${instance}"
+  local selector names ns failed=""
+  selector="$(instance_managed_namespace_selector "${instance}")"
+  names="$(oc_cli get namespace -l "${selector}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+  if [[ -z "${names}" ]]; then
+    info "No instance-managed namespaces for ${instance}"
+    return 0
+  fi
+  while IFS= read -r ns; do
+    [[ -n "${ns}" ]] || continue
+    if [[ "${ns}" == "${instance}" || "${ns}" == "${instance}-keycloak" ]]; then
+      continue
+    fi
+    info "Deleting instance-managed namespace ${ns}"
+    if oc_cli delete namespace "${ns}" --ignore-not-found --wait=true --timeout=300s >/dev/null; then
+      success "Namespace ${ns} deleted"
+    else
+      warn "Failed to delete namespace ${ns}"
+      failed=true
+    fi
+  done <<< "${names}"
+  if [[ -n "${failed}" ]]; then
+    error "Failed to delete one or more instance-managed namespaces for ${instance}"
+    return 1
+  fi
+}
+
 cluster_down() {
   header "Removing OpenShift environment"
   require_openshift_cluster
@@ -1377,9 +1501,7 @@ cluster_down() {
     ok_keycloak=true
   fi
   if [[ "${ok_platform}" != "true" && "${ok_keycloak}" != "true" ]]; then
-    warn "No namespace group found for ${OPENSHIFT_NAMESPACE} / ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
-    clear_all_openshift_swaps
-    return 0
+    info "No namespace group found for ${OPENSHIFT_NAMESPACE} / ${OPENSHIFT_KEYCLOAK_NAMESPACE}; still reaping instance-managed leftovers"
   fi
 
   info "Deleting this environment's cluster-scoped RBAC..."
@@ -1389,9 +1511,14 @@ cluster_down() {
   oc_cli delete clusterrole "${prefix}hypershell-controller-scc-bind" --ignore-not-found >/dev/null 2>&1 || true
   oc_cli delete clusterrole "${prefix}hypershell-controller" --ignore-not-found >/dev/null 2>&1 || true
 
-  info "Removing namespace group ${OPENSHIFT_NAMESPACE} and ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
-  remove_project "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
-  remove_project "${OPENSHIFT_NAMESPACE}"
+  if [[ "${ok_keycloak}" == "true" || "${ok_platform}" == "true" ]]; then
+    info "Removing namespace group ${OPENSHIFT_NAMESPACE} and ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+    remove_project "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+    remove_project "${OPENSHIFT_NAMESPACE}"
+  fi
+  # After the controller is gone (or when the platform project was already
+  # absent) delete sibling gateway/database namespaces this instance stamped.
+  delete_instance_managed_namespaces "${OPENSHIFT_NAMESPACE}"
   clear_all_openshift_swaps
   success "Environment ${OPENSHIFT_NAMESPACE} (and ${OPENSHIFT_KEYCLOAK_NAMESPACE}) removed"
 }
@@ -1508,12 +1635,14 @@ push_component_image() {
   local repo
   repo="$(swap_image_repository "${component}")" || exit 1
   local push_ref="${repo}:${tag}"
-  local target_arch
+  local build_arch target_arch
+  build_arch="$(swap_build_goarch)" || exit 1
   target_arch="$(swap_target_goarch)" || exit 1
 
-  info "Building ${component} from working tree for linux/${target_arch}..."
+  info "Building ${component} from working tree for linux/${target_arch} (native compile linux/${build_arch})..."
   ${CONTAINER_ENGINE} build --platform "linux/${target_arch}" -t "${LOCAL_IMAGE}" \
     -f "${REPO_ROOT}/${DOCKERFILE}" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} \
+    --build-arg "BUILDARCH=${build_arch}" \
     --build-arg "TARGETARCH=${target_arch}" \
     --build-arg "TARGETOS=linux" \
     "${REPO_ROOT}/${BUILD_CONTEXT}"

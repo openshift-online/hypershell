@@ -143,8 +143,24 @@ func TestIsAuthorized_RoleBindingsRequireAnyBinding(t *testing.T) {
 func TestIsAuthorized_NoBindingsDenied(t *testing.T) {
 	bindings := []BindingSummary{}
 
-	if isAuthorized(http.MethodGet, "gateways", "", "", bindings, nil) {
-		t.Error("empty bindings must be denied")
+	if isAuthorized(http.MethodGet, "gateways", "gw-1", "gw-1", bindings, nil) {
+		t.Error("empty bindings must not GET a specific gateway")
+	}
+	if isAuthorized(http.MethodPost, "gateways", "", "", bindings, nil) {
+		t.Error("empty bindings must not POST /gateways")
+	}
+}
+
+func TestIsAuthorized_NoBindingsCanListGateways(t *testing.T) {
+	// OpenShift sets RBAC_DEFAULT_ROLES empty, so a developer JWT (only
+	// hypershell-users) syncs no RoleBindings. Collection GET must still be
+	// allowed: the list handler returns 200 with an empty items array
+	// (rbac-enforcement Error Response Opacity). Denying the list is 403
+	// and the web console shows "Gateways could not be loaded".
+	bindings := []BindingSummary{}
+
+	if !isAuthorized(http.MethodGet, "gateways", "", "", bindings, nil) {
+		t.Error("empty bindings must be allowed to GET /gateways (empty list)")
 	}
 }
 
@@ -428,6 +444,31 @@ func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 
 	if !reached {
 		t.Fatal("bound gateway:creator request did not reach the handler")
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+}
+
+func TestAuthorizeApiAllowsUserWithNoBindingsToListGateways(t *testing.T) {
+	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true})
+
+	reached := false
+	router := mux.NewRouter()
+	router.Handle("/api/hypershell/v1/gateways", middleware.AuthorizeApi(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))).Methods(http.MethodGet)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/gateways", nil)
+	token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "developer"}}
+	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+	ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request.WithContext(ctx))
+
+	if !reached {
+		t.Fatal("authenticated user with no RoleBindings did not reach GET /gateways")
 	}
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)

@@ -106,6 +106,79 @@ else
   fail_u "e2e_json_first_id name/first unexpected: picked=${picked} first=${first}"
 fi
 
+err_id=$(echo '{"kind":"Error","id":"9","code":"403","reason":"Forbidden"}' | e2e_json_first_id)
+if [[ -z "$err_id" ]]; then
+  pass_u "e2e_json_first_id ignores Error payloads"
+else
+  fail_u "e2e_json_first_id should ignore Error ids, got ${err_id}"
+fi
+
+sum_ok=$(echo '{"kind":"ManagedClusterList","total":1,"items":[{"id":"c1","name":"local-openshift"}]}' | e2e_json_list_summary)
+sum_empty=$(echo '{"kind":"ManagedClusterList","total":0,"items":[]}' | e2e_json_list_summary)
+sum_err=$(echo '{"kind":"Error","code":"403","reason":"Forbidden"}' | e2e_json_list_summary)
+sum_blank=$(printf '' | e2e_json_list_summary)
+if [[ "$sum_ok" == "kind=ManagedClusterList total=1 items=1" \
+  && "$sum_empty" == "kind=ManagedClusterList total=0 items=0" \
+  && "$sum_err" == "error code=403 reason=Forbidden" \
+  && "$sum_blank" == "empty-body" ]]; then
+  pass_u "e2e_json_list_summary distinguishes lists, empty lists, and Error bodies"
+else
+  fail_u "e2e_json_list_summary unexpected: ok=${sum_ok} empty=${sum_empty} err=${sum_err} blank=${sum_blank}"
+fi
+
+_orig_api_curl=$(declare -f api_curl || true)
+api_curl() {
+  case "$1" in
+    *managed_clusters) printf '%s' '{"kind":"ManagedClusterList","total":1,"items":[{"id":"c-os","name":"local-openshift"}]}' ;;
+    *gateway_releases) printf '%s' '{"kind":"GatewayReleaseList","total":1,"items":[{"id":"r-os","name":"dev-release"}]}' ;;
+    *managed_databases) printf '%s' '{"kind":"ManagedDatabaseList","total":1,"items":[{"id":"d-os","name":"openshell-db"}]}' ;;
+    *) printf '%s' '{"kind":"Error","reason":"unexpected url"}' ;;
+  esac
+}
+_saved_seed_cluster="${E2E_SEED_CLUSTER_NAME-}"
+_saved_seed_release="${E2E_SEED_RELEASE_NAME-}"
+unset E2E_SEED_CLUSTER_NAME E2E_SEED_RELEASE_NAME
+E2E_INFRA_DRIVER=openshift API_HOST=https://example.invalid
+E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+if e2e_discover_seed_ids \
+  && [[ "$E2E_CLUSTER_ID" == "c-os" && "$E2E_RELEASE_ID" == "r-os" && "$E2E_SEED_CLUSTER_NAME" == "local-openshift" ]]; then
+  pass_u "OpenShift discovery pins local-openshift / dev-release"
+else
+  fail_u "OpenShift discovery pin failed: cluster=${E2E_CLUSTER_ID:-<empty>} release=${E2E_RELEASE_ID:-<empty>} name=${E2E_SEED_CLUSTER_NAME:-<empty>}"
+fi
+
+api_curl() {
+  printf '%s' '{"kind":"Error","code":"403","reason":"Forbidden"}'
+}
+unset E2E_SEED_CLUSTER_NAME E2E_SEED_RELEASE_NAME
+E2E_INFRA_DRIVER=openshift
+E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+disc_err="$(e2e_discover_seed_ids 2>&1 || true)"
+if [[ "$disc_err" == *"error code=403 reason=Forbidden"* && "$disc_err" == *"make openshift-seed"* ]]; then
+  pass_u "seed discovery failure names Error payloads and the re-seed hint"
+else
+  fail_u "seed discovery failure diagnostics missing: ${disc_err}"
+fi
+if [[ -n "${_orig_api_curl}" ]]; then
+  eval "${_orig_api_curl}"
+else
+  unset -f api_curl
+fi
+unset _orig_api_curl
+if [[ -n "${_saved_seed_cluster}" ]]; then
+  E2E_SEED_CLUSTER_NAME="${_saved_seed_cluster}"
+else
+  unset E2E_SEED_CLUSTER_NAME
+fi
+if [[ -n "${_saved_seed_release}" ]]; then
+  E2E_SEED_RELEASE_NAME="${_saved_seed_release}"
+else
+  unset E2E_SEED_RELEASE_NAME
+fi
+unset _saved_seed_cluster _saved_seed_release
+E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+unset E2E_INFRA_DRIVER API_HOST
+
 # --- Percentiles (nearest-rank: ceil(p/100*n) for 1..10 -> 5, 9, 10, 10) ---
 
 json=$(perf_percentiles_json 1 2 3 4 5 6 7 8 9 10)
@@ -398,6 +471,22 @@ if grep -q 'e2e_select_infra_driver' "${SCRIPT_DIR}/../e2e-performance.sh" \
   pass_u "e2e and e2e-performance share e2e_select_infra_driver"
 else
   fail_u "e2e-performance.sh or e2e-openshell.sh does not call e2e_select_infra_driver"
+fi
+
+if grep -q 'e2e_rbac_default_includes_creator' "${SCRIPT_DIR}/../e2e-openshell.sh"; then
+  pass_u "e2e-openshell.sh gates creator POST on the deployment RBAC_DEFAULT_ROLES"
+else
+  fail_u "e2e-openshell.sh does not call e2e_rbac_default_includes_creator"
+fi
+
+unset _E2E_RBAC_DEFAULT_INCLUDES_CREATOR
+kind_roles=$(echo '[{"name":"RBAC_ENFORCE","value":"true"}]' | e2e_effective_rbac_default_roles_from_env_json)
+os_roles=$(echo '[{"name":"RBAC_ENFORCE","value":"true"},{"name":"RBAC_DEFAULT_ROLES","value":""}]' | e2e_effective_rbac_default_roles_from_env_json)
+explicit_roles=$(echo '[{"name":"RBAC_DEFAULT_ROLES","value":"gateway:creator"}]' | e2e_effective_rbac_default_roles_from_env_json)
+if [[ "$kind_roles" == "gateway:creator" && -z "$os_roles" && "$explicit_roles" == "gateway:creator" ]]; then
+  pass_u "RBAC_DEFAULT_ROLES unset is gateway:creator; explicit empty stays empty"
+else
+  fail_u "RBAC_DEFAULT_ROLES parse unexpected: kind=${kind_roles} os=${os_roles:-<empty>} explicit=${explicit_roles}"
 fi
 
 if grep -q 'E2E_INFRA_DRIVER is not set' "${SCRIPT_DIR}/../e2e-performance.sh"; then

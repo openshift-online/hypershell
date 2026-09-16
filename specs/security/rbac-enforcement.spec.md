@@ -413,7 +413,22 @@ when the caller has no binding that covers the requested resource. Returning 403
 singleton GET leaks resource existence.
 
 For list endpoints, the middleware SHALL return 200 with an empty items array when the
-caller has no matching resources.
+caller has no matching resources. Collection `GET /gateways` SHALL be authorized for
+any authenticated caller, including a user whose JWT carries only `hypershell-users`
+and who has no `gateway:creator`, `platform:admin`, or per-gateway RoleBinding
+(OpenShift `RBAC_DEFAULT_ROLES=`). The list handler then returns the empty collection.
+Denying that list with 403 is a product bug: the web console treats it as
+"Gateways could not be loaded".
+
+#### Scenario: Developer with no gateway bindings lists gateways
+
+- GIVEN production deployment with `RBAC_DEFAULT_ROLES=`
+- AND user A is authenticated
+- AND user A's JWT does not carry `gateway:creator` or `platform:admin`
+- AND user A has no per-gateway RoleBinding
+- WHEN user A calls `GET /api/hypershell/v1/gateways`
+- THEN the response is 200
+- AND `items` is an empty array
 
 For mutation endpoints where the caller lacks write permission, the middleware SHALL
 return 403.

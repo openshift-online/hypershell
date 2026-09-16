@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hypershell-pr-reaper
+  labels:
+    app.kubernetes.io/part-of: hypershell
+    app.kubernetes.io/managed-by: hypershell-lifecycle
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pr-env-reaper
+  namespace: hypershell-pr-reaper
+  labels:
+    app.kubernetes.io/part-of: hypershell
+    app.kubernetes.io/name: pr-env-reaper
+---
+# The reaper needs to list every namespace, read its ownership labels and
+# expires-at annotation, and delete an expired pull-request environment's
+# namespace group and that environment's cluster-scoped RBAC. Kubernetes cannot
+# label-scope cluster-wide delete, so this ClusterRole can delete ANY namespace
+# or ClusterRole/ClusterRoleBinding. Safety is the pr_env_is_reapable predicate
+# in scripts/ci/pr-env-lib.sh (prefix hypershell-ci-pr-, owned=true, env id
+# pr-<number>, expires-at in the past, never reserved names). That predicate is
+# unit-tested; a regression in it would be cluster-wide. Deploy this only on
+# the dedicated PR-environments cluster, not onto a shared stage/prod hub.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hypershell-pr-env-reaper
+  labels:
+    app.kubernetes.io/part-of: hypershell
+    app.kubernetes.io/name: pr-env-reaper
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hypershell-pr-env-reaper
+  labels:
+    app.kubernetes.io/part-of: hypershell
+    app.kubernetes.io/name: pr-env-reaper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hypershell-pr-env-reaper
+subjects:
+  - kind: ServiceAccount
+    name: pr-env-reaper
+    namespace: hypershell-pr-reaper

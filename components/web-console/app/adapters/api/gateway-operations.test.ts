@@ -68,6 +68,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     observed_release_id: "",
     oidc: "",
     phase: "",
+    provisioning_conditions: "",
     release_id: "release-1",
     route: "",
     route_address: "",

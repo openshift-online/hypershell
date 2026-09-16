@@ -1,0 +1,4 @@
+interface:
+  display_name: "PatternFly"
+  short_description: "Implement UI with PatternFly 6 and HyperShell conventions"
+  default_prompt: "Use $patternfly to implement this UI with PatternFly 6 following HyperShell conventions."

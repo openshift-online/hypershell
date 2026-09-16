@@ -1375,6 +1375,51 @@ func (r *GatewayReleaseReconciler) forget(id string) {
 	delete(r.lastImage, id)
 }
 
+// recordIncompleteFinalizationEvent records a durable, operator-visible
+// Kubernetes Event stating that a gateway-owned resource was left unreclaimed
+// during deletion with no automatic recovery path. The Event is created in the
+// control-plane namespace (not the gateway namespace, which is itself being
+// reaped) so it outlives the deleted resources, satisfying the no-silent-orphan
+// contract. It fails closed when no control-plane namespace is configured: a
+// leaked resource with no durable record is exactly the silent orphan this
+// guards against. The message must never carry secrets; callers pass only the
+// resource kind, name, and a human-readable reason.
+//
+// It takes kubernetes.Interface (not the concrete *kubernetes.Clientset the
+// reconciler holds) so it is unit-testable with a fake clientset.
+func recordIncompleteFinalizationEvent(ctx context.Context, client kubernetes.Interface, cpNamespace, gatewayID, resourceKind, resourceName, reason string) error {
+	if cpNamespace == "" {
+		return fmt.Errorf("no control-plane namespace configured; cannot record the required IncompleteFinalization Event for gateway %s resource %s %q", gatewayID, resourceKind, resourceName)
+	}
+	now := metav1.NewTime(time.Now())
+	event := &corev1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "gateway-finalization-",
+			Namespace:    cpNamespace,
+		},
+		InvolvedObject: corev1.ObjectReference{
+			Kind: "Gateway",
+			Name: gatewayID,
+			// The Event lives in the control-plane namespace so it outlives the
+			// reaped gateway resources. Kubernetes requires involvedObject.namespace
+			// to match event.namespace for namespaced Events; Name still identifies
+			// the gateway whose finalization was incomplete.
+			Namespace: cpNamespace,
+		},
+		Reason:         "IncompleteFinalization",
+		Message:        fmt.Sprintf("gateway %s deletion left %s %q unreclaimed with no automatic recovery path: %s", gatewayID, resourceKind, resourceName, reason),
+		Type:           corev1.EventTypeWarning,
+		Source:         corev1.EventSource{Component: "hypershell-control-plane"},
+		FirstTimestamp: now,
+		LastTimestamp:  now,
+		Count:          1,
+	}
+	if _, err := client.CoreV1().Events(cpNamespace).Create(ctx, event, metav1.CreateOptions{}); err != nil {
+		return err
+	}
+	return nil
+}
+
 type GatewayReconciler struct {
 	mu                    sync.Mutex
 	active                map[string]struct{}
@@ -1527,14 +1572,29 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				GatewayID:             event.ResourceID,
 				GatewayName:           gw.Name,
 			}
+			// A best-effort cleanup failure that leaves a gateway-owned resource
+			// behind (a ClusterRoleBinding or Keycloak client with no cascading
+			// owner and no reclaiming reconciler) must not be a silent orphan: it is
+			// recorded as a durable, operator-visible Event. Recording is itself
+			// best-effort within the delete pass -- a failed record is logged but
+			// does not fail finalization, since the underlying deletion error was
+			// already tolerated as best-effort.
+			opts.RecordOrphan = func(rctx context.Context, resourceKind, resourceName, reason string) {
+				if err := recordIncompleteFinalizationEvent(rctx, r.clientset, r.controlPlaneNamespace, event.ResourceID, resourceKind, resourceName, reason); err != nil {
+					log.Printf("ERROR gateway %s: failed to record IncompleteFinalization Event for %s %q: %v", event.ResourceID, resourceKind, resourceName, err)
+				}
+			}
 			if r.keycloakClient != nil {
 				clientID, err := existingGatewayKeycloakClientID(event.ResourceID, gw)
 				if err != nil {
 					// Invalid stored identity never becomes valid on retry, so failing
 					// here would pin the delete tombstone after namespace and database
-					// cleanup. Keycloak is not contacted. Log the failure for operator
-					// recovery instead.
+					// cleanup. Keycloak is not contacted. Record the leak durably (not
+					// just a log line) so the orphaned Keycloak clients are visible to
+					// operators for recovery.
 					log.Printf("ERROR gateway %s stored identity cannot be resolved (%v); skipping Keycloak cleanup; Keycloak clients may remain for operator recovery", event.ResourceID, err)
+					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
+						fmt.Sprintf("stored identity cannot be resolved (%v); Keycloak clients could not be deleted", err))
 				} else {
 					opts.KeycloakClient = r.keycloakClient
 					opts.GatewayClientID = clientID
@@ -1547,8 +1607,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				clientID, idErr := existingGatewayKeycloakClientID(event.ResourceID, gw)
 				if idErr != nil {
 					log.Printf("ERROR gateway %s identity cleanup requires the Keycloak client; stored identity cannot be resolved (%v); Keycloak clients may remain for operator recovery", event.ResourceID, idErr)
+					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
+						fmt.Sprintf("Keycloak provisioner is deconfigured and stored identity cannot be resolved (%v); Keycloak clients could not be deleted", idErr))
 				} else {
 					log.Printf("ERROR gateway %s identity cleanup requires the Keycloak client; leaving Keycloak clients %q and %q for operator recovery", event.ResourceID, clientID, clientID+"-console")
+					opts.RecordOrphan(ctx, "KeycloakClient", clientID,
+						"Keycloak provisioner is deconfigured; the gateway Keycloak client could not be deleted")
+					opts.RecordOrphan(ctx, "KeycloakClient", clientID+"-console",
+						"Keycloak provisioner is deconfigured; the console Keycloak client could not be deleted")
 				}
 			}
 			var credentialNamespaces []string
@@ -1758,6 +1824,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
 	}
 
+	conditions := gateway.InitConditions(r.keycloakConfig != nil)
+	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+
+	opts.ReportProgress = func(step, status, message string) {
+		gateway.SetCondition(conditions, step, status, message)
+		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+	}
+
 	r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning))
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
@@ -1779,11 +1853,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return reconcileErr
 	}
 
+	// Step 5: GatewayHealthy
+	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
+	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+
 	// Manifests are applied, but the gateway is not Running until its workload is
 	// observed Ready. Wait within the provisioning readiness window; if the
 	// Deployment never becomes ready, set Degraded and record why.
 	ready, reason := gateway.WaitForGatewayReady(ctx, r.clientset, namespace, 2*time.Minute)
 	if !ready {
+		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusFailed, "Gateway health check timed out - the gateway workload is not yet ready")
+		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseDegraded), reason)
 		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
 		return nil
@@ -1804,6 +1884,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	if r.exposure != nil && routed {
 		if r.waitForRouteReady(ctx, namespace) {
+			gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
+			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 			// The observation guard rejects work that started in Running or Degraded.
 			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 				observeGatewayProvisionDuration(ctx, runningGateway)
@@ -1827,6 +1909,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
 		}
 	} else {
+		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
+		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		// The observation guard rejects work that started in Running or Degraded.
 		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 			observeGatewayProvisionDuration(ctx, runningGateway)
@@ -1895,6 +1979,9 @@ func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.C
 	}
 	if err := r.keycloakClient.EnsureDeviceAuthorizationGrant(ctx, clientUUID); err != nil {
 		return fmt.Errorf("reconcile device authorization grant on Keycloak client %q: %w", clientID, err)
+	}
+	if err := r.keycloakClient.EnsureE2ETokenExchange(ctx, clientUUID); err != nil {
+		return fmt.Errorf("reconcile e2e token-exchange on Keycloak client %q: %w", clientID, err)
 	}
 	log.Printf("INFO reconciled Keycloak client %q (uuid=%q)", clientID, clientUUID)
 	return nil
@@ -2226,6 +2313,40 @@ func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID st
 	})
 	if err != nil {
 		log.Printf("WARN failed to update gateway %s phase to %s: %v", gatewayID, phase, err)
+	}
+}
+
+func conditionStatusToProto(s string) pb.ProvisioningConditionStatus {
+	switch s {
+	case gateway.StatusPending:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_PENDING
+	case gateway.StatusInProgress:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_IN_PROGRESS
+	case gateway.StatusComplete:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE
+	case gateway.StatusFailed:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_FAILED
+	default:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_UNSPECIFIED
+	}
+}
+
+func (r *GatewayReconciler) updateProvisioningConditions(ctx context.Context, gatewayID string, conditions []gateway.ProvisioningCondition) {
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	pbConditions := make([]*pb.ProvisioningCondition, len(conditions))
+	for i, c := range conditions {
+		pbConditions[i] = &pb.ProvisioningCondition{
+			Type:            c.Type,
+			ConditionStatus: conditionStatusToProto(c.ConditionStatus),
+			Message:         c.Message,
+		}
+	}
+	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:                     gatewayID,
+		ProvisioningConditions: pbConditions,
+	})
+	if err != nil {
+		log.Printf("WARN failed to update provisioning conditions for gateway %s: %v", gatewayID, err)
 	}
 }
 

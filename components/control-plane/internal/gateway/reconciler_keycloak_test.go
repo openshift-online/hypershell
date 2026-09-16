@@ -30,12 +30,15 @@ func TestReconcileKeycloakClientUpdatesExistingClient(t *testing.T) {
 				t.Errorf("encode token response: %v", err)
 			}
 		case r.URL.Path == "/admin/realms/hypershell/clients" && r.Method == http.MethodGet:
-			if got := r.URL.Query().Get("clientId"); got != clientID {
-				t.Errorf("clientId query = %q, want %q", got, clientID)
-			}
 			w.Header().Set("Content-Type", "application/json")
-			if _, err := w.Write([]byte(`[{"id":"client-uuid","clientId":"gateway-id"}]`)); err != nil {
-				t.Errorf("write client list response: %v", err)
+			if r.URL.Query().Get("clientId") == clientID {
+				if _, err := w.Write([]byte(`[{"id":"client-uuid","clientId":"gateway-id"}]`)); err != nil {
+					t.Errorf("write client list response: %v", err)
+				}
+				return
+			}
+			if _, err := w.Write([]byte(`[]`)); err != nil {
+				t.Errorf("write empty client list response: %v", err)
 			}
 		case r.URL.Path == "/admin/realms/hypershell/clients/"+clientUUID && r.Method == http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
