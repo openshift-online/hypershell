@@ -451,7 +451,7 @@ func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 }
 
 func TestAuthorizeApiAllowsUserWithNoBindingsToListGateways(t *testing.T) {
-	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true}, nil)
 
 	reached := false
 	router := mux.NewRouter()
