@@ -1,3 +1,4 @@
+# Run the release bundle check with support for partial release artifact lists.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:

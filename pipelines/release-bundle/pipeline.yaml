@@ -106,10 +106,14 @@ spec:
                       raise ValueError(message)
 
 
-              def indexed(items):
+              def indexed(items, *, require_all=True):
                   result = {item["name"]: item for item in items}
                   require(len(result) == len(items), "Duplicate component names")
-                  require(set(result) == set(COMPONENTS), "The release must contain all three components")
+                  require(set(result) <= set(COMPONENTS), "Unexpected component names: " + ", ".join(sorted(set(result) - set(COMPONENTS))))
+                  if require_all:
+                      require(set(result) == set(COMPONENTS), "The snapshot must contain all three components")
+                  else:
+                      require(result, "The release has no image artifacts")
                   return result
 
 
@@ -138,17 +142,23 @@ spec:
                       require(pull_request_prefixes <= push_prefixes,
                               "Pull request metadata requires an explicit push event")
                   components = indexed(snapshot["spec"]["components"])
-                  images = indexed(release["status"].get("artifacts", {}).get("images", []))
+                  images = indexed(release["status"].get("artifacts", {}).get("images", []), require_all=False)
                   output = []
                   for name in COMPONENTS:
-                      component, image = components[name], images[name]
-                      digest = image["shasum"]
+                      component = components[name]
+                      build_repository = BUILD_PREFIX + name + "@"
+                      require(component["containerImage"].startswith(build_repository), "Unexpected snapshot image repository")
+                      digest = component["containerImage"].removeprefix(build_repository)
                       require(re.fullmatch(r"sha256:[0-9a-f]{64}", digest), "Invalid image digest")
-                      require(component["containerImage"] == BUILD_PREFIX + name + "@" + digest,
-                              "Released digest does not match the snapshot")
                       repository = RELEASE_PREFIX + name
-                      require(any(url.startswith(repository + ":") for url in image["urls"]),
-                              "The release has no expected destination repository")
+                      # The managed pipeline can omit components from its artifact list.
+                      # publish() checks every snapshot digest in the release registry,
+                      # including images that are not listed in this release.
+                      if name in images:
+                          image = images[name]
+                          require(image["shasum"] == digest, "Released digest does not match the snapshot")
+                          require(any(url.startswith(repository + ":") for url in image["urls"]),
+                                  "The release has no expected destination repository")
                       source = component["source"]["git"]
                       require(source["url"].removesuffix(".git") == SOURCE_URL, "Unexpected source repository")
                       require(re.fullmatch(r"[0-9a-f]{40}", source["revision"]), "Invalid source revision")
@@ -188,7 +198,7 @@ spec:
                       run("git", "merge-base", "--is-ancestor", component["source"]["git"]["revision"],
                           "refs/remotes/origin/main", cwd=source_directory)
                       require(run("oras", "resolve", component["image"]) == component["image"].split("@")[1],
-                              "Released image is not available by digest")
+                              "Released image is not available by digest: " + component["image"])
                   # Konflux credentials can be scoped to a repository. ORAS needs a host entry.
                   credentials = json.loads(run("select-oci-auth", BUNDLE_REPOSITORY))
                   require(credentials.get("auths", {}).get("quay.io"),

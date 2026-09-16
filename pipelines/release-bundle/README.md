@@ -1,7 +1,7 @@
 # Release bundle
 
-This pipeline publishes the three images from a successful Konflux managed
-release as one OCI artifact. It uses the existing API server build repository:
+This pipeline publishes the three Snapshot images after a successful Konflux
+managed release as one OCI artifact. It uses the existing API server build repository:
 
 ```text
 quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main
@@ -21,8 +21,10 @@ The publisher requires all of these conditions:
 
 - The Release uses `hypershell-releaseplan` in `hcm-eng-prod-tenant`.
 - The managed pipeline has status `True` and reason `Succeeded`.
-- The Snapshot and release artifacts contain exactly the three expected components.
-- Each released digest matches the Snapshot and is available in the release repository.
+- The Snapshot contains exactly the three expected components.
+- The release lists at least one image, with no unknown or duplicate components.
+- Each image listed in the release matches the Snapshot digest and release repository.
+- All three Snapshot digests are available in their fixed release repositories.
 - Each source revision belongs to the history of `hypershell` main.
 - Any event-type metadata identifies a push event.
 
@@ -33,6 +35,13 @@ event. Pull request and merge queue events remain blocked.
 The final pipeline can run after a failed managed pipeline. It must check
 `ManagedPipelineProcessed`; `Released` is not complete until the final pipeline
 finishes. A failed check stops publication.
+
+The managed pipeline can reduce its working Snapshot to one component. It can
+also filter out images that were already released. Thus, `status.artifacts.images`
+can contain only part of the original Snapshot. The publisher retains the full
+Snapshot image set and checks each digest in its fixed release repository before
+it writes the bundle. An omitted image that is unavailable there stops publication;
+the publisher does not substitute a tag or another digest.
 
 Konflux can keep an earlier image for an unchanged component. The bundle keeps
 all three source revisions. A Snapshot can also contain an earlier image while
@@ -123,6 +132,7 @@ local substitutes for Kubernetes, Git, and registry commands.
 References:
 
 - [Konflux tenant and final pipelines](https://konflux-ci.dev/docs/releasing/tenant-release-pipelines/)
+- [Managed release pipeline](https://github.com/konflux-ci/release-service-catalog/blob/production/pipelines/managed/rh-push-to-external-registry/rh-push-to-external-registry.yaml)
 - [Konflux Snapshots](https://konflux-ci.dev/docs/testing/integration/snapshots/)
 - [Tekton credentials](https://tekton.dev/docs/pipelines/auth/)
 - [Kargo Warehouses](https://docs.kargo.io/user-guide/how-to-guides/working-with-warehouses)

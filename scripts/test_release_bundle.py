@@ -52,17 +52,25 @@ class ReleaseBundleTests(unittest.TestCase):
                     bundle.publish(release, snapshot, ".", "/unused")
                 run.assert_not_called()
 
-    def test_missing_or_duplicate_components_fail(self):
-        for location in ("snapshot", "release"):
-            for duplicate in (False, True):
-                release, snapshot = fixtures()
-                items = snapshot["spec"]["components"] if location == "snapshot" else release["status"]["artifacts"]["images"]
-                if duplicate:
-                    items.append(copy.deepcopy(items[0]))
-                else:
-                    items.pop()
-                with self.subTest(location=location, duplicate=duplicate), self.assertRaises(ValueError):
-                    bundle.make_bundle(release, snapshot)
+    def test_partial_release_preserves_the_complete_snapshot(self):
+        release, snapshot = fixtures()
+        expected = bundle.make_bundle(release, snapshot)
+        release["status"]["artifacts"]["images"] = release["status"]["artifacts"]["images"][:1]
+        self.assertEqual(expected, bundle.make_bundle(release, snapshot))
+
+    def test_incomplete_snapshot_and_invalid_artifact_lists_fail(self):
+        mutations = (
+            lambda r, s: s["spec"]["components"].pop(),
+            lambda r, s: s["spec"]["components"].append(copy.deepcopy(s["spec"]["components"][0])),
+            lambda r, s: r["status"]["artifacts"]["images"].append(copy.deepcopy(r["status"]["artifacts"]["images"][0])),
+            lambda r, s: r["status"]["artifacts"]["images"][0].update(name="unexpected-component"),
+            lambda r, s: r["status"]["artifacts"]["images"].clear(),
+        )
+        for mutate in mutations:
+            release, snapshot = fixtures()
+            mutate(release, snapshot)
+            with self.assertRaises(ValueError):
+                bundle.make_bundle(release, snapshot)
 
     def test_wrong_image_or_source_fails(self):
         mutations = (
@@ -70,6 +78,8 @@ class ReleaseBundleTests(unittest.TestCase):
             lambda r, s: r["status"]["artifacts"]["images"][0].update(urls=["quay.io/other/repo:latest"]),
             lambda r, s: s["spec"]["components"][0]["source"]["git"].update(revision="main"),
             lambda r, s: s["spec"]["components"][0]["source"]["git"].update(url="https://example.com/repo"),
+            lambda r, s: s["spec"]["components"][1].update(containerImage="quay.io/other/repo@sha256:" + "2" * 64),
+            lambda r, s: s["spec"]["components"][1].update(containerImage=bundle.BUILD_PREFIX + bundle.COMPONENTS[1] + "@invalid"),
             lambda r, s: r["spec"].update(snapshot="other"),
             lambda r, s: s["spec"].update(application="other"),
         )
@@ -124,19 +134,22 @@ class PipelineBootstrapTests(unittest.TestCase):
         pipeline = renderer.PIPELINE.read_text()
         self.assertEqual(pipeline, renderer.render(pipeline, renderer.PUBLISHER.read_text()))
 
-    def run_bootstrap(self, git_status=0):
+    def run_bootstrap(self, git_status=0, partial_release=False, unavailable_image=""):
         script = textwrap.dedent(renderer.PIPELINE.read_text().split(renderer.SCRIPT_MARKER, 1)[1])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             commands = root / "commands"
             release, snapshot = fixtures()
+            if partial_release:
+                release["status"]["artifacts"]["images"] = release["status"]["artifacts"]["images"][:1]
             (root / "release.json").write_text(json.dumps(release))
             (root / "snapshot.json").write_text(json.dumps(snapshot))
             stubs = {
                 "kubectl": 'case "$2" in releases.appstudio.redhat.com) cat "$FIXTURES/release.json";; '
                            'snapshots.appstudio.redhat.com) cat "$FIXTURES/snapshot.json";; *) exit 1;; esac\n',
                 "git": 'exit "$GIT_STATUS"\n',
-                "oras": 'case "$1" in resolve) for last; do :; done; case "$last" in *@*) '
+                "oras": 'case "$1" in resolve) for last; do :; done; '
+                        '[ "$last" != "$UNAVAILABLE_IMAGE" ] || exit 1; case "$last" in *@*) '
                         'printf "%s\\n" "${last##*@}";; *) printf "{}\\n" | sha256sum | '
                         'cut -d " " -f 1 | sed "s/^/sha256:/";; esac;; '
                         'push) printf "{}\\n" > manifest.json;; *) exit 1;; esac\n',
@@ -149,7 +162,7 @@ class PipelineBootstrapTests(unittest.TestCase):
                 executable.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
                        COMMAND_LOG=str(commands), FIXTURES=str(root), TEST_PYTHON=sys.executable,
-                       GIT_STATUS=str(git_status), RELEASE=bundle.NAMESPACE + "/release-one",
+                       GIT_STATUS=str(git_status), UNAVAILABLE_IMAGE=unavailable_image, RELEASE=bundle.NAMESPACE + "/release-one",
                        SNAPSHOT=bundle.NAMESPACE + "/snapshot-one", BUNDLE_RESULT=str(root / "result"))
             result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
             reference = (root / "result").read_text() if (root / "result").exists() else None
@@ -163,6 +176,22 @@ class PipelineBootstrapTests(unittest.TestCase):
         self.assertNotIn("checkout", commands)
         self.assertNotIn("pipelineruns", commands)
         self.assertIn("python3 - --release", commands)
+
+    def test_partial_release_checks_all_three_released_images(self):
+        result, commands, reference = self.run_bootstrap(partial_release=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(reference.startswith(bundle.BUNDLE_REPOSITORY + "@sha256:"))
+        for index, name in enumerate(bundle.COMPONENTS):
+            self.assertIn("oras resolve " + bundle.RELEASE_PREFIX + name + "@sha256:" + str(index + 1) * 64, commands)
+
+    def test_unavailable_omitted_image_stops_publication(self):
+        image = bundle.RELEASE_PREFIX + bundle.COMPONENTS[1] + "@sha256:" + "2" * 64
+        result, commands, reference = self.run_bootstrap(partial_release=True, unavailable_image=image)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(reference)
+        self.assertIn("oras resolve " + image, commands)
+        self.assertNotIn("oras push", commands)
+        self.assertNotIn("select-oci-auth", commands)
 
     def test_failed_source_fetch_stops_publication(self):
         result, commands, reference = self.run_bootstrap(git_status=1)
