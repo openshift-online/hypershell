@@ -17,7 +17,7 @@ name: E2E
 # tests.yml, so this workflow needs no summary/gate job of its own. The
 # `checks: read` permission and the wait-on-check-action steps below remain:
 # they gate on Konflux image builds, which this workflow cannot order with
-# `needs:`. Deploy PR environment lives in this workflow so OpenShift can
+# `needs:`. Deploy OpenShift Environment lives in this workflow so OpenShift can
 # `needs:` it instead of polling a separate PR Environment workflow, and so
 # unit failure (this stage never starts) skips deploy. After the suite, the
 # OpenShift job tears the environment down unless the pull request is marked
@@ -660,7 +660,7 @@ jobs:
   # /pr-extend, /pr-destroy, and close so those cannot race an in-flight
   # deploy. Kind runs in parallel with this job.
   deploy:
-    name: Deploy PR environment
+    name: Deploy OpenShift Environment
     needs: plan-images
     if: >-
       github.event_name == 'pull_request' &&
@@ -692,7 +692,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Deploy PR environment
+      - name: Deploy OpenShift Environment
         uses: ./.github/actions/deploy-pr-environment
         with:
           pr_number: ${{ github.event.pull_request.number }}
@@ -708,7 +708,7 @@ jobs:
 
       # OpenShift never starts if this job fails or is cancelled, so tear down
       # here. Skip ONLY when the environment is retained.
-      - name: Destroy unretained environment
+      - name: Teardown failed/cancelled environment
         if: ${{ always() && (failure() || cancelled()) }}
         run: bash scripts/ci/teardown-unretained-pr-env.sh
 

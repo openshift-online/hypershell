@@ -1092,8 +1092,10 @@ Each overlay SHALL differ from `deploy/base/` only within a declared allowlist. 
 `deploy/openshift/`, the allowed differences are the OpenShift-specific additions the
 overlay layers on the base (the Route, the SecurityContextConstraints binding, the
 certificates, and the network policies) together with the namespace, the name prefix,
-the image references, the gateway base domain `GATEWAY_API_BASE_DOMAIN`, and the SSO
-configuration. Ephemeral OpenShift and hub intentionally differ: ephemeral OpenShift
+the image references, the gateway base domain `GATEWAY_API_BASE_DOMAIN`, the SSO
+configuration, and `Recreate` Deployment strategies on the platform and Keycloak
+workloads so a digest swap on the shared e2e cluster does not need a surge pod.
+Ephemeral OpenShift and hub intentionally differ: ephemeral OpenShift
 bundles a per-environment Keycloak and the bundled CNPG `Cluster` that the base
 provides, while `deploy/hub/` (production) shares one Keycloak per cluster and uses a
 managed database, so `deploy/hub/` deletes the bundled Keycloak unit and the bundled

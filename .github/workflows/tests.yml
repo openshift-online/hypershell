@@ -8,8 +8,8 @@ name: Tests
 # Tests without a cross-workflow poller, and this repo deliberately avoids
 # that pattern for Unit vs Checks. Each triggers its own `detect-changes`
 # job rather than sharing one, which is the cost of that split. The one
-# exception is Tests / E2E / OpenShift, which needs the Deploy PR
-# environment job in e2e.yml (same should_run gate, after Unit) because
+# exception is Tests / E2E / OpenShift, which needs the Deploy OpenShift
+# Environment job in e2e.yml (same should_run gate, after Unit) because
 # that environment is the suite's target.
 #
 # Within this workflow, unit and e2e are reusable workflows (on:

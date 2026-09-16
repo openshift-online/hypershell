@@ -183,12 +183,12 @@ behind. Destroying the environment SHALL use the same teardown as
 gateway and database namespaces, and per-namespace swaps), so a torn-down
 ephemeral cycle leaves no HyperShell-owned residue.
 
-Deploy PR environment and Tests / E2E / OpenShift SHALL run as jobs of
+Deploy OpenShift Environment and Tests / E2E / OpenShift SHALL run as jobs of
 `.github/workflows/e2e.yml`, the Tests e2e stage invoked after Unit succeeds
 (`e2e-testing.spec.md`). They SHALL share that workflow's `plan-images`
 `should_run` gate, so an e2e-irrelevant pull request does not consume a
 cluster namespace, and a unit failure never deploys. OpenShift SHALL
-`needs:` Deploy PR environment; there SHALL be no cross-workflow poller
+`needs:` Deploy OpenShift Environment; there SHALL be no cross-workflow poller
 between deploy and the suite. `/pr-extend` and `/pr-destroy` live in
 `.github/workflows/pr-environment-commands.yml` (`issue_comment`). A dedicated
 destroy workflow SHALL trigger on `closed` (which covers both merge and close)
@@ -208,7 +208,7 @@ sets `should_run=true` using the same e2e-relevant path gate
 `e2e-testing.spec.md` defines (api-server, control-plane,
 web-console/gateway-management-ui Konflux paths, deploy manifests, e2e tests,
 and pr-test). When `should_run` is false, or when the e2e stage does not run
-because Unit failed, CI SHALL skip `Deploy PR environment`: it SHALL NOT log
+because Unit failed, CI SHALL skip `Deploy OpenShift Environment`: it SHALL NOT log
 in to the cluster, SHALL NOT run `make openshift-up`, and SHALL NOT post or
 update the access comment.
 
@@ -232,7 +232,7 @@ Tests / E2E / OpenShift, after diagnostics, so the suite has a live target.
 It SHALL run on success, failure, and cancel of that job. The only skip is
 when the pull request is marked retained (`pr-environment/pr-extended`). A
 teardown failure SHALL fail Tests / E2E / OpenShift. A failed or cancelled
-Deploy PR environment SHALL likewise destroy an unretained environment,
+Deploy OpenShift Environment SHALL likewise destroy an unretained environment,
 because OpenShift will not start. An unretained failing run SHALL still be
 destroyed, and a developer who wants to inspect a failure SHALL `/pr-extend`,
 which redeploys a fresh environment.
@@ -296,7 +296,7 @@ SHALL preserve any active per-namespace component swap the same way
   e2e-irrelevant paths (for example `docs/` or `components/sdk-typescript/`)
 - WHEN the Tests e2e stage runs
 - THEN `plan-images` SHALL set `should_run=false`
-- AND the `Deploy PR environment` job SHALL be skipped
+- AND the `Deploy OpenShift Environment` job SHALL be skipped
 - AND the workflow SHALL NOT consume a cluster namespace
 - AND Tests / E2E / OpenShift SHALL skip as `e2e-testing.spec.md` defines
 
@@ -487,7 +487,7 @@ artifact across the stack.
 - THEN the workflow SHALL wait for the control plane's Konflux build for the new
   head commit
 - AND it SHALL swap the new control plane image into the environment by digest
-  before the `Deploy PR environment` check succeeds
+  before the `Deploy OpenShift Environment` check succeeds
 - AND `make openshift-seed` SHALL reuse the existing `ManagedCluster`,
   `GatewayRelease`, and `ManagedDatabase` seed resources
 - AND it SHALL delete and recreate the existing `dev-gateway` rather than reuse
@@ -515,7 +515,7 @@ every later e2e-relevant deployment for that pull request, using the same
 `plan-images` / `should_run` gate the Kind e2e job uses, so each e2e-relevant
 commit is validated against a live environment the same way Kind validates it.
 An origin PR that changes only e2e-irrelevant paths SHALL skip Tests / E2E /
-OpenShift and SHALL skip `Deploy PR environment`, using the same
+OpenShift and SHALL skip `Deploy OpenShift Environment`, using the same
 `plan-images` / `should_run` gate. On failure
 the job SHALL collect the diagnostics `e2e-testing.spec.md` defines before the
 environment is torn down. The environment SHALL survive the run only when the
@@ -536,11 +536,11 @@ teardown is a last step of OpenShift and fails that check if destroy fails.
 
 - GIVEN the environment is deployed and the pull request's images are swapped in
 - AND `plan-images` set `should_run=true` (e2e-relevant paths changed)
-- WHEN Tests / E2E / OpenShift starts after `Deploy PR environment` succeeds
+- WHEN Tests / E2E / OpenShift starts after `Deploy OpenShift Environment` succeeds
 - THEN it SHALL run the OpenShift e2e suite against the environment
 - AND it SHALL run the suite again on each later e2e-relevant commit's deployment
 - AND an origin PR with `should_run=false` SHALL skip this job and SHALL skip
-  `Deploy PR environment`
+  `Deploy OpenShift Environment`
 
 #### Scenario: Retained environment survives a failing run
 
@@ -1236,7 +1236,7 @@ exists).
 |----------|-----------|
 | Namespace name from the pull-request number (`hypershell-ci-pr-<number>`) | A short, stable, collision-free identifier that every run for a pull request derives without external state; fits well within the DNS-label bound that keeps `-keycloak` under 63 characters. Branch names and commit SHAs are not stable for the life of one pull request |
 | Same lifecycle labels as `make openshift-up`, with `pr-<number>` as the environment id | Reuses `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment` so status and cleanup tooling stay one selector set; the `pr-` prefix lets the reaper ignore local environments. CI must be able to patch namespaces; failing closed beats an unlabeled environment the reaper cannot see |
-| Skip `Deploy PR environment` when `should_run` is false | An e2e-irrelevant PR would only deploy baseline `main` images. That consumes a shared-cluster namespace without giving the author a distinct environment or the OpenShift e2e suite a distinct target. The same `plan-images` / `should_run` gate Kind uses keeps deploy and Tests / E2E / OpenShift in lockstep |
+| Skip `Deploy OpenShift Environment` when `should_run` is false | An e2e-irrelevant PR would only deploy baseline `main` images. That consumes a shared-cluster namespace without giving the author a distinct environment or the OpenShift e2e suite a distinct target. The same `plan-images` / `should_run` gate Kind uses keeps deploy and Tests / E2E / OpenShift in lockstep |
 | `make openshift-up` on every deploying run, unconditionally | The command is already idempotent and reconciling, so one code path creates on first run and reconciles on later runs; branching on "does it exist" would duplicate logic and risk drift |
 | Ephemeral by default (deploy, test, destroy); `/pr-extend` to retain | Keeping an environment for every PR let failed deploys and abandoned PRs silently hold shared-cluster resources. Making destroy the default, with an explicit opt-in, means a PR only holds an environment when a developer actually asked for one to debug against |
 | Retained state is a `pr-environment/pr-extended` PR label, so `/pr-extend` is sticky | A label on the pull request is durable and derivable each run without external storage, so retention persists across commits (the developer extends once, not per commit) and every workflow run reads the same source of truth |
@@ -1251,7 +1251,7 @@ exists).
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
 | In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment as the last step of Tests / E2E / OpenShift unless retained, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
-| Deploy lives in the e2e stage after Unit, not a parallel PR Environment workflow | A separate workflow would deploy even when Unit fails and would need a cross-workflow poller for the suite. Putting Deploy PR environment in `e2e.yml` behind the same `should_run` gate means unit failure skips deploy, OpenShift can `needs:` deploy, and teardown can be a last step of the suite job |
+| Deploy lives in the e2e stage after Unit, not a parallel PR Environment workflow | A separate workflow would deploy even when Unit fails and would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate means unit failure skips deploy, OpenShift can `needs:` deploy, and teardown can be a last step of the suite job |
 | Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway/database namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway and ManagedDatabase namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |

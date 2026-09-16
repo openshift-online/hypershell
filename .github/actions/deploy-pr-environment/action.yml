@@ -1,4 +1,4 @@
-name: Deploy PR environment
+name: Deploy OpenShift Environment
 description: >
   Bring up or reconcile a per-PR OpenShift environment, swap Konflux images
   by digest, stamp identity/timebox, and update the access comment.
