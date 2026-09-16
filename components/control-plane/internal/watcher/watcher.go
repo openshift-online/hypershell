@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -890,12 +891,30 @@ func isMissingGateway(err error) bool {
 	return false
 }
 
+func isUnresolvedRoleBindingIdentity(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "username not yet resolved") ||
+		strings.Contains(msg, "role name not yet resolved")
+}
+
+func isKeycloakHTTPNotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "returned 404")
+}
+
 // isRoleBindingRetryable reports whether a RoleBinding reconcile failure should
-// be retried. Missing-gateway is permanent (the binding outlived its gateway).
-// Every other assignment failure -- missing Keycloak client, half-provisioned
-// roles, unresolved username -- is retried until the client exists.
+// be retried. Missing client, generic Keycloak 404 (half-provisioned roles),
+// and unresolved username/role are provisioning races. Missing-gateway,
+// auth, and config errors are terminal.
 func isRoleBindingRetryable(err error) bool {
-	return err != nil && !isMissingGateway(err)
+	if err == nil || isMissingGateway(err) {
+		return false
+	}
+	return isMissingKeycloakClient(err) ||
+		isUnresolvedRoleBindingIdentity(err) ||
+		isKeycloakHTTPNotFound(err)
 }
 
 func watchLoop(ctx context.Context, kind string, connectAndRecv func(ctx context.Context) error) error {

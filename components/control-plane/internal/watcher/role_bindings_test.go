@@ -31,6 +31,9 @@ func TestIsRoleBindingRetryable(t *testing.T) {
 	if !isRoleBindingRetryable(fmt.Errorf("get role UUID: keycloak GET returned 404")) {
 		t.Fatal("a half-provisioned Keycloak client (role 404) must be retried")
 	}
+	if !isRoleBindingRetryable(errors.New("role binding rb-1: role name not yet resolved")) {
+		t.Fatal("an unresolved role name must be retried")
+	}
 
 	gatewayMissing := status.Error(codes.NotFound, "Gateway with id='gw-1' not found")
 	wrappedGateway := fmt.Errorf("get gateway gw-1: %w", gatewayMissing)
@@ -39,5 +42,11 @@ func TestIsRoleBindingRetryable(t *testing.T) {
 	}
 	if isRoleBindingRetryable(nil) {
 		t.Fatal("a nil error must not be retried")
+	}
+	if isRoleBindingRetryable(errors.New("permission denied")) {
+		t.Fatal("an auth error must not be retried")
+	}
+	if isRoleBindingRetryable(fmt.Errorf("authenticate to keycloak: %w", errors.New("invalid client credentials"))) {
+		t.Fatal("a Keycloak credential error must not be retried")
 	}
 }

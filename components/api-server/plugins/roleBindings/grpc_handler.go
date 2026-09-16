@@ -124,10 +124,10 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 
 			var rb *RoleBinding
 			if evt.EventType == api.DeleteEventType {
+				// Already-gone on delete is terminal; retrying NotFound
+				// stalls the watch send loop for a row that will not return.
 				var unscopedErr *errors.ServiceError
-				rb, unscopedErr = loadRoleBindingWithRetry(ctx, func() (*RoleBinding, *errors.ServiceError) {
-					return h.service.GetUnscoped(ctx, evt.SourceID)
-				})
+				rb, unscopedErr = h.service.GetUnscoped(ctx, evt.SourceID)
 				if unscopedErr != nil {
 					glog.Warningf("WatchRoleBindings: failed to load deleted role binding %s: %v", evt.SourceID, unscopedErr)
 					continue
@@ -190,7 +190,8 @@ func loadRoleBindingWithRetry(ctx context.Context, load func() (*RoleBinding, *e
 			return rb, nil
 		}
 		lastErr = err
-		if attempt == roleBindingLoadAttempts-1 {
+		// The event-before-commit race is NotFound. Other codes are terminal.
+		if !err.Is404() || attempt == roleBindingLoadAttempts-1 {
 			break
 		}
 		select {

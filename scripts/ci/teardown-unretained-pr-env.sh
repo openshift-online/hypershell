@@ -24,3 +24,9 @@ if [[ "${has}" == "true" ]]; then
 fi
 
 make openshift-down
+
+# Keep the one marked comment honest: it must not keep claiming a live
+# environment. Best-effort; a GitHub API failure must not fail teardown.
+if ! PR_ENV_PHASE=destroyed bash "${SCRIPT_DIR}/upsert-pr-comment.sh"; then
+  echo "::warning::Could not update the access comment after destroy; the environment is still gone"
+fi

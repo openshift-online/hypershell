@@ -1345,6 +1345,13 @@ verify_owned_namespace() {
     warn "Namespace ${ns} does not exist"
     return 1
   fi
+  # FORCE=true is the explicit override for unlabeled leftovers (labeling is
+  # often forbidden on shared clusters). Reserved names stay refused in
+  # validate_namespace_group even when FORCE is set.
+  if [[ "${FORCE:-}" == "true" ]]; then
+    warn "FORCE=true: skipping ownership check for ${ns}"
+    return 0
+  fi
   local owned env_id
   owned="$(namespace_label_value "${ns}" "${OWNED_LABEL}")"
   env_id="$(namespace_label_value "${ns}" "${ENV_LABEL}")"
@@ -1353,11 +1360,11 @@ verify_owned_namespace() {
   # developer's currently selected project, but down cannot prove that this
   # lifecycle created it; deleting it could erase unrelated workloads.
   if [[ "${owned}" != "true" || -z "${env_id}" ]]; then
-    error "Namespace '${ns}' is not a complete HyperShell environment (expected ${OWNED_LABEL}=true and ${ENV_LABEL}). Refusing to delete it."
+    error "Namespace '${ns}' is not a complete HyperShell environment (expected ${OWNED_LABEL}=true and ${ENV_LABEL}). Refusing to delete it. Re-run with FORCE=true to override."
     exit 1
   fi
   if [[ -n "${OPENSHIFT_ENVIRONMENT_ID:-}" && "${env_id}" != "${OPENSHIFT_ENVIRONMENT_ID}" ]]; then
-    error "Namespace '${ns}' belongs to environment '${env_id}', not '${OPENSHIFT_ENVIRONMENT_ID}'. Refusing to delete it."
+    error "Namespace '${ns}' belongs to environment '${env_id}', not '${OPENSHIFT_ENVIRONMENT_ID}'. Refusing to delete it. Re-run with FORCE=true to override."
     exit 1
   fi
   OPENSHIFT_ENVIRONMENT_ID="${env_id}"

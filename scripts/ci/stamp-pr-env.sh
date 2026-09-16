@@ -9,7 +9,7 @@
 # reaper can attribute the group to its pull request, and stamps
 # hypershell.redhat.io/expires-at. Retained pull requests get
 # PR_ENV_RETAINED_MAX_HOURS (default 72). Unretained deploys get
-# PR_ENV_UNRETAINED_MAX_HOURS (default 6) so a crashed in-run teardown is still
+# PR_ENV_UNRETAINED_MAX_HOURS (default 24) so a crashed in-run teardown is still
 # reclaimed promptly. It fails closed: if labeling or annotating either
 # namespace fails, the whole workflow must fail and NOT leave an unlabeled
 # environment (the local-dev warn-and-continue path does not apply to CI).
@@ -18,7 +18,7 @@
 #   PR_NUMBER                    pull-request number (required)
 #   PR_ENV_RETAINED              "true" to stamp the retained max lifetime
 #   PR_ENV_RETAINED_MAX_HOURS    retained max lifetime in hours (default 72)
-#   PR_ENV_UNRETAINED_MAX_HOURS  unretained max lifetime in hours (default 6)
+#   PR_ENV_UNRETAINED_MAX_HOURS  unretained max lifetime in hours (default 24)
 #   PR_ENV_KUBECTL               kubectl/oc binary (default: oc)
 set -euo pipefail
 
@@ -35,7 +35,7 @@ env_id="$(pr_env_environment_id "${PR_NUMBER}")"
 if [[ "${PR_ENV_RETAINED:-false}" == "true" ]]; then
   expires_at="$(pr_env_expires_at_hours "${PR_ENV_RETAINED_MAX_HOURS:-72}")"
 else
-  expires_at="$(pr_env_expires_at_hours "${PR_ENV_UNRETAINED_MAX_HOURS:-6}")"
+  expires_at="$(pr_env_expires_at_hours "${PR_ENV_UNRETAINED_MAX_HOURS:-24}")"
 fi
 
 stamp_namespace() {

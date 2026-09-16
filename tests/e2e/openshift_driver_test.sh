@@ -166,5 +166,13 @@ else
   PASS=$((PASS + 1))
 fi
 
+if grep -A20 '^cleanup() {' "${SCRIPT_DIR}/e2e-openshell.sh" \
+  | grep -q 'Skipping namespace GC timing restore; moving to teardown'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift e2e cleanup does not skip GC restore on failure'
+fi
+
 printf 'OpenShift driver tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

@@ -56,8 +56,9 @@ assert_eq '2001-09-09T01:46:40Z' "$(pr_env_epoch_to_rfc3339 "${base}")" 'epoch -
 assert_eq "${base}" "$(pr_env_rfc3339_to_epoch "$(pr_env_epoch_to_rfc3339 "${base}")")" 'rfc3339 -> epoch round-trip'
 # 72-hour retained max is exactly 72*3600 seconds ahead.
 assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 72 * 3600)))" "$(pr_env_expires_at_hours 72 "${base}")" 'expires_at_hours retained default'
-# 6-hour unretained max is exactly 6*3600 seconds ahead.
-assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 6 * 3600)))" "$(pr_env_expires_at_hours 6 "${base}")" 'expires_at_hours unretained default'
+# 24-hour unretained max is exactly 24*3600 seconds ahead.
+assert_eq '24' "${PR_ENV_UNRETAINED_MAX_HOURS}" 'unretained default hours'
+assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 24 * 3600)))" "$(pr_env_expires_at_hours 24 "${base}")" 'expires_at_hours unretained default'
 
 # --- Reaper predicate ---
 now=2000000000
@@ -350,6 +351,49 @@ case "${retained_deploying}" in
   *'destroyed once e2e testing concludes'*) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment said env is about to be destroyed' ;;
   *) PASS=$((PASS + 1)) ;;
 esac
+
+destroyed_body="$(pr_env_comment_destroyed_body)"
+case "${destroyed_body}" in
+  *"<!-- hypershell-pr-environment -->"*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: destroyed comment missing hidden marker' ;;
+esac
+case "${destroyed_body}" in
+  *'## HyperShell environment destroyed'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: destroyed comment missing destroyed heading' ;;
+esac
+case "${destroyed_body}" in
+  *'has been destroyed'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: destroyed comment missing destroyed wording' ;;
+esac
+case "${destroyed_body}" in
+  *'/pr-extend'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: destroyed comment missing /pr-extend' ;;
+esac
+case "${destroyed_body}" in
+  *'redeploy'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: destroyed comment missing redeploy wording' ;;
+esac
+case "${destroyed_body}" in
+  *'live ephemeral'*) FAIL=$((FAIL + 1)); echo 'FAIL: destroyed comment still claims a live environment' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+case "${destroyed_body}" in
+  *'| Fact | Value |'*) FAIL=$((FAIL + 1)); echo 'FAIL: destroyed comment must not keep the access-fact table' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+
+if grep -q 'PR_ENV_PHASE=destroyed' "${SCRIPT_DIR}/teardown-unretained-pr-env.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: unretained teardown does not update the access comment after destroy'
+fi
+if grep -q 'PR_ENV_PHASE=destroyed' "${SCRIPT_DIR}/../../.github/workflows/pr-environment-commands.yml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: /pr-destroy does not update the access comment after destroy'
+fi
 
 assert_eq 'true' "$(printf '%s' '[{"name":"pr-environment/pr-extended"}]' \
   | pr_env_label_list_has 'pr-environment/pr-extended')" 'label list has retained'

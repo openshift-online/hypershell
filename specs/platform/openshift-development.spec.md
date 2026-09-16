@@ -251,10 +251,12 @@ the developer selected with `OPENSHIFT_NAMESPACE` or the current `oc project`,
 and the companion `${OPENSHIFT_NAMESPACE}-keycloak` project. `make
 openshift-teardown` SHALL be the same command. OpenShift does not create the
 cluster, so teardown cannot destroy it; the Kind-shaped target exists for
-compatibility. Ownership labels are not a delete gate: typical developers
-cannot patch Namespace objects, so down SHALL NOT require those labels. The
-command SHALL still refuse reserved names and namespaces labeled as a different
-HyperShell environment. The command SHALL wait until each project is gone before it reports success,
+compatibility. Without `FORCE=true`, down SHALL refuse namespaces that lack
+HyperShell ownership labels or that belong to a different HyperShell
+environment, so an unlabeled current project is not deleted by accident.
+`FORCE=true make openshift-down` SHALL skip that ownership check. The command
+SHALL still refuse reserved names (`default`, `kube-*`, `openshift-*`) even
+with `FORCE=true`. The command SHALL wait until each project is gone before it reports success,
 rather than return after it has only requested deletion. When `oc delete project`
 is forbidden, the command SHALL delete HyperShell resources inside both projects
 (including the bundled Keycloak workload, which is unlabeled), wait for those
@@ -451,13 +453,13 @@ gateway hostnames from the gateway base domain (the configured
 on one cluster do not share a hostname.
 
 Before it deletes, `make openshift-down` SHALL use the same project selection as
-`make openshift-up`. It SHALL refuse reserved names and namespaces whose
-ownership labels mark them as a different HyperShell environment. An unlabeled
-project is the developer's chosen target: the command SHALL attempt
-`oc delete project` for the platform namespace and for
-`${OPENSHIFT_NAMESPACE}-keycloak`. When project deletion is forbidden, the
-command SHALL remove HyperShell resources inside both projects and SHALL leave
-the projects. The command SHALL NOT require namespace labels in order to delete.
+`make openshift-up`. It SHALL refuse reserved names. Without `FORCE=true` it
+SHALL refuse namespaces that lack HyperShell ownership labels or that belong to
+a different HyperShell environment, so an accidental down cannot erase an
+unrelated project. `FORCE=true make openshift-down` SHALL skip that ownership
+check and SHALL still refuse reserved names (`default`, `kube-*`,
+`openshift-*`). When project deletion is forbidden, the command SHALL remove
+HyperShell resources inside both projects and SHALL leave the projects.
 `make openshift-teardown` SHALL perform the same steps.
 
 #### Scenario: Two developers share one cluster
@@ -494,7 +496,20 @@ the projects. The command SHALL NOT require namespace labels in order to delete.
 - WHEN the developer runs `make openshift-up`
 - THEN the command deploys into that project without prompting
 - AND the command does not stop because namespace labeling is forbidden
-- AND `make openshift-down` for that project deletes the platform and `-keycloak` projects, or the HyperShell resources in them
+
+#### Scenario: FORCE deletes an unlabeled leftover
+
+- GIVEN the current oc project already exists and is not HyperShell-labeled
+- WHEN the developer runs `FORCE=true make openshift-down`
+- THEN the scripts delete the platform and `-keycloak` projects, or the HyperShell resources in them
+- AND reserved names SHALL still be refused even with `FORCE=true`
+
+#### Scenario: Down without FORCE refuses an unlabeled project
+
+- GIVEN the current oc project already exists and is not HyperShell-labeled
+- WHEN the developer runs `make openshift-down` without `FORCE=true`
+- THEN the command refuses to delete
+- AND it tells the developer to re-run with `FORCE=true` to override
 
 ### Requirement: Keycloak Namespace
 

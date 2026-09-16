@@ -111,7 +111,18 @@ delete_instance_managed() {
 
 log "teardown ${platform_ns} (keycloak ${keycloak_ns}, dry_run=${DRY_RUN})"
 delete_cluster_rbac "${platform_ns}"
-delete_namespace "${keycloak_ns}" || true
-delete_namespace "${platform_ns}" || true
-delete_instance_managed "${platform_ns}" || true
+failed=0
+if ! delete_namespace "${keycloak_ns}"; then
+  failed=1
+fi
+if ! delete_namespace "${platform_ns}"; then
+  failed=1
+fi
+if ! delete_instance_managed "${platform_ns}"; then
+  failed=1
+fi
+if [[ "${failed}" -ne 0 ]]; then
+  log "teardown failed for ${platform_ns}"
+  exit 1
+fi
 log "teardown complete for ${platform_ns}"

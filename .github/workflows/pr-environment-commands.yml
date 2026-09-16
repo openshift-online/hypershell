@@ -130,7 +130,7 @@ jobs:
       OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.issue.number }}
       PR_NUMBER: ${{ github.event.issue.number }}
       PR_ENV_RETAINED_MAX_HOURS: ${{ vars.PR_ENV_RETAINED_MAX_HOURS || '72' }}
-      PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '6' }}
+      PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
       PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
       PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
       OPENSHIFT_PR_ENV_SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
@@ -199,4 +199,12 @@ jobs:
 
       # No-op success when nothing is up: make openshift-down is idempotent.
       - name: Remove environment (make openshift-down)
-        run: make openshift-down
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          make openshift-down
+          if ! PR_ENV_PHASE=destroyed bash scripts/ci/upsert-pr-comment.sh; then
+            echo "::warning::Could not update the access comment after destroy; the environment is still gone"
+          fi

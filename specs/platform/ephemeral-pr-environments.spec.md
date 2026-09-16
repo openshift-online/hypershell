@@ -221,9 +221,7 @@ SHALL NOT branch on a "does the environment exist" check before deciding whether
 to deploy. When the pull request is marked retained, the workflow SHALL, after a
 successful `make openshift-up`, refresh the environment's timebox (see the Timebox
 and Reaping requirement) so an actively worked retained pull request is
-continuously renewed while a quiet one expires. When the pull request is not
-retained, the workflow SHALL NOT stamp that timebox, because the ephemeral cycle
-tears the environment down in-run rather than leaving it for the reaper.
+continuously renewed while a quiet one expires.
 `make openshift-up` itself SHALL NOT stamp or refresh that timebox; local
 environments are not time-boxed by this spec.
 
@@ -581,8 +579,8 @@ past its expiry and is reclaimed.
 
 Every deploying run -- retained or not -- SHALL stamp `hypershell.redhat.io/expires-at`
 so the reaper can reclaim a leaked environment. An unretained deploying run SHALL
-stamp a short backstop expiry (a single documented workflow setting, default a
-few hours) rather than the inactivity window, so an ephemeral environment whose
+stamp a short backstop expiry (a single documented workflow setting, default 24
+hours) rather than the inactivity window, so an ephemeral environment whose
 in-run teardown did not complete is still reclaimed promptly instead of lingering.
 `make openshift-up` SHALL NOT write that annotation; local environments this
 command creates are not time-boxed by this spec. Both the inactivity window and
@@ -744,6 +742,15 @@ reclaimed after the inactivity timebox unless destroyed with `/pr-destroy` or
 the pull request is closed. The comment SHALL never imply an unretained
 environment will persist.
 
+After an unretained in-run teardown or an authorized `/pr-destroy` confirms the
+environment is gone, the workflow SHALL edit that same marked comment in place
+to state that the environment has been destroyed and SHALL tell the developer
+to comment `/pr-extend` to redeploy it. That edit SHALL NOT post a second
+comment, SHALL NOT keep claiming a live environment, and SHALL NOT keep the
+access-fact table. If no marked comment exists, the destroy path SHALL NOT
+post one. A pull-request `closed` destroy SHALL NOT require that comment
+update (the pull request is gone from the open timeline).
+
 The workflow SHALL post the marked comment as the first step of a deploy run,
 before cluster login, deploy, or e2e. When the pull request has no marked
 comment yet (first deploy), that comment SHALL state that the environment is
@@ -840,6 +847,19 @@ public artifact.
 - AND it SHALL state it is reclaimed after the inactivity timebox unless
   destroyed with `/pr-destroy` or the pull request is closed
 - AND it SHALL NOT tell the reader the environment is about to be destroyed
+
+#### Scenario: Comment reflects a destroyed environment
+
+- GIVEN a pull request has a marked access comment
+- AND an unretained in-run teardown or an authorized `/pr-destroy` has
+  confirmed the environment is gone
+- WHEN the workflow updates the access comment
+- THEN it SHALL edit the marked comment in place rather than posting a second
+  comment
+- AND the comment SHALL state the environment has been destroyed
+- AND the comment SHALL tell the developer to comment `/pr-extend` to redeploy it
+- AND the comment SHALL NOT claim the environment is live
+- AND the comment SHALL NOT keep the access-fact table
 
 ### Requirement: Pull-Request Trust Boundary
 

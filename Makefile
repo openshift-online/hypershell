@@ -120,6 +120,7 @@ help:
 	@echo "    kind-seed                Seed platform resources into a running cluster"
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
 	@echo "                             SEED_STRICT=true: fail the command if seeding is incomplete"
+	@echo "                             FORCE=true: openshift-down skips ownership labels (still refuses reserved names)"
 	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
 	@echo "    kind-gateway-trust       Print SSL_CERT_FILE export so the openshell CLI trusts the dev CA"
 	@echo "    LOCAL_IMAGES=true        Build baseline images from the working tree (kind-up)"
@@ -331,7 +332,7 @@ export api_server_local control_plane_local web_console_local
 export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME METRICS_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
-export OPENSHIFT_NAMESPACE SWAP_REGISTRY SWAP_REPOSITORY SWAP_PLATFORM SWAP_ARCH PULL_SECRET SKIP_SEED SEED_STRICT
+export OPENSHIFT_NAMESPACE SWAP_REGISTRY SWAP_REPOSITORY SWAP_PLATFORM SWAP_ARCH PULL_SECRET SKIP_SEED SEED_STRICT FORCE
 export GATEWAY_API_GATEWAY_NAME GATEWAY_API_GATEWAY_NAMESPACE GATEWAY_IMAGE
 
 # Build cloud-provider-kind from a fork that adds BackendTLSPolicy support

@@ -263,6 +263,17 @@ FIXTURE_OWNED=true FIXTURE_ENV_ID=environment-a FIXTURE_EXPECTED_ENV_ID=environm
   assert_fail "foreign environment is refused by openshift-down" verify_openshift_namespace_fixture
 FIXTURE_OWNED=true FIXTURE_ENV_ID=environment-a FIXTURE_EXPECTED_ENV_ID=environment-a \
   assert_ok "owned environment is accepted by openshift-down" verify_openshift_namespace_fixture
+FORCE=true FIXTURE_OWNED= FIXTURE_ENV_ID= \
+  assert_ok "FORCE=true deletes an unlabeled project" verify_openshift_namespace_fixture
+FORCE=true FIXTURE_OWNED=true FIXTURE_ENV_ID=environment-a FIXTURE_EXPECTED_ENV_ID=environment-b \
+  assert_ok "FORCE=true deletes a foreign-labeled project" verify_openshift_namespace_fixture
+if grep -A40 '^verify_owned_namespace()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'FORCE=true'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: verify_owned_namespace does not honor FORCE=true'
+fi
 if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'OPENSHIFT_KEYCLOAK_NAMESPACE'; then
   PASS=$((PASS + 1))
 else

@@ -37,7 +37,7 @@ PR_ENV_CP_INSTANCE_LABEL="hypershell.redhat.io/instance"
 # Default max lifetime in hours for an unretained (ephemeral) deploy.
 # In-run teardown is the primary path; this is what the reaper uses if that
 # teardown does not complete. Overridden by vars.PR_ENV_UNRETAINED_MAX_HOURS.
-: "${PR_ENV_UNRETAINED_MAX_HOURS:=6}"
+: "${PR_ENV_UNRETAINED_MAX_HOURS:=24}"
 
 # Durable cache of the latest authorized /pr-extend vs /pr-destroy decision.
 # The pull request's command history is authoritative; this label is a cache
@@ -365,5 +365,20 @@ oc login --server=${cluster_api_url} --web
 \`\`\`
 
 </details>
+EOF
+}
+
+# pr_env_comment_destroyed_body
+#
+# Render the marked comment after the environment has been torn down (in-run
+# unretained teardown or /pr-destroy). Keeps the one access comment current
+# so it does not keep claiming a live environment, and tells the developer
+# to /pr-extend to redeploy.
+pr_env_comment_destroyed_body() {
+  cat <<EOF
+${PR_ENV_COMMENT_MARKER}
+## HyperShell environment destroyed
+
+This ephemeral OpenShift environment has been destroyed. Comment \`/pr-extend\` to redeploy it.
 EOF
 }

@@ -675,7 +675,7 @@ jobs:
       OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_ENV_RETAINED_MAX_HOURS: ${{ vars.PR_ENV_RETAINED_MAX_HOURS || '72' }}
-      PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '6' }}
+      PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
       PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
       PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
       OPENSHIFT_PR_ENV_SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
@@ -716,12 +716,11 @@ jobs:
   # deployed (ephemeral-pr-environments.spec.md). needs: deploy replaces the
   # old cross-workflow poller. Same should_run gate as Kind. After the suite
   # (pass, fail, or cancel) tears the environment down unless retained.
-  # FIXME: Enable gating on failure for OpenShift E2E tests again once we
-  # fix the insufficient resource issues for these tests
+  # continue-on-error stays on the suite step only so a teardown failure
+  # still fails Tests / E2E / OpenShift.
   e2e-openshift:
     name: OpenShift
     needs: [plan-images, deploy]
-    continue-on-error: true
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -765,7 +764,12 @@ jobs:
           oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
           echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
 
+      # FIXME: Enable gating on failure for OpenShift E2E tests again once we
+      # fix the insufficient resource issues for these tests. Destroy below
+      # must still fail the job when teardown cannot confirm deletion.
       - name: Run OpenShift e2e suite
+        id: e2e-suite
+        continue-on-error: true
         env:
           E2E_INFRA_DRIVER: openshift
           E2E_OIDC_GRANT: client_credentials
@@ -779,7 +783,7 @@ jobs:
           bash tests/e2e/e2e-openshell.sh
 
       - name: Collect diagnostics
-        if: failure()
+        if: steps.e2e-suite.outcome == 'failure'
         run: |
           mkdir -p e2e-diagnostics
           oc get pods -n "${OPENSHIFT_NAMESPACE}" -o wide 2>&1 | tee e2e-diagnostics/pods.txt || true
@@ -788,7 +792,7 @@ jobs:
           oc logs --all-containers --prefix --tail=200 -l app=hypershell-controller -n "${OPENSHIFT_NAMESPACE}" 2>&1 | tee e2e-diagnostics/controller.txt || true
 
       - name: Upload diagnostics
-        if: failure()
+        if: steps.e2e-suite.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pr-env-diagnostics-${{ github.event.pull_request.number }}

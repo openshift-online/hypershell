@@ -98,7 +98,16 @@ fi
 # --- Cleanup trap ---
 
 cleanup() {
-  restore_namespace_gc_timing || true
+  local exit_code=$?
+  # A failed OpenShift run is about to tear the environment down (CI) or has
+  # already left the controller in a bad state. Waiting on a restore rollout
+  # (up to 300s) delays that teardown for no effect. Kind keeps the cluster,
+  # so it still restores on every exit.
+  if [[ "${E2E_INFRA_DRIVER}" == "openshift" && "${exit_code}" -ne 0 ]]; then
+    dim "  Skipping namespace GC timing restore; moving to teardown"
+  else
+    restore_namespace_gc_timing || true
+  fi
   if [[ -n "${SB_CREATE_PID:-}" ]]; then
     kill "$SB_CREATE_PID" 2>/dev/null || true
     wait "$SB_CREATE_PID" 2>/dev/null || true
