@@ -72,7 +72,10 @@ func deployGatewayViaHelm(
 			return fmt.Errorf("helm upgrade: %w", err)
 		}
 	} else if status.Status == "deployed" {
-		log.Printf("INFO helm release already deployed in namespace %s, skipping", nsConfig.Name)
+		log.Printf("INFO upgrading deployed helm release in namespace %s", nsConfig.Name)
+		if err := helmClient.Upgrade(ctx, nsConfig.Name, values); err != nil {
+			return fmt.Errorf("helm upgrade: %w", err)
+		}
 	} else {
 		log.Printf("INFO upgrading helm release in namespace %s (current status: %s)", nsConfig.Name, status.Status)
 		if err := helmClient.Upgrade(ctx, nsConfig.Name, values); err != nil {

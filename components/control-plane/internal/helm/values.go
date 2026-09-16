@@ -110,8 +110,8 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 
 	if b.Gateway.SupervisorImage != "" {
 		repo, tag := splitImageRef(b.Gateway.SupervisorImage)
-		setNestedValue(values, repo, "supervisorImage", "repository")
-		setNestedValue(values, tag, "supervisorImage", "tag")
+		setNestedValue(values, repo, "supervisor", "image", "repository")
+		setNestedValue(values, tag, "supervisor", "image", "tag")
 	}
 
 	// Workload configuration
@@ -130,10 +130,12 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	setNestedValue(values, true, "serviceAccount", "create")
 	setNestedValue(values, true, "sandboxServiceAccount", "create")
 
-	// NetworkPolicy disabled (see spec decision)
+	// NetworkPolicy disabled (see spec decision); the control plane manages
+	// network isolation outside the chart.
 	setNestedValue(values, false, "networkPolicy", "enabled")
+	setNestedValue(values, true, "supervisor", "sandboxRuntime", "networkPolicyEnforced")
 
-	// GRPCRoute defaults -- the fork chart template accesses
+	// GRPCRoute defaults -- the chart template accesses
 	// grpcRoute.backendTLSPolicy.enabled unconditionally, so we must
 	// always provide the key even when grpcRoute itself is disabled.
 	setNestedValue(values, false, "grpcRoute", "enabled")
@@ -204,13 +206,12 @@ func (b *ValuesBuilder) buildIngressValues(values map[string]interface{}) error 
 	}
 
 	if b.HasGatewayAPI {
-		// GRPCRoute + BackendTLSPolicy mode (Gateway API)
-		setNestedValue(values, true, "grpcRoute", "enabled")
-		setNestedValue(values, []string{hostname}, "grpcRoute", "hostnames")
-		setNestedValue(values, b.GatewayAPIGatewayName, "grpcRoute", "gateway", "name")
-		setNestedValue(values, b.GatewayAPIGatewayNamespace, "grpcRoute", "gateway", "namespace")
-
-		setNestedValue(values, true, "grpcRoute", "backendTLSPolicy", "enabled")
+		// Gateway API mode: the reconciler creates GRPCRoute,
+		// BackendTLSPolicy, and the backend-ca ConfigMap after the helm
+		// release is installed, so the chart's own grpcRoute and
+		// backendTLSPolicy templates stay disabled (defaults from
+		// buildCoreValues). Only mTLS must be disabled because the
+		// Gateway proxy cannot present client certificates.
 		setNestedValue(values, false, "server", "tls", "enableMtls")
 	} else {
 		// Route passthrough mode (OpenShift < 4.22)

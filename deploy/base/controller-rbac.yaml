@@ -46,7 +46,7 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Events need create so the namespace reaper can write a durable audit record.
   - apiGroups: [""]
     resources: ["events"]

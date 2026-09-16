@@ -164,6 +164,9 @@ _E2E_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   always - always install the gateway-matched version, even if one is present
 #   never  - require a pre-installed CLI; do not install
 : "${E2E_OPENSHELL_INSTALL:=auto}"
+# Override the CLI version to install instead of deriving it from
+# gateway_version. Accepts any GitHub release tag (e.g. v0.0.116, dev).
+: "${E2E_OPENSHELL_VERSION:=}"
 # Upstream install script the console links to (installScriptUrl in the UI).
 : "${OPENSHELL_INSTALL_SCRIPT_URL:=https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh}"
 # Bounded wait for the control plane to reconcile gateway_version from the

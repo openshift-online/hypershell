@@ -515,6 +515,10 @@ jobs:
         env:
           E2E_INFRA_DRIVER: kind
           E2E_OPENSHELL_INSTALL: always
+          # The v0.1.0-pre.2 gateway requires workspace_scope in the sandbox
+          # API, which is not in any stable CLI release yet. Use the dev
+          # rolling release until a v0.1.0 CLI is published.
+          E2E_OPENSHELL_VERSION: dev
           # Test the candidate installer before its public main URL is available.
           OPENSHELL_INSTALL_SCRIPT_URL: file://${{ github.workspace }}/scripts/install-openshell.sh
           # Mirror the provider used to create this matrix job's cluster.
