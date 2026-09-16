@@ -39,12 +39,12 @@ PR_ENV_CP_INSTANCE_LABEL="hypershell.redhat.io/instance"
 # teardown does not complete. Overridden by vars.PR_ENV_UNRETAINED_MAX_HOURS.
 : "${PR_ENV_UNRETAINED_MAX_HOURS:=6}"
 
-# Durable cache of the latest authorized /pr-extend vs /pr-release decision.
+# Durable cache of the latest authorized /pr-extend vs /pr-destroy decision.
 # The pull request's command history is authoritative; this label is a cache
 # so later synchronize runs can read retained state without rescanning comments.
 PR_ENV_RETAINED_LABEL="pr-environment/pr-extended"
 PR_ENV_COMMAND_EXTEND="/pr-extend"
-PR_ENV_COMMAND_RELEASE="/pr-release"
+PR_ENV_COMMAND_DESTROY="/pr-destroy"
 
 # Stable hidden marker so later runs update the one access comment rather than
 # post a new comment per run.
@@ -119,8 +119,8 @@ pr_env_expires_at_hours() {
   pr_env_expires_at_seconds $(( ${1} * 3600 )) "${2:-}"
 }
 
-# pr_env_command_from_body <body> -> "extend", "release", or empty.
-# A command matches when the body is, or begins with, /pr-extend or /pr-release
+# pr_env_command_from_body <body> -> "extend", "destroy", or empty.
+# A command matches when the body is, or begins with, /pr-extend or /pr-destroy
 # (optional leading whitespace). /pr-extended does not match /pr-extend.
 pr_env_command_from_body() {
   local body="${1:-}"
@@ -128,7 +128,7 @@ pr_env_command_from_body() {
   first="$(printf '%s' "${body}" | awk '{print $1; exit}')"
   case "${first}" in
     "${PR_ENV_COMMAND_EXTEND}") printf 'extend' ;;
-    "${PR_ENV_COMMAND_RELEASE}") printf 'release' ;;
+    "${PR_ENV_COMMAND_DESTROY}") printf 'destroy' ;;
   esac
 }
 
@@ -146,7 +146,7 @@ pr_env_permission_is_authorized() {
 #
 # Read TSV rows from stdin: created_at<TAB>user<TAB>permission<TAB>body.
 # Only authorized command comments count. The latest by created_at wins.
-# Prints extend, release, or none (no authorized command exists).
+# Prints extend, destroy, or none (no authorized command exists).
 # created_at is compared as a string (RFC 3339 / GitHub ISO 8601 sorts
 # lexicographically).
 pr_env_select_latest_command() {
@@ -165,7 +165,7 @@ pr_env_select_latest_command() {
 }
 
 # pr_env_refusal_comment <user> <command> -> acknowledgement body posted when
-# an unauthorized commenter issues /pr-extend or /pr-release. The workflow
+# an unauthorized commenter issues /pr-extend or /pr-destroy. The workflow
 # must not act silently.
 pr_env_refusal_comment() {
   local user="$1" command="$2"
@@ -293,13 +293,13 @@ pr_env_comment_lifetime() {
   if [[ "${1:-}" == "true" ]]; then
     cat <<EOF
 This environment is retained and renewed on every commit. It is reclaimed after
-the inactivity timebox unless you comment \`/pr-release\` or the pull request is
+the inactivity timebox unless you comment \`/pr-destroy\` or the pull request is
 closed.
 EOF
   else
     cat <<EOF
 This environment is ephemeral: it is destroyed after the e2e run. Comment
-\`/pr-extend\` to keep it as a live debug target. Comment \`/pr-release\` to free a
+\`/pr-extend\` to keep it as a live debug target. Comment \`/pr-destroy\` to free a
 retained environment early.
 EOF
   fi

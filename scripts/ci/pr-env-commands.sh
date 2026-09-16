@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# pr-env-commands.sh - resolve /pr-extend and /pr-release against a pull
+# pr-env-commands.sh - resolve /pr-extend and /pr-destroy against a pull
 # request's command history (ephemeral-pr-environments.spec.md: Extend and
-# Release Controls).
+# Destroy Controls).
 #
 # The pull request's own authorized command comments are authoritative, not
 # the order in which comment-triggered runs execute. This script:
@@ -42,7 +42,7 @@ write_output() {
 slash_for() {
   case "$1" in
     extend) printf '%s' "${PR_ENV_COMMAND_EXTEND}" ;;
-    release) printf '%s' "${PR_ENV_COMMAND_RELEASE}" ;;
+    destroy) printf '%s' "${PR_ENV_COMMAND_DESTROY}" ;;
     *) printf '%s' "$1" ;;
   esac
 }
@@ -88,7 +88,7 @@ reconcile_label() {
         echo "Label ${PR_ENV_RETAINED_LABEL} already present"
       fi
       ;;
-    release|none)
+    destroy|none)
       if [[ "${has_label}" == "true" ]]; then
         remove_retained_label
         echo "Removed label ${PR_ENV_RETAINED_LABEL}"
@@ -128,7 +128,7 @@ list_comment_rows() {
 
 trigger_cmd="$(pr_env_command_from_body "${TRIGGER_BODY}")"
 if [[ -z "${trigger_cmd}" ]]; then
-  echo "Trigger body is not a /pr-extend or /pr-release command; nothing to do"
+  echo "Trigger body is not a /pr-extend or /pr-destroy command; nothing to do"
   write_output action none
   write_output origin false
   write_output retained false

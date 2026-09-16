@@ -106,7 +106,7 @@
       ".github/workflows/unit-tests.yml",
       ".github/workflows/tests.yml",
       ".github/workflows/pr-environment.yml",
-      ".github/workflows/pr-environment-release.yml",
+      ".github/workflows/pr-environment-destroy.yml",
       ".github/workflows/pr-environment-commands.yml",
       ".github/actions/deploy-pr-environment/**"
     ]

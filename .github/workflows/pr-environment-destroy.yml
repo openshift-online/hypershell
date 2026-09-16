@@ -1,10 +1,10 @@
-name: Release PR Environment
+name: Destroy PR Environment
 
 # Tears down the ephemeral OpenShift environment when an origin pull request
 # merges or closes (ephemeral-pr-environments.spec.md). Lives in its own
 # workflow so open/synchronize runs of pr-environment.yml do not list a
-# skipped "Release PR environment" check. GitHub's pull_request `closed`
-# event covers both merge and close-without-merge. Releases whether or not
+# skipped "Destroy PR environment" check. GitHub's pull_request `closed`
+# event covers both merge and close-without-merge. Destroys whether or not
 # the pull request was retained.
 #
 # Shares the per-PR concurrency group with pr-environment.yml so a close
@@ -23,8 +23,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  release:
-    name: Release PR environment
+  destroy:
+    name: Destroy PR environment
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -55,8 +55,8 @@ jobs:
           fi
           oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
 
-      # Primary release path. The out-of-band reaper is the backstop when this
-      # event does not fire. If teardown cannot confirm the release, fail so an
+      # Primary destroy path. The out-of-band reaper is the backstop when this
+      # event does not fire. If teardown cannot confirm the destroy, fail so an
       # operator frees the environment.
       - name: Remove environment (make openshift-down)
         run: make openshift-down

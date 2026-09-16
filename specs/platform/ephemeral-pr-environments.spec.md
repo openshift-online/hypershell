@@ -36,7 +36,7 @@ marked retained for the rest of its life: `/pr-extend` (re)deploys the environme
 if none is up, every later commit redeploys and keeps it, and it lives up to the
 standard inactivity timebox so the out-of-band reaper reclaims it only after the
 pull request goes quiet. A write-access collaborator can free a retained
-environment earlier with `/pr-release`, which runs the same teardown as
+environment earlier with `/pr-destroy`, which runs the same teardown as
 `make openshift-down`. Closing or merging the pull request also releases it.
 
 When an e2e-relevant pull request opens (or a later commit is pushed), CI deploys
@@ -58,7 +58,7 @@ infra-agnostic e2e suite, Kind CI (including the merge-queue gate), and Konflux
 image gating remain defined in `e2e-testing.spec.md`. This spec adds the
 pull-request-scoped concerns those specs leave open: the deterministic per-PR
 namespace naming, the ephemeral-by-default deploy/test/destroy cycle, the
-`/pr-extend` and `/pr-release` slash-command controls and their authorization, the
+`/pr-extend` and `/pr-destroy` slash-command controls and their authorization, the
 deploy-serialization rule, the origin-only trust boundary, the inactivity
 timebox and external reaping of retained environments, the per-commit
 pull-request comment, and a Keycloak authentication model that brokers to GitHub
@@ -74,9 +74,9 @@ This spec covers:
 - the per-pull-request ephemeral environment naming and identity,
 - the ephemeral-by-default deploy/test/destroy cycle triggered by pull-request
   open, synchronize (push), and reopen on the origin repository,
-- the `/pr-extend` opt-in that marks a pull request retained, and the `/pr-release`
+- the `/pr-extend` opt-in that marks a pull request retained, and the `/pr-destroy`
   opt-out that frees a retained environment early, including their authorization,
-- the close/merge release path,
+- the close/merge destroy path,
 - the origin-only trust boundary (fork pull requests do not receive cluster
   credentials),
 - the per-pull-request deploy serialization rule,
@@ -174,7 +174,7 @@ The workflow SHALL run a standard ephemeral e2e cycle for an e2e-relevant pull
 request: deploy the environment for the current head commit, let Tests / E2E /
 OpenShift run against it, and then destroy the environment in the same cycle,
 whether the suite passed or failed, UNLESS the pull request is marked retained
-(see Extend and Release Controls). A non-retained pull request SHALL NOT keep a
+(see Extend and Destroy Controls). A non-retained pull request SHALL NOT keep a
 `hypershell-ci-pr-*` environment on the shared cluster after the cycle concludes;
 in particular, a failed deploy or a failed e2e run SHALL NOT leave an environment
 behind. Destroying the environment SHALL use the same teardown as
@@ -187,10 +187,10 @@ The workflow SHALL trigger on origin-repository pull-request `opened`,
 `plan-images` can evaluate `should_run` against the pull request's three-dot
 diff. The workflow SHALL NOT use `on.pull_request.paths` filters for this gate:
 those consider only the files in the latest push, which would skip a later
-docs-only commit on a still-e2e-relevant pull request. A dedicated release
+docs-only commit on a still-e2e-relevant pull request. A dedicated destroy
 workflow SHALL trigger on `closed` (which covers both merge and close) to
-release a retained environment (see the Timebox and Reaping requirement), so open
-and synchronize runs do not list a skipped Release check. Neither workflow SHALL
+destroy a retained environment (see the Timebox and Reaping requirement), so open
+and synchronize runs do not list a skipped Destroy check. Neither workflow SHALL
 trigger on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
 merge-queue gate; this workflow does not share a namespace with a merge-queue SHA.
 
@@ -226,7 +226,7 @@ The teardown that ends a non-retained cycle SHALL run after Tests / E2E /
 OpenShift concludes for that commit, so the suite has a live target and the
 developer still sees a green or red e2e check; the teardown outcome SHALL NOT
 mask the e2e result. The environment SHALL survive a failing run only when the
-pull request is marked retained (see Extend and Release Controls); an
+pull request is marked retained (see Extend and Destroy Controls); an
 unretained failing run SHALL still be destroyed, and a developer who wants to
 inspect a failure SHALL `/pr-extend`, which redeploys a fresh environment.
 
@@ -310,13 +310,13 @@ SHALL preserve any active per-namespace component swap the same way
 - AND the Kind e2e job SHALL remain the merge-queue gate as
   `e2e-testing.spec.md` defines
 
-### Requirement: Extend and Release Controls
+### Requirement: Extend and Destroy Controls
 
 The pull request's retained state SHALL be authoritative from the pull request's
 own command history, not from the order in which comment-triggered runs happen to
 execute. A pull request is "marked retained" when its most recently created
 authorized command comment is `/pr-extend`, and ephemeral when that comment is
-`/pr-release` or when no authorized command comment exists. The workflow SHALL
+`/pr-destroy` or when no authorized command comment exists. The workflow SHALL
 reflect that derived state in a durable `pr-environment/pr-extended` label on the
 pull request so a later deploying (`synchronize`) run can read the retained state
 cheaply without rescanning comments; the label is a cache of the latest-command
@@ -332,19 +332,19 @@ for the pull request's current head commit -- running the same deploy path as a
 `synchronize` run when no environment is currently up, because the ephemeral
 cycle may already have destroyed it. After `/pr-extend`, every later deploying run
 for that pull request SHALL keep the environment (refresh the timebox, skip the
-in-run teardown) until the pull request is released. `/pr-extend` SHALL be
+in-run teardown) until the environment is destroyed. `/pr-extend` SHALL be
 idempotent: issuing it on an already-retained pull request SHALL re-confirm the
 label and redeploy if nothing is up, and SHALL NOT create a second environment.
 
-`/pr-release` SHALL free a retained environment early. When an authorized commenter
-posts a comment whose body is (or begins with) `/pr-release`, the workflow SHALL run
+`/pr-destroy` SHALL free a retained environment early. When an authorized commenter
+posts a comment whose body is (or begins with) `/pr-destroy`, the workflow SHALL run
 the same teardown as `make openshift-down` for the pull request's namespace group
 and remove the `pr-environment/pr-extended` label, returning the pull request to the
-ephemeral default. `/pr-release` on a pull request with no environment SHALL be a
+ephemeral default. `/pr-destroy` on a pull request with no environment SHALL be a
 no-op that still clears the label and reports success.
 
 Both commands SHALL be authorized: the workflow SHALL honor `/pr-extend` and
-`/pr-release` only from a commenter who has write, maintain, or admin permission on
+`/pr-destroy` only from a commenter who has write, maintain, or admin permission on
 the origin repository, verified against GitHub rather than inferred from the
 comment's `author_association` alone. A comment from a user without that
 permission SHALL NOT change the retained state, deploy, or tear down anything;
@@ -355,13 +355,13 @@ pull requests targeting the origin repository (fork pull requests receive no
 cluster credentials, per Pull-Request Trust Boundary).
 
 When a pull request accumulates more than one command comment (for example
-`/pr-extend`, then `/pr-release`, then `/pr-extend`), the latest by `created_at` SHALL
+`/pr-extend`, then `/pr-destroy`, then `/pr-extend`), the latest by `created_at` SHALL
 win, and only authorized command comments SHALL count toward that decision. A
 command run SHALL therefore compute the retained state from the most recently
 created authorized command comment and converge the environment and the label to
 it, rather than assume the comment that triggered the run is the latest: comment
 events can be delivered or processed out of order, and an unauthorized
-`/pr-release` interleaved with authorized commands SHALL NOT flip the state. When
+`/pr-destroy` interleaved with authorized commands SHALL NOT flip the state. When
 the triggering comment is not the latest authorized command, the run SHALL still
 converge to the latest command's intent rather than act on its own stale body.
 
@@ -385,10 +385,10 @@ pull request.
 - AND it SHALL refresh the timebox
 - AND no second `/pr-extend` SHALL be required
 
-#### Scenario: Release frees the environment early
+#### Scenario: Destroy frees the environment early
 
 - GIVEN a retained pull request with a running environment
-- WHEN a write-access collaborator comments `/pr-release`
+- WHEN a write-access collaborator comments `/pr-destroy`
 - THEN the workflow SHALL tear down the namespace group the same way
   `make openshift-down` does, including instance-managed gateway and database
   namespaces
@@ -397,25 +397,25 @@ pull request.
 
 #### Scenario: Latest command wins across a sequence
 
-- GIVEN a write-access collaborator comments `/pr-extend`, then `/pr-release`, then
+- GIVEN a write-access collaborator comments `/pr-extend`, then `/pr-destroy`, then
   `/pr-extend` again on the same pull request
 - WHEN the workflow settles
 - THEN the retained state SHALL be taken from the most recently created command
   comment, which is `/pr-extend`
 - AND the pull request SHALL be marked retained with a running environment
-- AND the intermediate `/pr-release` SHALL NOT leave the pull request ephemeral
+- AND the intermediate `/pr-destroy` SHALL NOT leave the pull request ephemeral
 
 #### Scenario: Out-of-order or stale command run converges to the latest command
 
-- GIVEN the latest authorized command comment on a pull request is `/pr-release`
+- GIVEN the latest authorized command comment on a pull request is `/pr-destroy`
 - WHEN a run triggered by an earlier `/pr-extend` comment executes late
-- THEN it SHALL compute the retained state from the latest command (`/pr-release`)
+- THEN it SHALL compute the retained state from the latest command (`/pr-destroy`)
 - AND it SHALL NOT re-extend the pull request from its own stale trigger body
 
 #### Scenario: Unauthorized command does not flip the state
 
 - GIVEN the latest authorized command comment is `/pr-extend`
-- WHEN a commenter without write access later comments `/pr-release`
+- WHEN a commenter without write access later comments `/pr-destroy`
 - THEN that comment SHALL NOT count toward the latest-command decision
 - AND the pull request SHALL remain retained
 - AND the workflow SHALL acknowledge that the command was refused rather than act silently
@@ -423,7 +423,7 @@ pull request.
 #### Scenario: Unauthorized command is refused
 
 - GIVEN a commenter without write access to the origin repository
-- WHEN they comment `/pr-extend` or `/pr-release`
+- WHEN they comment `/pr-extend` or `/pr-destroy`
 - THEN the workflow SHALL NOT change the retained state, deploy, or tear down
 - AND it SHALL NOT use cluster credentials
 - AND it SHALL acknowledge that the command was refused rather than act silently
@@ -513,7 +513,7 @@ OpenShift and SHALL skip `Deploy PR environment`, using the same
 `plan-images` / `should_run` gate. On failure
 the job SHALL collect the diagnostics `e2e-testing.spec.md` defines before the
 environment is torn down. The environment SHALL survive the run only when the
-pull request is marked retained (see Extend and Release Controls); otherwise the
+pull request is marked retained (see Extend and Destroy Controls); otherwise the
 ephemeral cycle SHALL destroy it after the suite concludes, pass or fail. A
 developer who wants to inspect a failing run SHALL `/pr-extend`, which redeploys a
 fresh environment for the current head commit.
@@ -556,7 +556,7 @@ distinct checks.
 
 The primary teardown path SHALL be in-band: an unretained cycle destroys its
 environment right after the e2e suite concludes (see Ephemeral-by-Default), and
-`/pr-release` or pull-request close destroys a retained environment. The out-of-band
+`/pr-destroy` or pull-request close destroys a retained environment. The out-of-band
 reaper is the backstop for the cases those paths miss -- a crashed or cancelled
 teardown, or a retained pull request that simply goes quiet -- so no
 `hypershell-ci-pr-*` environment lingers indefinitely on the shared cluster.
@@ -635,13 +635,13 @@ cannot leave `openshell-*` workloads behind. It SHALL NOT delete namespaces
 labeled for a different instance, including `hyp4`, `hyp5`, and local
 `make openshift-up` environments.
 
-On pull-request `closed` (merge or close), CI SHALL release the environment as
+On pull-request `closed` (merge or close), CI SHALL destroy the environment as
 the primary path by running the same teardown as `make openshift-down`, whether
-or not the pull request was retained. That release SHALL live in a `closed`-only
-workflow so open and synchronize runs do not list a skipped Release check. The
+or not the pull request was retained. That destroy SHALL live in a `closed`-only
+workflow so open and synchronize runs do not list a skipped Destroy check. The
 timebox SHALL remain the backstop for the case where the close event does not
-fire or its release cannot be confirmed; when the release step cannot confirm the
-release, the workflow SHALL report the failure so an operator can free the
+fire or its destroy cannot be confirmed; when the destroy step cannot confirm the
+destroy, the workflow SHALL report the failure so an operator can free the
 environment.
 
 #### Scenario: Retained deploying run refreshes the inactivity expiry
@@ -667,7 +667,7 @@ environment.
 
 - GIVEN a retained pull-request environment has had no deploying run for the
   inactivity window
-- AND the pull request was neither merged, closed, nor `/pr-release`d
+- AND the pull request was neither merged, closed, nor destroyed with `/pr-destroy`
 - WHEN the out-of-band reaper evaluates environments
 - THEN it SHALL delete the expired environment through the `make openshift-down`
   teardown path
@@ -694,14 +694,14 @@ environment.
 - WHEN the out-of-band reaper evaluates environments
 - THEN it SHALL NOT delete that namespace group
 
-#### Scenario: Close releases the environment; timebox backstops
+#### Scenario: Close destroys the environment; timebox backstops
 
 - GIVEN a pull-request environment exists (retained or not)
 - WHEN the pull request merges or closes
 - THEN the workflow SHALL remove the environment's namespace group via the
   `make openshift-down` teardown as the primary path
 - AND when the close event does not fire, the timebox SHALL reclaim the environment
-- AND when release cannot be confirmed, the workflow SHALL report the failure
+- AND when destroy cannot be confirmed, the workflow SHALL report the failure
 
 #### Scenario: Idempotent re-run after reaping
 
@@ -729,10 +729,10 @@ bring-up, so the comment and the command agree.
 The comment SHALL make the environment's lifetime explicit. On an unretained
 pull request, the comment SHALL state that the environment is ephemeral -- it is
 destroyed after the e2e run -- and SHALL advertise the `/pr-extend` command as the
-way to keep it, and `/pr-release` as the way to free it early. Once the pull request
+way to keep it, and `/pr-destroy` as the way to free it early. Once the pull request
 is retained, the comment SHALL instead state that the environment is retained,
 that it is renewed on every commit, and that it is reclaimed after the inactivity
-timebox unless `/pr-release`d or the pull request is closed. The comment SHALL never
+timebox unless destroyed with `/pr-destroy` or the pull request is closed. The comment SHALL never
 imply an unretained environment will persist.
 
 The workflow SHALL post the marked comment as the first step of a deploy run,
@@ -814,7 +814,7 @@ public artifact.
 - WHEN the workflow edits the access comment
 - THEN the comment SHALL state the environment is destroyed after the e2e run
 - AND it SHALL tell the developer to comment `/pr-extend` to keep it
-- AND it SHALL mention `/pr-release` as the way to free it early
+- AND it SHALL mention `/pr-destroy` as the way to free it early
 
 #### Scenario: Comment reflects a retained environment
 
@@ -1211,9 +1211,9 @@ exists).
 | `make openshift-up` on every deploying run, unconditionally | The command is already idempotent and reconciling, so one code path creates on first run and reconciles on later runs; branching on "does it exist" would duplicate logic and risk drift |
 | Ephemeral by default (deploy, test, destroy); `/pr-extend` to retain | Keeping an environment for every PR let failed deploys and abandoned PRs silently hold shared-cluster resources. Making destroy the default, with an explicit opt-in, means a PR only holds an environment when a developer actually asked for one to debug against |
 | Retained state is a `pr-environment/pr-extended` PR label, so `/pr-extend` is sticky | A label on the pull request is durable and derivable each run without external storage, so retention persists across commits (the developer extends once, not per commit) and every workflow run reads the same source of truth |
-| Latest authorized command comment by `created_at` wins; the label caches it | `issue_comment` runs can execute out of order or concurrently, so `/pr-extend` then `/pr-release` then `/pr-extend` must not depend on which run finishes last. Deriving state from the newest authorized command and reconciling the label to it makes the outcome deterministic and ignores an interleaved unauthorized `/pr-release` |
+| Latest authorized command comment by `created_at` wins; the label caches it | `issue_comment` runs can execute out of order or concurrently, so `/pr-extend` then `/pr-destroy` then `/pr-extend` must not depend on which run finishes last. Deriving state from the newest authorized command and reconciling the label to it makes the outcome deterministic and ignores an interleaved unauthorized `/pr-destroy` |
 | `/pr-extend` redeploys when nothing is up; failing runs still tear down | The ephemeral cycle may have already destroyed the environment by the time a developer reads the comment. Redeploying on `/pr-extend` avoids a grace-window race and keeps the default aggressive: a fresh environment for the current head is a better debug target than a half-torn-down one |
-| `/pr-extend` and `/pr-release` require write access, checked before using credentials | The comment-triggered workflow runs with repository and cluster credentials; an arbitrary commenter must not be able to pin or delete shared-cluster environments. A GitHub permission check (not `author_association`) matches the existing origin-only trust boundary |
+| `/pr-extend` and `/pr-destroy` require write access, checked before using credentials | The comment-triggered workflow runs with repository and cluster credentials; an arbitrary commenter must not be able to pin or delete shared-cluster environments. A GitHub permission check (not `author_association`) matches the existing origin-only trust boundary |
 | Every deploy stamps `expires-at`; retained gets the inactivity window, unretained a short backstop | The reaper keys on `expires-at`. A retained PR wants a multi-day inactivity timebox; an unretained PR relies on in-run teardown but needs a short backstop so a crashed teardown is still reclaimed promptly. `make openshift-up` does not stamp either; local dev is not time-boxed |
 | Seed after every image swap; reuse existing named resources, except `dev-gateway` | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) rather than POST a second copy. `dev-gateway` is the one exception: Keycloak runs on in-memory storage with no persistent volume, so a Keycloak pod restart discards its dynamically-provisioned OIDC client while the `dev-gateway` row survives untouched in PostgreSQL, and the reconciler deliberately never auto-recreates a missing client (`openshell-gateway-keycloak.spec.md`, "Existing gateway client is missing"). Reusing a `dev-gateway` that predates the current Keycloak instance would permanently strand it in status `Keycloak client is missing`, so seeding deletes and recreates it on every run instead. This is a stopgap until Keycloak has durable storage across restarts |
 | Origin `pull_request` only; Kind remains the merge-queue gate | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
@@ -1221,7 +1221,7 @@ exists).
 | One GitHub OAuth App and one stable callback | GitHub does not allow wildcard redirect URIs and limits callback URLs, so per-PR Keycloak Routes cannot be registered as GitHub callbacks. A cluster-scoped callback, like the shared Gateway, is the identity infrastructure this workflow depends on |
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
-| In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment right after e2e, and close/`/pr-release` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
+| In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment right after e2e, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
 | Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway/database namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway and ManagedDatabase namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |

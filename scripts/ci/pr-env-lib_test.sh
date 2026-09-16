@@ -215,9 +215,10 @@ esac
 assert_eq 'extend' "$(pr_env_command_from_body '/pr-extend')" 'bare /pr-extend'
 assert_eq 'extend' "$(pr_env_command_from_body $'/pr-extend\nplease keep it')" '/pr-extend with trailing text'
 assert_eq 'extend' "$(pr_env_command_from_body '  /pr-extend  ')" '/pr-extend with surrounding whitespace'
-assert_eq 'release' "$(pr_env_command_from_body '/pr-release')" 'bare /pr-release'
-assert_eq 'release' "$(pr_env_command_from_body '/pr-release now')" '/pr-release with trailing text'
+assert_eq 'destroy' "$(pr_env_command_from_body '/pr-destroy')" 'bare /pr-destroy'
+assert_eq 'destroy' "$(pr_env_command_from_body '/pr-destroy now')" '/pr-destroy with trailing text'
 assert_eq '' "$(pr_env_command_from_body '/pr-extended')" '/pr-extended is not /pr-extend'
+assert_eq '' "$(pr_env_command_from_body '/pr-destroyed')" '/pr-destroyed is not /pr-destroy'
 assert_eq '' "$(pr_env_command_from_body 'please /pr-extend')" 'command must begin the body'
 assert_eq '' "$(pr_env_command_from_body '')" 'empty body is not a command'
 
@@ -230,19 +231,19 @@ if pr_env_permission_is_authorized ''; then FAIL=$((FAIL + 1)); echo 'FAIL: empt
 
 assert_eq 'extend' "$(printf '%s\n' \
   $'2026-09-16T10:00:00Z\talice\twrite\t/pr-extend' \
-  $'2026-09-16T11:00:00Z\talice\twrite\t/pr-release' \
+  $'2026-09-16T11:00:00Z\talice\twrite\t/pr-destroy' \
   $'2026-09-16T12:00:00Z\talice\twrite\t/pr-extend' \
-  | pr_env_select_latest_command)" 'latest of extend/release/extend is extend'
+  | pr_env_select_latest_command)" 'latest of extend/destroy/extend is extend'
 
-assert_eq 'release' "$(printf '%s\n' \
-  $'2026-09-16T12:00:00Z\talice\twrite\t/pr-release' \
+assert_eq 'destroy' "$(printf '%s\n' \
+  $'2026-09-16T12:00:00Z\talice\twrite\t/pr-destroy' \
   $'2026-09-16T10:00:00Z\talice\twrite\t/pr-extend' \
   | pr_env_select_latest_command)" 'out-of-order rows still pick latest created_at'
 
 assert_eq 'extend' "$(printf '%s\n' \
   $'2026-09-16T10:00:00Z\talice\twrite\t/pr-extend' \
-  $'2026-09-16T11:00:00Z\tbob\tread\t/pr-release' \
-  | pr_env_select_latest_command)" 'unauthorized /pr-release does not count'
+  $'2026-09-16T11:00:00Z\tbob\tread\t/pr-destroy' \
+  | pr_env_select_latest_command)" 'unauthorized /pr-destroy does not count'
 
 assert_eq 'none' "$(printf '%s\n' \
   $'2026-09-16T11:00:00Z\tbob\tread\t/pr-extend' \
@@ -300,8 +301,8 @@ case "${body}" in
   *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing /pr-extend' ;;
 esac
 case "${body}" in
-  *'/pr-release'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing /pr-release' ;;
+  *'/pr-destroy'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment missing /pr-destroy' ;;
 esac
 case "${body}" in
   *'refreshed on every new commit'*) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment implied persistence' ;;

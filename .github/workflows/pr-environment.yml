@@ -7,7 +7,7 @@ name: PR Environment
 # Tests / E2E / OpenShift run against it, then destroy the environment in the
 # same cycle whether the suite passed or failed. A write-access collaborator
 # comments /pr-extend to keep the environment (sticky across later commits,
-# inactivity timebox); /pr-release frees it early. Docs-only and other
+# inactivity timebox); /pr-destroy frees it early. Docs-only and other
 # e2e-irrelevant PRs skip Deploy PR environment: that job would only bring up
 # a baseline main stack. The gate matches Tests / E2E (plan-images should_run).
 #
@@ -18,9 +18,9 @@ name: PR Environment
 # unretained environment lives in this workflow's Teardown job so it cannot
 # mask the e2e result.
 #
-# Teardown on merge/close lives in pr-environment-release.yml (pull_request
-# closed only) so open/synchronize runs do not list a skipped Release check.
-# /pr-extend and /pr-release live in pr-environment-commands.yml.
+# Teardown on merge/close lives in pr-environment-destroy.yml (pull_request
+# closed only) so open/synchronize runs do not list a skipped Destroy check.
+# /pr-extend and /pr-destroy live in pr-environment-commands.yml.
 #
 # Trust boundary: pull_request only (never pull_request_target). Every job is
 # additionally guarded on head.repo == this repo, so a fork PR receives no

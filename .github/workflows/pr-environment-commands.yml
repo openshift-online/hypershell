@@ -1,10 +1,10 @@
 name: PR Environment Commands
 
-# /pr-extend and /pr-release on origin pull requests
-# (ephemeral-pr-environments.spec.md, Extend and Release Controls).
+# /pr-extend and /pr-destroy on origin pull requests
+# (ephemeral-pr-environments.spec.md, Extend and Destroy Controls).
 #
 # The pull request's authorized command history is authoritative: the latest
-# /pr-extend or /pr-release from a write/maintain/admin commenter wins, even
+# /pr-extend or /pr-destroy from a write/maintain/admin commenter wins, even
 # when comment events are delivered out of order. The pr-environment/pr-extended
 # label is a cache of that decision. Unauthorized comments are acknowledged
 # and do not change retained state or use cluster credentials for their own
@@ -37,9 +37,9 @@ jobs:
     if: >-
       github.event.issue.pull_request &&
       (startsWith(github.event.comment.body, '/pr-extend') ||
-       startsWith(github.event.comment.body, '/pr-release') ||
+       startsWith(github.event.comment.body, '/pr-destroy') ||
        startsWith(github.event.comment.body, '/pr-extend ') ||
-       startsWith(github.event.comment.body, '/pr-release '))
+       startsWith(github.event.comment.body, '/pr-destroy '))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -162,12 +162,12 @@ jobs:
           control_plane_image: ${{ needs.plan-images.outputs.control_plane_image }}
           web_console_image: ${{ needs.plan-images.outputs.web_console_image }}
 
-  release:
-    name: Release PR environment
+  destroy:
+    name: Destroy PR environment
     needs: resolve
     if: >-
       needs.resolve.outputs.origin == 'true' &&
-      needs.resolve.outputs.action == 'release'
+      needs.resolve.outputs.action == 'destroy'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:

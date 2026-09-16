@@ -896,7 +896,7 @@ deploy/
   e2e.yml                  -- Tests e2e stage (reusable, on: workflow_call)
   e2e-openshift-main.yml   -- push-to-main OpenShift bring-up-test-tear-down
   pr-environment.yml       -- ephemeral PR env deploy (open/reopen/synchronize)
-  pr-environment-release.yml -- ephemeral PR env teardown (closed: merge or close)
+  pr-environment-destroy.yml -- ephemeral PR env teardown (closed: merge or close)
 ```
 
 `components/pr-test/e2e-openshell.sh` SHALL be deprecated as `ephemeral-pr-environments.spec.md` specifies. Removal is deferred until manual usage migrates; the ROKS variant is out of that deprecation.
