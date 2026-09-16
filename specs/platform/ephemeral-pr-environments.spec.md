@@ -1,6 +1,6 @@
 # Ephemeral Pull-Request Environments Specification
 
-**Date:** 2026-09-04
+**Date:** 2026-09-15
 **Status:** Draft
 **Jira:** HYPERSHELL-240
 **Related:** `openshift-development.spec.md` (HYPERSHELL-44) -- `make openshift-up`
@@ -18,53 +18,69 @@
 
 ## Purpose
 
-HyperShell delivers a live OpenShift environment for every origin pull request
-whose e2e-relevant paths changed, and keeps that environment in continuous
-deployment for the life of the pull request. An origin PR that changes only
+HyperShell runs a standard ephemeral e2e cycle for every origin pull request
+whose e2e-relevant paths changed: it deploys the full stack, runs the OpenShift
+e2e suite against it, and destroys the environment in the same run, whether the
+suite passed or failed. This is the default, so a pull request cannot silently
+retain a shared-cluster environment -- most notably, a failed deploy or a failed
+e2e run does not leave an environment behind. An origin PR that changes only
 e2e-irrelevant paths SHALL NOT receive an environment: deploying would only
 recreate a baseline `main` stack, which is not a distinct target for the author
-or for Tests / E2E / OpenShift. When an e2e-relevant pull request opens, CI
-deploys the full stack into a per-PR ephemeral namespace group on a shared
-target OpenShift cluster, waits for Konflux to build the pull request's
-component images, swaps those images into the environment, and posts a
-pull-request comment telling the developer how to log in. Tests / E2E /
-OpenShift waits for that deploy check, then runs the OpenShift e2e suite
-against the live namespace (the same `plan-images` / `should_run` gate Kind
-uses, which also gates Deploy PR environment). When a later commit is pushed to
-the same pull request, CI does not create a second environment: it reuses the
-existing one, waits for Konflux to rebuild the changed images, swaps them in,
-updates the comment to say the environment now runs that commit, and Tests /
-E2E / OpenShift reruns the suite when `should_run` is true. The environment
-lives independently of any single CI run so a developer can use it as a live
-debug and development target, and it is reaped after a fixed timebox so an
-abandoned pull request cannot hold cluster resources.
+or for Tests / E2E / OpenShift.
+
+A developer who needs the environment as a live debug or development target opts
+in with the `/pr-extend` slash command on the pull request. The deploy comment
+always advertises `/pr-extend` so the developer knows the environment is otherwise
+transient. Once a write-access collaborator issues `/pr-extend`, the pull request is
+marked retained for the rest of its life: `/pr-extend` (re)deploys the environment
+if none is up, every later commit redeploys and keeps it, and it lives up to the
+standard inactivity timebox so the out-of-band reaper reclaims it only after the
+pull request goes quiet. A write-access collaborator can free a retained
+environment earlier with `/pr-release`, which runs the same teardown as
+`make openshift-down`. Closing or merging the pull request also releases it.
+
+When an e2e-relevant pull request opens (or a later commit is pushed), CI deploys
+the full stack into a per-PR ephemeral namespace group on a shared target
+OpenShift cluster, waits for Konflux to build the pull request's component
+images, swaps those images into the environment, and posts a pull-request comment
+telling the developer how to log in and how to `/pr-extend`. Tests / E2E / OpenShift
+waits for that deploy check, then runs the OpenShift e2e suite against the live
+namespace (the same `plan-images` / `should_run` gate Kind uses, which also gates
+Deploy PR environment). Unless the pull request is marked retained, CI then
+destroys the environment. The per-PR namespace is deterministic from the
+pull-request number, so a retained pull request reuses the same environment
+across commits rather than accumulating environments.
 
 This spec owns the automated OpenShift pull-request CI workflow. The
-per-namespace deployment, reconcile, image swap-by-digest, and OpenShift e2e
-driver remain defined in `openshift-development.spec.md`; the infra-agnostic e2e
-suite, Kind CI (including the merge-queue gate), and Konflux image gating remain
-defined in `e2e-testing.spec.md`. This spec adds the pull-request-scoped
-concerns those specs leave open: the deterministic per-PR namespace naming, the
-continuous-deployment triggers across the pull request lifecycle, the
-deploy-serialization rule, the origin-only trust boundary, the fixed timebox and
-external reaping, the per-commit pull-request comment, and a Keycloak
-authentication model that brokers to GitHub (restricted to the
-`openshift-online` organization plus an allowlist) instead of Red Hat SSO.
-GitHub brokering lets an allowlisted outside contributor log in to an
-already-deployed origin-repo environment; it does not deploy fork pull requests
-onto the shared cluster.
+per-namespace deployment, reconcile, image swap-by-digest, teardown, and
+OpenShift e2e driver remain defined in `openshift-development.spec.md`; the
+infra-agnostic e2e suite, Kind CI (including the merge-queue gate), and Konflux
+image gating remain defined in `e2e-testing.spec.md`. This spec adds the
+pull-request-scoped concerns those specs leave open: the deterministic per-PR
+namespace naming, the ephemeral-by-default deploy/test/destroy cycle, the
+`/pr-extend` and `/pr-release` slash-command controls and their authorization, the
+deploy-serialization rule, the origin-only trust boundary, the inactivity
+timebox and external reaping of retained environments, the per-commit
+pull-request comment, and a Keycloak authentication model that brokers to GitHub
+(restricted to the `openshift-online` organization plus an allowlist) instead of
+Red Hat SSO. GitHub brokering lets an allowlisted outside contributor log in to
+an already-deployed origin-repo environment; it does not deploy fork pull
+requests onto the shared cluster.
 
 ### Scope
 
 This spec covers:
 
 - the per-pull-request ephemeral environment naming and identity,
-- the continuous-deployment lifecycle triggered by pull-request open, synchronize
-  (push), reopen, and close/merge on the origin repository,
+- the ephemeral-by-default deploy/test/destroy cycle triggered by pull-request
+  open, synchronize (push), and reopen on the origin repository,
+- the `/pr-extend` opt-in that marks a pull request retained, and the `/pr-release`
+  opt-out that frees a retained environment early, including their authorization,
+- the close/merge release path,
 - the origin-only trust boundary (fork pull requests do not receive cluster
   credentials),
 - the per-pull-request deploy serialization rule,
-- the fixed-duration timebox and the out-of-band reaper,
+- the inactivity timebox and the out-of-band reaper for retained environments,
 - the per-commit pull-request comment and secure credential handoff,
 - the GitHub-brokered Keycloak authentication model for these environments,
   including the GitHub OAuth App, the stable callback, admin authorization, and
@@ -152,19 +168,29 @@ request.
 - THEN it SHALL resolve `hypershell-ci-pr-232` without consulting external state
 - AND it SHALL NOT create a second environment for the same pull request
 
-### Requirement: Continuous Deployment Across the Pull-Request Lifecycle
+### Requirement: Ephemeral-by-Default Deploy, Test, and Destroy
 
-The workflow SHALL keep an e2e-relevant pull request's environment continuously
-deployed to the pull request's current head commit for the life of the pull
-request. It SHALL trigger on origin-repository pull-request `opened`, `reopened`,
-and `synchronize` (a new commit pushed to the pull-request branch) so
+The workflow SHALL run a standard ephemeral e2e cycle for an e2e-relevant pull
+request: deploy the environment for the current head commit, let Tests / E2E /
+OpenShift run against it, and then destroy the environment in the same cycle,
+whether the suite passed or failed, UNLESS the pull request is marked retained
+(see Extend and Release Controls). A non-retained pull request SHALL NOT keep a
+`hypershell-ci-pr-*` environment on the shared cluster after the cycle concludes;
+in particular, a failed deploy or a failed e2e run SHALL NOT leave an environment
+behind. Destroying the environment SHALL use the same teardown as
+`make openshift-down` (namespace group, cluster-scoped RBAC, instance-managed
+gateway and database namespaces, and per-namespace swaps), so a torn-down
+ephemeral cycle leaves no HyperShell-owned residue.
+
+The workflow SHALL trigger on origin-repository pull-request `opened`,
+`reopened`, and `synchronize` (a new commit pushed to the pull-request branch) so
 `plan-images` can evaluate `should_run` against the pull request's three-dot
 diff. The workflow SHALL NOT use `on.pull_request.paths` filters for this gate:
 those consider only the files in the latest push, which would skip a later
 docs-only commit on a still-e2e-relevant pull request. A dedicated release
 workflow SHALL trigger on `closed` (which covers both merge and close) to
-release the environment (see the Timebox and Reaping requirement), so open and
-synchronize runs do not list a skipped Release check. Neither workflow SHALL
+release a retained environment (see the Timebox and Reaping requirement), so open
+and synchronize runs do not list a skipped Release check. Neither workflow SHALL
 trigger on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
 merge-queue gate; this workflow does not share a namespace with a merge-queue SHA.
 
@@ -187,11 +213,22 @@ unconditionally, whether or not the environment already exists. Because
 (`openshift-development.spec.md`), one code path both creates the environment on
 first run and reconciles it to the current overlay on later runs; the workflow
 SHALL NOT branch on a "does the environment exist" check before deciding whether
-to deploy. After a successful `make openshift-up`, the workflow SHALL refresh
-the environment's timebox (see the Timebox and Reaping requirement), so an
-active pull request is continuously renewed while an abandoned one expires.
+to deploy. When the pull request is marked retained, the workflow SHALL, after a
+successful `make openshift-up`, refresh the environment's timebox (see the Timebox
+and Reaping requirement) so an actively worked retained pull request is
+continuously renewed while a quiet one expires. When the pull request is not
+retained, the workflow SHALL NOT stamp that timebox, because the ephemeral cycle
+tears the environment down in-run rather than leaving it for the reaper.
 `make openshift-up` itself SHALL NOT stamp or refresh that timebox; local
 environments are not time-boxed by this spec.
+
+The teardown that ends a non-retained cycle SHALL run after Tests / E2E /
+OpenShift concludes for that commit, so the suite has a live target and the
+developer still sees a green or red e2e check; the teardown outcome SHALL NOT
+mask the e2e result. The environment SHALL survive a failing run only when the
+pull request is marked retained (see Extend and Release Controls); an
+unretained failing run SHALL still be destroyed, and a developer who wants to
+inspect a failure SHALL `/pr-extend`, which redeploys a fresh environment.
 
 Deploying runs for the same pull request SHALL serialize on a per-pull-request
 concurrency group. A newer run SHALL cancel or queue an older in-flight run for
@@ -200,22 +237,33 @@ comment's commit SHA SHALL be the commit whose digest swap completed, not a
 cancelled run's head.
 
 The reconcile SHALL bring the environment to the current desired state, including
-pruning resources the overlay no longer declares, so the long-lived environment
-does not drift across the many deployments a pull request accumulates. The
-reconcile SHALL preserve any active per-namespace component swap the same way
+pruning resources the overlay no longer declares, so a retained environment does
+not drift across the many deployments a pull request accumulates. The reconcile
+SHALL preserve any active per-namespace component swap the same way
 `openshift-development.spec.md` specifies.
 
-#### Scenario: Pull request opens
+#### Scenario: Unretained pull request deploys, tests, and is destroyed
 
-- GIVEN an e2e-relevant pull request is opened and has no environment yet
-- WHEN the workflow runs
+- GIVEN an e2e-relevant pull request that is not marked retained
+- WHEN the workflow runs and `plan-images` sets `should_run=true`
 - THEN it SHALL run `make openshift-up` with `OPENSHIFT_NAMESPACE=hypershell-ci-pr-<number>`
-- AND the environment SHALL be created and deployed
-- AND the workflow SHALL post the initial access comment (see Pull-Request Comment)
+- AND Tests / E2E / OpenShift SHALL run the suite against the environment
+- AND after the suite concludes the workflow SHALL destroy the environment using
+  the same teardown as `make openshift-down`
+- AND no `hypershell-ci-pr-<number>` namespace group or instance-managed
+  gateway/database namespace SHALL remain on the cluster
 
-#### Scenario: Commit pushed to an existing pull request
+#### Scenario: Failed cycle still tears down
 
-- GIVEN pull request 232 already has a running environment
+- GIVEN an unretained pull request whose deploy or e2e run fails
+- WHEN the cycle concludes
+- THEN the workflow SHALL still destroy the environment
+- AND it SHALL NOT leave a failed environment on the shared cluster
+- AND the e2e check SHALL still report its pass/fail result
+
+#### Scenario: Commit pushed to a retained pull request
+
+- GIVEN pull request 232 is marked retained and already has a running environment
 - WHEN a new commit is pushed and the `synchronize` trigger fires
 - THEN the workflow SHALL reuse `hypershell-ci-pr-232` and SHALL NOT create a new environment
 - AND it SHALL run `make openshift-up` to reconcile the environment
@@ -223,6 +271,7 @@ reconcile SHALL preserve any active per-namespace component swap the same way
   by digest (see Image Gating and Swap)
 - AND Tests / E2E / OpenShift SHALL rerun the e2e suite when `plan-images`
   sets `should_run=true`
+- AND it SHALL refresh the timebox and SHALL NOT destroy the environment
 - AND it SHALL update the access comment to reflect the new head commit (see
   Pull-Request Comment)
 
@@ -260,6 +309,124 @@ reconcile SHALL preserve any active per-namespace component swap the same way
 - THEN this workflow SHALL NOT run
 - AND the Kind e2e job SHALL remain the merge-queue gate as
   `e2e-testing.spec.md` defines
+
+### Requirement: Extend and Release Controls
+
+The pull request's retained state SHALL be authoritative from the pull request's
+own command history, not from the order in which comment-triggered runs happen to
+execute. A pull request is "marked retained" when its most recently created
+authorized command comment is `/pr-extend`, and ephemeral when that comment is
+`/pr-release` or when no authorized command comment exists. The workflow SHALL
+reflect that derived state in a durable `pr-environment/pr-extended` label on the
+pull request so a later deploying (`synchronize`) run can read the retained state
+cheaply without rescanning comments; the label is a cache of the latest-command
+decision, and every command run SHALL reconcile the label to match. Because the
+retained state is a property of the pull request rather than of a single run, it
+persists across commits, so `/pr-extend` is sticky for the life of the pull request
+rather than per commit.
+
+`/pr-extend` SHALL opt the pull request into retention. When an authorized commenter
+posts a comment whose body is (or begins with) `/pr-extend`, the workflow SHALL add
+the `pr-environment/pr-extended` label, and SHALL ensure the environment is deployed
+for the pull request's current head commit -- running the same deploy path as a
+`synchronize` run when no environment is currently up, because the ephemeral
+cycle may already have destroyed it. After `/pr-extend`, every later deploying run
+for that pull request SHALL keep the environment (refresh the timebox, skip the
+in-run teardown) until the pull request is released. `/pr-extend` SHALL be
+idempotent: issuing it on an already-retained pull request SHALL re-confirm the
+label and redeploy if nothing is up, and SHALL NOT create a second environment.
+
+`/pr-release` SHALL free a retained environment early. When an authorized commenter
+posts a comment whose body is (or begins with) `/pr-release`, the workflow SHALL run
+the same teardown as `make openshift-down` for the pull request's namespace group
+and remove the `pr-environment/pr-extended` label, returning the pull request to the
+ephemeral default. `/pr-release` on a pull request with no environment SHALL be a
+no-op that still clears the label and reports success.
+
+Both commands SHALL be authorized: the workflow SHALL honor `/pr-extend` and
+`/pr-release` only from a commenter who has write, maintain, or admin permission on
+the origin repository, verified against GitHub rather than inferred from the
+comment's `author_association` alone. A comment from a user without that
+permission SHALL NOT change the retained state, deploy, or tear down anything;
+the workflow SHALL acknowledge the refusal rather than act silently. Because the
+comment-triggered workflow runs with repository credentials, it SHALL perform the
+permission check before using any cluster credential, and it SHALL act only on
+pull requests targeting the origin repository (fork pull requests receive no
+cluster credentials, per Pull-Request Trust Boundary).
+
+When a pull request accumulates more than one command comment (for example
+`/pr-extend`, then `/pr-release`, then `/pr-extend`), the latest by `created_at` SHALL
+win, and only authorized command comments SHALL count toward that decision. A
+command run SHALL therefore compute the retained state from the most recently
+created authorized command comment and converge the environment and the label to
+it, rather than assume the comment that triggered the run is the latest: comment
+events can be delivered or processed out of order, and an unauthorized
+`/pr-release` interleaved with authorized commands SHALL NOT flip the state. When
+the triggering comment is not the latest authorized command, the run SHALL still
+converge to the latest command's intent rather than act on its own stale body.
+
+Closing or merging the pull request SHALL release the environment regardless of
+the retained marker (see Timebox and Reaping); the label does not outlive the
+pull request.
+
+#### Scenario: Extend retains and redeploys
+
+- GIVEN an unretained pull request whose ephemeral environment has already been destroyed
+- WHEN a write-access collaborator comments `/pr-extend`
+- THEN the workflow SHALL add the `pr-environment/pr-extended` label
+- AND it SHALL deploy the environment for the current head commit
+- AND it SHALL stamp the timebox so the reaper reclaims it only after inactivity
+
+#### Scenario: Extend is sticky across later commits
+
+- GIVEN a pull request already carries the `pr-environment/pr-extended` label
+- WHEN a later commit is pushed
+- THEN the deploying run SHALL keep the environment rather than destroy it
+- AND it SHALL refresh the timebox
+- AND no second `/pr-extend` SHALL be required
+
+#### Scenario: Release frees the environment early
+
+- GIVEN a retained pull request with a running environment
+- WHEN a write-access collaborator comments `/pr-release`
+- THEN the workflow SHALL tear down the namespace group the same way
+  `make openshift-down` does, including instance-managed gateway and database
+  namespaces
+- AND it SHALL remove the `pr-environment/pr-extended` label
+- AND later commits SHALL return to the ephemeral deploy/test/destroy default
+
+#### Scenario: Latest command wins across a sequence
+
+- GIVEN a write-access collaborator comments `/pr-extend`, then `/pr-release`, then
+  `/pr-extend` again on the same pull request
+- WHEN the workflow settles
+- THEN the retained state SHALL be taken from the most recently created command
+  comment, which is `/pr-extend`
+- AND the pull request SHALL be marked retained with a running environment
+- AND the intermediate `/pr-release` SHALL NOT leave the pull request ephemeral
+
+#### Scenario: Out-of-order or stale command run converges to the latest command
+
+- GIVEN the latest authorized command comment on a pull request is `/pr-release`
+- WHEN a run triggered by an earlier `/pr-extend` comment executes late
+- THEN it SHALL compute the retained state from the latest command (`/pr-release`)
+- AND it SHALL NOT re-extend the pull request from its own stale trigger body
+
+#### Scenario: Unauthorized command does not flip the state
+
+- GIVEN the latest authorized command comment is `/pr-extend`
+- WHEN a commenter without write access later comments `/pr-release`
+- THEN that comment SHALL NOT count toward the latest-command decision
+- AND the pull request SHALL remain retained
+- AND the workflow SHALL acknowledge that the command was refused rather than act silently
+
+#### Scenario: Unauthorized command is refused
+
+- GIVEN a commenter without write access to the origin repository
+- WHEN they comment `/pr-extend` or `/pr-release`
+- THEN the workflow SHALL NOT change the retained state, deploy, or tear down
+- AND it SHALL NOT use cluster credentials
+- AND it SHALL acknowledge that the command was refused rather than act silently
 
 ### Requirement: Image Gating and Swap
 
@@ -344,9 +511,12 @@ commit is validated against a live environment the same way Kind validates it.
 An origin PR that changes only e2e-irrelevant paths SHALL skip Tests / E2E /
 OpenShift and SHALL skip `Deploy PR environment`, using the same
 `plan-images` / `should_run` gate. On failure
-the job SHALL collect the diagnostics `e2e-testing.spec.md` defines. Whether
-the suite passes or fails, the environment SHALL survive (see Timebox and
-Reaping), so a developer can inspect a failing run on the live environment.
+the job SHALL collect the diagnostics `e2e-testing.spec.md` defines before the
+environment is torn down. The environment SHALL survive the run only when the
+pull request is marked retained (see Extend and Release Controls); otherwise the
+ephemeral cycle SHALL destroy it after the suite concludes, pass or fail. A
+developer who wants to inspect a failing run SHALL `/pr-extend`, which redeploys a
+fresh environment for the current head commit.
 
 The e2e suite's authentication SHALL set `E2E_OIDC_GRANT=client_credentials` and
 use the non-interactive path this spec defines (see Automated E2E Authentication),
@@ -365,36 +535,72 @@ distinct checks.
 - AND an origin PR with `should_run=false` SHALL skip this job and SHALL skip
   `Deploy PR environment`
 
-#### Scenario: Environment survives a failing run
+#### Scenario: Retained environment survives a failing run
 
 - GIVEN the e2e suite fails
+- AND the pull request is marked retained
 - WHEN Tests / E2E / OpenShift finishes
 - THEN it SHALL collect the failure diagnostics
 - AND the environment SHALL remain deployed for developer inspection
 
+#### Scenario: Unretained failing run is torn down
+
+- GIVEN the e2e suite fails
+- AND the pull request is not marked retained
+- WHEN Tests / E2E / OpenShift finishes
+- THEN it SHALL collect the failure diagnostics
+- AND the ephemeral cycle SHALL destroy the environment
+- AND a developer SHALL `/pr-extend` to redeploy for inspection
+
 ### Requirement: Timebox and Reaping
 
-Each pull-request environment SHALL be time-boxed to three days and SHALL be
-reaped out-of-band, independently of any CI run, so a stale or abandoned pull
-request cannot hold cluster resources. After each successful `make openshift-up`,
-the CI workflow SHALL stamp both namespaces in the group with the annotation
-`hypershell.redhat.io/expires-at` set to an RFC 3339 timestamp three days in the
-future (or a reservation duration of three days when the environment is
-provisioned through a reservation mechanism such as the
-ephemeral-namespace-operator). `make openshift-up` SHALL NOT write that
-annotation; local environments this command creates are not time-boxed by this
-spec. Because every deploying trigger refreshes the annotation after bring-up,
-an actively worked pull request is continuously renewed and never reaped
-mid-flight, while a pull request with no activity for three days falls past its
-expiry and is reclaimed. The three-day timebox SHALL be configurable through a
-single documented workflow setting rather than hardcoded in the workflow logic.
+The primary teardown path SHALL be in-band: an unretained cycle destroys its
+environment right after the e2e suite concludes (see Ephemeral-by-Default), and
+`/pr-release` or pull-request close destroys a retained environment. The out-of-band
+reaper is the backstop for the cases those paths miss -- a crashed or cancelled
+teardown, or a retained pull request that simply goes quiet -- so no
+`hypershell-ci-pr-*` environment lingers indefinitely on the shared cluster.
+
+A retained pull request's environment SHALL be time-boxed to a configurable
+inactivity window (default three days) and SHALL be reaped out-of-band,
+independently of any CI run, so an abandoned but still-extended pull request
+cannot hold cluster resources. After each successful `make openshift-up` on a
+retained pull request, the CI workflow SHALL stamp both namespaces in the group
+with `hypershell.redhat.io/expires-at` set to an RFC 3339 timestamp that window
+in the future. Because every deploying trigger refreshes the annotation, an
+actively worked retained pull request is continuously renewed and never reaped
+mid-flight, while a retained pull request with no activity for the window falls
+past its expiry and is reclaimed.
+
+Every deploying run -- retained or not -- SHALL stamp `hypershell.redhat.io/expires-at`
+so the reaper can reclaim a leaked environment. An unretained deploying run SHALL
+stamp a short backstop expiry (a single documented workflow setting, default a
+few hours) rather than the inactivity window, so an ephemeral environment whose
+in-run teardown did not complete is still reclaimed promptly instead of lingering.
+`make openshift-up` SHALL NOT write that annotation; local environments this
+command creates are not time-boxed by this spec. Both the inactivity window and
+the backstop expiry SHALL be configurable through single documented workflow
+settings rather than hardcoded in the workflow logic.
 
 Reaping SHALL be performed by an out-of-band mechanism -- a scheduled reaper job
-or the reservation mechanism's own duration -- not by the pull-request workflow's
-own teardown step, so that an environment expires even when no further CI runs for
-that pull request. The reaper SHALL delete a namespace group whose
-`hypershell.redhat.io/expires-at` has passed, and SHALL identify HyperShell-owned
-pull-request environments only when all of these match:
+-- not by the pull-request workflow's own teardown step, so that an environment
+expires even when no further CI runs for that pull request.
+
+> **Note (deployment topology, not a behavior requirement):** the reaper
+> CronJob's deployed source of truth is the central
+> [`hypershell-gitops`](https://github.com/openshift-online/hypershell-gitops)
+> repository, at `clusters/hysh-aws-01/apps/pr-env-reaper`, following the
+> pull-based GitOps model `global-architecture.spec.md` defines. This repo's
+> `deploy/e2e/reaper` manifest remains the maintained reference copy that this
+> spec's requirements describe; it is not itself what runs on the cluster.
+> Because the two are not wired together, a change to the reaper's behavior,
+> RBAC, or schedule SHALL be made in `deploy/e2e/reaper` first and then manually
+> synced into the `hypershell-gitops` copy so the deployed reaper does not drift
+> from this spec.
+
+The reaper SHALL delete a namespace group whose `hypershell.redhat.io/expires-at`
+has passed, and SHALL identify HyperShell-owned pull-request environments only
+when all of these match:
 
 - `hypershell.redhat.io/owned=true`
 - `hypershell.redhat.io/environment` equal to `pr-<number>`
@@ -405,49 +611,70 @@ The reaper SHALL NOT delete namespaces that fail that match, including local
 environment identifier is not `pr-*`. It SHALL refuse reserved names
 (`default`, `kube-*`, `openshift-*`).
 
+The reaper SHALL perform the deletion itself through the same teardown code path
+`make openshift-down` uses, invoked per expired environment, rather than a
+separate reimplementation of that teardown. It therefore SHALL delete the whole
+namespace group (platform and `-keycloak`), the environment's cluster-scoped
+RBAC, and the instance-managed gateway and ManagedDatabase namespaces the control
+plane stamped, and SHALL clear that environment's per-namespace swaps, exactly as
+`make openshift-down` does. Sharing the one teardown path keeps the reaper and
+`make openshift-down` from drifting: a change to what teardown removes takes
+effect in both without a second edit.
+
 Gateway and ManagedDatabase namespaces are not in the namespace group and do not
 carry `hypershell.redhat.io/owned`. Periodic GC cannot reap them after the
-platform project is gone (`openshell-gateway-namespace-gc.spec.md`). When the
-reaper deletes a pull-request platform namespace, it SHALL also delete namespaces
+platform project is gone (`openshell-gateway-namespace-gc.spec.md`). Because the
+reaper runs the `make openshift-down` teardown, it SHALL delete namespaces
 labeled `hypershell.redhat.io/managed=true`,
 `app.kubernetes.io/managed-by=hypershell-control-plane`, and
-`hypershell.redhat.io/instance=<that platform namespace>`, matching
-`make openshift-down`. It SHALL also reap those instance-labeled namespaces when
-the platform project is already absent and the instance identity is a
+`hypershell.redhat.io/instance=<that platform namespace>` together with the
+platform project. It SHALL also reap those instance-labeled namespaces when the
+platform project is already absent and the instance identity is a
 `hypershell-ci-pr-<number>` platform name, so a previous incomplete teardown
 cannot leave `openshell-*` workloads behind. It SHALL NOT delete namespaces
 labeled for a different instance, including `hyp4`, `hyp5`, and local
 `make openshift-up` environments.
 
-On pull-request `closed` (merge or close), CI SHALL release the
-environment as the primary path by removing the namespace group the same way
-`make openshift-down` does. That release SHALL live in a `closed`-only workflow
-so open and synchronize runs do not list a skipped Release check. The timebox
-SHALL remain the backstop for the case where the close event does not fire or
-its release cannot be confirmed; when the release step cannot confirm the
+On pull-request `closed` (merge or close), CI SHALL release the environment as
+the primary path by running the same teardown as `make openshift-down`, whether
+or not the pull request was retained. That release SHALL live in a `closed`-only
+workflow so open and synchronize runs do not list a skipped Release check. The
+timebox SHALL remain the backstop for the case where the close event does not
+fire or its release cannot be confirmed; when the release step cannot confirm the
 release, the workflow SHALL report the failure so an operator can free the
 environment.
 
-#### Scenario: Deploying run refreshes the expiry
+#### Scenario: Retained deploying run refreshes the inactivity expiry
 
-- GIVEN a pull-request environment exists
+- GIVEN a retained pull-request environment exists
 - WHEN a new commit's deploying run finishes `make openshift-up`
-- THEN both namespaces SHALL have `hypershell.redhat.io/expires-at` reset to
-  three days from that run
+- THEN both namespaces SHALL have `hypershell.redhat.io/expires-at` reset to the
+  inactivity window from that run
 - AND `make openshift-up` SHALL NOT have written that annotation
-- AND the environment SHALL NOT be reaped while the pull request stays active
+- AND the environment SHALL NOT be reaped while the retained pull request stays active
 
-#### Scenario: Abandoned environment is reaped by the timebox
+#### Scenario: Unretained deploy stamps only a short backstop expiry
 
-- GIVEN a pull-request environment has had no deploying run for three days
-- AND the pull request was neither merged nor closed
+- GIVEN an unretained deploying run
+- WHEN it finishes `make openshift-up`
+- THEN it SHALL stamp `hypershell.redhat.io/expires-at` with the short backstop
+  window, not the inactivity window
+- AND the in-run teardown SHALL remain the primary path
+- AND if that teardown does not complete, the reaper SHALL reclaim the
+  environment once the backstop expiry passes
+
+#### Scenario: Quiet retained environment is reaped by the timebox
+
+- GIVEN a retained pull-request environment has had no deploying run for the
+  inactivity window
+- AND the pull request was neither merged, closed, nor `/pr-release`d
 - WHEN the out-of-band reaper evaluates environments
-- THEN it SHALL delete the expired namespace group
-- AND it SHALL delete namespaces labeled
-  `hypershell.redhat.io/instance=<that platform namespace>`
+- THEN it SHALL delete the expired environment through the `make openshift-down`
+  teardown path
+- AND that teardown SHALL remove the namespace group, cluster-scoped RBAC, and
+  the instance's managed gateway and database namespaces
 - AND it SHALL delete only namespaces matching the pull-request ownership labels
-  and `pr-*` environment identifier, plus that instance's managed gateway and
-  database namespaces
+  and `pr-*` environment identifier, plus that instance's managed namespaces
 
 #### Scenario: Leftover instance namespaces are reaped after the project is gone
 
@@ -455,7 +682,8 @@ environment.
 - AND gateway namespaces remain labeled
   `hypershell.redhat.io/instance=hypershell-ci-pr-267`
 - WHEN the out-of-band reaper evaluates environments
-- THEN it SHALL delete those leftover instance-managed namespaces
+- THEN it SHALL delete those leftover instance-managed namespaces via the shared
+  teardown path
 - AND it SHALL NOT delete namespaces labeled for `hyp4`, `hyp5`, or a local
   `make openshift-up` environment
 
@@ -468,16 +696,17 @@ environment.
 
 #### Scenario: Close releases the environment; timebox backstops
 
-- GIVEN a pull-request environment exists
+- GIVEN a pull-request environment exists (retained or not)
 - WHEN the pull request merges or closes
-- THEN the workflow SHALL remove the environment's namespace group as the primary path
+- THEN the workflow SHALL remove the environment's namespace group via the
+  `make openshift-down` teardown as the primary path
 - AND when the close event does not fire, the timebox SHALL reclaim the environment
 - AND when release cannot be confirmed, the workflow SHALL report the failure
 
 #### Scenario: Idempotent re-run after reaping
 
-- GIVEN a pull request's environment was reaped after its timebox
-- WHEN a new commit is pushed to that still-open pull request
+- GIVEN a retained pull request's environment was reaped after its timebox
+- WHEN a new commit is pushed to that still-open, still-retained pull request
 - THEN `make openshift-up` SHALL recreate the environment under the same
   `hypershell-ci-pr-<number>` name
 - AND the workflow SHALL stamp a fresh `hypershell.redhat.io/expires-at`
@@ -496,6 +725,15 @@ contain the same non-secret access facts `openshift-development.spec.md` defines
 namespace, the API Route URL, and the web-console Route URL -- presented as the
 same login guidance `make openshift-up` prints at the end of a successful
 bring-up, so the comment and the command agree.
+
+The comment SHALL make the environment's lifetime explicit. On an unretained
+pull request, the comment SHALL state that the environment is ephemeral -- it is
+destroyed after the e2e run -- and SHALL advertise the `/pr-extend` command as the
+way to keep it, and `/pr-release` as the way to free it early. Once the pull request
+is retained, the comment SHALL instead state that the environment is retained,
+that it is renewed on every commit, and that it is reclaimed after the inactivity
+timebox unless `/pr-release`d or the pull request is closed. The comment SHALL never
+imply an unretained environment will persist.
 
 The workflow SHALL post the marked comment as the first step of a deploy run,
 before cluster login, deploy, or e2e. When the pull request has no marked
@@ -569,6 +807,22 @@ public artifact.
 - THEN no kubeconfig, token, or password appears in any of them
 - AND the `oc login` template uses `--web` so OpenShift issues the credential
   interactively through the developer's own browser session
+
+#### Scenario: Comment advertises /pr-extend on an ephemeral environment
+
+- GIVEN an unretained pull request whose environment becomes ready
+- WHEN the workflow edits the access comment
+- THEN the comment SHALL state the environment is destroyed after the e2e run
+- AND it SHALL tell the developer to comment `/pr-extend` to keep it
+- AND it SHALL mention `/pr-release` as the way to free it early
+
+#### Scenario: Comment reflects a retained environment
+
+- GIVEN a pull request has been `/pr-extend`ed
+- WHEN the workflow next edits the access comment
+- THEN the comment SHALL state the environment is retained and renewed on each commit
+- AND it SHALL state it is reclaimed after the inactivity timebox unless released
+- AND it SHALL NOT tell the reader the environment is about to be destroyed
 
 ### Requirement: Pull-Request Trust Boundary
 
@@ -955,15 +1209,20 @@ exists).
 | Same lifecycle labels as `make openshift-up`, with `pr-<number>` as the environment id | Reuses `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment` so status and cleanup tooling stay one selector set; the `pr-` prefix lets the reaper ignore local environments. CI must be able to patch namespaces; failing closed beats an unlabeled environment the reaper cannot see |
 | Skip `Deploy PR environment` when `should_run` is false | An e2e-irrelevant PR would only deploy baseline `main` images. That consumes a shared-cluster namespace without giving the author a distinct environment or the OpenShift e2e suite a distinct target. The same `plan-images` / `should_run` gate Kind uses keeps deploy and Tests / E2E / OpenShift in lockstep |
 | `make openshift-up` on every deploying run, unconditionally | The command is already idempotent and reconciling, so one code path creates on first run and reconciles on later runs; branching on "does it exist" would duplicate logic and risk drift |
+| Ephemeral by default (deploy, test, destroy); `/pr-extend` to retain | Keeping an environment for every PR let failed deploys and abandoned PRs silently hold shared-cluster resources. Making destroy the default, with an explicit opt-in, means a PR only holds an environment when a developer actually asked for one to debug against |
+| Retained state is a `pr-environment/pr-extended` PR label, so `/pr-extend` is sticky | A label on the pull request is durable and derivable each run without external storage, so retention persists across commits (the developer extends once, not per commit) and every workflow run reads the same source of truth |
+| Latest authorized command comment by `created_at` wins; the label caches it | `issue_comment` runs can execute out of order or concurrently, so `/pr-extend` then `/pr-release` then `/pr-extend` must not depend on which run finishes last. Deriving state from the newest authorized command and reconciling the label to it makes the outcome deterministic and ignores an interleaved unauthorized `/pr-release` |
+| `/pr-extend` redeploys when nothing is up; failing runs still tear down | The ephemeral cycle may have already destroyed the environment by the time a developer reads the comment. Redeploying on `/pr-extend` avoids a grace-window race and keeps the default aggressive: a fresh environment for the current head is a better debug target than a half-torn-down one |
+| `/pr-extend` and `/pr-release` require write access, checked before using credentials | The comment-triggered workflow runs with repository and cluster credentials; an arbitrary commenter must not be able to pin or delete shared-cluster environments. A GitHub permission check (not `author_association`) matches the existing origin-only trust boundary |
+| Every deploy stamps `expires-at`; retained gets the inactivity window, unretained a short backstop | The reaper keys on `expires-at`. A retained PR wants a multi-day inactivity timebox; an unretained PR relies on in-run teardown but needs a short backstop so a crashed teardown is still reclaimed promptly. `make openshift-up` does not stamp either; local dev is not time-boxed |
 | Seed after every image swap; reuse existing named resources, except `dev-gateway` | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) rather than POST a second copy. `dev-gateway` is the one exception: Keycloak runs on in-memory storage with no persistent volume, so a Keycloak pod restart discards its dynamically-provisioned OIDC client while the `dev-gateway` row survives untouched in PostgreSQL, and the reconciler deliberately never auto-recreates a missing client (`openshell-gateway-keycloak.spec.md`, "Existing gateway client is missing"). Reusing a `dev-gateway` that predates the current Keycloak instance would permanently strand it in status `Keycloak client is missing`, so seeding deletes and recreates it on every run instead. This is a stopgap until Keycloak has durable storage across restarts |
-| CI stamps `hypershell.redhat.io/expires-at`; `make openshift-up` does not | The timebox is a pull-request cost bound, not a local-dev contract. Stamping from the workflow after bring-up refreshes active PRs without time-boxing developer namespaces |
 | Origin `pull_request` only; Kind remains the merge-queue gate | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
 | Per-PR concurrency group | Two in-flight swaps on one namespace can leave mixed digests; cancelling or queuing the older run keeps the comment SHA honest |
 | One GitHub OAuth App and one stable callback | GitHub does not allow wildcard redirect URIs and limits callback URLs, so per-PR Keycloak Routes cannot be registered as GitHub callbacks. A cluster-scoped callback, like the shared Gateway, is the identity infrastructure this workflow depends on |
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
-| Close releases as primary path, timebox as backstop | The merge/close event frees the environment promptly in the common case; the timebox covers the case where the event does not fire or release cannot be confirmed |
-| Reap instance-labeled gateway namespaces with the namespace group | Gateway and ManagedDatabase namespaces are siblings of the platform project, not inside it. Periodic GC dies with the controller, so down and the reaper must delete `hypershell.redhat.io/instance=<platform ns>` or e2e leftovers stay on the shared cluster |
+| In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment right after e2e, and close/`/pr-release` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
+| Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway/database namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway and ManagedDatabase namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |

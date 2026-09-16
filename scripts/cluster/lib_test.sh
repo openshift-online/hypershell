@@ -211,7 +211,7 @@ if grep -A14 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh"
 else
   PASS=$((PASS + 1))
 fi
-if grep -A25 'Recycle Keycloak when GitHub OAuth secret changes' "${REPO_ROOT}/.github/workflows/pr-environment.yml" | grep -q 'already matches; skip recycle'; then
+if grep -A25 'Recycle Keycloak when GitHub OAuth secret changes' "${REPO_ROOT}/.github/actions/deploy-pr-environment/action.yml" | grep -q 'already matches; skip recycle'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
@@ -269,29 +269,37 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: OpenShift cluster_down does not remove the Keycloak namespace'
 fi
-if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'clusterrolebinding "${prefix}hypershell-controller"'; then
+if grep -A80 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'teardown-pr-env.sh'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_down does not delete this environment'\''s prefixed ClusterRoleBinding'
+  echo 'FAIL: OpenShift cluster_down does not invoke the shared teardown-pr-env.sh path'
 fi
-if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'clusterrole "${prefix}hypershell-controller"'; then
+if grep -q 'hypershell-controller-scc-bind' "${REPO_ROOT}/scripts/ci/teardown-pr-env.sh"; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_down does not delete this environment'\''s prefixed ClusterRole'
+  echo 'FAIL: shared teardown does not delete this environment'\''s prefixed ClusterRoleBinding'
 fi
-if grep -A50 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'OPENSHIFT_NAMESPACE}-dev-'; then
+if grep -q 'clusterrole' "${REPO_ROOT}/scripts/ci/teardown-pr-env.sh" \
+  && grep -q 'hypershell-controller' "${REPO_ROOT}/scripts/ci/teardown-pr-env.sh"; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_down does not use the -dev- cluster-scoped prefix'
+  echo 'FAIL: shared teardown does not delete this environment'\''s prefixed ClusterRole'
 fi
-if grep -A80 '^cluster_down()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete_instance_managed_namespaces'; then
+if grep -q -- '-dev-' "${REPO_ROOT}/scripts/ci/teardown-pr-env.sh"; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_down does not delete instance-managed gateway namespaces'
+  echo 'FAIL: shared teardown does not use the -dev- cluster-scoped prefix'
+fi
+if grep -q 'instance-managed' "${REPO_ROOT}/scripts/ci/teardown-pr-env.sh" \
+  || grep -q 'PR_ENV_CP_INSTANCE_LABEL' "${REPO_ROOT}/scripts/ci/teardown-pr-env.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: shared teardown does not delete instance-managed gateway namespaces'
 fi
 if grep -A20 '^delete_instance_managed_namespaces()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'empty instance identity'; then
   PASS=$((PASS + 1))

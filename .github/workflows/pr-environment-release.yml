@@ -4,7 +4,8 @@ name: Release PR Environment
 # merges or closes (ephemeral-pr-environments.spec.md). Lives in its own
 # workflow so open/synchronize runs of pr-environment.yml do not list a
 # skipped "Release PR environment" check. GitHub's pull_request `closed`
-# event covers both merge and close-without-merge.
+# event covers both merge and close-without-merge. Releases whether or not
+# the pull request was retained.
 #
 # Shares the per-PR concurrency group with pr-environment.yml so a close
 # cancels an in-flight deploy rather than racing it. The out-of-band reaper

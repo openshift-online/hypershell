@@ -120,7 +120,9 @@ Gateway         CLI         partial     get/list implemented, delete missing
 - End-to-end smoke test in Kind cluster (`make kind-api-server-up` / `make kind-control-plane-up`) or OpenShift (`/deploy-cluster`)
 - Test CLI commands against deployed API
 - Verify CRUD on all affected Kinds via both API and CLI
-- Run e2e test suite: `bash components/pr-test/e2e-openshell.sh`
+- Run e2e test suite: `E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-openshell.sh`
+  (OpenShift: `E2E_INFRA_DRIVER=openshift`; pull-request CI is the ephemeral
+  PR environment workflow. `components/pr-test/e2e-openshell.sh` is deprecated.)
 
 Each wave is a gate. Do not start downstream work against an unstable upstream.
 

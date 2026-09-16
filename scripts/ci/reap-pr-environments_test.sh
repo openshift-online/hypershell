@@ -50,9 +50,16 @@ hypershell-ci-pr-500
 some-dev-namespace
 hyp5
 alice
+openshell-aaa
+openshell-db-bbb
+openshell-ccc
+openshell-hyp5
+openshell-alice
 EOF
 
 # Stub kubectl: owned list vs control-plane managed list vs existence vs delete.
+# teardown-pr-env.sh calls `get namespace NAME` for existence, `get namespace -l`
+# for instance-managed siblings, and `delete namespace NAME`.
 cat > "${workdir}/kubectl" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -65,6 +72,19 @@ case "\$1 \$2" in
     fi
     ;;
   "get namespace")
+    if [[ "\$*" == *"-l"* ]]; then
+      instance=""
+      rest="\$*"
+      rest="\${rest#*hypershell.redhat.io/instance=}"
+      if [[ "\$rest" != "\$*" ]]; then
+        instance="\${rest%%,*}"
+        instance="\${instance%% *}"
+      fi
+      if [[ -n "\${instance}" ]]; then
+        awk -F '\t' -v inst="\${instance}" '\$2 == inst { print \$1 }' "${workdir}/cp_managed.tsv"
+      fi
+      exit 0
+    fi
     if grep -qx "\$3" "${workdir}/live.txt"; then
       exit 0
     fi

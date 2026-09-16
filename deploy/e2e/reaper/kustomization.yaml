@@ -22,6 +22,7 @@ configMapGenerator:
     files:
       - ../../../scripts/ci/pr-env-lib.sh
       - ../../../scripts/ci/reap-pr-environments.sh
+      - ../../../scripts/ci/teardown-pr-env.sh
 
 # The reaper reads the pinned script content; a rolling hash would force a
 # needless CronJob update on unrelated kustomize edits.

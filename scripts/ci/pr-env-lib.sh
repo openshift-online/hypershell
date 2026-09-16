@@ -30,9 +30,21 @@ PR_ENV_CP_MANAGED_BY_LABEL="app.kubernetes.io/managed-by"
 PR_ENV_CP_MANAGED_BY_VALUE="hypershell-control-plane"
 PR_ENV_CP_INSTANCE_LABEL="hypershell.redhat.io/instance"
 
-# Default timebox in days. The workflow overrides this from a single documented
-# setting (vars.PR_ENV_TIMEBOX_DAYS); the constant keeps the default in one place.
-: "${PR_ENV_TIMEBOX_DAYS:=3}"
+# Default max lifetime in hours for a retained pull request. The workflow
+# overrides this from vars.PR_ENV_RETAINED_MAX_HOURS. 72 hours is the former
+# 3-day inactivity window.
+: "${PR_ENV_RETAINED_MAX_HOURS:=72}"
+# Default max lifetime in hours for an unretained (ephemeral) deploy.
+# In-run teardown is the primary path; this is what the reaper uses if that
+# teardown does not complete. Overridden by vars.PR_ENV_UNRETAINED_MAX_HOURS.
+: "${PR_ENV_UNRETAINED_MAX_HOURS:=6}"
+
+# Durable cache of the latest authorized /pr-extend vs /pr-release decision.
+# The pull request's command history is authoritative; this label is a cache
+# so later synchronize runs can read retained state without rescanning comments.
+PR_ENV_RETAINED_LABEL="pr-environment/pr-extended"
+PR_ENV_COMMAND_EXTEND="/pr-extend"
+PR_ENV_COMMAND_RELEASE="/pr-release"
 
 # Stable hidden marker so later runs update the one access comment rather than
 # post a new comment per run.
@@ -93,12 +105,73 @@ pr_env_now_epoch() {
   date -u +%s
 }
 
-# pr_env_expires_at <days> [now-epoch] -> RFC 3339 UTC timestamp <days> in the
-# future. now-epoch is injectable for deterministic tests.
-pr_env_expires_at() {
-  local days="$1"
+# pr_env_expires_at_seconds <seconds> [now-epoch] -> RFC 3339 UTC timestamp
+# <seconds> in the future. now-epoch is injectable for deterministic tests.
+pr_env_expires_at_seconds() {
+  local seconds="$1"
   local now="${2:-$(pr_env_now_epoch)}"
-  pr_env_epoch_to_rfc3339 $(( now + days * 86400 ))
+  pr_env_epoch_to_rfc3339 $(( now + seconds ))
+}
+
+# pr_env_expires_at_hours <hours> [now-epoch] -> RFC 3339 UTC timestamp <hours>
+# in the future. Used for both retained and unretained max-lifetime stamps.
+pr_env_expires_at_hours() {
+  pr_env_expires_at_seconds $(( ${1} * 3600 )) "${2:-}"
+}
+
+# pr_env_command_from_body <body> -> "extend", "release", or empty.
+# A command matches when the body is, or begins with, /pr-extend or /pr-release
+# (optional leading whitespace). /pr-extended does not match /pr-extend.
+pr_env_command_from_body() {
+  local body="${1:-}"
+  local first
+  first="$(printf '%s' "${body}" | awk '{print $1; exit}')"
+  case "${first}" in
+    "${PR_ENV_COMMAND_EXTEND}") printf 'extend' ;;
+    "${PR_ENV_COMMAND_RELEASE}") printf 'release' ;;
+  esac
+}
+
+# pr_env_permission_is_authorized <permission> - true for write, maintain, or
+# admin on the origin repository. GitHub's collaborator permission API returns
+# these strings; author_association is not consulted.
+pr_env_permission_is_authorized() {
+  case "${1:-}" in
+    write|maintain|admin) return 0 ;;
+  esac
+  return 1
+}
+
+# pr_env_select_latest_command
+#
+# Read TSV rows from stdin: created_at<TAB>user<TAB>permission<TAB>body.
+# Only authorized command comments count. The latest by created_at wins.
+# Prints extend, release, or none (no authorized command exists).
+# created_at is compared as a string (RFC 3339 / GitHub ISO 8601 sorts
+# lexicographically).
+pr_env_select_latest_command() {
+  local created user perm body cmd latest_created="" latest_cmd="none"
+  while IFS=$'\t' read -r created user perm body; do
+    [[ -n "${created}" ]] || continue
+    pr_env_permission_is_authorized "${perm}" || continue
+    cmd="$(pr_env_command_from_body "${body}")"
+    [[ -n "${cmd}" ]] || continue
+    if [[ -z "${latest_created}" || "${created}" > "${latest_created}" ]]; then
+      latest_created="${created}"
+      latest_cmd="${cmd}"
+    fi
+  done
+  printf '%s' "${latest_cmd}"
+}
+
+# pr_env_refusal_comment <user> <command> -> acknowledgement body posted when
+# an unauthorized commenter issues /pr-extend or /pr-release. The workflow
+# must not act silently.
+pr_env_refusal_comment() {
+  local user="$1" command="$2"
+  cat <<EOF
+Refused \`${command}\` from @${user}: this command requires write, maintain, or admin permission on the origin repository. The pull request's retained state is unchanged.
+EOF
 }
 
 # pr_env_is_reapable <name> <owned> <env-id> <expires-at> [now-epoch]
@@ -211,8 +284,30 @@ comment will update in place once the environment is ready.
 EOF
 }
 
+# pr_env_comment_lifetime <retained>
+#
+# Lifetime paragraph for the access comment. Unretained environments are
+# destroyed after e2e and advertise /pr-extend. Retained environments are
+# renewed on each commit and reclaimed after the inactivity timebox.
+pr_env_comment_lifetime() {
+  if [[ "${1:-}" == "true" ]]; then
+    cat <<EOF
+This environment is retained and renewed on every commit. It is reclaimed after
+the inactivity timebox unless you comment \`/pr-release\` or the pull request is
+closed.
+EOF
+  else
+    cat <<EOF
+This environment is ephemeral: it is destroyed after the e2e run. Comment
+\`/pr-extend\` to keep it as a live debug target. Comment \`/pr-release\` to free a
+retained environment early.
+EOF
+  fi
+}
+
 # pr_env_comment_body <pr-number> <head-sha> <platform-ns> <keycloak-ns> \
-#                     <console-url> <api-url> <web-url> <cluster-api-url> <updated>
+#                     <console-url> <api-url> <web-url> <cluster-api-url> \
+#                     <updated> [retained]
 #
 # Render the pull-request access comment (Pull-Request Comment requirement).
 # Carries the hidden marker so later runs find and update this comment, presents
@@ -220,23 +315,28 @@ EOF
 # credential -- the `oc login` template uses `--web` against the OpenShift
 # cluster API (not the HyperShell API Route) so OpenShift handles token
 # retrieval interactively. <updated> is "true" for the per-commit update
-# wording, "false" for the initial comment.
+# wording, "false" for the initial comment. <retained> is "true" when the
+# pull request carries pr-environment/pr-extended.
 pr_env_comment_body() {
   local pr_number="$1" head_sha="$2" platform_ns="$3" keycloak_ns="$4"
   local console_url="$5" api_url="$6" web_url="$7" cluster_api_url="$8" updated="$9"
+  local retained="${10:-false}"
   local short_sha="${head_sha:0:7}"
-  local heading
+  local heading lifetime
   if [[ "${updated}" == "true" ]]; then
     heading="HyperShell environment updated to commit \`${short_sha}\`"
   else
     heading="HyperShell environment ready"
   fi
+  lifetime="$(pr_env_comment_lifetime "${retained}")"
   cat <<EOF
 ${PR_ENV_COMMENT_MARKER}
 ## ${heading}
 
 This pull request has a live ephemeral OpenShift environment running commit
 \`${short_sha}\`.
+
+${lifetime}
 
 | Fact | Value |
 |------|-------|
@@ -246,8 +346,7 @@ This pull request has a live ephemeral OpenShift environment running commit
 | Web console | ${web_url} |
 
 Log in through the web console with your GitHub account (you must be a member of
-the configured organization or on its allowlist). The environment is time-boxed
-and refreshed on every new commit.
+the configured organization or on its allowlist).
 
 <details><summary>CLI access</summary>
 

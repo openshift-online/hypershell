@@ -21,7 +21,9 @@ name: E2E
 #
 # E2E OpenShift lives here (Tests / E2E / OpenShift), not inside the PR
 # Environment workflow. On origin pull_request it polls the "Deploy PR
-# environment" check, then runs the suite against that namespace. Fork PRs,
+# environment" check, then runs the suite against that namespace. After the
+# suite concludes, the PR Environment workflow tears the environment down
+# unless the pull request is marked retained (/pr-extend). Fork PRs,
 # merge_group, and push skip it (no per-PR environment). Push to main uses
 # the separate e2e-openshift-main.yml workflow (bring-up-test-tear-down)
 # so that job does not appear as a skipped check on pull requests.
@@ -660,7 +662,10 @@ jobs:
   # e2e-irrelevant PRs skip the suite, and PR Environment skips Deploy
   # PR environment with the same gate. Polls that check because GitHub
   # Actions `needs:` cannot cross independently-triggered workflows.
-  # FIXME: Enable gating on failure for OpenShift E2E tests again once we fix the insufficient resource issues for these tests
+  # Diagnostics are collected here on failure before the PR Environment
+  # teardown job destroys an unretained environment.
+  # FIXME: Enable gating on failure for OpenShift E2E tests again once we
+  # fix the insufficient resource issues for these tests
   e2e-openshift:
     name: OpenShift
     needs: plan-images

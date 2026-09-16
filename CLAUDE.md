@@ -54,16 +54,22 @@ Gateway Deployed on Cluster -> Network Mesh Established -> Traffic Flows
 
 ## SDLC Workflow
 
-The development lifecycle follows 6 steps, each backed by a skill:
+The development lifecycle follows 5 steps, each backed by a skill:
 
 ```
 0. /reconcile             -- autonomous spec-to-code reconciliation (build/reconcile)
 1. /spec                  -- define desired state (plan/spec)
 2. /full-stack-pipeline   -- build the feature (build/full-stack-pipeline)
 3. /dev-cluster           -- test locally in Kind (build/dev-cluster)
-4. /pr-test               -- deploy PR to cluster (test/pr-test)
-5. /deploy-cluster        -- ship to production (deploy/deploy-cluster)
+4. /deploy-cluster        -- ship to production (deploy/deploy-cluster)
 ```
+
+Origin pull-request OpenShift e2e is the ephemeral PR environment workflow
+(`specs/platform/ephemeral-pr-environments.spec.md`): deploy, Tests / E2E /
+OpenShift, destroy unless `/pr-extend`. The legacy
+`components/pr-test/e2e-openshell.sh` script is deprecated; use
+`E2E_INFRA_DRIVER=openshift bash tests/e2e/e2e-openshell.sh`. The ROKS
+variant `e2e-openshell-roks.sh` is unchanged.
 
 `/reconcile` is the top-level entrypoint. It reads `skills/RECONCILE.md` for checkpoint
 state (coverage summary, gap table, wave plan), then executes waves to close gaps.

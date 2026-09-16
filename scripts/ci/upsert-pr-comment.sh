@@ -25,6 +25,8 @@
 #                                 or "ready" (default; full access facts)
 #   PR_ENV_UPDATED                "true" for the per-commit update wording
 #                                 ("ready" phase only)
+#   PR_ENV_RETAINED               "true" when the pull request is marked
+#                                 retained ("ready" phase only)
 #   PLATFORM_NS / KEYCLOAK_NS     namespace group ("ready" phase only)
 #   CONSOLE_URL / API_URL / WEB_URL / CLUSTER_API_URL   access URLs
 #                                 ("ready" phase only)
@@ -64,7 +66,8 @@ case "${phase}" in
       "${API_URL:-}" \
       "${WEB_URL:-}" \
       "${CLUSTER_API_URL:-}" \
-      "${PR_ENV_UPDATED:-false}")"
+      "${PR_ENV_UPDATED:-false}" \
+      "${PR_ENV_RETAINED:-false}")"
     ;;
   *)
     echo "::error::Unknown PR_ENV_PHASE '${phase}' (want deploying or ready)" >&2

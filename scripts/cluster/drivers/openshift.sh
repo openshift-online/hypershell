@@ -1504,21 +1504,16 @@ cluster_down() {
     info "No namespace group found for ${OPENSHIFT_NAMESPACE} / ${OPENSHIFT_KEYCLOAK_NAMESPACE}; still reaping instance-managed leftovers"
   fi
 
-  info "Deleting this environment's cluster-scoped RBAC..."
-  local prefix="${OPENSHIFT_NAMESPACE}-dev-"
-  oc_cli delete clusterrolebinding "${prefix}hypershell-controller-scc-bind" --ignore-not-found >/dev/null 2>&1 || true
-  oc_cli delete clusterrolebinding "${prefix}hypershell-controller" --ignore-not-found >/dev/null 2>&1 || true
-  oc_cli delete clusterrole "${prefix}hypershell-controller-scc-bind" --ignore-not-found >/dev/null 2>&1 || true
-  oc_cli delete clusterrole "${prefix}hypershell-controller" --ignore-not-found >/dev/null 2>&1 || true
-
-  if [[ "${ok_keycloak}" == "true" || "${ok_platform}" == "true" ]]; then
-    info "Removing namespace group ${OPENSHIFT_NAMESPACE} and ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
-    remove_project "${OPENSHIFT_KEYCLOAK_NAMESPACE}"
-    remove_project "${OPENSHIFT_NAMESPACE}"
+  # Shared deletion path with the PR-environment reaper so adding a resource
+  # to teardown takes effect in both. Local swap files are CI-irrelevant and
+  # stay here.
+  info "Deleting this environment's cluster-scoped RBAC, namespace group, and instance-managed namespaces..."
+  if ! OPENSHIFT_NAMESPACE="${OPENSHIFT_NAMESPACE}" \
+    PR_ENV_KUBECTL="${OC:-oc}" \
+    bash "${REPO_ROOT}/scripts/ci/teardown-pr-env.sh"; then
+    error "Failed to tear down ${OPENSHIFT_NAMESPACE}"
+    return 1
   fi
-  # After the controller is gone (or when the platform project was already
-  # absent) delete sibling gateway/database namespaces this instance stamped.
-  delete_instance_managed_namespaces "${OPENSHIFT_NAMESPACE}"
   clear_all_openshift_swaps
   success "Environment ${OPENSHIFT_NAMESPACE} (and ${OPENSHIFT_KEYCLOAK_NAMESPACE}) removed"
 }

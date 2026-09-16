@@ -3,19 +3,12 @@
 # environments (ephemeral-pr-environments.spec.md, Timebox and Reaping).
 #
 # Runs independently of any CI run (as a CronJob on the target cluster, see
-# deploy/e2e/reaper), so an abandoned pull request's environment is reclaimed
-# even when no further CI runs for that pull request. It deletes a namespace when
-# and only when pr_env_is_reapable is true: prefixed hypershell-ci-pr-, owned by
-# HyperShell, environment id pr-<number>, and past its
-# hypershell.redhat.io/expires-at. Because every deploying run refreshes that
-# annotation, an actively worked pull request is never reaped mid-flight; a
-# namespace with no activity for the timebox falls past its expiry and is removed.
-#
-# The reaper matches the platform and the -keycloak namespaces independently
-# (both carry the same labels and prefix), so one pass removes the whole group.
-# Gateway and ManagedDatabase namespaces are siblings labeled
-# hypershell.redhat.io/instance=<platform ns>; they are reaped with the platform
-# project and again if that project is already gone.
+# deploy/e2e/reaper), so a crashed in-run teardown or a quiet retained pull
+# request is still reclaimed. It identifies a namespace group when
+# pr_env_is_reapable is true: prefixed hypershell-ci-pr-, owned by HyperShell,
+# environment id pr-<number>, and past its hypershell.redhat.io/expires-at.
+# Deletion uses the same teardown path as `make openshift-down`
+# (scripts/ci/teardown-pr-env.sh) per expired environment.
 #
 # Environment:
 #   PR_ENV_KUBECTL        kubectl/oc binary (default: kubectl)
@@ -28,6 +21,7 @@ source "${SCRIPT_DIR}/pr-env-lib.sh"
 
 KUBECTL="${PR_ENV_KUBECTL:-kubectl}"
 DRY_RUN="${PR_ENV_REAP_DRY_RUN:-false}"
+TEARDOWN="${SCRIPT_DIR}/teardown-pr-env.sh"
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
@@ -52,65 +46,66 @@ platform_namespace_exists() {
   "${KUBECTL}" get namespace "$1" >/dev/null 2>&1
 }
 
-# Delete this environment's cluster-scoped RBAC, mirroring cluster_down in
-# scripts/cluster/drivers/openshift.sh. Only the platform namespace owns the
-# ${ns}-dev-* cluster RBAC; the -keycloak namespace has none.
-delete_cluster_rbac() {
-  local ns="$1"
-  local prefix="${ns}-dev-"
-  local kind name
-  for kind in clusterrolebinding clusterrole; do
-    for name in "${prefix}hypershell-controller-scc-bind" "${prefix}hypershell-controller"; do
-      if [[ "${DRY_RUN}" == "true" ]]; then
-        log "  DRY-RUN would delete ${kind}/${name}"
-      else
-        "${KUBECTL}" delete "${kind}" "${name}" --ignore-not-found >/dev/null 2>&1 || true
-      fi
-    done
-  done
+# Platform namespace for a reapable owned name (strip the -keycloak suffix).
+platform_for() {
+  local name="$1"
+  if [[ "${name}" == *-keycloak ]]; then
+    printf '%s' "${name%-keycloak}"
+  else
+    printf '%s' "${name}"
+  fi
 }
 
-reap_namespace() {
+teardown_env() {
   local ns="$1"
   if [[ "${DRY_RUN}" == "true" ]]; then
-    log "  DRY-RUN would delete namespace ${ns}"
+    log "  DRY-RUN would teardown ${ns} via ${TEARDOWN}"
     return 0
   fi
-  # --wait=false: do not block the reaper on finalizers; the delete is recorded
-  # and the namespace terminates asynchronously.
-  if "${KUBECTL}" delete namespace "${ns}" --ignore-not-found --wait=false >/dev/null 2>&1; then
-    log "  deleted namespace ${ns}"
-  else
-    log "  WARNING failed to delete namespace ${ns}"
-    return 1
+  if OPENSHIFT_NAMESPACE="${ns}" PR_ENV_KUBECTL="${KUBECTL}" PR_ENV_REAP_DRY_RUN="${DRY_RUN}" \
+    bash "${TEARDOWN}"; then
+    log "  teardown ${ns} succeeded"
+    return 0
   fi
+  log "  WARNING teardown ${ns} failed"
+  return 1
 }
 
-# Delete sibling gateway/database namespaces this platform instance stamped.
-reap_instance_workloads() {
-  local instance="$1"
-  local rows name inst
-  if [[ -z "${instance}" ]]; then
-    log "  WARNING refusing to reap instance workloads with an empty instance identity"
+main() {
+  local now considered=0 reaped=0 retained=0 failed=0
+  local seen=" "
+  now="$(pr_env_now_epoch)"
+  log "pr-env reaper: scanning owned namespaces (dry_run=${DRY_RUN})"
+
+  local rows
+  if ! rows="$(list_owned_namespaces)"; then
+    log "ERROR: could not list namespaces via ${KUBECTL}"
     return 1
   fi
-  if ! rows="$(list_control_plane_managed_namespaces)"; then
-    log "  WARNING could not list instance-managed namespaces for ${instance}"
-    return 1
-  fi
-  while IFS=$'\t' read -r name inst; do
+
+  local name owned env_id expires platform
+  while IFS=$'\t' read -r name owned env_id expires; do
     [[ -n "${name}" ]] || continue
-    [[ "${inst}" == "${instance}" ]] || continue
-    if [[ "${name}" == "${instance}" || "${name}" == "${instance}-keycloak" ]]; then
-      continue
+    considered=$((considered + 1))
+    if pr_env_is_reapable "${name}" "${owned}" "${env_id}" "${expires}" "${now}"; then
+      platform="$(platform_for "${name}")"
+      if [[ "${seen}" == *" ${platform} "* ]]; then
+        log "REAP ${name} (env=${env_id}) already queued as ${platform}"
+        continue
+      fi
+      seen="${seen}${platform} "
+      log "REAP ${name} (env=${env_id}, expired at ${expires}) via openshift-down teardown"
+      if teardown_env "${platform}"; then
+        reaped=$((reaped + 1))
+      else
+        failed=$((failed + 1))
+      fi
+    else
+      retained=$((retained + 1))
     fi
-    log "  instance workload ${name} (instance=${instance})"
-    reap_namespace "${name}" || true
   done <<< "${rows}"
-}
 
-reap_leftover_instance_workloads() {
-  local rows name inst exists
+  local inst exists
   if ! rows="$(list_control_plane_managed_namespaces)"; then
     log "ERROR: could not list control-plane managed namespaces via ${KUBECTL}"
     return 1
@@ -122,50 +117,18 @@ reap_leftover_instance_workloads() {
       exists="true"
     fi
     if pr_env_should_reap_instance_workload "${name}" "${inst}" "${exists}"; then
-      log "REAP leftover ${name} (instance=${inst}, platform absent)"
-      if reap_namespace "${name}"; then
+      if [[ "${seen}" == *" ${inst} "* ]]; then
+        continue
+      fi
+      seen="${seen}${inst} "
+      log "REAP leftover ${name} (instance=${inst}, platform absent) via openshift-down teardown"
+      if teardown_env "${inst}"; then
         reaped=$((reaped + 1))
       else
         failed=$((failed + 1))
       fi
     fi
   done <<< "${rows}"
-}
-
-main() {
-  local now considered=0 reaped=0 retained=0 failed=0
-  now="$(pr_env_now_epoch)"
-  log "pr-env reaper: scanning owned namespaces (dry_run=${DRY_RUN})"
-
-  local rows
-  if ! rows="$(list_owned_namespaces)"; then
-    log "ERROR: could not list namespaces via ${KUBECTL}"
-    return 1
-  fi
-
-  local name owned env_id expires
-  while IFS=$'\t' read -r name owned env_id expires; do
-    [[ -n "${name}" ]] || continue
-    considered=$((considered + 1))
-    if pr_env_is_reapable "${name}" "${owned}" "${env_id}" "${expires}" "${now}"; then
-      log "REAP ${name} (env=${env_id}, expired at ${expires})"
-      if reap_namespace "${name}"; then
-        # Only the platform namespace owns cluster RBAC and instance-stamped
-        # gateway/database namespaces; skip the -keycloak half.
-        if [[ "${name}" != *-keycloak ]]; then
-          delete_cluster_rbac "${name}"
-          reap_instance_workloads "${name}"
-        fi
-        reaped=$((reaped + 1))
-      else
-        failed=$((failed + 1))
-      fi
-    else
-      retained=$((retained + 1))
-    fi
-  done <<< "${rows}"
-
-  reap_leftover_instance_workloads
 
   log "pr-env reaper: considered=${considered} reaped=${reaped} retained=${retained} failed=${failed}"
   [[ "${failed}" -eq 0 ]]
