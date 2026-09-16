@@ -191,15 +191,18 @@ or `Degraded` SHALL NOT, by itself, suppress re-application.
 When a Gateway's desired spec changes (its `generation` advances beyond
 `observed_generation`), the control plane SHALL re-run provisioning regardless
 of the current `phase`, and SHALL set `observed_generation` to the applied
-`generation` upon success. Success means the generation has fully rolled out:
-its manifests are applied AND its workload is observed `Running` with
-`GatewayHealthy` `Complete` (for a routed Gateway, its external exposure is also
-observed Ready). A Gateway whose manifests are applied but which is still
-awaiting workload or route readiness SHALL remain non-converged so that the
-later pass which finalizes `GatewayHealthy` to `Complete` is not suppressed by
-the gate. If re-application fails, `observed_generation` SHALL remain unchanged
-so the change is retried, and the `phase` SHALL be set per the existing
-provisioning failure semantics.
+`generation` upon success. If re-application fails, `observed_generation` SHALL
+remain unchanged so the change is retried, and the `phase` SHALL be set per the
+existing provisioning failure semantics.
+
+Because the convergence gate suppresses the provisioning body once a Gateway is
+converged, the continuous health reconciler - not the provisioning body - owns
+finalizing the user-facing provisioning conditions after convergence. When the
+health reconciler promotes a Gateway to `phase` `Running` with a healthy status,
+it SHALL also set every provisioning condition to `Complete`, so that a
+`Running` Gateway never reports an unfinished `GatewayHealthy` (or earlier)
+condition even though its `observed_generation` was acknowledged at manifest
+apply, before workload and route readiness were observed.
 
 The gate SHALL NOT, in any case, prevent `phase`/`status` updates that reflect
 observed workload health: a `Running` Gateway SHALL still be able to transition
