@@ -260,9 +260,7 @@ pr_env_comment_access_facts() {
 pr_env_comment_lifetime() {
   if [[ "${1:-}" == "true" ]]; then
     cat <<EOF
-This environment is retained and renewed on every commit. It is reclaimed after
-the inactivity timebox unless you comment \`/pr-destroy\` or the pull request is
-closed.
+This environment is retained and renewed on every commit. It is reclaimed after the inactivity timebox unless you comment \`/pr-destroy\` or the pull request is closed.
 EOF
   else
     cat <<EOF
@@ -347,8 +345,7 @@ pr_env_comment_body() {
 ${PR_ENV_COMMENT_MARKER}
 ## ${heading}
 
-This pull request has a live ephemeral OpenShift environment running commit
-\`${short_sha}\`.
+This pull request has a live ephemeral OpenShift environment running commit \`${short_sha}\`.
 
 ${lifetime}
 
@@ -359,8 +356,7 @@ ${lifetime}
 | API | ${api_url} |
 | Web console | ${web_url} |
 
-Log in through the web console with your GitHub account (you must be a member of
-the configured organization or on its allowlist).
+Log in through the web console with your GitHub account (you must be a member of the configured organization or on its allowlist).
 
 <details><summary>CLI access</summary>
 
