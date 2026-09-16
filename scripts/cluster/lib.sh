@@ -36,8 +36,9 @@ REPO_ROOT="$(cd "${CLUSTER_SCRIPT_DIR}/../.." && pwd)"
 : "${web_console_local:=localhost/hypershell-web-console:dev}"
 : "${build_version:=$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 : "${build_time:=$(date -u '+%Y-%m-%d %H:%M:%S UTC')}"
-: "${OPENSHELL_RELEASE_TAG:=$(tr -d '[:space:]' < "${REPO_ROOT}/charts/CHART_REF")}"
-: "${GATEWAY_IMAGE:=quay.io/opendatahub/odh-openshell-gateway:${OPENSHELL_RELEASE_TAG}}"
+# shellcheck source=../../OPENSHELL_VERSION
+source "${REPO_ROOT}/OPENSHELL_VERSION"
+: "${GATEWAY_IMAGE:=${OPENSHELL_GATEWAY_IMAGE}:${OPENSHELL_TAG}}"
 : "${GATEWAY_API_GATEWAY_NAME:=openshell-grpc-gateway}"
 : "${GATEWAY_API_GATEWAY_NAMESPACE:=openshift-ingress}"
 

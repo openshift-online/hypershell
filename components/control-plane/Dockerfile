@@ -32,10 +32,9 @@ ARG TARGETARCH
 RUN cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
 # Package Helm chart from fork (git is provided by the Go toolchain image)
-COPY charts/CHART_REPO charts/CHART_REF /tmp/chart-source/
-RUN CHART_REPO=$(cat /tmp/chart-source/CHART_REPO) && \
-    CHART_REF=$(cat /tmp/chart-source/CHART_REF) && \
-    git clone --depth 1 --branch "${CHART_REF}" "${CHART_REPO}" /tmp/openshell && \
+COPY OPENSHELL_VERSION /tmp/chart-source/
+RUN . /tmp/chart-source/OPENSHELL_VERSION && \
+    git clone --depth 1 --branch "${OPENSHELL_TAG}" "${OPENSHELL_CHART_REPO}" /tmp/openshell && \
     mkdir -p /workspace/charts && \
     helm package /tmp/openshell/deploy/helm/openshell --destination /workspace/charts/ && \
     mv /workspace/charts/*.tgz /workspace/charts/openshell.tgz && \

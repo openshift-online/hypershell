@@ -35,8 +35,9 @@ fi
 if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
   export KIND_EXPERIMENTAL_PROVIDER=podman
 fi
-: "${OPENSHELL_RELEASE_TAG:=$(tr -d '[:space:]' < "${REPO_ROOT}/charts/CHART_REF")}"
-: "${GATEWAY_IMAGE:=quay.io/opendatahub/odh-openshell-gateway:${OPENSHELL_RELEASE_TAG}}"
+# shellcheck source=../../OPENSHELL_VERSION
+source "${REPO_ROOT}/OPENSHELL_VERSION"
+: "${GATEWAY_IMAGE:=${OPENSHELL_GATEWAY_IMAGE}:${OPENSHELL_TAG}}"
 : "${KEYCLOAK_HOSTNAME:=keycloak.hypershell.localhost}"
 : "${KEYCLOAK_OIDC_ISSUER:=https://${KEYCLOAK_HOSTNAME}/realms/hypershell}"
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"

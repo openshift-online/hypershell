@@ -48,7 +48,7 @@ spec:
             # sibling control-plane -> api-server watch channel (no mTLS).
             - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS
               value: "0.0.0.0:9443"
-            # Tag must match charts/CHART_REF when updating the OpenShell version.
+            # Tags must match OPENSHELL_VERSION when bumping the OpenShell release.
             - name: GATEWAY_IMAGE
               value: quay.io/opendatahub/odh-openshell-gateway:v0.0.116-rhaiv.6
             - name: GATEWAY_SUPERVISOR_IMAGE
