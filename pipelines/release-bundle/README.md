@@ -26,6 +26,10 @@ The publisher requires all of these conditions:
 - Each source revision belongs to the history of `hypershell` main.
 - Any event-type metadata identifies a push event.
 
+A push event can retain the number of its merged pull request. The publisher
+accepts that number only when the same metadata prefix has an explicit `push`
+event. Pull request and merge queue events remain blocked.
+
 The final pipeline can run after a failed managed pipeline. It must check
 `ManagedPipelineProcessed`; `Released` is not complete until the final pipeline
 finishes. A failed check stops publication.
@@ -53,16 +57,16 @@ Set `spec.finalPipeline` to this pipeline through the Git resolver. Use
 `pipelines/release-bundle/pipeline.yaml`. Set `useEmptyDir: true` and
 `serviceAccountName: build-pipeline-hypershell-api-server-main`.
 
-Each new run resolves the pipeline from `main`. The publisher reads the resolved
-commit from `status.provenance.refSource.digest.sha1` on its PipelineRun and
-fetches the Python script from that commit. A change to `main` during the run
-cannot change the script version. Missing provenance stops publication.
+Each new run resolves the pipeline from `main`. The pipeline includes the
+publisher code, so a change to `main` during the run cannot change that code.
+The publisher does not need a resolved Git revision or PipelineRun provenance.
+It fetches main only to check the ancestry of the component source revisions.
 
 Bind this service account to the approved `konflux-viewer-bot-actions` ClusterRole
 in the tenant namespace. The config repository rejects custom roles. The viewer
 role permits reads of Releases, Snapshots, and other Konflux resources. It does
-not grant writes. The publisher uses only `get` on Releases, Snapshots, and its
-PipelineRun. Verify these reads in the first cluster run.
+not grant writes. The publisher uses only `get` on Releases and Snapshots.
+Verify these reads in the first cluster run.
 
 The existing build account already has Quay write access. Reuse its credential
 through Tekton credential initialization and the `select-oci-auth` helper. No new
@@ -109,6 +113,12 @@ still required to prove the live credentials. The local checks cannot prove them
 ## Local checks
 
 Run `make test-release-bundle` and `make check`.
+
+Edit `scripts/release_bundle.py`, then run
+`python3 scripts/render_release_bundle_pipeline.py` to update the pipeline's
+embedded script. Commit both files. The tests reject a pipeline whose embedded
+script differs from the source. They also run the complete embedded script with
+local substitutes for Kubernetes, Git, and registry commands.
 
 References:
 

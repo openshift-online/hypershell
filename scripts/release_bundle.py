@@ -51,11 +51,17 @@ def make_bundle(release, snapshot):
     require(managed.get("status") == "True" and managed.get("reason") == "Succeeded",
             "The managed release did not succeed")
     for obj in (release, snapshot):
+        push_prefixes, pull_request_prefixes = set(), set()
         for field in ("annotations", "labels"):
             for key, value in obj["metadata"].get(field, {}).items():
                 if key.endswith("/event-type"):
                     require(value == "push", "Only push snapshots can produce bundles")
-                require(not key.endswith("/pull-request"), "Pull request snapshots cannot produce bundles")
+                    push_prefixes.add(key.removesuffix("/event-type"))
+                if key.endswith("/pull-request"):
+                    pull_request_prefixes.add(key.removesuffix("/pull-request"))
+        # Push events can retain the number of the merged pull request.
+        require(pull_request_prefixes <= push_prefixes,
+                "Pull request metadata requires an explicit push event")
     components = indexed(snapshot["spec"]["components"])
     images = indexed(release["status"].get("artifacts", {}).get("images", []))
     output = []

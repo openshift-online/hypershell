@@ -8,6 +8,7 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     # Changes to this file also rebuild the API image for release pipeline checks.
+    # A successful managed release then runs the release bundle publisher.
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
       == "main" && ( "components/api-server/***".pathChanged() || ".tekton/hypershell-api-server-main-push.yaml".pathChanged()
       )

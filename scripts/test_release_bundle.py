@@ -2,6 +2,8 @@
 
 import copy
 import os
+import json
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import release_bundle as bundle
+from scripts import render_release_bundle_pipeline as renderer
 
 
 def fixtures():
@@ -94,56 +97,79 @@ class ReleaseBundleTests(unittest.TestCase):
         newer, _ = bundle.make_bundle(release, snapshot)
         self.assertGreater(newer, retry)
 
+    def test_push_can_retain_merged_pull_request_number(self):
+        release, snapshot = fixtures()
+        for obj in (release, snapshot):
+            obj["metadata"]["annotations"] = {
+                "pac.test.appstudio.openshift.io/event-type": "push",
+                "pac.test.appstudio.openshift.io/pull-request": "293",
+                "pac.test.appstudio.openshift.io/source-branch": "refs/heads/main",
+            }
+        bundle.make_bundle(release, snapshot)
+
+    def test_pull_request_metadata_requires_matching_push_event(self):
+        for event_key in (None, "other.example/event-type"):
+            for location in ("release", "snapshot"):
+                release, snapshot = fixtures()
+                obj = release if location == "release" else snapshot
+                obj["metadata"]["annotations"] = {"pac.test.appstudio.openshift.io/pull-request": "293"}
+                if event_key:
+                    obj["metadata"]["labels"] = {event_key: "push"}
+                with self.subTest(event_key=event_key, location=location), self.assertRaises(ValueError):
+                    bundle.make_bundle(release, snapshot)
+
 
 class PipelineBootstrapTests(unittest.TestCase):
-    def run_bootstrap(self, revision, read_status=0):
-        pipeline = Path(__file__).resolve().parents[1] / "pipelines/release-bundle/pipeline.yaml"
-        script = textwrap.dedent(pipeline.read_text().split("            script: |\n", 1)[1])
+    def test_embedded_publisher_matches_source(self):
+        pipeline = renderer.PIPELINE.read_text()
+        self.assertEqual(pipeline, renderer.render(pipeline, renderer.PUBLISHER.read_text()))
+
+    def run_bootstrap(self, git_status=0):
+        script = textwrap.dedent(renderer.PIPELINE.read_text().split(renderer.SCRIPT_MARKER, 1)[1])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             commands = root / "commands"
+            release, snapshot = fixtures()
+            (root / "release.json").write_text(json.dumps(release))
+            (root / "snapshot.json").write_text(json.dumps(snapshot))
             stubs = {
-                "kubectl": 'printf "%s\\n" "$*" >> "$COMMAND_LOG"\n'
-                           'printf "%s" "$RESOLVED_REVISION"\nexit "$READ_STATUS"\n',
-                "git": 'printf "git %s\\n" "$*" >> "$COMMAND_LOG"\n',
-                "python3": 'printf "publisher started\\n" >> "$COMMAND_LOG"\n',
+                "kubectl": 'case "$2" in releases.appstudio.redhat.com) cat "$FIXTURES/release.json";; '
+                           'snapshots.appstudio.redhat.com) cat "$FIXTURES/snapshot.json";; *) exit 1;; esac\n',
+                "git": 'exit "$GIT_STATUS"\n',
+                "oras": 'case "$1" in resolve) for last; do :; done; case "$last" in *@*) '
+                        'printf "%s\\n" "${last##*@}";; *) printf "{}\\n" | sha256sum | '
+                        'cut -d " " -f 1 | sed "s/^/sha256:/";; esac;; '
+                        'push) printf "{}\\n" > manifest.json;; *) exit 1;; esac\n',
+                "select-oci-auth": "printf '%s' '{\"auths\":{\"quay.io\":{\"auth\":\"dGVzdDp0ZXN0\"}}}'\n",
+                "python3": 'exec "$TEST_PYTHON" "$@"\n',
             }
             for name, body in stubs.items():
                 executable = root / name
-                executable.write_text("#!/bin/sh\n" + body)
+                executable.write_text('#!/bin/sh\nprintf "%s %s\\n" "${0##*/}" "$*" >> "$COMMAND_LOG"\n' + body)
                 executable.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
-                       COMMAND_LOG=str(commands), RESOLVED_REVISION=revision,
-                       READ_STATUS=str(read_status), PIPELINE_RUN="final-one",
-                       PIPELINE_NAMESPACE=bundle.NAMESPACE, RELEASE="release-one",
-                       SNAPSHOT="snapshot-one", BUNDLE_RESULT=str(root / "result"))
+                       COMMAND_LOG=str(commands), FIXTURES=str(root), TEST_PYTHON=sys.executable,
+                       GIT_STATUS=str(git_status), RELEASE=bundle.NAMESPACE + "/release-one",
+                       SNAPSHOT=bundle.NAMESPACE + "/snapshot-one", BUNDLE_RESULT=str(root / "result"))
             result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
-            return result, commands.read_text()
+            reference = (root / "result").read_text() if (root / "result").exists() else None
+            return result, commands.read_text(), reference
 
-    def test_script_uses_pipeline_commit_instead_of_main(self):
-        revision = "a" * 40
-        result, commands = self.run_bootstrap(revision)
+    def test_publishes_without_revision_parameter_or_provenance(self):
+        result, commands, reference = self.run_bootstrap()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("get pipelineruns.tekton.dev final-one -n " + bundle.NAMESPACE, commands)
-        self.assertIn("{.status.provenance.refSource.digest.sha1}", commands)
-        self.assertIn("main:refs/remotes/origin/main " + revision, commands)
-        self.assertIn("checkout --quiet " + revision + " -- scripts/release_bundle.py", commands)
-        self.assertIn("publisher started", commands)
+        self.assertTrue(reference.startswith(bundle.BUNDLE_REPOSITORY + "@sha256:"))
+        self.assertIn("main:refs/remotes/origin/main", commands)
+        self.assertNotIn("checkout", commands)
+        self.assertNotIn("pipelineruns", commands)
+        self.assertIn("python3 - --release", commands)
 
-    def test_missing_or_invalid_commit_stops_before_fetch(self):
-        for revision in ("", "main", "a" * 39, "$(touch /tmp/unexpected)"):
-            with self.subTest(revision=revision):
-                result, commands = self.run_bootstrap(revision)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("no valid resolved Git commit", result.stderr)
-                self.assertNotIn("git ", commands)
-                self.assertNotIn("publisher started", commands)
-
-    def test_pipeline_read_failure_stops_publication(self):
-        result, commands = self.run_bootstrap("a" * 40, read_status=1)
+    def test_failed_source_fetch_stops_publication(self):
+        result, commands, reference = self.run_bootstrap(git_status=1)
         self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("git ", commands)
-        self.assertNotIn("publisher started", commands)
+        self.assertIsNone(reference)
+        self.assertNotIn("python3", commands)
+        self.assertNotIn("oras", commands)
 
 
 if __name__ == "__main__":
