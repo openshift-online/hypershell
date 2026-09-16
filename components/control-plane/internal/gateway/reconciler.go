@@ -2,8 +2,6 @@ package gateway
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,10 +53,6 @@ func ReconcileGateway(
 		report = func(string, string, string) {}
 	}
 
-	images := opts.Images
-	if images == nil {
-		images = StaticImageDefaults{}
-	}
 	ingressMode := gatewayIngressMode(opts)
 
 	// Step 1: EnvironmentReady
@@ -211,8 +205,10 @@ func DeleteGatewayResources(
 	credentialNamespaces ...string,
 ) error {
 	// Uninstall Helm release (removes all chart-managed resources in the namespace)
-	if err := helmClient.Uninstall(ctx, namespace); err != nil {
-		log.Printf("WARN failed to uninstall helm release in namespace %s: %v", namespace, err)
+	if helmClient != nil {
+		if err := helmClient.Uninstall(ctx, namespace); err != nil {
+			log.Printf("WARN failed to uninstall helm release in namespace %s: %v", namespace, err)
+		}
 	}
 
 	crbGVR := schema.GroupVersionResource{
@@ -1298,49 +1294,6 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 	return nil
 }
 
-// reconcileCredentialKEK uses create-or-skip (not update-or-create) because
-// replacing an existing key would render all previously encrypted credentials
-// unrecoverable.
-func reconcileCredentialKEK(ctx context.Context, clientset *kubernetes.Clientset, namespace string) error {
-	secretName := "openshell-gateway-credential-kek"
-	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
-	if err == nil {
-		log.Printf("DEBUG credential KEK secret %s already exists in %s, skipping", secretName, namespace)
-		return nil
-	}
-	if !k8serrors.IsNotFound(err) {
-		return fmt.Errorf("get credential KEK secret: %w", err)
-	}
-
-	kekBytes := make([]byte, 32)
-	if _, err := rand.Read(kekBytes); err != nil {
-		return fmt.Errorf("generate credential KEK: %w", err)
-	}
-
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/name":       "openshell",
-				"app.kubernetes.io/component":  "gateway",
-				"app.kubernetes.io/managed-by": "hypershell-control-plane",
-				"hypershell.redhat.io/managed": "true",
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			"key-encryption-key": []byte(base64.StdEncoding.EncodeToString(kekBytes)),
-		},
-	}
-
-	if _, err := clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("create credential KEK secret: %w", err)
-	}
-
-	log.Printf("INFO created credential KEK secret %s in %s", secretName, namespace)
-	return nil
-}
 
 func reconcileCredentialDriverResources(
 	ctx context.Context,
@@ -2020,164 +1973,3 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	return nil
 }
 
-func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig) error {
-	namespace := nsConfig.Name
-	dnsNames := nsConfig.Gateway.ServerDnsNames
-
-	selfSignedIssuer := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Issuer",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-selfsigned",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"selfSigned": map[string]interface{}{},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, selfSignedIssuer); err != nil {
-		return fmt.Errorf("reconcile self-signed issuer: %w", err)
-	}
-
-	caCert := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Certificate",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-ca",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"isCA":           true,
-				"commonName":     "openshell-ca",
-				"secretName":     "openshell-ca-tls",
-				"rotationPolicy": "Always",
-				"privateKey": map[string]interface{}{
-					"algorithm": "ECDSA",
-					"size":      int64(256),
-				},
-				"issuerRef": map[string]interface{}{
-					"name":  "openshell-selfsigned",
-					"kind":  "Issuer",
-					"group": "cert-manager.io",
-				},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, caCert); err != nil {
-		return fmt.Errorf("reconcile CA certificate: %w", err)
-	}
-
-	caIssuer := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Issuer",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-ca-issuer",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"ca": map[string]interface{}{
-					"secretName": "openshell-ca-tls",
-				},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, caIssuer); err != nil {
-		return fmt.Errorf("reconcile CA issuer: %w", err)
-	}
-
-	dnsNamesInterface := make([]interface{}, len(dnsNames))
-	for i, d := range dnsNames {
-		dnsNamesInterface[i] = d
-	}
-
-	serverCert := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Certificate",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-server",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"secretName": "openshell-server-tls",
-				"dnsNames":   dnsNamesInterface,
-				"issuerRef": map[string]interface{}{
-					"name":  "openshell-ca-issuer",
-					"kind":  "Issuer",
-					"group": "cert-manager.io",
-				},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, serverCert); err != nil {
-		return fmt.Errorf("reconcile server certificate: %w", err)
-	}
-
-	// The client certificate is NOT for external-client mTLS (external clients
-	// authenticate via OIDC over the Route). It exists so sandbox runners can
-	// verify the gateway's TLS server cert: openshell 0.0.109's Kubernetes driver
-	// mounts this secret into every sandbox and sets OPENSHELL_TLS_CA from its
-	// ca.crt whenever gateway.toml sets client_tls_secret_name. Because it is
-	// issued by the same openshell-ca-issuer as the server cert, its ca.crt
-	// chains to the gateway's server certificate. Without it the sandbox agent
-	// crashloops ("OPENSHELL_TLS_CA is required") and never reaches Ready.
-	clientCert := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Certificate",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-client",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"secretName": "openshell-client-tls",
-				"commonName": "openshell-client",
-				"issuerRef": map[string]interface{}{
-					"name":  "openshell-ca-issuer",
-					"kind":  "Issuer",
-					"group": "cert-manager.io",
-				},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, clientCert); err != nil {
-		return fmt.Errorf("reconcile client certificate: %w", err)
-	}
-
-	log.Printf("INFO cert-manager resources reconciled in namespace %s", namespace)
-	return nil
-}
