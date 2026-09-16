@@ -31,6 +31,7 @@
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 #   E2E_OPENSHELL_INSTALL  auto, always, or never (default: auto; CI uses always)
 #   E2E_OPENSHELL_VERSION  Override CLI version/tag to install (e.g. v0.0.116, dev)
+#   E2E_OPENSHELL_CLI_IMAGE  Container image to extract the CLI from (skips GitHub download)
 #   E2E_GATEWAY_VERSION_TIMEOUT  Seconds to wait for the runtime version (default: 300)
 set -euo pipefail
 
@@ -937,6 +938,35 @@ install_openshell_cli_from_api() {
   fi
   if [[ "${E2E_OPENSHELL_INSTALL}" != "always" && -z "${E2E_OPENSHELL_VERSION}" && "${OPENSHELL_PREINSTALLED}" == "1" ]]; then
     dim "  Using pre-installed openshell CLI (E2E_OPENSHELL_INSTALL=${E2E_OPENSHELL_INSTALL})."
+    return 0
+  fi
+
+  # Container image path: extract the CLI binary directly from a container image.
+  if [[ -n "${E2E_OPENSHELL_CLI_IMAGE}" ]]; then
+    dim "  Extracting CLI from container image: ${E2E_OPENSHELL_CLI_IMAGE}"
+    local install_dir="${HOME}/.local/bin"
+    mkdir -p "${install_dir}"
+    local ctr_name="e2e-cli-extract-$$"
+    local ctr_engine
+    ctr_engine="${CONTAINER_ENGINE:-$(command -v podman 2>/dev/null || echo docker)}"
+    show_cmd "${ctr_engine} create ${E2E_OPENSHELL_CLI_IMAGE}"
+    if ! ${ctr_engine} create --name "${ctr_name}" "${E2E_OPENSHELL_CLI_IMAGE}" true >/dev/null 2>&1; then
+      fail_test "Failed to create container from ${E2E_OPENSHELL_CLI_IMAGE}"
+      exit 1
+    fi
+    if ! ${ctr_engine} cp "${ctr_name}:/usr/local/bin/openshell" "${install_dir}/openshell" 2>/dev/null; then
+      ${ctr_engine} rm "${ctr_name}" >/dev/null 2>&1 || true
+      fail_test "Failed to extract openshell binary from ${E2E_OPENSHELL_CLI_IMAGE}"
+      exit 1
+    fi
+    ${ctr_engine} rm "${ctr_name}" >/dev/null 2>&1 || true
+    chmod 755 "${install_dir}/openshell"
+    export PATH="${install_dir}:${PATH}"
+    hash -r 2>/dev/null || true
+    local reported
+    reported=$("${OPENSHELL_BIN}" --version 2>&1 || true)
+    dim "  openshell --version: ${reported}"
+    pass "openshell CLI extracted from container image (${reported})"
     return 0
   fi
 
