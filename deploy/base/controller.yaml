@@ -49,9 +49,9 @@ spec:
             - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS
               value: "0.0.0.0:9443"
             - name: GATEWAY_IMAGE
-              value: quay.io/bsquizza/openshell-gateway:16112bc
+              value: ghcr.io/nvidia/openshell/gateway:0.1.0-pre.2
             - name: GATEWAY_SUPERVISOR_IMAGE
-              value: quay.io/bsquizza/openshell-supervisor:16112bc
+              value: ghcr.io/nvidia/openshell/supervisor:0.1.0-pre.2
           ports:
             - containerPort: 9443
               name: provisioner
