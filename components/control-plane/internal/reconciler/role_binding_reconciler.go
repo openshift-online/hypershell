@@ -74,14 +74,18 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 
 	kcRoles, ok := keycloakRoleMap[rb.RoleName]
 	if !ok {
+		if rb.RoleName == "" {
+			reconcileErr = fmt.Errorf("role binding %s: role name not yet resolved", event.ResourceID)
+			return reconcileErr
+		}
 		log.Printf("DEBUG role binding %s: role %q has no keycloak mapping, skipping", event.ResourceID, rb.RoleName)
 		return nil
 	}
 
 	username := rb.Username
 	if username == "" {
-		log.Printf("WARN role binding %s: no username available, skipping keycloak sync", event.ResourceID)
-		return nil
+		reconcileErr = fmt.Errorf("role binding %s: username not yet resolved", event.ResourceID)
+		return reconcileErr
 	}
 
 	kcClientID, err := r.resolveKeycloakClientID(ctx, *rb.GatewayId)

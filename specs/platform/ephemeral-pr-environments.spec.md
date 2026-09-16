@@ -1126,6 +1126,18 @@ appear in logs, the pull-request comment, or public artifacts.
 - AND it SHALL NOT use a password grant
 - AND the token SHALL carry `openshell-user` for that gateway
 
+#### Scenario: CI acquires a per-gateway admin token as the e2e service account
+
+- GIVEN CI authenticates as the `hypershell-e2e` service account
+- AND that service account created the gateway under test
+- WHEN the suite calls `acquire_gateway_token_with_role` for the admin path
+- THEN it SHALL obtain the token by token-exchange of the `hypershell-e2e`
+  service account targeting that gateway client
+- AND it SHALL NOT impersonate the seeded passworded `admin` user
+- AND it SHALL NOT use a password grant
+- AND the token SHALL carry `openshell-admin` for that gateway once the
+  RoleBinding reconciler has assigned the owner role to the service account
+
 #### Scenario: Automation credentials do not leak
 
 - GIVEN CI holds the `hypershell-e2e` client secret

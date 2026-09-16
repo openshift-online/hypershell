@@ -1,9 +1,13 @@
 package reconciler
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 )
 
 func roleBinding(id, roleName string) *pb.RoleBinding {
@@ -81,5 +85,45 @@ func TestKeycloakRoleMap_OwnerGetsAdminAndUser(t *testing.T) {
 				t.Errorf("keycloakRoleMap[%q][%d] = %q, want %q", tc.roleBinding, i, got[i], role)
 			}
 		}
+	}
+}
+
+func TestHandle_EmptyUsernameIsError(t *testing.T) {
+	r := NewRoleBindingReconciler(keycloak.NewClient("http://keycloak", "hypershell", "id", "secret"), nil)
+	gatewayID := "gw-1"
+	err := r.Handle(context.Background(), watcher.Event[*pb.RoleBinding]{
+		ResourceID: "rb-1",
+		Type:       watcher.EventCreated,
+		Resource: &pb.RoleBinding{
+			RoleName:  "gateway:owner",
+			GatewayId: &gatewayID,
+			Username:  "",
+		},
+	})
+	if err == nil {
+		t.Fatal("empty username must be an error so the queue retries")
+	}
+	if !strings.Contains(err.Error(), "username not yet resolved") {
+		t.Fatalf("error = %v, want username not yet resolved", err)
+	}
+}
+
+func TestHandle_EmptyRoleNameIsError(t *testing.T) {
+	r := NewRoleBindingReconciler(keycloak.NewClient("http://keycloak", "hypershell", "id", "secret"), nil)
+	gatewayID := "gw-1"
+	err := r.Handle(context.Background(), watcher.Event[*pb.RoleBinding]{
+		ResourceID: "rb-1",
+		Type:       watcher.EventCreated,
+		Resource: &pb.RoleBinding{
+			RoleName:  "",
+			GatewayId: &gatewayID,
+			Username:  "service-account-hypershell-e2e",
+		},
+	})
+	if err == nil {
+		t.Fatal("empty role name must be an error so the queue retries")
+	}
+	if !strings.Contains(err.Error(), "role name not yet resolved") {
+		t.Fatalf("error = %v, want role name not yet resolved", err)
 	}
 }

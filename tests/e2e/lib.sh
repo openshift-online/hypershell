@@ -190,7 +190,8 @@ _E2E_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # users. "client_credentials" is the GitHub-brokered pull-request path -- brokered
 # GitHub users have no password grant, so CI authenticates through the confidential
 # hypershell-e2e service-account client (client-credentials for the admin path) and
-# Keycloak token exchange (impersonating the seeded developer principal). CI reads
+# Keycloak token exchange (impersonating the seeded developer principal; the
+# admin per-gateway path token-exchanges the service account itself). CI reads
 # the hypershell-e2e secret from the deployed Keycloak namespace and exports it as
 # E2E_OIDC_SA_CLIENT_SECRET; it never comes from a repo secret.
 : "${E2E_OIDC_GRANT:=password}"

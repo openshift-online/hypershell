@@ -138,12 +138,17 @@ case "$(captured_curl_args)" in
   *) FAIL=$((FAIL + 1)); printf 'FAIL: token-exchange developer args (got=%q)\n' "$(captured_curl_args)" ;;
 esac
 
-# Admin + per-gateway client must also token-exchange. Straight client_credentials
-# on hypershell-e2e never carries openshell-admin for that gateway client
-# (e2e-testing.spec.md acquire_gateway_token_with_role).
+# Admin + per-gateway client must token-exchange the hypershell-e2e service
+# account onto that audience. Impersonating the seeded admin user (requested_subject)
+# would mint a token for a principal that does not own the gateway the SA created.
 E2E_OIDC_GRANT=client_credentials acquire_oidc_token admin admin openshell-gw-1 >/dev/null
 case "$(captured_curl_args)" in
-  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' requested_subject=admin '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
+  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' audience=openshell-gw-1 '*)
+    case "$(captured_curl_args)" in
+      *' requested_subject='*) FAIL=$((FAIL + 1)); printf 'FAIL: admin gateway token-exchange must not impersonate (got=%q)\n' "$(captured_curl_args)" ;;
+      *) PASS=$((PASS + 1)) ;;
+    esac
+    ;;
   *) FAIL=$((FAIL + 1)); printf 'FAIL: token-exchange admin gateway args (got=%q)\n' "$(captured_curl_args)" ;;
 esac
 

@@ -2,6 +2,7 @@ package roleBindings
 
 import (
 	"context"
+	"time"
 
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -124,14 +125,18 @@ func (h *roleBindingGRPCHandler) WatchRoleBindings(req *pb.WatchRoleBindingsRequ
 			var rb *RoleBinding
 			if evt.EventType == api.DeleteEventType {
 				var unscopedErr *errors.ServiceError
-				rb, unscopedErr = h.service.GetUnscoped(ctx, evt.SourceID)
+				rb, unscopedErr = loadRoleBindingWithRetry(ctx, func() (*RoleBinding, *errors.ServiceError) {
+					return h.service.GetUnscoped(ctx, evt.SourceID)
+				})
 				if unscopedErr != nil {
 					glog.Warningf("WatchRoleBindings: failed to load deleted role binding %s: %v", evt.SourceID, unscopedErr)
 					continue
 				}
 			} else {
 				var svcErr *errors.ServiceError
-				rb, svcErr = h.service.Get(ctx, evt.SourceID)
+				rb, svcErr = loadRoleBindingWithRetry(ctx, func() (*RoleBinding, *errors.ServiceError) {
+					return h.service.Get(ctx, evt.SourceID)
+				})
 				if svcErr != nil {
 					glog.Warningf("WatchRoleBindings: failed to load role binding %s: %v", evt.SourceID, svcErr)
 					continue
@@ -167,6 +172,34 @@ func (h *roleBindingGRPCHandler) replayActiveRoleBindings(ctx context.Context, s
 	}
 	glog.V(4).Infof("WatchRoleBindings: replayed %d active role bindings", replayed)
 	return nil
+}
+
+const roleBindingLoadAttempts = 5
+const roleBindingLoadRetry = 100 * time.Millisecond
+
+// loadRoleBindingWithRetry re-reads a RoleBinding after the events table
+// notifies watchers. CreateOwnerBinding writes the row and then the event in
+// separate statements, so a subscriber can observe the event before Get sees
+// the commit. Dropping that event strands Keycloak role assignment until the
+// watch reconnects.
+func loadRoleBindingWithRetry(ctx context.Context, load func() (*RoleBinding, *errors.ServiceError)) (*RoleBinding, *errors.ServiceError) {
+	var lastErr *errors.ServiceError
+	for attempt := 0; attempt < roleBindingLoadAttempts; attempt++ {
+		rb, err := load()
+		if err == nil {
+			return rb, nil
+		}
+		lastErr = err
+		if attempt == roleBindingLoadAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, lastErr
+		case <-time.After(roleBindingLoadRetry):
+		}
+	}
+	return nil, lastErr
 }
 
 func (h *roleBindingGRPCHandler) roleBindingWatchEvent(ctx context.Context, eventType pb.EventType, rb *RoleBinding) *pb.WatchRoleBindingsResponse {

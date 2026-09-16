@@ -252,9 +252,14 @@ _driver_token_request() {
 #         * admin HyperShell API token (username == E2E_OIDC_USERNAME and
 #           client_id == E2E_OIDC_CLIENT_ID) -- client-credentials on
 #           hypershell-e2e.
-#         * every other call, including acquire_gateway_token_with_role --
-#           Keycloak token-exchange impersonating that principal for the
-#           requested audience. Never a password grant.
+#         * admin per-gateway token (username == E2E_OIDC_USERNAME, a
+#           different client_id) -- token-exchange of the hypershell-e2e
+#           service account onto that gateway audience. The SA is the
+#           gateway owner on this path, so impersonating the seeded
+#           passworded admin user would never carry openshell-admin.
+#         * every other call (developer, platform-admin, ...) --
+#           token-exchange impersonating that principal for the requested
+#           audience. Never a password grant.
 _driver_acquire_oidc_token() {
   _OIDC_ACCESS_TOKEN=""
   local username="${1:-${E2E_OIDC_USERNAME}}"
@@ -285,10 +290,10 @@ _driver_acquire_oidc_token() {
           -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
           -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"
       else
-        # Impersonate the requested principal targeting that audience.
-        # Keycloak 26 standard token-exchange rejects requested_subject; this
-        # is the legacy (token-exchange feature) impersonation grant and needs
-        # a subject_token (the hypershell-e2e client-credentials token).
+        # Token-exchange targeting that audience. Keycloak 26 standard
+        # token-exchange rejects requested_subject; impersonation uses the
+        # legacy token-exchange feature and needs a subject_token (the
+        # hypershell-e2e client-credentials token).
         if ! _driver_token_request \
           -d "grant_type=client_credentials" \
           -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
@@ -296,13 +301,21 @@ _driver_acquire_oidc_token() {
           return 1
         fi
         local subject_token="$_OIDC_ACCESS_TOKEN"
-        _driver_token_request \
-          -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
-          -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
-          -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}" \
-          -d "subject_token=${subject_token}" \
-          -d "requested_subject=${username}" \
-          -d "audience=${client_id}"
+        local -a exchange_args=(
+          -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange"
+          -d "client_id=${E2E_OIDC_SA_CLIENT_ID}"
+          -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"
+          -d "subject_token=${subject_token}"
+        )
+        # The CI admin identity is the hypershell-e2e service account, which
+        # owns gateways it creates. Impersonating the seeded admin user
+        # would mint a token for a principal with no RoleBinding on that
+        # gateway. Developer (and other) principals still need impersonation.
+        if [[ "${username}" != "${E2E_OIDC_USERNAME}" ]]; then
+          exchange_args+=(-d "requested_subject=${username}")
+        fi
+        exchange_args+=(-d "audience=${client_id}")
+        _driver_token_request "${exchange_args[@]}"
       fi
       ;;
     *)
@@ -524,6 +537,38 @@ sys.exit(0 if role in roles else 1)
 PY
 }
 
+# _token_debug_claims - print the identity and role claims from a JWT so a
+# timed-out role wait shows which principal was minted, not just that the
+# role was missing. Never prints the raw token.
+# Usage: _token_debug_claims <token>
+_token_debug_claims() {
+  local token="${1:?token required}"
+  python3 - "$token" <<'PY'
+import base64, json, sys
+tok = sys.argv[1]
+try:
+    payload = tok.split('.')[1]
+    payload += '=' * (-len(payload) % 4)
+    claims = json.loads(base64.urlsafe_b64decode(payload))
+except Exception:
+    print("unreadable jwt")
+    sys.exit(0)
+roles = []
+hs = claims.get('hypershell')
+if isinstance(hs, dict):
+    roles = hs.get('roles', []) or []
+if not roles:
+    roles = claims.get('hypershell.roles', []) or []
+print("preferred_username=%s sub=%s azp=%s aud=%s hypershell.roles=%s" % (
+    claims.get('preferred_username', ''),
+    claims.get('sub', ''),
+    claims.get('azp', ''),
+    claims.get('aud', ''),
+    ','.join(roles) if roles else '<none>',
+))
+PY
+}
+
 # acquire_gateway_token_with_role - mint a per-gateway-client token and wait until
 # the requested client role appears in it. The owner-binding -> reconciler ->
 # AssignClientRole bridge is asynchronous, so a token minted immediately after
@@ -531,8 +576,9 @@ PY
 # Sets _OIDC_ACCESS_TOKEN on success.
 #
 # Grant-agnostic: it delegates to acquire_oidc_token, so E2E_OIDC_GRANT selects
-# the flow (password grant on Kind/manual OpenShift; token-exchange impersonation
-# of the passed principal, targeting client_id, on the GitHub-brokered PR path).
+# the flow (password grant on Kind/manual OpenShift; token-exchange of the
+# hypershell-e2e service account onto the gateway audience on the GitHub-brokered
+# PR admin path, or impersonation of a non-admin principal such as developer).
 # Usage: acquire_gateway_token_with_role <user> <pass> <client_id> <role> [timeout]
 acquire_gateway_token_with_role() {
   local username="${1:?username required}"
@@ -554,6 +600,9 @@ acquire_gateway_token_with_role() {
     sleep 5
   done
 
+  if [[ -n "${_OIDC_ACCESS_TOKEN}" ]]; then
+    dim "    Last token claims: $(_token_debug_claims "${_OIDC_ACCESS_TOKEN}")"
+  fi
   _OIDC_ACCESS_TOKEN=""
   return 1
 }
