@@ -8,55 +8,23 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// DatabaseReconciler is implemented by each database provider (cnpg, deployment, external).
-// Reconcile provisions or updates database resources for a gateway tenant namespace.
-// Delete removes out-of-namespace database resources. A non-nil error signals a transient
-// failure that the caller should retry. CNPG and deployment providers always return nil.
-// The external provider also always returns nil: its cleanup is unconditional and
-// single-shot (no tombstone, no retry queue), so a failure is logged rather than retried.
+// DatabaseReconciler provisions and removes a gateway's database on the
+// PostgreSQL server registered as its ManagedDatabase. Reconcile creates the
+// per-gateway database and role and writes the tenant credentials Secret.
+// Delete drops them. A non-nil error signals a transient failure that the
+// caller should retry; cleanup is unconditional and single-shot (no tombstone,
+// no retry queue), so a failed drop is logged rather than retried.
 type DatabaseReconciler interface {
-	Reconcile(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, tenantNamespace, gatewayID, rotateAnnotation string) error
+	Reconcile(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, tenantNamespace, gatewayID string) error
 	Delete(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, gatewayID string) error
 }
 
-// newDatabaseReconciler constructs the correct DatabaseReconciler for opts.DatabaseProvider.
-// Returns an error for invalid configurations (missing required fields, CNPG not available).
-// Returns a noopDatabaseReconciler for the legacy empty-provider case.
+// newDatabaseReconciler constructs the DatabaseReconciler for opts. The admin
+// credentials namespace (ManagedDatabase.connection_secret) is required: without
+// it there is no server to issue DDL against.
 func newDatabaseReconciler(opts ReconcileOpts) (DatabaseReconciler, error) {
-	switch opts.DatabaseProvider {
-	case "":
-		return &noopDatabaseReconciler{}, nil
-	case "cnpg":
-		if opts.CNPG.ClusterNamespace == "" {
-			return nil, fmt.Errorf("CNPG cluster namespace is required for gateway database reconciliation")
-		}
-		if !opts.HasCNPG {
-			return nil, fmt.Errorf("CNPG operator is required but not available on the cluster: gateway deployment blocked")
-		}
-		return &cnpgDatabaseReconciler{cnpg: opts.CNPG}, nil
-	case "deployment":
-		if opts.DeploymentDBNamespace == "" {
-			return nil, fmt.Errorf("deployment database namespace is required for gateway database reconciliation")
-		}
-		return &deploymentDatabaseReconciler{dbNamespace: opts.DeploymentDBNamespace}, nil
-	case "external":
-		if opts.ExternalDB.CredentialsNamespace == "" {
-			return nil, fmt.Errorf("external database connection_secret (credentials namespace) is required for gateway database reconciliation")
-		}
-		return &externalDatabaseReconciler{cfg: opts.ExternalDB}, nil
-	default:
-		return nil, fmt.Errorf("unsupported database provider %q", opts.DatabaseProvider)
+	if opts.ExternalDB.CredentialsNamespace == "" {
+		return nil, fmt.Errorf("database connection_secret (credentials namespace) is required for gateway database reconciliation")
 	}
-}
-
-// noopDatabaseReconciler handles legacy gateways with no DatabaseProvider set.
-// It preserves any existing database resources without touching them.
-type noopDatabaseReconciler struct{}
-
-func (r *noopDatabaseReconciler) Reconcile(_ context.Context, _ dynamic.Interface, _ kubernetes.Interface, _, _, _ string) error {
-	return nil
-}
-
-func (r *noopDatabaseReconciler) Delete(_ context.Context, _ dynamic.Interface, _ kubernetes.Interface, _ string) error {
-	return nil
+	return &externalDatabaseReconciler{cfg: opts.ExternalDB}, nil
 }

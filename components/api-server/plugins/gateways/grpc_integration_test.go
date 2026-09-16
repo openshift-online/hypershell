@@ -14,7 +14,6 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
 type bearerToken struct {
@@ -32,7 +31,7 @@ func (b *bearerToken) RequireTransportSecurity() bool {
 }
 
 func TestGRPCGatewayCRUD(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -125,7 +124,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 }
 
 func TestGRPCWatchGateways(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -237,7 +236,7 @@ func TestGRPCWatchGateways(t *testing.T) {
 }
 
 func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -309,7 +308,7 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 // header is what closes the list-watch gap: without it, the client could list
 // state and then miss an event that fires before the subscription registers.
 func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -340,7 +339,7 @@ func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
 }
 
 func TestGRPCGatewayErrorHandling(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()

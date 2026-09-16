@@ -12,7 +12,6 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
 // TestGRPCGatewayRejectsUnknownPhase proves the API server enforces the
@@ -20,7 +19,7 @@ import (
 // a create or update with a phase outside the canonical set is rejected with
 // InvalidArgument and never persisted, while a canonical phase is accepted.
 func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -98,7 +97,7 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 // can still be patched on unrelated fields, because validation only fires when a
 // write actually sets phase.
 func TestGatewayPatchNotTouchingPhaseAcceptsLegacyRecord(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -121,7 +120,7 @@ func TestGatewayPatchNotTouchingPhaseAcceptsLegacyRecord(t *testing.T) {
 // TestRESTGatewayRejectsUnknownPhase proves the REST create path enforces the
 // same canonical phase vocabulary with HTTP 400.
 func TestRESTGatewayRejectsUnknownPhase(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)

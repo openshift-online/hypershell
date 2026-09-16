@@ -65,9 +65,6 @@ func (h managedDatabaseHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.Name != nil {
 				found.Name = *patch.Name
 			}
-			if patch.Provider != nil {
-				found.Provider = *patch.Provider
-			}
 			if patch.Region != nil {
 				found.Region = patch.Region
 			}

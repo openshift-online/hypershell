@@ -408,55 +408,23 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: Kind seed does not look up existing resources with json_named_id'
 fi
-if grep -B2 'db_provider="\$(effective_database_provider)"' "${SCRIPT_DIR}/drivers/openshift.sh" >/dev/null \
-  && grep -A20 'Creating ManagedDatabase' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'provider='; then
+if grep -A20 'Creating ManagedDatabase' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'connection_secret'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift seed still hardcodes ManagedDatabase provider=cnpg'
+  echo 'FAIL: OpenShift seed does not register the database by connection_secret'
 fi
-if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cutover_database_provider'; then
-  PASS=$((PASS + 1))
-else
+if grep -q 'effective_database_provider\|cutover_database_provider\|DATABASE_PROVIDER' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_up does not reconcile the database provider on cutover'
-fi
-if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'TARGET_DB_PROVIDER="\$(effective_database_provider)"' \
-  && grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cutover_database_provider "\${TARGET_DB_PROVIDER}"'; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_up still passes effective_database_provider via command substitution in argument position'
-fi
-if grep -A20 '^effective_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'exit 1'; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift effective_database_provider still uses exit 1 (ineffective inside command substitution)'
+  echo 'FAIL: OpenShift driver still carries database provider selection'
 else
   PASS=$((PASS + 1))
 fi
-if grep -A25 '^cutover_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'empty target'; then
+if awk '/^ensure_namespace_group\(\)/,/^}/' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'ensure_database_credentials_secret'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cutover_database_provider does not guard against an empty target'
-fi
-if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'restart_after_database_cutover'; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_up does not restart components after a database cutover'
-fi
-if grep -A20 '^effective_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'DATABASE_PROVIDER'; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift effective_database_provider does not honor DATABASE_PROVIDER override'
-fi
-if awk '/^cutover_database_provider\(\)/,/^}/' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete secret hypershell-db-app'; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cutover_database_provider does not clear the provider-shaped Secret'
+  echo 'FAIL: OpenShift namespace group does not stage the database credentials Secret'
 fi
 if grep -A30 '^wait_for_deployments()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'is_openshift_swapped'; then
   FAIL=$((FAIL + 1))

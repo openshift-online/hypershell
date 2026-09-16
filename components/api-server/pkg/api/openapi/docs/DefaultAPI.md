@@ -392,7 +392,7 @@ import (
 )
 
 func main() {
-	managedDatabase := *openapiclient.NewManagedDatabase("Name_example", "Provider_example") // ManagedDatabase | ManagedDatabase data
+	managedDatabase := *openapiclient.NewManagedDatabase("Name_example") // ManagedDatabase | ManagedDatabase data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)

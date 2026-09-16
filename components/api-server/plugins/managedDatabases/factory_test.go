@@ -13,12 +13,11 @@ func newManagedDatabase(id string) (*managedDatabases.ManagedDatabase, error) {
 
 	managedDatabase := &managedDatabases.ManagedDatabase{
 		Name:             "test-name",
-		Provider:         "deployment",
 		Region:           stringPtr("test-region"),
 		Engine:           stringPtr("test-engine"),
 		EngineVersion:    stringPtr("test-engine_version"),
 		InstanceClass:    stringPtr("test-instance_class"),
-		ConnectionSecret: stringPtr("test-connection_secret"),
+		ConnectionSecret: stringPtr("hypershell-managed-db-test"),
 		Status:           stringPtr("test-status"),
 	}
 

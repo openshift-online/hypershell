@@ -12,11 +12,10 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
 func TestGRPCProvisioningConditionsRoundTrip(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -101,7 +100,7 @@ func TestGRPCProvisioningConditionsRoundTrip(t *testing.T) {
 }
 
 func TestGRPCProvisioningConditionsProgressionToComplete(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -168,7 +167,7 @@ func TestGRPCProvisioningConditionsProgressionToComplete(t *testing.T) {
 }
 
 func TestGRPCProvisioningConditionsWithIdP(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -220,7 +219,7 @@ func TestGRPCProvisioningConditionsWithIdP(t *testing.T) {
 }
 
 func TestGRPCProvisioningConditionsFailedWithMessage(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -279,7 +278,7 @@ func TestGRPCProvisioningConditionsFailedWithMessage(t *testing.T) {
 }
 
 func TestRESTGatewayReturnsProvisioningConditions(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -342,7 +341,7 @@ func TestRESTGatewayReturnsProvisioningConditions(t *testing.T) {
 }
 
 func TestRESTGatewayListIncludesProvisioningConditions(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()
@@ -398,7 +397,7 @@ func TestRESTGatewayListIncludesProvisioningConditions(t *testing.T) {
 }
 
 func TestRESTProvisioningConditionsNotSettableViaPatch(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -423,7 +422,7 @@ func TestRESTProvisioningConditionsNotSettableViaPatch(t *testing.T) {
 }
 
 func TestGRPCProvisioningConditionsPreservedOnUnrelatedUpdate(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()

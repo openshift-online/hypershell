@@ -9,8 +9,8 @@ import (
 // credentials Secret, not a Secret name. The reserved prefix plus the fixed
 // Secret name are a security boundary: together they bound what the control
 // plane can be made to read. See
-// specs/platform/openshell-gateway-database-external.spec.md.
-func TestValidateExternalConnectionSecret(t *testing.T) {
+// specs/platform/openshell-gateway-database.spec.md.
+func TestValidateConnectionSecret(t *testing.T) {
 	ptr := func(s string) *string { return &s }
 
 	cases := []struct {
@@ -38,7 +38,7 @@ func TestValidateExternalConnectionSecret(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateExternalConnectionSecret(tc.input)
+			err := validateConnectionSecret(tc.input)
 			if tc.wantErr && err == nil {
 				t.Errorf("expected a validation error, got nil")
 			}
@@ -58,18 +58,5 @@ func TestExternalCredentialsConstantsArePinned(t *testing.T) {
 	}
 	if externalCredentialsSecretName != "hypershell-managed-db-credentials" {
 		t.Errorf("secret name = %q; the control plane expects %q", externalCredentialsSecretName, "hypershell-managed-db-credentials")
-	}
-}
-
-func TestIsSupportedProvider(t *testing.T) {
-	for _, p := range []string{providerCNPG, providerDeployment, providerExternal} {
-		if !isSupportedProvider(p) {
-			t.Errorf("isSupportedProvider(%q) = false, want true", p)
-		}
-	}
-	for _, p := range []string{"", "postgres", "CNPG", "rds"} {
-		if isSupportedProvider(p) {
-			t.Errorf("isSupportedProvider(%q) = true, want false", p)
-		}
 	}
 }

@@ -52,11 +52,11 @@ All containers must set:
 - `Capabilities.Drop: ["ALL"]`
 - `runAsNonRoot: true`
 
-**Note:** All PostgreSQL databases (API server and per-gateway) are provisioned by
-the CloudNativePG (CNPG) operator, which manages its own PostgreSQL pods with
-appropriate security contexts. The CNPG operator enforces non-root execution and
-drops capabilities by default. No database container security configuration is
-needed on the HyperShell side.
+**Note:** HyperShell runs no PostgreSQL containers. The API server, Keycloak, and
+per-gateway databases live on externally provisioned servers outside the cluster, so
+no database container security configuration is needed on the HyperShell side.
+Development and CI stand-in PostgreSQL servers simulate those external servers and
+are not HyperShell components.
 
 ### Gateway Access Isolation
 

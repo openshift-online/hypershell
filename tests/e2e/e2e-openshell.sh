@@ -26,8 +26,6 @@
 #   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 300)
 #   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 300)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
-#   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: external)
-#   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 #   E2E_OPENSHELL_INSTALL  auto, always, or never (default: auto; CI uses always)
 #   E2E_OPENSHELL_VERSION  Override CLI version/tag to install (e.g. v0.0.116, dev)
@@ -40,14 +38,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # --- Source shared utilities ---
 # shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
-
-# --- Database provider selection ---
-# external = stand-in server in a separate namespace simulating a cloud-managed
-#            external DB (default: unset/empty DATABASE_PROVIDER means external)
-# deployment = plain Kubernetes Deployment + PVC + Service (no CNPG operator,
-#              see specs/platform/openshell-gateway-database.spec.md)
-# cnpg = CloudNativePG operator (CRDs: Cluster, Database, DatabaseRole)
-DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 
 # --- Driver selection and validation ---
 
@@ -183,7 +173,6 @@ printf '  %s\n' "11. Gateway deletion + namespace garbage collection"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  Mode:              ${E2E_MODE}"
-dim  "  Database provider: ${DB_PROVIDER}"
 dim  "  HyperShell API:    ${API_HOST}"
 dim  "  Gateway name:      ${GW_NAME}"
 dim  "  OIDC issuer:       ${E2E_OIDC_ISSUER}"
@@ -278,26 +267,6 @@ if [[ "${CMW_REPLICAS:-0}" -ge 1 ]]; then
   pass "cert-manager-webhook is ready"
 else
   fail_test "cert-manager-webhook is not ready (readyReplicas=${CMW_REPLICAS:-0})"
-fi
-
-if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-  E2E_CNPG_NAMESPACE="${E2E_CNPG_NAMESPACE:-cnpg-system}"
-  show_cmd "$CLI get deployment cnpg-controller-manager -n $E2E_CNPG_NAMESPACE"
-  CNPG_REPLICAS=$($CLI get deployment cnpg-controller-manager -n "$E2E_CNPG_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-  if [[ "${CNPG_REPLICAS:-0}" -ge 1 ]]; then
-    pass "CloudNativePG operator is ready"
-  else
-    fail_test "CloudNativePG operator is not ready (readyReplicas=${CNPG_REPLICAS:-0})"
-  fi
-
-  show_cmd "$CLI get crd clusters.postgresql.cnpg.io"
-  if $CLI get crd clusters.postgresql.cnpg.io &>/dev/null; then
-    pass "CloudNativePG CRDs installed"
-  else
-    fail_test "CloudNativePG CRDs not found"
-  fi
-else
-  dim "  CNPG checks skipped (DATABASE_PROVIDER=${DB_PROVIDER})"
 fi
 
 show_cmd "$CLI get deployment agent-sandbox-controller -n agent-sandbox-system"
@@ -404,36 +373,14 @@ for gw in data.get('items', []):
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
   e2e_apply_seed_ids_from_gateway_json "$EXISTING_GW" "$GW_NAME"
 else
-  # database_id is a required request property but its value is server-owned.
-  # CNPG placement resolves the sole ManagedDatabase; deployment
-  # placement ignores the empty placeholder and creates a new dedicated one.
-  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/managed_databases"
-  E2E_MD_RESP=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
-  PREEXISTING_DATABASE_IDS=$(echo "$E2E_MD_RESP" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    data = {}
-for item in data.get('items', []):
-    if item.get('id'):
-        print(item['id'])
-" 2>/dev/null || true)
-
-  if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-    E2E_DATABASE_ID=$(echo "$E2E_MD_RESP" | e2e_json_first_id)
-    if [[ -z "$E2E_DATABASE_ID" ]]; then
-      fail_test "Could not discover CNPG database_id from ManagedDatabase API"
-      exit 1
-    fi
-  else
-    E2E_DATABASE_ID=""
-  fi
+  # database_id is a required request property but its value is server-owned:
+  # placement assigns the first-created ManagedDatabase.
+  E2E_DATABASE_ID=""
   if ! e2e_ensure_seed_ids; then
     fail_test "Could not discover seeded cluster/release ids"
     exit 1
   fi
-  dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; database_id is assigned by ${DB_PROVIDER} placement"
+  dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; database_id is assigned by server-side placement"
 
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, database_id: <placement placeholder>, oidc: ...}'"
   GW_CREATE_BODY=$(e2e_gateway_create_body "$GW_NAME")
@@ -463,19 +410,6 @@ print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('databa
     if [[ -z "$CREATE_F3" ]]; then
       fail_test "Gateway creation succeeded without a server-assigned database_id"
       exit 1
-    fi
-    if [[ "${DB_PROVIDER}" == "deployment" ]] && grep -Fxq "$CREATE_F3" <<< "$PREEXISTING_DATABASE_IDS"; then
-      fail_test "Deployment placement reused existing ManagedDatabase ${CREATE_F3}; expected a new per-gateway database"
-      exit 1
-    fi
-    if [[ "${DB_PROVIDER}" == "deployment" ]]; then
-      CREATED_DB_PROVIDER=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases/${CREATE_F3}" 2>/dev/null | \
-        python3 -c "import json,sys; print(json.load(sys.stdin).get('provider',''))" 2>/dev/null || true)
-      if [[ "$CREATED_DB_PROVIDER" != "deployment" ]]; then
-        fail_test "Server-assigned ManagedDatabase ${CREATE_F3} has provider=${CREATED_DB_PROVIDER:-unknown}, expected deployment"
-        exit 1
-      fi
-      pass "Deployment placement created dedicated ManagedDatabase ${CREATE_F3}"
     fi
     pass "Gateway created: ${GW_NAME} (${GW_ID})"
   else
@@ -716,72 +650,8 @@ else
   dim "  - Certgen job status: ${CERTGEN_STATUS:-unknown}"
 fi
 
-# Resolve the ManagedDatabase namespace (provider-agnostic).
-DB_GW_NAMESPACE=""
-acquire_oidc_token 2>/dev/null || true
-GW_DB_ID=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
-  python3 -c "import json,sys; print(json.load(sys.stdin).get('database_id',''))" 2>/dev/null || true)
-if [[ -n "$GW_DB_ID" ]]; then
-  DB_GW_NAMESPACE=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases/${GW_DB_ID}" 2>/dev/null | \
-    python3 -c "import json,sys; print(json.load(sys.stdin).get('namespace',''))" 2>/dev/null || true)
-fi
-if [[ -n "$DB_GW_NAMESPACE" ]]; then
-  dim "  Database namespace: ${DB_GW_NAMESPACE}"
-else
-  fail_test "Could not resolve database namespace for gateway ${GW_ID}"
-fi
-
-if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-  # CNPG provider: verify Database CR, DatabaseRole CR, and client TLS
-  CNPG_GW_NAMESPACE="${DB_GW_NAMESPACE}"
-  CNPG_CR_NAME="gw-$(echo "${GW_ID}" | tr '[:upper:]' '[:lower:]')"
-
-  show_cmd "$CLI get database.postgresql.cnpg.io ${CNPG_CR_NAME} -n ${CNPG_GW_NAMESPACE}"
-  DB_APPLIED=$($CLI get database.postgresql.cnpg.io "${CNPG_CR_NAME}" -n "${CNPG_GW_NAMESPACE}" \
-    -o jsonpath='{.status.applied}' 2>/dev/null || true)
-  if [[ "$DB_APPLIED" == "true" ]]; then
-    pass "CNPG Database CR ready: ${CNPG_CR_NAME}"
-  else
-    fail_test "CNPG Database CR not ready (status.applied=${DB_APPLIED:-unknown})"
-  fi
-
-  show_cmd "$CLI get databaserole.postgresql.cnpg.io ${CNPG_CR_NAME} -n ${CNPG_GW_NAMESPACE}"
-  if $CLI get databaserole.postgresql.cnpg.io "${CNPG_CR_NAME}" -n "${CNPG_GW_NAMESPACE}" &>/dev/null; then
-    pass "CNPG DatabaseRole CR exists: ${CNPG_CR_NAME}"
-  else
-    fail_test "CNPG DatabaseRole CR not found: ${CNPG_CR_NAME}"
-  fi
-
-  show_cmd "$CLI get secret openshell-client-tls -n $GW_NAMESPACE"
-  if $CLI get secret openshell-client-tls -n "$GW_NAMESPACE" &>/dev/null; then
-    pass "Client TLS secret exists"
-  else
-    fail_test "Client TLS secret not found"
-  fi
-elif [[ "${DB_PROVIDER}" == "external" ]]; then
-  # External provider: no in-cluster database workload. The sole check is the
-  # gateway-namespace credentials secret, verified below for all providers.
-  dim "  External database: no in-cluster DB deployment to verify"
-else
-  # Deployment provider: verify DB Deployment readiness and credentials secret
-  show_cmd "$CLI get deployment openshell-gateway-db -n ${DB_GW_NAMESPACE}"
-  DB_DEPLOY_READY=$($CLI get deployment openshell-gateway-db -n "${DB_GW_NAMESPACE}" \
-    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-  if [[ "${DB_DEPLOY_READY:-0}" -ge 1 ]]; then
-    pass "Database deployment ready in ${DB_GW_NAMESPACE}"
-  else
-    fail_test "Database deployment not ready (readyReplicas=${DB_DEPLOY_READY:-0})"
-  fi
-
-  show_cmd "$CLI get secret openshell-db-credentials -n ${DB_GW_NAMESPACE}"
-  if $CLI get secret openshell-db-credentials -n "${DB_GW_NAMESPACE}" &>/dev/null; then
-    pass "Database credentials secret exists in ${DB_GW_NAMESPACE}"
-  else
-    fail_test "Database credentials secret not found in ${DB_GW_NAMESPACE}"
-  fi
-fi
-
-# This check is common to both providers
+# The gateway database itself lives on the registered PostgreSQL server; the
+# tenant credentials Secret is what proves it was provisioned.
 show_cmd "$CLI get secret openshell-gateway-db-credentials -n $GW_NAMESPACE"
 if $CLI get secret openshell-gateway-db-credentials -n "$GW_NAMESPACE" &>/dev/null; then
   pass "Database credentials secret exists in gateway namespace"
@@ -2007,28 +1877,6 @@ else
     $CLI get namespace "$GW_NAMESPACE" -o yaml 2>&1 | tail -40 | while IFS= read -r line; do dim "    $line"; done
     dim "  Namespace GC controller logs:"
     e2e_dump_namespace_gc_logs "${E2E_HS_NAMESPACE}" "$CLI"
-  fi
-
-  if [[ "${DB_PROVIDER}" == "deployment" && -n "${GW_DB_ID:-}" ]]; then
-    dim "  Waiting for dedicated ManagedDatabase ${GW_DB_ID} and namespace ${DB_GW_NAMESPACE} to be deleted..."
-    DB_GONE=false
-    DB_GC_DEADLINE=$(($(date +%s) + E2E_GC_TIMEOUT))
-    while [[ $(date +%s) -lt $DB_GC_DEADLINE ]]; do
-      acquire_oidc_token 2>/dev/null || true
-      DB_HTTP=$(api_curl -o /dev/null -w '%{http_code}' \
-        "${API_HOST}/api/hypershell/v1/managed_databases/${GW_DB_ID}" 2>/dev/null || true)
-      if [[ "$DB_HTTP" == "404" ]] && ! $CLI get namespace "$DB_GW_NAMESPACE" &>/dev/null; then
-        DB_GONE=true
-        break
-      fi
-      dim "    ManagedDatabase HTTP=${DB_HTTP:-unknown}, namespace=$($CLI get namespace "$DB_GW_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo absent)"
-      sleep 5
-    done
-    if [[ "$DB_GONE" == "true" ]]; then
-      pass "Dedicated deployment database deleted with gateway: ${GW_DB_ID}"
-    else
-      fail_test "ManagedDatabase ${GW_DB_ID} or namespace ${DB_GW_NAMESPACE} remained after gateway deletion"
-    fi
   fi
 
   # 11a. Periodic reaper (NamespaceGCReconciler + recordGCEvent). Orphan namespace

@@ -49,7 +49,6 @@ if [[ "${E2E_PERF_CHECKPOINT}" != "1" ]]; then
   E2E_PERF_BATCH_SIZE="${E2E_PERF_GATEWAY_COUNT}"
 fi
 
-DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
 
 # --- Driver selection ---
@@ -430,11 +429,6 @@ if ! e2e_discover_seed_ids; then
   exit 1
 fi
 perf_export_child_env
-
-if [[ "${DB_PROVIDER}" == "cnpg" && -z "${E2E_DATABASE_ID}" ]]; then
-  red "ERROR: No ManagedDatabase found (required for DATABASE_PROVIDER=cnpg)"
-  exit 1
-fi
 
 dim "  Driver:            ${E2E_INFRA_DRIVER}"
 dim "  HyperShell API:    ${API_HOST}"

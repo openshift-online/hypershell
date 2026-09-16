@@ -20,12 +20,11 @@ var _ MappedNullable = &ManagedDatabasePatchRequest{}
 // ManagedDatabasePatchRequest struct for ManagedDatabasePatchRequest
 type ManagedDatabasePatchRequest struct {
 	Name          *string `json:"name,omitempty"`
-	Provider      *string `json:"provider,omitempty"`
 	Region        *string `json:"region,omitempty"`
 	Engine        *string `json:"engine,omitempty"`
 	EngineVersion *string `json:"engine_version,omitempty"`
 	InstanceClass *string `json:"instance_class,omitempty"`
-	// For provider \"external\": the NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123 label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\". Ignored by other providers.
+	// The NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123 label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\".
 	ConnectionSecret *string `json:"connection_secret,omitempty"`
 	Status           *string `json:"status,omitempty"`
 }
@@ -77,38 +76,6 @@ func (o *ManagedDatabasePatchRequest) HasName() bool {
 // SetName gets a reference to the given string and assigns it to the Name field.
 func (o *ManagedDatabasePatchRequest) SetName(v string) {
 	o.Name = &v
-}
-
-// GetProvider returns the Provider field value if set, zero value otherwise.
-func (o *ManagedDatabasePatchRequest) GetProvider() string {
-	if o == nil || IsNil(o.Provider) {
-		var ret string
-		return ret
-	}
-	return *o.Provider
-}
-
-// GetProviderOk returns a tuple with the Provider field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *ManagedDatabasePatchRequest) GetProviderOk() (*string, bool) {
-	if o == nil || IsNil(o.Provider) {
-		return nil, false
-	}
-	return o.Provider, true
-}
-
-// HasProvider returns a boolean if a field has been set.
-func (o *ManagedDatabasePatchRequest) HasProvider() bool {
-	if o != nil && !IsNil(o.Provider) {
-		return true
-	}
-
-	return false
-}
-
-// SetProvider gets a reference to the given string and assigns it to the Provider field.
-func (o *ManagedDatabasePatchRequest) SetProvider(v string) {
-	o.Provider = &v
 }
 
 // GetRegion returns the Region field value if set, zero value otherwise.
@@ -315,9 +282,6 @@ func (o ManagedDatabasePatchRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Name) {
 		toSerialize["name"] = o.Name
-	}
-	if !IsNil(o.Provider) {
-		toSerialize["provider"] = o.Provider
 	}
 	if !IsNil(o.Region) {
 		toSerialize["region"] = o.Region

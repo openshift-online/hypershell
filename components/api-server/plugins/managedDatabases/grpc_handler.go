@@ -43,13 +43,8 @@ func (h *managedDatabaseGRPCHandler) CreateManagedDatabase(ctx context.Context, 
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("provider", req.Provider, true); err != nil {
-		return nil, err
-	}
-
 	managedDatabase := &ManagedDatabase{
 		Name:             req.Name,
-		Provider:         req.Provider,
 		Region:           req.Region,
 		Engine:           req.Engine,
 		EngineVersion:    req.EngineVersion,
@@ -70,11 +65,6 @@ func (h *managedDatabaseGRPCHandler) UpdateManagedDatabase(ctx context.Context, 
 	}
 	if req.Name != nil {
 		if err := grpcutil.ValidateStringField("name", *req.Name, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.Provider != nil {
-		if err := grpcutil.ValidateStringField("provider", *req.Provider, false); err != nil {
 			return nil, err
 		}
 	}
@@ -115,9 +105,6 @@ func (h *managedDatabaseGRPCHandler) UpdateManagedDatabase(ctx context.Context, 
 	}
 	if req.Name != nil {
 		managedDatabase.Name = *req.Name
-	}
-	if req.Provider != nil {
-		managedDatabase.Provider = *req.Provider
 	}
 	if req.Region != nil {
 		managedDatabase.Region = req.Region

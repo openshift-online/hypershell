@@ -89,7 +89,7 @@ func main() {
 	}
 
 	log.Printf("INFO hypershell-controller starting")
-	log.Printf("INFO grpc=%s api=%s namespace=%s database_provider=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace, cfg.DatabaseProvider)
+	log.Printf("INFO grpc=%s api=%s namespace=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace)
 	if cfg.ClusterID != "" {
 		log.Printf("INFO managed-cluster mode: scoping gateway watch/seed/health to cluster_id=%s", cfg.ClusterID)
 	} else {
@@ -216,23 +216,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("creating dynamic client: %v", err)
 		}
-	}
-
-	// DATABASE_PROVIDER=cnpg is a hard startup precondition: the control plane
-	// must fail cleanly here, before any watch/reconcile loop starts, when the
-	// exact CNPG API resources this codebase depends on (clusters, databases,
-	// databaseroles in postgresql.cnpg.io/v1) are not served, rather than
-	// deferring the failure to the first CNPG-backed reconciliation deep
-	// inside the gateway/database reconcilers. DATABASE_PROVIDER=deployment (the
-	// default) never reaches this check and has no CNPG dependency at all.
-	if cfg.DatabaseProvider == config.DatabaseProviderCNPG {
-		if clientset == nil {
-			log.Fatalf("DATABASE_PROVIDER=cnpg requires an in-cluster Kubernetes client to verify the CNPG API prerequisites")
-		}
-		if err := gateway.RequireCNPGAPI(clientset); err != nil {
-			log.Fatalf("%v", err)
-		}
-		log.Printf("INFO CNPG API prerequisites verified for DATABASE_PROVIDER=cnpg")
 	}
 
 	// The Gateway Exposure port decouples route-address resolution and readiness

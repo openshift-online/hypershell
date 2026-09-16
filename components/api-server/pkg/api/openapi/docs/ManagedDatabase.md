@@ -10,20 +10,18 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**Provider** | **string** |  | 
-**Namespace** | Pointer to **string** |  | [optional] [readonly] 
 **Region** | Pointer to **string** |  | [optional] 
 **Engine** | Pointer to **string** |  | [optional] 
 **EngineVersion** | Pointer to **string** |  | [optional] 
 **InstanceClass** | Pointer to **string** |  | [optional] 
-**ConnectionSecret** | Pointer to **string** | For provider \&quot;external\&quot;: the NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \&quot;/\&quot;) prefixed with \&quot;hypershell-managed-db-\&quot; and a valid DNS-1123 label. The Secret inside it always has the fixed name \&quot;hypershell-managed-db-credentials\&quot;. Ignored by other providers. | [optional] 
+**ConnectionSecret** | Pointer to **string** | The NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \&quot;/\&quot;) prefixed with \&quot;hypershell-managed-db-\&quot; and a valid DNS-1123 label. The Secret inside it always has the fixed name \&quot;hypershell-managed-db-credentials\&quot;. | [optional] 
 **Status** | Pointer to **string** |  | [optional] 
 
 ## Methods
 
 ### NewManagedDatabase
 
-`func NewManagedDatabase(name string, provider string, ) *ManagedDatabase`
+`func NewManagedDatabase(name string, ) *ManagedDatabase`
 
 NewManagedDatabase instantiates a new ManagedDatabase object
 This constructor will assign default values to properties that have it defined,
@@ -182,51 +180,6 @@ and a boolean to check if the value has been set.
 
 SetName sets Name field to given value.
 
-
-### GetProvider
-
-`func (o *ManagedDatabase) GetProvider() string`
-
-GetProvider returns the Provider field if non-nil, zero value otherwise.
-
-### GetProviderOk
-
-`func (o *ManagedDatabase) GetProviderOk() (*string, bool)`
-
-GetProviderOk returns a tuple with the Provider field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetProvider
-
-`func (o *ManagedDatabase) SetProvider(v string)`
-
-SetProvider sets Provider field to given value.
-
-
-### GetNamespace
-
-`func (o *ManagedDatabase) GetNamespace() string`
-
-GetNamespace returns the Namespace field if non-nil, zero value otherwise.
-
-### GetNamespaceOk
-
-`func (o *ManagedDatabase) GetNamespaceOk() (*string, bool)`
-
-GetNamespaceOk returns a tuple with the Namespace field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetNamespace
-
-`func (o *ManagedDatabase) SetNamespace(v string)`
-
-SetNamespace sets Namespace field to given value.
-
-### HasNamespace
-
-`func (o *ManagedDatabase) HasNamespace() bool`
-
-HasNamespace returns a boolean if a field has been set.
 
 ### GetRegion
 

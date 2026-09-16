@@ -10,7 +10,7 @@ Authoritative source: specs/platform/global-architecture.spec.md; specs/platform
 graph LR
   GIT[Git repository<br/>base + overlays] --> ARGO[ArgoCD<br/>continuous GitOps]
   TF[Terraform<br/>VPC · subnet · cluster] --> CLUSTERS[Cloud Hubs +<br/>ManagedClusters]
-  TEKTON[Tekton installer<br/>idempotent pipeline] --> PREREQ[CNPG · cert-manager<br/>Vault · Keycloak · operators]
+  TEKTON[Tekton installer<br/>idempotent pipeline] --> PREREQ[cert-manager · Vault<br/>Keycloak · operators]
   ARGO --> PLATFORM[API Server · Control Plane<br/>PostgreSQL · Web Console]
   PLATFORM -->|gRPC watch + reconcile| TENANT[Tenant namespaces<br/>Gateway · Sandboxes · routes]
   PREREQ --> PLATFORM

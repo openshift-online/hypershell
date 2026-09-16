@@ -26,7 +26,7 @@ skills/
 │   └── patternfly/           # PatternFly 6 component selection and implementation patterns
 ├── deploy/
 │   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
-│   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, CNPG, kustomize)
+│   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, kustomize)
 │   ├── gcp-cluster/          # GCP OSD cluster deployment (Route mode)
 │   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment (Route mode)
 ├── plan/
@@ -256,7 +256,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 |---|-------------|--------|-----|---------------|------|
 | CP-1 | gRPC watch streams (6 kinds) | Present | No checkpoint/resume-token on reconnect | `watcher/watcher.go` | - |
 | CP-2a | Deploy Gateway workloads | Present | - | `gateway/reconciler.go` | - |
-| CP-2b | Provision database via CNPG | Present | ManagedDatabaseReconciler creates CNPG Cluster; GatewayReconciler creates DatabaseRole/Database/Kubernetes Secret CRs | `reconciler.go`, `gateway/reconciler.go` | W8 ✅ |
+| CP-2b | Provision the per-gateway database | Present | GatewayReconciler issues CREATE ROLE/CREATE DATABASE on the registered server and writes the tenant credentials Secret | `reconciler.go`, `gateway/external_db.go` | W8 ✅ |
 | CP-2c | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | - |
 | CP-2d | GRPCRoute + BackendTLSPolicy | Present | - | `reconcileGatewayAPIResources()` | - |
 | CP-2e | OIDC config injection | Present | - | `ApplyConfigOverrides()` | - |
@@ -295,17 +295,16 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| D1 | ManagedDatabase Reconciliation (provider=cnpg) | Present | ManagedDatabaseReconciler creates CNPG Cluster CRs | `reconciler.go` | W8 ✅ |
-| D2 | Per-gateway Database/DatabaseRole/Secret CRs | Present | GatewayReconciler provisions CNPG Database+DatabaseRole+Secret in ManagedDB namespace | `gateway/reconciler.go` | W8 ✅ |
+| D1 | ManagedDatabase Reconciliation | Present | ManagedDatabaseReconciler probes the registered server and publishes status | `reconciler.go` | W8 ✅ |
+| D2 | Per-gateway database, role and Secret | Present | GatewayReconciler issues DDL on the registered server and writes the tenant credentials Secret | `gateway/external_db.go` | W8 ✅ |
 | D3 | ManagedDatabase Deletion Protection | Present | API rejects delete (409) when gateways reference it | `plugins/managedDatabases/service.go` | W8 ✅ |
-| D4 | Gateway Database Resolution (auto db) | Present | database_id auto-assigned when a sole ManagedDatabase exists | `plugins/gateways/service.go` | W8 ✅ |
+| D4 | Gateway Database Resolution (auto db) | Present | database_id is server-owned: placement assigns the first-created ManagedDatabase | `plugins/gateways/placement.go` | W8 ✅ |
 | D5 | Gateway Credentials Secret (tenant namespace) | Present | `openshell-gateway-db-credentials` created in tenant NS with host/port/dbname/user/password/uri | `gateway/reconciler.go` | W8 ✅ |
-| D6 | Database Provisioning Readiness | Present | `waitForCNPGDatabase()` waits 2min for CNPG Database CR `status.applied: true` | `gateway/reconciler.go` | W8 ✅ |
+| D6 | Database Provisioning Readiness | Present | Provisioning waits for the per-gateway DDL and the tenant credentials Secret before deploying the workload | `gateway/external_db.go` | W8 ✅ |
 | D7 | Database Credential Security (crypto/rand) | Present | 32-byte hex password; create-or-skip semantics | `gateway/reconciler.go` | W8 ✅ |
-| D8 | Manual Credential Rotation (CNPG-based) | Present | `rotateCNPGDatabaseCredentials()` updates CNPG password Secret; CNPG applies to PostgreSQL | `gateway/reconciler.go` | W8 ✅ |
+| D8 | Manual Credential Rotation | Removed | HyperShell does not rotate per-gateway database credentials (openshell-gateway-database.spec.md § No Credential Rotation) | - | - |
 | D9 | Gateway workload uses Deployment + env from Secret | Present | openshell-gateway-db-credentials Secret referenced in Deployment | `deployment.yaml` | W1 ✅ |
-| D10 | CNPG Operator Detection at startup | Present | `DetectCNPG()` checks for `postgresql.cnpg.io/v1` API group | `gateway/config.go`, `reconciler.go` | W8 ✅ |
-| D11 | Label-based cleanup on deletion (CNPG resources) | Present | CNPG resources in ManagedDB namespace cleaned via `hypershell.redhat.io/gateway-namespace` label | `gateway/reconciler.go` | W8 ✅ |
+| D11 | Per-gateway cleanup on deletion | Present | `DROP DATABASE`/`DROP ROLE` on the registered server; the tenant Secret goes with the namespace | `gateway/external_db.go` | W8 ✅ |
 | D12 | DROP COLUMN migration for database_config | Missing | database_config column still in DB schema; no DROP COLUMN migration added | - | Future |
 | D13 | Database field immutability | Missing | No API validation prevents database_id reassignment | - | Future |
 | D14 | Gateway Deletion Protection (active sandboxes) | Missing | No sandbox check on delete | - | Future |
@@ -674,8 +673,8 @@ Ephemeral-by-default pull-request environments on a shared OpenShift cluster. Bu
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| SR-1 | Database Password Rotation (annotation-triggered) | Present | `rotateCNPGDatabaseCredentials()` updates CNPG password Secret; CNPG applies to PostgreSQL; updates gateway credentials Secret | `gateway/reconciler.go` | W8 ✅ |
-| SR-2 | Database Rotation Failure Handling | Present | CNPG password Secret updated first, then gateway credentials Secret; retry is safe because mismatch detected via annotation | `gateway/reconciler.go` | W8 ✅ |
+| SR-1 | Database Password Rotation | Removed | HyperShell does not rotate per-gateway database credentials; operators rotate on the server or recreate the gateway | - | - |
+| SR-2 | Database Rotation Failure Handling | Removed | No rotation path exists; provisioning repair re-applies a lost tenant Secret with `ALTER ROLE` | `gateway/external_db.go` | - |
 | SR-3 | Config-Hash Coverage for Database Credentials | Present | `applyConfigHashAnnotation` now loops over both `openshell-server-tls` AND `openshell-gateway-db-credentials` Secrets | `gateway/reconciler.go` | SR-W1 ✅ |
 | SR-5 | KEK Rotation (Day-2) | Deferred | Explicitly deferred in spec; no gateway re-encryption API exists | - | Future |
 | SR-6 | TLS Certificate Rotation (cert-manager) | Present | cert-manager handles renewal; `applyConfigHashAnnotation` includes TLS Secret; config-hash triggers restart | `reconciler.go:540-554` | W7 ✅ |
@@ -731,7 +730,7 @@ Ephemeral-by-default pull-request environments on a shared OpenShift cluster. Bu
 | L14 | Hot Reload Support | Present | Web console: scale down, redirect Service → host Vite via Endpoints, pnpm dev with trap | `scripts/kind/swap-component.sh` |
 | L15 | Container Registry | Present | `IMAGE_REGISTRY` + `IMAGE_TAG` configurable | `Makefile` |
 | L16 | Offline Development (`LOCAL_IMAGES`) | Present | `build-images.sh` builds all images from `origin/main` via git worktree | `scripts/kind/build-images.sh` |
-| L17 | Red Hat HI Images | Present | Hub DB uses CNPG Cluster manifest with `HYPERSHELL_DATABASE_IMAGE`; gateway DBs use `OPENSHELL_DATABASE_IMAGE` | `deploy/base/hypershell-db-cluster.yaml`, `Makefile` |
+| L17 | Red Hat HI Images | Present | Platform components use HI images; databases are externally provisioned and carry no HyperShell-managed image | `deploy/base/postgres.yaml`, `Makefile` |
 | L18 | Gateway API CRDs | Present | Experimental channel from upstream at `GATEWAY_API_VERSION` (v1.5.1) | `scripts/kind/up.sh` |
 | L19 | cloud-provider-kind | Present | Patched build (podman 6+ fix); `--enable-lb-port-mapping`; verified in PATH | `Makefile`, `scripts/kind/up.sh` |
 | L20 | cert-manager | Present | Installed from release manifest; waits for deployments ready | `scripts/kind/up.sh` |

@@ -225,15 +225,9 @@ components:
         - type: object
           required:
             - name
-            - provider
           properties:
             name:
               type: string
-            provider:
-              type: string
-            namespace:
-              type: string
-              readOnly: true
             region:
               type: string
             engine:
@@ -245,11 +239,11 @@ components:
             connection_secret:
               type: string
               description: >-
-                For provider "external": the NAMESPACE holding the admin credentials
-                Secret, not a Secret name. Must be a bare namespace name (no "/")
-                prefixed with "hypershell-managed-db-" and a valid DNS-1123 label.
-                The Secret inside it always has the fixed name
-                "hypershell-managed-db-credentials". Ignored by other providers.
+                The NAMESPACE holding the admin credentials Secret, not a Secret
+                name. Must be a bare namespace name (no "/") prefixed with
+                "hypershell-managed-db-" and a valid DNS-1123 label. The Secret
+                inside it always has the fixed name
+                "hypershell-managed-db-credentials".
             status:
               type: string
     # NEW SCHEMA START
@@ -270,8 +264,6 @@ components:
       properties:
         name:
           type: string
-        provider:
-          type: string
         region:
           type: string
         engine:
@@ -283,11 +275,11 @@ components:
         connection_secret:
           type: string
           description: >-
-            For provider "external": the NAMESPACE holding the admin credentials
-            Secret, not a Secret name. Must be a bare namespace name (no "/")
-            prefixed with "hypershell-managed-db-" and a valid DNS-1123 label.
-            The Secret inside it always has the fixed name
-            "hypershell-managed-db-credentials". Ignored by other providers.
+            The NAMESPACE holding the admin credentials Secret, not a Secret
+            name. Must be a bare namespace name (no "/") prefixed with
+            "hypershell-managed-db-" and a valid DNS-1123 label. The Secret
+            inside it always has the fixed name
+            "hypershell-managed-db-credentials".
         status:
           type: string
   parameters:

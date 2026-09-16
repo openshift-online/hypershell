@@ -54,17 +54,16 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 
 	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
 
-	_, err = grpcClient.CreateManagedDatabase(ctx, &pb.CreateManagedDatabaseRequest{Name: "invalid-provider", Provider: "unsupported"})
+	_, err = grpcClient.CreateManagedDatabase(ctx, &pb.CreateManagedDatabaseRequest{Name: "missing-connection-secret"})
 	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 
 	createReq := &pb.CreateManagedDatabaseRequest{
 		Name:             "TestName",
-		Provider:         "deployment",
 		Region:           func() *string { s := "TestRegion"; return &s }(),
 		Engine:           func() *string { s := "TestEngine"; return &s }(),
 		EngineVersion:    func() *string { s := "TestEngineVersion"; return &s }(),
 		InstanceClass:    func() *string { s := "TestInstanceClass"; return &s }(),
-		ConnectionSecret: func() *string { s := "TestConnectionSecret"; return &s }(),
+		ConnectionSecret: func() *string { s := "hypershell-managed-db-test"; return &s }(),
 		Status:           func() *string { s := "TestStatus"; return &s }(),
 	}
 	created, err := grpcClient.CreateManagedDatabase(ctx, createReq)
@@ -81,33 +80,27 @@ func TestGRPCManagedDatabaseCRUD(t *testing.T) {
 	updateReq := &pb.UpdateManagedDatabaseRequest{
 		Id:               managedDatabaseID,
 		Name:             func() *string { s := "UpdatedName"; return &s }(),
-		Provider:         func() *string { s := "deployment"; return &s }(),
 		Region:           func() *string { s := "UpdatedRegion"; return &s }(),
 		Engine:           func() *string { s := "UpdatedEngine"; return &s }(),
 		EngineVersion:    func() *string { s := "UpdatedEngineVersion"; return &s }(),
 		InstanceClass:    func() *string { s := "UpdatedInstanceClass"; return &s }(),
-		ConnectionSecret: func() *string { s := "UpdatedConnectionSecret"; return &s }(),
+		ConnectionSecret: func() *string { s := "hypershell-managed-db-updated"; return &s }(),
 		Status:           func() *string { s := "UpdatedStatus"; return &s }(),
 	}
 	updated, err := grpcClient.UpdateManagedDatabase(ctx, updateReq)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(updated.ManagedDatabase.Metadata.Id).To(Equal(managedDatabaseID))
 
-	unsupportedProvider := "unsupported"
-	_, err = grpcClient.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{Id: managedDatabaseID, Provider: &unsupportedProvider})
-	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
-
-	changedProvider := "cnpg"
-	_, err = grpcClient.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{Id: managedDatabaseID, Provider: &changedProvider})
+	unreservedNamespace := "some-namespace"
+	_, err = grpcClient.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{Id: managedDatabaseID, ConnectionSecret: &unreservedNamespace})
 	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 	retrieved, err = grpcClient.GetManagedDatabase(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(retrieved.ManagedDatabase.Provider).To(Equal("deployment"))
+	Expect(retrieved.ManagedDatabase.GetConnectionSecret()).To(Equal("hypershell-managed-db-updated"))
 
 	readyStatus := "Ready"
 	updated, err = grpcClient.UpdateManagedDatabase(ctx, &pb.UpdateManagedDatabaseRequest{Id: managedDatabaseID, Status: &readyStatus})
 	Expect(err).NotTo(HaveOccurred())
-	Expect(updated.ManagedDatabase.Provider).To(Equal("deployment"))
 	Expect(updated.ManagedDatabase.Status).NotTo(BeNil())
 	Expect(*updated.ManagedDatabase.Status).To(Equal("Ready"))
 
@@ -168,8 +161,8 @@ func TestGRPCWatchManagedDatabases(t *testing.T) {
 
 		for name := range itemNames {
 			managedDatabaseInput := openapi.ManagedDatabase{
-				Name:     name,
-				Provider: "deployment",
+				Name:             name,
+				ConnectionSecret: openapi.PtrString("hypershell-managed-db-test"),
 			}
 			_, resp, postErr := client.DefaultAPI.CreateManagedDatabase(ctx).ManagedDatabase(managedDatabaseInput).Execute()
 			if postErr != nil {
@@ -260,8 +253,8 @@ func TestGRPCWatchManagedDatabaseReplaysDeletedResource(t *testing.T) {
 
 	grpcClient := pb.NewManagedDatabaseServiceClient(conn)
 	created, err := grpcClient.CreateManagedDatabase(ctx, &pb.CreateManagedDatabaseRequest{
-		Name:     "delete-watch-test",
-		Provider: "deployment",
+		Name:             "delete-watch-test",
+		ConnectionSecret: func() *string { s := "hypershell-managed-db-test"; return &s }(),
 	})
 	Expect(err).NotTo(HaveOccurred())
 	databaseID := created.ManagedDatabase.Metadata.Id
@@ -294,9 +287,7 @@ func TestGRPCWatchManagedDatabaseReplaysDeletedResource(t *testing.T) {
 		Expect(evt.ManagedDatabase).NotTo(BeNil(), "delete event must include the ManagedDatabase tombstone")
 		Expect(evt.ManagedDatabase.Metadata.Id).To(Equal(databaseID))
 		Expect(evt.ManagedDatabase.Name).To(Equal("delete-watch-test"))
-		Expect(evt.ManagedDatabase.Provider).To(Equal("deployment"))
-		Expect(evt.ManagedDatabase.Namespace).To(Equal(created.ManagedDatabase.Namespace))
-		Expect(evt.ManagedDatabase.Namespace).NotTo(BeEmpty())
+		Expect(evt.ManagedDatabase.GetConnectionSecret()).To(Equal("hypershell-managed-db-test"))
 		break
 	}
 }

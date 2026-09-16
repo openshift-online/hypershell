@@ -190,9 +190,7 @@ func TestManagedDatabaseReconcileQueue_RetriesDeleteUntilCleanupSucceeds(t *test
 		Type:       EventDeleted,
 		ResourceID: "db-1",
 		Resource: &pb.ManagedDatabase{
-			Metadata:  &pb.ObjectReference{Id: "db-1"},
-			Provider:  "deployment",
-			Namespace: "openshell-db-test",
+			Metadata: &pb.ObjectReference{Id: "db-1"},
 		},
 	})
 

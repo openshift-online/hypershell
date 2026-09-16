@@ -66,13 +66,6 @@ patches:
                     # OVERRIDE: set to this cluster's ingress subdomain, e.g.
                     # hysh-ibm-01-<hash>-0000.us-east.containers.appdomain.cloud
                     value: openshell.ibm.example.com
-                  - name: HYPERSHELL_DATABASE_IMAGE
-                    # OVERRIDE: set to the internal-registry pullspec for
-                    # postgres:18 (mirror of docker.io/library/postgres:18).
-                    # Nodes cannot pull docker.io; this image is served from the
-                    # cluster-internal registry. See skills/deploy/ibm-cluster
-                    # §5.2 for the mirror command.
-                    value: image-registry.openshift-image-registry.svc:5000/openshift/postgres:18
                   - name: GATEWAY_SANDBOX_IMAGE
                     # OVERRIDE: set to the internal-registry pullspec for the
                     # openshell-sandbox base image (mirror of

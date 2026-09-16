@@ -5,12 +5,11 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | Pointer to **string** |  | [optional] 
-**Provider** | Pointer to **string** |  | [optional] 
 **Region** | Pointer to **string** |  | [optional] 
 **Engine** | Pointer to **string** |  | [optional] 
 **EngineVersion** | Pointer to **string** |  | [optional] 
 **InstanceClass** | Pointer to **string** |  | [optional] 
-**ConnectionSecret** | Pointer to **string** | For provider \&quot;external\&quot;: the NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \&quot;/\&quot;) prefixed with \&quot;hypershell-managed-db-\&quot; and a valid DNS-1123 label. The Secret inside it always has the fixed name \&quot;hypershell-managed-db-credentials\&quot;. Ignored by other providers. | [optional] 
+**ConnectionSecret** | Pointer to **string** | The NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \&quot;/\&quot;) prefixed with \&quot;hypershell-managed-db-\&quot; and a valid DNS-1123 label. The Secret inside it always has the fixed name \&quot;hypershell-managed-db-credentials\&quot;. | [optional] 
 **Status** | Pointer to **string** |  | [optional] 
 
 ## Methods
@@ -56,31 +55,6 @@ SetName sets Name field to given value.
 `func (o *ManagedDatabasePatchRequest) HasName() bool`
 
 HasName returns a boolean if a field has been set.
-
-### GetProvider
-
-`func (o *ManagedDatabasePatchRequest) GetProvider() string`
-
-GetProvider returns the Provider field if non-nil, zero value otherwise.
-
-### GetProviderOk
-
-`func (o *ManagedDatabasePatchRequest) GetProviderOk() (*string, bool)`
-
-GetProviderOk returns a tuple with the Provider field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetProvider
-
-`func (o *ManagedDatabasePatchRequest) SetProvider(v string)`
-
-SetProvider sets Provider field to given value.
-
-### HasProvider
-
-`func (o *ManagedDatabasePatchRequest) HasProvider() bool`
-
-HasProvider returns a boolean if a field has been set.
 
 ### GetRegion
 

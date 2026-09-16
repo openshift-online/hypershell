@@ -14,14 +14,8 @@ import (
 
 const managedDatabasesLockType db.LockType = "managed_databases"
 
-const (
-	providerCNPG       = "cnpg"
-	providerDeployment = "deployment"
-	providerExternal   = "external"
-)
-
 // externalCredentialsNamespacePrefix is the reserved prefix for the namespace
-// holding an external server's admin credentials. ManagedDatabase.connection_secret
+// holding the registered server's admin credentials. ManagedDatabase.connection_secret
 // names that NAMESPACE, not a Secret: the credentials are provisioned out-of-band,
 // normally before HyperShell is installed, so they must not depend on the control
 // plane instance namespace existing.
@@ -122,22 +116,14 @@ func (s *sqlManagedDatabaseService) ListDeleted(ctx context.Context, offset, lim
 	return managedDatabases, nil
 }
 
-func isSupportedProvider(provider string) bool {
-	return provider == providerCNPG || provider == providerDeployment || provider == providerExternal
-}
-
-func unsupportedProviderError(provider string) *errors.ServiceError {
-	return errors.Validation("unsupported provider %q: supported providers are \"cnpg\", \"deployment\", and \"external\"", provider)
-}
-
-// validateExternalConnectionSecret checks the connection_secret reference for
-// external ManagedDatabases. The value names the NAMESPACE holding the admin
-// credentials Secret, so it must be a bare namespace name (no "/"), carry the
-// reserved prefix, and be a valid DNS-1123 label. The Secret inside it always
-// has the fixed name externalCredentialsSecretName.
-func validateExternalConnectionSecret(secret *string) *errors.ServiceError {
+// validateConnectionSecret checks a ManagedDatabase's connection_secret
+// reference. The value names the NAMESPACE holding the admin credentials
+// Secret, so it must be a bare namespace name (no "/"), carry the reserved
+// prefix, and be a valid DNS-1123 label. The Secret inside it always has the
+// fixed name externalCredentialsSecretName.
+func validateConnectionSecret(secret *string) *errors.ServiceError {
 	if secret == nil || *secret == "" {
-		return errors.Validation("connection_secret is required for provider \"external\": it names the namespace holding the %q Secret", externalCredentialsSecretName)
+		return errors.Validation("connection_secret is required: it names the namespace holding the %q Secret", externalCredentialsSecretName)
 	}
 	value := *secret
 	if strings.Contains(value, "/") {
@@ -156,13 +142,8 @@ func validateExternalConnectionSecret(secret *string) *errors.ServiceError {
 }
 
 func (s *sqlManagedDatabaseService) Create(ctx context.Context, managedDatabase *ManagedDatabase) (*ManagedDatabase, *errors.ServiceError) {
-	if !isSupportedProvider(managedDatabase.Provider) {
-		return nil, unsupportedProviderError(managedDatabase.Provider)
-	}
-	if managedDatabase.Provider == providerExternal {
-		if svcErr := validateExternalConnectionSecret(managedDatabase.ConnectionSecret); svcErr != nil {
-			return nil, svcErr
-		}
+	if svcErr := validateConnectionSecret(managedDatabase.ConnectionSecret); svcErr != nil {
+		return nil, svcErr
 	}
 
 	managedDatabase.CaptureTraceContext(ctx)
@@ -190,20 +171,11 @@ func (s *sqlManagedDatabaseService) Replace(ctx context.Context, managedDatabase
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
-	persisted, err := s.managedDatabaseDao.Get(ctx, managedDatabase.ID)
-	if err != nil {
+	if _, err := s.managedDatabaseDao.Get(ctx, managedDatabase.ID); err != nil {
 		return nil, services.HandleUpdateError("ManagedDatabase", err)
 	}
-	if !isSupportedProvider(managedDatabase.Provider) {
-		return nil, unsupportedProviderError(managedDatabase.Provider)
-	}
-	if isSupportedProvider(persisted.Provider) && managedDatabase.Provider != persisted.Provider {
-		return nil, errors.Validation("provider cannot be changed from %q to %q", persisted.Provider, managedDatabase.Provider)
-	}
-	if managedDatabase.Provider == providerExternal {
-		if svcErr := validateExternalConnectionSecret(managedDatabase.ConnectionSecret); svcErr != nil {
-			return nil, svcErr
-		}
+	if svcErr := validateConnectionSecret(managedDatabase.ConnectionSecret); svcErr != nil {
+		return nil, svcErr
 	}
 
 	managedDatabase.CaptureTraceContext(ctx)

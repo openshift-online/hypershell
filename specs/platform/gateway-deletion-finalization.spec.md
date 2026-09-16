@@ -54,8 +54,8 @@ finalization and no-silent-orphan guarantees that span all of them.
   - **Out-of-namespace resources** - resources that live outside the gateway's
     namespace and are not reached by the namespace cascade: the cluster-scoped
     ClusterRoleBinding, the gateway/console/service-account Keycloak clients, the
-    per-gateway database resources (in the ManagedDatabase namespace or the
-    dedicated ManagedDatabase), and any credential-namespace RBAC.
+    per-gateway database and login role on the registered PostgreSQL server, and
+    any credential-namespace RBAC.
 - **Finalization** - the point at which a Gateway's teardown is complete: every
   owned resource has been reclaimed or confirmed already absent, or its residue
   has been handed to an explicit, documented recovery path. The soft-deleted row
@@ -91,10 +91,8 @@ resource classes is:
 2. The cluster-scoped ClusterRoleBinding created for the gateway.
 3. The gateway's Keycloak clients: the gateway client, the console client, and
    every service-account client.
-4. The gateway's database resources: in CNPG mode the per-gateway `Database`,
-   `DatabaseRole`, and password Secret in the ManagedDatabase namespace; in
-   deployment mode the gateway's dedicated ManagedDatabase (whose own deletion
-   reclaims the Deployment, Service, PVC, credentials Secret, and namespace).
+4. The gateway's database and login role (`gw_<gatewayID>`) on the PostgreSQL
+   server registered as its ManagedDatabase.
 5. Any credential-namespace RBAC (Role and RoleBinding) the gateway created in a
    separate credential namespace.
 

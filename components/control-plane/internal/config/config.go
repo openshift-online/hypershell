@@ -9,21 +9,6 @@ import (
 	"time"
 )
 
-// Database provider values for DATABASE_PROVIDER. DatabaseProviderDeployment
-// is the default (unset or empty DATABASE_PROVIDER resolves to it): a
-// standalone PostgreSQL Deployment per gateway, requiring no operator.
-// DatabaseProviderCNPG opts into the CloudNativePG-backed placement and
-// requires the CNPG operator CRDs to be installed; see
-// gateway.RequireCNPGAPI, which the control-plane entrypoint uses to fail
-// startup cleanly when they are not.
-// DatabaseProviderExternal selects an externally-managed PostgreSQL server;
-// the control plane issues DDL in-process and requires no CNPG operator.
-const (
-	DatabaseProviderDeployment = "deployment"
-	DatabaseProviderCNPG       = "cnpg"
-	DatabaseProviderExternal   = "external"
-)
-
 // DefaultGatewayReconcileWorkers is the fallback size of the gateway reconcile
 // worker pool when GATEWAY_RECONCILE_WORKERS is unset or invalid. It matches the
 // control plane's historical hardcoded pool size, so an unset variable preserves
@@ -75,16 +60,6 @@ type Config struct {
 	// See specs/platform/gateway-reconcile-concurrency.spec.md.
 	GatewayReconcileWorkers int
 
-	// DatabaseProvider is the control-plane-wide default ManagedDatabase
-	// provider, resolved from DATABASE_PROVIDER by resolveDatabaseProvider.
-	// It is always one of DatabaseProviderDeployment, DatabaseProviderCNPG or
-	// DatabaseProviderExternal; Load returns an error for any other
-	// DATABASE_PROVIDER value instead of silently falling back. Existing ManagedDatabase resources keep
-	// reconciling per their own Provider field regardless of this default
-	// (see internal/reconciler.ManagedDatabaseReconciler), so gateways backed
-	// by CNPG remain compatible even when this default is "deployment".
-	DatabaseProvider string
-
 	// Helm chart configuration
 	HelmChartPath     string
 	HelmChartRegistry string
@@ -96,11 +71,6 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	databaseProvider, err := resolveDatabaseProvider(os.Getenv("DATABASE_PROVIDER"))
-	if err != nil {
-		return nil, err
-	}
-
 	cfg := &Config{
 		GRPCServerAddr:                   getEnv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000"),
 		APIServerURL:                     getEnv("HYPERSHELL_API_SERVER_URL", "http://localhost:8000"),
@@ -115,8 +85,6 @@ func Load() (*Config, error) {
 		NamespaceGCGracePeriod: getEnvDuration("GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 10*time.Minute),
 
 		GatewayReconcileWorkers: getEnvInt("GATEWAY_RECONCILE_WORKERS", DefaultGatewayReconcileWorkers, 1),
-
-		DatabaseProvider: databaseProvider,
 
 		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
@@ -136,25 +104,6 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// resolveDatabaseProvider validates a raw DATABASE_PROVIDER value into one of
-// the three supported providers. Unset or empty means DatabaseProviderDeployment
-// (deployment-backed ManagedDatabase placement is the default and requires no
-// CNPG APIs); any value other than "deployment", "cnpg" or "external" is a
-// startup configuration error rather than a silent fallback.
-func resolveDatabaseProvider(raw string) (string, error) {
-	switch raw {
-	case "", DatabaseProviderDeployment:
-		return DatabaseProviderDeployment, nil
-	case DatabaseProviderCNPG:
-		return DatabaseProviderCNPG, nil
-	case DatabaseProviderExternal:
-		return DatabaseProviderExternal, nil
-	default:
-		return "", fmt.Errorf("invalid DATABASE_PROVIDER %q: must be %q, %q, or %q (unset defaults to %q)",
-			raw, DatabaseProviderCNPG, DatabaseProviderDeployment, DatabaseProviderExternal, DatabaseProviderDeployment)
-	}
 }
 
 func getEnv(key, fallback string) string {

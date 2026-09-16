@@ -10,7 +10,7 @@ The HyperShell control plane is a Go service that watches the API server via gRP
 ## Architecture
 
 ```
-API Server (PostgreSQL via CNPG)
+API Server (PostgreSQL)
   │  gRPC watch streams per Kind
   ▼
 Control Plane (Watcher + Reconciler)
@@ -30,7 +30,7 @@ The Watcher establishes gRPC streaming connections to the API server for each re
 The Reconciler receives resource events from the Watcher and converges the Kubernetes state on managed clusters to match. Key responsibilities:
 
 - Deploy/update Gateway workloads on target clusters
-- Provision per-gateway PostgreSQL databases and roles via CNPG `Database` and `DatabaseRole` CRDs in the ManagedDatabase's CNPG Cluster (resolved via the gateway's `database_id`)
+- Provision per-gateway PostgreSQL databases and roles on the PostgreSQL server registered by the gateway's ManagedDatabase (resolved via the gateway's `database_id`)
 - Configure TLS certificates via cert-manager
 - Create GRPCRoute and BackendTLSPolicy for external gateway exposure
 - Inject OIDC authentication configuration into gateway deployments
@@ -46,7 +46,7 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 | Sub-Spec | Scope |
 |---|---|
 | [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) | Core provisioning: GatewayReconciler, manifest templating, deployment resources, RBAC, OpenShift adjustments |
-| [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | PostgreSQL provisioning, credential security, manual rotation, deletion protection |
+| [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | Per-gateway PostgreSQL provisioning on registered servers, credential security, deletion protection |
 | [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) | TLS certificate management via cert-manager, SAN management, cert rotation |
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
@@ -126,7 +126,7 @@ The control plane SHALL reconcile Gateway resources into Kubernetes Deployments,
 - GIVEN a new Gateway resource appears via the watch stream
 - WHEN the reconciler processes it
 - THEN it SHALL create the corresponding K8s resources on the cluster identified by `cluster_id`:
-  - CNPG database resources (DatabaseRole, Database CRDs, credential Secrets) in the ManagedDatabase's CNPG Cluster (resolved via `database_id`) - see [database spec](./openshell-gateway-database.spec.md)
+  - A per-gateway PostgreSQL database and role on the ManagedDatabase's server (resolved via `database_id`) and the tenant credentials Secret - see [database spec](./openshell-gateway-database.spec.md)
   - cert-manager Issuer and Certificate resources for TLS - see [TLS spec](./openshell-gateway-tls.spec.md)
   - JWT key generation Job (`openshell-gateway-certgen`)
   - Gateway Deployment, Service, ServiceAccounts, Roles, RoleBindings, ConfigMap, NetworkPolicies
@@ -136,22 +136,21 @@ The control plane SHALL reconcile Gateway resources into Kubernetes Deployments,
 
 ### Requirement: ManagedDatabase Reconciliation
 
-The control plane SHALL reconcile ManagedDatabase resources with `provider: "cnpg"` into CNPG Cluster infrastructure. Each CNPG-backed ManagedDatabase gets its own namespace and CNPG Cluster.
+The control plane SHALL reconcile each ManagedDatabase as a connectivity and capability check against the externally provisioned PostgreSQL server it registers. It SHALL create no Kubernetes resource for a ManagedDatabase.
 
-#### Scenario: New ManagedDatabase Created (provider=cnpg)
-- GIVEN a new ManagedDatabase resource with `provider: "cnpg"` appears via the watch stream
+#### Scenario: New ManagedDatabase Created
+- GIVEN a new ManagedDatabase resource appears via the watch stream
 - WHEN the ManagedDatabaseReconciler processes it
-- THEN it SHALL create the namespace `openshell-db-<hex16>` (derived from the ManagedDatabase KSUID)
-- AND it SHALL create a CNPG `Cluster` CR in that namespace
-- AND it SHALL wait for the Cluster to reach Ready status
+- THEN it SHALL read the admin credentials Secret from the ManagedDatabase's `connection_secret` namespace
+- AND it SHALL verify the admin role can create databases and roles on the server
 - AND it SHALL update the ManagedDatabase status in the API server
 
 #### Scenario: ManagedDatabase Deletion
 - GIVEN a ManagedDatabase deletion event from the watch stream
 - AND no Gateways reference this ManagedDatabase via `database_id`
 - WHEN the ManagedDatabaseReconciler processes it
-- THEN it SHALL delete the CNPG Cluster CR
-- AND it SHALL delete the namespace
+- THEN it SHALL perform no action on the PostgreSQL server
+- AND it SHALL delete no Kubernetes resource
 
 #### Scenario: ManagedDatabase Deletion Blocked
 - GIVEN a ManagedDatabase that is referenced by one or more Gateways

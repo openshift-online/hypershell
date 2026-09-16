@@ -12,7 +12,7 @@ Gateways, clusters, databases, releases, and networks are **top-level resources*
 Current model:
 
 - **ManagedCluster** - a Kubernetes cluster registered into the platform. Tracks provider, region, API server URL, and a kubeconfig secret reference.
-- **ManagedDatabase** - a PostgreSQL server that gateways are placed onto. Tracks provider, region, engine type/version, instance class, and a connection secret reference. The `provider` field records how the server came into being: `deployment` (an in-cluster PostgreSQL Deployment dedicated to one gateway), `cnpg` (a shared in-cluster CNPG Cluster), or `external` (a cloud-managed server owned outside HyperShell and registered here). The `external` provider adds **no columns**: it gives the pre-existing `region`, `engine`, `engine_version`, `instance_class` and `connection_secret` fields their first consumer. `connection_secret` names the **namespace** (not the Secret) that holds the administrative connection to an external server, and is subject to a reserved-prefix rule - the Secret inside it has the fixed name `hypershell-managed-db-credentials`. The field name is retained for wire and column compatibility; see [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md).
+- **ManagedDatabase** - the registration of an externally provisioned PostgreSQL server that gateways are placed onto. Tracks region, engine type/version, instance class, and a connection secret reference. HyperShell never creates, resizes, or deletes the server; it provisions one database and login role per gateway inside it. A ManagedDatabase has no `provider` or `namespace` field. `connection_secret` names the **namespace** (not the Secret) that holds the administrative connection to the server, and is subject to a reserved-prefix rule - the Secret inside it has the fixed name `hypershell-managed-db-credentials`. The field name is retained for wire and column compatibility; see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
 - **GatewayRelease** - a versioned container image for gateway deployments. Supports rollout strategies with canary percent/duration controls.
 - **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release and database, within an API-assigned namespace. Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
@@ -41,8 +41,6 @@ erDiagram
     ManagedDatabase {
         string ID PK
         string name
-        string namespace
-        string provider
         string region
         string engine
         string engine_version
@@ -79,7 +77,6 @@ erDiagram
         jsonb oidc
         jsonb route
         text route_address
-        jsonb database
         jsonb credential_driver
         string external_dns
         string tls_mode
@@ -168,7 +165,7 @@ The API server SHALL assign each Gateway an immutable Kubernetes namespace befor
 
 A Gateway SHALL include provisioning configuration fields that the control plane uses to deploy and configure the OpenShell gateway workload on a target cluster.
 
-> **Relationship to release and database management fields:** The `image` field provides a direct image reference for the control plane reconciler, while `release_id` references a GatewayRelease for rollout management (canary, rollback). When both are set, `release_id` takes precedence and the reconciler resolves it to an image. Similarly, `database` (JSONB) carries inline provisioning config for the reconciler, while `database_id` references a ManagedDatabase for database lifecycle. When `database_id` is set, it takes precedence and the reconciler reads the connection details from the referenced ManagedDatabase.
+> **Relationship to release and database management fields:** The `image` field provides a direct image reference for the control plane reconciler, while `release_id` references a GatewayRelease for rollout management (canary, rollback). When both are set, `release_id` takes precedence and the reconciler resolves it to an image. A Gateway carries no inline database configuration: `database_id` references the ManagedDatabase whose server hosts the gateway's database, and the reconciler reads the admin connection from it.
 
 | Field | Type | Description |
 |---|---|---|
@@ -180,7 +177,6 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `observed_release_id` | string | Read-only (control-plane-owned) release currently rolled out and observed healthy; advanced only after a new revision passes its health gates. Distinct from the desired `release_id`. See [`gateway-release-rollout.spec.md`](./gateway-release-rollout.spec.md) |
-| `database` | JSONB | Database backend config: `{storageSize, image, externalSecretRef}` |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
 
 See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and its sub-specs for full provisioning details.
@@ -297,7 +293,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 |---|---|---|
 | `GET /api/hypershell/v1/managed_databases` | `hsctl list managedDatabases` | ✅ implemented |
 | `GET /api/hypershell/v1/managed_databases/{id}` | `hsctl get managedDatabase <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_databases` | `hsctl create managedDatabase --name <n> --provider <p> --region <r> --engine <e> --instance-class <c> --connection-secret <s>` | ✅ implemented |
+| `POST /api/hypershell/v1/managed_databases` | `hsctl create managedDatabase --name <n> --region <r> --engine <e> --instance-class <c> --connection-secret <s>` | ✅ implemented |
 | `PATCH /api/hypershell/v1/managed_databases/{id}` | `hsctl update managedDatabase <id> [--instance-class <c>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/managed_databases/{id}` | `hsctl delete managedDatabase <id> [--yes]` | 🔲 planned |
 
@@ -334,11 +330,11 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 
 | Kind | Fields applied | Status |
 |---|---|---|
-| `Gateway` | `name`, `cluster_id`, `release_id`, `database_id`, `image`, `server_dns_names`, `oidc`, `route`, `database`, `external_dns`, `tls_mode`, `service_type` | 🔲 planned |
+| `Gateway` | `name`, `cluster_id`, `release_id`, `database_id`, `image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type` | 🔲 planned |
 | `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | 🔲 planned |
 | `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | 🔲 planned |
 | `ManagedCluster` | `name`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | 🔲 planned |
-| `ManagedDatabase` | `name`, `provider`, `region`, `engine`, `engine_version`, `instance_class`, `connection_secret` | 🔲 planned |
+| `ManagedDatabase` | `name`, `region`, `engine`, `engine_version`, `instance_class`, `connection_secret` | 🔲 planned |
 
 #### `-f` - File or Directory
 

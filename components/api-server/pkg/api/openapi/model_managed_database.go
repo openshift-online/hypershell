@@ -28,13 +28,11 @@ type ManagedDatabase struct {
 	CreatedAt     *time.Time `json:"created_at,omitempty"`
 	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
 	Name          string     `json:"name"`
-	Provider      string     `json:"provider"`
-	Namespace     *string    `json:"namespace,omitempty"`
 	Region        *string    `json:"region,omitempty"`
 	Engine        *string    `json:"engine,omitempty"`
 	EngineVersion *string    `json:"engine_version,omitempty"`
 	InstanceClass *string    `json:"instance_class,omitempty"`
-	// For provider \"external\": the NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123 label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\". Ignored by other providers.
+	// The NAMESPACE holding the admin credentials Secret, not a Secret name. Must be a bare namespace name (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123 label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\".
 	ConnectionSecret *string `json:"connection_secret,omitempty"`
 	Status           *string `json:"status,omitempty"`
 }
@@ -45,10 +43,9 @@ type _ManagedDatabase ManagedDatabase
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewManagedDatabase(name string, provider string) *ManagedDatabase {
+func NewManagedDatabase(name string) *ManagedDatabase {
 	this := ManagedDatabase{}
 	this.Name = name
-	this.Provider = provider
 	return &this
 }
 
@@ -242,62 +239,6 @@ func (o *ManagedDatabase) GetNameOk() (*string, bool) {
 // SetName sets field value
 func (o *ManagedDatabase) SetName(v string) {
 	o.Name = v
-}
-
-// GetProvider returns the Provider field value
-func (o *ManagedDatabase) GetProvider() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.Provider
-}
-
-// GetProviderOk returns a tuple with the Provider field value
-// and a boolean to check if the value has been set.
-func (o *ManagedDatabase) GetProviderOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.Provider, true
-}
-
-// SetProvider sets field value
-func (o *ManagedDatabase) SetProvider(v string) {
-	o.Provider = v
-}
-
-// GetNamespace returns the Namespace field value if set, zero value otherwise.
-func (o *ManagedDatabase) GetNamespace() string {
-	if o == nil || IsNil(o.Namespace) {
-		var ret string
-		return ret
-	}
-	return *o.Namespace
-}
-
-// GetNamespaceOk returns a tuple with the Namespace field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *ManagedDatabase) GetNamespaceOk() (*string, bool) {
-	if o == nil || IsNil(o.Namespace) {
-		return nil, false
-	}
-	return o.Namespace, true
-}
-
-// HasNamespace returns a boolean if a field has been set.
-func (o *ManagedDatabase) HasNamespace() bool {
-	if o != nil && !IsNil(o.Namespace) {
-		return true
-	}
-
-	return false
-}
-
-// SetNamespace gets a reference to the given string and assigns it to the Namespace field.
-func (o *ManagedDatabase) SetNamespace(v string) {
-	o.Namespace = &v
 }
 
 // GetRegion returns the Region field value if set, zero value otherwise.
@@ -518,10 +459,6 @@ func (o ManagedDatabase) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated_at"] = o.UpdatedAt
 	}
 	toSerialize["name"] = o.Name
-	toSerialize["provider"] = o.Provider
-	if !IsNil(o.Namespace) {
-		toSerialize["namespace"] = o.Namespace
-	}
 	if !IsNil(o.Region) {
 		toSerialize["region"] = o.Region
 	}
@@ -549,7 +486,6 @@ func (o *ManagedDatabase) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"provider",
 	}
 
 	allProperties := make(map[string]interface{})

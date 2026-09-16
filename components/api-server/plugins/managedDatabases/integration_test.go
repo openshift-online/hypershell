@@ -48,12 +48,11 @@ func TestManagedDatabasePost(t *testing.T) {
 
 	managedDatabaseInput := openapi.ManagedDatabase{
 		Name:             "test-name",
-		Provider:         "deployment",
 		Region:           openapi.PtrString("test-region"),
 		Engine:           openapi.PtrString("test-engine"),
 		EngineVersion:    openapi.PtrString("test-engine_version"),
 		InstanceClass:    openapi.PtrString("test-instance_class"),
-		ConnectionSecret: openapi.PtrString("test-connection_secret"),
+		ConnectionSecret: openapi.PtrString("hypershell-managed-db-test"),
 		Status:           openapi.PtrString("test-status"),
 	}
 
@@ -64,7 +63,12 @@ func TestManagedDatabasePost(t *testing.T) {
 	Expect(*managedDatabaseOutput.Kind).To(Equal("ManagedDatabase"))
 	Expect(*managedDatabaseOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/managed_databases/%s", *managedDatabaseOutput.Id)))
 
-	_, resp, err = client.DefaultAPI.CreateManagedDatabase(ctx).ManagedDatabase(openapi.ManagedDatabase{Name: "invalid-provider", Provider: "unsupported"}).Execute()
+	_, resp, err = client.DefaultAPI.CreateManagedDatabase(ctx).ManagedDatabase(openapi.ManagedDatabase{Name: "missing-connection-secret"}).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+	_, resp, err = client.DefaultAPI.CreateManagedDatabase(ctx).
+		ManagedDatabase(openapi.ManagedDatabase{Name: "unreserved-namespace", ConnectionSecret: openapi.PtrString("some-namespace")}).Execute()
 	Expect(err).To(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 
@@ -96,35 +100,21 @@ func TestManagedDatabasePatch(t *testing.T) {
 	Expect(*managedDatabaseOutput.Kind).To(Equal("ManagedDatabase"))
 	Expect(*managedDatabaseOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/managed_databases/%s", *managedDatabaseOutput.Id)))
 
+	// The connection_secret reference stays validated on update: it names the
+	// reserved-prefix namespace holding the admin credentials Secret.
 	_, resp, err = client.DefaultAPI.UpdateManagedDatabase(ctx, managedDatabaseModel.ID).
-		ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{Provider: openapi.PtrString("unsupported")}).Execute()
+		ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{ConnectionSecret: openapi.PtrString("some-namespace")}).Execute()
 	Expect(err).To(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 	persisted, resp, err := client.DefaultAPI.GetManagedDatabase(ctx, managedDatabaseModel.ID).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(persisted.Provider).To(Equal("deployment"))
-
-	_, resp, err = client.DefaultAPI.UpdateManagedDatabase(ctx, managedDatabaseModel.ID).
-		ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{Provider: openapi.PtrString("cnpg")}).Execute()
-	Expect(err).To(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
-	persisted, resp, err = client.DefaultAPI.GetManagedDatabase(ctx, managedDatabaseModel.ID).Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(persisted.Provider).To(Equal("deployment"))
-
-	managedDatabaseOutput, resp, err = client.DefaultAPI.UpdateManagedDatabase(ctx, managedDatabaseModel.ID).
-		ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{Provider: openapi.PtrString("deployment")}).Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(managedDatabaseOutput.Provider).To(Equal("deployment"))
+	Expect(persisted.GetConnectionSecret()).To(Equal("hypershell-managed-db-test"))
 
 	managedDatabaseOutput, resp, err = client.DefaultAPI.UpdateManagedDatabase(ctx, managedDatabaseModel.ID).
 		ManagedDatabasePatchRequest(openapi.ManagedDatabasePatchRequest{Status: openapi.PtrString("Ready")}).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(managedDatabaseOutput.Provider).To(Equal("deployment"))
 	Expect(managedDatabaseOutput.GetStatus()).To(Equal("Ready"))
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)

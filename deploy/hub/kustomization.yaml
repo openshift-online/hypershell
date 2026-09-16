@@ -5,7 +5,8 @@ kind: Kustomization
 #
 # This inherits the core base and applies OpenShift-specific configurations
 # (routes, SCCs, network policies) but intentionally omits the bundled Keycloak
-# and CNPG databases so they can be injected dynamically per-environment by GitOps.
+# and any database manifests: production uses externally provisioned PostgreSQL
+# servers, injected per-environment by GitOps.
 resources:
   - ../base
   - route.yaml

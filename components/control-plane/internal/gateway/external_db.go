@@ -28,20 +28,17 @@ type externalDatabaseReconciler struct {
 	cfg ExternalDBConfig
 }
 
-// Reconcile provisions the gateway's external role and database. The
-// rotateAnnotation parameter is deliberately ignored: external mode does not
-// implement credential rotation, so the hypershell.redhat.io/rotate-db-credentials
-// annotation is inert for external-backed gateways. See
-// openshell-gateway-database-external.spec.md § Requirement: No Credential
-// Rotation (External Mode).
-func (r *externalDatabaseReconciler) Reconcile(ctx context.Context, _ dynamic.Interface, clientset kubernetes.Interface, tenantNamespace, gatewayID, _ string) error {
+// Reconcile provisions the gateway's role and database on the registered
+// server. HyperShell does not rotate per-gateway database credentials; see
+// openshell-gateway-database.spec.md § Requirement: No Credential Rotation.
+func (r *externalDatabaseReconciler) Reconcile(ctx context.Context, _ dynamic.Interface, clientset kubernetes.Interface, tenantNamespace, gatewayID string) error {
 	if err := ReconcileExternalDatabaseResources(ctx, clientset, tenantNamespace, gatewayID, r.cfg); err != nil {
 		return fmt.Errorf("reconcile external database resources in %s: %w", tenantNamespace, err)
 	}
 	return nil
 }
 
-// Delete drops the gateway's external database and role. Cleanup is
+// Delete drops the gateway's database and role on the registered server. Cleanup is
 // unconditional, single-shot and best-effort: the gateway is already removed
 // from the API server, there is no tombstone and no retry queue, so no later
 // event re-delivers this work.
@@ -49,7 +46,7 @@ func (r *externalDatabaseReconciler) Reconcile(ctx context.Context, _ dynamic.In
 // It therefore always returns nil. A failure is logged at ERROR naming the
 // gateway and ManagedDatabase IDs (never credentials) so the orphaned role and
 // database are discoverable; operators reclaim them with the runbook in
-// openshell-gateway-database-external.spec.md § Operator Runbook. Returning an
+// openshell-gateway-database.spec.md § Operator Runbook. Returning an
 // error instead would strand gateway finalization on a retry that never
 // succeeds.
 func (r *externalDatabaseReconciler) Delete(ctx context.Context, _ dynamic.Interface, clientset kubernetes.Interface, gatewayID string) error {
@@ -76,7 +73,7 @@ type externalAdminParams struct {
 }
 
 // externalCredentialsNamespacePrefix is the reserved prefix for the namespace
-// holding an external server's admin credentials. ManagedDatabase.connection_secret
+// holding the registered server's admin credentials. ManagedDatabase.connection_secret
 // names that NAMESPACE, not a Secret: the credentials are provisioned out-of-band,
 // normally before HyperShell is installed, so they must not depend on the control
 // plane instance namespace existing.

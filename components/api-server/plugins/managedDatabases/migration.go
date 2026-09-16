@@ -64,6 +64,30 @@ func migrationAddNamespace() *gormigrate.Migration {
 	}
 }
 
+// migrationDropProviderAndNamespace removes the provider selector and the
+// ManagedDatabase-owned namespace. Every ManagedDatabase now registers an
+// externally provisioned server, so there is no provider to choose and no
+// in-cluster namespace to own.
+func migrationDropProviderAndNamespace() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026091600000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE managed_databases
+					DROP COLUMN IF EXISTS provider,
+					DROP COLUMN IF EXISTS namespace
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE managed_databases
+					ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT '',
+					ADD COLUMN IF NOT EXISTS namespace TEXT NOT NULL DEFAULT ''
+			`).Error
+		},
+	}
+}
+
 func migrationDropFleetId() *gormigrate.Migration {
 	type ManagedDatabase struct{ db.Model }
 

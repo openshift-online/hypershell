@@ -2480,11 +2480,6 @@ components:
       - properties:
           name:
             type: string
-          provider:
-            type: string
-          namespace:
-            readOnly: true
-            type: string
           region:
             type: string
           engine:
@@ -2494,28 +2489,25 @@ components:
           instance_class:
             type: string
           connection_secret:
-            description: "For provider \"external\": the NAMESPACE holding the admin\
-              \ credentials Secret, not a Secret name. Must be a bare namespace name\
-              \ (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123\
-              \ label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\"\
-              . Ignored by other providers."
+            description: "The NAMESPACE holding the admin credentials Secret, not\
+              \ a Secret name. Must be a bare namespace name (no \"/\") prefixed with\
+              \ \"hypershell-managed-db-\" and a valid DNS-1123 label. The Secret\
+              \ inside it always has the fixed name \"hypershell-managed-db-credentials\"\
+              ."
             type: string
           status:
             type: string
         required:
         - name
-        - provider
         type: object
       example:
-        kind: kind
-        created_at: 2000-01-23T04:56:07.000+00:00
         connection_secret: connection_secret
         updated_at: 2000-01-23T04:56:07.000+00:00
         instance_class: instance_class
-        provider: provider
         engine: engine
+        kind: kind
         name: name
-        namespace: namespace
+        created_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href
         region: region
@@ -2540,29 +2532,25 @@ components:
         id: id
         href: href
         items:
-        - kind: kind
-          created_at: 2000-01-23T04:56:07.000+00:00
-          connection_secret: connection_secret
+        - connection_secret: connection_secret
           updated_at: 2000-01-23T04:56:07.000+00:00
           instance_class: instance_class
-          provider: provider
           engine: engine
+          kind: kind
           name: name
-          namespace: namespace
+          created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
           region: region
           engine_version: engine_version
           status: status
-        - kind: kind
-          created_at: 2000-01-23T04:56:07.000+00:00
-          connection_secret: connection_secret
+        - connection_secret: connection_secret
           updated_at: 2000-01-23T04:56:07.000+00:00
           instance_class: instance_class
-          provider: provider
           engine: engine
+          kind: kind
           name: name
-          namespace: namespace
+          created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
           region: region
@@ -2572,7 +2560,6 @@ components:
       example:
         connection_secret: connection_secret
         instance_class: instance_class
-        provider: provider
         engine: engine
         name: name
         region: region
@@ -2580,8 +2567,6 @@ components:
         status: status
       properties:
         name:
-          type: string
-        provider:
           type: string
         region:
           type: string
@@ -2592,11 +2577,10 @@ components:
         instance_class:
           type: string
         connection_secret:
-          description: "For provider \"external\": the NAMESPACE holding the admin\
-            \ credentials Secret, not a Secret name. Must be a bare namespace name\
-            \ (no \"/\") prefixed with \"hypershell-managed-db-\" and a valid DNS-1123\
-            \ label. The Secret inside it always has the fixed name \"hypershell-managed-db-credentials\"\
-            . Ignored by other providers."
+          description: "The NAMESPACE holding the admin credentials Secret, not a\
+            \ Secret name. Must be a bare namespace name (no \"/\") prefixed with\
+            \ \"hypershell-managed-db-\" and a valid DNS-1123 label. The Secret inside\
+            \ it always has the fixed name \"hypershell-managed-db-credentials\"."
           type: string
         status:
           type: string

@@ -1,7 +1,10 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../base/hypershell-db-cluster.yaml
+  # The bundled PostgreSQL Deployment stands in for an externally provisioned
+  # server in this ephemeral dev/e2e environment. Production overlays (hub, ibm)
+  # omit it and point hypershell-db-app at a cloud-managed server.
+  - ../base/postgres.yaml
   - ../base/keycloak/
   - ../base
   - certificates.yaml

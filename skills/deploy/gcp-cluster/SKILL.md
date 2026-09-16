@@ -10,12 +10,12 @@ description: >
 # GCP (OpenShift Dedicated) Cluster Deployment
 
 Deploys HyperShell to an OpenShift Dedicated (OSD) cluster running on GCP as a
-Cloud Hub with full OIDC security via Keycloak, CNPG-managed databases, and
+Cloud Hub with full OIDC security via Keycloak, externally provisioned databases, and
 per-gateway console provisioning.
 
 > **Validated end to end (2026-08-21, `hypershell-gcp`, openshell 0.0.109):**
 > Full stack deployed with OIDC: Keycloak realm, JWT-authenticated API,
-> CNPG database cluster, tenant gateway with per-gateway OIDC console, TLS
+> registered PostgreSQL server, tenant gateway with per-gateway OIDC console, TLS
 > verified via passthrough Route at
 > `gw-<tenant>.apps.hypershell-gcp.u0zc.p2.openshiftapps.com`.
 
@@ -212,8 +212,7 @@ The `deploy/openshift` overlay (base for all cloud deployments) sets:
 - `GATEWAY_API_BASE_DOMAIN=apps.<cluster>.<id>.openshiftapps.com`
 - `deploy/base/controller-rbac.yaml` - cluster-wide RBAC for tenant reconciliation
 
-**Upgrade to `:latest` images** (the pinned digest images lack OIDC and CNPG
-support):
+**Upgrade to `:latest` images** (the pinned digest images lack OIDC support):
 
 ```bash
 BASE_DOMAIN="apps.<cluster>.<id>.openshiftapps.com"
@@ -265,50 +264,24 @@ oc -n hypershell set env deploy/hypershell-controller \
   GATEWAY_OIDC_ISSUER_URL="https://keycloak-keycloak.$BASE_DOMAIN/realms/hypershell"
 ```
 
-### 6.2: Install CNPG operator (v1.30+)
+### 6.2: Register the PostgreSQL server
 
-The `:latest` controller uses CloudNativePG for per-gateway database
-provisioning. CNPG v1.30+ is required for the `DatabaseRole` CRD.
-
-```bash
-kubectl apply --server-side -f \
-  https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.0.yaml
-
-# On OSD, the CNPG controller needs the privileged SCC
-oc adm policy add-scc-to-user privileged -z cnpg-manager -n cnpg-system
-oc -n cnpg-system scale deploy cnpg-controller-manager --replicas=0
-sleep 2
-oc -n cnpg-system scale deploy cnpg-controller-manager --replicas=1
-oc -n cnpg-system rollout status deploy/cnpg-controller-manager
-```
-
-Grant the controller RBAC for CNPG resources:
+The controller provisions each gateway's database and login role on an externally
+provisioned PostgreSQL server. Create the credentials namespace and Secret before
+registering the server as a ManagedDatabase (see step 8.1):
 
 ```bash
-cat <<'EOF' | oc apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: hypershell-cnpg-manager
-rules:
-  - apiGroups: ["postgresql.cnpg.io"]
-    resources: ["clusters", "databases", "databaseroles", "publications", "subscriptions"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: hypershell-cnpg-manager
-subjects:
-  - kind: ServiceAccount
-    name: hypershell-controller
-    namespace: hypershell
-roleRef:
-  kind: ClusterRole
-  name: hypershell-cnpg-manager
-  apiGroup: rbac.authorization.k8s.io
-EOF
+oc create namespace hypershell-managed-db-gcp
+oc -n hypershell-managed-db-gcp create secret generic hypershell-managed-db-credentials \
+  --from-literal=host=<server-host> \
+  --from-literal=port=5432 \
+  --from-literal=user=<admin-user> \
+  --from-literal=password=<admin-password> \
+  --from-literal=dbname=postgres \
+  --from-literal=sslmode=require
 ```
+
+The admin role needs `CREATEDB` and `CREATEROLE`; it does not need superuser.
 
 ### 6.3: Deploy the web console with OIDC
 
@@ -335,7 +308,7 @@ oc -n hypershell get pods -w
 
 # Verify controller detected all capabilities
 oc -n hypershell logs deploy/hypershell-controller | grep 'gateway reconciler initialized'
-# expect: openshift=true certmanager=true gatewayapi=true cnpg=true keycloak=true
+# expect: openshift=true certmanager=true gatewayapi=true keycloak=true
 
 # Verify JWT auth
 API="https://$(oc -n hypershell get route hypershell-api -o jsonpath='{.spec.host}')/api/hypershell/v1"
@@ -426,10 +399,11 @@ RELEASE=$(curl -sk -X POST "$API/gateway_releases" -H 'Content-Type: application
   -d "{\"name\":\"openshell-0.0.109\",\"image\":\"quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0\"}")
 RELEASE_ID=$(echo "$RELEASE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
-# ManagedDatabase (provider=cnpg for CNPG-managed provisioning)
+# ManagedDatabase: connection_secret names the NAMESPACE holding the admin
+# credentials Secret created in step 6.2.
 DB=$(curl -sk -X POST "$API/managed_databases" -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -d "{\"name\":\"gcp-db\",\"provider\":\"cnpg\",\"region\":\"us-central1\",\"engine\":\"postgresql\"}")
+  -d "{\"name\":\"gcp-db\",\"connection_secret\":\"hypershell-managed-db-gcp\",\"region\":\"us-central1\",\"engine\":\"postgresql\"}")
 DB_ID=$(echo "$DB" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
 echo "Cluster=$CLUSTER_ID Release=$RELEASE_ID DB=$DB_ID"
@@ -452,7 +426,8 @@ echo "$GATEWAY" | python3 -m json.tool
 ```
 
 The `:latest` controller fully reconciles the gateway with no manual patches
-needed: CNPG database cluster, per-gateway Keycloak OIDC client, correct DB
+needed: the per-gateway database on the registered server, the Keycloak OIDC
+client, correct DB
 credentials secret (`uri` key), init containers, volumes, and Route hostname
 are all handled automatically.
 
@@ -482,10 +457,9 @@ openshell status --gateway-endpoint "https://$HOST:443" --gateway-insecure
 CONSOLE_URL="https://$(oc -n "$NS" get route openshell-console -o jsonpath='{.spec.host}')"
 curl -sk -o /dev/null -w '%{http_code}' "$CONSOLE_URL/auth/login"   # 302 -> keycloak
 
-# Verify CNPG database cluster healthy
-DB_NS=$(oc get namespaces -l hypershell.redhat.io/managed=true --no-headers \
-  -o custom-columns=':metadata.name' | grep openshell-db)
-oc -n "$DB_NS" get cluster openshell-db -o jsonpath='{.status.phase}'   # Cluster in healthy state
+# Verify the gateway database credentials were written into the tenant namespace
+oc -n "$NS" get secret openshell-gateway-db-credentials \
+  -o jsonpath='{.data.dbname}' | base64 -d   # gw_<gateway-id>
 ```
 
 ## Step 10: Run the e2e test suite
@@ -538,7 +512,7 @@ Results: 23 passed, 0 failed
   ✓ Gateway pod ready (quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0)
   ✓ Gateway service: 172.30.26.165:8080
   ✓ TLS certificates provisioned
-  ✓ CNPG database cluster healthy in openshell-db-913eb1e752d32f24 (phase: Cluster in healthy state)
+  ✓ Gateway database and role provisioned on the registered server (gw_944b372e89b1cb7e)
   ✓ OIDC token acquired (user: admin, aud=angel-3IEWSLgFpF3DHsaGxl5IexOrrME, roles=openshell-user,openshell-admin)
   ✓ CA certificate extracted and SSL_CERT_FILE set
   ✓ Passthrough route: gw-openshell-944b372e89b1cb7e.apps.hypershell-gcp.u0zc.p2.openshiftapps.com
@@ -577,9 +551,9 @@ If a custom domain with wildcard DNS is configured later:
 | Controller logs `OIDC authentication disabled for gRPC` | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, or `OIDC_CLIENT_SECRET` env vars missing | Set all three OIDC env vars on the controller deployment |
 | Controller gets `Unauthenticated: missing authorization token` on gRPC | Controller image lacks OIDC token provider (old pinned digest) | Upgrade controller to `:latest` image |
 | API server `relation "users" does not exist` or `column "X" missing` | Init container (migration) uses old image with older schema | Update init container image to `:latest` to match the main container |
-| CNPG controller pods crash with SCC errors | OSD restricts UIDs; CNPG wants UID 10001 | `oc adm policy add-scc-to-user privileged -z cnpg-manager -n cnpg-system`, then bounce |
-| Controller can't create CNPG `DatabaseRole` CRDs | CNPG version < 1.30 lacks the `databaseroles` CRD | Upgrade CNPG to v1.30+ |
-| Controller can't create/watch CNPG resources | Missing RBAC for `postgresql.cnpg.io` API group | Create the `hypershell-cnpg-manager` ClusterRole/Binding (Step 6.2) |
+| ManagedDatabase status `Failed: secret_invalid` | `connection_secret` is not a `hypershell-managed-db-` namespace holding `hypershell-managed-db-credentials` | Create the namespace and Secret (Step 6.2) |
+| ManagedDatabase status `Failed: unreachable` / `auth_failed` | The cluster cannot reach the server, or the admin credentials are wrong | Check egress to the server and the Secret's `host`/`user`/`password` |
+| ManagedDatabase status `Failed: insufficient_privilege` | The admin role lacks `CREATEDB` or `CREATEROLE` | Grant both on the server |
 | Gateway pod `CreateContainerConfigError` on `uri` key | DB credentials secret has `url` key but gateway expects `uri` | `:latest` controller creates the correct `uri` key; if migrating from old controller, patch the secret |
 | Controller `403 Forbidden` managing Keycloak clients | `hypershell-control-plane` SA missing `realm-management` roles | Assign roles via Keycloak admin API (Step 5.1) |
 | Web console crashes with `SESSION_SECRET is required` | `SESSION_SECRET` env var not set when `OIDC_ISSUER` is present | Set `SESSION_SECRET` to a random hex string |
@@ -632,11 +606,11 @@ external Route URL. This avoids TLS verification issues when the controller
 accesses Keycloak in-cluster and removes the dependency on external DNS
 resolution.
 
-### CNPG database provisioning
+### Gateway database provisioning
 
-The `:latest` controller uses CloudNativePG instead of a standalone PostgreSQL
-deployment for per-gateway databases. The `ManagedDatabase` must have
-`provider=cnpg` (not `local`). The controller creates CNPG `Cluster`,
-`Database`, and `DatabaseRole` CRDs in an auto-generated namespace
-(`openshell-db-<hex>`, where hex is derived from the first 8 bytes of the
-ManagedDatabase KSUID).
+The controller provisions each gateway's database and login role (`gw_<gateway-id>`)
+directly on the PostgreSQL server the `ManagedDatabase` registers, using a
+short-lived admin connection read from `hypershell-managed-db-credentials` in the
+`connection_secret` namespace. No database workload and no operator run in the
+cluster; the gateway namespace receives only the `openshell-gateway-db-credentials`
+Secret.

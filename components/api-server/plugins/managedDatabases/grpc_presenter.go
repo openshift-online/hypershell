@@ -17,8 +17,6 @@ func managedDatabaseToProto(d *ManagedDatabase) *pb.ManagedDatabase {
 			Tracestate:  d.Tracestate,
 		},
 		Name:             d.Name,
-		Provider:         d.Provider,
-		Namespace:        d.Namespace,
 		Region:           d.Region,
 		Engine:           d.Engine,
 		EngineVersion:    d.EngineVersion,

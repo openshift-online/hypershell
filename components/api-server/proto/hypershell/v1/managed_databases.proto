@@ -11,33 +11,36 @@ message ManagedDatabase {
   string name = 2;
   reserved 3;
   reserved "fleet_id";
-  string provider = 4;
+  reserved 4;
+  reserved "provider";
   optional string region = 5;
   optional string engine = 6;
   optional string engine_version = 7;
   optional string instance_class = 8;
-  // For provider "external": the NAMESPACE holding the admin credentials
-  // Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
-  // "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
-  // always named "hypershell-managed-db-credentials".
+  // The NAMESPACE holding the admin credentials Secret, not a Secret name.
+  // Bare namespace name (no "/"), prefixed with "hypershell-managed-db-", a
+  // valid DNS-1123 label. The Secret inside it is always named
+  // "hypershell-managed-db-credentials".
   optional string connection_secret = 9;
   optional string status = 10;
-  string namespace = 11;
+  reserved 11;
+  reserved "namespace";
 }
 
 message CreateManagedDatabaseRequest {
   string name = 1;
   reserved 2;
   reserved "fleet_id";
-  string provider = 3;
+  reserved 3;
+  reserved "provider";
   optional string region = 4;
   optional string engine = 5;
   optional string engine_version = 6;
   optional string instance_class = 7;
-  // For provider "external": the NAMESPACE holding the admin credentials
-  // Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
-  // "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
-  // always named "hypershell-managed-db-credentials".
+  // The NAMESPACE holding the admin credentials Secret, not a Secret name.
+  // Bare namespace name (no "/"), prefixed with "hypershell-managed-db-", a
+  // valid DNS-1123 label. The Secret inside it is always named
+  // "hypershell-managed-db-credentials".
   optional string connection_secret = 8;
   optional string status = 9;
 }
@@ -59,15 +62,16 @@ message UpdateManagedDatabaseRequest {
   optional string name = 2;
   reserved 3;
   reserved "fleet_id";
-  optional string provider = 4;
+  reserved 4;
+  reserved "provider";
   optional string region = 5;
   optional string engine = 6;
   optional string engine_version = 7;
   optional string instance_class = 8;
-  // For provider "external": the NAMESPACE holding the admin credentials
-  // Secret, not a Secret name. Bare namespace name (no "/"), prefixed with
-  // "hypershell-managed-db-", a valid DNS-1123 label. The Secret inside it is
-  // always named "hypershell-managed-db-credentials".
+  // The NAMESPACE holding the admin credentials Secret, not a Secret name.
+  // Bare namespace name (no "/"), prefixed with "hypershell-managed-db-", a
+  // valid DNS-1123 label. The Secret inside it is always named
+  // "hypershell-managed-db-credentials".
   optional string connection_secret = 9;
   optional string status = 10;
 }

@@ -10,14 +10,13 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
-	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
 // newSandboxCountClient spins up the integration server and returns an
 // authenticated gateway gRPC client plus the authenticated context.
 func newSandboxCountClient(t *testing.T) (pb.GatewayServiceClient, context.Context) {
 	t.Helper()
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 	h.StartControllersServer()
 
 	account := h.NewRandAccount()

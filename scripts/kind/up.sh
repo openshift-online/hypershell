@@ -173,20 +173,6 @@ else
 fi
 echo ""
 
-# --- Database provider selection ---
-# DATABASE_PROVIDER unset or empty means "external": a standalone PostgreSQL
-# Deployment in a separate namespace that simulates a cloud-managed external
-# server, exercising the external-provider code path by default. "deployment"
-# opts into an in-namespace Deployment (no operator required). "cnpg" opts into
-# CNPG-backed placement and requires the CNPG operator; any other value is
-# rejected below rather than silently selected as one provider or the other.
-DB_PROVIDER="${DATABASE_PROVIDER:-external}"
-if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" && "${DB_PROVIDER}" != "external" ]]; then
-  error "DATABASE_PROVIDER must be 'cnpg', 'deployment', or 'external', got '${DB_PROVIDER}'"
-  exit 1
-fi
-info "Database provider: ${DB_PROVIDER}"
-
 # --- Install infrastructure prerequisites via kustomize ---
 header "Infrastructure"
 # Kubernetes 1.33+ may pre-install Gateway API CRDs whose storedVersions
@@ -209,24 +195,14 @@ done
 for crd in tcproutes.gateway.networking.k8s.io udproutes.gateway.networking.k8s.io; do
   kube wait --for=delete crd/"$crd" --timeout=30s 2>/dev/null || true
 done
-if [[ "${DB_PROVIDER}" == "deployment" || "${DB_PROVIDER}" == "external" ]]; then
-  info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox) without CNPG..."
-  kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure-no-cnpg | \
-    kube apply --server-side --force-conflicts -f -
-else
-  info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox, CNPG)..."
-  kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure | \
-    kube apply --server-side --force-conflicts -f -
-fi
+info "Installing CRDs and controllers (cert-manager, Gateway API, Agent Sandbox)..."
+kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/infrastructure | \
+  kube apply --server-side --force-conflicts -f -
 info "Waiting for cert-manager..."
 kube wait --for=condition=available deployment/cert-manager -n cert-manager --timeout=120s
 kube wait --for=condition=available deployment/cert-manager-webhook -n cert-manager --timeout=120s
 info "Waiting for agent-sandbox controller..."
 kube wait --for=condition=available deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
-if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-  info "Waiting for CNPG operator..."
-  kube wait --for=condition=available deployment/cnpg-controller-manager -n cnpg-system --timeout=120s
-fi
 info "Waiting for Prometheus operator..."
 kube wait --for=condition=available deployment/prometheus-operator -n default --timeout=120s
 success "Infrastructure ready"
@@ -279,9 +255,9 @@ kube create secret generic hypershell-oidc-session \
 success "OIDC session secret created"
 echo ""
 
-# --- External PostgreSQL (DATABASE_PROVIDER=external only) ---
-# Provision a standalone PostgreSQL in a dedicated namespace so the external
-# provider has a real server to probe and issue per-gateway DDL against.
+# --- Stand-in PostgreSQL server ---
+# Provision a standalone PostgreSQL in a dedicated namespace so the control
+# plane has a real server to probe and issue per-gateway DDL against.
 #
 # The admin credentials live in their own reserved-prefix namespace
 # (hypershell-managed-db-kind), NOT in the HyperShell instance namespace: that
@@ -289,14 +265,13 @@ echo ""
 # out-of-band, normally before HyperShell is installed. The Secret inside it has
 # the fixed name hypershell-managed-db-credentials, and
 # ManagedDatabase.connection_secret names the NAMESPACE.
-if [[ "${DB_PROVIDER}" == "external" ]]; then
-  header "External Cloud DB (PostgreSQL)"
-  EXTERNAL_PG_NS="external-cloud-db"
-  EXTERNAL_PG_PASSWORD="hypershell-kind-admin-password"
-  EXTERNAL_CREDS_NS="hypershell-managed-db-kind"
-  info "Deploying standalone PostgreSQL in namespace '${EXTERNAL_PG_NS}'..."
-  kube create namespace "${EXTERNAL_PG_NS}" --dry-run=client -o yaml | kube apply -f -
-  kube apply -f - <<'EXTERNAL_PG_EOF'
+header "Stand-in PostgreSQL server"
+EXTERNAL_PG_NS="external-cloud-db"
+EXTERNAL_PG_PASSWORD="hypershell-kind-admin-password"
+EXTERNAL_CREDS_NS="hypershell-managed-db-kind"
+info "Deploying standalone PostgreSQL in namespace '${EXTERNAL_PG_NS}'..."
+kube create namespace "${EXTERNAL_PG_NS}" --dry-run=client -o yaml | kube apply -f -
+kube apply -f - <<'EXTERNAL_PG_EOF'
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -355,54 +330,37 @@ spec:
     - port: 5432
       targetPort: 5432
 EXTERNAL_PG_EOF
-  info "Waiting for external PostgreSQL to be ready..."
-  kube wait --for=condition=available deployment/postgres -n "${EXTERNAL_PG_NS}" --timeout=120s
-  success "External PostgreSQL ready"
-  info "Creating credentials namespace '${EXTERNAL_CREDS_NS}'..."
-  kube create namespace "${EXTERNAL_CREDS_NS}" --dry-run=client -o yaml | kube apply -f -
-  info "Creating admin Secret 'hypershell-managed-db-credentials' in ${EXTERNAL_CREDS_NS}..."
-  # sslmode=disable is acceptable ONLY because this stand-in server is in-cluster
-  # and never reachable from outside. Any real external server must use
-  # sslmode=require at minimum (verify-full with an inline PEM sslrootcert is
-  # the recommended hardening).
-  kube create secret generic hypershell-managed-db-credentials \
-    -n "${EXTERNAL_CREDS_NS}" \
-    --from-literal=host="postgres.${EXTERNAL_PG_NS}.svc.cluster.local" \
-    --from-literal=port="5432" \
-    --from-literal=user="postgres" \
-    --from-literal=password="${EXTERNAL_PG_PASSWORD}" \
-    --from-literal=dbname="postgres" \
-    --from-literal=sslmode="disable" \
-    --dry-run=client -o yaml | kube apply -f -
-  success "Admin credentials namespace and Secret created"
-  echo ""
-fi
+info "Waiting for the stand-in PostgreSQL to be ready..."
+kube wait --for=condition=available deployment/postgres -n "${EXTERNAL_PG_NS}" --timeout=120s
+success "Stand-in PostgreSQL ready"
+info "Creating credentials namespace '${EXTERNAL_CREDS_NS}'..."
+kube create namespace "${EXTERNAL_CREDS_NS}" --dry-run=client -o yaml | kube apply -f -
+info "Creating admin Secret 'hypershell-managed-db-credentials' in ${EXTERNAL_CREDS_NS}..."
+# sslmode=disable is acceptable ONLY because this stand-in server is in-cluster
+# and never reachable from outside. Any real server must use sslmode=require at
+# minimum (verify-full with an inline PEM sslrootcert is the recommended
+# hardening).
+kube create secret generic hypershell-managed-db-credentials \
+  -n "${EXTERNAL_CREDS_NS}" \
+  --from-literal=host="postgres.${EXTERNAL_PG_NS}.svc.cluster.local" \
+  --from-literal=port="5432" \
+  --from-literal=user="postgres" \
+  --from-literal=password="${EXTERNAL_PG_PASSWORD}" \
+  --from-literal=dbname="postgres" \
+  --from-literal=sslmode="disable" \
+  --dry-run=client -o yaml | kube apply -f -
+success "Admin credentials namespace and Secret created"
+echo ""
 
 # --- Deploy all components via kustomize ---
 header "Deploying Components"
 
-# Both provider modes need the running containers to select the same
-# DATABASE_PROVIDER this script provisioned infrastructure for.
-# DATABASE_PROVIDER unset/empty now defaults to "external" (see above),
-# so both "cnpg" and "deployment" must opt in explicitly via their patches
-# rather than relying on an implicit default that no longer selects them.
-# The "deployment" branch uses the database-deployment component, which also
-# swaps the CNPG Cluster used for the framework's own metadata storage (not
-# the tenant/gateway ManagedDatabase) for a static Deployment.
-_db_overlay_extra=$'\ncomponents:\n  - ../components/database-deployment'
-if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-  _db_overlay_extra=$'\npatches:\n  - path: ../kind/database-cnpg-env-patch.yaml\n    target:\n      kind: Deployment\n      name: hypershell-api-server\n      namespace: hypershell-system\n  - path: ../kind/database-cnpg-env-patch.yaml\n    target:\n      kind: Deployment\n      name: hypershell-controller\n      namespace: hypershell-system'
-elif [[ "${DB_PROVIDER}" == "external" ]]; then
-  # Use the database-external component: removes the CNPG Cluster, sets
-  # DB_SSLMODE=disable, and injects the hypershell-db-app Secret pointing to
-  # the external-cloud-db Postgres provisioned above. The API server and its
-  # migrate init container both read from that external server; gateways use
-  # the same server via their per-gateway databases (gw_<id>) created by the
-  # control plane. DATABASE_PROVIDER=external is NOT patched here - it is
-  # applied via kubectl set env after the initial deployment readiness wait
-  # below so the baseline image can start cleanly before the PR image swap.
-  _db_overlay_extra=$'\ncomponents:\n  - ../kind/database-external'
-fi
+# The database-external component sets DB_SSLMODE=disable and injects the
+# hypershell-db-app Secret pointing at the stand-in server provisioned above.
+# The API server and its migrate init container both read from that server;
+# gateways use it too, via their per-gateway databases (gw_<id>) created by the
+# control plane.
+_db_overlay_extra=$'\ncomponents:\n  - ../kind/database-external'
 
 if [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
   info "Applying Kind manifests with localhost image refs..."
@@ -428,7 +386,7 @@ EOF
   kustomize build --load-restrictor=LoadRestrictionsNone "${_kustomize_dir}" | kube apply -f -
   rm -rf "${_kustomize_dir}"
 else
-  info "Applying Kind manifests (database provider: ${DB_PROVIDER})..."
+  info "Applying Kind manifests..."
   _kustomize_dir="deploy/.db-overlay"
   mkdir -p "${_kustomize_dir}"
   cat > "${_kustomize_dir}/kustomization.yaml" <<EOF
@@ -449,21 +407,7 @@ fi
 # preserve swap state the same way.
 restore_swaps_after_reconcile
 
-if [[ "${DB_PROVIDER}" == "deployment" ]]; then
-  info "Waiting for PostgreSQL deployment..."
-  kube wait --for=condition=available deployment/hypershell-postgres -n "${KIND_NAMESPACE}" --timeout=120s
-  success "PostgreSQL deployment ready"
-elif [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-  if [[ -n "${HYPERSHELL_DATABASE_IMAGE:-}" ]]; then
-    info "Setting API server CNPG cluster image to ${HYPERSHELL_DATABASE_IMAGE}..."
-    kube patch cluster/hypershell-db -n "${KIND_NAMESPACE}" --type merge \
-      -p "{\"spec\":{\"imageName\":\"${HYPERSHELL_DATABASE_IMAGE}\"}}"
-  fi
-  info "Waiting for CNPG clusters..."
-  kube wait --for=condition=Ready cluster/hypershell-db -n "${KIND_NAMESPACE}" --timeout=300s
-  success "CNPG clusters ready"
-fi
-# external: standalone PG was already provisioned and waited on above
+# The stand-in PostgreSQL server was provisioned and waited on above.
 
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   info "Waiting for Keycloak..."
@@ -845,32 +789,6 @@ kube rollout status deployment/hypershell-web-console -n "${KIND_NAMESPACE}" --t
 success "Web console ready"
 echo ""
 
-if [[ "${DB_PROVIDER}" == "external" ]]; then
-  # Apply DATABASE_PROVIDER=external after the readiness gate passes. Deferring
-  # here - not baking it into the kustomize overlay and not setting it before the
-  # rollout-status wait above - ensures the baseline image (which predates
-  # external-mode support) can pass the readiness check without crashing.
-  # In CI the image-swap step runs next; it sets the PR image which supports
-  # external mode, so the single rollout triggered by set-component-images.sh
-  # carries both the new image and the new env together.
-  info "Setting DATABASE_PROVIDER=external on api-server and controller..."
-  kube set env deployment/hypershell-api-server -c api-server -n "${KIND_NAMESPACE}" \
-    DATABASE_PROVIDER=external
-  kube set env deployment/hypershell-controller -c controller -n "${KIND_NAMESPACE}" \
-    DATABASE_PROVIDER=external
-  if is_swapped api-server || [[ "${LOCAL_IMAGES:-}" == "true" ]]; then
-    # Local development: working-tree images already support external mode;
-    # wait for the rollout so seeding does not race ahead of a ready cluster.
-    # LOCAL_IMAGES=true deploys working-tree images via the kustomize overlay
-    # (not via swap-component.sh), so is_swapped returns false even though the
-    # images support external mode - the OR covers that case.
-    kube rollout status deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --timeout=120s
-    kube rollout status deployment/hypershell-controller -n "${KIND_NAMESPACE}" --timeout=120s
-  fi
-  # CI (baseline, not swapped, not LOCAL_IMAGES): no wait - set-component-images.sh
-  # triggers the image swap immediately after kind-up, restarting pods with the PR
-  # image that supports external mode before seeding begins.
-fi
 
 # --- Seed platform resources via REST API ---
 # Seeding lives in seed.sh so CI can run it AFTER the component image swap

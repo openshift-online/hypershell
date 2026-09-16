@@ -348,8 +348,8 @@ only the user-facing summary.
 
 #### Scenario: Database provisioning error produces a user-facing message
 
-- GIVEN the ManagedDatabase DDL provisioning fails because the CNPG Cluster is
-  unreachable
+- GIVEN the ManagedDatabase DDL provisioning fails because the registered
+  PostgreSQL server is unreachable
 - WHEN the control plane sets `DatabaseReady` to `Failed`
 - THEN the `message` SHALL be a user-facing summary (e.g., "Database
   provisioning failed - the database service is currently unavailable")

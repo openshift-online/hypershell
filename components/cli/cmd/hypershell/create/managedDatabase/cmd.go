@@ -21,7 +21,6 @@ var args struct {
 	engineVersion    string
 	instanceClass    string
 	name             string
-	provider         string
 	region           string
 	status           string
 	bodyFile         string
@@ -32,7 +31,7 @@ var Cmd = &cobra.Command{
 	Short: "Create a managedDatabase",
 	Long: "Create a new managedDatabase.\n\n" +
 		"Examples:\n" +
-		"  hsctl create managedDatabase --connection-secret <value> --engine <value> --engine-version <value> --instance-class <value> --name <value> --provider <value> --region <value> --status <value> \n" +
+		"  hsctl create managedDatabase --connection-secret <value> --engine <value> --engine-version <value> --instance-class <value> --name <value> --region <value> --status <value> \n" +
 		"  hsctl create managedDatabase --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -40,12 +39,11 @@ var Cmd = &cobra.Command{
 
 func init() {
 	fs := Cmd.Flags()
-	fs.StringVar(&args.connectionSecret, "connection-secret", "", "For provider \"external\": the NAMESPACE holding the admin credentials Secret. Must be a bare namespace name prefixed with \"hypershell-managed-db-\"; the Secret inside it is always named \"hypershell-managed-db-credentials\".")
+	fs.StringVar(&args.connectionSecret, "connection-secret", "", "The NAMESPACE holding the admin credentials Secret. Must be a bare namespace name prefixed with \"hypershell-managed-db-\"; the Secret inside it is always named \"hypershell-managed-db-credentials\".")
 	fs.StringVar(&args.engine, "engine", "", "engine value.")
 	fs.StringVar(&args.engineVersion, "engine-version", "", "engine_version value.")
 	fs.StringVar(&args.instanceClass, "instance-class", "", "instance_class value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
-	fs.StringVar(&args.provider, "provider", "", "provider value.")
 	fs.StringVar(&args.region, "region", "", "region value.")
 	fs.StringVar(&args.status, "status", "", "status value.")
 	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
@@ -86,9 +84,6 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 		if args.name != "" {
 			request["name"] = args.name
-		}
-		if args.provider != "" {
-			request["provider"] = args.provider
 		}
 		if args.region != "" {
 			request["region"] = args.region

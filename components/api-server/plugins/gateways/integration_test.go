@@ -2,6 +2,7 @@ package gateways_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -17,7 +18,7 @@ import (
 )
 
 func TestGatewayGet(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -45,7 +46,7 @@ func TestGatewayGet(t *testing.T) {
 }
 
 func TestGatewayPost(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -84,7 +85,7 @@ func TestGatewayPost(t *testing.T) {
 }
 
 func TestGatewayPostAllowsEmptyPlacementIDs(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -104,7 +105,7 @@ func TestGatewayPostAllowsEmptyPlacementIDs(t *testing.T) {
 }
 
 func TestGatewayPostRejectsMissingDatabaseID(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
+	h, _ := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -125,7 +126,7 @@ func TestGatewayPostRejectsMissingDatabaseID(t *testing.T) {
 }
 
 func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -143,7 +144,7 @@ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
 }
 
 func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -163,7 +164,7 @@ func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
 }
 
 func TestGatewayPatch(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -198,7 +199,7 @@ func TestGatewayPatch(t *testing.T) {
 }
 
 func TestGatewayDelete(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -216,7 +217,7 @@ func TestGatewayDelete(t *testing.T) {
 }
 
 func TestGatewayPaging(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -240,7 +241,7 @@ func TestGatewayPaging(t *testing.T) {
 }
 
 func TestGatewayPagingSortedByCreator(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -270,7 +271,7 @@ func TestGatewayPagingSortedByCreator(t *testing.T) {
 }
 
 func TestGatewayPostWithCredentialDriver(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -300,7 +301,7 @@ func TestGatewayPostWithCredentialDriver(t *testing.T) {
 }
 
 func TestGatewayPatchCredentialDriver(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -328,7 +329,7 @@ func TestGatewayPatchCredentialDriver(t *testing.T) {
 }
 
 func TestGatewayListSearch(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, client := registerIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
@@ -342,4 +343,24 @@ func TestGatewayListSearch(t *testing.T) {
 	Expect(len(list.Items)).To(Equal(1))
 	Expect(list.GetTotal()).To(Equal(int32(1)))
 	Expect(*list.Items[0].Id).To(Equal(gateways[0].ID))
+}
+
+func TestGatewayPostRejectedWithoutManagedDatabase(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gatewayInput := openapi.GatewayCreateRequest{
+		Name:      "unplaceable-gateway",
+		ClusterId: "",
+		ReleaseId: "",
+	}
+
+	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
+	Expect(err).To(HaveOccurred(), "gateway creation must fail when no ManagedDatabase is registered")
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	var apiErr *openapi.GenericOpenAPIError
+	Expect(errors.As(err, &apiErr)).To(BeTrue(), "expected an OpenAPI error, got %T", err)
+	Expect(string(apiErr.Body())).To(ContainSubstring("no ManagedDatabase is registered"))
 }
