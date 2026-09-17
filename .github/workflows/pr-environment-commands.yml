@@ -11,7 +11,13 @@ name: PR Environment Commands
 # body.
 #
 # Shares the per-PR concurrency group with E2E / Deploy OpenShift Environment and
-# E2E / OpenShift so a command cannot race an in-flight deploy or teardown.
+# E2E / OpenShift so deploy/destroy cannot mutate the cluster concurrently.
+# /pr-extend queues behind an in-flight e2e deploy/suite rather than
+# cancelling it (a redeploy is not worth losing test results for); /pr-destroy
+# preempts immediately, same as the close-triggered destroy, since the
+# environment is going away regardless. The concurrency group is declared per
+# job (not per workflow) so resolve/plan-images, which only read GitHub state,
+# never wait on it.
 
 on:
   issue_comment:
@@ -22,10 +28,6 @@ permissions:
   checks: read
   pull-requests: write
   issues: write
-
-concurrency:
-  group: pr-env-${{ github.event.issue.number }}
-  cancel-in-progress: true
 
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
@@ -126,6 +128,9 @@ jobs:
       needs.resolve.outputs.action == 'extend'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    concurrency:
+      group: pr-env-${{ github.event.issue.number }}
+      cancel-in-progress: false
     env:
       OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.issue.number }}
       PR_NUMBER: ${{ github.event.issue.number }}
@@ -170,6 +175,9 @@ jobs:
       needs.resolve.outputs.action == 'destroy'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    concurrency:
+      group: pr-env-${{ github.event.issue.number }}
+      cancel-in-progress: true
     env:
       OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.issue.number }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
