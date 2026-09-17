@@ -220,6 +220,7 @@ runs:
         PR_HEAD_SHA: ${{ inputs.head_sha }}
         PR_ENV_UPDATED: ${{ inputs.updated }}
         PR_ENV_RETAINED: ${{ inputs.retained }}
+        PR_ENV_EXPIRES_AT: ${{ steps.stamp.outputs.expires_at }}
         PLATFORM_NS: ${{ steps.stamp.outputs.platform_namespace }}
         KEYCLOAK_NS: ${{ steps.stamp.outputs.keycloak_namespace }}
         CONSOLE_URL: ${{ steps.urls.outputs.console_url }}

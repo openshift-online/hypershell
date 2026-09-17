@@ -739,8 +739,11 @@ that `/pr-extend` redeploys the environment if it has already been destroyed.
 Once the pull request is retained, the comment SHALL instead state that the
 environment is retained, that it is renewed on every commit, and that it is
 reclaimed after the inactivity timebox unless destroyed with `/pr-destroy` or
-the pull request is closed. The comment SHALL never imply an unretained
-environment will persist.
+the pull request is closed. The retained comment SHALL include that inactivity
+expiry as an RFC 3339 timestamp labelled UTC so the developer can see when
+the reaper will reclaim the environment, matching the
+`hypershell.redhat.io/expires-at` value stamped on the namespace group. The
+comment SHALL never imply an unretained environment will persist.
 
 After an unretained in-run teardown or an authorized `/pr-destroy` confirms the
 environment is gone, the workflow SHALL edit that same marked comment in place
@@ -846,6 +849,7 @@ public artifact.
 - THEN the comment SHALL state the environment is retained and renewed on each commit
 - AND it SHALL state it is reclaimed after the inactivity timebox unless
   destroyed with `/pr-destroy` or the pull request is closed
+- AND it SHALL include the inactivity expiry as an RFC 3339 timestamp labelled UTC
 - AND it SHALL NOT tell the reader the environment is about to be destroyed
 
 #### Scenario: Comment reflects a destroyed environment
