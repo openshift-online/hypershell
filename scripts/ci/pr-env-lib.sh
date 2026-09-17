@@ -237,6 +237,22 @@ pr_env_should_reap_instance_workload() {
   return 0
 }
 
+# pr_env_run_link
+#
+# Markdown link to the GitHub Actions run currently posting the comment, so a
+# developer watching /pr-extend (or a synchronize deploy) can jump straight to
+# its logs instead of hunting the Actions tab for an issue_comment-triggered
+# run, which never surfaces as a PR check. Reads the default GITHUB_SERVER_URL
+# / GITHUB_REPOSITORY / GITHUB_RUN_ID env vars every job gets for free; empty
+# outside a run (e.g. under test) so callers must tolerate a blank result.
+pr_env_run_link() {
+  if [[ -z "${GITHUB_RUN_ID:-}" || -z "${GITHUB_REPOSITORY:-}" ]]; then
+    return 0
+  fi
+  printf 'Track this deploy: %s/%s/actions/runs/%s' \
+    "${GITHUB_SERVER_URL:-https://github.com}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+}
+
 # pr_env_comment_access_facts <body>
 #
 # Print the access-fact table and everything after it from an existing marked
@@ -292,14 +308,18 @@ pr_env_comment_deploying_body() {
   local existing="${2:-}"
   local retained="${3:-false}"
   local short_sha="${head_sha:0:7}"
-  local lifetime facts=""
+  local lifetime run_line link facts=""
   lifetime="$(pr_env_comment_lifetime "${retained}")"
+  run_line=""
+  if link="$(pr_env_run_link)" && [[ -n "${link}" ]]; then
+    run_line=$'\n\n'"${link}"
+  fi
   if facts="$(pr_env_comment_access_facts "${existing}")"; then
     cat <<EOF
 ${PR_ENV_COMMENT_MARKER}
 ## HyperShell environment updating to commit \`${short_sha}\`
 
-Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The environment may not be fully responsive during the update. This comment will update in place once the environment is ready.
+Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The environment may not be fully responsive during the update. This comment will update in place once the environment is ready.${run_line}
 
 ${lifetime}
 
@@ -311,7 +331,7 @@ EOF
 ${PR_ENV_COMMENT_MARKER}
 ## HyperShell environment deploying
 
-Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This comment will update in place once the environment is ready.
+Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This comment will update in place once the environment is ready.${run_line}
 
 ${lifetime}
 EOF

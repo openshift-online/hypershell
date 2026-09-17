@@ -40,6 +40,12 @@ assert_not_reapable() {
   fi
 }
 
+# GITHUB_RUN_ID / GITHUB_REPOSITORY / GITHUB_SERVER_URL are already present in
+# the environment when this suite runs as a CI step itself; unset them so
+# pr_env_run_link's no-run-context behavior is deterministic here, and opt
+# individual assertions back in with a scoped assignment.
+unset GITHUB_RUN_ID GITHUB_REPOSITORY GITHUB_SERVER_URL
+
 # --- Namespace + identity derivation ---
 assert_eq 'hypershell-ci-pr-232' "$(pr_env_namespace 232)" 'platform namespace from PR number'
 assert_eq 'hypershell-ci-pr-232-keycloak' "$(pr_env_keycloak_namespace "$(pr_env_namespace 232)")" 'keycloak namespace derivation'
@@ -161,6 +167,29 @@ esac
 case "${deploying_body}" in
   *'already been destroyed'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing redeploy-if-destroyed wording' ;;
+esac
+case "${deploying_body}" in
+  *'Track this deploy'*) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment has a run link outside a run' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+
+# --- Run link (Track this deploy), so /pr-extend and synchronize deploys are
+# traceable to the issue_comment / pull_request run posting the comment ---
+assert_eq '' "$(pr_env_run_link)" 'no run link outside a GitHub Actions run'
+assert_eq '' "$(GITHUB_RUN_ID=42 pr_env_run_link)" 'no run link without GITHUB_REPOSITORY'
+assert_eq '' "$(GITHUB_REPOSITORY=openshift-online/hypershell pr_env_run_link)" 'no run link without GITHUB_RUN_ID'
+assert_eq 'Track this deploy: https://github.com/openshift-online/hypershell/actions/runs/42' \
+  "$(GITHUB_RUN_ID=42 GITHUB_REPOSITORY=openshift-online/hypershell pr_env_run_link)" \
+  'run link defaults to github.com when GITHUB_SERVER_URL is unset'
+assert_eq 'Track this deploy: https://ghe.example.com/openshift-online/hypershell/actions/runs/42' \
+  "$(GITHUB_RUN_ID=42 GITHUB_REPOSITORY=openshift-online/hypershell GITHUB_SERVER_URL=https://ghe.example.com pr_env_run_link)" \
+  'run link honors a non-default GITHUB_SERVER_URL'
+
+deploying_with_link="$(GITHUB_RUN_ID=42 GITHUB_REPOSITORY=openshift-online/hypershell \
+  pr_env_comment_deploying_body abcdef1234567)"
+case "${deploying_with_link}" in
+  *'Track this deploy: https://github.com/openshift-online/hypershell/actions/runs/42'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing run link when GITHUB_RUN_ID is set' ;;
 esac
 
 # A later reconcile must keep the existing table: those facts do not change
