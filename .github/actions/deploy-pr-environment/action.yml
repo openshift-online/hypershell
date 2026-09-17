@@ -48,6 +48,20 @@ inputs:
 runs:
   using: composite
   steps:
+    # Resolve the inactivity expiry before the deploying comment so that
+    # comment, stamp-pr-env.sh, and the ready comment all share one UTC
+    # timestamp instead of drifting by the deploy duration.
+    - name: Resolve inactivity expiry
+      if: inputs.pr_number != ''
+      id: timebox
+      shell: bash
+      env:
+        PR_ENV_RETAINED: ${{ inputs.retained }}
+      run: |
+        # shellcheck source=scripts/ci/pr-env-lib.sh
+        source scripts/ci/pr-env-lib.sh
+        echo "expires_at=$(pr_env_inactivity_expires_at "${PR_ENV_RETAINED}")" >> "${GITHUB_OUTPUT}"
+
     - name: Post initial "deploying" comment
       if: inputs.pr_number != ''
       shell: bash
@@ -56,6 +70,7 @@ runs:
         PR_HEAD_SHA: ${{ inputs.head_sha }}
         PR_ENV_PHASE: deploying
         PR_ENV_RETAINED: ${{ inputs.retained }}
+        PR_ENV_EXPIRES_AT: ${{ steps.timebox.outputs.expires_at }}
       run: bash scripts/ci/upsert-pr-comment.sh
 
     - name: Install oc, skopeo, and openshell CLI
@@ -150,6 +165,7 @@ runs:
       env:
         PR_NUMBER: ${{ inputs.pr_number }}
         PR_ENV_RETAINED: ${{ inputs.retained }}
+        PR_ENV_EXPIRES_AT: ${{ steps.timebox.outputs.expires_at }}
       run: bash scripts/ci/stamp-pr-env.sh
 
     - name: Wait for api-server Konflux build

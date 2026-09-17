@@ -19,6 +19,9 @@
 #   PR_ENV_RETAINED              "true" to stamp the retained max lifetime
 #   PR_ENV_RETAINED_MAX_HOURS    retained max lifetime in hours (default 72)
 #   PR_ENV_UNRETAINED_MAX_HOURS  unretained max lifetime in hours (default 24)
+#   PR_ENV_EXPIRES_AT            optional RFC 3339 UTC expiry; when set, used
+#                                as-is so the access comment and the namespace
+#                                annotation share one timestamp
 #   PR_ENV_KUBECTL               kubectl/oc binary (default: oc)
 set -euo pipefail
 
@@ -32,10 +35,10 @@ KUBECTL="${PR_ENV_KUBECTL:-oc}"
 platform_ns="$(pr_env_namespace "${PR_NUMBER}")"
 keycloak_ns="$(pr_env_keycloak_namespace "${platform_ns}")"
 env_id="$(pr_env_environment_id "${PR_NUMBER}")"
-if [[ "${PR_ENV_RETAINED:-false}" == "true" ]]; then
-  expires_at="$(pr_env_expires_at_hours "${PR_ENV_RETAINED_MAX_HOURS:-72}")"
+if [[ -n "${PR_ENV_EXPIRES_AT:-}" ]]; then
+  expires_at="${PR_ENV_EXPIRES_AT}"
 else
-  expires_at="$(pr_env_expires_at_hours "${PR_ENV_UNRETAINED_MAX_HOURS:-24}")"
+  expires_at="$(pr_env_inactivity_expires_at "${PR_ENV_RETAINED:-false}")"
 fi
 
 stamp_namespace() {

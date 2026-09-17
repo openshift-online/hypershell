@@ -76,6 +76,8 @@ assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 72 * 3600)))" "$(pr_env_expires_a
 # 24-hour unretained max is exactly 24*3600 seconds ahead.
 assert_eq '24' "${PR_ENV_UNRETAINED_MAX_HOURS}" 'unretained default hours'
 assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 24 * 3600)))" "$(pr_env_expires_at_hours 24 "${base}")" 'expires_at_hours unretained default'
+assert_eq "$(pr_env_expires_at_hours 72 "${base}")" "$(pr_env_inactivity_expires_at true "${base}")" 'retained inactivity expiry uses 72h'
+assert_eq "$(pr_env_expires_at_hours 24 "${base}")" "$(pr_env_inactivity_expires_at false "${base}")" 'unretained inactivity expiry uses 24h'
 
 # --- Reaper predicate ---
 now=2000000000
@@ -458,6 +460,13 @@ if grep -q "contains(github.event.comment.body, '/pr-extend')" \
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: command workflow if does not match /pr-extend inside a CRLF body'
+fi
+if grep -q 'PR_ENV_EXPIRES_AT: ${{ steps.timebox.outputs.expires_at }}' \
+  "${SCRIPT_DIR}/../../.github/actions/deploy-pr-environment/action.yml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: deploying comment / stamp do not receive the precomputed UTC expiry'
 fi
 if grep -q 'PR_ENV_EXPIRES_AT: ${{ steps.stamp.outputs.expires_at }}' \
   "${SCRIPT_DIR}/../../.github/actions/deploy-pr-environment/action.yml"; then
