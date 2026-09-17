@@ -1,4 +1,5 @@
 **
+!OPENSHELL_VERSION
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
