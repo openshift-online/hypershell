@@ -368,9 +368,8 @@ func TestReconcileRouteResourcesCreatesNetworkPolicyOnly(t *testing.T) {
 	}
 
 	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-	cs := k8sfake.NewSimpleClientset()
 
-	if err := reconcileRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
+	if err := reconcileRouteResources(context.Background(), dc, nsConfig, ReconcileOpts{}); err != nil {
 		t.Fatalf("reconcileRouteResources: %v", err)
 	}
 

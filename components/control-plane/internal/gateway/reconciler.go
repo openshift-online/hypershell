@@ -164,7 +164,7 @@ func ReconcileGateway(
 		}
 	case IngressModeRoute:
 		if nsConfig.Gateway.Route.Enabled {
-			if err := reconcileRouteResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
+			if err := reconcileRouteResources(ctx, dynamicClient, nsConfig, opts); err != nil {
 				log.Printf("WARN failed to reconcile Route resources in %s: %v", nsConfig.Name, err)
 			}
 			if err := ReconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
@@ -571,7 +571,7 @@ func readServerTLSCA(ctx context.Context, clientset kubernetes.Interface, namesp
 // the Helm chart (openshiftRoute.enabled=true in the chart values); this
 // function publishes the route address back to the API server and reconciles
 // the router NetworkPolicy that allows traffic from the ingress namespace.
-func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
+func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	namespace := nsConfig.Name
 
 	hostname, err := deriveGatewayHostname(nsConfig)
