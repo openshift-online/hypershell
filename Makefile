@@ -230,8 +230,20 @@ test-dependency-age-policy:
 check-dependency-age: test-dependency-age-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
 
+.PHONY: sync-openshell-version
+sync-openshell-version:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py --stamp
+
+.PHONY: test-openshell-version-policy
+test-openshell-version-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_sync_openshell_version.py
+
+.PHONY: check-openshell-version
+check-openshell-version: test-openshell-version-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age test-release-bundle
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-openshell-version test-release-bundle
 
 # ============================================================================
 # Git hooks
