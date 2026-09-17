@@ -2,9 +2,9 @@
   {
     "kind": "go",
     "name": "github.com/openshift-online/rh-trex-ai",
-    "version": "v0.0.32-0.20260819203335-5798cb607fcb",
-    "reason": "HyperShell requires the framework GORM plugin registry (openshift-online/rh-trex-ai#51) that installs API server database query tracing, merged inside the cooldown window.",
-    "compensatingVerification": "The dependency is commit-pinned; API server formatting, vet, and golangci-lint run against that exact commit."
+    "version": "v0.0.32-0.20260821210346-d5888edfb8cd",
+    "reason": "HyperShell requires configurable JWT issuer and audience validation from openshift-online/rh-trex-ai#52, plus the fail-closed signed-token verification hardening from openshift-online/rh-trex-ai#53, to prevent replay of same-realm tokens issued for other resources.",
+    "compensatingVerification": "The dependency is commit-pinned; upstream signed-token tests cover HTTP and gRPC claim validation, and HyperShell API server formatting, vet, tests, and golangci-lint run against that exact commit."
   },
   {
     "kind": "go",
