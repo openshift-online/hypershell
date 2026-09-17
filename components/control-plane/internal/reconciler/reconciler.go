@@ -21,6 +21,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
@@ -1426,34 +1427,33 @@ type GatewayReconciler struct {
 	dynamicClient         dynamic.Interface
 	clientset             *kubernetes.Clientset
 	grpcConn              *grpc.ClientConn
-	manifests             map[string][]*unstructured.Unstructured
+	helmClient            *helm.ShellClient
 	isOpenShift           bool
 	hasCertManager        bool
 	hasGatewayAPI         bool
 	ingressMode           string
 	skipNetworkPolicies   bool
 	hasCNPG               bool
-	manifestsDir          string
 	controlPlaneNamespace string
 	keycloakClient        *keycloak.Client
 	keycloakConfig        *gateway.KeycloakConfig
 	exposure              exposure.Port
+	externalCAIssuerName  string
+	externalCAIssuerKind  string
+	ingressBaseDomain     string
 }
 
 func NewGatewayReconciler(
 	dynamicClient dynamic.Interface,
 	clientset *kubernetes.Clientset,
 	grpcConn *grpc.ClientConn,
-	manifestsDir string,
+	helmClient *helm.ShellClient,
 	controlPlaneNamespace string,
 	keycloakConfig *gateway.KeycloakConfig,
 	exposurePort exposure.Port,
+	externalCAIssuerName string,
+	externalCAIssuerKind string,
 ) (*GatewayReconciler, error) {
-	manifests, err := gateway.LoadGatewayManifests(manifestsDir)
-	if err != nil {
-		return nil, fmt.Errorf("load gateway manifests from %s: %w", manifestsDir, err)
-	}
-
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
@@ -1472,26 +1472,40 @@ func NewGatewayReconciler(
 		log.Printf("INFO keycloak integration enabled: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
 	}
 
-	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s cnpg=%v keycloak=%v netpol=%v",
-		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, hasCNPG, kcClient != nil, !skipNetworkPolicies)
+	// Derive ingress base domain from environment
+	ingressBaseDomain := os.Getenv("INGRESS_BASE_DOMAIN")
+	if ingressBaseDomain == "" {
+		ingressBaseDomain = "gateway.cluster.local"
+		log.Printf("WARN INGRESS_BASE_DOMAIN not set, using default: %s", ingressBaseDomain)
+	}
+
+	// Validate external CA issuer for Route passthrough mode
+	if !hasGatewayAPI && externalCAIssuerName == "" {
+		log.Printf("WARN EXTERNAL_CA_ISSUER_NAME not set but Gateway API unavailable; Route passthrough mode will fail cert validation")
+	}
+
+	log.Printf("INFO gateway reconciler initialized: helm=%s openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s cnpg=%v keycloak=%v netpol=%v ingress=%s ca-issuer=%s",
+		helmClient.ChartPath, isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, hasCNPG, kcClient != nil, !skipNetworkPolicies, ingressBaseDomain, externalCAIssuerName)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
 		dynamicClient:         dynamicClient,
 		clientset:             clientset,
 		grpcConn:              grpcConn,
-		manifests:             manifests,
+		helmClient:            helmClient,
 		isOpenShift:           isOpenShift,
 		hasCertManager:        hasCertManager,
 		hasGatewayAPI:         hasGatewayAPI,
 		ingressMode:           ingressMode,
 		skipNetworkPolicies:   skipNetworkPolicies,
 		hasCNPG:               hasCNPG,
-		manifestsDir:          manifestsDir,
 		controlPlaneNamespace: controlPlaneNamespace,
 		keycloakClient:        kcClient,
 		keycloakConfig:        keycloakConfig,
 		exposure:              exposurePort,
+		externalCAIssuerName:  externalCAIssuerName,
+		externalCAIssuerKind:  externalCAIssuerKind,
+		ingressBaseDomain:     ingressBaseDomain,
 	}, nil
 }
 
@@ -1628,7 +1642,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					}
 				}
 			}
-			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts, credentialNamespaces...); err != nil {
+			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, r.helmClient, namespace, opts, credentialNamespaces...); err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway resources in %s: %w", namespace, err))
 			} else {
 				log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
@@ -1715,7 +1729,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		var resolveErr error
 		dbConfig, resolveErr = r.resolveDatabaseConfig(ctx, gw)
 		if resolveErr != nil {
-			reconcileErr = fmt.Errorf("resolve database config for gateway %s: %w", gw.Name, resolveErr)
+			r.updateGatewayPhase(ctx, event.ResourceID, "Failed")
+			reconcileErr = fmt.Errorf("resolve database config for gateway %s: %w", event.ResourceID, resolveErr)
 			return reconcileErr
 		}
 	} else {
@@ -1764,8 +1779,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// only to what was actually rolled out. Empty for a direct-image gateway.
 	gwConfig.ReleaseID = gw.ReleaseId
 
+	images := gateway.StaticImageDefaults{}
 	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
 		gwConfig.SupervisorImage = *gw.SupervisorImage
+	} else {
+		gwConfig.SupervisorImage = images.DefaultSupervisorImage()
 	}
 
 	if gw.Oidc != nil && *gw.Oidc != "" {
@@ -1822,6 +1840,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
 		Exposure:              r.exposure,
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
+		ExternalCAIssuerName:  r.externalCAIssuerName,
+		ExternalCAIssuerKind:  r.externalCAIssuerKind,
+		IngressBaseDomain:     r.ingressBaseDomain,
 	}
 
 	conditions := gateway.InitConditions(r.keycloakConfig != nil)
@@ -1834,13 +1855,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 	r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning))
 
-	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
-		// A generated-configuration validation failure is non-recoverable until the
-		// declared config changes: settle to Failed with a human-readable reason so
-		// an operator sees why, and log with the gateway name and namespace. Because
-		// the gate runs before any config-derived write, a Running gateway keeps
-		// serving its last-good configuration. See
-		// specs/platform/generated-gateway-config-validation.spec.md.
+	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, r.helmClient, nsConfig, opts); err != nil {
 		var renderErr *gateway.RenderedConfigValidationError
 		if errors.As(err, &renderErr) {
 			reason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
@@ -1858,6 +1873,28 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// Step 5: GatewayHealthy
 	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
 	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+
+	if r.exposure != nil && isRoutedGateway(gw) {
+		routeHost := ""
+		if gw.Route != nil {
+			var rc struct{ Host string }
+			_ = json.Unmarshal([]byte(*gw.Route), &rc)
+			routeHost = rc.Host
+		}
+		addr, err := r.exposure.ResolveAddress(ctx, exposure.Request{
+			Namespace: namespace,
+			Host:      routeHost,
+		})
+		if err != nil {
+			log.Printf("WARN gateway %s: failed to resolve route address: %v", gw.Name, err)
+		} else if addr != "" {
+			if err := r.updateRouteAddress(ctx, event.ResourceID, addr); err != nil {
+				log.Printf("WARN gateway %s: failed to publish route address: %v", gw.Name, err)
+			} else {
+				log.Printf("INFO gateway %s: published route address %s", gw.Name, addr)
+			}
+		}
+	}
 
 	// Manifests are applied, but the gateway is not Running until its workload is
 	// observed Ready. Wait within the provisioning readiness window; if the

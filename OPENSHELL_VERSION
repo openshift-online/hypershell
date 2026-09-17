@@ -1,0 +1,7 @@
+# OpenShell upstream coordinates. All image tags and the chart ref use
+# OPENSHELL_TAG. Update this file when bumping the OpenShell version.
+OPENSHELL_TAG=v0.0.116-rhaiv.6
+OPENSHELL_CHART_REPO=https://github.com/opendatahub-io/openshell.git
+OPENSHELL_GATEWAY_IMAGE=quay.io/opendatahub/odh-openshell-gateway
+OPENSHELL_SUPERVISOR_IMAGE=quay.io/opendatahub/odh-openshell-supervisor
+OPENSHELL_CLI_IMAGE=quay.io/opendatahub/odh-openshell-cli

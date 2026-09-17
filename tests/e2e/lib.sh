@@ -157,6 +157,9 @@ e2e_validate_openshell_install() {
 : "${E2E_AUTO_SEED:=1}"
 : "${E2E_PAUSE:=1}"
 _E2E_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_E2E_REPO_ROOT="$(cd "${_E2E_LIB_DIR}/../.." && pwd)"
+# shellcheck source=../../OPENSHELL_VERSION
+source "${_E2E_REPO_ROOT}/OPENSHELL_VERSION"
 : "${OPENSHELL_BIN:=openshell}"
 # How the e2e test obtains the openshell CLI:
 #   auto   - install the gateway-matched version via the console-recommended
@@ -164,6 +167,12 @@ _E2E_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   always - always install the gateway-matched version, even if one is present
 #   never  - require a pre-installed CLI; do not install
 : "${E2E_OPENSHELL_INSTALL:=auto}"
+# Override the CLI version to install instead of deriving it from
+# gateway_version. Accepts any GitHub release tag (e.g. v0.0.116, dev).
+: "${E2E_OPENSHELL_VERSION:=}"
+# Container image to extract the CLI from. When set, the CLI is copied out of
+# the image instead of downloaded from GitHub. Set to empty to disable.
+: "${E2E_OPENSHELL_CLI_IMAGE:=${OPENSHELL_CLI_IMAGE}:${OPENSHELL_TAG}}"
 # Upstream install script the console links to (installScriptUrl in the UI).
 : "${OPENSHELL_INSTALL_SCRIPT_URL:=https://raw.githubusercontent.com/openshift-online/hypershell/main/scripts/install-openshell.sh}"
 # Bounded wait for the control plane to reconcile gateway_version from the

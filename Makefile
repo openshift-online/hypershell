@@ -72,7 +72,7 @@ KIND_DNS_PORT?=5553
 # The gateway base domain is discovered from that Gateway's listener hostname.
 GATEWAY_API_GATEWAY_NAME?=openshell-grpc-gateway
 GATEWAY_API_GATEWAY_NAMESPACE?=openshift-ingress
-GATEWAY_IMAGE?=quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd
+GATEWAY_IMAGE?=$(shell . ./OPENSHELL_VERSION && echo "$${OPENSHELL_GATEWAY_IMAGE}:$${OPENSHELL_TAG}")
 
 # Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
@@ -230,8 +230,20 @@ test-dependency-age-policy:
 check-dependency-age: test-dependency-age-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
 
+.PHONY: sync-openshell-version
+sync-openshell-version:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py --stamp
+
+.PHONY: test-openshell-version-policy
+test-openshell-version-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_sync_openshell_version.py
+
+.PHONY: check-openshell-version
+check-openshell-version: test-openshell-version-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age test-release-bundle
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-openshell-version test-release-bundle
 
 # ============================================================================
 # Git hooks
