@@ -34,9 +34,9 @@ export function ProvisionTimeChart({
   }
 
   const statValues = {
-    mean: stats.meanMinutes,
-    p50: stats.p50Minutes,
-    p95: stats.p95Minutes,
+    mean: stats.meanSeconds,
+    p50: stats.p50Seconds,
+    p95: stats.p95Seconds,
   } as const;
 
   return (
@@ -70,7 +70,7 @@ export function ProvisionTimeChart({
           <FormattedMessage
             {...messages.provisionTimeP95Note}
             values={{
-              duration: stats.p95Minutes.toFixed(2),
+              duration: stats.p95Seconds.toFixed(2),
               unit: metric.unit ?? "",
             }}
           />

@@ -3,7 +3,6 @@ package rbac
 import (
 	"context"
 	"os"
-	"strings"
 	"sync"
 
 	"google.golang.org/grpc"
@@ -16,11 +15,12 @@ import (
 )
 
 type lazyRBACInterceptor struct {
-	once        sync.Once
-	lookup      pkgrbac.RoleBindingLookup
-	provisioner pkgrbac.UserProvisioner
-	syncer      pkgrbac.JWTRoleSyncer
-	config      pkgrbac.AuthzConfig
+	once             sync.Once
+	lookup           pkgrbac.RoleBindingLookup
+	provisioner      pkgrbac.UserProvisioner
+	syncer           pkgrbac.JWTRoleSyncer
+	activityRecorder pkgrbac.DailyActivityRecorder
+	config           pkgrbac.AuthzConfig
 }
 
 func (l *lazyRBACInterceptor) init(ctx context.Context) {
@@ -41,19 +41,11 @@ func (l *lazyRBACInterceptor) init(ctx context.Context) {
 		if userService != nil {
 			l.provisioner = pkgrbac.NewUserProvisioner(userService)
 		}
-
-		var serviceAccounts []string
-		if sa := os.Getenv("RBAC_SERVICE_ACCOUNTS"); sa != "" {
-			for _, s := range strings.Split(sa, ",") {
-				if trimmed := strings.TrimSpace(s); trimmed != "" {
-					serviceAccounts = append(serviceAccounts, trimmed)
-				}
-			}
-		}
+		l.activityRecorder = users.ActivityRecorder(envServices)
 
 		l.config = pkgrbac.AuthzConfig{
 			EnforceRBAC:     os.Getenv("RBAC_ENFORCE") == "true",
-			ServiceAccounts: serviceAccounts,
+			ServiceAccounts: pkgrbac.ServiceAccountsFromEnv(),
 		}
 	})
 }
@@ -66,7 +58,7 @@ func init() {
 		if lazy.lookup == nil {
 			return handler(ctx, req)
 		}
-		interceptor := pkgrbac.RBACUnaryInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.config)
+		interceptor := pkgrbac.RBACUnaryInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.config)
 		return interceptor(ctx, req, info, handler)
 	})
 
@@ -75,7 +67,7 @@ func init() {
 		if lazy.lookup == nil {
 			return handler(srv, ss)
 		}
-		interceptor := pkgrbac.RBACStreamInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.config)
+		interceptor := pkgrbac.RBACStreamInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.config)
 		return interceptor(srv, ss, info, handler)
 	})
 }

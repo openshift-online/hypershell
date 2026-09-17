@@ -15,6 +15,7 @@ var (
 	reconcileQueueDepth        metric.Int64ObservableGauge
 	reconcileQueueWaitDuration metric.Float64Histogram
 	gatewayProvisionDuration   metric.Float64Histogram
+	gatewayProvisionOutcomes   metric.Int64Counter
 	reconcileErrors            metric.Int64Counter
 	watchReconnects            metric.Int64Counter
 )
@@ -56,6 +57,15 @@ func registerMetrics() error {
 		metric.WithUnit("s"),
 		metric.WithDescription("Time from Gateway creation until its first successful transition to Running"),
 		metric.WithExplicitBucketBoundaries(1, 5, 10, 15, 30, 45, 60, 90, 120, 180, 300, 600, 900),
+	)
+	if err != nil {
+		return err
+	}
+
+	gatewayProvisionOutcomes, err = meter.Int64Counter(
+		"gateway.provision.outcomes",
+		metric.WithUnit("{outcome}"),
+		metric.WithDescription("Count of terminal gateway provision outcomes (success or failure)"),
 	)
 	if err != nil {
 		return err
@@ -128,6 +138,17 @@ func RecordGatewayProvisionDuration(ctx context.Context, duration time.Duration)
 		return
 	}
 	gatewayProvisionDuration.Record(ctx, duration.Seconds())
+}
+
+// RecordGatewayProvisionOutcome records one terminal provision outcome. The
+// caller owns the one-observation rule for each Gateway.
+func RecordGatewayProvisionOutcome(ctx context.Context, outcome string) {
+	if gatewayProvisionOutcomes == nil || outcome == "" {
+		return
+	}
+	gatewayProvisionOutcomes.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("outcome", outcome),
+	))
 }
 
 // RecordReconcileError increments the reconcile error counter.

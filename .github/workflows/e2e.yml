@@ -21,10 +21,13 @@ name: E2E
 # `needs:` it instead of polling a separate PR Environment workflow, and so
 # unit failure (this stage never starts) skips deploy. After the suite, the
 # OpenShift job tears the environment down unless the pull request is marked
-# retained (/pr-extend). Fork PRs, merge_group, and push skip deploy and
-# OpenShift (no per-PR environment). Push to main uses the separate
-# e2e-openshift-main.yml workflow (bring-up-test-tear-down) so that job does
-# not appear as a skipped check on pull requests.
+# retained (/pr-extend). Origin pull requests deploy hypershell-ci-pr-<n>;
+# push to main deploys hypershell-ci-main-<short-sha> so a cancelled older
+# run cannot tear down a newer commit's namespace. Concurrency stays
+# pr-env-main (cancel-in-progress) so rapid pushes do not all occupy the
+# shared cluster at once. Main never has the retainment label, so teardown
+# always runs. Fork PRs and merge_group skip deploy and OpenShift (no
+# per-PR environment; Kind remains the merge-queue gate).
 on:
   workflow_call:
     inputs:
@@ -654,25 +657,34 @@ jobs:
           path: e2e-diagnostics/
           retention-days: 7
 
-  # Origin-PR deploy of hypershell-ci-pr-<n> (ephemeral-pr-environments.spec.md).
-  # Same plan-images / should_run gate as Kind and OpenShift. Runs after Unit
-  # because this workflow is only called then. Shares pr-env-<n> with
+  # Origin-PR deploy of hypershell-ci-pr-<n>, or hypershell-ci-main-<short-sha>
+  # on push to main (ephemeral-pr-environments.spec.md). Per-commit main
+  # namespaces mean cancel-in-progress teardown of an older push cannot
+  # delete a newer deploy. Concurrency stays pr-env-main so only one main
+  # OpenShift cycle occupies the cluster at a time. Same plan-images /
+  # should_run gate as Kind and OpenShift. Runs after Unit because this
+  # workflow is only called then. Shares pr-env-<n> (or pr-env-main) with
   # /pr-extend, /pr-destroy, and close so those cannot race an in-flight
-  # deploy. Kind runs in parallel with this job.
+  # deploy. Kind runs in parallel with this job. merge_group and fork PRs
+  # skip it so the merge queue does not share a namespace with a PR env.
   deploy:
     name: Deploy OpenShift Environment
     needs: plan-images
     if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      needs.plan-images.outputs.should_run == 'true'
+      needs.plan-images.outputs.should_run == 'true' &&
+      (
+        github.event_name == 'push' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      )
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     concurrency:
-      group: pr-env-${{ github.event.pull_request.number }}
+      group: pr-env-${{ github.event.pull_request.number || 'main' }}
       cancel-in-progress: true
     env:
-      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_ENV_RETAINED_MAX_HOURS: ${{ vars.PR_ENV_RETAINED_MAX_HOURS || '72' }}
       PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
@@ -692,19 +704,25 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve OpenShift namespace
+        run: bash scripts/ci/resolve-openshift-namespace.sh
+
       - name: Deploy OpenShift Environment
         uses: ./.github/actions/deploy-pr-environment
         with:
           pr_number: ${{ github.event.pull_request.number }}
-          head_sha: ${{ github.event.pull_request.head.sha }}
+          head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
           updated: ${{ github.event.action == 'synchronize' && 'true' || 'false' }}
-          retained: ${{ contains(github.event.pull_request.labels.*.name, 'pr-environment/pr-extended') && 'true' || 'false' }}
+          retained: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'pr-environment/pr-extended') && 'true' || 'false' }}
           wait_api_server: ${{ needs.plan-images.outputs.wait_api_server }}
           wait_control_plane: ${{ needs.plan-images.outputs.wait_control_plane }}
           wait_web_console: ${{ needs.plan-images.outputs.wait_web_console }}
           api_server_image: ${{ needs.plan-images.outputs.api_server_image }}
           control_plane_image: ${{ needs.plan-images.outputs.control_plane_image }}
           web_console_image: ${{ needs.plan-images.outputs.web_console_image }}
+          api_server_check_regexp: ${{ github.event_name == 'push' && 'hypershell-api-server-main-on-push$' || 'hypershell-api-server-main-on-pull-request$' }}
+          control_plane_check_regexp: ${{ github.event_name == 'push' && 'hypershell-control-plane-main-on-push$' || 'hypershell-control-plane-main-on-pull-request$' }}
+          web_console_check_regexp: ${{ github.event_name == 'push' && 'hypershell-web-console-main-on-push$' || 'hypershell-web-console-main-on-pull-request$' }}
 
       # OpenShift never starts if this job fails or is cancelled, so tear down
       # here. Skip ONLY when the environment is retained.
@@ -716,24 +734,29 @@ jobs:
   # deployed (ephemeral-pr-environments.spec.md). needs: deploy replaces the
   # old cross-workflow poller. Same should_run gate as Kind. After the suite
   # (pass, fail, or cancel) tears the environment down unless retained.
+  # Main never has pr-environment/pr-extended, so teardown always runs there.
   # continue-on-error stays on the suite step only so a teardown failure
   # still fails Tests / E2E / OpenShift.
   e2e-openshift:
     name: OpenShift
     needs: [plan-images, deploy]
     if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
       needs.plan-images.outputs.should_run == 'true' &&
-      needs.deploy.result == 'success'
+      needs.deploy.result == 'success' &&
+      (
+        github.event_name == 'push' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      )
     runs-on: ubuntu-24.04
     timeout-minutes: 70
     concurrency:
-      group: pr-env-${{ github.event.pull_request.number }}
+      group: pr-env-${{ github.event.pull_request.number || 'main' }}
       cancel-in-progress: true
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
-      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -742,6 +765,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Resolve OpenShift namespace
+        run: bash scripts/ci/resolve-openshift-namespace.sh
 
       - name: Install oc and openshell CLI
         run: |
@@ -772,14 +798,16 @@ jobs:
         continue-on-error: true
         env:
           E2E_INFRA_DRIVER: openshift
-          E2E_OIDC_GRANT: client_credentials
-          E2E_OIDC_SA_CLIENT_ID: hypershell-e2e
           TERM: dumb
           NO_COLOR: "1"
         run: |
-          secret="$(bash scripts/ci/read-e2e-client-secret.sh)"
-          echo "::add-mask::${secret}"
-          export E2E_OIDC_SA_CLIENT_SECRET="${secret}"
+          if [[ -n "${PR_NUMBER}" ]]; then
+            secret="$(bash scripts/ci/read-e2e-client-secret.sh)"
+            echo "::add-mask::${secret}"
+            export E2E_OIDC_GRANT=client_credentials
+            export E2E_OIDC_SA_CLIENT_ID=hypershell-e2e
+            export E2E_OIDC_SA_CLIENT_SECRET="${secret}"
+          fi
           bash tests/e2e/e2e-openshell.sh
 
       - name: Collect diagnostics
@@ -795,7 +823,7 @@ jobs:
         if: steps.e2e-suite.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: pr-env-diagnostics-${{ github.event.pull_request.number }}
+          name: pr-env-diagnostics-${{ github.event.pull_request.number || 'main' }}
           path: e2e-diagnostics/
           retention-days: 7
 

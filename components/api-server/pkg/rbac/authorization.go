@@ -3,7 +3,9 @@ package rbac
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 
@@ -25,23 +27,42 @@ type AuthzConfig struct {
 	ServiceAccounts []string
 }
 
+// ServiceAccountsFromEnv reads RBAC_SERVICE_ACCOUNTS as a comma-separated allowlist.
+func ServiceAccountsFromEnv() []string {
+	serviceAccountEnv := os.Getenv("RBAC_SERVICE_ACCOUNTS")
+	if serviceAccountEnv == "" {
+		return nil
+	}
+
+	serviceAccounts := make([]string, 0)
+	for _, entry := range strings.Split(serviceAccountEnv, ",") {
+		if trimmed := strings.TrimSpace(entry); trimmed != "" {
+			serviceAccounts = append(serviceAccounts, trimmed)
+		}
+	}
+	return serviceAccounts
+}
+
 type rbacAuthzMiddleware struct {
-	lookup RoleBindingLookup
-	config AuthzConfig
+	lookup           RoleBindingLookup
+	config           AuthzConfig
+	activityRecorder DailyActivityRecorder
 }
 
 var _ auth.AuthorizationMiddleware = &rbacAuthzMiddleware{}
 
-func NewRBACAuthzMiddleware(lookup RoleBindingLookup, config AuthzConfig) auth.AuthorizationMiddleware {
+func NewRBACAuthzMiddleware(lookup RoleBindingLookup, config AuthzConfig, activityRecorder DailyActivityRecorder) auth.AuthorizationMiddleware {
 	return &rbacAuthzMiddleware{
-		lookup: lookup,
-		config: config,
+		lookup:           lookup,
+		config:           config,
+		activityRecorder: activityRecorder,
 	}
 }
 
 func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !m.config.EnforceRBAC {
+			recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.activityRecorder)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -104,8 +125,30 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 			return
 		}
 
+		recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.activityRecorder)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func recordAuthorizedDailyActivity(ctx context.Context, r *http.Request, serviceAccounts []string, activityRecorder DailyActivityRecorder) {
+	if activityRecorder == nil || isExemptEndpoint(r) {
+		return
+	}
+
+	payload, err := auth.GetAuthPayload(r)
+	if err != nil || payload == nil || payload.Username == "" {
+		return
+	}
+	if isServiceAccount(payload.Username, serviceAccounts) {
+		return
+	}
+
+	userID := GetUserIDFromContext(ctx)
+	if userID == "" {
+		return
+	}
+
+	activityRecorder.RecordDailyActivity(ctx, userID, time.Now().UTC())
 }
 
 func isExemptEndpoint(r *http.Request) bool {
@@ -161,8 +204,8 @@ func hasPlatformAdmin(bindings []BindingSummary) bool {
 	return false
 }
 
-func hasUsersInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool {
-	return hasPlatformAdmin(bindings) || HasHypershellAdminRole(jwtRoles)
+func hasUsersInventoryAccess(bindings []BindingSummary, _ []string) bool {
+	return hasPlatformAdmin(bindings)
 }
 
 func hasDashboardInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool {
@@ -318,6 +361,15 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "role_bindings" {
 		return len(bindings) > 0
+	}
+
+	if resource == "gateway_releases" {
+		if hasPlatformAdmin(bindings) {
+			if method == http.MethodGet || method == http.MethodDelete {
+				return true
+			}
+		}
+		return hasGatewayCreator(bindings)
 	}
 
 	return hasGatewayCreator(bindings)

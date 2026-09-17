@@ -906,6 +906,7 @@ describe("web-console BFF with OIDC enabled", () => {
       "/api/metrics/cluster-pods",
       "/api/metrics/cluster-nodes",
       "/api/metrics/gateway-provision-duration",
+      "/api/metrics/gateway-provision-outcomes",
       "/api/metrics/gateway-sandboxes",
       "/api/metrics/platform-inventory",
       "/api/metrics/registered-users",

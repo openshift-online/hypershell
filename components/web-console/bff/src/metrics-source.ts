@@ -76,15 +76,17 @@ async function readBoundedResponse(response: Response): Promise<Response> {
   });
 }
 
-/** Fetch a query without forwarding credentials to redirects or other sources. */
-export async function fetchMetrics(
+async function fetchPrometheusEndpoint(
   source: MetricsSource,
-  query: string,
+  endpoint: "/api/v1/query" | "/api/v1/query_range",
+  params: Record<string, string>,
   signal: AbortSignal,
 ): Promise<Response> {
   const settings = typeof source === "string" ? { url: source } : source;
-  const url = new URL("/api/v1/query", settings.url);
-  url.searchParams.set("query", query);
+  const url = new URL(endpoint, settings.url);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
   if (!settings.tokenFile && !settings.caFile) {
     return readBoundedResponse(await fetch(url, { signal, redirect: "error" }));
   }
@@ -152,6 +154,37 @@ export async function fetchMetrics(
     });
     req.end();
   });
+}
+
+/** Fetch an instant query without forwarding credentials to redirects or other sources. */
+export async function fetchMetrics(
+  source: MetricsSource,
+  query: string,
+  signal: AbortSignal,
+): Promise<Response> {
+  return fetchPrometheusEndpoint(source, "/api/v1/query", { query }, signal);
+}
+
+/** Fetch a range query without forwarding credentials to redirects or other sources. */
+export async function fetchMetricsRange(
+  source: MetricsSource,
+  query: string,
+  start: number,
+  end: number,
+  step: string,
+  signal: AbortSignal,
+): Promise<Response> {
+  return fetchPrometheusEndpoint(
+    source,
+    "/api/v1/query_range",
+    {
+      end: String(end),
+      query,
+      start: String(start),
+      step,
+    },
+    signal,
+  );
 }
 
 export function namespaceSelector(

@@ -14,6 +14,12 @@
 # driver in scripts/cluster/drivers/openshift.sh so status and cleanup tooling
 # stay one selector set). ---
 PR_ENV_NS_PREFIX="hypershell-ci-pr-"
+# Push-to-main environments are per-commit so a cancelled older run's
+# teardown cannot delete a newer deploy's namespace. The 7-char short SHA
+# keeps the platform name within 54 characters (full SHA would make
+# -keycloak exceed 63).
+PR_ENV_MAIN_NS_PREFIX="hypershell-ci-main-"
+PR_ENV_MAIN_SHA_LEN=7
 PR_ENV_OWNED_LABEL="hypershell.redhat.io/owned"
 PR_ENV_ENVIRONMENT_LABEL="hypershell.redhat.io/environment"
 PR_ENV_MANAGED_LABEL="app.kubernetes.io/managed-by"
@@ -53,6 +59,19 @@ PR_ENV_COMMENT_MARKER='<!-- hypershell-pr-environment -->'
 # pr_env_namespace <pr-number> -> the platform namespace name.
 pr_env_namespace() {
   printf '%s%s' "${PR_ENV_NS_PREFIX}" "$1"
+}
+
+# pr_env_main_namespace <commit-sha> -> the push-to-main platform namespace.
+# Uses the first 7 hex characters so two in-flight main runs never share a
+# namespace, while -keycloak stays an RFC 1123 name under 63 characters.
+pr_env_main_namespace() {
+  local sha
+  sha="$(printf '%s' "${1:?commit SHA is required}" | tr '[:upper:]' '[:lower:]')"
+  if [[ ${#sha} -lt "${PR_ENV_MAIN_SHA_LEN}" ]]; then
+    echo "commit SHA is shorter than ${PR_ENV_MAIN_SHA_LEN} characters" >&2
+    return 1
+  fi
+  printf '%s%s' "${PR_ENV_MAIN_NS_PREFIX}" "${sha:0:${PR_ENV_MAIN_SHA_LEN}}"
 }
 
 # pr_env_keycloak_namespace <platform-namespace> -> the companion Keycloak
@@ -237,6 +256,22 @@ pr_env_should_reap_instance_workload() {
   return 0
 }
 
+# pr_env_run_link
+#
+# Markdown link to the GitHub Actions run currently posting the comment, so a
+# developer watching /pr-extend (or a synchronize deploy) can jump straight to
+# its logs instead of hunting the Actions tab for an issue_comment-triggered
+# run, which never surfaces as a PR check. Reads the default GITHUB_SERVER_URL
+# / GITHUB_REPOSITORY / GITHUB_RUN_ID env vars every job gets for free; empty
+# outside a run (e.g. under test) so callers must tolerate a blank result.
+pr_env_run_link() {
+  if [[ -z "${GITHUB_RUN_ID:-}" || -z "${GITHUB_REPOSITORY:-}" ]]; then
+    return 0
+  fi
+  printf '[Track this deploy](%s/%s/actions/runs/%s)' \
+    "${GITHUB_SERVER_URL:-https://github.com}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+}
+
 # pr_env_comment_access_facts <body>
 #
 # Print the access-fact table and everything after it from an existing marked
@@ -292,14 +327,18 @@ pr_env_comment_deploying_body() {
   local existing="${2:-}"
   local retained="${3:-false}"
   local short_sha="${head_sha:0:7}"
-  local lifetime facts=""
+  local lifetime run_line link facts=""
   lifetime="$(pr_env_comment_lifetime "${retained}")"
+  run_line=""
+  if link="$(pr_env_run_link)" && [[ -n "${link}" ]]; then
+    run_line=$'\n\n'"${link}"
+  fi
   if facts="$(pr_env_comment_access_facts "${existing}")"; then
     cat <<EOF
 ${PR_ENV_COMMENT_MARKER}
 ## HyperShell environment updating to commit \`${short_sha}\`
 
-Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The environment may not be fully responsive during the update. This comment will update in place once the environment is ready.
+Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The environment may not be fully responsive during the update. This comment will update in place once the environment is ready.${run_line}
 
 ${lifetime}
 
@@ -311,7 +350,7 @@ EOF
 ${PR_ENV_COMMENT_MARKER}
 ## HyperShell environment deploying
 
-Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This comment will update in place once the environment is ready.
+Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This comment will update in place once the environment is ready.${run_line}
 
 ${lifetime}
 EOF

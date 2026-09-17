@@ -5,7 +5,7 @@ import { messages } from "../messages";
 
 const METRIC_WIDGET_HEIGHT = 3;
 const METRIC_ROW_GAP = 1;
-const METRIC_ROW_STEP = METRIC_WIDGET_HEIGHT + METRIC_ROW_GAP;
+export const METRIC_ROW_STEP = METRIC_WIDGET_HEIGHT + METRIC_ROW_GAP;
 /** Full-width section title row at the top of the dashboard grid. */
 export const TITLE_WIDGET_HEIGHT = 1;
 export const DASHBOARD_COLUMN_COUNT = 4;
@@ -20,22 +20,53 @@ const BASE_SUMMARY_WIDGET_HEIGHT = (SUMMARY_COLUMN_HEIGHT - METRIC_ROW_GAP) / 2;
 export const USAGE_SUMMARY_WIDGET_HEIGHT = BASE_SUMMARY_WIDGET_HEIGHT + 1;
 /** Gateway status matches usage summary height in the platform adoption section. */
 export const GATEWAY_STATUS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT;
-/** One row taller than usage summary; fits exception status rows on pods and nodes. */
-export const SYSTEM_SUMMARY_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT + 1;
+/** Gateway releases stat panel height in the platform adoption right column. */
+export const GATEWAY_RELEASES_WIDGET_HEIGHT = GATEWAY_STATUS_WIDGET_HEIGHT;
+/** Taller widget for the Users adoption card (stat grid and sparkline). */
+export const REGISTERED_USERS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT + 2;
+/** Gateway status height in the platform adoption right column. */
+export const ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT =
+  REGISTERED_USERS_WIDGET_HEIGHT - METRIC_ROW_STEP;
+const ADOPTION_SECTION_START_Y = TITLE_ROW_OFFSET;
+/** Grid row where the gateway releases widget begins (below gateway status). */
+export const ADOPTION_GATEWAY_RELEASES_Y =
+  ADOPTION_SECTION_START_Y +
+  ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT +
+  METRIC_ROW_GAP;
+const ADOPTION_RIGHT_COLUMN_HEIGHT =
+  ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT +
+  METRIC_ROW_GAP +
+  GATEWAY_RELEASES_WIDGET_HEIGHT;
+const ADOPTION_SECTION_HEIGHT = Math.max(
+  REGISTERED_USERS_WIDGET_HEIGHT,
+  ADOPTION_RIGHT_COLUMN_HEIGHT,
+);
 /** Stats list and P95 note. */
 export const PROVISION_TIME_WIDGET_HEIGHT = METRIC_WIDGET_HEIGHT + 1;
-const ADOPTION_SECTION_START_Y = TITLE_ROW_OFFSET;
+/** Donut and hourly success-rate sparkline. */
+export const PROVISION_RELIABILITY_WIDGET_HEIGHT =
+  POD_CAPACITY_WIDGET_HEIGHT + 2;
+/** Height of the two-row hub cluster grid beside system-summary. */
+export const HUB_CLUSTER_SECTION_HEIGHT =
+  NODE_STATUS_WIDGET_HEIGHT +
+  METRIC_ROW_GAP +
+  Math.max(
+    POD_CAPACITY_WIDGET_HEIGHT,
+    PROVISION_TIME_WIDGET_HEIGHT,
+    PROVISION_RELIABILITY_WIDGET_HEIGHT,
+  );
+/** Spans both hub cluster rows; fits provision duration and success-rate rows. */
+export const SYSTEM_SUMMARY_WIDGET_HEIGHT = HUB_CLUSTER_SECTION_HEIGHT;
 /** Grid row for the hub cluster section title. */
 const HUB_CLUSTER_TITLE_Y =
-  ADOPTION_SECTION_START_Y + GATEWAY_STATUS_WIDGET_HEIGHT + METRIC_ROW_GAP;
+  ADOPTION_SECTION_START_Y + ADOPTION_SECTION_HEIGHT + METRIC_ROW_GAP;
 /** Grid row where hub-cluster capacity widgets begin (below hub cluster title). */
 export const HUB_CLUSTER_START_Y = HUB_CLUSTER_TITLE_Y + TITLE_ROW_OFFSET;
+const HUB_CLUSTER_ROW_2_Y =
+  HUB_CLUSTER_START_Y + NODE_STATUS_WIDGET_HEIGHT + METRIC_ROW_GAP;
 /** Grid row for the platform inventory section title. */
 export const PLATFORM_INVENTORY_TITLE_Y =
-  HUB_CLUSTER_START_Y +
-  METRIC_ROW_STEP +
-  NODE_STATUS_WIDGET_HEIGHT +
-  METRIC_ROW_GAP;
+  HUB_CLUSTER_START_Y + HUB_CLUSTER_SECTION_HEIGHT + METRIC_ROW_GAP;
 /** Grid row where the inventory summary widget begins. */
 export const PLATFORM_INVENTORY_START_Y =
   PLATFORM_INVENTORY_TITLE_Y + TITLE_ROW_OFFSET;
@@ -59,8 +90,10 @@ const WIDGET_TITLE_MESSAGES = {
   "managed-cluster-regions": messages.widgetManagedClusterRegions,
   "managed-database-status": messages.widgetManagedDatabaseStatus,
   "gateway-status": messages.gatewayStatusWidget,
+  "gateway-releases": messages.gatewayReleasesWidget,
   memory: messages.widgetMemory,
   nodes: messages.nodes,
+  "provision-reliability": messages.provisionReliabilityWidget,
   "provision-time": messages.provisionTimeWidget,
   "provisioned-sandboxes": messages.widgetSandboxes,
   cpu: messages.widgetCpu,
@@ -80,7 +113,7 @@ const fourColumnLayout = [
     y: 0,
   },
   {
-    h: USAGE_SUMMARY_WIDGET_HEIGHT,
+    h: REGISTERED_USERS_WIDGET_HEIGHT,
     i: "usage-summary#1",
     title: "Usage summary",
     w: 1,
@@ -89,31 +122,31 @@ const fourColumnLayout = [
     y: ADOPTION_SECTION_START_Y,
   },
   {
-    h: GATEWAY_STATUS_WIDGET_HEIGHT,
-    i: "gateway-status#1",
-    title: "Gateway status",
+    h: REGISTERED_USERS_WIDGET_HEIGHT,
+    i: "registered-users#1",
+    title: "Users",
     w: 2,
-    widgetType: "gateway-status",
+    widgetType: "registered-users",
     x: 1,
     y: ADOPTION_SECTION_START_Y,
   },
   {
-    h: METRIC_WIDGET_HEIGHT,
-    i: "provisioned-sandboxes#1",
-    title: "Sandboxes",
+    h: ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
+    i: "gateway-status#1",
+    title: "Gateway status",
     w: 1,
-    widgetType: "provisioned-sandboxes",
+    widgetType: "gateway-status",
     x: 3,
     y: ADOPTION_SECTION_START_Y,
   },
   {
-    h: METRIC_WIDGET_HEIGHT,
-    i: "registered-users#1",
-    title: "Registered users",
+    h: GATEWAY_RELEASES_WIDGET_HEIGHT,
+    i: "gateway-releases#1",
+    title: "Gateway releases",
     w: 1,
-    widgetType: "registered-users",
+    widgetType: "gateway-releases",
     x: 3,
-    y: ADOPTION_SECTION_START_Y + METRIC_ROW_STEP,
+    y: ADOPTION_GATEWAY_RELEASES_Y,
   },
   {
     h: TITLE_WIDGET_HEIGHT,
@@ -134,7 +167,7 @@ const fourColumnLayout = [
     y: HUB_CLUSTER_START_Y,
   },
   {
-    h: METRIC_WIDGET_HEIGHT,
+    h: NODE_STATUS_WIDGET_HEIGHT,
     i: "memory#1",
     title: "Memory",
     w: 1,
@@ -143,16 +176,7 @@ const fourColumnLayout = [
     y: HUB_CLUSTER_START_Y,
   },
   {
-    h: PROVISION_TIME_WIDGET_HEIGHT,
-    i: "provision-time#1",
-    title: "Provision time",
-    w: 1,
-    widgetType: "provision-time",
-    x: 1,
-    y: HUB_CLUSTER_START_Y + METRIC_ROW_STEP,
-  },
-  {
-    h: METRIC_WIDGET_HEIGHT,
+    h: NODE_STATUS_WIDGET_HEIGHT,
     i: "cpu#1",
     title: "CPU",
     w: 1,
@@ -161,22 +185,40 @@ const fourColumnLayout = [
     y: HUB_CLUSTER_START_Y,
   },
   {
-    h: POD_CAPACITY_WIDGET_HEIGHT,
-    i: "pods#1",
-    title: "Pods",
-    w: 1,
-    widgetType: "pods",
-    x: 3,
-    y: HUB_CLUSTER_START_Y,
-  },
-  {
     h: NODE_STATUS_WIDGET_HEIGHT,
     i: "nodes#1",
     title: "Nodes",
     w: 1,
     widgetType: "nodes",
+    x: 3,
+    y: HUB_CLUSTER_START_Y,
+  },
+  {
+    h: POD_CAPACITY_WIDGET_HEIGHT,
+    i: "pods#1",
+    title: "Pods",
+    w: 1,
+    widgetType: "pods",
+    x: 1,
+    y: HUB_CLUSTER_ROW_2_Y,
+  },
+  {
+    h: PROVISION_TIME_WIDGET_HEIGHT,
+    i: "provision-time#1",
+    title: "Provision time",
+    w: 1,
+    widgetType: "provision-time",
     x: 2,
-    y: HUB_CLUSTER_START_Y + METRIC_ROW_STEP,
+    y: HUB_CLUSTER_ROW_2_Y,
+  },
+  {
+    h: PROVISION_RELIABILITY_WIDGET_HEIGHT,
+    i: "provision-reliability#1",
+    title: "Provision reliability",
+    w: 1,
+    widgetType: "provision-reliability",
+    x: 3,
+    y: HUB_CLUSTER_ROW_2_Y,
   },
   {
     h: TITLE_WIDGET_HEIGHT,
@@ -209,7 +251,7 @@ const fourColumnLayout = [
     h: NODE_STATUS_WIDGET_HEIGHT,
     i: "managed-cluster-regions#1",
     title: "Cluster regions",
-    w: 2,
+    w: 1,
     widgetType: "managed-cluster-regions",
     x: 2,
     y: PLATFORM_INVENTORY_START_Y,
@@ -220,8 +262,8 @@ const fourColumnLayout = [
     title: "Database status",
     w: 1,
     widgetType: "managed-database-status",
-    x: 1,
-    y: PLATFORM_INVENTORY_START_Y + METRIC_ROW_STEP,
+    x: 3,
+    y: PLATFORM_INVENTORY_START_Y,
   },
 ] as const;
 
@@ -254,15 +296,16 @@ const mobileLayoutOrder = [
   "section-title#platform-adoption",
   "usage-summary",
   "gateway-status",
-  "provisioned-sandboxes",
+  "gateway-releases",
   "registered-users",
   "section-title#hub-cluster",
   "system-summary",
   "memory",
-  "provision-time",
   "cpu",
-  "pods",
   "nodes",
+  "pods",
+  "provision-time",
+  "provision-reliability",
   "section-title#platform-inventory",
   "inventory-summary",
   "managed-cluster-providers",

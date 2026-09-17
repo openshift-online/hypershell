@@ -185,10 +185,15 @@ production.
 | CLI client | `hypershell-cli` (public, standard flow + device authorization grant, used by `hsctl login`) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account) |
 | Control plane client | `hypershell-control-plane` (confidential, service account, client_credentials) |
-| Admin user | `admin` / `admin` (role: `hypershell-admins`) |
+| Admin user | `admin` / `admin` (roles: `hypershell-admins`, `platform:admin`, `gateway:creator`) |
 | Developer user | `developer` / `developer` (role: `hypershell-users`) |
 | OIDC Issuer URL | `https://keycloak.hypershell.localhost/realms/hypershell` |
 | Admin Console | `https://keycloak.hypershell.localhost/admin/` |
+
+Dashboard-operator access (operational dashboard, user inventory, managed
+inventory metrics) requires the `platform:admin` Keycloak realm role, which is
+JWT-synced to a `platform:admin` RoleBinding. The legacy `hypershell-admins`
+group alone does not grant dashboard access.
 
 ### OIDC
 

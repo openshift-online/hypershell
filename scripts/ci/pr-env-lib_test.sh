@@ -40,15 +40,32 @@ assert_not_reapable() {
   fi
 }
 
+# GITHUB_RUN_ID / GITHUB_REPOSITORY / GITHUB_SERVER_URL are already present in
+# the environment when this suite runs as a CI step itself; unset them so
+# pr_env_run_link's no-run-context behavior is deterministic here, and opt
+# individual assertions back in with a scoped assignment.
+unset GITHUB_RUN_ID GITHUB_REPOSITORY GITHUB_SERVER_URL
+
 # --- Namespace + identity derivation ---
 assert_eq 'hypershell-ci-pr-232' "$(pr_env_namespace 232)" 'platform namespace from PR number'
 assert_eq 'hypershell-ci-pr-232-keycloak' "$(pr_env_keycloak_namespace "$(pr_env_namespace 232)")" 'keycloak namespace derivation'
 assert_eq 'pr-232' "$(pr_env_environment_id 232)" 'environment id from PR number'
+assert_eq 'hypershell-ci-main-abcdef1' "$(pr_env_main_namespace 'abcdef1234567890')" 'main namespace from short SHA'
+assert_eq 'hypershell-ci-main-abcdef1' "$(pr_env_main_namespace 'ABCDEF1234567890')" 'main namespace lowercases SHA'
 
 # The platform namespace must remain an RFC 1123 label within 54 chars so the
 # derived -keycloak name stays under 63. Even a large PR number fits easily.
 big_ns="$(pr_env_namespace 999999)"
 assert_eq 'true' "$([[ ${#big_ns} -le 54 ]] && echo true || echo false)" 'platform namespace within 54 chars'
+main_ns="$(pr_env_main_namespace '0123456789abcdef')"
+assert_eq 'true' "$([[ ${#main_ns} -le 54 ]] && echo true || echo false)" 'main namespace within 54 chars'
+main_kc="$(pr_env_keycloak_namespace "${main_ns}")"
+assert_eq 'true' "$([[ ${#main_kc} -le 63 ]] && echo true || echo false)" 'main keycloak namespace within 63 chars'
+
+# Full SHA in the namespace would push -keycloak over 63 (19+40+9=68).
+full_sha_ns="hypershell-ci-main-0123456789abcdef0123456789abcdef01234567"
+full_sha_kc="$(pr_env_keycloak_namespace "${full_sha_ns}")"
+assert_eq 'true' "$([[ ${#full_sha_kc} -gt 63 ]] && echo true || echo false)" 'full SHA main keycloak would exceed 63 chars'
 
 # --- Timebox round-trip (injected clock for determinism) ---
 base=1000000000  # 2001-09-09T01:46:40Z
@@ -161,6 +178,29 @@ esac
 case "${deploying_body}" in
   *'already been destroyed'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing redeploy-if-destroyed wording' ;;
+esac
+case "${deploying_body}" in
+  *'Track this deploy'*) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment has a run link outside a run' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+
+# --- Run link (Track this deploy), so /pr-extend and synchronize deploys are
+# traceable to the issue_comment / pull_request run posting the comment ---
+assert_eq '' "$(pr_env_run_link)" 'no run link outside a GitHub Actions run'
+assert_eq '' "$(GITHUB_RUN_ID=42 pr_env_run_link)" 'no run link without GITHUB_REPOSITORY'
+assert_eq '' "$(GITHUB_REPOSITORY=openshift-online/hypershell pr_env_run_link)" 'no run link without GITHUB_RUN_ID'
+assert_eq '[Track this deploy](https://github.com/openshift-online/hypershell/actions/runs/42)' \
+  "$(GITHUB_RUN_ID=42 GITHUB_REPOSITORY=openshift-online/hypershell pr_env_run_link)" \
+  'run link defaults to github.com when GITHUB_SERVER_URL is unset'
+assert_eq '[Track this deploy](https://ghe.example.com/openshift-online/hypershell/actions/runs/42)' \
+  "$(GITHUB_RUN_ID=42 GITHUB_REPOSITORY=openshift-online/hypershell GITHUB_SERVER_URL=https://ghe.example.com pr_env_run_link)" \
+  'run link honors a non-default GITHUB_SERVER_URL'
+
+deploying_with_link="$(GITHUB_RUN_ID=42 GITHUB_REPOSITORY=openshift-online/hypershell \
+  pr_env_comment_deploying_body abcdef1234567)"
+case "${deploying_with_link}" in
+  *'[Track this deploy](https://github.com/openshift-online/hypershell/actions/runs/42)'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing run link when GITHUB_RUN_ID is set' ;;
 esac
 
 # A later reconcile must keep the existing table: those facts do not change
@@ -388,6 +428,12 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: unretained teardown does not update the access comment after destroy'
 fi
+if grep -q 'No PR_NUMBER' "${SCRIPT_DIR}/teardown-unretained-pr-env.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: unretained teardown does not handle push-to-main (empty PR_NUMBER)'
+fi
 if grep -q 'PR_ENV_PHASE=destroyed' "${SCRIPT_DIR}/../../.github/workflows/pr-environment-commands.yml"; then
   PASS=$((PASS + 1))
 else
@@ -401,6 +447,16 @@ assert_eq 'false' "$(printf '%s' '[]' \
   | pr_env_label_list_has 'pr-environment/pr-extended')" 'empty label list is not retained'
 assert_eq 'false' "$(printf '%s' '[{"name":"other"}]' \
   | pr_env_label_list_has 'pr-environment/pr-extended')" 'unrelated labels are not retained'
+
+resolve_env="$(mktemp)"
+PR_NUMBER=232 GITHUB_ENV="${resolve_env}" bash "${SCRIPT_DIR}/resolve-openshift-namespace.sh" >/dev/null
+assert_eq 'OPENSHIFT_NAMESPACE=hypershell-ci-pr-232' "$(cat "${resolve_env}")" 'resolve script writes PR namespace'
+rm -f "${resolve_env}"
+resolve_env="$(mktemp)"
+PR_NUMBER= GITHUB_SHA='abcdef1234567890deadbeef' GITHUB_ENV="${resolve_env}" \
+  bash "${SCRIPT_DIR}/resolve-openshift-namespace.sh" >/dev/null
+assert_eq 'OPENSHIFT_NAMESPACE=hypershell-ci-main-abcdef1' "$(cat "${resolve_env}")" 'resolve script writes per-commit main namespace'
+rm -f "${resolve_env}"
 
 printf 'pr-env-lib tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

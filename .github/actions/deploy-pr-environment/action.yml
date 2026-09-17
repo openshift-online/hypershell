@@ -1,11 +1,14 @@
 name: Deploy OpenShift Environment
 description: >
-  Bring up or reconcile a per-PR OpenShift environment, swap Konflux images
-  by digest, stamp identity/timebox, and update the access comment.
+  Bring up or reconcile an OpenShift environment, swap Konflux images by
+  digest, and (on a pull request) stamp identity/timebox and update the
+  access comment. Push to main omits pr_number: no comment, no GitHub OAuth,
+  no retainment stamp.
 
 inputs:
   pr_number:
-    required: true
+    required: false
+    default: ''
   head_sha:
     required: true
   updated:
@@ -32,11 +35,21 @@ inputs:
   web_console_image:
     required: false
     default: ''
+  api_server_check_regexp:
+    required: false
+    default: 'hypershell-api-server-main-on-pull-request$'
+  control_plane_check_regexp:
+    required: false
+    default: 'hypershell-control-plane-main-on-pull-request$'
+  web_console_check_regexp:
+    required: false
+    default: 'hypershell-web-console-main-on-pull-request$'
 
 runs:
   using: composite
   steps:
     - name: Post initial "deploying" comment
+      if: inputs.pr_number != ''
       shell: bash
       env:
         PR_NUMBER: ${{ inputs.pr_number }}
@@ -73,6 +86,7 @@ runs:
         echo "Installed cluster pull secret for registry inspect"
 
     - name: Provision GitHub OAuth secret (fail closed)
+      if: inputs.pr_number != ''
       shell: bash
       run: |
         missing=()
@@ -112,6 +126,7 @@ runs:
       run: make openshift-up
 
     - name: Recycle Keycloak when GitHub OAuth secret changes
+      if: inputs.pr_number != ''
       shell: bash
       run: |
         kc_ns="${OPENSHIFT_NAMESPACE}-keycloak"
@@ -129,6 +144,7 @@ runs:
         oc rollout status deploy/keycloak -n "${kc_ns}" --timeout=600s
 
     - name: Stamp namespace group (identity + timebox)
+      if: inputs.pr_number != ''
       id: stamp
       shell: bash
       env:
@@ -141,7 +157,7 @@ runs:
       uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
       with:
         ref: ${{ inputs.head_sha }}
-        check-regexp: 'hypershell-api-server-main-on-pull-request$'
+        check-regexp: ${{ inputs.api_server_check_regexp }}
         repo-token: ${{ github.token }}
         wait-interval: 30
         checks-discovery-timeout: 900
@@ -152,7 +168,7 @@ runs:
       uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
       with:
         ref: ${{ inputs.head_sha }}
-        check-regexp: 'hypershell-control-plane-main-on-pull-request$'
+        check-regexp: ${{ inputs.control_plane_check_regexp }}
         repo-token: ${{ github.token }}
         wait-interval: 30
         checks-discovery-timeout: 900
@@ -163,7 +179,7 @@ runs:
       uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
       with:
         ref: ${{ inputs.head_sha }}
-        check-regexp: 'hypershell-web-console-main-on-pull-request$'
+        check-regexp: ${{ inputs.web_console_check_regexp }}
         repo-token: ${{ github.token }}
         wait-interval: 30
         checks-discovery-timeout: 900
@@ -197,6 +213,7 @@ runs:
         } >> "${GITHUB_OUTPUT}"
 
     - name: Post / update access comment
+      if: inputs.pr_number != ''
       shell: bash
       env:
         PR_NUMBER: ${{ inputs.pr_number }}
@@ -225,6 +242,6 @@ runs:
       if: failure()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
-        name: pr-env-diagnostics-${{ inputs.pr_number }}
+        name: pr-env-diagnostics-${{ inputs.pr_number || 'main' }}
         path: e2e-diagnostics/
         retention-days: 7

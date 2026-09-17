@@ -16,12 +16,23 @@ import (
 
 type ServiceLocator func() UserService
 
+type ActivityRecorderLocator func() UserActivityRecorder
+
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewUserDao(&env.Database.SessionFactory)
-	RegisterUserMetrics(dao)
+	activityDao := NewUserActivityDao(&env.Database.SessionFactory)
+	RegisterUserMetrics(dao, activityDao)
 
 	return func() UserService {
 		return NewUserService(dao)
+	}
+}
+
+func NewActivityRecorderLocator(env *environments.Env) ActivityRecorderLocator {
+	activityDao := NewUserActivityDao(&env.Database.SessionFactory)
+	recorder := NewUserActivityRecorder(activityDao)
+	return func() UserActivityRecorder {
+		return recorder
 	}
 }
 
@@ -36,9 +47,23 @@ func Service(s *environments.Services) UserService {
 	return nil
 }
 
+func ActivityRecorder(s *environments.Services) UserActivityRecorder {
+	if s == nil {
+		return nil
+	}
+	if obj := s.GetService("UserActivityRecorder"); obj != nil {
+		locator := obj.(ActivityRecorderLocator)
+		return locator()
+	}
+	return nil
+}
+
 func init() {
 	registry.RegisterService("Users", func(env interface{}) interface{} {
 		return NewServiceLocator(env.(*environments.Env))
+	})
+	registry.RegisterService("UserActivityRecorder", func(env interface{}) interface{} {
+		return NewActivityRecorderLocator(env.(*environments.Env))
 	})
 
 	pkgserver.RegisterRoutes("users", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
@@ -58,4 +83,6 @@ func init() {
 	presenters.RegisterKind(&User{}, "User")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(activityMigration())
+	db.RegisterMigration(activityIndexMigration())
 }

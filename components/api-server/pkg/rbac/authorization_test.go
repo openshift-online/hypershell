@@ -194,6 +194,46 @@ func TestIsAuthorized_GatewayCreatorCanAccessGatewayReleases(t *testing.T) {
 	}
 }
 
+func TestIsAuthorized_PlatformAdminCanListGatewayReleases(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
+		t.Error("platform:admin should list gateway_releases")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCanGetGatewayRelease(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodGet, "gateway_releases", "release-1", "", bindings, nil) {
+		t.Error("platform:admin should get gateway_releases by id")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCanDeleteGatewayRelease(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodDelete, "gateway_releases", "release-1", "", bindings, nil) {
+		t.Error("platform:admin should delete gateway_releases")
+	}
+}
+
+func TestIsAuthorized_PlatformAdminCannotCreateGatewayRelease(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "platform:admin", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodPost, "gateway_releases", "", "", bindings, nil) {
+		t.Error("platform:admin must not create gateway_releases without gateway:creator")
+	}
+}
+
 func strPtr(s string) *string {
 	return &s
 }
@@ -316,8 +356,8 @@ func TestIsAuthorized_UsersInventoryRequiresDashboardOperator(t *testing.T) {
 		t.Error("platform:admin should list users")
 	}
 
-	if !isAuthorized(http.MethodGet, "users", "", "", nil, []string{HypershellAdminRole}) {
-		t.Error("hypershell-admins JWT role should list users")
+	if isAuthorized(http.MethodGet, "users", "", "", nil, []string{HypershellAdminRole}) {
+		t.Error("hypershell-admins JWT role alone must not list users")
 	}
 
 	if isAuthorized(http.MethodGet, "users", "user-1", "user-1", creatorOnly, nil) {
@@ -344,8 +384,8 @@ func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *
 		t.Error("gateway:creator should list managed_databases")
 	}
 
-	if !isAuthorized(http.MethodGet, "managed_clusters", "", "", nil, []string{HypershellAdminRole}) {
-		t.Error("hypershell-admins JWT role should list managed_clusters")
+	if isAuthorized(http.MethodGet, "managed_clusters", "", "", nil, []string{HypershellAdminRole}) {
+		t.Error("hypershell-admins JWT role alone must not list managed_clusters")
 	}
 
 	platformAdmin := []BindingSummary{{RoleName: "platform:admin", Scope: "global"}}
@@ -383,7 +423,7 @@ func TestExtractResourceInfoRecognizesNestedServiceAccountRoutes(t *testing.T) {
 }
 
 func TestServiceAccountAuthorizationConcealsDeniedMutations(t *testing.T) {
-	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true}, nil)
 	for _, test := range []struct {
 		method string
 		path   string
@@ -426,7 +466,7 @@ func TestServiceAccountAuthorizationConcealsDeniedMutations(t *testing.T) {
 // request reaches the handler.
 func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	reached := false
@@ -451,7 +491,7 @@ func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 }
 
 func TestAuthorizeApiAllowsUserWithNoBindingsToListGateways(t *testing.T) {
-	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true}, nil)
 
 	reached := false
 	router := mux.NewRouter()
@@ -477,7 +517,7 @@ func TestAuthorizeApiAllowsUserWithNoBindingsToListGateways(t *testing.T) {
 
 func TestAuthorizeApiDeniesGatewayCreatorOnUsersList(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	router.Handle("/api/hypershell/v1/users", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -523,7 +563,7 @@ func TestIsAuthorized_RegistrationOnlyForPost(t *testing.T) {
 
 func TestAuthorizeApi_RegistrationBypasesUserIDGate(t *testing.T) {
 	lookup := authorizationLookup{bindings: nil}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	reached := false
@@ -552,7 +592,7 @@ func TestAuthorizeApi_RegistrationBypasesUserIDGate(t *testing.T) {
 
 func TestAuthorizeApi_RegistrationDeniedWithoutRole(t *testing.T) {
 	lookup := authorizationLookup{bindings: nil}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	router.Handle("/api/hypershell/v1/managed_clusters/registration", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -578,7 +618,7 @@ func TestAuthorizeApi_RegistrationDeniedWithoutRole(t *testing.T) {
 
 func TestAuthorizeApiConcealsDeniedUsersGet(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true})
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
 
 	router := mux.NewRouter()
 	router.Handle("/api/hypershell/v1/users/{id}", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

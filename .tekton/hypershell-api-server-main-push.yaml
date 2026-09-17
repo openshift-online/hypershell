@@ -1,4 +1,4 @@
-# Trigger a release bundle to verify Renovate updates on the delivery branch.
+# Trigger a release bundle to verify promotion from main and PostSync analysis.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:

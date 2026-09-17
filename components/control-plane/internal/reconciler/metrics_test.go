@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -122,6 +123,19 @@ func TestClaimGatewayProvisionObservation(t *testing.T) {
 	forgetGatewayProvisionObservation(gatewayID)
 	if !claimGatewayProvisionObservation(gatewayID) {
 		t.Fatal("claim after Gateway deletion was rejected")
+	}
+}
+
+func TestObserveGatewayProvisionFailureClaimsOnce(t *testing.T) {
+	const gatewayID = "gateway-provision-failure-test"
+	forgetGatewayProvisionObservation(gatewayID)
+	t.Cleanup(func() { forgetGatewayProvisionObservation(gatewayID) })
+
+	observeGatewayProvisionFailure(context.Background(), gatewayID)
+	observeGatewayProvisionFailure(context.Background(), gatewayID)
+
+	if claimGatewayProvisionObservation(gatewayID) {
+		t.Fatal("failure observation did not claim the gateway")
 	}
 }
 

@@ -28,6 +28,7 @@ import { queryGatewayPhaseCounts } from "./metrics-gateways.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
 import { queryClusterMemory } from "./metrics-cluster-memory.js";
 import { queryGatewayProvisionDuration } from "./metrics-gateway-provision-duration.js";
+import { queryGatewayProvisionOutcomes } from "./metrics-gateway-provision-outcomes.js";
 import { queryGatewaySandboxes } from "./metrics-gateway-sandboxes.js";
 import { queryPlatformInventory } from "./metrics-platform-inventory.js";
 import { queryRegisteredUsers } from "./metrics-registered-users.js";
@@ -591,6 +592,27 @@ export async function buildApp(
         request.log.warn(
           { err: error },
           "gateway provision duration metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/gateway-provision-outcomes",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryGatewayProvisionOutcomes(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "gateway provision outcomes metrics query failed",
         );
         reply.code(502);
         return { error: "Metrics unavailable", statusCode: 502 };

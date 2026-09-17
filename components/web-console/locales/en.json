@@ -35,6 +35,10 @@
     "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     "description": "Supporting text on the operational dashboard page."
   },
+  "app.dashboard.gatewayReleases.summaryAriaLabel": {
+    "defaultMessage": "Gateways by release",
+    "description": "Accessible label for the gateway releases stat panel in the dashboard."
+  },
   "app.dashboard.gatewayStatus.ariaDesc": {
     "defaultMessage": "Gateway count by status",
     "description": "Accessible description for the gateway status donut chart."
@@ -123,6 +127,10 @@
     "defaultMessage": "Metric could not be determined",
     "description": "Fallback when a dashboard metric value is non-finite or cannot be shown as a number."
   },
+  "app.dashboard.metricSource.gatewayReleaseDistribution": {
+    "defaultMessage": "Gateway releases",
+    "description": "Label for the gateway release distribution metric source in partial-load warnings."
+  },
   "app.dashboard.metricUnavailable.body": {
     "defaultMessage": "This information is not currently available.",
     "description": "Recovery guidance when an individual dashboard metric is missing."
@@ -191,6 +199,34 @@
     "defaultMessage": "Unused",
     "description": "Legend label for unused pod capacity slots."
   },
+  "app.dashboard.provisionReliability.ariaDesc": {
+    "defaultMessage": "Gateway provision success and failure counts",
+    "description": "Accessible description for the provision reliability donut chart."
+  },
+  "app.dashboard.provisionReliability.chartTitle": {
+    "defaultMessage": "Gateway provision reliability chart",
+    "description": "Accessible title for the provision reliability donut chart."
+  },
+  "app.dashboard.provisionReliability.failures": {
+    "defaultMessage": "Failures",
+    "description": "Legend label for failed gateway provisions."
+  },
+  "app.dashboard.provisionReliability.hourlySuccessRate": {
+    "defaultMessage": "Hourly success rate",
+    "description": "Title for the hourly provision success-rate sparkline in the provision reliability widget."
+  },
+  "app.dashboard.provisionReliability.last24Hours": {
+    "defaultMessage": "Last 24 hours",
+    "description": "Caption documenting the rolling 24-hour provision reliability lookback window."
+  },
+  "app.dashboard.provisionReliability.rate": {
+    "defaultMessage": "{rate}%",
+    "description": "Center title for the provision reliability donut showing the 24-hour success rate."
+  },
+  "app.dashboard.provisionReliability.successes": {
+    "defaultMessage": "Successes",
+    "description": "Legend label for successful gateway provisions."
+  },
   "app.dashboard.provisionTime.average": {
     "defaultMessage": "Average",
     "description": "Label for average gateway provision duration."
@@ -222,6 +258,34 @@
   "app.dashboard.refreshError.title": {
     "defaultMessage": "Could not refresh dashboard metrics",
     "description": "Title shown when operational dashboard metrics cannot be refreshed."
+  },
+  "app.dashboard.registeredUsers.added30Days": {
+    "defaultMessage": "Added (30 days)",
+    "description": "Stat label for users added in the last 30 days."
+  },
+  "app.dashboard.registeredUsers.added7Days": {
+    "defaultMessage": "Added (7 days)",
+    "description": "Stat label for users added in the last 7 days."
+  },
+  "app.dashboard.registeredUsers.hero": {
+    "defaultMessage": "{value} Registered users",
+    "description": "Hero line for the Users adoption widget."
+  },
+  "app.dashboard.registeredUsers.uniqueLogins": {
+    "defaultMessage": "Unique logins",
+    "description": "Metric name in registered users login sparkline tooltips."
+  },
+  "app.dashboard.registeredUsers.uniqueLogins30Days": {
+    "defaultMessage": "Unique logins (30 days)",
+    "description": "Stat label for unique logins in the last 30 days."
+  },
+  "app.dashboard.registeredUsers.uniqueLogins7Days": {
+    "defaultMessage": "Unique logins (7 days)",
+    "description": "Stat label for unique logins in the last 7 days."
+  },
+  "app.dashboard.registeredUsers.uniqueLoginsPerDay": {
+    "defaultMessage": "Unique logins per day",
+    "description": "Title above the registered users login sparkline."
   },
   "app.dashboard.resetToDefault": {
     "defaultMessage": "Reset to default",
@@ -279,6 +343,10 @@
     "defaultMessage": "Pods",
     "description": "Summary label for pod utilization."
   },
+  "app.dashboard.summary.provisionSuccessRate24h": {
+    "defaultMessage": "Success rate (24h)",
+    "description": "Summary label for the rolling 24-hour gateway provision success rate."
+  },
   "app.dashboard.summary.provisionTime": {
     "defaultMessage": "Provision time (average)",
     "description": "Summary label for average gateway provision time."
@@ -292,7 +360,7 @@
     "description": "Deprecated summary label retained for locale extraction."
   },
   "app.dashboard.summary.registeredUsers": {
-    "defaultMessage": "Registered users",
+    "defaultMessage": "Users",
     "description": "Summary label for registered users."
   },
   "app.dashboard.summary.sandboxes": {
@@ -308,11 +376,11 @@
     "description": "Accessible label for the system metrics list in the summary widget."
   },
   "app.dashboard.summary.trendDecrease": {
-    "defaultMessage": "{percent}% decrease",
+    "defaultMessage": "{percent}% decrease in {subject}",
     "description": "Tooltip for a usage summary metric that decreased since the start of its trend."
   },
   "app.dashboard.summary.trendIncrease": {
-    "defaultMessage": "{percent}% increase",
+    "defaultMessage": "{percent}% increase in {subject}",
     "description": "Tooltip for a usage summary metric that increased since the start of its trend."
   },
   "app.dashboard.summary.usage": {
@@ -363,6 +431,10 @@
     "defaultMessage": "CPU",
     "description": "Title for the CPU utilization dashboard widget."
   },
+  "app.dashboard.widget.gatewayReleases": {
+    "defaultMessage": "Gateway releases",
+    "description": "Title for the gateway releases dashboard widget."
+  },
   "app.dashboard.widget.gatewayStatus": {
     "defaultMessage": "Gateway status",
     "description": "Title for the gateway status dashboard widget."
@@ -395,6 +467,10 @@
     "defaultMessage": "Pods",
     "description": "Title for the pods utilization dashboard widget."
   },
+  "app.dashboard.widget.provisionReliability": {
+    "defaultMessage": "Gateway provision reliability",
+    "description": "Title for the gateway provision reliability dashboard widget."
+  },
   "app.dashboard.widget.provisionTime": {
     "defaultMessage": "Gateway provision time",
     "description": "Title for the gateway provision time dashboard widget."
@@ -404,7 +480,7 @@
     "description": "Title for the provisioned gateways dashboard widget."
   },
   "app.dashboard.widget.registeredUsers": {
-    "defaultMessage": "Registered users",
+    "defaultMessage": "Users",
     "description": "Title for the registered users dashboard widget."
   },
   "app.dashboard.widget.sectionTitle": {

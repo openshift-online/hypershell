@@ -6,6 +6,7 @@ import {
   getActiveWidgetTypes,
   isValidSavedTemplate,
   sanitizeDashboardTemplate,
+  stripRemovedWidgetTypes,
 } from "./dashboard-layout-persistence";
 
 describe("dashboard layout persistence", () => {
@@ -13,15 +14,16 @@ describe("dashboard layout persistence", () => {
     expect(getActiveWidgetTypes(defaultDashboardLayoutTemplate)).toEqual([
       "section-title",
       "usage-summary",
-      "gateway-status",
-      "provisioned-sandboxes",
       "registered-users",
+      "gateway-status",
+      "gateway-releases",
       "system-summary",
       "memory",
-      "provision-time",
       "cpu",
-      "pods",
       "nodes",
+      "pods",
+      "provision-time",
+      "provision-reliability",
       "inventory-summary",
       "managed-cluster-providers",
       "managed-cluster-regions",
@@ -79,5 +81,27 @@ describe("dashboard layout persistence", () => {
     expect(
       sanitized.xl.filter((item) => item.widgetType === "section-title"),
     ).toHaveLength(3);
+  });
+
+  it("removes retired widget types from saved templates", () => {
+    const sandboxesWidget = {
+      h: 3,
+      i: "provisioned-sandboxes#1",
+      title: "Sandboxes",
+      w: 1,
+      widgetType: "provisioned-sandboxes",
+      x: 3,
+      y: 0,
+    };
+    const templateWithRetiredWidget = {
+      ...defaultDashboardLayoutTemplate,
+      xl: [...defaultDashboardLayoutTemplate.xl, sandboxesWidget],
+    };
+
+    const stripped = stripRemovedWidgetTypes(templateWithRetiredWidget);
+
+    expect(
+      stripped.xl.some((item) => item.widgetType === "provisioned-sandboxes"),
+    ).toBe(false);
   });
 });
