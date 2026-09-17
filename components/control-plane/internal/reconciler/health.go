@@ -382,6 +382,24 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	// health reconciler only owns phase and status except while the lightweight
 	// Keycloak reconciler has published one of its fixed external-state markers.
 	update := observedGatewayHealthUpdate(gatewayID, phase, gw.GetStatus(), desiredPhase, desiredStatus, h.keycloakConfig != nil)
+
+	// The health reconciler owns finalizing the user-facing provisioning
+	// conditions after convergence. The provisioning body acknowledges
+	// observed_generation at manifest apply, so the convergence gate suppresses it
+	// before its later pass could set GatewayHealthy to Complete once the workload
+	// (and, for a routed gateway, its route) is observed ready. Whoever promotes a
+	// gateway to Running therefore also completes its conditions, so a Running
+	// gateway never reports an unfinished step. Only write when a condition is not
+	// already Complete, so a steady-state healthy tick adds no update traffic.
+	if desiredPhase == string(gatewayhealth.PhaseRunning) && desiredStatus == gatewayhealth.StatusHealthy {
+		if conds := gw.GetProvisioningConditions(); len(conds) > 0 && !allConditionsComplete(conds) {
+			if update == nil {
+				update = &pb.UpdateGatewayRequest{Id: gatewayID}
+			}
+			update.ProvisioningConditions = completedConditions(conds)
+		}
+	}
+
 	if update == nil {
 		return namespace, ready
 	}
@@ -428,6 +446,35 @@ func observedGatewayHealthUpdate(gatewayID, currentPhase, currentStatus, desired
 		Phase:  &desiredPhase,
 		Status: &desiredStatus,
 	}
+}
+
+// allConditionsComplete reports whether every provisioning condition is
+// Complete. An empty list is not complete: there is nothing to assert healthy.
+func allConditionsComplete(conds []*pb.ProvisioningCondition) bool {
+	if len(conds) == 0 {
+		return false
+	}
+	for _, c := range conds {
+		if c.GetConditionStatus() != pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE {
+			return false
+		}
+	}
+	return true
+}
+
+// completedConditions returns a copy of conds with every condition set to
+// Complete and its message cleared. The existing condition set and order are
+// preserved so the console stepper keeps the same steps it has been showing
+// (e.g. IdentityProviderReady stays absent when Keycloak is not configured).
+func completedConditions(conds []*pb.ProvisioningCondition) []*pb.ProvisioningCondition {
+	out := make([]*pb.ProvisioningCondition, len(conds))
+	for i, c := range conds {
+		out[i] = &pb.ProvisioningCondition{
+			Type:            c.GetType(),
+			ConditionStatus: pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE,
+		}
+	}
+	return out
 }
 
 // selfHealConsole re-reconciles the per-gateway console when it is observed not

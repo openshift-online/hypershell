@@ -37,6 +37,8 @@ type Gateway struct {
 	CredentialDriver       *string `json:"credential_driver" gorm:"type:jsonb"`
 	ActiveSandboxCount     *int    `json:"active_sandbox_count"`
 	ProvisioningConditions *string `json:"provisioning_conditions" gorm:"type:jsonb"`
+	Generation             int64   `json:"generation" gorm:"not null;default:1"`
+	ObservedGeneration     int64   `json:"observed_generation" gorm:"not null;default:0"`
 }
 
 type GatewayList []*Gateway
@@ -58,6 +60,8 @@ func (d *Gateway) BeforeCreate(tx *gorm.DB) error {
 		return fmt.Errorf("parse generated gateway ID: %w", err)
 	}
 	d.Namespace = gatewayNamespacePrefix + hex.EncodeToString(id.Payload()[:8])
+	d.Generation = 1
+	d.ObservedGeneration = 0
 	return nil
 }
 

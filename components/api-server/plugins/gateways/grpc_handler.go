@@ -228,6 +228,9 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	// active_sandbox_count is deliberately not settable here: it is
 	// control-plane owned and mutated only via AdjustActiveSandboxCount /
 	// SetActiveSandboxCount so this whole-row replace cannot clobber it.
+	if req.ObservedGeneration != nil {
+		gateway.ObservedGeneration = *req.ObservedGeneration
+	}
 	result, svcErr := h.service.Replace(ctx, gateway)
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)

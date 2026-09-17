@@ -1660,18 +1660,20 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	log.Printf("INFO reconciling Gateway %s name=%q namespace=%s (event=%d)",
 		event.ResourceID, gw.Name, gw.Namespace, event.Type)
 
-	// The phase gate prevents redundant re-provisioning (re-applying manifests)
-	// of a Gateway that has already been acted upon. Running, Provisioning, and
-	// Degraded gateways are owned by the continuous health reconciler, which
-	// keeps their phase synchronized with workload health via a separate path
-	// that this gate does not suppress. See openshell-gateway-health.spec.md.
+	// The convergence gate prevents redundant re-provisioning: skip re-applying
+	// manifests only when the Gateway is converged (observed_generation ==
+	// generation). A desired-spec change advances generation past
+	// observed_generation, so the change falls through this gate regardless of
+	// phase, letting a Degraded gateway re-provision after a spec fix. Health
+	// phase/status updates flow through a separate path that this gate does not
+	// suppress. See openshell-gateway-health.spec.md.
 	//
 	// Keycloak client attributes are external desired state, however, and need a
 	// lightweight drift reconciliation even when Kubernetes reprovisioning is
-	// gated. In particular, controller startup seeds existing Running gateways;
+	// gated. In particular, controller startup seeds existing converged gateways;
 	// reconciling before the return below lets newly introduced client settings
 	// converge without forcing a full gateway rollout.
-	if gw.Phase != nil && (*gw.Phase == string(gatewayhealth.PhaseRunning) || *gw.Phase == string(gatewayhealth.PhaseProvisioning) || *gw.Phase == string(gatewayhealth.PhaseDegraded)) {
+	if gw.ObservedGeneration != nil && *gw.ObservedGeneration == gw.Generation {
 		if err := r.reconcileExistingGatewayKeycloakClient(ctx, event.ResourceID, gw); err != nil {
 			var identityErr *gatewayKeycloakClientIdentityError
 			if errors.As(err, &identityErr) {
@@ -1706,7 +1708,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				return watcher.PreservePayloadForRetry(fmt.Errorf("clear Keycloak client status for gateway %q: %w", gw.Name, err))
 			}
 		}
-		log.Printf("DEBUG gateway %s phase=%s, skipping full reconciliation", event.ResourceID, *gw.Phase)
+		log.Printf("DEBUG gateway %s converged at generation %d, skipping reconciliation", event.ResourceID, gw.Generation)
 		return nil
 	}
 
@@ -1856,6 +1858,15 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// Step 5: GatewayHealthy
 	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
 	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+
+	// Manifests applied successfully: acknowledge the generation we converged on.
+	// Readiness/health below only affects phase, not convergence. On failure
+	// above we returned without writing, so the change is retried. The gateway is
+	// now converged, so the convergence gate suppresses further re-provisioning
+	// passes; the continuous health reconciler owns promoting the phase to Running
+	// and finalizing the GatewayHealthy provisioning condition to Complete once the
+	// workload (and, for a routed gateway, its route) is observed ready.
+	r.updateObservedGeneration(ctx, event.ResourceID, gw.Generation)
 
 	// Manifests are applied, but the gateway is not Running until its workload is
 	// observed Ready. Wait within the provisioning readiness window; if the
@@ -2450,6 +2461,21 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 	}
 	log.Printf("INFO console address for %s set to %q (consoleReady=%v)", gatewayID, desired, ready)
 	return ready
+}
+
+// updateObservedGeneration records the generation the control plane has
+// successfully applied to the cluster, marking the Gateway converged. It is the
+// only writer of observed_generation, via the same gRPC back-channel used for
+// phase/status/route_address.
+func (r *GatewayReconciler) updateObservedGeneration(ctx context.Context, gatewayID string, generation int64) {
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:                 gatewayID,
+		ObservedGeneration: &generation,
+	})
+	if err != nil {
+		log.Printf("WARN failed to update gateway %s observed_generation to %d: %v", gatewayID, generation, err)
+	}
 }
 
 // makeRouteAddressUpdater returns a RouteAddressUpdater callback that PATCHes

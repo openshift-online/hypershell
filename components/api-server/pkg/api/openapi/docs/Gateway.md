@@ -32,6 +32,8 @@ Name | Type | Description | Notes
 **ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly] 
 **ProvisioningConditions** | Pointer to [**[]GatewayAllOfProvisioningConditions**](GatewayAllOfProvisioningConditions.md) | Ordered list of provisioning conditions describing sub-phase progress | [optional] [readonly] 
 **CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
+**Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly] 
+**ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly] 
 
 ## Methods
 
@@ -726,6 +728,56 @@ SetCreatedBy sets CreatedBy field to given value.
 `func (o *Gateway) HasCreatedBy() bool`
 
 HasCreatedBy returns a boolean if a field has been set.
+
+### GetGeneration
+
+`func (o *Gateway) GetGeneration() int64`
+
+GetGeneration returns the Generation field if non-nil, zero value otherwise.
+
+### GetGenerationOk
+
+`func (o *Gateway) GetGenerationOk() (*int64, bool)`
+
+GetGenerationOk returns a tuple with the Generation field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetGeneration
+
+`func (o *Gateway) SetGeneration(v int64)`
+
+SetGeneration sets Generation field to given value.
+
+### HasGeneration
+
+`func (o *Gateway) HasGeneration() bool`
+
+HasGeneration returns a boolean if a field has been set.
+
+### GetObservedGeneration
+
+`func (o *Gateway) GetObservedGeneration() int64`
+
+GetObservedGeneration returns the ObservedGeneration field if non-nil, zero value otherwise.
+
+### GetObservedGenerationOk
+
+`func (o *Gateway) GetObservedGenerationOk() (*int64, bool)`
+
+GetObservedGenerationOk returns a tuple with the ObservedGeneration field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetObservedGeneration
+
+`func (o *Gateway) SetObservedGeneration(v int64)`
+
+SetObservedGeneration sets ObservedGeneration field to given value.
+
+### HasObservedGeneration
+
+`func (o *Gateway) HasObservedGeneration() bool`
+
+HasObservedGeneration returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

@@ -50,6 +50,20 @@ A Gateway carries three independently observable fields:
 - **`gateway_version`** - the runtime version from the last successful gateway
   health response. The control plane manages this read-only field.
 
+A Gateway additionally carries two generation markers (see
+[`data-model.spec.md`](./data-model.spec.md) § Gateway Generation Tracking):
+
+- **`generation`** - the desired-spec version, incremented by the API server on
+  any desired-spec change.
+- **`observed_generation`** - the `generation` the control plane last
+  successfully applied. A Gateway is *converged* when
+  `observed_generation == generation`.
+
+`generation`/`observed_generation` describe whether desired state has been
+applied; `phase`/`status` describe observed workload health. The two axes are
+independent: a Gateway can be `Running` yet not converged (a newer spec has not
+been applied).
+
 `Running` is the only phase that asserts the gateway is serving. `Degraded` and
 `Failed` are the two distinct unhealthy states: `Degraded` is recoverable
 without user action; `Failed` is not.
@@ -167,22 +181,60 @@ back to `Running`.
 - AND, for a routed gateway, its external exposure is observed Ready
 - THEN the control plane SHALL set the `phase` back to `Running`
 
-### Requirement: Health Reconciliation Not Suppressed By Phase
+### Requirement: Provisioning Gate Keyed On Desired State
 
-The control plane's phase gate SHALL prevent redundant re-provisioning
-(re-applying manifests) of a Gateway that is already `Provisioning` or
-`Running`, but SHALL NOT prevent phase or status updates that reflect the
-Gateway's actual observed workload health. A Gateway that has reached `Running`
-SHALL still be able to transition to `Degraded`, and a `Degraded` Gateway SHALL
-still be able to return to `Running`.
+The control plane's provisioning gate SHALL prevent redundant re-provisioning
+(re-applying manifests) **only when a Gateway is converged**
+(`observed_generation == generation`). A `phase` of `Running`, `Provisioning`,
+or `Degraded` SHALL NOT, by itself, suppress re-application.
 
-#### Scenario: Health update proceeds despite provisioning gate
+When a Gateway's desired spec changes (its `generation` advances beyond
+`observed_generation`), the control plane SHALL re-run provisioning regardless
+of the current `phase`, and SHALL set `observed_generation` to the applied
+`generation` upon success. If re-application fails, `observed_generation` SHALL
+remain unchanged so the change is retried, and the `phase` SHALL be set per the
+existing provisioning failure semantics.
 
-- GIVEN a Gateway with `phase` `Running` whose manifests are unchanged
-- WHEN a reconciliation or health check occurs
+Because the convergence gate suppresses the provisioning body once a Gateway is
+converged, the continuous health reconciler - not the provisioning body - owns
+finalizing the user-facing provisioning conditions after convergence. When the
+health reconciler promotes a Gateway to `phase` `Running` with a healthy status,
+it SHALL also set every provisioning condition to `Complete`, so that a
+`Running` Gateway never reports an unfinished `GatewayHealthy` (or earlier)
+condition even though its `observed_generation` was acknowledged at manifest
+apply, before workload and route readiness were observed.
+
+The gate SHALL NOT, in any case, prevent `phase`/`status` updates that reflect
+observed workload health: a `Running` Gateway SHALL still be able to transition
+to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
+`Running`, independently of convergence.
+
+#### Scenario: Spec change to a Running gateway re-provisions
+
+- GIVEN a converged Gateway with `phase` `Running`
+  (`observed_generation == generation`)
+- WHEN a client updates its desired spec (e.g. `image`, `route`,
+  `server_dns_names`, `oidc`) and the API server advances `generation`
+- THEN the control plane SHALL re-apply the gateway manifests despite the
+  `Running` phase
+- AND upon success SHALL set `observed_generation` to the applied `generation`
+
+#### Scenario: Converged gateway is not re-applied
+
+- GIVEN a converged Gateway with `phase` `Running` whose desired spec is
+  unchanged (`observed_generation == generation`)
+- WHEN a duplicate watch event, reconciliation, or health check occurs
 - THEN the control plane SHALL skip re-applying the gateway manifests
 - BUT it SHALL still update the `phase` to `Degraded` if the workload is
   observed unhealthy
+
+#### Scenario: Degraded gateway re-provisions on spec change
+
+- GIVEN a Gateway with `phase` `Degraded` that is not converged
+  (`generation` advanced after a spec fix)
+- WHEN the control plane processes the change
+- THEN it SHALL re-apply the gateway manifests rather than skip on phase
+- AND SHALL set `observed_generation` to the applied `generation` upon success
 
 ### Requirement: Gateway Runtime Version Is Reconciled
 
