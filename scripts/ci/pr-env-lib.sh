@@ -249,7 +249,7 @@ pr_env_run_link() {
   if [[ -z "${GITHUB_RUN_ID:-}" || -z "${GITHUB_REPOSITORY:-}" ]]; then
     return 0
   fi
-  printf 'Track this deploy: %s/%s/actions/runs/%s' \
+  printf '[Track this deploy](%s/%s/actions/runs/%s)' \
     "${GITHUB_SERVER_URL:-https://github.com}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
 }
 
