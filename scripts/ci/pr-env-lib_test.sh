@@ -388,6 +388,12 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: unretained teardown does not update the access comment after destroy'
 fi
+if grep -q 'No PR_NUMBER' "${SCRIPT_DIR}/teardown-unretained-pr-env.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: unretained teardown does not handle push-to-main (empty PR_NUMBER)'
+fi
 if grep -q 'PR_ENV_PHASE=destroyed' "${SCRIPT_DIR}/../../.github/workflows/pr-environment-commands.yml"; then
   PASS=$((PASS + 1))
 else
