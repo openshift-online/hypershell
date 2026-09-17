@@ -646,7 +646,7 @@ The root Makefile SHALL provide a `make unit-test-all` target that runs the same
 
 The system SHALL provide a reusable GitHub Actions workflow at `.github/workflows/e2e.yml` (`on: workflow_call`) that runs the e2e test suite against Kind and, on origin pull requests and on push to `main`, against an OpenShift environment. It SHALL run as the final stage of `tests.yml`, which triggers on every pull request, on every merge-queue entry (`merge_group`), and on push to `main`. Like the unit stage, it SHALL receive the changed-component flags as `workflow_call` inputs and gate its jobs on those inputs rather than detecting changes itself; the `Tests CI Gate` job in `tests.yml` rolls its result (together with unit's) up into the required check, so it has no summary or gate job of its own. The orchestrator's `needs: [detect-changes, unit]` edge (with the `if:` override described in the CI Unit Test Workflow requirement, so a `unit` skip does not also skip `e2e`) SHALL ensure Kind is never created until the unit-test stage succeeds; the e2e workflow itself SHALL NOT contain a job that polls for that gate, or for the separate `checks.yml` workflow. The workflow SHALL still gate Kind jobs on Konflux image builds completing (an external build system it cannot order with `needs:`) and pull those images by digest -- it SHALL NOT rebuild component images itself.
 
-`e2e.yml` SHALL run a job named `Deploy OpenShift Environment` (check: Tests / E2E / Deploy OpenShift Environment) and a job named `OpenShift` (check: Tests / E2E / OpenShift) on origin `pull_request` events and on push to `main`. Both SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR skips deploy and the OpenShift suite as well as Kind. OpenShift SHALL declare `needs: [plan-images, deploy]` and SHALL start only after that deploy job succeeds. After the suite, including on failure or cancel, OpenShift SHALL destroy the unretained environment as `ephemeral-pr-environments.spec.md` defines; a teardown failure SHALL fail the OpenShift check. The only skip for that teardown is a retained pull request (`pr-environment/pr-extended`). Origin pull requests SHALL deploy `hypershell-ci-pr-<n>` with GitHub-brokered OAuth and the access comment. Push to `main` SHALL deploy `hypershell-ci-main` without OAuth or a pull-request comment; `main` has no retainment label, so teardown always runs. There SHALL NOT be a separate OpenShift-on-main workflow: the same two Tests / E2E jobs cover both events, so pull requests do not list a skipped dedicated main check. Fork PRs and `merge_group` SHALL skip those jobs (no per-PR environment; Kind remains the merge-queue gate).
+`e2e.yml` SHALL run a job named `Deploy OpenShift Environment` (check: Tests / E2E / Deploy OpenShift Environment) and a job named `OpenShift` (check: Tests / E2E / OpenShift) on origin `pull_request` events and on push to `main`. Both SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR skips deploy and the OpenShift suite as well as Kind. OpenShift SHALL declare `needs: [plan-images, deploy]` and SHALL start only after that deploy job succeeds. After the suite, including on failure or cancel, OpenShift SHALL destroy the unretained environment as `ephemeral-pr-environments.spec.md` defines; a teardown failure SHALL fail the OpenShift check. The only skip for that teardown is a retained pull request (`pr-environment/pr-extended`). Origin pull requests SHALL deploy `hypershell-ci-pr-<n>` with GitHub-brokered OAuth and the access comment. Push to `main` SHALL deploy `hypershell-ci-main-<short-sha>` (first 7 characters of the commit SHA) without OAuth or a pull-request comment; `main` has no retainment label, so teardown always runs. The per-commit namespace SHALL keep a cancelled older push's `openshift-down` from deleting a newer deploy: concurrency remains `pr-env-main` with `cancel-in-progress` so rapid pushes still serialize on the shared cluster. There SHALL NOT be a separate OpenShift-on-main workflow: the same two Tests / E2E jobs cover both events, so pull requests do not list a skipped dedicated main check. Fork PRs and `merge_group` SHALL skip those jobs (no per-PR environment; Kind remains the merge-queue gate).
 
 #### Scenario: PR Triggers Workflow
 
@@ -672,12 +672,21 @@ The system SHALL provide a reusable GitHub Actions workflow at `.github/workflow
 
 - GIVEN a push to `main` whose unit stage has succeeded
 - AND whose `plan-images` job sets `should_run=true`
+- AND the commit SHA is `abcdef1234567890`
 - WHEN Deploy OpenShift Environment and Tests / E2E / OpenShift run
-- THEN they SHALL use `OPENSHIFT_NAMESPACE=hypershell-ci-main`
+- THEN they SHALL use `OPENSHIFT_NAMESPACE=hypershell-ci-main-abcdef1`
 - AND they SHALL NOT post or update a pull-request access comment
 - AND they SHALL NOT provision GitHub OAuth (admin/admin password grant)
-- AND after the suite, including on failure or cancel, they SHALL destroy the environment
+- AND after the suite, including on failure or cancel, they SHALL destroy that namespace
 - AND a `merge_group` event SHALL still skip these jobs
+
+#### Scenario: Cancelled older main push does not delete a newer deploy
+
+- GIVEN push A is deploying `hypershell-ci-main-<sha-a>`
+- WHEN push B starts and cancels push A's OpenShift jobs
+- THEN push A's teardown SHALL destroy `hypershell-ci-main-<sha-a>`
+- AND push B SHALL deploy `hypershell-ci-main-<sha-b>`
+- AND push A's teardown SHALL NOT delete push B's namespace
 
 #### Scenario: Tests Pass
 

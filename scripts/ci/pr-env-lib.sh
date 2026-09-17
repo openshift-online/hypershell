@@ -14,6 +14,12 @@
 # driver in scripts/cluster/drivers/openshift.sh so status and cleanup tooling
 # stay one selector set). ---
 PR_ENV_NS_PREFIX="hypershell-ci-pr-"
+# Push-to-main environments are per-commit so a cancelled older run's
+# teardown cannot delete a newer deploy's namespace. The 7-char short SHA
+# keeps the platform name within 54 characters (full SHA would make
+# -keycloak exceed 63).
+PR_ENV_MAIN_NS_PREFIX="hypershell-ci-main-"
+PR_ENV_MAIN_SHA_LEN=7
 PR_ENV_OWNED_LABEL="hypershell.redhat.io/owned"
 PR_ENV_ENVIRONMENT_LABEL="hypershell.redhat.io/environment"
 PR_ENV_MANAGED_LABEL="app.kubernetes.io/managed-by"
@@ -53,6 +59,19 @@ PR_ENV_COMMENT_MARKER='<!-- hypershell-pr-environment -->'
 # pr_env_namespace <pr-number> -> the platform namespace name.
 pr_env_namespace() {
   printf '%s%s' "${PR_ENV_NS_PREFIX}" "$1"
+}
+
+# pr_env_main_namespace <commit-sha> -> the push-to-main platform namespace.
+# Uses the first 7 hex characters so two in-flight main runs never share a
+# namespace, while -keycloak stays an RFC 1123 name under 63 characters.
+pr_env_main_namespace() {
+  local sha
+  sha="$(printf '%s' "${1:?commit SHA is required}" | tr '[:upper:]' '[:lower:]')"
+  if [[ ${#sha} -lt "${PR_ENV_MAIN_SHA_LEN}" ]]; then
+    echo "commit SHA is shorter than ${PR_ENV_MAIN_SHA_LEN} characters" >&2
+    return 1
+  fi
+  printf '%s%s' "${PR_ENV_MAIN_NS_PREFIX}" "${sha:0:${PR_ENV_MAIN_SHA_LEN}}"
 }
 
 # pr_env_keycloak_namespace <platform-namespace> -> the companion Keycloak

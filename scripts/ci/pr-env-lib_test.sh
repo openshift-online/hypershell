@@ -44,11 +44,22 @@ assert_not_reapable() {
 assert_eq 'hypershell-ci-pr-232' "$(pr_env_namespace 232)" 'platform namespace from PR number'
 assert_eq 'hypershell-ci-pr-232-keycloak' "$(pr_env_keycloak_namespace "$(pr_env_namespace 232)")" 'keycloak namespace derivation'
 assert_eq 'pr-232' "$(pr_env_environment_id 232)" 'environment id from PR number'
+assert_eq 'hypershell-ci-main-abcdef1' "$(pr_env_main_namespace 'abcdef1234567890')" 'main namespace from short SHA'
+assert_eq 'hypershell-ci-main-abcdef1' "$(pr_env_main_namespace 'ABCDEF1234567890')" 'main namespace lowercases SHA'
 
 # The platform namespace must remain an RFC 1123 label within 54 chars so the
 # derived -keycloak name stays under 63. Even a large PR number fits easily.
 big_ns="$(pr_env_namespace 999999)"
 assert_eq 'true' "$([[ ${#big_ns} -le 54 ]] && echo true || echo false)" 'platform namespace within 54 chars'
+main_ns="$(pr_env_main_namespace '0123456789abcdef')"
+assert_eq 'true' "$([[ ${#main_ns} -le 54 ]] && echo true || echo false)" 'main namespace within 54 chars'
+main_kc="$(pr_env_keycloak_namespace "${main_ns}")"
+assert_eq 'true' "$([[ ${#main_kc} -le 63 ]] && echo true || echo false)" 'main keycloak namespace within 63 chars'
+
+# Full SHA in the namespace would push -keycloak over 63 (19+40+9=68).
+full_sha_ns="hypershell-ci-main-0123456789abcdef0123456789abcdef01234567"
+full_sha_kc="$(pr_env_keycloak_namespace "${full_sha_ns}")"
+assert_eq 'true' "$([[ ${#full_sha_kc} -gt 63 ]] && echo true || echo false)" 'full SHA main keycloak would exceed 63 chars'
 
 # --- Timebox round-trip (injected clock for determinism) ---
 base=1000000000  # 2001-09-09T01:46:40Z
@@ -407,6 +418,16 @@ assert_eq 'false' "$(printf '%s' '[]' \
   | pr_env_label_list_has 'pr-environment/pr-extended')" 'empty label list is not retained'
 assert_eq 'false' "$(printf '%s' '[{"name":"other"}]' \
   | pr_env_label_list_has 'pr-environment/pr-extended')" 'unrelated labels are not retained'
+
+resolve_env="$(mktemp)"
+PR_NUMBER=232 GITHUB_ENV="${resolve_env}" bash "${SCRIPT_DIR}/resolve-openshift-namespace.sh" >/dev/null
+assert_eq 'OPENSHIFT_NAMESPACE=hypershell-ci-pr-232' "$(cat "${resolve_env}")" 'resolve script writes PR namespace'
+rm -f "${resolve_env}"
+resolve_env="$(mktemp)"
+PR_NUMBER= GITHUB_SHA='abcdef1234567890deadbeef' GITHUB_ENV="${resolve_env}" \
+  bash "${SCRIPT_DIR}/resolve-openshift-namespace.sh" >/dev/null
+assert_eq 'OPENSHIFT_NAMESPACE=hypershell-ci-main-abcdef1' "$(cat "${resolve_env}")" 'resolve script writes per-commit main namespace'
+rm -f "${resolve_env}"
 
 printf 'pr-env-lib tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]
