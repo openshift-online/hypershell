@@ -37,6 +37,9 @@ import (
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
+// registerWithBackoff calls regClient.Register with exponential backoff until it
+// succeeds. A 403 response is non-retryable: the spoke lacks the required Keycloak
+// role, so it returns a fatal error immediately.
 func registerWithBackoff(ctx context.Context, regClient *registration.Client) (string, error) {
 	backoff := time.Second
 	const maxBackoff = 60 * time.Second
@@ -63,6 +66,9 @@ func registerWithBackoff(ctx context.Context, regClient *registration.Client) (s
 	}
 }
 
+// instanceLabelBackfillTimeout bounds the one-shot startup backfill that stamps
+// this instance's identity label onto its legacy gateway namespaces, so a stalled
+// API server cannot delay the GC reconciler's launch indefinitely.
 const instanceLabelBackfillTimeout = 2 * time.Minute
 
 func helmBinaryPath() string {
@@ -71,6 +77,7 @@ func helmBinaryPath() string {
 	}
 	return "/usr/local/bin/helm"
 }
+
 func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
 	return clientset != nil && dynamicClient != nil
 }

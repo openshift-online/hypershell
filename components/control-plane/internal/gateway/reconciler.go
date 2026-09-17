@@ -566,23 +566,11 @@ func readServerTLSCA(ctx context.Context, clientset kubernetes.Interface, namesp
 	return ""
 }
 
-// reconcileRouteResources exposes a tenant gateway through an OpenShift Route
-// instead of the Gateway API. The TLS termination is selected by
-// GATEWAY_ROUTE_TERMINATION (see routeTermination):
-//
-//   - passthrough (default): the least invasive mode. The gateway pod already
-//     terminates TLS with its per-tenant self-signed CA and performs client
-//     mTLS, so HAProxy forwards the encrypted connection end-to-end (SNI-routed)
-//     with no wildcard cert, cert-manager ClusterIssuer, or external DNS
-//     integration required. This is the ingress mode used where the Gateway
-//     API/Istio cannot run (e.g. IBM Cloud ROKS).
-//   - reencrypt: the router terminates external TLS with its own publicly-trusted
-//     wildcard and re-encrypts to the pod, verifying the backend against the
-//     openshell-server-tls ca.crt. Clients see a trusted certificate. Used on
-//     ROSA/OpenShift where a *.apps wildcard is already provisioned on the
-//     router. This is safe because the gateway server requires no client mTLS
-//     (no client_ca_path in the gateway config), so the router presenting no
-//     client certificate is accepted; OIDC remains the sole client auth.
+// reconcileRouteResources handles the non-Route resources needed when the
+// gateway is exposed through an OpenShift Route. The Route itself is owned by
+// the Helm chart (openshiftRoute.enabled=true in the chart values); this
+// function publishes the route address back to the API server and reconciles
+// the router NetworkPolicy that allows traffic from the ingress namespace.
 func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	namespace := nsConfig.Name
 
@@ -592,75 +580,7 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 		return nil
 	}
 
-	termination := routeTermination()
-
-	tlsConfig := map[string]interface{}{
-		"termination":                   "passthrough",
-		"insecureEdgeTerminationPolicy": "None",
-	}
-	if termination == RouteTerminationReencrypt {
-		caData := readServerTLSCA(ctx, clientset, namespace)
-		if caData == "" {
-			return fmt.Errorf("reencrypt Route in %s requires openshell-server-tls ca.crt, which is not yet available", namespace)
-		}
-		tlsConfig = map[string]interface{}{
-			"termination":                   "reencrypt",
-			"insecureEdgeTerminationPolicy": "Redirect",
-			"destinationCACertificate":      caData,
-		}
-	}
-
-	routeAnnotations := map[string]interface{}{
-		"haproxy.router.openshift.io/timeout": "3600s",
-	}
-
-	if issuer := routeTLSIssuer(); termination == RouteTerminationReencrypt && issuer != "" {
-		routeAnnotations["cert-manager.io/issuer-name"] = issuer
-		routeAnnotations["cert-manager.io/issuer-kind"] = "ClusterIssuer"
-
-		if cert, key := readInjectedRouteCert(ctx, dynamicClient, namespace, gatewayRouteName); cert != "" {
-			tlsConfig["certificate"] = cert
-			if key != "" {
-				tlsConfig["key"] = key
-			}
-		}
-	}
-
 	publishRouteAddress(ctx, opts, namespace, hostname)
-
-	route := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "route.openshift.io/v1",
-			"kind":       "Route",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-gateway",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-				"annotations": routeAnnotations,
-			},
-			"spec": map[string]interface{}{
-				"host": hostname,
-				"to": map[string]interface{}{
-					"kind":   "Service",
-					"name":   "openshell-gateway",
-					"weight": int64(100),
-				},
-				"port": map[string]interface{}{
-					"targetPort": "grpc",
-				},
-				"tls":            tlsConfig,
-				"wildcardPolicy": "None",
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, route); err != nil {
-		return fmt.Errorf("reconcile Route: %w", err)
-	}
 
 	routerNS := gatewayIngressNamespace()
 	ingressRule := map[string]interface{}{
@@ -1547,56 +1467,15 @@ const (
 	IngressModeNone       = ""
 )
 
-// Route TLS termination modes for the "route" ingress mode, selected via
-// GATEWAY_ROUTE_TERMINATION.
-//
-//   - passthrough (default): HAProxy forwards the gateway pod's own TLS
-//     end-to-end. No router certificate is involved, so no wildcard cert or DNS
-//     is needed, but external clients must trust the per-tenant self-signed
-//     openshell-ca. This preserves the ROKS behavior.
-//   - reencrypt: the router terminates external TLS with its own publicly-trusted
-//     wildcard (e.g. a ROSA/OpenShift *.apps Let's Encrypt cert, served
-//     automatically with no certificate on the Route) and re-encrypts to the
-//     gateway pod, verifying the backend against the openshell-server-tls ca.crt
-//     set as destinationCACertificate. Clients see a trusted certificate, so the
-//     UnknownIssuer error is gone with no new LB, DNS, or cert-manager issuer.
-const (
-	RouteTerminationPassthrough = "passthrough"
-	RouteTerminationReencrypt   = "reencrypt"
-
-	// gatewayRouteName is the OpenShift Route serving the gateway itself.
-	// openshift-routes injects the issued certificate into it, and each reconcile
-	// must carry that injection forward (see readInjectedRouteCert).
-	gatewayRouteName = "openshell-gateway"
-)
-
-// routeTermination resolves the Route TLS termination for the "route" ingress
-// mode from GATEWAY_ROUTE_TERMINATION, defaulting to passthrough. Any
-// unrecognized value falls back to passthrough so a typo cannot silently expose
-// a gateway with the wrong termination.
-func routeTermination() string {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ROUTE_TERMINATION")), RouteTerminationReencrypt) {
-		return RouteTerminationReencrypt
-	}
-	return RouteTerminationPassthrough
-}
-
-// routeTLSIssuer resolves the cert-manager ClusterIssuer that mints a per-gateway
-// public certificate for a reencrypt Route, from GATEWAY_ROUTE_TLS_ISSUER. Empty
-// (the default) leaves the Route on the router's shared default *.apps wildcard,
-// which does not advertise ALPN h2 and therefore cannot serve gRPC. Only
-// meaningful with reencrypt termination; reconcileRouteResources ignores it
-// otherwise.
+// routeTLSIssuer resolves the cert-manager ClusterIssuer that mints a per-host
+// public certificate for a Route, from GATEWAY_ROUTE_TLS_ISSUER.
 func routeTLSIssuer() string {
 	return strings.TrimSpace(os.Getenv("GATEWAY_ROUTE_TLS_ISSUER"))
 }
 
 // readInjectedRouteCert returns the certificate and key that the cert-manager
-// openshift-routes controller has injected into the existing openshell-gateway
-// Route's spec.tls, or empty strings when the Route or those fields are absent.
-// The route reconcile does a full replace, so reconcileRouteResources carries
-// these forward to avoid clobbering the injected edge certificate (which would
-// flap ALPN h2, and hence gRPC, on every reconcile).
+// openshift-routes controller has injected into the named Route's spec.tls, or
+// empty strings when the Route or those fields are absent.
 func readInjectedRouteCert(ctx context.Context, dynamicClient dynamic.Interface, namespace, routeName string) (string, string) {
 	gvr := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
 	existing, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})

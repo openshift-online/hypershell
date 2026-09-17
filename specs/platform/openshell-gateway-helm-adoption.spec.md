@@ -304,8 +304,8 @@ The platform is in beta. The migration path is intentionally simple.
 | GRPCRoute `openshell-gateway` | Go (`reconcileGRPCRoute`) | `grpcroute.yaml` | `grpcRoute.enabled` |
 | BackendTLSPolicy `openshell-gateway` | Go (`reconcileBackendTLSPolicy`) | `backend-tls-policy.yaml` (PR #2728) | `grpcRoute.backendTLSPolicy.enabled` |
 | BackendCA ConfigMap | Go (`reconcileBackendCA`) | Created by certgen hook (PR #2728) | `grpcRoute.backendTLSPolicy.enabled` |
-| Route (OpenShift) | Go (`reconcileRoute`) | `route.yaml` | `openshiftRoute.enabled` |
-| Trusted CA volume/mount/env | Go (post-Helm SSA patch) | `_gateway-workload.tpl` | `server.oidc.caConfigMapName` |
+| Route (OpenShift) | Chart (`route.yaml`) | `route.yaml` | `openshiftRoute.enabled` |
+| Trusted CA volume/mount/env | Chart (`_gateway-workload.tpl`) | `_gateway-workload.tpl` | `server.oidc.caConfigMapName` |
 
 ### Gap Table: Control-Plane-Managed Resources
 

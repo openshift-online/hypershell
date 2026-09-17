@@ -214,11 +214,12 @@ func (b *ValuesBuilder) buildIngressValues(values map[string]interface{}) error 
 		// Gateway proxy cannot present client certificates.
 		setNestedValue(values, false, "server", "tls", "enableMtls")
 	} else {
-		// Route passthrough mode (OpenShift < 4.22)
+		// Route passthrough mode (OpenShift < 4.22): the chart owns the
+		// Route resource via openshiftRoute.enabled. The reconciler still
+		// handles publishRouteAddress and the router NetworkPolicy.
 		setNestedValue(values, true, "openshiftRoute", "enabled")
 		setNestedValue(values, hostname, "openshiftRoute", "host")
 
-		// HAProxy timeout annotation
 		annotations := map[string]string{
 			"haproxy.router.openshift.io/timeout": "3600s",
 		}
