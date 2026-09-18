@@ -179,6 +179,51 @@ func TestSelectGatewayImage_MissingPlatformDefaultFails(t *testing.T) {
 	}
 }
 
+// --- Supervisor image selection ---
+
+// A gateway with an explicit supervisor_image uses that image.
+func TestSelectSupervisorImage_DirectImage(t *testing.T) {
+	t.Setenv("GATEWAY_SUPERVISOR_IMAGE", "registry.redhat.io/openshell/supervisor:platform-default")
+	img := selectSupervisorImage(&pb.Gateway{
+		Name:            "g1",
+		SupervisorImage: strptr("registry.redhat.io/openshell/supervisor:v1"),
+	})
+	if img != "registry.redhat.io/openshell/supervisor:v1" {
+		t.Fatalf("expected direct supervisor image, got %q", img)
+	}
+}
+
+// Without a direct supervisor_image the platform default is used.
+func TestSelectSupervisorImage_PlatformDefault(t *testing.T) {
+	const defaultImage = "registry.redhat.io/openshell/supervisor:platform-default"
+	t.Setenv("GATEWAY_SUPERVISOR_IMAGE", defaultImage)
+
+	for _, tc := range []struct {
+		name            string
+		supervisorImage *string
+	}{
+		{name: "absent supervisor_image"},
+		{name: "empty supervisor_image", supervisorImage: strptr("")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := selectSupervisorImage(&pb.Gateway{Name: "g1", SupervisorImage: tc.supervisorImage})
+			if img != defaultImage {
+				t.Fatalf("expected platform default %q, got %q", defaultImage, img)
+			}
+		})
+	}
+}
+
+// When neither a direct supervisor_image nor GATEWAY_SUPERVISOR_IMAGE is set,
+// selectSupervisorImage returns empty so the reconciler can fail fast.
+func TestSelectSupervisorImage_MissingPlatformDefaultReturnsEmpty(t *testing.T) {
+	t.Setenv("GATEWAY_SUPERVISOR_IMAGE", "")
+	img := selectSupervisorImage(&pb.Gateway{Name: "g1"})
+	if img != "" {
+		t.Fatalf("expected empty image when no default is configured, got %q", img)
+	}
+}
+
 // A referenced release that does not exist fails the selection so the reconcile
 // is retried; it must not silently fall back to a default or empty image.
 func TestSelectGatewayImage_ReleaseNotFoundFails(t *testing.T) {

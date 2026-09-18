@@ -1776,12 +1776,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// only to what was actually rolled out. Empty for a direct-image gateway.
 	gwConfig.ReleaseID = gw.ReleaseId
 
-	images := gateway.StaticImageDefaults{}
-	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
-		gwConfig.SupervisorImage = *gw.SupervisorImage
-	} else {
-		gwConfig.SupervisorImage = images.DefaultSupervisorImage()
+	supervisorImage := selectSupervisorImage(gw)
+	if supervisorImage == "" {
+		reconcileErr = fmt.Errorf("supervisor image is not configured for gateway %s; set GATEWAY_SUPERVISOR_IMAGE or specify a supervisor_image", gw.Name)
+		return reconcileErr
 	}
+	gwConfig.SupervisorImage = supervisorImage
 
 	if gw.Oidc != nil && *gw.Oidc != "" {
 		var oidcConfig gateway.OIDCConfig
@@ -2550,6 +2550,16 @@ type databaseConfig struct {
 	CNPG            gateway.CNPGConfig
 	SourceNamespace string
 	ExternalDB      gateway.ExternalDBConfig
+}
+
+// selectSupervisorImage returns the gateway's explicit supervisor image or the
+// platform default from GATEWAY_SUPERVISOR_IMAGE. Returns empty when neither is
+// configured so the caller can fail fast instead of deploying a chart default.
+func selectSupervisorImage(gw *pb.Gateway) string {
+	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
+		return *gw.SupervisorImage
+	}
+	return (gateway.StaticImageDefaults{}).DefaultSupervisorImage()
 }
 
 // selectGatewayImage selects the release image, direct image, or platform
