@@ -41,5 +41,5 @@ verifyDepsBeforeRun: error
 strictDepBuilds: true
 dangerouslyAllowAllBuilds: false
 allowBuilds:
-  esbuild@0.28.1: true
+  esbuild@0.28.2: true
   msw@2.15.0: false
