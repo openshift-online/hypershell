@@ -1,0 +1,29 @@
+# policy.yaml - example agent sandbox policy
+# Grants access to the gateway, OIDC issuer, and a fictional external API.
+# Replace hosts/ports to match your actual workload.
+
+filesystem:
+  allow:
+    - /tmp
+    - /work
+    - /opt/agent
+
+network:
+  egress:
+    # Gateway API endpoint
+    - host: "gateway.example.com"
+      port: 443
+    # OIDC token endpoint
+    - host: "sso.example.com"
+      port: 443
+    # Example workload API
+    - host: "api.my-service.example.com"
+      port: 443
+
+process:
+  allow:
+    - /tools/openshell
+    - /bin/sh
+    - /bin/bash
+    - /usr/bin/curl
+    - /usr/bin/jq

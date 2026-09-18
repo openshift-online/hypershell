@@ -1,0 +1,48 @@
+# policy-template.yaml - annotated sandbox policy skeleton
+#
+# A policy file controls what the sandbox is allowed to do.
+# Copy this file into your overlay's policy/ directory and customize it.
+# Mount the result via the 'policy' ConfigMap into /etc/agent/.
+#
+# Required fields: filesystem, network, process
+
+# Filesystem access rules for the sandbox.
+# Paths listed under 'allow' are readable/writable; all others are blocked.
+filesystem:
+  allow:
+    # Scratch space for intermediate files
+    - /tmp
+    # Sandbox config root (HOME, .config, .local) - required for gateway state
+    - /work
+    # Agent script read access - your run.sh lives here
+    - /opt/agent
+
+# Outbound network rules.
+# 'egress' lists destinations the sandbox is permitted to reach.
+# Each entry is host:port or a CIDR range.
+network:
+  egress:
+    # Gateway API endpoint - required for all openshell commands
+    - host: "gateway.example.com"   # REPLACE with your gateway hostname
+      port: 443
+
+    # OIDC token endpoint - required for gateway login
+    - host: "sso.example.com"       # REPLACE with your OIDC issuer host
+      port: 443
+
+    # Add entries for any external APIs your workload calls (GitHub, registries, etc.)
+    # - host: "api.github.com"
+    #   port: 443
+
+# Process execution constraints.
+# 'allow' lists binaries the sandbox is permitted to exec.
+process:
+  allow:
+    # openshell itself (used by agent-lib.sh)
+    - /tools/openshell
+    # Common shell utilities
+    - /bin/sh
+    - /bin/bash
+    - /usr/bin/curl
+    - /usr/bin/jq
+    # Add your workload-specific binaries here
