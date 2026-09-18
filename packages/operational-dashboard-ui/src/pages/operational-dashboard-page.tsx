@@ -71,6 +71,7 @@ import {
 import { useDashboardUi } from "../dashboard-ui-provider";
 import { messages } from "../messages";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
+import { dashboardResizeWidgetConfig } from "./dashboard-resize-handle";
 import "./dashboard-widget.css";
 import {
   GatewayReleasesCard,
@@ -878,6 +879,7 @@ export function OperationalDashboardPage({
             droppingWidgetType={droppingWidgetType}
             onDrawerExpandChange={setDrawerOpen}
             onTemplateChange={handleTemplateChange}
+            resizeWidgetConfig={dashboardResizeWidgetConfig}
             template={displayTemplate}
             widgetMapping={widgetMapping}
           />

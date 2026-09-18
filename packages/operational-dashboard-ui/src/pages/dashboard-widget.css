@@ -50,6 +50,25 @@
   display: none !important;
 }
 
+/*
+ * Soften PatternFly widgetized-dashboard resize handles on hover: gray,
+ * slightly smaller double-line marks instead of high-contrast solid wedges.
+ */
+.pf-v6-widget-layout-container .react-grid-item > .react-resizable-handle {
+  color: color-mix(
+    in srgb,
+    var(--pf-t--global--border--color--default) 65%,
+    var(--pf-t--global--text--color--subtle) 35%
+  );
+  height: 24px;
+  width: 24px;
+}
+
+.pf-v6-widget-layout-container .react-grid-item > .react-resizable-handle svg {
+  height: 16px;
+  width: 16px;
+}
+
 .hypershell-dashboard-section-title {
   color: var(--pf-t--global--text--color--subtle);
   font-size: var(--pf-t--global--font--size--sm);
