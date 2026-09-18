@@ -91,8 +91,18 @@ gateways that predate release-based selection.
 #### Scenario: Neither release nor image is set
 
 - GIVEN a Gateway `g1` with an empty `release_id` and no direct `image`
+- AND `GATEWAY_IMAGE` contains the platform default gateway image
 - WHEN the control plane reconciles `g1`
-- THEN the rendered Deployment uses the platform default gateway image
+- THEN the control plane sets the Helm image values from `GATEWAY_IMAGE`
+- AND the gateway Deployment and certificate job use that image
+
+#### Scenario: No gateway image is configured
+
+- GIVEN a Gateway `g1` with an empty `release_id` and no direct `image`
+- AND `GATEWAY_IMAGE` is empty or not set
+- WHEN the control plane reconciles `g1`
+- THEN image selection returns a configuration error that identifies `GATEWAY_IMAGE`
+- AND the control plane does not deploy the chart default image
 
 ### Requirement: Unresolvable Release Fails The Reconcile, Not Silently
 

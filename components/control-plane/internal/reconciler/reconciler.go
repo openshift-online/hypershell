@@ -1763,17 +1763,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ExternalDns:    externalDns,
 	}
 
-	// Database-backed gateway version selection: a release_id takes precedence
-	// over a direct image, and an empty result lets the manifest layer apply the
-	// platform default. See specs/platform/gateway-version-selection.spec.md.
+	// Select the release image, direct image, or platform default before Helm
+	// values are built. See specs/platform/gateway-version-selection.spec.md.
 	image, err := r.selectGatewayImage(ctx, gw)
 	if err != nil {
 		reconcileErr = fmt.Errorf("select image for gateway %s: %w", gw.Name, err)
 		return reconcileErr
 	}
-	if image != "" {
-		gwConfig.Image = image
-	}
+	gwConfig.Image = image
 	// Record the release the image was resolved from so the applied release is
 	// stamped onto the Deployment and the health loop advances observed_release_id
 	// only to what was actually rolled out. Empty for a direct-image gateway.
@@ -2555,11 +2552,9 @@ type databaseConfig struct {
 	ExternalDB      gateway.ExternalDBConfig
 }
 
-// selectGatewayImage applies database-backed gateway version selection: a
-// non-empty release_id is authoritative and resolves to its GatewayRelease
-// image; a direct image is the fallback; and an empty result signals the
-// manifest layer to apply the platform default. See
-// specs/platform/gateway-version-selection.spec.md.
+// selectGatewayImage selects the release image, direct image, or platform
+// default, in that order. Image selection must succeed before Helm deployment.
+// See specs/platform/gateway-version-selection.spec.md.
 func (r *GatewayReconciler) selectGatewayImage(ctx context.Context, gw *pb.Gateway) (string, error) {
 	if gw.ReleaseId != "" {
 		return r.resolveReleaseImage(ctx, gw)
@@ -2567,7 +2562,11 @@ func (r *GatewayReconciler) selectGatewayImage(ctx context.Context, gw *pb.Gatew
 	if gw.Image != nil && *gw.Image != "" {
 		return *gw.Image, nil
 	}
-	return "", nil
+	image := (gateway.StaticImageDefaults{}).DefaultGatewayImage()
+	if image == "" {
+		return "", fmt.Errorf("gateway image is not configured; set GATEWAY_IMAGE or specify a gateway image or release_id")
+	}
+	return image, nil
 }
 
 // resolveReleaseImage resolves a Gateway's release_id to the image published by
