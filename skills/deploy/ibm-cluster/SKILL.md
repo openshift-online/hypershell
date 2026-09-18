@@ -422,8 +422,6 @@ must keep aligned with this cluster:
   the `openshift-routes` controller injects into `spec.tls`. Both the ClusterIssuer
   and the `openshift-routes` injector must exist on the cluster (see the gitops
   `cert-manager` bases).
-- `HYPERSHELL_DATABASE_IMAGE=...svc:5000/openshift/postgres:18` - the per-tenant
-  gateway database image (nodes can't pull Docker Hub `postgres:18`).
 - Image transformers repointing api-server/controller/postgresql at `.svc:5000/hypershell/*`.
 - **`deploy/base/controller-rbac.yaml`** - a cluster-wide `ClusterRole` for the
   controller. The self-contained `deploy/openshift` tree ships only a narrow Role;
@@ -447,9 +445,10 @@ OpenAPI `readOnly` marking):
 
 ```bash
 API="https://$(oc -n hypershell get route hypershell-api -o jsonpath='{.spec.host}')/api/hypershell/v1"
-# ...create ManagedCluster, GatewayRelease, ManagedDatabase first...
+# ...create ManagedCluster and GatewayRelease first; the gateway database server is
+# configured through the hypershell-gateway-database-admin Secret, not the API...
 curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' -d '{
-  "name":"ibm-test-gw","cluster_id":"...","release_id":"...","database_id":"...",
+  "name":"ibm-test-gw","cluster_id":"...","release_id":"...",
   "namespace":"openshell-ibmtest",
   "image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:0.0.109",
   "supervisor_image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:0.0.109",

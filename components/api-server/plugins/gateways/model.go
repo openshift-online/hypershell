@@ -18,7 +18,6 @@ type Gateway struct {
 	Name                   string  `json:"name"`
 	ClusterId              string  `json:"cluster_id"`
 	ReleaseId              string  `json:"release_id"`
-	DatabaseId             string  `json:"database_id"`
 	Namespace              string  `json:"namespace"`
 	ExternalDns            *string `json:"external_dns"`
 	TlsMode                *string `json:"tls_mode"`
@@ -65,7 +64,6 @@ type GatewayPatchRequest struct {
 	Name             *string `json:"name,omitempty"`
 	ClusterId        *string `json:"cluster_id,omitempty"`
 	ReleaseId        *string `json:"release_id,omitempty"`
-	DatabaseId       *string `json:"database_id,omitempty"`
 	ExternalDns      *string `json:"external_dns,omitempty"`
 	TlsMode          *string `json:"tls_mode,omitempty"`
 	ServiceType      *string `json:"service_type,omitempty"`

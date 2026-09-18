@@ -159,23 +159,6 @@ export const messages = defineMessages({
     defaultMessage: "Clusters",
     description: "Summary label for total managed clusters.",
   },
-  managedDatabasesSummary: {
-    id: "app.dashboard.summary.managedDatabases",
-    defaultMessage: "Databases",
-    description: "Summary label for total managed databases.",
-  },
-  managedDatabaseStatusAriaDesc: {
-    id: "app.dashboard.managedDatabaseStatus.ariaDesc",
-    defaultMessage: "Managed database count by status",
-    description:
-      "Accessible description for the managed database status donut chart.",
-  },
-  managedDatabaseStatusChartTitle: {
-    id: "app.dashboard.managedDatabaseStatus.chartTitle",
-    defaultMessage: "Managed database status chart",
-    description:
-      "Accessible title for the managed database status donut chart.",
-  },
   memory: {
     id: "app.dashboard.summary.memory",
     defaultMessage: "Memory",
@@ -615,11 +598,6 @@ export const messages = defineMessages({
     defaultMessage: "Cluster regions",
     description:
       "Title for the managed cluster region breakdown dashboard widget.",
-  },
-  widgetManagedDatabaseStatus: {
-    id: "app.dashboard.widget.managedDatabaseStatus",
-    defaultMessage: "Database status",
-    description: "Title for the managed database status dashboard widget.",
   },
   widgetMemory: {
     id: "app.dashboard.widget.memory",

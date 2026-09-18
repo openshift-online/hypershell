@@ -775,14 +775,6 @@ export function GatewayPage({
                   {visibleGateway.releaseId}
                 </DescriptionListDescription>
               </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>
-                  <FormattedMessage {...messages.managedDatabaseId} />
-                </DescriptionListTerm>
-                <DescriptionListDescription>
-                  {visibleGateway.databaseId}
-                </DescriptionListDescription>
-              </DescriptionListGroup>
             </DescriptionList>
           </Tab>
         </Tabs>

@@ -14,6 +14,15 @@ stringData:
   user: hypershell
   password: hypershell-dev
 ---
+# Dev/e2e stand-in for an externally provisioned PostgreSQL server. It serves
+# TLS because the control plane connects to every gateway database server with
+# sslmode=verify-full (admin and tenant connections alike). The certificate and
+# CA come from Secret hypershell-postgres-tls (keys tls.crt, tls.key, ca.crt),
+# which is NOT part of this manifest: scripts/cluster/drivers/openshift.sh
+# generates it with scripts/gen-postgres-tls.sh (SAN
+# hypershell-postgres.<namespace>.svc.cluster.local) and hands the CA to the
+# controller through Secret hypershell-gateway-database-admin. Anyone applying
+# this manifest directly must create both Secrets first.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -47,6 +56,24 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+          # The image's ENTRYPOINT is /usr/bin/docker-entrypoint.sh with CMD
+          # "postgres" (verified with `skopeo inspect --config`), the
+          # docker-library contract: args replace CMD and are passed to the
+          # postgres server verbatim, so the TLS settings go in as -c options.
+          # The key is mounted root-owned with mode 0640 (defaultMode 416
+          # below); PostgreSQL accepts a root-owned key when it is not
+          # group-writable or world-readable, and the pod's file-system group
+          # (999 here, or the project range under OpenShift's restricted-v2 SCC
+          # once rewrite-namespaces.py strips the pinned ids) makes it readable
+          # to the server process without any chown, which drop ALL forbids.
+          args:
+            - postgres
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/tls/tls.crt
+            - -c
+            - ssl_key_file=/tls/tls.key
           env:
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
@@ -89,9 +116,17 @@ spec:
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
+            - name: tls
+              mountPath: /tls
+              readOnly: true
       volumes:
         - name: pgdata
           emptyDir: {}
+        - name: tls
+          secret:
+            secretName: hypershell-postgres-tls
+            # 0640: PostgreSQL refuses a private key readable by others.
+            defaultMode: 416
 ---
 apiVersion: v1
 kind: Service

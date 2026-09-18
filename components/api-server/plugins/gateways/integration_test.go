@@ -54,7 +54,6 @@ func TestGatewayPost(t *testing.T) {
 		Name:        "test-name",
 		ClusterId:   "test-cluster_id",
 		ReleaseId:   "test-release_id",
-		DatabaseId:  "test-database_id",
 		ExternalDns: openapi.PtrString("test-external_dns"),
 		TlsMode:     openapi.PtrString("test-tls_mode"),
 		ServiceType: openapi.PtrString("test-service_type"),
@@ -68,8 +67,6 @@ func TestGatewayPost(t *testing.T) {
 	Expect(*gatewayOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
 	Expect(*gatewayOutput.Kind).To(Equal("Gateway"))
 	Expect(*gatewayOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/gateways/%s", *gatewayOutput.Id)))
-	Expect(gatewayOutput.GetDatabaseId()).NotTo(BeEmpty())
-	Expect(gatewayOutput.GetDatabaseId()).NotTo(Equal("test-database_id"), "client-supplied database_id must be ignored")
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
@@ -83,7 +80,7 @@ func TestGatewayPost(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
-func TestGatewayPostAllowsEmptyPlacementIDs(t *testing.T) {
+func TestGatewayPostAllowsEmptyClusterAndReleaseIDs(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
@@ -95,33 +92,11 @@ func TestGatewayPostAllowsEmptyPlacementIDs(t *testing.T) {
 	}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
-	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with server-side database placement: %v", err)
+	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with empty cluster_id and release_id: %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(gatewayOutput.ClusterId).To(BeEmpty())
 	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
-	Expect(gatewayOutput.GetDatabaseId()).NotTo(BeEmpty())
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
-}
-
-func TestGatewayPostRejectsMissingDatabaseID(t *testing.T) {
-	h, _ := test.RegisterIntegration(t)
-
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := ctx.Value(openapi.ContextAccessToken)
-
-	resp, err := resty.R().
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Authorization", fmt.Sprintf("Bearer %s", jwtToken)).
-		SetBody(map[string]string{
-			"name":       "missing-db-property",
-			"cluster_id": "",
-			"release_id": "",
-		}).
-		Post(h.RestURL("/gateways"))
-
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
 func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
@@ -178,13 +153,6 @@ func TestGatewayPatch(t *testing.T) {
 	Expect(*gatewayOutput.CreatedAt).To(BeTemporally("~", gatewayModel.CreatedAt))
 	Expect(*gatewayOutput.Kind).To(Equal("Gateway"))
 	Expect(*gatewayOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/gateways/%s", *gatewayOutput.Id)))
-
-	gatewayOutput, resp, err = client.DefaultAPI.UpdateGateway(ctx, gatewayModel.ID).
-		GatewayPatchRequest(openapi.GatewayPatchRequest{DatabaseId: openapi.PtrString("client-selected-database")}).
-		Execute()
-	Expect(err).NotTo(HaveOccurred(), "Error patching database_id: %v", err)
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(gatewayOutput.DatabaseId).To(Equal(gatewayModel.DatabaseId), "database_id patch must be ignored")
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
 	restyResp, err := resty.R().
@@ -280,7 +248,6 @@ func TestGatewayPostWithCredentialDriver(t *testing.T) {
 		Name:             "test-cred-driver",
 		ClusterId:        "test-cluster_id",
 		ReleaseId:        "test-release_id",
-		DatabaseId:       "test-database_id",
 		CredentialDriver: openapi.PtrString(credDriver),
 	}
 

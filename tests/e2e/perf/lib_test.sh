@@ -43,10 +43,10 @@ E2E_MODE=long
 
 # --- Seed ids for short-mode throwaway gateway ---
 
-gw_json='{"items":[{"name":"perf-gw-canary","cluster_id":"cluster-1","release_id":"release-1","database_id":"db-1"}]}'
-E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+gw_json='{"items":[{"name":"perf-gw-canary","cluster_id":"cluster-1","release_id":"release-1"}]}'
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
 e2e_apply_seed_ids_from_gateway_json "$gw_json" "perf-gw-canary"
-if [[ "$E2E_CLUSTER_ID" == "cluster-1" && "$E2E_RELEASE_ID" == "release-1" && "$E2E_DATABASE_ID" == "db-1" ]]; then
+if [[ "$E2E_CLUSTER_ID" == "cluster-1" && "$E2E_RELEASE_ID" == "release-1" ]]; then
   pass_u "seed ids copied from reused gateway JSON"
 else
   fail_u "apply seed ids from gateway JSON failed: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
@@ -74,21 +74,26 @@ else
 fi
 eval "$_orig_discover"
 unset _orig_discover
-E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
 
 E2E_CLUSTER_ID=c1 E2E_RELEASE_ID=r1 E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
 body=$(e2e_gateway_create_body gw-test)
-if echo "$body" | grep -q '"cluster_id": "c1"' && ! echo "$body" | grep -q 'fleet_id'; then
-  pass_u "gateway create body omits fleet_id"
+if echo "$body" | grep -q '"cluster_id": "c1"' && ! echo "$body" | grep -q 'fleet_id' && ! echo "$body" | grep -q 'database_id'; then
+  pass_u "gateway create body omits fleet_id and database_id"
 else
   fail_u "gateway create body unexpected: ${body:0:200}"
 fi
-E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
 mini=$(sed -n '/^perf_run_mini_test()/,/^}/p' "${SCRIPT_DIR}/../e2e-performance.sh")
-if echo "$mini" | grep -q 'E2E_CLUSTER_ID=' && echo "$mini" | grep -q 'E2E_RELEASE_ID=' && ! echo "$mini" | grep -q 'E2E_FLEET_ID='; then
-  pass_u "checkpoint mini test forwards cluster/release ids and not fleet"
+if echo "$mini" | grep -q 'E2E_CLUSTER_ID=' && echo "$mini" | grep -q 'E2E_RELEASE_ID=' && ! echo "$mini" | grep -q 'E2E_FLEET_ID=' && ! echo "$mini" | grep -q 'E2E_DATABASE_ID='; then
+  pass_u "checkpoint mini test forwards cluster/release ids and not fleet/database"
 else
   fail_u "perf_run_mini_test seed id forwarding unexpected"
+fi
+if grep -q 'E2E_DATABASE_ID\|managed_databases\|database_id' "${SCRIPT_DIR}/../lib.sh" "${SCRIPT_DIR}/../e2e-openshell.sh" "${SCRIPT_DIR}/../e2e-performance.sh"; then
+  fail_u "e2e harness still references E2E_DATABASE_ID / managed_databases / database_id"
+else
+  pass_u "e2e harness carries no ManagedDatabase / database_id handling"
 fi
 
 if grep -nE "bash -c" "${SCRIPT_DIR}/../e2e-performance.sh" | grep -q 'E2E_OIDC_PASSWORD'; then
@@ -131,7 +136,6 @@ api_curl() {
   case "$1" in
     *managed_clusters) printf '%s' '{"kind":"ManagedClusterList","total":1,"items":[{"id":"c-os","name":"local-openshift"}]}' ;;
     *gateway_releases) printf '%s' '{"kind":"GatewayReleaseList","total":1,"items":[{"id":"r-os","name":"dev-release"}]}' ;;
-    *managed_databases) printf '%s' '{"kind":"ManagedDatabaseList","total":1,"items":[{"id":"d-os","name":"openshell-db"}]}' ;;
     *) printf '%s' '{"kind":"Error","reason":"unexpected url"}' ;;
   esac
 }
@@ -139,7 +143,7 @@ _saved_seed_cluster="${E2E_SEED_CLUSTER_NAME-}"
 _saved_seed_release="${E2E_SEED_RELEASE_NAME-}"
 unset E2E_SEED_CLUSTER_NAME E2E_SEED_RELEASE_NAME
 E2E_INFRA_DRIVER=openshift API_HOST=https://example.invalid
-E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
 if e2e_discover_seed_ids \
   && [[ "$E2E_CLUSTER_ID" == "c-os" && "$E2E_RELEASE_ID" == "r-os" && "$E2E_SEED_CLUSTER_NAME" == "local-openshift" ]]; then
   pass_u "OpenShift discovery pins local-openshift / dev-release"
@@ -152,7 +156,7 @@ api_curl() {
 }
 unset E2E_SEED_CLUSTER_NAME E2E_SEED_RELEASE_NAME
 E2E_INFRA_DRIVER=openshift
-E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
 disc_err="$(e2e_discover_seed_ids 2>&1 || true)"
 if [[ "$disc_err" == *"error code=403 reason=Forbidden"* && "$disc_err" == *"make openshift-seed"* ]]; then
   pass_u "seed discovery failure names Error payloads and the re-seed hint"
@@ -176,7 +180,7 @@ else
   unset E2E_SEED_RELEASE_NAME
 fi
 unset _saved_seed_cluster _saved_seed_release
-E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
 unset E2E_INFRA_DRIVER API_HOST
 
 # --- Percentiles (nearest-rank: ceil(p/100*n) for 1..10 -> 5, 9, 10, 10) ---

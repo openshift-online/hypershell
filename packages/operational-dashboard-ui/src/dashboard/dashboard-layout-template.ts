@@ -88,7 +88,6 @@ const WIDGET_TITLE_MESSAGES = {
   "registered-users": messages.registeredUsers,
   "managed-cluster-providers": messages.widgetManagedClusterProviders,
   "managed-cluster-regions": messages.widgetManagedClusterRegions,
-  "managed-database-status": messages.widgetManagedDatabaseStatus,
   "gateway-status": messages.gatewayStatusWidget,
   "gateway-releases": messages.gatewayReleasesWidget,
   memory: messages.widgetMemory,
@@ -251,18 +250,13 @@ const fourColumnLayout = [
     h: NODE_STATUS_WIDGET_HEIGHT,
     i: "managed-cluster-regions#1",
     title: "Cluster regions",
-    w: 1,
+    // The ManagedDatabase resource does not exist (see
+    // platform/openshell-gateway-database.spec.md), so there is no
+    // managed-database-status widget to occupy columns 2-3 of this row. This
+    // widget widens to fill them instead of leaving a gap.
+    w: 2,
     widgetType: "managed-cluster-regions",
     x: 2,
-    y: PLATFORM_INVENTORY_START_Y,
-  },
-  {
-    h: NODE_STATUS_WIDGET_HEIGHT,
-    i: "managed-database-status#1",
-    title: "Database status",
-    w: 1,
-    widgetType: "managed-database-status",
-    x: 3,
     y: PLATFORM_INVENTORY_START_Y,
   },
 ] as const;
@@ -310,7 +304,6 @@ const mobileLayoutOrder = [
   "inventory-summary",
   "managed-cluster-providers",
   "managed-cluster-regions",
-  "managed-database-status",
 ] as const;
 
 function findLayoutItem(

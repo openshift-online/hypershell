@@ -9,7 +9,7 @@ MANAGED_LABEL="app.kubernetes.io/managed-by"
 MANAGED_VALUE="hypershell-lifecycle"
 PART_OF_LABEL="app.kubernetes.io/part-of"
 PART_OF_VALUE="hypershell"
-# Control-plane stamps on gateway and ManagedDatabase namespaces. Must match
+# Control-plane stamps on gateway namespaces. Must match
 # components/control-plane/internal/gateway/namespace.go (ManagedLabel,
 # ManagedByValue, InstanceLabel). Distinct from MANAGED_VALUE above, which marks
 # the platform/keycloak namespace group.
@@ -74,6 +74,8 @@ resolve_openshift_namespace() {
 }
 
 validate_namespace_group() {
+  # 54 characters keeps the derived "${ns}-keycloak" project inside the
+  # 63-character DNS-label limit.
   validate_rfc1123_label "${OPENSHIFT_NAMESPACE}" 54 || exit 1
   OPENSHIFT_KEYCLOAK_NAMESPACE="$(keycloak_namespace_for "${OPENSHIFT_NAMESPACE}")"
   validate_rfc1123_label "${OPENSHIFT_KEYCLOAK_NAMESPACE}" 63 || exit 1
@@ -214,18 +216,6 @@ ensure_namespace_group() {
   local platform_env keycloak_env env_id
   platform_env=""
   keycloak_env=""
-  # Snapshot ownership BEFORE ensure_project stamps labels onto an unlabeled
-  # project. cutover_database_provider is destructive; it may only delete
-  # provider stacks in a namespace that was already a HyperShell environment,
-  # not one this run just claimed.
-  OPENSHIFT_DB_CUTOVER_ALLOWED=false
-  if namespace_exists "${OPENSHIFT_NAMESPACE}"; then
-    if namespace_is_owned "${OPENSHIFT_NAMESPACE}"; then
-      OPENSHIFT_DB_CUTOVER_ALLOWED=true
-    elif [[ -n "$(env_id_from_workloads "${OPENSHIFT_NAMESPACE}")" ]]; then
-      OPENSHIFT_DB_CUTOVER_ALLOWED=true
-    fi
-  fi
   if namespace_exists "${OPENSHIFT_NAMESPACE}" && namespace_is_owned "${OPENSHIFT_NAMESPACE}"; then
     platform_env="$(refuse_foreign_namespace "${OPENSHIFT_NAMESPACE}")"
   fi
@@ -246,8 +236,73 @@ ensure_namespace_group() {
   OPENSHIFT_ENVIRONMENT_ID="${env_id}"
   ensure_project "${OPENSHIFT_NAMESPACE}" "${env_id}"
   ensure_project "${OPENSHIFT_KEYCLOAK_NAMESPACE}" "${env_id}"
+  ensure_gateway_database_admin_secret
   use_project "${OPENSHIFT_NAMESPACE}"
   success "Namespace group ${OPENSHIFT_NAMESPACE} + ${OPENSHIFT_KEYCLOAK_NAMESPACE} (environment ${env_id})"
+}
+
+# ensure_gateway_database_admin_secret stages the controller's single admin
+# credential Secret, hypershell-gateway-database-admin, in the platform project.
+# deploy/base/controller.yaml mounts it at /etc/hypershell/gateway-database and
+# the controller refuses to start without it, so it must exist before the
+# overlay is applied. In production a platform team supplies it for a
+# cloud-managed server (deploy/components/gateway-database-admin-secret); this
+# ephemeral environment stands in with the bundled PostgreSQL Deployment, so the
+# values mirror deploy/base/postgres.yaml's hypershell-db-app.
+#
+# The controller always connects with sslmode=verify-full, so the bundled server
+# has to serve TLS: a throwaway CA + server certificate for
+# hypershell-postgres.<ns>.svc.cluster.local is generated once
+# (scripts/gen-postgres-tls.sh) into Secret hypershell-postgres-tls, which the
+# Deployment mounts, and that CA is what the admin Secret carries as sslrootcert.
+# Later runs reuse the existing TLS Secret so the CA keeps matching the
+# certificate the running server presents.
+ensure_gateway_database_admin_secret() {
+  local ns="${OPENSHIFT_NAMESPACE}"
+  local host="hypershell-postgres.${ns}.svc.cluster.local"
+  local tls_dir ca_file
+  if oc_cli get secret hypershell-postgres-tls -n "${ns}" >/dev/null 2>&1; then
+    info "TLS Secret hypershell-postgres-tls already exists in ${ns}; reusing its CA"
+  else
+    info "Generating TLS certificate for ${host}..."
+    tls_dir="$(mktemp -d)"
+    if ! bash "${REPO_ROOT}/scripts/gen-postgres-tls.sh" "${tls_dir}" \
+      "${host}" "hypershell-postgres.${ns}.svc" "hypershell-postgres"; then
+      rm -rf "${tls_dir}"
+      error "Failed to generate the PostgreSQL TLS certificate"
+      return 1
+    fi
+    oc_cli create secret generic hypershell-postgres-tls \
+      -n "${ns}" \
+      --from-file=tls.crt="${tls_dir}/tls.crt" \
+      --from-file=tls.key="${tls_dir}/tls.key" \
+      --from-file=ca.crt="${tls_dir}/ca.crt" \
+      --dry-run=client -o yaml | oc_cli apply -f - >/dev/null
+    rm -rf "${tls_dir}"
+    success "TLS Secret hypershell-postgres-tls created"
+  fi
+
+  ca_file="$(mktemp)"
+  oc_cli get secret hypershell-postgres-tls -n "${ns}" \
+    -o go-template='{{index .data "ca.crt" | base64decode}}' > "${ca_file}" 2>/dev/null || true
+  if [[ ! -s "${ca_file}" ]]; then
+    rm -f "${ca_file}"
+    error "Secret hypershell-postgres-tls in ${ns} has no ca.crt; delete it and re-run openshift-up"
+    return 1
+  fi
+  info "Creating admin Secret hypershell-gateway-database-admin in ${ns}..."
+  oc_cli create secret generic hypershell-gateway-database-admin \
+    -n "${ns}" \
+    --from-literal=host="${host}" \
+    --from-literal=port="5432" \
+    --from-literal=user="hypershell" \
+    --from-literal=password="hypershell-dev" \
+    --from-literal=dbname="hypershell" \
+    --from-literal=sslmode="verify-full" \
+    --from-file=sslrootcert="${ca_file}" \
+    --dry-run=client -o yaml | oc_cli apply -f - >/dev/null
+  rm -f "${ca_file}"
+  success "Admin Secret hypershell-gateway-database-admin staged (sslmode=verify-full)"
 }
 
 discover_gateway_base_domain() {
@@ -596,151 +651,6 @@ api_group_available() {
   [[ -n "${out}" ]]
 }
 
-cnpg_available() {
-  api_group_available postgresql.cnpg.io
-}
-
-# effective_database_provider - the DB provider this run of openshift-up will
-# deploy: DATABASE_PROVIDER if explicitly set (validated against what the
-# cluster can actually run), otherwise auto-detected from CNPG operator
-# availability. This is "what should run"; cutover_database_provider
-# reconciles live cluster state toward it.
-effective_database_provider() {
-  case "${DATABASE_PROVIDER:-}" in
-    cnpg)
-      if ! cnpg_available; then
-        error "DATABASE_PROVIDER=cnpg requested but the CNPG operator (postgresql.cnpg.io) is not installed on this cluster."
-        return 1
-      fi
-      printf 'cnpg'
-      ;;
-    deployment)
-      printf 'deployment'
-      ;;
-    "")
-      if cnpg_available; then printf 'cnpg'; else printf 'deployment'; fi
-      ;;
-    *)
-      error "Unknown DATABASE_PROVIDER '${DATABASE_PROVIDER}': expected 'cnpg' or 'deployment'."
-      return 1
-      ;;
-  esac
-}
-
-# database_provider_key - the Secret key that proves hypershell-db-app was
-# shaped for the given provider (deployment: user; CNPG: username).
-database_provider_key() {
-  case "$1" in
-    cnpg) printf 'username' ;;
-    deployment) printf 'user' ;;
-  esac
-}
-
-# secret_shaped_for_provider - true if hypershell-db-app either does not exist
-# yet (the target provider will create its own) or already carries the key
-# that provider's connection info requires.
-secret_shaped_for_provider() {
-  local provider="$1" key
-  key="$(database_provider_key "${provider}")"
-  if ! oc_cli get secret hypershell-db-app -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
-    return 0
-  fi
-  local val
-  val="$(oc_cli get secret hypershell-db-app -n "${OPENSHIFT_NAMESPACE}" \
-    -o jsonpath="{.data.${key}}" 2>/dev/null || true)"
-  [[ -n "${val}" ]]
-}
-
-DATABASE_PROVIDER_CUTOVER_PERFORMED=""
-
-# cutover_database_provider - reconcile live database resources toward the
-# target provider, rather than trusting a single "current provider" read: a
-# prior interrupted or pre-fix run can leave BOTH a CNPG Cluster and the
-# bundled Deployment present at once (e.g. a Cluster created after CNPG
-# detection flipped true, sitting alongside a Deployment an earlier run never
-# tore down), which a first-match "current" check would misreport as already
-# matching the target and skip entirely. Instead: remove whichever provider's
-# resources are NOT the target, unconditionally, and separately validate the
-# shared hypershell-db-app Secret is actually shaped for the target -- it is
-# not safe to infer the Secret's shape from which provider's resources exist,
-# since either can adopt a Secret the other left behind. Both providers reuse
-# that Secret name with incompatible key shapes (deployment:
-# user/password/host/port/dbname; CNPG: username/password, auto-generated
-# only if the Secret doesn't already exist) -- an unnoticed mismatch leaves
-# the primary instance stuck in CreateContainerConfigError waiting on a key
-# that will never appear.
-# DESTRUCTIVE: deletes the outgoing provider's database and its data. This
-# namespace group is ephemeral dev/e2e infrastructure, not production.
-# Destructive deletes require OPENSHIFT_DB_CUTOVER_ALLOWED=true, set by
-# ensure_namespace_group only when the platform namespace was already a
-# HyperShell environment (owned, or HyperShell workload labels) before this
-# run stamped labels onto it.
-require_db_cutover_allowed() {
-  if [[ "${OPENSHIFT_DB_CUTOVER_ALLOWED:-}" == "true" ]]; then
-    return 0
-  fi
-  error "cutover_database_provider: refusing to delete database resources in '${OPENSHIFT_NAMESPACE}'; it was not already a HyperShell environment (${OWNED_LABEL}=true, or HyperShell workload labels). A mis-pointed openshift-up must not destroy coincidental hypershell-db data."
-  return 1
-}
-
-cutover_database_provider() {
-  local target="$1"
-  local changed=""
-  local remove_cnpg="" remove_deploy="" clear_secret=""
-
-  if [[ -z "${target}" ]]; then
-    error "cutover_database_provider: empty target; refusing to reconcile (would delete both provider stacks)."
-    return 1
-  fi
-  case "${target}" in
-    cnpg|deployment) ;;
-    *)
-      error "cutover_database_provider: unknown target '${target}' (expected 'cnpg' or 'deployment')."
-      return 1
-      ;;
-  esac
-
-  if [[ "${target}" != "cnpg" ]] \
-    && oc_cli get cluster.postgresql.cnpg.io hypershell-db -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
-    remove_cnpg=true
-  fi
-  if [[ "${target}" != "deployment" ]] \
-    && oc_cli get deployment hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
-    remove_deploy=true
-  fi
-  if ! secret_shaped_for_provider "${target}"; then
-    clear_secret=true
-  fi
-  if [[ -n "${remove_cnpg}${remove_deploy}${clear_secret}" ]]; then
-    require_db_cutover_allowed || return 1
-  fi
-
-  if [[ -n "${remove_cnpg}" ]]; then
-    warn "Removing CNPG database in ${OPENSHIFT_NAMESPACE} (target provider: ${target}); its data will be lost."
-    oc_cli delete cluster.postgresql.cnpg.io hypershell-db -n "${OPENSHIFT_NAMESPACE}" --wait=true --timeout=120s 2>/dev/null || true
-    oc_cli delete pvc -n "${OPENSHIFT_NAMESPACE}" -l cnpg.io/cluster=hypershell-db --ignore-not-found=true
-    changed=true
-  fi
-
-  if [[ -n "${remove_deploy}" ]]; then
-    warn "Removing bundled PostgreSQL Deployment in ${OPENSHIFT_NAMESPACE} (target provider: ${target}); its data will be lost."
-    oc_cli delete deployment hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found=true
-    oc_cli delete service hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found=true
-    changed=true
-  fi
-
-  if [[ -n "${clear_secret}" ]]; then
-    warn "hypershell-db-app in ${OPENSHIFT_NAMESPACE} is not shaped for ${target}; clearing it so ${target} can create its own."
-    oc_cli delete secret hypershell-db-app -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found=true
-    changed=true
-  fi
-
-  if [[ -n "${changed}" ]]; then
-    DATABASE_PROVIDER_CUTOVER_PERFORMED=true
-    success "Database provider reconciled to ${target} in ${OPENSHIFT_NAMESPACE}"
-  fi
-}
-
 apply_rendered_overlay() {
   local rendered="$1"
   local prune_args=(
@@ -760,9 +670,6 @@ apply_rendered_overlay() {
       --prune-allowlist=cert-manager.io/v1/Issuer
     )
   fi
-  if cnpg_available; then
-    prune_args+=(--prune-allowlist=postgresql.cnpg.io/v1/Cluster)
-  fi
   # Secrets are omitted from prune: bootstrap OIDC secrets are not in the overlay
   # and must survive reconcile. A reconcile that drops a swapped Deployment's
   # image is restored by restore_swaps_after_reconcile.
@@ -778,8 +685,14 @@ apply_rendered_overlay() {
   rm -f "${rendered}"
 }
 
+# apply_postgres_fallback applies deploy/base/postgres.yaml with its pinned
+# runAsUser/fsGroup stripped so the restricted-v2 SCC can assign identities from
+# the project range. The overlay render below omits Deployment/Service
+# hypershell-postgres for that reason (see apply_overlay): the manifest stays in
+# deploy/openshift/kustomization.yaml so `kustomize build` consumers (deploy/ibm)
+# remain self-contained, but this driver applies it exactly once, from here.
 apply_postgres_fallback() {
-  info "CNPG operator is not installed; deploying bundled PostgreSQL Deployment"
+  info "Deploying the bundled PostgreSQL Deployment (dev stand-in for an externally provisioned server)"
   local rendered
   rendered="$(mktemp)"
   if ! python3 "${CLUSTER_SCRIPT_DIR}/rewrite-namespaces.py" \
@@ -798,19 +711,8 @@ apply_postgres_fallback() {
   rm -f "${rendered}"
 }
 
-configure_postgres_fallback_ssl() {
-  # migrate is an initContainer; omit -c so oc sets both init and app containers.
-  oc_cli set env deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" \
-    DB_SSLMODE=disable >/dev/null
-}
-
 developer_omit_kinds() {
   local kinds="ClusterRole,ClusterRoleBinding"
-  local provider
-  provider="$(effective_database_provider)"
-  if [[ "${provider}" != "cnpg" ]]; then
-    kinds+=",Cluster"
-  fi
   if ! api_group_available cert-manager.io; then
     kinds+=",Certificate,Issuer"
   fi
@@ -819,8 +721,7 @@ developer_omit_kinds() {
 
 apply_overlay() {
   header "Deploying Components"
-  local rendered omit_kinds db_provider
-  db_provider="$(effective_database_provider)"
+  local rendered omit_kinds
   omit_kinds="$(developer_omit_kinds)"
 
   info "Applying Keycloak in project ${OPENSHIFT_KEYCLOAK_NAMESPACE}..."
@@ -832,19 +733,20 @@ apply_overlay() {
 
   info "Applying HyperShell in project ${OPENSHIFT_NAMESPACE}..."
   use_project "${OPENSHIFT_NAMESPACE}"
-  if [[ "${db_provider}" != "cnpg" ]]; then
-    apply_postgres_fallback
-  fi
+  apply_postgres_fallback
+  # hypershell-postgres (Deployment + Service) is omitted here because
+  # apply_postgres_fallback already applied it with the pinned uid/fsGroup
+  # stripped; re-applying the unstripped base manifest would roll the
+  # Deployment onto a pod the restricted-v2 SCC rejects. The bundled server
+  # serves TLS (hypershell-postgres-tls), so the overlay's DB_SSLMODE=require for
+  # the API server holds as-is.
   if ! rendered="$(render_openshift_manifests \
     --only-namespace "${OPENSHIFT_NAMESPACE}" \
     --omit-kinds "${omit_kinds}" \
-    --omit-names hypershell-sandbox-scc)"; then
+    --omit-names hypershell-sandbox-scc,hypershell-postgres)"; then
     exit 1
   fi
   apply_rendered_overlay "${rendered}"
-  if [[ "${db_provider}" != "cnpg" ]]; then
-    configure_postgres_fallback_ssl
-  fi
 
   success "Overlay applied"
 }
@@ -981,32 +883,13 @@ wait_for_deployments() {
   # `oc set env` and swap restore -- while a rollout is still in flight.
   wait_for_keycloak
 
-  if [[ -n "$(oc_cli get cluster.postgresql.cnpg.io hypershell-db -n "${OPENSHIFT_NAMESPACE}" --ignore-not-found -o name 2>/dev/null || true)" ]]; then
-    info "Waiting for CNPG cluster..."
-    oc_cli wait --for=condition=Ready cluster/hypershell-db -n "${OPENSHIFT_NAMESPACE}" --timeout=300s \
-      || warn "CNPG cluster not Ready yet; API server will retry connections"
-  elif oc_cli get deployment/hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
+  if oc_cli get deployment/hypershell-postgres -n "${OPENSHIFT_NAMESPACE}" >/dev/null 2>&1; then
     wait_for_named_rollout hypershell-postgres "${OPENSHIFT_NAMESPACE}" 120s
   fi
 
   wait_for_named_rollout hypershell-api-server "${OPENSHIFT_NAMESPACE}"
   wait_for_named_rollout hypershell-controller "${OPENSHIFT_NAMESPACE}"
   wait_for_named_rollout hypershell-web-console "${OPENSHIFT_NAMESPACE}"
-}
-
-# restart_after_database_cutover - api-server and controller mount
-# hypershell-db-app and read it at process start, so if cutover_database_provider
-# recreated that Secret with a different shape, a pod that was already running
-# against the old provider keeps its stale connection until restarted --
-# reapplying the (unchanged) Deployment spec does not trigger a new rollout.
-# No-op unless a cutover actually happened this run.
-restart_after_database_cutover() {
-  [[ -n "${DATABASE_PROVIDER_CUTOVER_PERFORMED}" ]] || return 0
-  info "Restarting api-server and controller to pick up the cut-over database..."
-  oc_cli rollout restart deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}"
-  oc_cli rollout restart deployment/hypershell-controller -n "${OPENSHIFT_NAMESPACE}"
-  wait_for_named_rollout hypershell-api-server "${OPENSHIFT_NAMESPACE}"
-  wait_for_named_rollout hypershell-controller "${OPENSHIFT_NAMESPACE}"
 }
 
 # Talk to OpenShift Routes from the developer machine. The API server image has
@@ -1137,7 +1020,7 @@ seed_via_api() {
     echo "${resp}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true
   }
 
-  local seed_failed="" CLUSTER_ID="" RELEASE_ID="" DATABASE_ID="" GATEWAY_ID=""
+  local seed_failed="" CLUSTER_ID="" RELEASE_ID="" GATEWAY_ID=""
   local raw http body
 
   raw="$(api_exec GET /api/hypershell/v1/managed_clusters)"
@@ -1189,39 +1072,6 @@ seed_via_api() {
   fi
 
   if [[ -z "${seed_failed}" ]]; then
-    local db_provider
-    db_provider="$(effective_database_provider)"
-    raw="$(api_exec GET /api/hypershell/v1/managed_databases)"
-    http="$(printf '%s' "${raw}" | tail -1)"
-    body="$(printf '%s' "${raw}" | sed '$d')"
-    if [[ "${http}" == "200" ]]; then
-      DATABASE_ID="$(printf '%s' "${body}" | json_named_id openshell-db)"
-    fi
-    if [[ -n "${DATABASE_ID}" ]] && ! cnpg_available \
-      && printf '%s' "${body}" | grep -Fq '"provider":"cnpg"'; then
-      warn "openshell-db ManagedDatabase ${DATABASE_ID} has provider=cnpg, but this cluster has no CNPG operator"
-      warn "Gateways using it will not reconcile. Run make openshift-down then make openshift-up, or delete that ManagedDatabase and make openshift-seed"
-      seed_failed=true
-    fi
-    if [[ -z "${seed_failed}" && -z "${DATABASE_ID}" ]]; then
-      info "Creating ManagedDatabase (provider=${db_provider})..."
-      raw="$(api_exec POST /api/hypershell/v1/managed_databases \
-        "{\"name\":\"openshell-db\",\"provider\":\"${db_provider}\"}")"
-      http="$(printf '%s' "${raw}" | tail -1)"
-      body="$(printf '%s' "${raw}" | sed '$d')"
-      if [[ "${http}" != "201" && "${http}" != "200" ]]; then
-        warn "ManagedDatabase creation failed (HTTP ${http}): ${body:-no response}"
-        seed_failed=true
-      else
-        DATABASE_ID="$(extract_id "${body}")"
-        success "ManagedDatabase created: ${DATABASE_ID} (provider=${db_provider})"
-      fi
-    elif [[ -z "${seed_failed}" ]]; then
-      success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
-    fi
-  fi
-
-  if [[ -z "${seed_failed}" ]]; then
     raw="$(api_exec GET /api/hypershell/v1/gateways)"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
@@ -1248,7 +1098,7 @@ seed_via_api() {
     local oidc
     oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     raw="$(api_exec POST /api/hypershell/v1/gateways \
-      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"database_id\":\"${DATABASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
+      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     GATEWAY_ID="$(extract_id "${body}")"
@@ -1310,13 +1160,10 @@ cluster_up() {
   ensure_namespace_group
   create_bootstrap_secrets
   apply_cluster_rbac
-  TARGET_DB_PROVIDER="$(effective_database_provider)"
-  cutover_database_provider "${TARGET_DB_PROVIDER}"
   apply_overlay
   restore_swaps_after_reconcile
   configure_oidc_from_routes
   wait_for_deployments
-  restart_after_database_cutover
   add_keycloak_redirect_uri || true
   if skip_seed; then
     info "SKIP_SEED=true - skipping platform seeding"
@@ -1385,12 +1232,9 @@ delete_hypershell_resources() {
     -n "${ns}" \
     -l "${MANAGED_LABEL}=${MANAGED_VALUE}" \
     --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1 || true
-  oc_cli delete cluster.postgresql.cnpg.io \
-    -n "${ns}" \
-    --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1 || true
   oc_cli delete deploy,svc,secret \
     -n "${ns}" \
-    hypershell-postgres hypershell-db-app \
+    hypershell-postgres hypershell-db-app hypershell-postgres-tls hypershell-gateway-database-admin \
     --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1 || true
   oc_cli delete secret \
     -n "${ns}" \
@@ -1455,16 +1299,16 @@ instance_managed_namespace_selector() {
     "${CP_INSTANCE_LABEL}" "${instance}"
 }
 
-# Delete gateway and ManagedDatabase namespaces this instance created. Periodic
-# GC cannot do this after the platform project is gone. Never delete the
-# platform or keycloak projects through this selector.
+# Delete gateway namespaces this instance created. Periodic GC cannot do this
+# after the platform project is gone. Never delete the platform or keycloak
+# projects through this selector.
 delete_instance_managed_namespaces() {
   local instance="$1"
   if [[ -z "${instance}" ]]; then
     error "Refusing to delete instance-managed namespaces with an empty instance identity"
     return 1
   fi
-  info "Removing gateway and database namespaces for instance ${instance}"
+  info "Removing gateway namespaces for instance ${instance}"
   local selector names ns failed=""
   selector="$(instance_managed_namespace_selector "${instance}")"
   names="$(oc_cli get namespace -l "${selector}" \
@@ -1522,7 +1366,7 @@ cluster_down() {
     return 1
   fi
   clear_all_openshift_swaps
-  success "Environment ${OPENSHIFT_NAMESPACE} (and ${OPENSHIFT_KEYCLOAK_NAMESPACE}) removed"
+  success "Environment ${OPENSHIFT_NAMESPACE} (and its Keycloak project) removed"
 }
 
 # OpenShift has no cluster to destroy. Keep the Kind-shaped target as an alias.

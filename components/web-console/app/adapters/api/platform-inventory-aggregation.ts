@@ -1,7 +1,6 @@
 import type { OperationalMetric } from "@openshift-online/hypershell-operational-dashboard-ui";
 import type {
   ManagedClusterList,
-  ManagedDatabaseList,
   SDKClient,
 } from "@openshift-online/hypershell-sdk";
 
@@ -80,11 +79,6 @@ export interface ManagedClusterInventoryAggregate {
   total: number;
 }
 
-export interface ManagedDatabaseInventoryAggregate {
-  statusBuckets: Map<string, number>;
-  total: number;
-}
-
 export async function aggregateManagedClusterList(
   client: SDKClient,
   signal: AbortSignal | undefined,
@@ -144,49 +138,6 @@ export async function aggregateManagedClusterList(
   };
 }
 
-export async function aggregateManagedDatabaseList(
-  client: SDKClient,
-  signal: AbortSignal | undefined,
-): Promise<ManagedDatabaseInventoryAggregate> {
-  let page = 1;
-  let total = 0;
-  const statusBuckets = new Map<string, number>();
-
-  do {
-    const result: ManagedDatabaseList = await client.managedDatabases.list(
-      { orderBy: "name asc", page, size: inventoryListPageSize },
-      { signal },
-    );
-
-    validateListPageConsistency(
-      "Managed database",
-      page,
-      result,
-      inventoryListPageSize,
-    );
-
-    for (const database of result.items) {
-      incrementBucket(statusBuckets, bucketInventoryField(database.status));
-    }
-
-    total = result.total;
-    page += 1;
-  } while ((page - 1) * inventoryListPageSize < total);
-
-  const aggregatedItems = [...statusBuckets.values()].reduce(
-    (sum, count) => sum + count,
-    0,
-  );
-  if (aggregatedItems !== total) {
-    throw new Error("Managed database list response was inconsistent");
-  }
-
-  return {
-    statusBuckets,
-    total,
-  };
-}
-
 export function buildManagedClustersMetric(
   aggregate: ManagedClusterInventoryAggregate,
 ): OperationalMetric {
@@ -200,26 +151,12 @@ export function buildManagedClustersMetric(
   };
 }
 
-export function buildManagedDatabasesMetric(
-  aggregate: ManagedDatabaseInventoryAggregate,
-): OperationalMetric {
-  return {
-    id: "managed-databases",
-    inventoryStatus: bucketsToRecord(aggregate.statusBuckets),
-    value: String(aggregate.total),
-  };
-}
-
 export interface PlatformInventoryMetricsResponse {
   managed_clusters: {
     by_provider: Record<string, number>;
     by_region: Record<string, number>;
     by_status: Record<string, number>;
     created_last_30_days: number;
-    total: number;
-  };
-  managed_databases: {
-    by_status: Record<string, number>;
     total: number;
   };
 }
@@ -235,11 +172,6 @@ export function platformInventoryMetricsResponseToMetrics(
       inventoryRegions: response.managed_clusters.by_region,
       inventoryStatus: response.managed_clusters.by_status,
       value: String(response.managed_clusters.total),
-    },
-    {
-      id: "managed-databases",
-      inventoryStatus: response.managed_databases.by_status,
-      value: String(response.managed_databases.total),
     },
   ];
 }

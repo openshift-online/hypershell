@@ -2,7 +2,7 @@
 name: deploy-cluster
 description: >
   Deploy HyperShell platform services (API server, controller, PostgreSQL) to an
-  OpenShift cluster with full OIDC/JWT security, CNPG-managed databases, and
+  OpenShift cluster with full OIDC/JWT security, externally provisioned databases, and
   per-tenant ingress via Routes. Covers Keycloak deployment, credential bootstrapping,
   image builds, kustomize deployment, and troubleshooting. Use when: "deploy to openshift",
   "deploy platform", "install hypershell", "bootstrap keycloak", or "openshift deploy".
@@ -11,7 +11,7 @@ description: >
 # HyperShell OpenShift Deployment
 
 > **Scope:** this skill deploys the **complete platform** (Keycloak, API server,
-> controller, CNPG-managed PostgreSQL) with OIDC/JWT security, and is cloud-agnostic
+> controller, PostgreSQL connection configuration) with OIDC/JWT security, and is cloud-agnostic
 > across OpenShift distributions (ROSA, ROKS, OSD, self-managed). It does **not**
 > provision tenant-gateway ingress (Routes or Gateway API); that is handled by the
 > control plane at runtime once a gateway resource is created. This is the **canonical
@@ -137,7 +137,7 @@ oc kustomize deploy/openshift/ --load-restrictor LoadRestrictionsNone | oc apply
 This creates:
 - Namespace: `hypershell-system`
 - ServiceAccounts: `hypershell-api-server`, `hypershell-controller`, `hypershell-web-console`
-- CNPG `Cluster` resource: `hypershell-db` (PostgreSQL, managed by CloudNativePG)
+- Secret: `hypershell-db-app` (connection details for the externally provisioned PostgreSQL server)
 - Deployments: `hypershell-api-server`, `hypershell-controller`, `hypershell-web-console`
 - Services: internal ClusterIP for gRPC/HTTP
 - Route: `hypershell-api` with TLS edge termination
@@ -245,7 +245,7 @@ values in `deploy/base/controller.yaml` and reapply the deployment.
 | Image registry | `localhost/` with `imagePullPolicy: Never` | Internal or external registry with `imagePullPolicy: IfNotPresent\|Always` |
 | Namespace | `hypershell` | `hypershell-system` |
 | External access | NodePort on 30080 | Route with TLS edge termination |
-| PostgreSQL | StatefulSet with `postgres:13` (in-cluster) | CNPG `Cluster` resource (`hypershell-db`, auto-managed) |
+| PostgreSQL | Bundled Deployment (in-cluster dev stand-in) | Externally provisioned server referenced by `hypershell-db-app` |
 | PostgreSQL storage | `emptyDir` | PersistentVolume via cluster StorageClass |
 | OIDC | mock / disabled | Keycloak-backed, JWT required for all API access (except `/healthcheck` and OpenAPI) |
 | Auth | disabled (dev) | OIDC/JWT enabled by default; RBAC enforced on API server |
@@ -301,18 +301,19 @@ oc -n cert-manager get pods
 
 If cert-manager is not installed, install it before deploying HyperShell (see scope note above).
 
-### Database cluster stuck in `Creating` or `Waiting`
+### API server cannot reach its database
 
-**Cause:** PersistentVolumes are not available, or the CNPG operator is not installed.
+**Cause:** `hypershell-db-app` is missing, or its host/credentials do not resolve to a
+reachable PostgreSQL server.
 
-**Fix:** verify the CNPG operator is running:
+**Fix:** verify the Secret and the server it points at:
 
 ```bash
-oc get crd clusters.postgresql.cnpg.io
-oc get namespace cnpg-system
+oc get secret hypershell-db-app -n hypershell-system -o jsonpath='{.data.host}' | base64 -d
+oc logs deploy/hypershell-api-server -n hypershell-system -c migrate
 ```
 
-Check PersistentVolume availability:
+Check PersistentVolume availability (only for a bundled dev database):
 
 ```bash
 oc get pv
@@ -367,5 +368,5 @@ The steps above use generic OpenShift defaults. On specific cloud providers, ove
 | Ingress mode | `gateway-api` (via `cloud-hub-ingress-bootstrap`) | `route` (via `deploy/ibm` overlay + **image mirroring**) | `route` (direct, no mirroring) |
 | Cert-manager | Install via OperatorHub | Mirror + apply manually (ROKS OperatorHub broken) | Install via OperatorHub |
 | Image sourcing | Build or use `:latest` | **Mirror all images** into internal registry (nodes isolated) | Use published `:latest` (full egress) |
-| Tenant database | CNPG (this skill) | CNPG (this skill) + mirror PostgreSQL image | CNPG (this skill) |
+| Tenant database | Externally provisioned server; admin credentials + CA in the `hypershell-gateway-database-admin` Secret mounted into the controller | Same (IBM Cloud Databases) | Same (cloud-managed PostgreSQL) |
 | Namespace | `hypershell-system` (same) | `hypershell-system` (same) | `hypershell-system` (same) |

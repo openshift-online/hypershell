@@ -417,7 +417,6 @@ body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
-    'database_id': 'e2e-db',
     'image': os.environ['GW_IMAGE'],
     'supervisor_image': os.environ['GW_SUPERVISOR_IMAGE'],
     'route': json.dumps({

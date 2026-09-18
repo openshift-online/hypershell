@@ -16,8 +16,9 @@ kind: Kustomization
 # TODO(HYPERSHELL-38 follow-ups), tracked with the GitOps PRs:
 #   - Persistence: the base still runs `start-dev` with an ephemeral H2 store
 #     and one-shot `--import-realm`. Before prod leans on this shared instance,
-#     switch to production `start` backed by a persistent DB (CloudNativePG,
-#     mirroring the platform DB) so runtime state survives restarts.
+#     switch to production `start` backed by a persistent DB (an externally
+#     provisioned server, mirroring the platform DB) so runtime state survives
+#     restarts.
 #   - Realm clients: the imported realm has a single frontend client pinned to
 #     the kind console host. A shared realm serving three consoles needs a
 #     client per env (redirect URIs / webOrigins for each console host). Those

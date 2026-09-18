@@ -44,10 +44,14 @@ resources:
 patches:
   # --- select Route ingress mode for the control-plane reconciler ---
   # Strategic-merge on the env list (merged by name): adds GATEWAY_INGRESS_MODE,
-  # overrides GATEWAY_API_BASE_DOMAIN, and sets per-tenant gateway database +
+  # overrides GATEWAY_API_BASE_DOMAIN, and sets the gateway, supervisor and
   # sandbox-base images to point at the cluster-internal registry (which ROKS
   # nodes can reach, unlike quay.io/ghcr.io/docker.io). GATEWAY_API_GATEWAY_NAME
-  # is unused in route mode and is left as-is.
+  # is unused in route mode and is left as-is. Gateway databases are created on
+  # the server named by Secret hypershell-gateway-database-admin (inherited
+  # from deploy/openshift: the bundled hypershell-postgres, or an IBM Cloud
+  # Databases instance when that Secret is replaced), so no database image is
+  # configured here.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -66,13 +70,6 @@ patches:
                     # OVERRIDE: set to this cluster's ingress subdomain, e.g.
                     # hysh-ibm-01-<hash>-0000.us-east.containers.appdomain.cloud
                     value: openshell.ibm.example.com
-                  - name: HYPERSHELL_DATABASE_IMAGE
-                    # OVERRIDE: set to the internal-registry pullspec for
-                    # postgres:18 (mirror of docker.io/library/postgres:18).
-                    # Nodes cannot pull docker.io; this image is served from the
-                    # cluster-internal registry. See skills/deploy/ibm-cluster
-                    # §5.2 for the mirror command.
-                    value: image-registry.openshift-image-registry.svc:5000/openshift/postgres:18
                   - name: GATEWAY_SANDBOX_IMAGE
                     # OVERRIDE: set to the internal-registry pullspec for the
                     # openshell-sandbox base image (mirror of

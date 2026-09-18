@@ -74,7 +74,7 @@ The `/metrics` path SHALL remain unauthenticated, consistent with the existing `
 
 Every cluster to which HyperShell is deployed SHALL include a Prometheus Operator and a Prometheus instance capable of scraping the `hypershell_gateways_total` metric without requiring cluster-specific manual configuration.
 
-The Prometheus Operator SHALL be vendored as `deploy/kind/infrastructure/prometheus-operator-bundle.yaml` (pinned to a specific release) and applied as a cluster-level infrastructure dependency before application manifests, in the same layer as cert-manager and CNPG.
+The Prometheus Operator SHALL be vendored as `deploy/kind/infrastructure/prometheus-operator-bundle.yaml` (pinned to a specific release) and applied as a cluster-level infrastructure dependency before application manifests, in the same layer as cert-manager.
 
 A `Prometheus` CR, a `ServiceAccount`, a `ClusterRole`, and a `ClusterRoleBinding` SHALL be declared in `deploy/base/prometheus/` and applied as application-level resources. The `Prometheus` CR SHALL:
 

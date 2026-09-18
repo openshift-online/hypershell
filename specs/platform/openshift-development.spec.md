@@ -69,8 +69,8 @@ YAML. Those are follow-up implementation work.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase) only
-where a scenario provisions one.
+GatewayNetwork, GatewayRelease, ManagedCluster) only where a scenario
+provisions one.
 
 ## Architecture
 
@@ -195,10 +195,10 @@ the working-tree image is active.
 
 Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
 developer needs for a working gateway -- a ManagedCluster, a
-GatewayRelease, a ManagedDatabase, and a Gateway -- with the OpenShift Route and
+GatewayRelease, and a Gateway -- with the OpenShift Route and
 OIDC values for the environment, so that one command produces a working gateway and
 the OpenShift workflow matches the Kind workflow. Seeding SHALL be reuse-or-create
-for the named seed resources `local-openshift`, `dev-release`, and `openshell-db`:
+for the named seed resources `local-openshift` and `dev-release`:
 when a resource with that name already exists, the command SHALL reuse its id and
 SHALL NOT POST a second copy. Gateway names are not unique in the API, so a second
 `make openshift-up` or `make openshift-seed` against a namespace that already has a
@@ -216,24 +216,17 @@ across restarts. This keeps seed safe to re-run on every reconcile of a
 long-lived environment (ephemeral pull-request environments re-run
 `make openshift-seed` after each image swap).
 
-The platform's own database provider (CNPG `Cluster` vs. the bundled PostgreSQL
-Deployment) SHALL be selectable with `DATABASE_PROVIDER=cnpg|deployment`, mirroring
-`make kind-up`. When unset, `make openshift-up` SHALL auto-detect: CNPG if the
-CloudNativePG operator is on the cluster, the bundled Deployment otherwise.
-Seeding SHALL create the ManagedDatabase with `provider=deployment` when the
-bundled Deployment is what's actually running, and `provider=cnpg` when CNPG is.
-Both providers persist their connection info in a Secret of the same name
-(`hypershell-db-app`) with different, incompatible key shapes (deployment:
-`user`/`password`/`host`/`port`/`dbname`; CNPG: `username`/`password`,
-auto-generated only if that Secret does not already exist). When the effective
-provider for a run differs from what is actually deployed in the namespace group
-(detected directly from live cluster state, not from `DATABASE_PROVIDER`),
-`make openshift-up` SHALL cut over automatically: delete the outgoing provider's
-resources (its Secret, and its Deployment/Service or its CNPG `Cluster`/PVCs) before
-applying the target provider, and restart `hypershell-api-server` and
-`hypershell-controller` afterward so they pick up the new connection info. This
-cutover is destructive to the outgoing provider's data, acceptable because this
-namespace group is ephemeral dev/e2e infrastructure, not production.
+The platform database SHALL be the bundled PostgreSQL Deployment that
+`deploy/base/` provides, with its connection info in the `hypershell-db-app`
+Secret (`user`/`password`/`host`/`port`/`dbname`). It stands in for an externally
+provisioned server. `make openshift-up` SHALL NOT read a database selector and
+SHALL NOT inspect the cluster to choose a database. The same server SHALL be the
+gateway database server: the bundled PostgreSQL SHALL serve TLS with a self-signed
+CA the scripts generate, and `make openshift-up` SHALL create the
+`hypershell-gateway-database-admin` Secret in the platform project with the server's
+admin connection, `sslmode: verify-full` and that CA as `sslrootcert`, before the
+controller starts. No credentials project is created and no database resource is
+seeded through the API.
 
 The OpenShift overlay SHALL derive `GATEWAY_API_HTTP_LISTENER_NAME` from the
 shared Gateway's actual listener (preferring one literally named `grpc` for
@@ -262,17 +255,16 @@ is forbidden, the command SHALL delete HyperShell resources inside both projects
 (including the bundled Keycloak workload, which is unlabeled), wait for those
 deletes, and leave the projects.
 
-Gateway and ManagedDatabase workloads do not live in the platform project. The
-control plane creates sibling namespaces (`openshell-<hex>`, `openshell-db-<hex>`)
-stamped with `hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>` as
+Gateway workloads do not live in the platform project. The control plane
+creates sibling namespaces (`openshell-<hex>`) stamped with `hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>` as
 `openshell-gateway-namespace-gc.spec.md` defines. Periodic GC cannot reap those
 after the platform project is gone, because only that instance's controller
 selects on its own identity, and deleting the project kills the controller.
 `make openshift-down` SHALL therefore delete every namespace labeled
 `hypershell.redhat.io/managed=true`,
 `app.kubernetes.io/managed-by=hypershell-control-plane`, and
-`hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>`, including ManagedDatabase
-namespaces, after the platform project is removed (or when that project is already
+`hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>` after the platform project
+is removed (or when that project is already
 absent) so the controller cannot recreate them from API state. It SHALL NOT
 delete namespaces labeled for a different instance. An empty instance identity
 SHALL refuse that selector rather than match unlabeled leftovers. This cleanup
@@ -289,7 +281,7 @@ prefix with `openshift`.
 
 Like `make kind-up`, `make openshift-up` SHALL wait until the stack is ready
 before it prints the running banner or seeds. The wait SHALL cover Keycloak,
-PostgreSQL when it is deployed as a Deployment, the API server, the control
+the bundled PostgreSQL Deployment, the API server, the control
 plane, and the web console, including after Route-derived environment updates
 and including a swapped working-tree image. The wait SHALL use
 `oc rollout status`, not `oc wait --for=condition=available`, so a Deployment
@@ -307,8 +299,7 @@ those from the developer machine.
 - WHEN the developer runs `make openshift-up`
 - THEN the scripts render and apply the API server, the control plane, the web
   console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
-- AND the scripts seed a ManagedCluster, a GatewayRelease, a
-  ManagedDatabase, and a Gateway
+- AND the scripts seed a ManagedCluster, a GatewayRelease, and a Gateway
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 
@@ -353,8 +344,8 @@ get-modify-replace of the live Deployment races status updates and fails with
 
 #### Scenario: Seeding reuses existing named resources
 
-- GIVEN the environment already has a ManagedCluster named `local-openshift`, a
-  GatewayRelease named `dev-release`, and a ManagedDatabase named `openshell-db`
+- GIVEN the environment already has a ManagedCluster named `local-openshift` and a
+  GatewayRelease named `dev-release`
 - WHEN the developer runs `make openshift-up` or `make openshift-seed`
 - THEN the command reuses those existing resources
 
@@ -369,16 +360,18 @@ get-modify-replace of the live Deployment races status updates and fails with
 #### Scenario: Remove the deployment
 
 - GIVEN a HyperShell deployment exists from `make openshift-up`
-- AND that environment has created gateway and ManagedDatabase namespaces labeled
+- AND that environment has created gateway namespaces labeled
   `hypershell.redhat.io/instance=<OPENSHIFT_NAMESPACE>`
 - WHEN the developer runs `make openshift-down` or `make openshift-teardown`
-- THEN the scripts delete the platform project and the companion `-keycloak` project
-- AND the command does not return until both projects are gone, or until project
-  deletion is forbidden and HyperShell resources in both projects have been removed
+- THEN the scripts delete the platform project and the companion `-keycloak`
+  project
+- AND the command does not return until every project in the group is gone, or until
+  project deletion is forbidden and HyperShell resources in those projects have been
+  removed
 - AND when project deletion is forbidden, the scripts remove HyperShell
-  resources from both projects, including Keycloak
+  resources from every project in the group, including Keycloak
 - AND the scripts delete namespaces labeled for this instance, including
-  `openshell-*` and `openshell-db-*`
+  `openshell-*`
 - AND the scripts do not delete namespaces labeled for a different instance
 - AND the scripts do not delete resources that belong to other environments or to
   cluster infrastructure
@@ -459,7 +452,8 @@ a different HyperShell environment, so an accidental down cannot erase an
 unrelated project. `FORCE=true make openshift-down` SHALL skip that ownership
 check and SHALL still refuse reserved names (`default`, `kube-*`,
 `openshift-*`). When project deletion is forbidden, the command SHALL remove
-HyperShell resources inside both projects and SHALL leave the projects.
+HyperShell resources inside the platform and keycloak projects and SHALL leave
+the projects.
 `make openshift-teardown` SHALL perform the same steps.
 
 #### Scenario: Two developers share one cluster
@@ -477,8 +471,8 @@ HyperShell resources inside both projects and SHALL leave the projects.
 
 - GIVEN two HyperShell environment namespace groups exist on one cluster
 - WHEN a developer runs `make openshift-down` for one environment
-- THEN the scripts remove only that environment's platform project and `-keycloak` project, or the HyperShell resources in them
-- AND the scripts delete that environment's instance-labeled gateway and database namespaces
+- THEN the scripts remove only that environment's namespace group, or the HyperShell resources in it
+- AND the scripts delete that environment's instance-labeled gateway namespaces
 - AND the other environment stays intact, including its instance-labeled namespaces
 
 #### Scenario: Deployment refuses a foreign namespace
@@ -530,7 +524,7 @@ rather than patching Keycloak into a shared namespace. This is why the spec keep
 Keycloak in its own namespace.
 
 Together, the platform namespace and its `-keycloak` namespace form the
-deployment's namespace group. The two namespaces SHALL share one lifecycle: the
+deployment's namespace group. The namespaces SHALL share one lifecycle: the
 scripts create missing ones with `oc new-project`, apply Keycloak while that
 project is selected, switch back to the platform project for the remaining
 components, and `make openshift-down` / `make openshift-teardown` (for local development) or the release step
@@ -614,7 +608,7 @@ hangs while loading JWKS and the rollout never completes.
 
 - GIVEN a deployment has a platform namespace and its `-keycloak` namespace
 - WHEN the developer runs `make openshift-down` or `make openshift-teardown`
-- THEN both namespaces are removed together
+- THEN every namespace in the group is removed together
 - AND the `-keycloak` namespace is not left behind
 
 ### Requirement: Component Swap on OpenShift
@@ -1111,10 +1105,10 @@ the image references, the gateway base domain `GATEWAY_API_BASE_DOMAIN`, the SSO
 configuration, and `Recreate` Deployment strategies on the platform and Keycloak
 workloads so a digest swap on the shared e2e cluster does not need a surge pod.
 Ephemeral OpenShift and hub intentionally differ: ephemeral OpenShift
-bundles a per-environment Keycloak and the bundled CNPG `Cluster` that the base
-provides, while `deploy/hub/` (production) shares one Keycloak per cluster and uses a
-managed database, so `deploy/hub/` deletes the bundled Keycloak unit and the bundled
-CNPG `Cluster`. The `deploy/hub/` allowlist SHALL therefore additionally permit those
+bundles a per-environment Keycloak and the bundled PostgreSQL Deployment that the
+base provides, while `deploy/hub/` (production) shares one Keycloak per cluster and
+uses an externally provisioned database, so `deploy/hub/` deletes the bundled
+Keycloak unit and the bundled PostgreSQL Deployment. The `deploy/hub/` allowlist SHALL therefore additionally permit those
 deletions. These declared differences are intentional, not drift.
 
 The overlay SHALL replace its placeholder values with values that a real
@@ -1158,7 +1152,7 @@ deploy/
 │   ├── controller.yaml             # Deployment + Service (includes GATEWAY_IMAGE/GATEWAY_SUPERVISOR_IMAGE env vars)
 │   ├── controller-rbac.yaml        # ClusterRole + ClusterRoleBinding for tenant reconciliation
 │   ├── web-console.yaml            # Deployment + Service
-│   ├── hypershell-db-cluster.yaml  # CNPG Cluster resource
+│   ├── postgres.yaml               # Bundled PostgreSQL Deployment + Service (development stand-in for an external server)
 │   ├── keycloak/                   # Shared Keycloak (base config, realm import)
 │   │   └── ...
 │   └── ...
@@ -1176,7 +1170,7 @@ Each overlay builds on `base/` and adds only its specific differences:
 - **`kind/`**: Keycloak with kind-local domain; disables OIDC by default
 - **`openshift/`**: Keycloak with Route; adds cert-manager Issuers/Certificates, per-tenant PKI, SecurityContextConstraints, NetworkPolicies
 - **`ibm/`**: Extends `openshift/` with image refs for internal registry, cluster-wide RBAC, namespace mapping
-- **`hub/`** (production): Removes bundled Keycloak (shares cluster-level instance); removes CNPG `Cluster` (uses external managed DB)
+- **`hub/`** (production): Removes bundled Keycloak (shares cluster-level instance); removes the bundled PostgreSQL Deployment (uses an externally provisioned DB)
 
 The `keycloak/` overlay (separate from `base/keycloak/`) is used in production to customize the shared Keycloak instance (Route, domain patching).
 

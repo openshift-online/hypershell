@@ -25,9 +25,6 @@ docs/ManagedClusterList.md
 docs/ManagedClusterPatchRequest.md
 docs/ManagedClusterRegistrationRequest.md
 docs/ManagedClusterRegistrationResponse.md
-docs/ManagedDatabase.md
-docs/ManagedDatabaseList.md
-docs/ManagedDatabasePatchRequest.md
 docs/ObjectReference.md
 docs/OpenShellGatewayServiceAccountCapabilities.md
 docs/OpenShellGatewayServiceAccountConnection.md
@@ -67,9 +64,6 @@ model_managed_cluster_list.go
 model_managed_cluster_patch_request.go
 model_managed_cluster_registration_request.go
 model_managed_cluster_registration_response.go
-model_managed_database.go
-model_managed_database_list.go
-model_managed_database_patch_request.go
 model_object_reference.go
 model_open_shell_gateway_service_account_capabilities.go
 model_open_shell_gateway_service_account_connection.go

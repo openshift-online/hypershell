@@ -76,10 +76,6 @@ function defaultPlatformInventory(): PlatformInventoryMetricsResponse {
       created_last_30_days: 0,
       total: 0,
     },
-    managed_databases: {
-      by_status: {},
-      total: 0,
-    },
   };
 }
 
@@ -990,7 +986,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     );
   });
 
-  it("aggregates managed cluster and database inventory into operational metrics", async () => {
+  it("aggregates managed cluster inventory into operational metrics", async () => {
     mockClusterMetricsResponses(
       1024 ** 3,
       512 * 1024 ** 2,
@@ -1019,13 +1015,6 @@ describe("createDashboardControlPlaneAdapter", () => {
             created_last_30_days: 2,
             total: 150,
           },
-          managed_databases: {
-            by_status: {
-              Ready: 1,
-              unknown: 1,
-            },
-            total: 2,
-          },
         },
       },
     );
@@ -1034,9 +1023,6 @@ describe("createDashboardControlPlaneAdapter", () => {
 
     const clustersMetric = metrics.metrics.find(
       (metric) => metric.id === "managed-clusters",
-    );
-    const databasesMetric = metrics.metrics.find(
-      (metric) => metric.id === "managed-databases",
     );
 
     expect(clustersMetric).toEqual({
@@ -1061,14 +1047,6 @@ describe("createDashboardControlPlaneAdapter", () => {
         unknown: 1,
       },
       value: "150",
-    });
-    expect(databasesMetric).toEqual({
-      id: "managed-databases",
-      inventoryStatus: {
-        Ready: 1,
-        unknown: 1,
-      },
-      value: "2",
     });
   });
 
@@ -1135,9 +1113,6 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(metrics.failedSources).toEqual(["platform-inventory"]);
     expect(
       metrics.metrics.find((metric) => metric.id === "managed-clusters"),
-    ).toBeUndefined();
-    expect(
-      metrics.metrics.find((metric) => metric.id === "managed-databases"),
     ).toBeUndefined();
     expect(
       metrics.metrics.find((metric) => metric.id === "memory"),

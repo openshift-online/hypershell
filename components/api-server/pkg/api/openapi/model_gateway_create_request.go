@@ -21,11 +21,9 @@ var _ MappedNullable = &GatewayCreateRequest{}
 
 // GatewayCreateRequest struct for GatewayCreateRequest
 type GatewayCreateRequest struct {
-	Name      string `json:"name"`
-	ClusterId string `json:"cluster_id"`
-	ReleaseId string `json:"release_id"`
-	// Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase
-	DatabaseId  string  `json:"database_id"`
+	Name        string  `json:"name"`
+	ClusterId   string  `json:"cluster_id"`
+	ReleaseId   string  `json:"release_id"`
 	ExternalDns *string `json:"external_dns,omitempty"`
 	TlsMode     *string `json:"tls_mode,omitempty"`
 	ServiceType *string `json:"service_type,omitempty"`
@@ -51,12 +49,11 @@ type _GatewayCreateRequest GatewayCreateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayCreateRequest(name string, clusterId string, releaseId string, databaseId string) *GatewayCreateRequest {
+func NewGatewayCreateRequest(name string, clusterId string, releaseId string) *GatewayCreateRequest {
 	this := GatewayCreateRequest{}
 	this.Name = name
 	this.ClusterId = clusterId
 	this.ReleaseId = releaseId
-	this.DatabaseId = databaseId
 	return &this
 }
 
@@ -138,30 +135,6 @@ func (o *GatewayCreateRequest) GetReleaseIdOk() (*string, bool) {
 // SetReleaseId sets field value
 func (o *GatewayCreateRequest) SetReleaseId(v string) {
 	o.ReleaseId = v
-}
-
-// GetDatabaseId returns the DatabaseId field value
-func (o *GatewayCreateRequest) GetDatabaseId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.DatabaseId
-}
-
-// GetDatabaseIdOk returns a tuple with the DatabaseId field value
-// and a boolean to check if the value has been set.
-func (o *GatewayCreateRequest) GetDatabaseIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.DatabaseId, true
-}
-
-// SetDatabaseId sets field value
-func (o *GatewayCreateRequest) SetDatabaseId(v string) {
-	o.DatabaseId = v
 }
 
 // GetExternalDns returns the ExternalDns field value if set, zero value otherwise.
@@ -529,7 +502,6 @@ func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize["name"] = o.Name
 	toSerialize["cluster_id"] = o.ClusterId
 	toSerialize["release_id"] = o.ReleaseId
-	toSerialize["database_id"] = o.DatabaseId
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns
 	}
@@ -574,7 +546,6 @@ func (o *GatewayCreateRequest) UnmarshalJSON(data []byte) (err error) {
 		"name",
 		"cluster_id",
 		"release_id",
-		"database_id",
 	}
 
 	allProperties := make(map[string]interface{})

@@ -102,8 +102,8 @@ the CI YAML or the Keycloak realm export.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase) only where a
-scenario provisions one. "Environment" here means the per-pull-request namespace
+GatewayNetwork, GatewayRelease, ManagedCluster) only where a scenario
+provisions one. "Environment" here means the per-pull-request namespace
 group (the platform namespace and its companion `-keycloak` namespace) that
 `openshift-development.spec.md` defines.
 
@@ -485,9 +485,9 @@ artifact across the stack.
 - THEN the workflow SHALL wait for the control plane's Konflux build for the new
   head commit
 - AND it SHALL swap the new control plane image into the environment by digest
-  before the `Deploy OpenShift Environment` check succeeds
-- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster`,
-  `GatewayRelease`, and `ManagedDatabase` seed resources
+  before the `Deploy PR environment` check succeeds
+- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster` and
+  `GatewayRelease` seed resources
 - AND it SHALL delete and recreate the existing `dev-gateway` rather than reuse
   it or create a second Gateway named `dev-gateway`
 
@@ -620,14 +620,14 @@ The reaper SHALL perform the deletion itself through the same teardown code path
 `make openshift-down` uses, invoked per expired environment, rather than a
 separate reimplementation of that teardown. It therefore SHALL delete the whole
 namespace group (platform and `-keycloak`), the environment's cluster-scoped
-RBAC, and the instance-managed gateway and ManagedDatabase namespaces the control
-plane stamped, and SHALL clear that environment's per-namespace swaps, exactly as
+RBAC, and the instance-managed gateway namespaces the control plane stamped, and
+SHALL clear that environment's per-namespace swaps, exactly as
 `make openshift-down` does. Sharing the one teardown path keeps the reaper and
 `make openshift-down` from drifting: a change to what teardown removes takes
 effect in both without a second edit.
 
-Gateway and ManagedDatabase namespaces are not in the namespace group and do not
-carry `hypershell.redhat.io/owned`. Periodic GC cannot reap them after the
+Gateway namespaces are not in the namespace group and do not carry
+`hypershell.redhat.io/owned`. Periodic GC cannot reap them after the
 platform project is gone (`openshell-gateway-namespace-gc.spec.md`). Because the
 reaper runs the `make openshift-down` teardown, it SHALL delete namespaces
 labeled `hypershell.redhat.io/managed=true`,
@@ -1322,7 +1322,7 @@ exists).
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
 | In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment as the last step of Tests / E2E / OpenShift unless retained, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
 | Deploy lives in the e2e stage after Unit, not a parallel PR Environment workflow | A separate workflow would deploy even when Unit fails and would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate means unit failure skips deploy, OpenShift can `needs:` deploy, and teardown can be a last step of the suite job |
-| Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway/database namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway and ManagedDatabase namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
+| Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |

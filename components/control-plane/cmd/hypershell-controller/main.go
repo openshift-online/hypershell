@@ -78,9 +78,6 @@ func helmBinaryPath() string {
 	return "/usr/local/bin/helm"
 }
 
-func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
-	return clientset != nil && dynamicClient != nil
-}
 
 func main() {
 	cfg, err := config.Load()
@@ -88,8 +85,18 @@ func main() {
 		log.Fatalf("loading config: %v", err)
 	}
 
+	// Gateway database provisioning is a hard startup precondition: the admin
+	// credentials Secret must be mounted and well-formed (verify-full, PEM CA)
+	// before any reconcile loop starts, so a misconfigured controller fails here
+	// with a clear message instead of failing every gateway later. The server is
+	// not contacted at startup; reachability is checked per reconcile with retries.
+	if err := gateway.ValidateAdminCredentialsDir(cfg.GatewayDatabaseAdminDir); err != nil {
+		log.Fatalf("gateway database admin credentials (GATEWAY_DATABASE_ADMIN_DIR=%s): %v", cfg.GatewayDatabaseAdminDir, err)
+	}
+	databaseConfig := gateway.DatabaseConfig{AdminCredentialsDir: cfg.GatewayDatabaseAdminDir}
+
 	log.Printf("INFO hypershell-controller starting")
-	log.Printf("INFO grpc=%s api=%s namespace=%s database_provider=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace, cfg.DatabaseProvider)
+	log.Printf("INFO grpc=%s api=%s namespace=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace)
 	if cfg.ClusterID != "" {
 		log.Printf("INFO managed-cluster mode: scoping gateway watch/seed/health to cluster_id=%s", cfg.ClusterID)
 	} else {
@@ -218,23 +225,6 @@ func main() {
 		}
 	}
 
-	// DATABASE_PROVIDER=cnpg is a hard startup precondition: the control plane
-	// must fail cleanly here, before any watch/reconcile loop starts, when the
-	// exact CNPG API resources this codebase depends on (clusters, databases,
-	// databaseroles in postgresql.cnpg.io/v1) are not served, rather than
-	// deferring the failure to the first CNPG-backed reconciliation deep
-	// inside the gateway/database reconcilers. DATABASE_PROVIDER=deployment (the
-	// default) never reaches this check and has no CNPG dependency at all.
-	if cfg.DatabaseProvider == config.DatabaseProviderCNPG {
-		if clientset == nil {
-			log.Fatalf("DATABASE_PROVIDER=cnpg requires an in-cluster Kubernetes client to verify the CNPG API prerequisites")
-		}
-		if err := gateway.RequireCNPGAPI(clientset); err != nil {
-			log.Fatalf("%v", err)
-		}
-		log.Printf("INFO CNPG API prerequisites verified for DATABASE_PROVIDER=cnpg")
-	}
-
 	// The Gateway Exposure port decouples route-address resolution and readiness
 	// observation from the concrete ingress backend. Select the adapter by the
 	// SAME effective ingress mode the reconciler uses to emit ingress resources
@@ -266,12 +256,6 @@ func main() {
 	}
 
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
-	var databaseReconciler watcher.Handler[*pb.ManagedDatabase]
-	if managedDatabaseWatchEligible(clientset, dynamicClient) {
-		databaseReconciler = reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn, cfg.Namespace)
-	} else {
-		log.Printf("WARN ManagedDatabase watch disabled: both Kubernetes typed and dynamic clients are required")
-	}
 	networkReconciler := reconciler.NewGatewayNetworkReconciler(conn)
 
 	// Initialize Helm client for gateway deployments
@@ -328,6 +312,7 @@ func main() {
 			exposurePort,
 			cfg.ExternalCAIssuerName,
 			cfg.ExternalCAIssuerKind,
+			databaseConfig,
 		)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)
@@ -349,9 +334,6 @@ func main() {
 	releaseReconciler := reconciler.NewGatewayReleaseReconciler(conn, gatewayQueue, cfg.ClusterID)
 
 	watchCount := 4 // managed clusters, gateway releases, gateways, networks
-	if databaseReconciler != nil {
-		watchCount++
-	}
 	if roleBindingReconciler != nil {
 		watchCount++
 	}
@@ -385,11 +367,6 @@ func main() {
 	supervise("ManagedCluster watch", func(ctx context.Context) error {
 		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler)
 	})
-	if databaseReconciler != nil {
-		supervise("ManagedDatabase watch", func(ctx context.Context) error {
-			return watcher.WatchManagedDatabases(ctx, conn, databaseReconciler)
-		})
-	}
 	supervise("GatewayRelease watch", func(ctx context.Context) error {
 		return watcher.WatchGatewayReleases(ctx, conn, releaseReconciler)
 	})

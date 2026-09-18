@@ -388,7 +388,6 @@ else
 fi
 if grep -q 'json_named_id local-openshift' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && grep -q 'json_named_id dev-release' "${SCRIPT_DIR}/drivers/openshift.sh" \
-  && grep -q 'json_named_id openshell-db' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && grep -q 'json_named_id dev-gateway' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   PASS=$((PASS + 1))
 else
@@ -408,55 +407,59 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: Kind seed does not look up existing resources with json_named_id'
 fi
-if grep -B2 'db_provider="\$(effective_database_provider)"' "${SCRIPT_DIR}/drivers/openshift.sh" >/dev/null \
-  && grep -A20 'Creating ManagedDatabase' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'provider='; then
-  PASS=$((PASS + 1))
-else
+# Gateway databases are provisioned from ONE admin credential Secret mounted
+# into the controller (hypershell-gateway-database-admin); there is no
+# ManagedDatabase resource, no connection_secret namespace, and no database_id
+# on the gateway create body.
+if grep -q 'managed_databases\|ManagedDatabase\|database_id\|connection_secret\|hypershell-managed-db\|OPENSHIFT_DB_CREDENTIALS_NAMESPACE' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift seed still hardcodes ManagedDatabase provider=cnpg'
-fi
-if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cutover_database_provider'; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_up does not reconcile the database provider on cutover'
-fi
-if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'TARGET_DB_PROVIDER="\$(effective_database_provider)"' \
-  && grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cutover_database_provider "\${TARGET_DB_PROVIDER}"'; then
-  PASS=$((PASS + 1))
-else
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_up still passes effective_database_provider via command substitution in argument position'
-fi
-if grep -A20 '^effective_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'exit 1'; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift effective_database_provider still uses exit 1 (ineffective inside command substitution)'
+  echo 'FAIL: OpenShift driver still references ManagedDatabase / database_id / hypershell-managed-db'
 else
   PASS=$((PASS + 1))
 fi
-if grep -A25 '^cutover_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'empty target'; then
-  PASS=$((PASS + 1))
-else
+if grep -q 'managed_databases\|ManagedDatabase\|database_id\|hypershell-managed-db' "${REPO_ROOT}/scripts/kind/seed.sh" "${REPO_ROOT}/scripts/kind/up.sh"; then
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cutover_database_provider does not guard against an empty target'
+  echo 'FAIL: Kind scripts still reference ManagedDatabase / database_id / hypershell-managed-db'
+else
+  PASS=$((PASS + 1))
 fi
-if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'restart_after_database_cutover'; then
-  PASS=$((PASS + 1))
-else
+if grep -q 'effective_database_provider\|cutover_database_provider\|DATABASE_PROVIDER' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cluster_up does not restart components after a database cutover'
+  echo 'FAIL: OpenShift driver still carries database provider selection'
+else
+  PASS=$((PASS + 1))
 fi
-if grep -A20 '^effective_database_provider()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'DATABASE_PROVIDER'; then
+if awk '/^ensure_namespace_group\(\)/,/^}/' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'ensure_gateway_database_admin_secret'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift effective_database_provider does not honor DATABASE_PROVIDER override'
+  echo 'FAIL: OpenShift namespace group does not stage hypershell-gateway-database-admin'
 fi
-if awk '/^cutover_database_provider\(\)/,/^}/' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'delete secret hypershell-db-app'; then
+admin_secret_fn="$(awk '/^ensure_gateway_database_admin_secret\(\)/,/^}/' "${SCRIPT_DIR}/drivers/openshift.sh")"
+if printf '%s' "${admin_secret_fn}" | grep -q 'create secret generic hypershell-gateway-database-admin' \
+  && printf '%s' "${admin_secret_fn}" | grep -q -- '--from-literal=sslmode="verify-full"' \
+  && printf '%s' "${admin_secret_fn}" | grep -q -- '--from-file=sslrootcert=' \
+  && printf '%s' "${admin_secret_fn}" | grep -q 'hypershell-postgres-tls' \
+  && printf '%s' "${admin_secret_fn}" | grep -q 'gen-postgres-tls.sh'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift cutover_database_provider does not clear the provider-shaped Secret'
+  echo 'FAIL: hypershell-gateway-database-admin is not staged with sslmode=verify-full and a generated CA'
+fi
+if grep -q 'validate_rfc1123_label "${OPENSHIFT_NAMESPACE}" 54' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift platform namespace cap is not 54'
+fi
+# The bundled PostgreSQL is applied once, uid-stripped, by apply_postgres_fallback;
+# the overlay render must omit it so the pinned base manifest never wins.
+if awk '/^apply_overlay\(\)/,/^}/' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q -- '--omit-names hypershell-sandbox-scc,hypershell-postgres' \
+  && ! grep -q 'configure_postgres_fallback_ssl' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift overlay render does not omit hypershell-postgres or still downgrades DB_SSLMODE'
 fi
 if grep -A30 '^wait_for_deployments()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'is_openshift_swapped'; then
   FAIL=$((FAIL + 1))
@@ -939,6 +942,14 @@ if printf '%s' "${stripped}" | grep -q 'runAsNonRoot: true'; then
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: --strip-openshift-uids dropped runAsNonRoot'
+fi
+if grep -q 'secretName: hypershell-postgres-tls' "${REPO_ROOT}/deploy/base/postgres.yaml" \
+  && grep -q 'ssl=on' "${REPO_ROOT}/deploy/base/postgres.yaml" \
+  && grep -q 'defaultMode: 416' "${REPO_ROOT}/deploy/base/postgres.yaml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: deploy/base/postgres.yaml does not serve TLS from hypershell-postgres-tls'
 fi
 
 # --- Overlay still renders ---

@@ -3,7 +3,10 @@ import type {
   Variants,
 } from "@patternfly/widgetized-dashboard";
 
-export const REMOVED_WIDGET_TYPES = new Set(["provisioned-sandboxes"]);
+export const REMOVED_WIDGET_TYPES = new Set([
+  "provisioned-sandboxes",
+  "managed-database-status",
+]);
 
 export function stripRemovedWidgetTypes(
   template: ExtendedTemplateConfig,

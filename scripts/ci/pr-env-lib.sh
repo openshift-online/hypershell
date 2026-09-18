@@ -27,7 +27,7 @@ PR_ENV_MANAGED_VALUE="hypershell-lifecycle"
 PR_ENV_PART_OF_LABEL="app.kubernetes.io/part-of"
 PR_ENV_PART_OF_VALUE="hypershell"
 PR_ENV_EXPIRES_ANNOTATION="hypershell.redhat.io/expires-at"
-# Control-plane stamps on gateway and ManagedDatabase namespaces. Must match
+# Control-plane stamps on gateway namespaces. Must match
 # components/control-plane/internal/gateway/namespace.go. Distinct from
 # PR_ENV_MANAGED_VALUE, which marks the platform/keycloak namespace group.
 PR_ENV_CP_MANAGED_LABEL="hypershell.redhat.io/managed"

@@ -466,7 +466,7 @@ the suite SHALL seed a synthetic orphaned managed namespace (`openshell-e2e-orph
 labeled with the three required ownership labels (`hypershell.redhat.io/managed=true`,
 `app.kubernetes.io/managed-by=hypershell-control-plane`, and
 `hypershell.redhat.io/instance=<E2E_HS_NAMESPACE>`) and a name matching
-the gateway prefix (not `openshell-db-*`), annotate it with a
+the gateway prefix, annotate it with a
 backdated `hypershell.redhat.io/gc-eligible-since` timestamp so the next sweep can
 reap without waiting a full grace period. Steps 3–10 SHALL run while the periodic
 reaper may delete that namespace in the background, so the suite is not blocked
@@ -1029,7 +1029,7 @@ The performance test measures how the platform behaves when many gateways run at
 
 The performance test reuses the e2e driver abstraction. It runs against any infrastructure target that supplies a driver. It auto-detects the target from the current KUBECONFIG context, the same as the e2e suite, with `E2E_INFRA_DRIVER` available as an override. A user runs the test against Kind for local checks. A user runs the test against any OpenShift cluster for on-demand load tests.
 
-The performance test does not build images and does not create the cluster. It targets a cluster that already runs. It reuses the resources that `make kind-up` (or the OpenShift deploy) already seeded: one managed cluster, one release, and (when `DATABASE_PROVIDER=cnpg`) one managed database. Each perf gateway create body reuses the cluster and release ids.
+The performance test does not build images and does not create the cluster. It targets a cluster that already runs. It reuses the resources that `make kind-up` (or the OpenShift deploy) already seeded: one managed cluster, one release, and one managed database. Each perf gateway create body reuses the cluster and release ids.
 
 ### Performance Architecture
 

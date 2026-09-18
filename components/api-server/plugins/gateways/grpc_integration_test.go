@@ -55,7 +55,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		Name:        "TestName",
 		ClusterId:   "TestClusterId",
 		ReleaseId:   "TestReleaseId",
-		DatabaseId:  "TestDatabaseId",
 		ExternalDns: func() *string { s := "TestExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "TestTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
@@ -69,9 +68,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 
 	gatewayID := created.Gateway.Metadata.Id
 	gatewayNamespace := created.Gateway.Namespace
-	gatewayDatabaseID := created.Gateway.DatabaseId
-	Expect(gatewayDatabaseID).NotTo(BeEmpty())
-	Expect(gatewayDatabaseID).NotTo(Equal(createReq.DatabaseId), "client-supplied database_id must be ignored")
 
 	getReq := &pb.GetGatewayRequest{Id: gatewayID}
 	retrieved, err := grpcClient.GetGateway(ctx, getReq)
@@ -90,7 +86,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 		Name:        func() *string { s := "UpdatedName"; return &s }(),
 		ClusterId:   func() *string { s := "UpdatedClusterId"; return &s }(),
 		ReleaseId:   func() *string { s := "UpdatedReleaseId"; return &s }(),
-		DatabaseId:  func() *string { s := "UpdatedDatabaseId"; return &s }(),
 		ExternalDns: func() *string { s := "UpdatedExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "UpdatedTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
@@ -101,7 +96,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(updated.Gateway.Metadata.Id).To(Equal(gatewayID))
 	Expect(updated.Gateway.Namespace).To(Equal(gatewayNamespace))
-	Expect(updated.Gateway.DatabaseId).To(Equal(gatewayDatabaseID), "database_id update must be ignored")
 
 	retrieved, err = grpcClient.GetGateway(ctx, getReq)
 	Expect(err).NotTo(HaveOccurred())
@@ -257,10 +251,9 @@ func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 	grpcClient := pb.NewGatewayServiceClient(conn)
 
 	createReq := &pb.CreateGatewayRequest{
-		Name:       "delete-watch-test",
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
+		Name:      "delete-watch-test",
+		ClusterId: "test-cluster",
+		ReleaseId: "test-release",
 	}
 	created, err := grpcClient.CreateGateway(ctx, createReq)
 	Expect(err).NotTo(HaveOccurred())

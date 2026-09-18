@@ -16,7 +16,6 @@ import (
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayReleases"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/otel"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"

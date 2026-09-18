@@ -49,7 +49,6 @@ if [[ "${E2E_PERF_CHECKPOINT}" != "1" ]]; then
   E2E_PERF_BATCH_SIZE="${E2E_PERF_GATEWAY_COUNT}"
 fi
 
-DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
 
 # --- Driver selection ---
@@ -127,7 +126,6 @@ perf_export_child_env() {
   export E2E_OIDC_PASSWORD="${E2E_OIDC_PASSWORD:-}"
   export E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}"
   export E2E_RELEASE_ID="${E2E_RELEASE_ID:-}"
-  export E2E_DATABASE_ID="${E2E_DATABASE_ID:-}"
   export E2E_PERF_PROVISION_TIMEOUT="${E2E_PERF_PROVISION_TIMEOUT:-}"
   export E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-}"
   if [[ -n "${OPENSHIFT_NAMESPACE:-}" ]]; then
@@ -371,7 +369,6 @@ perf_run_mini_test() {
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
     E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
-    E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" \
     bash "${SCRIPT_DIR}/e2e-openshell.sh"
   PERF_MINI_RC=$?
   set -e
@@ -431,11 +428,6 @@ if ! e2e_discover_seed_ids; then
 fi
 perf_export_child_env
 
-if [[ "${DB_PROVIDER}" == "cnpg" && -z "${E2E_DATABASE_ID}" ]]; then
-  red "ERROR: No ManagedDatabase found (required for DATABASE_PROVIDER=cnpg)"
-  exit 1
-fi
-
 dim "  Driver:            ${E2E_INFRA_DRIVER}"
 dim "  HyperShell API:    ${API_HOST}"
 dim "  Gateway count:     ${E2E_PERF_GATEWAY_COUNT}"
@@ -447,7 +439,6 @@ dim "  Functional:        ${E2E_PERF_RUN_FUNCTIONAL}"
 dim "  Results:           ${PERF_RESULTS_FILE}"
 dim "  cluster_id:        ${E2E_CLUSTER_ID}"
 dim "  release_id:        ${E2E_RELEASE_ID}"
-[[ -n "${E2E_DATABASE_ID}" ]] && dim "  database_id:       ${E2E_DATABASE_ID}"
 echo ""
 sep
 
@@ -620,7 +611,6 @@ if [[ "${E2E_PERF_RUN_FUNCTIONAL}" == "1" && "$PERF_STOPPED_EARLY" != "true" ]];
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
     E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
-    E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" \
     bash "${SCRIPT_DIR}/e2e-openshell.sh"
   func_rc=$?
   set -e

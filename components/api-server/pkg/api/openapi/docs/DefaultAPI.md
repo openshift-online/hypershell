@@ -9,21 +9,18 @@ Method | HTTP request | Description
 [**CreateGatewayRelease**](DefaultAPI.md#CreateGatewayRelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
 [**CreateGatewayServiceAccount**](DefaultAPI.md#CreateGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
 [**CreateManagedCluster**](DefaultAPI.md#CreateManagedCluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
-[**CreateManagedDatabase**](DefaultAPI.md#CreateManagedDatabase) | **Post** /api/hypershell/v1/managed_databases | Create a new managedDatabase
 [**CreateRoleBinding**](DefaultAPI.md#CreateRoleBinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
 [**DeleteGateway**](DefaultAPI.md#DeleteGateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
 [**DeleteGatewayNetwork**](DefaultAPI.md#DeleteGatewayNetwork) | **Delete** /api/hypershell/v1/gateway_networks/{id} | Delete a gateway network
 [**DeleteGatewayRelease**](DefaultAPI.md#DeleteGatewayRelease) | **Delete** /api/hypershell/v1/gateway_releases/{id} | Delete a gateway release
 [**DeleteGatewayServiceAccount**](DefaultAPI.md#DeleteGatewayServiceAccount) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Delete an OpenShell gateway service account
 [**DeleteManagedCluster**](DefaultAPI.md#DeleteManagedCluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
-[**DeleteManagedDatabase**](DefaultAPI.md#DeleteManagedDatabase) | **Delete** /api/hypershell/v1/managed_databases/{id} | Delete a managed database
 [**DeleteRoleBinding**](DefaultAPI.md#DeleteRoleBinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 [**GetGateway**](DefaultAPI.md#GetGateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 [**GetGatewayNetwork**](DefaultAPI.md#GetGatewayNetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
 [**GetGatewayRelease**](DefaultAPI.md#GetGatewayRelease) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
 [**GetGatewayServiceAccount**](DefaultAPI.md#GetGatewayServiceAccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 [**GetManagedCluster**](DefaultAPI.md#GetManagedCluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
-[**GetManagedDatabase**](DefaultAPI.md#GetManagedDatabase) | **Get** /api/hypershell/v1/managed_databases/{id} | Get an managedDatabase by id
 [**GetMetadata**](DefaultAPI.md#GetMetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
 [**GetRole**](DefaultAPI.md#GetRole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 [**GetRoleBinding**](DefaultAPI.md#GetRoleBinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
@@ -33,7 +30,6 @@ Method | HTTP request | Description
 [**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 [**ListGateways**](DefaultAPI.md#ListGateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 [**ListManagedClusters**](DefaultAPI.md#ListManagedClusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
-[**ListManagedDatabases**](DefaultAPI.md#ListManagedDatabases) | **Get** /api/hypershell/v1/managed_databases | Returns a list of managedDatabases
 [**ListRoleBindings**](DefaultAPI.md#ListRoleBindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 [**ListRoles**](DefaultAPI.md#ListRoles) | **Get** /api/hypershell/v1/roles | List all roles
 [**ListUsers**](DefaultAPI.md#ListUsers) | **Get** /api/hypershell/v1/users | List registered users
@@ -43,7 +39,6 @@ Method | HTTP request | Description
 [**UpdateGatewayNetwork**](DefaultAPI.md#UpdateGatewayNetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
 [**UpdateGatewayRelease**](DefaultAPI.md#UpdateGatewayRelease) | **Patch** /api/hypershell/v1/gateway_releases/{id} | Update an gatewayRelease
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
-[**UpdateManagedDatabase**](DefaultAPI.md#UpdateManagedDatabase) | **Patch** /api/hypershell/v1/managed_databases/{id} | Update an managedDatabase
 
 
 
@@ -66,7 +61,7 @@ import (
 )
 
 func main() {
-	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "ClusterId_example", "ReleaseId_example", "DatabaseId_example") // GatewayCreateRequest | Gateway data
+	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "ClusterId_example", "ReleaseId_example") // GatewayCreateRequest | Gateway data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -358,70 +353,6 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ManagedCluster**](ManagedCluster.md)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: application/json
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
-
-
-## CreateManagedDatabase
-
-> ManagedDatabase CreateManagedDatabase(ctx).ManagedDatabase(managedDatabase).Execute()
-
-Create a new managedDatabase
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	managedDatabase := *openapiclient.NewManagedDatabase("Name_example", "Provider_example") // ManagedDatabase | ManagedDatabase data
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.CreateManagedDatabase(context.Background()).ManagedDatabase(managedDatabase).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreateManagedDatabase``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-	// response from `CreateManagedDatabase`: ManagedDatabase
-	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.CreateManagedDatabase`: %v\n", resp)
-}
-```
-
-### Path Parameters
-
-
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiCreateManagedDatabaseRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **managedDatabase** | [**ManagedDatabase**](ManagedDatabase.md) | ManagedDatabase data | 
-
-### Return type
-
-[**ManagedDatabase**](ManagedDatabase.md)
 
 ### Authorization
 
@@ -812,72 +743,6 @@ Name | Type | Description  | Notes
 ### Other Parameters
 
 Other parameters are passed through a pointer to a apiDeleteManagedClusterRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-
-
-### Return type
-
- (empty response body)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: Not defined
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
-
-
-## DeleteManagedDatabase
-
-> DeleteManagedDatabase(ctx, id).Execute()
-
-Delete a managed database
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	id := "id_example" // string | The id of record
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	r, err := apiClient.DefaultAPI.DeleteManagedDatabase(context.Background(), id).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.DeleteManagedDatabase``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-}
-```
-
-### Path Parameters
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record | 
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiDeleteManagedDatabaseRequest struct via the builder pattern
 
 
 Name | Type | Description  | Notes
@@ -1296,74 +1161,6 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ManagedCluster**](ManagedCluster.md)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: Not defined
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
-
-
-## GetManagedDatabase
-
-> ManagedDatabase GetManagedDatabase(ctx, id).Execute()
-
-Get an managedDatabase by id
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	id := "id_example" // string | The id of record
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.GetManagedDatabase(context.Background(), id).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetManagedDatabase``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-	// response from `GetManagedDatabase`: ManagedDatabase
-	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetManagedDatabase`: %v\n", resp)
-}
-```
-
-### Path Parameters
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record | 
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiGetManagedDatabaseRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-
-
-### Return type
-
-[**ManagedDatabase**](ManagedDatabase.md)
 
 ### Authorization
 
@@ -2010,78 +1807,6 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
-## ListManagedDatabases
-
-> ManagedDatabaseList ListManagedDatabases(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
-
-Returns a list of managedDatabases
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
-	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
-	search := "search_example" // string | Specifies the search criteria (optional)
-	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
-	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.ListManagedDatabases(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListManagedDatabases``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-	// response from `ListManagedDatabases`: ManagedDatabaseList
-	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListManagedDatabases`: %v\n", resp)
-}
-```
-
-### Path Parameters
-
-
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiListManagedDatabasesRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
- **size** | **int32** | Maximum number of records to return | [default to 100]
- **search** | **string** | Specifies the search criteria | 
- **orderBy** | **string** | Specifies the order by criteria | 
- **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
-
-### Return type
-
-[**ManagedDatabaseList**](ManagedDatabaseList.md)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: Not defined
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
-
-
 ## ListRoleBindings
 
 > RoleBindingList ListRoleBindings(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
@@ -2700,76 +2425,6 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ManagedCluster**](ManagedCluster.md)
-
-### Authorization
-
-[Bearer](../README.md#Bearer)
-
-### HTTP request headers
-
-- **Content-Type**: application/json
-- **Accept**: application/json
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
-[[Back to Model list]](../README.md#documentation-for-models)
-[[Back to README]](../README.md)
-
-
-## UpdateManagedDatabase
-
-> ManagedDatabase UpdateManagedDatabase(ctx, id).ManagedDatabasePatchRequest(managedDatabasePatchRequest).Execute()
-
-Update an managedDatabase
-
-### Example
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
-)
-
-func main() {
-	id := "id_example" // string | The id of record
-	managedDatabasePatchRequest := *openapiclient.NewManagedDatabasePatchRequest() // ManagedDatabasePatchRequest | Updated managedDatabase data
-
-	configuration := openapiclient.NewConfiguration()
-	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.UpdateManagedDatabase(context.Background(), id).ManagedDatabasePatchRequest(managedDatabasePatchRequest).Execute()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdateManagedDatabase``: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
-	}
-	// response from `UpdateManagedDatabase`: ManagedDatabase
-	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdateManagedDatabase`: %v\n", resp)
-}
-```
-
-### Path Parameters
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
-**id** | **string** | The id of record | 
-
-### Other Parameters
-
-Other parameters are passed through a pointer to a apiUpdateManagedDatabaseRequest struct via the builder pattern
-
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-
- **managedDatabasePatchRequest** | [**ManagedDatabasePatchRequest**](ManagedDatabasePatchRequest.md) | Updated managedDatabase data | 
-
-### Return type
-
-[**ManagedDatabase**](ManagedDatabase.md)
 
 ### Authorization
 

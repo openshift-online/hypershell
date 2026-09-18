@@ -94,7 +94,6 @@ When JWT is enabled, trusted in-cluster services (e.g., the control plane) SHALL
 - `/hypershell.v1.GatewayService/WatchGateways`
 - `/hypershell.v1.GatewayReleaseService/WatchGatewayReleases`
 - `/hypershell.v1.ManagedClusterService/WatchManagedClusters`
-- `/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases`
 - `/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks`
 
 Health and OpenAPI HTTP paths SHALL also bypass JWT: `/healthcheck`, `/metrics`, `/api/hypershell/v1/openapi`, `/openapi`.

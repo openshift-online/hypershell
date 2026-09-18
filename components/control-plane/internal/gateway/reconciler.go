@@ -96,9 +96,9 @@ func ReconcileGateway(
 	dbReconciler, err := newDatabaseReconciler(opts)
 	if err != nil {
 		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - the database service is unavailable")
-		return fmt.Errorf("database provider for gateway in namespace %s: %w", nsConfig.Name, err)
+		return fmt.Errorf("database reconciler for gateway in namespace %s: %w", nsConfig.Name, err)
 	}
-	if err := dbReconciler.Reconcile(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID, opts.RotateDBCredentials); err != nil {
+	if err := dbReconciler.Reconcile(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID); err != nil {
 		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to provision the gateway database")
 		return err
 	}
@@ -267,17 +267,20 @@ func DeleteGatewayResources(
 		}
 	}
 
-	if dbReconciler, err := newDatabaseReconciler(opts); err == nil {
-		cleanupCtx, cleanupCancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cleanupCancel()
-		if delErr := dbReconciler.Delete(cleanupCtx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
-			// Transient error (server unreachable, DDL failure): return so the
-			// delete-reconcile retries. Terminal errors (admin secret unreadable)
-			// are handled inside Delete and return nil; in-cluster cleanup still runs.
-			return fmt.Errorf("database cleanup for gateway %s: %w", opts.GatewayID, delErr)
-		}
-	} else {
-		log.Printf("WARN gateway %s: cannot construct database reconciler for delete: %v", opts.GatewayID, err)
+	dbReconciler, err := newDatabaseReconciler(opts)
+	if err != nil {
+		return fmt.Errorf("database reconciler for gateway %s delete: %w", opts.GatewayID, err)
+	}
+	cleanupCtx, cleanupCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cleanupCancel()
+	if delErr := dbReconciler.Delete(cleanupCtx, dynamicClient, clientset, opts.GatewayID); delErr != nil {
+		// The database and role may still exist on the server. Record the
+		// leftover so it is operator-visible even if the controller restarts and
+		// loses the queued retry, then return the error so the delete-reconcile
+		// retries (gateway-deletion-finalization.spec.md).
+		recordOrphan(ctx, opts, "PostgreSQLDatabase", gatewayDBName(opts.GatewayID),
+			fmt.Sprintf("database cleanup failed during gateway deletion; the gateway database and role may remain on the server and the delete will be retried: %v", delErr))
+		return fmt.Errorf("database cleanup for gateway %s: %w", opts.GatewayID, delErr)
 	}
 
 	for _, credNS := range credentialNamespaces {
@@ -1348,81 +1351,6 @@ func DetectCertManager(clientset *kubernetes.Clientset) bool {
 		}
 	}
 	return false
-}
-
-// cnpgAPIGroupVersion is the exact CNPG API group and version this codebase
-// integration depends on. Detection is pinned to this version, rather than
-// any postgresql.cnpg.io/* prefix, because the resource shapes this code
-// builds -- Cluster, Database, and DatabaseRole specs -- are v1-specific.
-const cnpgAPIGroupVersion = "postgresql.cnpg.io/v1"
-
-// requiredCNPGResourceNames are the plural resource names this codebase reads
-// or writes directly: clusters (ManagedDatabaseReconciler) and databases and
-// databaseroles (per-gateway provisioning below). Finding that some
-// postgresql.cnpg.io API group merely exists is not sufficient evidence CNPG
-// is usable: a partial or version-mismatched install could serve one
-// resource but not the others, and that would otherwise surface much later
-// as an unstructured-apply 404 deep inside gateway provisioning instead of
-// at startup or capability-detection time.
-var requiredCNPGResourceNames = []string{"clusters", "databases", "databaseroles"}
-
-// missingCNPGResources reports which of requiredCNPGResourceNames are absent
-// from a postgresql.cnpg.io/v1 APIResourceList. A nil list (group/version not
-// found at all) is reported as everything missing.
-func missingCNPGResources(list *metav1.APIResourceList) []string {
-	served := map[string]bool{}
-	if list != nil {
-		for _, r := range list.APIResources {
-			served[r.Name] = true
-		}
-	}
-	var missing []string
-	for _, name := range requiredCNPGResourceNames {
-		if !served[name] {
-			missing = append(missing, name)
-		}
-	}
-	return missing
-}
-
-// DetectCNPG reports whether the exact CNPG API resources this codebase
-// depends on (Cluster, Database, DatabaseRole in postgresql.cnpg.io/v1) are
-// served by the cluster. It is a best-effort, non-fatal capability check used
-// to gate reconciliation of individual ManagedDatabase and Gateway resources
-// whose provider is "cnpg", independent of the control plane configured
-// DATABASE_PROVIDER default; see RequireCNPGAPI for the fail-fast startup
-// check.
-func DetectCNPG(clientset kubernetes.Interface) bool {
-	list, err := clientset.Discovery().ServerResourcesForGroupVersion(cnpgAPIGroupVersion)
-	if err != nil {
-		log.Printf("WARN CNPG operator not detected: %s not found in cluster discovery: %v", cnpgAPIGroupVersion, err)
-		return false
-	}
-	if missing := missingCNPGResources(list); len(missing) > 0 {
-		log.Printf("WARN CNPG operator not detected: %s is present but missing required resources %v", cnpgAPIGroupVersion, missing)
-		return false
-	}
-	log.Printf("INFO CNPG operator detected: %s (clusters, databases, databaseroles)", cnpgAPIGroupVersion)
-	return true
-}
-
-// RequireCNPGAPI verifies that the exact CNPG API resources this codebase
-// depends on (Cluster, Database, DatabaseRole in postgresql.cnpg.io/v1) are
-// served by the cluster, returning a descriptive, non-fatal error if they are
-// not. Callers configured with DATABASE_PROVIDER=cnpg use this at startup to
-// fail cleanly before launching any reconcilers, rather than deferring the
-// failure to the first CNPG-backed reconciliation. The caller must pass a
-// non-nil client; unlike DetectCNPG, this is a startup precondition check,
-// not a best-effort capability probe.
-func RequireCNPGAPI(clientset kubernetes.Interface) error {
-	list, err := clientset.Discovery().ServerResourcesForGroupVersion(cnpgAPIGroupVersion)
-	if err != nil {
-		return fmt.Errorf("DATABASE_PROVIDER=cnpg requires the CNPG operator %s API group, which was not found: %w", cnpgAPIGroupVersion, err)
-	}
-	if missing := missingCNPGResources(list); len(missing) > 0 {
-		return fmt.Errorf("DATABASE_PROVIDER=cnpg requires CNPG resources %v in %s, but the cluster is missing %v; install or upgrade the CloudNativePG operator, or set DATABASE_PROVIDER=deployment", requiredCNPGResourceNames, cnpgAPIGroupVersion, missing)
-	}
-	return nil
 }
 
 func DetectGatewayAPI(clientset *kubernetes.Clientset) bool {

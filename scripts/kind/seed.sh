@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Seed the platform's baseline resources (ManagedCluster, GatewayRelease,
-# ManagedDatabase, Gateway) into a running Kind cluster via the REST API.
+# Gateway) into a running Kind cluster via the REST API. Gateway databases need
+# no seeding: the control plane provisions them on the server named by the
+# hypershell-gateway-database-admin Secret that up.sh creates.
 #
 # Split out of up.sh so it can run AFTER the component image swap in CI, against
 # the working-tree image rather than the baseline placeholder image kind-up
@@ -12,8 +14,6 @@
 # SKIP_SEED=true on kind-up and runs `make kind-seed` after the swap.
 #
 # Environment:
-#   DATABASE_PROVIDER   cnpg | deployment | external (default: external). Must
-#                       match the provider kind-up provisioned infrastructure for.
 #   KIND_SEED_STRICT    when "true", a seeding failure exits non-zero instead of
 #                       only warning. CI sets this so a contract regression fails
 #                       the job at the seed step with the real HTTP error, rather
@@ -27,12 +27,6 @@ source "${SCRIPT_DIR}/lib.sh"
 
 require_cluster
 
-# DATABASE_PROVIDER unset/empty means "external" (mirrors up.sh).
-DB_PROVIDER="${DATABASE_PROVIDER:-external}"
-if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" && "${DB_PROVIDER}" != "external" ]]; then
-  error "DATABASE_PROVIDER must be 'cnpg', 'deployment', or 'external', got '${DB_PROVIDER}'"
-  exit 1
-fi
 
 # --- Seed Gateway via REST API ---
 header "Gateway Provisioning"
@@ -153,7 +147,6 @@ extract_id() {
 seed_failed=""
 CLUSTER_ID=""
 RELEASE_ID=""
-DATABASE_ID=""
 
 if [[ -z "${seed_failed}" ]]; then
   # Check for existing ManagedCluster
@@ -171,11 +164,7 @@ if [[ -z "${seed_failed}" ]]; then
 
   if [[ -z "${CLUSTER_ID}" ]]; then
     info "Creating ManagedCluster..."
-    _mc_body="{\"name\":\"local-kind\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\""
-    if [[ "${DB_PROVIDER}" == "external" ]]; then
-      _mc_body="${_mc_body},\"region\":\"kind-local\""
-    fi
-    _mc_body="${_mc_body}}"
+    _mc_body="{\"name\":\"local-kind\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\",\"region\":\"kind-local\"}"
     MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" "${_mc_body}")
     MC_HTTP=$(echo "${MC_RAW}" | tail -1)
     MC_RESP=$(echo "${MC_RAW}" | sed '$d')
@@ -222,55 +211,6 @@ if [[ -z "${seed_failed}" ]]; then
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  if [[ "${DB_PROVIDER}" == "deployment" ]]; then
-    info "Skipping ManagedDatabase seed - deployment mode auto-creates per-gateway databases"
-    DATABASE_ID=""
-  else
-    # Check for existing openshell-db ManagedDatabase
-    info "Checking for existing openshell-db ManagedDatabase..."
-    EXISTING_MD_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_databases")
-    EXISTING_MD_HTTP=$(echo "${EXISTING_MD_RAW}" | tail -1)
-    EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
-
-    if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
-      DATABASE_ID=$(printf '%s' "${EXISTING_MD_RESP}" | json_named_id openshell-db)
-      if [[ -n "${DATABASE_ID}" ]]; then
-        success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
-      fi
-    fi
-
-    if [[ -z "${DATABASE_ID}" ]]; then
-      info "Creating ManagedDatabase (provider=${DB_PROVIDER})..."
-      if [[ "${DB_PROVIDER}" == "external" ]]; then
-        # connection_secret names the NAMESPACE holding the admin credentials
-        # (created by up.sh), not a Secret name. The Secret inside it is always
-        # hypershell-managed-db-credentials.
-        MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-          "{\"name\":\"openshell-db\",\"provider\":\"external\",\"connection_secret\":\"hypershell-managed-db-kind\",\"region\":\"kind-local\"}")
-      else
-        MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-          "{\"name\":\"openshell-db\",\"provider\":\"${DB_PROVIDER}\"}")
-      fi
-      MD_HTTP=$(echo "${MD_RAW}" | tail -1)
-      MD_RESP=$(echo "${MD_RAW}" | sed '$d')
-
-      if [[ "${MD_HTTP}" != "201" && "${MD_HTTP}" != "200" ]]; then
-        warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
-        seed_failed=true
-      else
-        DATABASE_ID=$(extract_id "${MD_RESP}")
-        if [[ -z "${DATABASE_ID}" ]]; then
-          warn "ManagedDatabase creation returned success but no ID: ${MD_RESP:-no response}"
-          seed_failed=true
-        else
-          success "ManagedDatabase created: ${DATABASE_ID}"
-        fi
-      fi
-    fi
-  fi
-fi
-
-if [[ -z "${seed_failed}" ]]; then
   # Check if dev-gateway already exists before creating
   info "Checking for existing dev-gateway..."
   GATEWAY_ID=""
@@ -291,16 +231,7 @@ if [[ -z "${seed_failed}" ]]; then
     OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
     # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-    # For external mode, send database_id="" so server-side placement resolves it:
-    # externalPlacement.Resolve selects the sole provider=external ManagedDatabase
-    # (no region matching - the single registered external DB is always used).
-    # For other modes, deployment uses "" (auto) and cnpg uses the actual DATABASE_ID.
-    _gw_database_id="${DATABASE_ID}"
-    if [[ "${DB_PROVIDER}" == "external" ]]; then
-      _gw_database_id=""
-    fi
     GW_BODY="{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
-    GW_BODY="${GW_BODY},\"database_id\":\"${_gw_database_id}\""
     GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
     GW_BODY="${GW_BODY}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")

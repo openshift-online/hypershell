@@ -46,10 +46,11 @@ func TestDeleteGatewayResources_RecordsOrphanedKeycloakClients(t *testing.T) {
 
 	var recorded []orphanRecord
 	opts := ReconcileOpts{
-		KeycloakClient:  kc,
-		GatewayID:       "gateway-id",
-		GatewayName:     "gw",
-		GatewayClientID: "gw-gateway-id",
+		KeycloakClient:     kc,
+		GatewayID:          "gateway-id",
+		GatewayName:        "gw",
+		GatewayClientID:    "gw-gateway-id",
+		databaseReconciler: &fakeDatabaseReconciler{},
 		RecordOrphan: func(_ context.Context, kind, name, reason string) {
 			recorded = append(recorded, orphanRecord{kind, name, reason})
 		},
@@ -88,10 +89,11 @@ func TestDeleteGatewayResources_NilRecorderIsNoOp(t *testing.T) {
 		gatewayErr: errors.New("keycloak unavailable"),
 	}
 	opts := ReconcileOpts{
-		KeycloakClient:  kc,
-		GatewayID:       "gateway-id",
-		GatewayName:     "gw",
-		GatewayClientID: "gw-gateway-id",
+		KeycloakClient:     kc,
+		GatewayID:          "gateway-id",
+		GatewayName:        "gw",
+		GatewayClientID:    "gw-gateway-id",
+		databaseReconciler: &fakeDatabaseReconciler{},
 	}
 
 	if err := DeleteGatewayResources(context.Background(), client, nil, nil, "gateway-ns", opts); err != nil {

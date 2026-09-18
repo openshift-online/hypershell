@@ -41,11 +41,10 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 
 	badPhase := "Booting"
 	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "reject-create",
-		ClusterId:  "test-cluster_id",
-		ReleaseId:  "test-release_id",
-		DatabaseId: "test-database_id",
-		Phase:      &badPhase,
+		Name:      "reject-create",
+		ClusterId: "test-cluster_id",
+		ReleaseId: "test-release_id",
+		Phase:     &badPhase,
 	})
 	Expect(err).To(HaveOccurred(), "create with an unknown phase must be rejected")
 	Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
@@ -53,11 +52,10 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 	// A canonical phase on create is accepted.
 	goodPhase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "accept-create",
-		ClusterId:  "test-cluster_id",
-		ReleaseId:  "test-release_id",
-		DatabaseId: "test-database_id",
-		Phase:      &goodPhase,
+		Name:      "accept-create",
+		ClusterId: "test-cluster_id",
+		ReleaseId: "test-release_id",
+		Phase:     &goodPhase,
 	})
 	Expect(err).NotTo(HaveOccurred())
 
@@ -84,10 +82,9 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 
 	// An absent phase is accepted so the field stays optional.
 	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       "accept-absent-phase",
-		ClusterId:  "test-cluster_id",
-		ReleaseId:  "test-release_id",
-		DatabaseId: "test-database_id",
+		Name:      "accept-absent-phase",
+		ClusterId: "test-cluster_id",
+		ReleaseId: "test-release_id",
 	})
 	Expect(err).NotTo(HaveOccurred(), "create without a phase must be accepted")
 }
@@ -127,11 +124,10 @@ func TestRESTGatewayRejectsUnknownPhase(t *testing.T) {
 	ctx := h.NewAuthenticatedContext(account)
 
 	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name:       "reject-rest-create",
-		ClusterId:  "test-cluster_id",
-		ReleaseId:  "test-release_id",
-		DatabaseId: "test-database_id",
-		Phase:      openapi.PtrString("Booting"),
+		Name:      "reject-rest-create",
+		ClusterId: "test-cluster_id",
+		ReleaseId: "test-release_id",
+		Phase:     openapi.PtrString("Booting"),
 	}).Execute()
 	Expect(err).To(HaveOccurred(), "REST create with an unknown phase must be rejected")
 	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))

@@ -44,11 +44,10 @@ field. Tenancy is enforced by RBAC (platform-level and per-gateway).
 
 | Kind | Key Fields | Purpose |
 |------|-----------|---------|
-| **Gateway** | name, cluster_id, release_id, database_id, namespace, tls_mode | API gateway instance |
+| **Gateway** | name, cluster_id, release_id, namespace, tls_mode | API gateway instance |
 | **GatewayNetwork** | name, topology, tunnel_mode, hub_gateway_id | Network connectivity mesh |
 | **GatewayRelease** | name, image, rollout_strategy, canary_percent | Versioned gateway images |
 | **ManagedCluster** | name, provider, region, kubeconfig_secret | Registered K8s cluster |
-| **ManagedDatabase** | name, provider, region, engine, connection_secret | Provisioned database |
 
 ## Plugin System
 
@@ -101,7 +100,9 @@ All routes under `/api/hypershell/v1/`:
 | PATCH | `/{kinds}/{id}` | Patch |
 | DELETE | `/{kinds}/{id}` | Delete |
 
-Kinds: `gateways`, `gateway_networks`, `gateway_releases`, `managed_clusters`, `managed_databases`
+Kinds: `gateways`, `gateway_networks`, `gateway_releases`, `managed_clusters`
+
+There is no database Kind: gateway databases are provisioned by the control plane from a mounted admin credential Secret (`specs/platform/openshell-gateway-database.spec.md`).
 
 ## Conventions
 

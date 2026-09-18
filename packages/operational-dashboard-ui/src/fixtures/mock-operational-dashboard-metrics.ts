@@ -142,14 +142,6 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
         }),
         value: "8",
       }),
-      Object.freeze({
-        id: "managed-databases",
-        inventoryStatus: Object.freeze({
-          Ready: 2,
-          unknown: 1,
-        }),
-        value: "3",
-      }),
     ]),
     lastSuccessfulRefresh: new Date("2026-08-25T10:55:00.000Z"),
   });

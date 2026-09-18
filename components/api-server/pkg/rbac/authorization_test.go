@@ -372,16 +372,10 @@ func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *
 	if isAuthorized(http.MethodGet, "managed_clusters", "", "", ownerOnly, nil) {
 		t.Error("gateway:owner must not list managed_clusters")
 	}
-	if isAuthorized(http.MethodGet, "managed_databases", "", "", ownerOnly, nil) {
-		t.Error("gateway:owner must not list managed_databases")
-	}
 
 	creatorOnly := []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}
 	if !isAuthorized(http.MethodGet, "managed_clusters", "", "", creatorOnly, nil) {
 		t.Error("gateway:creator should list managed_clusters")
-	}
-	if !isAuthorized(http.MethodGet, "managed_databases", "", "", creatorOnly, nil) {
-		t.Error("gateway:creator should list managed_databases")
 	}
 
 	if isAuthorized(http.MethodGet, "managed_clusters", "", "", nil, []string{HypershellAdminRole}) {

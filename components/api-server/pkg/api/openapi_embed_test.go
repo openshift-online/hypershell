@@ -55,8 +55,8 @@ func TestGetOpenAPISpecReturnsCompleteContract(t *testing.T) {
 			operationIDs[operation.OperationID] = method + " " + path
 		}
 	}
-	if operationCount != 40 {
-		t.Fatalf("embedded operation count = %d, want 40", operationCount)
+	if operationCount != 35 {
+		t.Fatalf("embedded operation count = %d, want 35", operationCount)
 	}
 
 	expectedDeletes := map[string]string{
@@ -64,7 +64,6 @@ func TestGetOpenAPISpecReturnsCompleteContract(t *testing.T) {
 		"/api/hypershell/v1/gateway_releases/{id}":                                       "deleteGatewayRelease",
 		"/api/hypershell/v1/gateways/{id}":                                               "deleteGateway",
 		"/api/hypershell/v1/managed_clusters/{id}":                                       "deleteManagedCluster",
-		"/api/hypershell/v1/managed_databases/{id}":                                      "deleteManagedDatabase",
 		"/api/hypershell/v1/role_bindings/{id}":                                          "deleteRoleBinding",
 		"/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}": "deleteGatewayServiceAccount",
 	}
