@@ -17,6 +17,11 @@ import {
   clusterCpuCapacityPromql,
   clusterCpuUsedPromql,
 } from "../src/metrics-cluster-cpu.js";
+import {
+  isPrometheusRangeRequest,
+  parsePrometheusUrl,
+  rejectPrometheusRange,
+} from "./prometheus-stub.js";
 
 const testSessionSecret =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -172,7 +177,11 @@ describe("GET /api/metrics/cluster-cpu", () => {
 
   it("returns cluster CPU cores when Prometheus succeeds", async () => {
     const prometheusUrl = await startPrometheusStub((request, response) => {
-      const url = new URL(request.url ?? "", "http://127.0.0.1");
+      const url = parsePrometheusUrl(request);
+      if (isPrometheusRangeRequest(url)) {
+        rejectPrometheusRange(response);
+        return;
+      }
       const query = url.searchParams.get("query");
       response.setHeader("content-type", "application/json");
       if (query === clusterCpuCapacityPromql) {
@@ -244,7 +253,11 @@ describe("GET /api/metrics/cluster-cpu", () => {
   it("allows dashboard administrators when OIDC is enabled", async () => {
     oidcServer = await createOidcServer();
     const prometheusUrl = await startPrometheusStub((request, response) => {
-      const url = new URL(request.url ?? "", "http://127.0.0.1");
+      const url = parsePrometheusUrl(request);
+      if (isPrometheusRangeRequest(url)) {
+        rejectPrometheusRange(response);
+        return;
+      }
       const query = url.searchParams.get("query");
       response.setHeader("content-type", "application/json");
       if (query === clusterCpuCapacityPromql) {

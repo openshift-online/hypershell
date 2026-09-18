@@ -29,16 +29,16 @@ Dashboard-operator BFF routes require `platform:admin` (OP-DASH-04).
 
 ## Metric sources
 
-| Source ID                      | BFF / API routes                                                                                                                                                | Metrics emitted                                                                            |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `gateway-metrics`              | `GET /api/metrics/gateways`, `GET /api/metrics/gateway-sandboxes`, `GET /api/metrics/gateway-provision-duration`, `GET /api/metrics/gateway-provision-outcomes` | `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, `provision-reliability` |
-| `registered-users`             | `GET /api/metrics/registered-users`                                                                                                                             | `registered-users`                                                                         |
-| `gateway-release-distribution` | SDK `GET /api/hypershell/v1/gateways`, `GET /api/hypershell/v1/gateway_releases`                                                                                | `gateway-releases`                                                                         |
-| `platform-inventory`           | `GET /api/metrics/platform-inventory`                                                                                                                           | `managed-clusters`, `managed-databases`                                                    |
-| `cluster-memory`               | `GET /api/metrics/cluster-memory`                                                                                                                               | `memory`                                                                                   |
-| `cluster-cpu`                  | `GET /api/metrics/cluster-cpu`                                                                                                                                  | `cpu`                                                                                      |
-| `cluster-pods`                 | `GET /api/metrics/cluster-pods`                                                                                                                                 | `pods`                                                                                     |
-| `cluster-nodes`                | `GET /api/metrics/cluster-nodes`                                                                                                                                | `nodes`                                                                                    |
+| Source ID                      | BFF / API routes                                                                                                                                                | Metrics emitted                                                                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `gateway-metrics`              | `GET /api/metrics/gateways`, `GET /api/metrics/gateway-sandboxes`, `GET /api/metrics/gateway-provision-duration`, `GET /api/metrics/gateway-provision-outcomes` | `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, `provision-reliability`                              |
+| `registered-users`             | `GET /api/metrics/registered-users`                                                                                                                             | `registered-users`                                                                                                      |
+| `gateway-release-distribution` | SDK `GET /api/hypershell/v1/gateways`, `GET /api/hypershell/v1/gateway_releases`                                                                                | `gateway-releases`                                                                                                      |
+| `platform-inventory`           | `GET /api/metrics/platform-inventory`                                                                                                                           | `managed-clusters`, `managed-databases`                                                                                 |
+| `cluster-memory`               | `GET /api/metrics/cluster-memory`                                                                                                                               | `memory` (optional 7-day `daily_used` → `trend`; see [Hub cluster utilization trends](#hub-cluster-utilization-trends)) |
+| `cluster-cpu`                  | `GET /api/metrics/cluster-cpu`                                                                                                                                  | `cpu` (optional 7-day `daily_used` → `trend`; see [Hub cluster utilization trends](#hub-cluster-utilization-trends))    |
+| `cluster-pods`                 | `GET /api/metrics/cluster-pods`                                                                                                                                 | `pods` (optional 7-day `daily_used` → `trend`; see [Hub cluster utilization trends](#hub-cluster-utilization-trends))   |
+| `cluster-nodes`                | `GET /api/metrics/cluster-nodes`                                                                                                                                | `nodes`                                                                                                                 |
 
 If `GET /api/metrics/gateways` or `GET /api/metrics/gateway-sandboxes` fails,
 the entire `gateway-metrics` source fails and all four gateway metrics above are
@@ -62,7 +62,7 @@ multiple metrics from the same payload.
 | `cpu`                       | `cpu`                                   | Node-exporter `node_cpu_seconds_total` capacity and 5m non-idle rate, mapped to whole cores.                                    |
 | `pods`                      | `pods`                                  | kube-state-metrics allocatable pod capacity, live pod count, and phase breakdown.                                               |
 | `nodes`                     | `nodes`                                 | kube-state-metrics `kube_node_info` total and Ready condition.                                                                  |
-| `inventory-summary`         | `managed-clusters`, `managed-databases` | Totals, 30-day cluster creations, and status icons (OP-DASH-20).                                                                |
+| `inventory-summary`         | `managed-clusters`, `managed-databases` | Totals, 30-day cluster creations, and status icons (OP-DASH-22).                                                                |
 | `managed-cluster-providers` | `managed-clusters`                      | Provider donut from `inventoryProviders`.                                                                                       |
 | `managed-cluster-regions`   | `managed-clusters`                      | Region donut from `inventoryRegions` (`{region} ({provider})` keys).                                                            |
 | `managed-database-status`   | `managed-databases`                     | Status donut from `inventoryStatus`.                                                                                            |
@@ -115,15 +115,41 @@ success counts only (GPO-04); it does not synthesize failure counts.
 The widget includes an hourly success-rate sparkline (`successRateTrend`) when
 at least two hourly buckets are present.
 
+### Hub cluster utilization trends
+
+Spec: `platform/hub-cluster-utilization-trends.spec.md` (HYPERSHELL-281 hub scope).
+
+Each cluster BFF route extends its instant JSON with optional `daily_used`: an array of `{ date, value }` entries for the last **7 UTC calendar days** inclusive of today. Values are daily **used** amounts in display units (GiB, cores, pod count). The adapter maps `daily_used` into `OperationalMetric.trend.points` (`label` ← `date`, `value` ← `value`).
+
+Range queries use the same PromQL as the instant **used** measurement, Prometheus `query_range` with **86400s** step, and `alignDailyIntegerSeries` zero-fill for missing calendar days (same pattern as gateway fleet total trends).
+
+| BFF route                         | Range PromQL (daily used)                                               | Trend unit  |
+| --------------------------------- | ----------------------------------------------------------------------- | ----------- |
+| `GET /api/metrics/cluster-memory` | `sum(node_memory_MemTotal_bytes) - sum(node_memory_MemAvailable_bytes)` | whole GiB   |
+| `GET /api/metrics/cluster-cpu`    | `sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))`                   | whole cores |
+| `GET /api/metrics/cluster-pods`   | `count(kube_pod_info)`                                                  | whole pods  |
+
+When the range query fails but instant queries succeed, the BFF returns HTTP `200` with instant fields and omits `daily_used`. Widgets omit sparklines when `trend` is absent or has fewer than two points (HCUT-08).
+
 ## Sparklines and trends
 
-| Location                       | Series                      | When shown                                                                      |
-| ------------------------------ | --------------------------- | ------------------------------------------------------------------------------- |
-| `registered-users` widget      | 30-day daily unique logins  | When `trend.points` has at least two points                                     |
-| `provision-reliability` widget | 24-hour hourly success rate | When BFF returns at least two `hourly_success_rate` buckets                     |
-| Usage summary Users row        | Trend arrow on total        | When `registered-users.trend` is present (`getMetricTrendChange`, 5% threshold) |
+| Location                        | Series                      | When shown                                                                      |
+| ------------------------------- | --------------------------- | ------------------------------------------------------------------------------- |
+| `gateway-status` widget         | 7-day daily fleet totals    | When `provisioned-gateways.trend.points` has at least two points (GFT-06)       |
+| `memory` widget                 | 7-day daily used memory     | When `memory.trend.points` has at least two points (HCUT-08)                    |
+| `cpu` widget                    | 7-day daily used CPU        | When `cpu.trend.points` has at least two points (HCUT-08)                       |
+| `pods` widget                   | 7-day daily used pods       | When `pods.trend.points` has at least two points (HCUT-08)                      |
+| `registered-users` widget       | 30-day daily unique logins  | When `trend.points` has at least two points                                     |
+| `provision-reliability` widget  | 24-hour hourly success rate | When BFF returns at least two `hourly_success_rate` buckets                     |
+| Usage summary Gateways row      | Trend arrow on total        | When `provisioned-gateways.trend` is present (GFT-07)                           |
+| Usage summary Sandboxes row     | Trend arrows                | When `provisioned-sandboxes.hourlyTrend` or `trend` is present                  |
+| Usage summary Users row         | Trend arrow on total        | When `registered-users.trend` is present (`getMetricTrendChange`, 5% threshold) |
+| System summary Memory row       | Trend arrow on used GiB     | When `memory.trend` change is at least 5% (HCUT-08)                             |
+| System summary CPU row          | Trend arrow on used cores   | When `cpu.trend` change is at least 5% (HCUT-08)                                |
+| System summary Pods row         | Trend arrow on used pods    | When `pods.trend` change is at least 5% (HCUT-08)                               |
+| System summary Success rate row | Trend arrow on success rate | When `provision-reliability.successRateTrend` change is at least 5%             |
 
-Other metric cards do not load historical series.
+Other metric cards do not load historical series unless listed above.
 
 ## Adding a new source
 

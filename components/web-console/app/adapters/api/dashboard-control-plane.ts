@@ -1,7 +1,9 @@
 import {
-  fetchGatewayMetrics,
+  emptyGatewayPhaseCounts,
   gatewayPhaseCountsToDisplayStatusCounts,
+  gatewayPhases,
   type GatewayDisplayStatusCounts,
+  type GatewayPhaseCounts,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import type {
   DashboardControlPlane,
@@ -25,21 +27,29 @@ type DashboardApiFactory = (correlationId: string) => SDKClient;
 
 const gibibyteDivisor = 1024 ** 3;
 
+interface DailyTrendPoint {
+  date: string;
+  value: number;
+}
+
 interface ClusterMemoryResponse {
   available_bytes: number;
   capacity_bytes: number;
+  daily_used?: DailyTrendPoint[];
   used_bytes: number;
 }
 
 interface ClusterCpuResponse {
   available_cores: number;
   capacity_cores: number;
+  daily_used?: DailyTrendPoint[];
   used_cores: number;
 }
 
 interface ClusterPodsResponse {
   available_pods: number;
   capacity_pods: number;
+  daily_used?: DailyTrendPoint[];
   phase_failed_pods: number;
   phase_pending_pods: number;
   phase_running_pods: number;
@@ -77,6 +87,13 @@ interface GatewayProvisionOutcomesResponse {
 
 interface GatewaySandboxesResponse {
   active_sandboxes: number;
+  daily_active_sandboxes?: { count: number; date: string }[];
+  hourly_active_sandboxes?: { count: number; hour: string }[];
+}
+
+interface GatewayMetricsResponse {
+  counts: Record<string, number>;
+  daily_fleet_totals?: { date: string; total: number }[];
 }
 
 interface RegisteredUsersDailyLogin {
@@ -125,6 +142,46 @@ function registeredUsersResponseToMetric(
   return metric;
 }
 
+function mapDailyTrend(
+  dailySeries: readonly { date: string; value: number }[] | undefined,
+) {
+  if (dailySeries === undefined) {
+    return undefined;
+  }
+
+  return {
+    points: dailySeries.map((point) => ({
+      label: point.date,
+      value: point.value,
+    })),
+  };
+}
+
+function mapFleetTotalTrend(
+  dailyFleetTotals: GatewayMetricsResponse["daily_fleet_totals"],
+) {
+  if (dailyFleetTotals === undefined) {
+    return undefined;
+  }
+
+  return {
+    points: dailyFleetTotals.map((point) => ({
+      label: point.date,
+      value: point.total,
+    })),
+  };
+}
+
+function parseGatewayPhaseCounts(
+  counts: Record<string, number>,
+): GatewayPhaseCounts {
+  const phaseCounts = emptyGatewayPhaseCounts();
+  for (const phase of gatewayPhases) {
+    phaseCounts[phase] = counts[phase] ?? 0;
+  }
+  return phaseCounts;
+}
+
 function bytesToRoundedGib(bytes: number): string {
   return String(Math.round(bytes / gibibyteDivisor));
 }
@@ -148,11 +205,14 @@ async function fetchClusterMemoryMetric(
 
   const body = (await response.json()) as ClusterMemoryResponse;
 
+  const trend = mapDailyTrend(body.daily_used);
+
   return {
     id: "memory",
     total: bytesToRoundedGib(body.capacity_bytes),
     unit: "GiB",
     value: bytesToRoundedGib(body.used_bytes),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -171,11 +231,14 @@ async function fetchClusterCpuMetric(
 
   const body = (await response.json()) as ClusterCpuResponse;
 
+  const trend = mapDailyTrend(body.daily_used);
+
   return {
     id: "cpu",
     total: coresToRoundedString(body.capacity_cores),
     unit: "cores",
     value: coresToRoundedString(body.used_cores),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -194,6 +257,8 @@ async function fetchClusterPodsMetric(
 
   const body = (await response.json()) as ClusterPodsResponse;
 
+  const trend = mapDailyTrend(body.daily_used);
+
   return {
     id: "pods",
     podPhases: {
@@ -206,6 +271,7 @@ async function fetchClusterPodsMetric(
     total: String(body.capacity_pods),
     unit: "pods",
     value: String(body.used_pods),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -323,6 +389,7 @@ async function fetchGatewayProvisionDurationMetric(
 function gatewayDisplayCountsToMetric(
   total: number,
   counts: GatewayDisplayStatusCounts,
+  trend?: ReturnType<typeof mapFleetTotalTrend>,
 ): OperationalMetric {
   return {
     id: "provisioned-gateways",
@@ -333,6 +400,7 @@ function gatewayDisplayCountsToMetric(
       provisioning: counts.provisioning,
     },
     value: String(total),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -350,10 +418,30 @@ async function fetchGatewaySandboxesMetric(
   }
 
   const body = (await response.json()) as GatewaySandboxesResponse;
+  const hourlyTrend =
+    body.hourly_active_sandboxes === undefined
+      ? undefined
+      : {
+          points: body.hourly_active_sandboxes.map((point) => ({
+            label: point.hour,
+            value: point.count,
+          })),
+        };
+  const trend =
+    body.daily_active_sandboxes === undefined
+      ? undefined
+      : {
+          points: body.daily_active_sandboxes.map((point) => ({
+            label: point.date,
+            value: point.count,
+          })),
+        };
 
   return {
     id: "provisioned-sandboxes",
     value: String(body.active_sandboxes),
+    ...(hourlyTrend ? { hourlyTrend } : {}),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -369,15 +457,27 @@ function isAbortError(error: unknown): boolean {
 async function fetchGatewayPrometheusMetric(
   signal?: AbortSignal,
 ): Promise<OperationalMetric> {
-  const phaseCounts = await fetchGatewayMetrics(signal);
+  const response = await fetch("/api/metrics/gateways", {
+    credentials: "same-origin",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch gateway metrics: ${String(response.status)}`,
+    );
+  }
+
+  const body = (await response.json()) as GatewayMetricsResponse;
+  const phaseCounts = parseGatewayPhaseCounts(body.counts);
   const displayStatusCounts =
     gatewayPhaseCountsToDisplayStatusCounts(phaseCounts);
   const total = Object.values(phaseCounts).reduce(
     (sum, count) => sum + count,
     0,
   );
+  const trend = mapFleetTotalTrend(body.daily_fleet_totals);
 
-  return gatewayDisplayCountsToMetric(total, displayStatusCounts);
+  return gatewayDisplayCountsToMetric(total, displayStatusCounts, trend);
 }
 
 async function fetchGatewayPrometheusMetrics(

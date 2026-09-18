@@ -1,5 +1,56 @@
 import type { OperationalDashboardMetrics } from "../application/dashboard-types";
 
+function buildSevenDayTrendPoints(
+  baseValue: number,
+  step: number,
+): { label: string; value: number }[] {
+  const points: { label: string; value: number }[] = [];
+  const today = new Date();
+  const utcToday = Date.UTC(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    today.getUTCDate(),
+  );
+
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const day = new Date(utcToday - offset * 24 * 60 * 60 * 1000);
+    points.push({
+      label: day.toISOString().slice(0, 10),
+      value: baseValue + (6 - offset) * step,
+    });
+  }
+
+  return points;
+}
+
+function buildHourlyTrendPoints(
+  baseValue: number,
+  step: number,
+): { label: string; value: number }[] {
+  const points: { label: string; value: number }[] = [];
+  const end = new Date();
+  const endHour = Date.UTC(
+    end.getUTCFullYear(),
+    end.getUTCMonth(),
+    end.getUTCDate(),
+    end.getUTCHours(),
+  );
+
+  for (let offset = 23; offset >= 0; offset -= 1) {
+    const hour = new Date(endHour - offset * 60 * 60 * 1000);
+    const year = hour.getUTCFullYear();
+    const month = String(hour.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(hour.getUTCDate()).padStart(2, "0");
+    const hourLabel = String(hour.getUTCHours()).padStart(2, "0");
+    points.push({
+      label: `${String(year)}-${month}-${day}T${hourLabel}:00`,
+      value: baseValue + (23 - offset) * step,
+    });
+  }
+
+  return points;
+}
+
 function buildRegisteredUsersTrendPoints(): {
   label: string;
   value: number;
@@ -38,10 +89,19 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
           healthy: 80,
           provisioning: 9,
         }),
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(80, 2)),
+        }),
         value: "97",
       }),
       Object.freeze({
+        hourlyTrend: Object.freeze({
+          points: Object.freeze(buildHourlyTrendPoints(180, 1)),
+        }),
         id: "provisioned-sandboxes",
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(190, 3)),
+        }),
         value: "214",
       }),
       Object.freeze({
@@ -67,12 +127,18 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
       Object.freeze({
         id: "memory",
         total: "237",
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(200, 3)),
+        }),
         unit: "GiB",
         value: "220",
       }),
       Object.freeze({
         id: "cpu",
         total: "60",
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(40, 1)),
+        }),
         unit: "cores",
         value: "48",
       }),
@@ -86,6 +152,9 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
           unknown: 0,
         }),
         total: "2000",
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(500, 7)),
+        }),
         unit: "pods",
         value: "548",
       }),

@@ -32,6 +32,11 @@
 #                                 ("ready" phase only)
 #   PR_ENV_RETAINED               "true" when the pull request is marked
 #                                 retained (lifetime wording on both phases)
+#   PR_ENV_EXPIRES_AT             RFC 3339 UTC inactivity expiry shown on
+#                                 retained comments. The deploy action
+#                                 precomputes one timestamp and passes it to
+#                                 the deploying comment, stamp-pr-env.sh, and
+#                                 the ready comment so they cannot drift.
 #   PLATFORM_NS / KEYCLOAK_NS     namespace group ("ready" phase only)
 #   CONSOLE_URL / API_URL / WEB_URL / CLUSTER_API_URL   access URLs
 #                                 ("ready" phase only)

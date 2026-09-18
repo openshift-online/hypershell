@@ -7,6 +7,7 @@ import { messages } from "../messages";
 import {
   buildProvisionReliabilityData,
   getProvisionReliabilityStatusLevel,
+  getProvisionReliabilityWindowCaptionMessage,
   parseProvisionReliabilityStats,
 } from "./provision-reliability-data";
 import { StatusDonutChart } from "./status-donut-chart";
@@ -37,13 +38,14 @@ export function ProvisionReliabilityChart({
   const title = intl.formatMessage(messages.provisionReliabilityRate, {
     rate: stats.successRatePercent.toFixed(1),
   });
-  const subtitle = intl.formatMessage(messages.provisionReliabilityLast24Hours);
+  const windowCaptionMessage = getProvisionReliabilityWindowCaptionMessage(
+    metric.provisionOutcomes?.successCountWindow,
+  );
+  const subtitle = intl.formatMessage(windowCaptionMessage);
   const sparklineTitle = intl.formatMessage(
     messages.provisionReliabilityHourlySuccessRate,
   );
-  const sparklineCaption = intl.formatMessage(
-    messages.provisionReliabilityLast24Hours,
-  );
+  const sparklineCaption = intl.formatMessage(windowCaptionMessage);
 
   return (
     <Stack hasGutter className="hypershell-dashboard-provision-reliability">

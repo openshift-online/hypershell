@@ -28,9 +28,13 @@ export interface OperationalMetricProvisionDuration {
   p95: string;
 }
 
+export type ProvisionSuccessCountWindow =
+  "duration_24h" | "duration_lifetime" | "outcomes_24h";
+
 export interface OperationalMetricProvisionOutcomes {
   failureCount24h: string;
   successCount24h: string;
+  successCountWindow?: ProvisionSuccessCountWindow;
   successRatePercent: string;
 }
 
@@ -46,6 +50,7 @@ export interface OperationalMetric {
   provisionOutcomes?: OperationalMetricProvisionOutcomes;
   releaseDistribution?: Record<string, number>;
   status?: OperationalMetricStatus;
+  hourlyTrend?: OperationalMetricTrend;
   successRateTrend?: OperationalMetricTrend;
   total?: string;
   trend?: OperationalMetricTrend;

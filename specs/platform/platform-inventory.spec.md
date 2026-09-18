@@ -243,7 +243,7 @@ The widget catalog SHALL add these types:
 | `managed-cluster-regions` | `managed-clusters` | Yes | Placement donut from `inventoryRegions` (`{region} ({provider})` keys); legend ordered by descending count (PI-05) |
 | `managed-database-status` | `managed-databases` | Yes | Status donut when ≤5 non-zero status buckets (PI-04) |
 
-The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, or `managed-databases` widget types. Cluster and database totals SHALL be presented through `inventory-summary` (PI-06); status and dimension breakdowns SHALL use the default-layout donut widgets above (`web-console/operational-dashboard.spec.md` OP-DASH-20, OP-DASH-21).
+The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, or `managed-databases` widget types. Cluster and database totals SHALL be presented through `inventory-summary` (PI-06); status and dimension breakdowns SHALL use the default-layout donut widgets above (`web-console/operational-dashboard.spec.md` OP-DASH-22, OP-DASH-21).
 
 Users MAY add optional widgets from the add-widgets drawer when not already on the grid. Status and provider donut widgets SHALL omit sparklines.
 

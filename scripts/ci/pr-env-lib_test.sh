@@ -76,6 +76,8 @@ assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 72 * 3600)))" "$(pr_env_expires_a
 # 24-hour unretained max is exactly 24*3600 seconds ahead.
 assert_eq '24' "${PR_ENV_UNRETAINED_MAX_HOURS}" 'unretained default hours'
 assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 24 * 3600)))" "$(pr_env_expires_at_hours 24 "${base}")" 'expires_at_hours unretained default'
+assert_eq "$(pr_env_expires_at_hours 72 "${base}")" "$(pr_env_inactivity_expires_at true "${base}")" 'retained inactivity expiry uses 72h'
+assert_eq "$(pr_env_expires_at_hours 24 "${base}")" "$(pr_env_inactivity_expires_at false "${base}")" 'unretained inactivity expiry uses 24h'
 
 # --- Reaper predicate ---
 now=2000000000
@@ -272,9 +274,13 @@ esac
 assert_eq 'extend' "$(pr_env_command_from_body '/pr-extend')" 'bare /pr-extend'
 assert_eq 'extend' "$(pr_env_command_from_body $'/pr-extend\nplease keep it')" '/pr-extend with trailing text'
 assert_eq 'extend' "$(pr_env_command_from_body '  /pr-extend  ')" '/pr-extend with surrounding whitespace'
+assert_eq 'extend' "$(pr_env_command_from_body $'/pr-extend\r\n\r\n')" 'GitHub web UI CRLF /pr-extend'
+assert_eq 'extend' "$(pr_env_command_from_body $'\r\n/pr-extend\r\n\r\n')" 'leading blank line then CRLF /pr-extend'
 assert_eq 'destroy' "$(pr_env_command_from_body '/pr-destroy')" 'bare /pr-destroy'
 assert_eq 'destroy' "$(pr_env_command_from_body '/pr-destroy now')" '/pr-destroy with trailing text'
+assert_eq 'destroy' "$(pr_env_command_from_body $'/pr-destroy\r\n')" 'GitHub web UI CRLF /pr-destroy'
 assert_eq '' "$(pr_env_command_from_body '/pr-extended')" '/pr-extended is not /pr-extend'
+assert_eq '' "$(pr_env_command_from_body $'/pr-extended\r\n')" 'CRLF /pr-extended is not /pr-extend'
 assert_eq '' "$(pr_env_command_from_body '/pr-destroyed')" '/pr-destroyed is not /pr-destroy'
 assert_eq '' "$(pr_env_command_from_body 'please /pr-extend')" 'command must begin the body'
 assert_eq '' "$(pr_env_command_from_body '')" 'empty body is not a command'
@@ -291,6 +297,10 @@ assert_eq 'extend' "$(printf '%s\n' \
   $'2026-09-16T11:00:00Z\talice\twrite\t/pr-destroy' \
   $'2026-09-16T12:00:00Z\talice\twrite\t/pr-extend' \
   | pr_env_select_latest_command)" 'latest of extend/destroy/extend is extend'
+
+assert_eq 'extend' "$(printf '%s\n' \
+  $'2026-09-16T12:00:00Z\talice\twrite\t/pr-extend\r' \
+  | pr_env_select_latest_command)" 'CRLF extend in command history still counts'
 
 assert_eq 'destroy' "$(printf '%s\n' \
   $'2026-09-16T12:00:00Z\talice\twrite\t/pr-destroy' \
@@ -369,23 +379,27 @@ case "${body}" in
   *'refreshed on every new commit'*) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment implied persistence' ;;
   *) PASS=$((PASS + 1)) ;;
 esac
-retained_body="$(pr_env_comment_body 232 abcdef1234567 ns ns-keycloak c a w https://api.cluster.example.com false true)"
+retained_body="$(PR_ENV_EXPIRES_AT=2026-09-20T17:15:00Z pr_env_comment_body 232 abcdef1234567 ns ns-keycloak c a w https://api.cluster.example.com false true)"
 case "${retained_body}" in
   *'retained and renewed on every commit'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment missing retained wording' ;;
 esac
 case "${retained_body}" in
-  *'inactivity timebox'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment missing inactivity timebox' ;;
+  *'inactivity timebox'*'2026-09-20T17:15:00Z'*' UTC'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment missing UTC inactivity expiry' ;;
 esac
 case "${retained_body}" in
   *'destroyed once e2e testing concludes'*) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment said env is about to be destroyed' ;;
   *) PASS=$((PASS + 1)) ;;
 esac
-retained_deploying="$(pr_env_comment_deploying_body abcdef1234567 '' true)"
+retained_deploying="$(PR_ENV_EXPIRES_AT=2026-09-20T17:15:00Z pr_env_comment_deploying_body abcdef1234567 '' true)"
 case "${retained_deploying}" in
   *'retained and renewed on every commit'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment missing retained wording' ;;
+esac
+case "${retained_deploying}" in
+  *'2026-09-20T17:15:00Z'*' UTC'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment missing UTC inactivity expiry' ;;
 esac
 case "${retained_deploying}" in
   *'destroyed once e2e testing concludes'*) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment said env is about to be destroyed' ;;
@@ -439,6 +453,27 @@ if grep -q 'PR_ENV_PHASE=destroyed' "${SCRIPT_DIR}/../../.github/workflows/pr-en
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: /pr-destroy does not update the access comment after destroy'
+fi
+if grep -q "contains(github.event.comment.body, '/pr-extend')" \
+  "${SCRIPT_DIR}/../../.github/workflows/pr-environment-commands.yml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: command workflow if does not match /pr-extend inside a CRLF body'
+fi
+if grep -q 'PR_ENV_EXPIRES_AT: ${{ steps.timebox.outputs.expires_at }}' \
+  "${SCRIPT_DIR}/../../.github/actions/deploy-pr-environment/action.yml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: deploying comment / stamp do not receive the precomputed UTC expiry'
+fi
+if grep -q 'PR_ENV_EXPIRES_AT: ${{ steps.stamp.outputs.expires_at }}' \
+  "${SCRIPT_DIR}/../../.github/actions/deploy-pr-environment/action.yml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: ready comment does not receive the stamped UTC expiry'
 fi
 
 assert_eq 'true' "$(printf '%s' '[{"name":"pr-environment/pr-extended"}]' \

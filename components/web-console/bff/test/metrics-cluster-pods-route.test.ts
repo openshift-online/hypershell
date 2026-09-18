@@ -19,6 +19,11 @@ import {
   clusterPodsUsedPromql,
   type ClusterPodPhase,
 } from "../src/metrics-cluster-pods.js";
+import {
+  isPrometheusRangeRequest,
+  parsePrometheusUrl,
+  rejectPrometheusRange,
+} from "./prometheus-stub.js";
 
 const testSessionSecret =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -53,7 +58,15 @@ function handleClusterPodsQuery(
     phases?: Partial<Record<ClusterPodPhase, string>>;
     used?: string;
   } = {},
+  request?: IncomingMessage,
 ): boolean {
+  if (request !== undefined) {
+    const url = parsePrometheusUrl(request);
+    if (isPrometheusRangeRequest(url)) {
+      rejectPrometheusRange(response);
+      return true;
+    }
+  }
   response.setHeader("content-type", "application/json");
   if (query === clusterPodsCapacityPromql) {
     response.end(prometheusSample(options.capacity ?? "2000"));
@@ -217,9 +230,9 @@ describe("GET /api/metrics/cluster-pods", () => {
 
   it("returns cluster pod counts when Prometheus succeeds", async () => {
     const prometheusUrl = await startPrometheusStub((request, response) => {
-      const url = new URL(request.url ?? "", "http://127.0.0.1");
+      const url = parsePrometheusUrl(request);
       const query = url.searchParams.get("query");
-      if (handleClusterPodsQuery(query, response)) {
+      if (handleClusterPodsQuery(query, response, {}, request)) {
         return;
       }
       response.statusCode = 400;
@@ -288,20 +301,25 @@ describe("GET /api/metrics/cluster-pods", () => {
   it("allows dashboard administrators when OIDC is enabled", async () => {
     oidcServer = await createOidcServer();
     const prometheusUrl = await startPrometheusStub((request, response) => {
-      const url = new URL(request.url ?? "", "http://127.0.0.1");
+      const url = parsePrometheusUrl(request);
       const query = url.searchParams.get("query");
       if (
-        handleClusterPodsQuery(query, response, {
-          capacity: "100",
-          phases: {
-            Failed: "0",
-            Pending: "2",
-            Running: "40",
-            Succeeded: "0",
-            Unknown: "0",
+        handleClusterPodsQuery(
+          query,
+          response,
+          {
+            capacity: "100",
+            phases: {
+              Failed: "0",
+              Pending: "2",
+              Running: "40",
+              Succeeded: "0",
+              Unknown: "0",
+            },
+            used: "42",
           },
-          used: "42",
-        })
+          request,
+        )
       ) {
         return;
       }

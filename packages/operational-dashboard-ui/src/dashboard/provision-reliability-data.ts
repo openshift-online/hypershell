@@ -1,6 +1,9 @@
-import type { IntlShape } from "react-intl";
+import type { IntlShape, MessageDescriptor } from "react-intl";
 
-import type { OperationalMetric } from "../application/dashboard-types";
+import type {
+  OperationalMetric,
+  ProvisionSuccessCountWindow,
+} from "../application/dashboard-types";
 import { messages } from "../messages";
 import { STATUS_DONUT_COLORS } from "./status-donut-colors";
 import {
@@ -10,6 +13,26 @@ import {
 
 export const PROVISION_RELIABILITY_HEALTHY_THRESHOLD_PERCENT = 99;
 export const PROVISION_RELIABILITY_WARNING_THRESHOLD_PERCENT = 95;
+
+export function getProvisionReliabilityWindowCaptionMessage(
+  window: ProvisionSuccessCountWindow | undefined,
+): MessageDescriptor {
+  if (window === "duration_lifetime") {
+    return messages.provisionReliabilityLifetimeSuccessCount;
+  }
+
+  return messages.provisionReliabilityLast24Hours;
+}
+
+export function getProvisionReliabilitySummaryTermMessage(
+  window: ProvisionSuccessCountWindow | undefined,
+): MessageDescriptor {
+  if (window === "duration_lifetime") {
+    return messages.provisionSuccessRateLifetime;
+  }
+
+  return messages.provisionSuccessRate24h;
+}
 
 export type ProvisionReliabilityStatusLevel = "danger" | "healthy" | "warning";
 

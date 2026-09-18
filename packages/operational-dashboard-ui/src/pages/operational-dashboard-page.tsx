@@ -19,6 +19,7 @@ import {
   CheckCircleIcon,
   ClusterIcon,
   CodeBranchIcon,
+  ContainerNodeIcon,
   CubesIcon,
   DatabaseIcon,
   HourglassHalfIcon,
@@ -43,19 +44,23 @@ import type { OperationalDashboardMetrics } from "../application/dashboard-types
 import type { DashboardProbe } from "../application/dashboard-probes";
 import { noopDashboardProbePublisher } from "../application/dashboard-probes";
 import {
+  ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
   ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
+  ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
   defaultDashboardLayoutTemplate,
   DASHBOARD_COLUMN_COUNT,
-  GATEWAY_RELEASES_WIDGET_HEIGHT,
   INVENTORY_SUMMARY_WIDGET_HEIGHT,
   localizeDashboardLayoutTemplate,
   NODE_STATUS_WIDGET_HEIGHT,
+  POD_CAPACITY_WIDGET_HEIGHT,
   PROVISION_RELIABILITY_WIDGET_HEIGHT,
   PROVISION_TIME_WIDGET_HEIGHT,
   REGISTERED_USERS_WIDGET_HEIGHT,
   SECTION_TITLE_WIDGET_TYPE,
   SYSTEM_SUMMARY_WIDGET_HEIGHT,
   TITLE_WIDGET_HEIGHT,
+  USAGE_SUMMARY_WIDGET_HEIGHT,
+  UTILIZATION_WIDGET_HEIGHT,
 } from "../dashboard/dashboard-layout-template";
 import {
   getActiveWidgetTypes,
@@ -63,7 +68,6 @@ import {
   sanitizeDashboardTemplate,
   stripRemovedWidgetTypes,
 } from "../dashboard/dashboard-layout-persistence";
-import { UtilizationChart } from "../dashboard/utilization-chart";
 import { useDashboardUi } from "../dashboard-ui-provider";
 import { messages } from "../messages";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
@@ -71,6 +75,7 @@ import "./dashboard-widget.css";
 import {
   GatewayReleasesCard,
   GatewayStatusCard,
+  SandboxStatusCard,
   InventorySummaryCard,
   ManagedClusterProvidersCard,
   ManagedClusterRegionsCard,
@@ -84,12 +89,13 @@ import {
   SectionTitleCard,
   UsageSummaryCard,
   UsersCard,
+  UtilizationCard,
 } from "./dashboard-widget";
 import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v38";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v41";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
@@ -189,6 +195,7 @@ function createWidgetMapping(
       | "metric"
       | "users"
       | "gateway-status"
+      | "sandbox-status"
       | "gateway-releases"
       | "node-status"
       | "pod-capacity"
@@ -229,6 +236,10 @@ function createWidgetMapping(
       return <GatewayStatusCard metric={metric} />;
     }
 
+    if (metricType === "sandbox-status") {
+      return <SandboxStatusCard metric={metric} />;
+    }
+
     if (metricType === "gateway-releases") {
       return <GatewayReleasesCard metric={metric} />;
     }
@@ -261,7 +272,7 @@ function createWidgetMapping(
       return <ManagedClusterRegionsCard metric={metric} />;
     }
 
-    return <UtilizationChart metric={metric} />;
+    return <UtilizationCard metric={metric} />;
   };
 
   return {
@@ -295,8 +306,8 @@ function createWidgetMapping(
     },
     "usage-summary": {
       defaults: {
-        h: REGISTERED_USERS_WIDGET_HEIGHT,
-        maxH: REGISTERED_USERS_WIDGET_HEIGHT + 2,
+        h: USAGE_SUMMARY_WIDGET_HEIGHT,
+        maxH: USAGE_SUMMARY_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
@@ -357,10 +368,29 @@ function createWidgetMapping(
           "gateway-status",
         ),
     },
+    "sandbox-status": {
+      defaults: {
+        h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
+        maxH: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 2,
+      },
+      config: {
+        icon: <ContainerNodeIcon />,
+        title: intl.formatMessage(messages.sandboxStatusWidget),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "provisioned-sandboxes",
+          "",
+          messages.sandboxStatusWidget,
+          "sandbox-status",
+        ),
+    },
     "gateway-releases": {
       defaults: {
-        h: GATEWAY_RELEASES_WIDGET_HEIGHT,
-        maxH: GATEWAY_RELEASES_WIDGET_HEIGHT + 2,
+        h: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
+        maxH: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
@@ -416,8 +446,8 @@ function createWidgetMapping(
     },
     cpu: {
       defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
+        h: UTILIZATION_WIDGET_HEIGHT,
+        maxH: UTILIZATION_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
@@ -430,8 +460,8 @@ function createWidgetMapping(
     },
     memory: {
       defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
+        h: UTILIZATION_WIDGET_HEIGHT,
+        maxH: UTILIZATION_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
@@ -444,8 +474,8 @@ function createWidgetMapping(
     },
     pods: {
       defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
+        h: POD_CAPACITY_WIDGET_HEIGHT,
+        maxH: POD_CAPACITY_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },

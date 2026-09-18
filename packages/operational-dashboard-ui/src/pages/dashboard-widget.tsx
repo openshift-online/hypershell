@@ -44,12 +44,14 @@ import { TrendSparklineChart } from "../dashboard/trend-sparkline-chart";
 import { getGatewayExceptionStatusCounts } from "../dashboard/gateway-exception-status-counts";
 import { GatewayReleasesChart } from "../dashboard/gateway-releases-chart";
 import { GatewayStatusChart } from "../dashboard/gateway-status-chart";
+import { SandboxStatusChart } from "../dashboard/sandbox-status-chart";
 import { InventoryStatusChart } from "../dashboard/inventory-status-chart";
 import { ManagedClusterProvidersChart } from "../dashboard/managed-cluster-providers-chart";
 import { ManagedClusterRegionsChart } from "../dashboard/managed-cluster-regions-chart";
 import { NodeStatusChart } from "../dashboard/node-status-chart";
 import { PodCapacityChart } from "../dashboard/pod-capacity-chart";
 import { ProvisionReliabilityChart } from "../dashboard/provision-reliability-chart";
+import { getProvisionReliabilitySummaryTermMessage } from "../dashboard/provision-reliability-data";
 import { ProvisionTimeChart } from "../dashboard/provision-time-chart";
 import { isPodCapacityMetric } from "../dashboard/pod-capacity-metric";
 import {
@@ -298,9 +300,50 @@ export function GatewayStatusCard({
           <StackItem>
             <GatewayStatusChart metric={metric} />
           </StackItem>
-          {metric.trend ? (
+          {metric.trend && metric.trend.points.length >= 2 ? (
             <StackItem>
-              <TrendSparklineChart trend={metric.trend} title={trendTitle} />
+              <TrendSparklineChart
+                caption={intl.formatMessage(messages.trendLast7Days)}
+                trend={metric.trend}
+                title={trendTitle}
+              />
+            </StackItem>
+          ) : null}
+        </Stack>
+      </Content>
+    </WidgetContent>
+  );
+}
+
+export function SandboxStatusCard({
+  metric,
+}: Readonly<{ metric: OperationalMetric }>) {
+  const intl = useIntl();
+  const sparklineTitle = intl.formatMessage(messages.widgetSandboxes);
+
+  return (
+    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
+      <Content className="hypershell-dashboard-status-donut-card">
+        <Stack hasGutter>
+          <StackItem>
+            <SandboxStatusChart metric={metric} />
+          </StackItem>
+          {metric.hourlyTrend && metric.hourlyTrend.points.length >= 2 ? (
+            <StackItem>
+              <TrendSparklineChart
+                caption={intl.formatMessage(messages.trendLast24Hours)}
+                trend={metric.hourlyTrend}
+                title={sparklineTitle}
+              />
+            </StackItem>
+          ) : null}
+          {metric.trend && metric.trend.points.length >= 2 ? (
+            <StackItem>
+              <TrendSparklineChart
+                caption={intl.formatMessage(messages.trendLast7Days)}
+                trend={metric.trend}
+                title={sparklineTitle}
+              />
             </StackItem>
           ) : null}
         </Stack>
@@ -364,10 +407,26 @@ export function ManagedDatabaseStatusCard({
 export function PodCapacityCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
+  const intl = useIntl();
+  const trendTitle = intl.formatMessage(messages.widgetPods);
+
   return (
     <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
       <Content className="hypershell-dashboard-status-donut-card">
-        <PodCapacityChart metric={metric} />
+        <Stack hasGutter>
+          <StackItem>
+            <PodCapacityChart metric={metric} />
+          </StackItem>
+          {metric.trend && metric.trend.points.length >= 2 ? (
+            <StackItem>
+              <TrendSparklineChart
+                caption={intl.formatMessage(messages.trendLast7Days)}
+                trend={metric.trend}
+                title={trendTitle}
+              />
+            </StackItem>
+          ) : null}
+        </Stack>
       </Content>
     </WidgetContent>
   );
@@ -397,6 +456,22 @@ export function GatewayReleasesCard({
   );
 }
 
+function SummaryProvisionSuccessRateTerm({
+  metric,
+}: Readonly<{ metric: OperationalMetric | undefined }>) {
+  const intl = useIntl();
+
+  return (
+    <span>
+      {intl.formatMessage(
+        getProvisionReliabilitySummaryTermMessage(
+          metric?.provisionOutcomes?.successCountWindow,
+        ),
+      )}
+    </span>
+  );
+}
+
 function SummaryProvisionSuccessRateValue({
   metric,
 }: Readonly<{ metric: OperationalMetric | undefined }>) {
@@ -411,10 +486,22 @@ function SummaryProvisionSuccessRateValue({
     return <SummaryUnavailableValue />;
   }
 
+  const trendChange = getMetricTrendChange(metric);
+
   return (
-    <span>
-      {intl.formatMessage(messages.provisionReliabilityRate, { rate })}
-    </span>
+    <Flex
+      alignItems={{ default: "alignItemsCenter" }}
+      spaceItems={{ default: "spaceItemsSm" }}
+    >
+      <FlexItem>
+        {intl.formatMessage(messages.provisionReliabilityRate, { rate })}
+      </FlexItem>
+      {trendChange ? (
+        <FlexItem>
+          <SummaryTrendIndicator metric={metric} trendChange={trendChange} />
+        </FlexItem>
+      ) : null}
+    </Flex>
   );
 }
 
@@ -430,9 +517,26 @@ export function ProvisionReliabilityCard({
   );
 }
 
+function utilizationTrendTitle(
+  metric: OperationalMetric,
+  intl: IntlShape,
+): string {
+  switch (metric.id) {
+    case "memory":
+      return intl.formatMessage(messages.widgetMemory);
+    case "cpu":
+      return intl.formatMessage(messages.widgetCpu);
+    default:
+      return intl.formatMessage(messages.summaryUsage);
+  }
+}
+
 export function UtilizationCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
+  const intl = useIntl();
+  const trendTitle = utilizationTrendTitle(metric, intl);
+
   return (
     <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
       <Content className="hypershell-dashboard-status-donut-card">
@@ -440,6 +544,15 @@ export function UtilizationCard({
           {isUtilizationMetric(metric) ? (
             <StackItem>
               <UtilizationChart metric={metric} />
+            </StackItem>
+          ) : null}
+          {metric.trend && metric.trend.points.length >= 2 ? (
+            <StackItem>
+              <TrendSparklineChart
+                caption={intl.formatMessage(messages.trendLast7Days)}
+                trend={metric.trend}
+                title={trendTitle}
+              />
             </StackItem>
           ) : null}
         </Stack>
@@ -453,6 +566,18 @@ function getSummaryTrendSubject(
   intl: IntlShape,
 ): string {
   switch (metric.id) {
+    case "memory":
+      return intl.formatMessage(messages.memory);
+    case "cpu":
+      return intl.formatMessage(messages.cpus);
+    case "pods":
+      return intl.formatMessage(messages.pods);
+    case "provision-reliability":
+      return intl.formatMessage(
+        getProvisionReliabilitySummaryTermMessage(
+          metric.provisionOutcomes?.successCountWindow,
+        ),
+      );
     case "registered-users":
       return intl.formatMessage(messages.registeredUsersUniqueLogins);
     case "provisioned-gateways":
@@ -629,6 +754,7 @@ function SummaryUtilizationValue({
   }
 
   const percentage = getUtilizationPercentage(metric.value, metric.total);
+  const trendChange = getMetricTrendChange(metric);
 
   return (
     <Flex
@@ -649,6 +775,11 @@ function SummaryUtilizationValue({
           value={metric.value}
         />
       </FlexItem>
+      {trendChange ? (
+        <FlexItem>
+          <SummaryTrendIndicator metric={metric} trendChange={trendChange} />
+        </FlexItem>
+      ) : null}
     </Flex>
   );
 }
@@ -1076,7 +1207,11 @@ export function SystemSummaryCard({
         </DescriptionListGroup>
         <DescriptionListGroup>
           <DescriptionListTerm>
-            <FormattedMessage {...messages.provisionSuccessRate24h} />
+            <SummaryProvisionSuccessRateTerm
+              metric={metrics.find(
+                (metric) => metric.id === "provision-reliability",
+              )}
+            />
           </DescriptionListTerm>
           <DescriptionListDescription>
             <SummaryProvisionSuccessRateValue

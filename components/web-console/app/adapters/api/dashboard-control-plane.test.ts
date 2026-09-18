@@ -106,6 +106,28 @@ interface DashboardMetricsMockOptions {
   registeredUsers?: RegisteredUsersMockResponse;
 }
 
+interface DashboardFetchMockResponse {
+  json: () => Promise<unknown>;
+  ok: boolean;
+  status?: number;
+}
+
+type DashboardFetchMock = (url: string) => Promise<DashboardFetchMockResponse>;
+
+function getDashboardFetchMock(): DashboardFetchMock | undefined {
+  return fetchMock.getMockImplementation() as DashboardFetchMock | undefined;
+}
+
+function delegateDashboardFetch(
+  baseFetch: DashboardFetchMock | undefined,
+  url: string,
+): Promise<DashboardFetchMockResponse> {
+  if (baseFetch === undefined) {
+    throw new Error(`Unexpected fetch to ${url}`);
+  }
+  return baseFetch(url);
+}
+
 function mockClusterMetricsResponses(
   capacityBytes: number,
   usedBytes: number,
@@ -1235,6 +1257,183 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(
       metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
     ).toBeDefined();
+  });
+
+  it("maps gateway daily_fleet_totals into provisioned-gateways trend", async () => {
+    mockClusterMetricsResponses(
+      1024 ** 3,
+      512 * 1024 ** 2,
+      {},
+      { activeSandboxes: 4 },
+    );
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateways") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              counts: { Running: 5 },
+              daily_fleet_totals: [
+                { date: "2026-09-01", total: 18 },
+                { date: "2026-09-02", total: 20 },
+              ],
+            }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const gatewayMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-gateways",
+    );
+
+    expect(gatewayMetric?.trend).toEqual({
+      points: [
+        { label: "2026-09-01", value: 18 },
+        { label: "2026-09-02", value: 20 },
+      ],
+    });
+  });
+
+  it("omits provisioned-gateways trend when daily_fleet_totals is absent", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateways") {
+        return Promise.resolve({
+          json: () => Promise.resolve({ counts: { Running: 5 } }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const gatewayMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-gateways",
+    );
+
+    expect(gatewayMetric?.value).toBe("5");
+    expect(gatewayMetric?.trend).toBeUndefined();
+  });
+
+  it("maps sandbox hourly and daily trends onto provisioned-sandboxes", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateway-sandboxes") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              active_sandboxes: 4,
+              hourly_active_sandboxes: [{ hour: "2026-09-15T12:00", count: 8 }],
+              daily_active_sandboxes: [{ date: "2026-09-01", count: 5 }],
+            }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const sandboxMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-sandboxes",
+    );
+
+    expect(sandboxMetric).toEqual({
+      hourlyTrend: {
+        points: [{ label: "2026-09-15T12:00", value: 8 }],
+      },
+      id: "provisioned-sandboxes",
+      trend: {
+        points: [{ label: "2026-09-01", value: 5 }],
+      },
+      value: "4",
+    });
+  });
+
+  it("maps cluster daily_used into memory, cpu, and pods trends", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/cluster-memory") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              available_bytes: 17 * 1024 ** 3,
+              capacity_bytes: 237 * 1024 ** 3,
+              daily_used: [{ date: "2026-09-01", value: 218 }],
+              used_bytes: 220 * 1024 ** 3,
+            }),
+          ok: true,
+        });
+      }
+      if (url === "/api/metrics/cluster-cpu") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              available_cores: 12,
+              capacity_cores: 60,
+              daily_used: [{ date: "2026-09-01", value: 49 }],
+              used_cores: 48,
+            }),
+          ok: true,
+        });
+      }
+      if (url === "/api/metrics/cluster-pods") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              ...mockClusterPodsResponse,
+              daily_used: [{ date: "2026-09-01", value: 548 }],
+            }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "memory")?.trend,
+    ).toEqual({
+      points: [{ label: "2026-09-01", value: 218 }],
+    });
+    expect(
+      metrics.metrics.find((metric) => metric.id === "cpu")?.trend,
+    ).toEqual({
+      points: [{ label: "2026-09-01", value: 49 }],
+    });
+    expect(
+      metrics.metrics.find((metric) => metric.id === "pods")?.trend,
+    ).toEqual({
+      points: [{ label: "2026-09-01", value: 548 }],
+    });
+  });
+
+  it("omits memory, cpu, and pods trends when daily_used is absent", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "memory")?.trend,
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "cpu")?.trend,
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "pods")?.trend,
+    ).toBeUndefined();
+    expect(metrics.metrics.find((metric) => metric.id === "memory")).toEqual({
+      id: "memory",
+      total: "1",
+      unit: "GiB",
+      value: "1",
+    });
   });
 
   it("omits optional registered user adoption fields when degraded", async () => {

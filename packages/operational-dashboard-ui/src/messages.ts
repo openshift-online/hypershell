@@ -76,8 +76,8 @@ export const messages = defineMessages({
   },
   gatewayStatusWidget: {
     id: "app.dashboard.widget.gatewayStatus",
-    defaultMessage: "Gateway status",
-    description: "Title for the gateway status dashboard widget.",
+    defaultMessage: "Gateways",
+    description: "Title for the gateways dashboard widget.",
   },
   inventoryStatusUnknown: {
     id: "app.dashboard.inventoryStatus.unknown",
@@ -332,6 +332,12 @@ export const messages = defineMessages({
     description:
       "Caption documenting the rolling 24-hour provision reliability lookback window.",
   },
+  provisionReliabilityLifetimeSuccessCount: {
+    id: "app.dashboard.provisionReliability.lifetimeSuccessCount",
+    defaultMessage: "Lifetime success count",
+    description:
+      "Caption when provision reliability success counts come from the lifetime duration histogram fallback.",
+  },
   provisionReliabilityRate: {
     id: "app.dashboard.provisionReliability.rate",
     defaultMessage: "{rate}%",
@@ -354,6 +360,12 @@ export const messages = defineMessages({
     defaultMessage: "Success rate (24h)",
     description:
       "Summary label for the rolling 24-hour gateway provision success rate.",
+  },
+  provisionSuccessRateLifetime: {
+    id: "app.dashboard.summary.provisionSuccessRateLifetime",
+    defaultMessage: "Success rate (lifetime)",
+    description:
+      "Summary label when provision reliability uses the lifetime duration histogram fallback.",
   },
   provisionTime: {
     id: "app.dashboard.summary.provisionTime",
@@ -473,6 +485,27 @@ export const messages = defineMessages({
     description:
       "Label for restoring the operational dashboard default layout.",
   },
+  sandboxStatusActive: {
+    id: "app.dashboard.sandboxStatus.active",
+    defaultMessage: "Active",
+    description:
+      "Legend label for active sandboxes when no status breakdown exists.",
+  },
+  sandboxStatusAriaDesc: {
+    id: "app.dashboard.sandboxStatus.ariaDesc",
+    defaultMessage: "Active sandboxes across the gateway fleet.",
+    description: "Accessible description for the sandbox status donut chart.",
+  },
+  sandboxStatusChartTitle: {
+    id: "app.dashboard.sandboxStatus.chartTitle",
+    defaultMessage: "Sandbox status",
+    description: "Accessible title for the sandbox status donut chart.",
+  },
+  sandboxStatusWidget: {
+    id: "app.dashboard.widget.sandboxStatus",
+    defaultMessage: "Sandbox status",
+    description: "Title for the sandbox status dashboard widget.",
+  },
   sectionTitleDefault: {
     id: "app.dashboard.widget.sectionTitle",
     defaultMessage: "Section title",
@@ -553,6 +586,18 @@ export const messages = defineMessages({
     id: "app.dashboard.title",
     defaultMessage: "HyperShell operational dashboard",
     description: "Main heading on the operational dashboard page.",
+  },
+  trendLast7Days: {
+    id: "app.dashboard.trend.last7Days",
+    defaultMessage: "Last 7 days",
+    description:
+      "Caption below a seven-day trend sparkline on the operational dashboard.",
+  },
+  trendLast24Hours: {
+    id: "app.dashboard.trend.last24Hours",
+    defaultMessage: "Last 24 hours",
+    description:
+      "Caption below a twenty-four-hour trend sparkline on the operational dashboard.",
   },
   trendLastDays: {
     id: "app.dashboard.trend.lastDays",

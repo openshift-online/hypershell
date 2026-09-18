@@ -24,7 +24,7 @@ import {
   type BrowserRuntimeConfig,
   type ServerConfig,
 } from "./config.js";
-import { queryGatewayPhaseCounts } from "./metrics-gateways.js";
+import { queryGatewayMetrics } from "./metrics-gateways.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
 import { queryClusterMemory } from "./metrics-cluster-memory.js";
 import { queryGatewayProvisionDuration } from "./metrics-gateway-provision-duration.js";
@@ -480,12 +480,11 @@ export async function buildApp(
     { preHandler: requireDashboardMetricsAccess },
     async (request, reply) => {
       try {
-        const counts = await queryGatewayPhaseCounts(
+        return await queryGatewayMetrics(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
           config.prometheusNamespace,
         );
-        return { counts };
       } catch (error) {
         request.log.warn({ err: error }, "gateway metrics query failed");
         reply.code(502);

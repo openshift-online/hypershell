@@ -82,7 +82,7 @@ A `Prometheus` CR, a `ServiceAccount`, a `ClusterRole`, and a `ClusterRoleBindin
 - Set `runAsNonRoot: true` with a non-zero `runAsUser`
 - Scope `serviceMonitorSelector` to `matchLabels: app: hypershell-api-server`
 - Scope `serviceMonitorNamespaceSelector` to `hypershell-system`
-- Retain data for `7d`
+- Retain data for `7d` (default; sufficient for operational dashboard Prometheus range trends including gateway fleet totals and hub cluster utilization; see `platform/gateway-fleet-total-trend.spec.md` GFT-01 and `platform/hub-cluster-utilization-trends.spec.md` HCUT-01)
 - Request persistent storage via a `volumeClaimTemplate`
 
 The `ClusterRole` SHALL grant `get`, `list`, and `watch` on `nodes`, `nodes/metrics`, `services`, `endpoints`, `pods`, `configmaps`, `ingresses`, and the monitoring CRDs (`servicemonitors`, `podmonitors`, `prometheusrules`), and `GET` on the `/metrics` non-resource URL.
@@ -129,6 +129,8 @@ The web-console BFF SHALL expose `GET /api/metrics/gateways` as a same-origin pr
 The BFF SHALL accept a `PROMETHEUS_URL` environment variable (validated as an HTTP or HTTPS origin, no credentials, no path) defaulting to `http://127.0.0.1:9090`. The BFF SHALL accept a `PROMETHEUS_QUERY_TIMEOUT_MS` environment variable (integer milliseconds, 100–120000) defaulting to `10000`. Every `/api/metrics/*` route SHALL query `GET {PROMETHEUS_URL}/api/v1/query` with the configured timeout.
 
 The response SHALL be `{ "counts": { "Running": N, "Provisioning": N, "Degraded": N, "Failed": N } }` where each value is an integer. Phases absent from the Prometheus response SHALL NOT be omitted from the JSON; the client is responsible for defaulting absent phases to zero.
+
+When daily fleet-total history is available, the same route MAY also return optional `daily_fleet_totals` (7 UTC calendar days of fleet gateway totals) per `platform/gateway-fleet-total-trend.spec.md` GFT-03. Clients that consume only instant phase counts (`GatewayMetricsDashboard`, existing adapter logic) SHALL ignore unknown fields.
 
 When Prometheus is unreachable or returns a non-`200` status, or when the Prometheus response body has `status != "success"`, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT propagate raw Prometheus error messages to the browser.
 

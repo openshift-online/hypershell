@@ -16,6 +16,7 @@ describe("dashboard layout persistence", () => {
       "usage-summary",
       "registered-users",
       "gateway-status",
+      "sandbox-status",
       "gateway-releases",
       "system-summary",
       "memory",

@@ -219,6 +219,10 @@
     "defaultMessage": "Last 24 hours",
     "description": "Caption documenting the rolling 24-hour provision reliability lookback window."
   },
+  "app.dashboard.provisionReliability.lifetimeSuccessCount": {
+    "defaultMessage": "Lifetime success count",
+    "description": "Caption when provision reliability success counts come from the lifetime duration histogram fallback."
+  },
   "app.dashboard.provisionReliability.rate": {
     "defaultMessage": "{rate}%",
     "description": "Center title for the provision reliability donut showing the 24-hour success rate."
@@ -291,6 +295,18 @@
     "defaultMessage": "Reset to default",
     "description": "Label for restoring the operational dashboard default layout."
   },
+  "app.dashboard.sandboxStatus.active": {
+    "defaultMessage": "Active",
+    "description": "Legend label for active sandboxes when no status breakdown exists."
+  },
+  "app.dashboard.sandboxStatus.ariaDesc": {
+    "defaultMessage": "Active sandboxes across the gateway fleet.",
+    "description": "Accessible description for the sandbox status donut chart."
+  },
+  "app.dashboard.sandboxStatus.chartTitle": {
+    "defaultMessage": "Sandbox status",
+    "description": "Accessible title for the sandbox status donut chart."
+  },
   "app.dashboard.sectionTitle.hubCluster": {
     "defaultMessage": "Hub cluster",
     "description": "Section title above hub cluster capacity widgets."
@@ -347,6 +363,10 @@
     "defaultMessage": "Success rate (24h)",
     "description": "Summary label for the rolling 24-hour gateway provision success rate."
   },
+  "app.dashboard.summary.provisionSuccessRateLifetime": {
+    "defaultMessage": "Success rate (lifetime)",
+    "description": "Summary label when provision reliability uses the lifetime duration histogram fallback."
+  },
   "app.dashboard.summary.provisionTime": {
     "defaultMessage": "Provision time (average)",
     "description": "Summary label for average gateway provision time."
@@ -395,6 +415,14 @@
     "defaultMessage": "HyperShell operational dashboard",
     "description": "Main heading on the operational dashboard page."
   },
+  "app.dashboard.trend.last24Hours": {
+    "defaultMessage": "Last 24 hours",
+    "description": "Caption below a twenty-four-hour trend sparkline on the operational dashboard."
+  },
+  "app.dashboard.trend.last7Days": {
+    "defaultMessage": "Last 7 days",
+    "description": "Caption below a seven-day trend sparkline on the operational dashboard."
+  },
   "app.dashboard.trend.lastDays": {
     "defaultMessage": "Last {days} days",
     "description": "Caption below a trend sparkline showing the lookback window."
@@ -436,8 +464,8 @@
     "description": "Title for the gateway releases dashboard widget."
   },
   "app.dashboard.widget.gatewayStatus": {
-    "defaultMessage": "Gateway status",
-    "description": "Title for the gateway status dashboard widget."
+    "defaultMessage": "Gateways",
+    "description": "Title for the gateways dashboard widget."
   },
   "app.dashboard.widget.inventorySummary": {
     "defaultMessage": "Inventory summary",
@@ -482,6 +510,10 @@
   "app.dashboard.widget.registeredUsers": {
     "defaultMessage": "Users",
     "description": "Title for the registered users dashboard widget."
+  },
+  "app.dashboard.widget.sandboxStatus": {
+    "defaultMessage": "Sandbox status",
+    "description": "Title for the sandbox status dashboard widget."
   },
   "app.dashboard.widget.sectionTitle": {
     "defaultMessage": "Section title",

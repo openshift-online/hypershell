@@ -159,6 +159,16 @@
   --pf-v6-c-card__body--PaddingInlineStart: var(--pf-t--global--spacer--sm);
 }
 
+.hypershell-dashboard-sandbox-status-total {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pf-t--global--spacer--xs);
+  min-height: 8.125rem;
+  text-align: center;
+}
+
 .hypershell-dashboard-status-donut-chart--compact {
   margin-block-start: calc(-1 * var(--pf-t--global--spacer--xs));
 }

@@ -167,6 +167,30 @@ export const InventorySummary: Story = {
   },
 };
 
+export const HubUtilizationTrendSparklines: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("Memory");
+    await canvas.findByText("CPU");
+    await canvas.findByText("Pods");
+    const sparklineCaptions = canvas.getAllByText("Last 7 days");
+    await expect(sparklineCaptions.length).toBeGreaterThanOrEqual(3);
+  },
+};
+
+export const SystemSummaryTrendArrows: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("System summary");
+    const trendButtons = canvas.getAllByRole("button", {
+      name: /increase|decrease/i,
+    });
+    await expect(trendButtons.length).toBeGreaterThanOrEqual(4);
+  },
+};
+
 export const WithRefresh: Story = {
   render: () => <DashboardPreview />,
 };

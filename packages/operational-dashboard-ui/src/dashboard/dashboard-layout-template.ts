@@ -9,67 +9,63 @@ export const METRIC_ROW_STEP = METRIC_WIDGET_HEIGHT + METRIC_ROW_GAP;
 /** Full-width section title row at the top of the dashboard grid. */
 export const TITLE_WIDGET_HEIGHT = 1;
 export const DASHBOARD_COLUMN_COUNT = 4;
-const TITLE_ROW_OFFSET = TITLE_WIDGET_HEIGHT + METRIC_ROW_GAP;
+const TITLE_CONTENT_OFFSET = TITLE_WIDGET_HEIGHT;
 /** One row taller than standard metric widgets; fits a compact status donut. */
 export const NODE_STATUS_WIDGET_HEIGHT = METRIC_WIDGET_HEIGHT + 1;
-/** Pod capacity donut shares the same height as the nodes status widget. */
-export const POD_CAPACITY_WIDGET_HEIGHT = NODE_STATUS_WIDGET_HEIGHT;
-const SUMMARY_COLUMN_HEIGHT = METRIC_WIDGET_HEIGHT + 2 * METRIC_ROW_STEP;
-const BASE_SUMMARY_WIDGET_HEIGHT = (SUMMARY_COLUMN_HEIGHT - METRIC_ROW_GAP) / 2;
-/** Equal height for usage and system summary widgets in the left column. */
-export const USAGE_SUMMARY_WIDGET_HEIGHT = BASE_SUMMARY_WIDGET_HEIGHT + 1;
+/** Utilization widgets with a seven-day sparkline below the donut. */
+export const UTILIZATION_WIDGET_HEIGHT = NODE_STATUS_WIDGET_HEIGHT + 2;
+/** Pod capacity donut with a seven-day sparkline below the chart. */
+export const POD_CAPACITY_WIDGET_HEIGHT = UTILIZATION_WIDGET_HEIGHT;
+/** Equal height for usage and inventory summary widgets in the left column. */
+export const USAGE_SUMMARY_WIDGET_HEIGHT = 6;
 /** Gateway status matches usage summary height in the platform adoption section. */
 export const GATEWAY_STATUS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT;
 /** Gateway releases stat panel height in the platform adoption right column. */
 export const GATEWAY_RELEASES_WIDGET_HEIGHT = GATEWAY_STATUS_WIDGET_HEIGHT;
-/** Taller widget for the Users adoption card (stat grid and sparkline). */
-export const REGISTERED_USERS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT + 2;
-/** Gateway status height in the platform adoption right column. */
+/** Shared height for Users and Gateways on platform adoption row 1. */
+export const ADOPTION_TOP_ROW_WIDGET_HEIGHT = 7;
+/** Users adoption card (stat grid and sparkline) on platform adoption row 1. */
+export const REGISTERED_USERS_WIDGET_HEIGHT = ADOPTION_TOP_ROW_WIDGET_HEIGHT;
+/** Gateway status on platform adoption row 1, aligned with Users. */
 export const ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT =
-  REGISTERED_USERS_WIDGET_HEIGHT - METRIC_ROW_STEP;
-const ADOPTION_SECTION_START_Y = TITLE_ROW_OFFSET;
-/** Grid row where the gateway releases widget begins (below gateway status). */
-export const ADOPTION_GATEWAY_RELEASES_Y =
-  ADOPTION_SECTION_START_Y +
-  ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT +
-  METRIC_ROW_GAP;
-const ADOPTION_RIGHT_COLUMN_HEIGHT =
-  ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT +
-  METRIC_ROW_GAP +
-  GATEWAY_RELEASES_WIDGET_HEIGHT;
-const ADOPTION_SECTION_HEIGHT = Math.max(
-  REGISTERED_USERS_WIDGET_HEIGHT,
-  ADOPTION_RIGHT_COLUMN_HEIGHT,
-);
+  ADOPTION_TOP_ROW_WIDGET_HEIGHT;
+/** Sandbox status with hourly and daily sparklines (row 2, columns 1-2). */
+export const ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT = 7;
+/** Gateway releases beside sandbox on row 2 (column 3). */
+export const ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT = 7;
+const ADOPTION_SECTION_START_Y = TITLE_WIDGET_HEIGHT;
+/** Grid row where sandbox status and gateway releases begin (below Users). */
+export const ADOPTION_ROW_2_Y =
+  ADOPTION_SECTION_START_Y + ADOPTION_TOP_ROW_WIDGET_HEIGHT;
+const ADOPTION_SECTION_HEIGHT =
+  ADOPTION_TOP_ROW_WIDGET_HEIGHT + ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT;
 /** Stats list and P95 note. */
 export const PROVISION_TIME_WIDGET_HEIGHT = METRIC_WIDGET_HEIGHT + 1;
 /** Donut and hourly success-rate sparkline. */
 export const PROVISION_RELIABILITY_WIDGET_HEIGHT =
   POD_CAPACITY_WIDGET_HEIGHT + 2;
-/** Height of the two-row hub cluster grid beside system-summary. */
-export const HUB_CLUSTER_SECTION_HEIGHT =
-  NODE_STATUS_WIDGET_HEIGHT +
-  METRIC_ROW_GAP +
-  Math.max(
-    POD_CAPACITY_WIDGET_HEIGHT,
-    PROVISION_TIME_WIDGET_HEIGHT,
-    PROVISION_RELIABILITY_WIDGET_HEIGHT,
-  );
 /** Spans both hub cluster rows; fits provision duration and success-rate rows. */
-export const SYSTEM_SUMMARY_WIDGET_HEIGHT = HUB_CLUSTER_SECTION_HEIGHT;
+export const SYSTEM_SUMMARY_WIDGET_HEIGHT = 13;
+/** Height of the two-row hub cluster grid beside system-summary. */
+export const HUB_CLUSTER_SECTION_HEIGHT = SYSTEM_SUMMARY_WIDGET_HEIGHT;
 /** Grid row for the hub cluster section title. */
-const HUB_CLUSTER_TITLE_Y =
-  ADOPTION_SECTION_START_Y + ADOPTION_SECTION_HEIGHT + METRIC_ROW_GAP;
+const HUB_CLUSTER_TITLE_Y = ADOPTION_SECTION_START_Y + ADOPTION_SECTION_HEIGHT;
 /** Grid row where hub-cluster capacity widgets begin (below hub cluster title). */
-export const HUB_CLUSTER_START_Y = HUB_CLUSTER_TITLE_Y + TITLE_ROW_OFFSET;
-const HUB_CLUSTER_ROW_2_Y =
-  HUB_CLUSTER_START_Y + NODE_STATUS_WIDGET_HEIGHT + METRIC_ROW_GAP;
+export const HUB_CLUSTER_START_Y = HUB_CLUSTER_TITLE_Y + TITLE_CONTENT_OFFSET;
+const HUB_CLUSTER_ROW_2_Y = HUB_CLUSTER_START_Y + UTILIZATION_WIDGET_HEIGHT;
+const HUB_CLUSTER_SECTION_BOTTOM =
+  HUB_CLUSTER_START_Y +
+  Math.max(
+    SYSTEM_SUMMARY_WIDGET_HEIGHT,
+    HUB_CLUSTER_ROW_2_Y -
+      HUB_CLUSTER_START_Y +
+      PROVISION_RELIABILITY_WIDGET_HEIGHT,
+  );
 /** Grid row for the platform inventory section title. */
-export const PLATFORM_INVENTORY_TITLE_Y =
-  HUB_CLUSTER_START_Y + HUB_CLUSTER_SECTION_HEIGHT + METRIC_ROW_GAP;
+export const PLATFORM_INVENTORY_TITLE_Y = HUB_CLUSTER_SECTION_BOTTOM;
 /** Grid row where the inventory summary widget begins. */
 export const PLATFORM_INVENTORY_START_Y =
-  PLATFORM_INVENTORY_TITLE_Y + TITLE_ROW_OFFSET;
+  PLATFORM_INVENTORY_TITLE_Y + TITLE_CONTENT_OFFSET;
 /** Height for the inventory summary DescriptionList widget. */
 export const INVENTORY_SUMMARY_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT;
 
@@ -90,6 +86,7 @@ const WIDGET_TITLE_MESSAGES = {
   "managed-cluster-regions": messages.widgetManagedClusterRegions,
   "managed-database-status": messages.widgetManagedDatabaseStatus,
   "gateway-status": messages.gatewayStatusWidget,
+  "sandbox-status": messages.sandboxStatusWidget,
   "gateway-releases": messages.gatewayReleasesWidget,
   memory: messages.widgetMemory,
   nodes: messages.nodes,
@@ -113,7 +110,7 @@ const fourColumnLayout = [
     y: 0,
   },
   {
-    h: REGISTERED_USERS_WIDGET_HEIGHT,
+    h: ADOPTION_SECTION_HEIGHT,
     i: "usage-summary#1",
     title: "Usage summary",
     w: 1,
@@ -133,20 +130,29 @@ const fourColumnLayout = [
   {
     h: ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
     i: "gateway-status#1",
-    title: "Gateway status",
+    title: "Gateways",
     w: 1,
     widgetType: "gateway-status",
     x: 3,
     y: ADOPTION_SECTION_START_Y,
   },
   {
-    h: GATEWAY_RELEASES_WIDGET_HEIGHT,
+    h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
+    i: "sandbox-status#1",
+    title: "Sandbox status",
+    w: 2,
+    widgetType: "sandbox-status",
+    x: 1,
+    y: ADOPTION_ROW_2_Y,
+  },
+  {
+    h: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
     i: "gateway-releases#1",
     title: "Gateway releases",
     w: 1,
     widgetType: "gateway-releases",
     x: 3,
-    y: ADOPTION_GATEWAY_RELEASES_Y,
+    y: ADOPTION_ROW_2_Y,
   },
   {
     h: TITLE_WIDGET_HEIGHT,
@@ -167,7 +173,7 @@ const fourColumnLayout = [
     y: HUB_CLUSTER_START_Y,
   },
   {
-    h: NODE_STATUS_WIDGET_HEIGHT,
+    h: UTILIZATION_WIDGET_HEIGHT,
     i: "memory#1",
     title: "Memory",
     w: 1,
@@ -176,7 +182,7 @@ const fourColumnLayout = [
     y: HUB_CLUSTER_START_Y,
   },
   {
-    h: NODE_STATUS_WIDGET_HEIGHT,
+    h: UTILIZATION_WIDGET_HEIGHT,
     i: "cpu#1",
     title: "CPU",
     w: 1,
@@ -267,86 +273,185 @@ const fourColumnLayout = [
   },
 ] as const;
 
-function stackMobileY(
-  items: readonly {
-    h: number;
-    i: string;
-    title: string;
-    w: number;
-    widgetType: string;
-    x: number;
-    y: number;
-  }[],
-) {
-  let nextY = 0;
-
-  return items.map((item) => {
-    const positioned = {
-      ...item,
-      w: 1,
-      x: 0,
-      y: nextY,
-    };
-    nextY += item.h + METRIC_ROW_GAP;
-    return positioned;
-  });
-}
-
-const mobileLayoutOrder = [
-  "section-title#platform-adoption",
-  "usage-summary",
-  "gateway-status",
-  "gateway-releases",
-  "registered-users",
-  "section-title#hub-cluster",
-  "system-summary",
-  "memory",
-  "cpu",
-  "nodes",
-  "pods",
-  "provision-time",
-  "provision-reliability",
-  "section-title#platform-inventory",
-  "inventory-summary",
-  "managed-cluster-providers",
-  "managed-cluster-regions",
-  "managed-database-status",
+const mobileLayout = [
+  {
+    h: TITLE_WIDGET_HEIGHT,
+    i: "section-title#platform-adoption",
+    title: "Platform adoption",
+    w: 1,
+    widgetType: SECTION_TITLE_WIDGET_TYPE,
+    x: 0,
+    y: 0,
+  },
+  {
+    h: USAGE_SUMMARY_WIDGET_HEIGHT,
+    i: "usage-summary#1",
+    title: "Usage summary",
+    w: 1,
+    widgetType: "usage-summary",
+    x: 0,
+    y: 1,
+  },
+  {
+    h: REGISTERED_USERS_WIDGET_HEIGHT,
+    i: "registered-users#1",
+    title: "Users",
+    w: 1,
+    widgetType: "registered-users",
+    x: 0,
+    y: 7,
+  },
+  {
+    h: GATEWAY_STATUS_WIDGET_HEIGHT,
+    i: "gateway-status#1",
+    title: "Gateways",
+    w: 1,
+    widgetType: "gateway-status",
+    x: 0,
+    y: 14,
+  },
+  {
+    h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
+    i: "sandbox-status#1",
+    title: "Sandbox status",
+    w: 1,
+    widgetType: "sandbox-status",
+    x: 0,
+    y: 20,
+  },
+  {
+    h: 5,
+    i: "gateway-releases#1",
+    title: "Gateway releases",
+    w: 1,
+    widgetType: "gateway-releases",
+    x: 0,
+    y: 27,
+  },
+  {
+    h: TITLE_WIDGET_HEIGHT,
+    i: "section-title#hub-cluster",
+    title: "Hub cluster",
+    w: 1,
+    widgetType: SECTION_TITLE_WIDGET_TYPE,
+    x: 0,
+    y: 32,
+  },
+  {
+    h: SYSTEM_SUMMARY_WIDGET_HEIGHT,
+    i: "system-summary#1",
+    title: "System summary",
+    w: 1,
+    widgetType: "system-summary",
+    x: 0,
+    y: 33,
+  },
+  {
+    h: UTILIZATION_WIDGET_HEIGHT,
+    i: "memory#1",
+    title: "Memory",
+    w: 1,
+    widgetType: "memory",
+    x: 0,
+    y: 46,
+  },
+  {
+    h: UTILIZATION_WIDGET_HEIGHT,
+    i: "cpu#1",
+    title: "CPU",
+    w: 1,
+    widgetType: "cpu",
+    x: 0,
+    y: 52,
+  },
+  {
+    h: NODE_STATUS_WIDGET_HEIGHT,
+    i: "nodes#1",
+    title: "Nodes",
+    w: 1,
+    widgetType: "nodes",
+    x: 0,
+    y: 58,
+  },
+  {
+    h: POD_CAPACITY_WIDGET_HEIGHT,
+    i: "pods#1",
+    title: "Pods",
+    w: 1,
+    widgetType: "pods",
+    x: 0,
+    y: 62,
+  },
+  {
+    h: PROVISION_TIME_WIDGET_HEIGHT,
+    i: "provision-time#1",
+    title: "Provision time",
+    w: 1,
+    widgetType: "provision-time",
+    x: 0,
+    y: 68,
+  },
+  {
+    h: PROVISION_RELIABILITY_WIDGET_HEIGHT,
+    i: "provision-reliability#1",
+    title: "Provision reliability",
+    w: 1,
+    widgetType: "provision-reliability",
+    x: 0,
+    y: 72,
+  },
+  {
+    h: TITLE_WIDGET_HEIGHT,
+    i: "section-title#platform-inventory",
+    title: "Platform inventory",
+    w: 1,
+    widgetType: SECTION_TITLE_WIDGET_TYPE,
+    x: 0,
+    y: 80,
+  },
+  {
+    h: INVENTORY_SUMMARY_WIDGET_HEIGHT,
+    i: "inventory-summary#1",
+    title: "Inventory summary",
+    w: 1,
+    widgetType: "inventory-summary",
+    x: 0,
+    y: 81,
+  },
+  {
+    h: NODE_STATUS_WIDGET_HEIGHT,
+    i: "managed-cluster-providers#1",
+    title: "Cluster providers",
+    w: 1,
+    widgetType: "managed-cluster-providers",
+    x: 0,
+    y: 87,
+  },
+  {
+    h: NODE_STATUS_WIDGET_HEIGHT,
+    i: "managed-cluster-regions#1",
+    title: "Cluster regions",
+    w: 1,
+    widgetType: "managed-cluster-regions",
+    x: 0,
+    y: 91,
+  },
+  {
+    h: NODE_STATUS_WIDGET_HEIGHT,
+    i: "managed-database-status#1",
+    title: "Database status",
+    w: 1,
+    widgetType: "managed-database-status",
+    x: 0,
+    y: 95,
+  },
 ] as const;
-
-function findLayoutItem(
-  items: readonly {
-    h: number;
-    i: string;
-    title: string;
-    w: number;
-    widgetType: string;
-    x: number;
-    y: number;
-  }[],
-  layoutKey: (typeof mobileLayoutOrder)[number],
-) {
-  const item = items.find(
-    (layoutItem) =>
-      layoutItem.i === layoutKey || layoutItem.widgetType === layoutKey,
-  );
-  if (!item) {
-    throw new Error(`expected ${layoutKey} in default layout`);
-  }
-
-  return item;
-}
-
-const mobileLayout = stackMobileY(
-  mobileLayoutOrder.map((layoutKey) =>
-    findLayoutItem(fourColumnLayout, layoutKey),
-  ),
-);
 
 export const defaultDashboardLayoutTemplate: ExtendedTemplateConfig = {
   xl: [...fourColumnLayout],
   lg: [...fourColumnLayout],
   md: [...fourColumnLayout],
-  sm: mobileLayout,
+  sm: [...mobileLayout],
 };
 
 export function localizeDashboardLayoutTemplate(

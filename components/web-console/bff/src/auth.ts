@@ -375,11 +375,22 @@ export async function registerAuth(
         typeof claims?.preferred_username === "string"
           ? claims.preferred_username
           : undefined;
+      // The "github" identity provider FORCE-syncs a github-identity realm
+      // role onto every GitHub login (deploy/base/keycloak/keycloak.yaml).
+      // Deriving linkage from this token claim - rather than from whether
+      // Keycloak's broker-token endpoint happens to return 403 - is what lets
+      // evaluateGithubOrgGate tell "no GitHub identity" apart from "GitHub
+      // identity present but missing the broker read-token role", which that
+      // endpoint's status code alone cannot distinguish.
+      const githubLinked = claims
+        ? extractRealmRoles(claims).includes("github-identity")
+        : false;
       if (config.githubOrgGate && config.oidcIssuer) {
         const allowed = await evaluateGithubOrgGate({
           accessToken: tokenSet.accessToken,
           allowlistRaw: config.githubUsernameAllowlist,
           githubApiOrigin: config.githubApiOrigin ?? "https://api.github.com",
+          githubLinked,
           oidcIssuer: config.oidcIssuer,
           onLookupError: (error) => {
             request.log.warn(

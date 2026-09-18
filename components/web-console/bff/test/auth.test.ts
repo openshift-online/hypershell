@@ -52,6 +52,7 @@ const testSessionSecret =
 
 interface OidcContext {
   brokerStatus: number;
+  githubLinked: boolean;
   githubOrgs: string[];
   nonce: string;
   port: number;
@@ -115,7 +116,9 @@ function createOidcServer(ctx: OidcContext): Server {
           name: "Test User",
           nonce: ctx.nonce,
           preferred_username: "testuser",
-          roles: ["admin", "viewer"],
+          roles: ctx.githubLinked
+            ? ["admin", "viewer", "github-identity"]
+            : ["admin", "viewer"],
           sub: "user-123",
         });
 
@@ -257,6 +260,7 @@ describe("web-console BFF with OIDC enabled", () => {
   }[];
   const oidcCtx: OidcContext = {
     brokerStatus: 200,
+    githubLinked: false,
     githubOrgs: ["openshift-online"],
     nonce: "",
     port: 0,
@@ -265,6 +269,7 @@ describe("web-console BFF with OIDC enabled", () => {
   beforeEach(async () => {
     apiRequests = [];
     oidcCtx.brokerStatus = 200;
+    oidcCtx.githubLinked = false;
     oidcCtx.githubOrgs = ["openshift-online"];
     oidcCtx.nonce = "";
 
@@ -1068,6 +1073,7 @@ describe("web-console BFF with OIDC enabled", () => {
     });
 
     it("creates a session for an organization member", async () => {
+      oidcCtx.githubLinked = true;
       gatedApp = await buildApp(gatedConfig());
       const callback = await completeOidcLogin(gatedApp);
 
@@ -1102,6 +1108,7 @@ describe("web-console BFF with OIDC enabled", () => {
     });
 
     it("redirects non-members to /auth/denied without a session", async () => {
+      oidcCtx.githubLinked = true;
       oidcCtx.githubOrgs = ["acme"];
       gatedApp = await buildApp(gatedConfig());
       const callback = await completeOidcLogin(gatedApp);
@@ -1139,6 +1146,7 @@ describe("web-console BFF with OIDC enabled", () => {
     });
 
     it("denies login when the GitHub broker token cannot be read", async () => {
+      oidcCtx.githubLinked = true;
       oidcCtx.brokerStatus = 401;
       gatedApp = await buildApp(gatedConfig());
       const callback = await completeOidcLogin(gatedApp);
@@ -1147,8 +1155,22 @@ describe("web-console BFF with OIDC enabled", () => {
       expect(callback.headers.location).toBe("/auth/denied");
     });
 
-    it("creates a session when Keycloak has no GitHub broker identity", async () => {
+    it("denies a GitHub-linked login when the broker reports the read-token role is missing", async () => {
+      // A 403 from Keycloak's broker-token endpoint no longer means "not
+      // linked" - this session's github-identity role proves it is linked,
+      // so a 403 here must deny rather than be read as a password user.
+      oidcCtx.githubLinked = true;
       oidcCtx.brokerStatus = 403;
+      oidcCtx.githubOrgs = [];
+      gatedApp = await buildApp(gatedConfig());
+      const callback = await completeOidcLogin(gatedApp);
+
+      expect(callback.statusCode).toBe(302);
+      expect(callback.headers.location).toBe("/auth/denied");
+    });
+
+    it("creates a session when Keycloak has no GitHub broker identity", async () => {
+      oidcCtx.githubLinked = false;
       oidcCtx.githubOrgs = [];
       gatedApp = await buildApp(gatedConfig());
       const callback = await completeOidcLogin(gatedApp);

@@ -742,7 +742,8 @@ it does not flip the state.
 
 A retained environment is renewed on every commit and reclaimed after 72
 hours of inactivity unless you `/pr-destroy` or close the pull request.
-Unretained deploys that miss in-run teardown are reaped after 6 hours.
+The access comment shows that UTC expiry. Unretained deploys that miss
+in-run teardown are reaped after 6 hours.
 
 See `specs/platform/ephemeral-pr-environments.spec.md` for the full
 contract.

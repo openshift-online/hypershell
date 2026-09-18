@@ -138,13 +138,27 @@ pr_env_expires_at_hours() {
   pr_env_expires_at_seconds $(( ${1} * 3600 )) "${2:-}"
 }
 
+# pr_env_inactivity_expires_at <retained> [now-epoch] -> RFC 3339 UTC expiry
+# for the dual timebox. retained=true uses PR_ENV_RETAINED_MAX_HOURS,
+# otherwise PR_ENV_UNRETAINED_MAX_HOURS. now-epoch is injectable for tests.
+pr_env_inactivity_expires_at() {
+  local retained="${1:-false}"
+  if [[ "${retained}" == "true" ]]; then
+    pr_env_expires_at_hours "${PR_ENV_RETAINED_MAX_HOURS}" "${2:-}"
+  else
+    pr_env_expires_at_hours "${PR_ENV_UNRETAINED_MAX_HOURS}" "${2:-}"
+  fi
+}
+
 # pr_env_command_from_body <body> -> "extend", "destroy", or empty.
 # A command matches when the body is, or begins with, /pr-extend or /pr-destroy
-# (optional leading whitespace). /pr-extended does not match /pr-extend.
+# (optional leading whitespace, including blank lines). GitHub's web UI stores
+# comments with CRLF; strip CR so `/pr-extend\r` does not fail the match.
+# /pr-extended does not match /pr-extend.
 pr_env_command_from_body() {
   local body="${1:-}"
   local first
-  first="$(printf '%s' "${body}" | awk '{print $1; exit}')"
+  first="$(printf '%s' "${body}" | tr -d '\r' | awk 'NF { print $1; exit }')"
   case "${first}" in
     "${PR_ENV_COMMAND_EXTEND}") printf 'extend' ;;
     "${PR_ENV_COMMAND_DESTROY}") printf 'destroy' ;;
@@ -291,11 +305,16 @@ pr_env_comment_access_facts() {
 # Lifetime paragraph for access comments. Unretained environments advertise
 # /pr-extend (keep if still up, redeploy if already destroyed) and state they
 # are destroyed once e2e testing concludes. Retained environments are renewed
-# on each commit and reclaimed after the inactivity timebox.
+# on each commit and reclaimed after the inactivity timebox; the paragraph
+# includes the UTC expiry so the comment matches the stamped
+# hypershell.redhat.io/expires-at. PR_ENV_EXPIRES_AT overrides the computed
+# timestamp so the deploying comment, the namespace stamp, and the ready
+# comment all show the same instant.
 pr_env_comment_lifetime() {
   if [[ "${1:-}" == "true" ]]; then
+    local expires_at="${PR_ENV_EXPIRES_AT:-$(pr_env_expires_at_hours "${PR_ENV_RETAINED_MAX_HOURS}")}"
     cat <<EOF
-This environment is retained and renewed on every commit. It is reclaimed after the inactivity timebox unless you comment \`/pr-destroy\` or the pull request is closed.
+This environment is retained and renewed on every commit. It is reclaimed after the inactivity timebox (\`${expires_at}\` UTC) unless you comment \`/pr-destroy\` or the pull request is closed.
 EOF
   else
     cat <<EOF
