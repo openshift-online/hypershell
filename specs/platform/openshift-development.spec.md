@@ -85,6 +85,8 @@ Makefile (single entry point)
     ├── cluster lifecycle (infra-agnostic)
     │       │
     │       ├── sources scripts/cluster/lib.sh (shared seams)
+    │       │       └── scripts/cluster/lib_test.sh unit-tests these seams
+    │       │           (make openshift-test; no live cluster)
     │       │
     │       └── the up-target picks the driver (kind-up / openshift-up)
     │               ├── scripts/cluster/drivers/kind.sh       (wraps today's scripts/kind/)
@@ -398,6 +400,44 @@ get-modify-replace of the live Deployment races status updates and fails with
 - WHEN the developer runs `make openshift-up`
 - THEN the command stops with an error that asks for an OpenShift cluster target
 - AND the command does not deploy any resources
+
+### Requirement: Standalone Seed Command
+
+The `make openshift-seed` command SHALL seed (or re-seed) the domain resources
+into an environment that `make openshift-up` already created, without re-applying
+the overlay or re-creating the namespace group, so a developer can recover seeding
+after a partial `make openshift-up` or refresh seed data against a running stack.
+The command SHALL be a subset of `make openshift-up`: it SHALL require a reachable
+cluster, resolve and validate the namespace group, derive the environment's Route
+and OIDC values, and then seed the same domain resources `make openshift-up` seeds
+-- a ManagedCluster, a GatewayRelease, a ManagedDatabase, and a Gateway. The
+command SHALL NOT create the projects, apply cluster-scoped RBAC, or apply the
+overlay.
+
+Because the command assumes the environment already exists, when the Routes and
+Keycloak it needs are absent it SHALL stop with an error rather than seed against a
+missing environment. Seeding SHALL be idempotent: a resource that already exists
+(matched by name) SHALL be left unchanged, so re-running neither errors nor
+duplicates. Unlike `make openshift-up`, `make openshift-seed` SHALL always seed and
+SHALL NOT honor `SKIP_SEED`, because seeding is the command's only job. It SHALL
+honor `SEED_STRICT`: with strict seeding a seed failure SHALL fail the command,
+otherwise a failure SHALL warn and print manual-remediation guidance.
+
+#### Scenario: Re-seed an existing environment
+
+- GIVEN `make openshift-up` deployed the stack but seeding was skipped or failed
+- WHEN the developer runs `make openshift-seed`
+- THEN the command seeds a ManagedCluster, a GatewayRelease, a ManagedDatabase, and
+  a Gateway using the environment's Routes and OIDC values
+- AND the command does not re-apply the overlay or re-create the namespace group
+- AND resources that already exist are left unchanged
+
+#### Scenario: Seed before the environment exists
+
+- GIVEN no HyperShell deployment exists in the target namespace group
+- WHEN the developer runs `make openshift-seed`
+- THEN the command stops with an error rather than seed against a missing
+  environment
 
 ### Requirement: Ephemeral Namespace Isolation
 
@@ -855,6 +895,53 @@ suite validates both infrastructure targets.
 - THEN the suite verifies the certificate through the system trust store or an
   extracted CA
 - AND the suite does not set `OPENSHELL_GATEWAY_INSECURE`
+
+### Requirement: Lifecycle Library Unit Tests
+
+The `make openshift-test` command SHALL run the lifecycle library's unit and static
+test harness (`scripts/cluster/lib_test.sh`) without a live cluster, so the shared
+lifecycle seams and the OpenShift driver's pure helpers are verified in CI and
+locally without provisioning infrastructure. This command is distinct from the
+OpenShift E2E Driver: `make openshift-test` validates the driver's logic in
+isolation with stubbed cluster access, while the e2e suite drives a running
+environment. The harness SHALL exit non-zero when any check fails, so it can gate
+CI, and SHALL report pass and fail counts.
+
+The harness SHALL cover the pure helpers whose correctness gates the driver without
+a cluster: DNS-label sanitization and RFC-1123 label validation, the swap-registry
+rules (rejecting an unset, org-less, or cluster-local registry, and refusing to fall
+back to the baseline `IMAGE_REGISTRY`), target-architecture selection for the swap
+build, image-digest capture from a registry push log, pull-secret parsing, and the
+per-namespace swap ledger round-trip. The harness SHALL assert that the overlay
+namespace rewriter (`rewrite-namespaces.py`) rewrites the platform and Keycloak
+namespaces across names, `namespace:` fields, environment values, and in-cluster
+DNS, and prefixes cluster-scoped names without corrupting `roleRef`s or hyphenated
+image names.
+
+The harness SHALL assert the safety invariants of the destructive paths by
+inspecting the driver source, so a regression that weakens them fails the build
+rather than data in a cluster: `cluster_teardown` SHALL be the same command as
+`cluster_down`; the down path SHALL refuse unlabeled and foreign-environment
+namespaces and SHALL NOT delete the unprefixed `hypershell-controller`
+cluster-scoped RBAC; and the swap path SHALL push to an external registry and SHALL
+NOT use the internal image registry (`oc registry`, `oc start-build`).
+
+#### Scenario: Unit tests run without a cluster
+
+- GIVEN no OpenShift cluster is reachable
+- WHEN a developer or CI runs `make openshift-test`
+- THEN the harness runs the lifecycle library checks with stubbed cluster access
+- AND the harness reports pass and fail counts
+- AND the command exits non-zero if any check fails
+
+#### Scenario: Safety invariants are guarded statically
+
+- GIVEN the OpenShift driver source is present
+- WHEN `make openshift-test` runs
+- THEN the harness fails if `cluster_teardown` diverges from `cluster_down`
+- AND the harness fails if the down path would delete the unprefixed
+  `hypershell-controller` cluster-scoped RBAC
+- AND the harness fails if the swap path uses the internal image registry
 
 ### Requirement: E2E Script Consolidation
 
