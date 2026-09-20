@@ -245,6 +245,8 @@ Protocol mappers (same as `hypershell-frontend`):
 
 The CLI stores the access token, refresh token, issuer URL, and client ID in `~/.config/hypershell/config.json` (or `~/.hypershell.json` if the legacy path exists). On each command the CLI refreshes the access token eagerly if it is expired and a refresh token is available.
 
+Every HTTP client the CLI constructs (API server requests and OIDC issuer requests: token refresh, revocation, PKCE code exchange, device flow) SHALL honor the standard proxy environment variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`), including when `--insecure` disables TLS verification, so the CLI works from networks whose only egress is an HTTP proxy (e.g. an OpenShell sandbox).
+
 ### `hypershell-provisioner` Client
 
 The `hypershell-provisioner` client is a confidential service account used for automated Keycloak administration (e.g., per-gateway client provisioning). It is not used by the BFF or browser. See `openshell-gateway-credentials.spec.md` for its role in gateway OIDC provisioning.

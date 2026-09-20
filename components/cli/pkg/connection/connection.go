@@ -54,22 +54,27 @@ func (b *ConnectionBuilder) Build() (result *Connection, err error) {
 		return
 	}
 
-	transport := &http.Transport{}
-	if b.cfg.Insecure {
+	result = &Connection{
+		baseURL: strings.TrimRight(b.cfg.URL, "/"),
+		token:   b.cfg.AccessToken,
+		httpClient: &http.Client{
+			Transport: newTransport(b.cfg.Insecure),
+		},
+	}
+	return
+}
+
+// newTransport sets Proxy explicitly because a zero-value http.Transport,
+// unlike http.DefaultTransport, ignores HTTPS_PROXY / HTTP_PROXY / NO_PROXY.
+func newTransport(insecure bool) *http.Transport {
+	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
+	if insecure {
 		transport.TLSClientConfig = &tls.Config{
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: true, //nolint:gosec
 		}
 	}
-
-	result = &Connection{
-		baseURL: strings.TrimRight(b.cfg.URL, "/"),
-		token:   b.cfg.AccessToken,
-		httpClient: &http.Client{
-			Transport: transport,
-		},
-	}
-	return
+	return transport
 }
 
 func (c *Connection) Do(method, path string, query url.Values, body io.Reader) (*http.Response, error) {
