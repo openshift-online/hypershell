@@ -6,6 +6,7 @@
 **Related:** `local-development.spec.md` -- Kind cluster setup and the shared `scripts/cluster/` lifecycle dispatcher;
              `openshift-development.spec.md` (HYPERSHELL-44) -- `make openshift-*` lifecycle, blessed `deploy/openshift/` overlay, cluster infrastructure bootstrap (this spec owns the e2e driver interface and the OpenShift e2e driver; that spec owns bring-up);
              `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) -- automated OpenShift pull-request CI, GitHub-brokered grant path, and `e2e-openshell.sh` deprecation;
+             `ephemeral-test-credentials.spec.md` -- test-tier Keycloak users, CI-owned de-seed via `de_seed_test_users`, and static local seeds;
              `control-plane.spec.md` -- reconciler behavior;
              `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning;
              `openshell-gateway-namespace-gc.spec.md` -- gateway deletion + namespace GC;
@@ -62,6 +63,7 @@ Each driver exports shell functions that abstract infrastructure-specific operat
 | `acquire_gateway_token_with_role` | Acquire a per-gateway OIDC token and block until the named role lands in it (roles reconcile asynchronously after gateway create); sets `_OIDC_ACCESS_TOKEN` | Password grant against the per-gateway client, polling until the role appears | Grant-agnostic against the per-gateway client on the HyperShell Keycloak at its Route, polling until the role appears. Manual OpenShift defaults to the password grant. GitHub-brokered pull-request environments obtain the token by token-exchange impersonation of the seeded developer principal targeting that gateway client (`ephemeral-pr-environments.spec.md`) |
 | `configure_namespace_gc_timing` | Temporarily shorten the controller's namespace-GC interval/grace period for the duration of a long-mode run, so the orphan-GC assertion (area 11a) doesn't have to wait out production timing; blocks until the resulting rollout completes | `kubectl set env deployment/hypershell-controller` in the Kind namespace, then wait for rollout | `oc set env deployment/hypershell-controller` in `OPENSHIFT_NAMESPACE`, then wait for rollout |
 | `restore_namespace_gc_timing` | Revert the override applied by `configure_namespace_gc_timing`, restoring the deployment's configured (production) defaults; a no-op if never patched; called unconditionally from the suite's cleanup trap, even on failure | Same mechanism as `configure_namespace_gc_timing`, in reverse | Same mechanism as `configure_namespace_gc_timing`, in reverse |
+| `de_seed_test_users` | Delete the seeded `admin`, `developer`, and `platform-admin` Keycloak accounts at end of run; called unconditionally from the suite's cleanup trap, even on failure; idempotent if the accounts are already gone | No-op: Kind static users MUST NOT be deleted by a test run | No-op on developer-owned OpenShift. On a CI-owned `pr-*` environment, delete those three realm users as `ephemeral-test-credentials.spec.md` defines |
 
 ### CI Pipeline
 
@@ -197,6 +199,8 @@ Each driver script SHALL export the following shell functions. The main test scr
 
 The pull-request workflow SHALL set `E2E_OIDC_GRANT=client_credentials`. Kind CI SHALL leave it unset or set `password`.
 
+The suite SHALL call `de_seed_test_users` from the same cleanup trap as `restore_namespace_gc_timing`, on every exit path. Kind SHALL no-op. The OpenShift driver SHALL delete the three test-tier Keycloak accounts only when the run is against a CI-owned PR environment, as `ephemeral-test-credentials.spec.md` defines.
+
 #### Scenario: API Host Discovery -- Kind
 
 - GIVEN the `kind` driver is active
@@ -248,7 +252,15 @@ The pull-request workflow SHALL set `E2E_OIDC_GRANT=client_credentials`. Kind CI
 - THEN the driver SHALL use token-exchange impersonation targeting that gateway client
 - AND neither call SHALL use a password grant
 
-The OpenShift driver implements the same interface functions with OpenShift constructs (Route host for `discover_api_host`, GRPCRoute hostname via the shared Gateway with `Programmed=True` for `discover_gateway_endpoint`, the gateway base domain `make openshift-up` derived from the shared Gateway listener hostname for `get_cluster_domain`, `oc` for `get_cli_binary`, Gateway `Programmed=True` plus GRPCRoute parent `Accepted=True` for `wait_for_gateway_route`, the HyperShell Keycloak reached at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace for `acquire_oidc_token` and `api_curl`, and that same Keycloak's admin API for the `assign_gateway_client_role`, `assign_realm_role`, and `acquire_gateway_token_with_role` role helpers), as the interface table above shows. `openshift-development.spec.md` owns bring-up (`make openshift-up`, the overlay, cluster bootstrap); this spec owns the driver the suite calls after that environment exists. Automated OpenShift pull-request CI is specified in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240).
+#### Scenario: CI-owned OpenShift de-seeds test users; Kind does not
+
+- GIVEN the suite reaches its cleanup trap
+- WHEN it calls `de_seed_test_users`
+- THEN the Kind driver SHALL no-op
+- AND the OpenShift driver SHALL delete `admin`, `developer`, and `platform-admin` from the realm when the run is against a CI-owned `pr-*` environment
+- AND the OpenShift driver SHALL no-op when the run is against a developer-owned environment
+
+The OpenShift driver implements the same interface functions with OpenShift constructs (Route host for `discover_api_host`, GRPCRoute hostname via the shared Gateway with `Programmed=True` for `discover_gateway_endpoint`, the gateway base domain `make openshift-up` derived from the shared Gateway listener hostname for `get_cluster_domain`, `oc` for `get_cli_binary`, Gateway `Programmed=True` plus GRPCRoute parent `Accepted=True` for `wait_for_gateway_route`, the HyperShell Keycloak reached at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace for `acquire_oidc_token` and `api_curl`, that same Keycloak's admin API for the `assign_gateway_client_role`, `assign_realm_role`, and `acquire_gateway_token_with_role` role helpers, and `de_seed_test_users` against that realm on CI-owned `pr-*` environments only), as the interface table above shows. `openshift-development.spec.md` owns bring-up (`make openshift-up`, the overlay, cluster bootstrap); this spec owns the driver the suite calls after that environment exists. Automated OpenShift pull-request CI is specified in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). Test-tier seed and de-seed behavior is specified in `ephemeral-test-credentials.spec.md`.
 
 ### Requirement: Custom OpenShift Runs
 
@@ -258,7 +270,7 @@ Each target SHALL auto-detect the driver from the current KUBECONFIG context (se
 
 **Driver behavior needed for parity.** For the shared suite to pass on OpenShift, the OpenShift driver SHALL use the current `oc` project when `OPENSHIFT_NAMESPACE` is unset (and fail clearly when neither is available), matching `make openshift-up`; derive the OIDC issuer from the Keycloak Route in `${OPENSHIFT_NAMESPACE}-keycloak` (not the Kind default `keycloak.hypershell.localhost`); return `get_cluster_domain` from the same shared-Gateway listener hostname `make openshift-up` used; and provide the same Keycloak admin and role-assignment helpers the Kind driver provides, so the RBAC areas (developer and platform-admin) run unchanged. The OpenShift deployment SHALL enforce RBAC (`RBAC_ENFORCE=true`) and SHALL keep the OpenShift SCC posture (per-namespace privileged SCC for sandbox pods), so the sandbox and RBAC areas behave the same as on Kind. These behaviors are specified in `openshift-development.spec.md`; this spec only depends on them.
 
-**Namespace GC timing.** Area 11 exercises the periodic namespace reaper. Every deploy target (Kind included) runs with the production `GATEWAY_NAMESPACE_GC_INTERVAL`/`GATEWAY_NAMESPACE_GC_GRACE_PERIOD` defaults (5m sweep / 10m grace) -- no overlay bakes in shortened e2e timing, so Kind stays representative of a vanilla deployment. Instead, a long-mode run SHALL call `configure_namespace_gc_timing` once, before any gateway is created, to patch the controller deployment to a short interval/grace period for the duration of the run, and SHALL call `restore_namespace_gc_timing` from the suite's cleanup path so the deployment's production defaults are always restored, pass or fail.
+**Namespace GC timing.** Area 11 exercises the periodic namespace reaper. Every deploy target (Kind included) runs with the production `GATEWAY_NAMESPACE_GC_INTERVAL`/`GATEWAY_NAMESPACE_GC_GRACE_PERIOD` defaults (5m sweep / 10m grace) -- no overlay bakes in shortened e2e timing, so Kind stays representative of a vanilla deployment. Instead, a long-mode run SHALL call `configure_namespace_gc_timing` once, before any gateway is created, to patch the controller deployment to a short interval/grace period for the duration of the run, and SHALL call `restore_namespace_gc_timing` from the suite's cleanup path so the deployment's production defaults are always restored, pass or fail. That same cleanup path SHALL call `de_seed_test_users` as the driver table defines.
 
 **Not in this spec's CI.** OpenShift performance runs SHALL NOT be wired into CI. Kind e2e, including the merge-queue gate, SHALL remain the CI job this spec defines. Origin-repository OpenShift pull-request environments are specified in `ephemeral-pr-environments.spec.md` and SHALL NOT be restated here.
 
@@ -871,7 +883,7 @@ deploy/
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in step 11) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
 | `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--8 and 11 |
-| `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (local dev only; unused when `E2E_OIDC_GRANT=client_credentials`) |
+| `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (developer-owned default). Unused when `E2E_OIDC_GRANT=client_credentials`. A password-grant run against a CI-owned `pr-*` environment SHALL read Secret `hypershell-e2e-test-users` instead of this default (`ephemeral-test-credentials.spec.md`) |
 | `E2E_OIDC_GRANT` | `password` | Token grant for `acquire_oidc_token` and `acquire_gateway_token_with_role`: `password` (Kind and manual OpenShift) or `client_credentials` (GitHub-brokered pull-request environments, see `ephemeral-pr-environments.spec.md`) |
 | `E2E_SEED_CLUSTER_NAME` | `local-kind` on kind; unset otherwise | Pin seed discovery to this managed-cluster name. Unset means the first list item |
 | `E2E_SEED_RELEASE_NAME` | `dev-release` on kind; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |

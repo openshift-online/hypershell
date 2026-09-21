@@ -473,10 +473,13 @@ logs, or a public artifact.
 The workflow SHALL run only on `pull_request` events from the origin repository
 (the repository that holds the workflow). Cluster login and the GitHub OAuth App
 secret SHALL NOT live as GitHub Actions secrets; they SHALL live in AWS Secrets
-Manager and SHALL be fetched as `ephemeral-ci-secrets.spec.md` defines (GitHub
-OIDC into IAM for runner-only cluster login; ESO for the in-cluster OAuth copy).
-It SHALL NOT use `pull_request_target`. Fork pull requests SHALL NOT receive the
-cluster kubeconfig, the GitHub OAuth client secret, or any other secret this
+Manager and SHALL be consumed as `ephemeral-ci-secrets.spec.md` defines (GitHub
+OIDC into IAM for runner-only cluster login, only after the job confirms the head
+repository is the origin; ESO for the in-cluster OAuth copy). The workflow SHALL
+NOT request an OIDC token and SHALL NOT set `id-token: write` unless
+`github.event.pull_request.head.repo.full_name` equals `github.repository`. It
+SHALL NOT use `pull_request_target`. Fork pull requests SHALL NOT receive the
+cluster login, the GitHub OAuth client secret, or any other secret this
 workflow needs, and SHALL NOT get an environment. The GitHub organization gate
 and allowlist (see GitHub-Brokered Keycloak Authentication) govern interactive
 login to an already-deployed origin-repo environment; they SHALL NOT be used as
@@ -493,7 +496,9 @@ a reason to deploy untrusted pull-request trees with cluster credentials.
 
 - GIVEN a pull request whose head branch lives in a fork
 - WHEN GitHub evaluates this workflow
-- THEN the workflow SHALL NOT receive cluster credentials
+- THEN the job SHALL NOT set `id-token: write`
+- AND it SHALL NOT request an OIDC token or assume the CI IAM role
+- AND it SHALL NOT receive cluster credentials
 - AND it SHALL NOT create or update a `hypershell-ci-pr-*` environment
 
 ### Requirement: GitHub-Brokered Keycloak Authentication
@@ -627,14 +632,20 @@ not a Keycloak realm role, so seeding SHALL NOT assign it. The path to an
 role grant in Automated E2E Authentication.
 
 Impersonation SHALL be enabled so **any** authenticated GitHub user, not only a
-designated admin, can obtain tokens for either principal. Impersonation SHALL be
-available both interactively (through the Keycloak account/admin console) and
-programmatically through Keycloak token exchange, so the e2e suite can also
-acquire scoped tokens without an interactive login (see Automated E2E
-Authentication). Impersonation SHALL NOT require the impersonating user to know
-or supply the target principal's password; `ephemeral-test-credentials.spec.md`
-owns where that password lives (the cluster's cloud secret store, aligned
-in-cluster by ESO) and it is never part of this flow.
+designated admin, can obtain tokens for `developer` and `platform-admin`. They
+SHALL NOT be able to impersonate another GitHub-brokered user. They SHALL NOT
+need to impersonate `admin`; their own session already carries that HyperShell
+API capability. Human self-service impersonation covers the HyperShell API
+permission boundary (create vs view/delete). Per-gateway `openshell-user` sandbox
+create is the e2e driver's `assign_gateway_client_role` path in Automated E2E
+Authentication, not a human console path. Impersonation SHALL be available
+both interactively (through the Keycloak account/admin console, limited to those
+two principals) and programmatically through Keycloak token exchange, so the e2e
+suite can also acquire scoped tokens without an interactive login. Impersonation
+SHALL NOT require the impersonating user to know or supply the target principal's
+password; `ephemeral-test-credentials.spec.md` owns where that password lives
+(the cluster's cloud secret store, aligned in-cluster by ESO) and it is never
+part of this flow.
 
 Those principals exist after CI seed and until that environment's next CI e2e
 de-seed (`ephemeral-test-credentials.spec.md`). After de-seed, impersonation
@@ -664,15 +675,26 @@ trade-off: a public Route must not keep a test-tier password login after e2e.
 - THEN creating a gateway via the HyperShell API SHALL return `403 Forbidden`
 - AND the user SHALL NOT have needed the `developer` principal's password to do so
 
-#### Scenario: Developer sandbox create needs the per-gateway client role
+#### Scenario: Human self-service does not include per-gateway sandbox create
 
 - GIVEN any GitHub user is logged in to a pull-request environment
 - AND the environment currently has the seeded `developer` test-tier principal
-- AND a reachable gateway exists whose Keycloak client has granted that principal
-  `openshell-user` (the same grant Automated E2E Authentication requires)
-- WHEN that user obtains a per-gateway token by impersonating that principal
-- THEN creating a sandbox on that gateway SHALL succeed
-- AND creating a gateway via the HyperShell API SHALL return `403 Forbidden`
+- AND a reachable gateway exists
+- AND the e2e driver has not granted that principal `openshell-user` on that
+  gateway's Keycloak client
+- WHEN that user impersonates `developer`
+- THEN creating a gateway via the HyperShell API SHALL return `403 Forbidden`
+- AND creating a sandbox on that gateway is not a human self-service path; it
+  remains the e2e driver's `assign_gateway_client_role` grant in Automated E2E
+  Authentication
+
+#### Scenario: GitHub users cannot impersonate each other
+
+- GIVEN GitHub user A and GitHub user B are both authenticated to a pull-request
+  environment
+- WHEN user A requests an impersonated token for user B
+- THEN Keycloak SHALL deny the request
+- AND user A SHALL still be able to impersonate `developer` and `platform-admin`
 
 #### Scenario: Any authenticated user tests the platform-admin boundary by impersonation
 
@@ -891,8 +913,8 @@ exists).
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both during authentication (not by post-hoc roles) means a denied user never gets a token |
-| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. Impersonation works between seed and de-seed; after de-seed it waits for the next seed |
+| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. Impersonation does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works between seed and de-seed; after de-seed it waits for the next seed |
 | Area 9 grants `openshell-user` on the gateway client before token exchange | Kind already uses `assign_gateway_client_role` because there is no user-id discovery path to create a `gateway:viewer` RoleBinding for a non-owner. The OpenShift driver does the same so a brokered PR env has a specified path to an `openshell-user` token. That grant is not a Keycloak realm-role seed |
 | Dedicated `hypershell-e2e` client; secret read from the deployed Keycloak | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
-| Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, GitHub OIDC fetch, and ESO alignment so this spec can treat them as cluster infrastructure |
+| Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |
 | Deprecate `e2e-openshell.sh` now, remove it later; leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded. Team members still run it, so it is deprecated first (notice + docs pointing at the shared harness) and removed later once that usage migrates. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component stays until both scripts are gone |
