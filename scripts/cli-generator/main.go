@@ -281,8 +281,10 @@ func generateCLI(data cliData, outDir string) error {
 	var mappings []tmplMapping
 
 	// Preserved files (hand-maintained, not overwritten by the generator):
-	//   cmd/<binary>/main.go  - registers both generated and hand-authored commands
-	//   go.mod                - managed by go mod tidy; hand-authored cmds may add deps
+	//   cmd/<binary>/main.go        - registers both generated and hand-authored commands
+	//   cmd/<binary>/login/cmd.go   - full OIDC login (browser PKCE + device flow); the
+	//                                 template only has a static-token stub for bootstrapping
+	//   go.mod                      - managed by go mod tidy; hand-authored cmds may add deps
 	//
 	// To bootstrap a brand-new project, render cmd/main.go.tmpl and gomod.tmpl
 	// once by hand before committing.
