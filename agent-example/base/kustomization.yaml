@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - rbac.yaml
+  - cronjob.yaml
+
+configMapGenerator:
+  - name: agent-scripts
+    files:
+      - scripts/agent-lib.sh
+      - scripts/install-openshell.sh
+    options:
+      disableNameSuffixHash: true
+
+  - name: agent-policy
+    files:
+      - policy/policy-template.yaml
+    options:
+      disableNameSuffixHash: true
