@@ -149,8 +149,8 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Database configuration
 	setNestedValue(values, "openshell-gateway-db-credentials", "server", "externalDbSecret")
 
-	// Trusted CA ConfigMap - only set when the ConfigMap was actually copied
-	if b.HasTrustedCA {
+	// Trusted CA ConfigMap - only set when OIDC is configured and the ConfigMap was actually copied
+	if b.HasTrustedCA && b.Gateway.OIDC.Issuer != "" {
 		setNestedValue(values, "gateway-trusted-ca", "server", "oidc", "caConfigMapName")
 	}
 
