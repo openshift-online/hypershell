@@ -9,6 +9,7 @@ const (
 	ManagedDatabasesPath = APIPrefix + "/managed_databases"
 	RolesPath            = APIPrefix + "/roles"
 	RoleBindingsPath     = APIPrefix + "/role_bindings"
+	UsersPath            = APIPrefix + "/users"
 )
 
 func GatewayPath(id string) string {
@@ -37,4 +38,8 @@ func RolePath(id string) string {
 
 func RoleBindingPath(id string) string {
 	return RoleBindingsPath + "/" + id
+}
+
+func UserPath(id string) string {
+	return UsersPath + "/" + id
 }

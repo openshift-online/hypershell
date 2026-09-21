@@ -1,4 +1,4 @@
-package roleBindings
+package users
 
 import (
 	"context"
@@ -26,10 +26,10 @@ var args struct {
 }
 
 var Cmd = &cobra.Command{
-	Use:     "roleBindings [flags]",
-	Aliases: []string{"roleBinding"},
-	Short:   "List roleBindings",
-	Long:    "List roleBindings, optionally filtering by search query",
+	Use:     "users [flags]",
+	Aliases: []string{"user"},
+	Short:   "List users",
+	Long:    "List users, optionally filtering by search query",
 	Args:    cobra.NoArgs,
 	RunE:    run,
 }
@@ -38,7 +38,7 @@ func init() {
 	fs := Cmd.Flags()
 	arguments.AddParameterFlag(fs, &args.parameter)
 	arguments.AddNoHeadersFlag(fs, &args.noHeaders)
-	arguments.AddColumnsFlag(fs, &args.columns, "id, gateway_id, role_id, scope, user_id, created_at")
+	arguments.AddColumnsFlag(fs, &args.columns, "id, email, name, username, created_at")
 	arguments.AddOutputFlag(fs, &args.outputFmt)
 	fs.StringVar(&args.search, "search", "", "Search filter expression.")
 	fs.StringVar(&args.orderBy, "order-by", "", "Order by expression.")
@@ -83,7 +83,7 @@ func run(cmd *cobra.Command, argv []string) error {
 	defer printer.Close()
 
 	table, err := printer.NewTable().
-		Name("roleBindings").
+		Name("users").
 		Columns(args.columns).
 		Build(ctx)
 	if err != nil {
@@ -98,9 +98,9 @@ func run(cmd *cobra.Command, argv []string) error {
 	size := 100
 	page := 1
 	for {
-		resp, err := conn.List(urls.RoleBindingsPath, page, size, searchQuery, args.orderBy)
+		resp, err := conn.List(urls.UsersPath, page, size, searchQuery, args.orderBy)
 		if err != nil {
-			return fmt.Errorf("can't retrieve roleBindings: %v", err)
+			return fmt.Errorf("can't retrieve users: %v", err)
 		}
 
 		for _, item := range resp.Items {
@@ -125,9 +125,9 @@ func listJSON(conn *connection.Connection, search string) error {
 	var allItems []json.RawMessage
 
 	for {
-		resp, err := conn.List(urls.RoleBindingsPath, page, size, search, args.orderBy)
+		resp, err := conn.List(urls.UsersPath, page, size, search, args.orderBy)
 		if err != nil {
-			return fmt.Errorf("can't retrieve roleBindings: %v", err)
+			return fmt.Errorf("can't retrieve users: %v", err)
 		}
 		allItems = append(allItems, resp.Items...)
 		if resp.Size < size {
@@ -137,7 +137,7 @@ func listJSON(conn *connection.Connection, search string) error {
 	}
 
 	result := map[string]interface{}{
-		"kind":  "RoleBindingList",
+		"kind":  "UserList",
 		"total": len(allItems),
 		"items": allItems,
 	}

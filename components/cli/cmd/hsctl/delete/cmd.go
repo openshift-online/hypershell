@@ -3,13 +3,13 @@ package delete
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/gateway"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/gatewayNetwork"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/gatewayRelease"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/managedCluster"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/managedDatabase"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/role"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete/roleBinding"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/gateway"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/gatewayNetwork"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/gatewayRelease"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/managedCluster"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/managedDatabase"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/role"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/roleBinding"
 )
 
 var Cmd = &cobra.Command{

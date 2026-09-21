@@ -3,7 +3,7 @@ package revoke
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/revoke/serviceAccount"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/revoke/serviceAccount"
 )
 
 var Cmd = &cobra.Command{

@@ -1,4 +1,4 @@
-package gateway
+package user
 
 import (
 	"fmt"
@@ -14,10 +14,10 @@ import (
 )
 
 var Cmd = &cobra.Command{
-	Use:     "gateway ID",
-	Aliases: []string{"gateways"},
-	Short:   "Get a gateway by ID",
-	Long:    "Get a gateway by ID and display its details",
+	Use:     "user ID",
+	Aliases: []string{"users"},
+	Short:   "Get a user by ID",
+	Long:    "Get a user by ID and display its details",
 	Args:    cobra.ExactArgs(1),
 	RunE:    run,
 }
@@ -36,9 +36,9 @@ func run(cmd *cobra.Command, argv []string) error {
 	}
 	defer conn.Close()
 
-	resp, err := conn.Get(urls.GatewayPath(id), nil)
+	resp, err := conn.Get(urls.UserPath(id), nil)
 	if err != nil {
-		return fmt.Errorf("can't retrieve gateway: %v", err)
+		return fmt.Errorf("can't retrieve user: %v", err)
 	}
 	defer resp.Body.Close()
 

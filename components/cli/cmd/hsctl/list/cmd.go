@@ -3,14 +3,15 @@ package list
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gatewayNetworks"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gatewayReleases"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/gateways"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/managedClusters"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/managedDatabases"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/roleBindings"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/roles"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list/serviceAccounts"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/gatewayNetworks"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/gatewayReleases"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/gateways"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/managedClusters"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/managedDatabases"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/roleBindings"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/roles"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/serviceAccounts"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/users"
 )
 
 var Cmd = &cobra.Command{
@@ -27,5 +28,6 @@ func init() {
 	Cmd.AddCommand(managedDatabases.Cmd)
 	Cmd.AddCommand(roles.Cmd)
 	Cmd.AddCommand(roleBindings.Cmd)
+	Cmd.AddCommand(users.Cmd)
 	Cmd.AddCommand(serviceAccounts.Cmd)
 }

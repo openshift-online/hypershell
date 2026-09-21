@@ -6,18 +6,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/apply"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/completion"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/config"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/create"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/delete"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/get"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/list"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/login"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/logout"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/revoke"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/version"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hypershell/whoami"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/apply"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/completion"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/config"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/get"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/login"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/logout"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/revoke"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/version"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/whoami"
 )
 
 var root = &cobra.Command{
