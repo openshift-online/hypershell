@@ -295,8 +295,10 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 }
 
 func getResourceByName(conn *connection.Connection, basePath, name string) (map[string]interface{}, error) {
-	// List resources with name filter
-	listResp, err := conn.List(basePath, 1, 100, fmt.Sprintf("name=%s", name), "")
+	// TSL (Tree Search Language) requires values containing hyphens or other
+	// special characters to be single-quoted; double an embedded single quote.
+	quotedName := "'" + strings.ReplaceAll(name, "'", "''") + "'"
+	listResp, err := conn.List(basePath, 1, 100, "name = "+quotedName, "")
 	if err != nil {
 		return nil, err
 	}
