@@ -4,8 +4,8 @@
 
 HyperShell deploys and manages OpenShell gateways, but its local development and
 test workflows always run against a pinned, published OpenShell release. This
-spec defines a workflow that lets a developer stand up a Kind environment whose
-gateways are built from an arbitrary OpenShell branch or pull request, so new
+spec defines a workflow that lets a developer stand up a Kind environment with an
+additional gateway built from an arbitrary OpenShell branch or pull request, so new
 OpenShell changes can be validated end-to-end inside HyperShell before they are
 released. A single entry point, `make kind-openshell-up`, checks out the
 requested OpenShell source, builds gateway and supervisor images from it, loads
@@ -23,8 +23,10 @@ it does not change how production gateways are provisioned.
 ### Requirement: Branch Build Entry Point
 
 The platform SHALL provide a `make kind-openshell-up` target that brings up a
-local Kind environment whose OpenShell gateways are built from a caller-specified
-OpenShell source ref instead of the pinned default images.
+local Kind environment and provisions an additional gateway, `openshell-dev-gateway`,
+running OpenShell images built from a caller-specified source ref instead of the
+pinned default images. The target SHALL NOT rebuild or retarget the standard
+`dev-gateway` created by `make kind-up`; see the Coexistence requirement.
 
 The target SHALL accept the OpenShell source through configuration variables and
 SHALL NOT require code changes to select a different branch, PR, or repository:
@@ -41,7 +43,7 @@ SHALL NOT require code changes to select a different branch, PR, or repository:
   `https://github.com/NVIDIA/OpenShell.git`, so that forks and alternate
   sources can be targeted.
 
-The target SHALL require exactly one source ref. When both `OPENSHELL_BRANCH`
+The target SHALL require at least one source ref. When both `OPENSHELL_BRANCH`
 and `OPENSHELL_PR` are set, `OPENSHELL_BRANCH` SHALL take precedence and
 `OPENSHELL_PR` SHALL be ignored. When neither is set, the target SHALL fail
 with an actionable message explaining how to supply a branch or PR.
@@ -119,14 +121,21 @@ OpenShell source using the repository's `docker-build-image.sh` script, which
 produces the `gateway` and `supervisor` targets. The sandbox base image SHALL
 use the published community image (`ghcr.io/nvidia/openshell-community/sandboxes/base:latest`)
 since it is maintained in a separate repository (NVIDIA/OpenShell-Community) not
-covered by this checkout.
+covered by this checkout. Determinism-by-commit-SHA (see Deterministic Source
+Checkout) applies to the gateway and supervisor images, which this workflow
+builds; the sandbox base is intentionally exempt and floats on `:latest`
+because it is out of scope of this checkout and has its own release cadence.
 
-Each branch-built image SHALL be tagged with a dev tag that encodes the resolved
-commit SHA (e.g., `gateway:dev-abc123`, `supervisor:dev-abc123`) so branch builds
-are distinguishable from pinned releases and from one another. The platform SHALL
-load the branch-built gateway and supervisor images into the Kind cluster. The
-sandbox base image SHALL either be pre-pulled into Kind or pulled on first sandbox
-launch.
+Each branch-built image SHALL be tagged with a dev tag that encodes the full
+40-character resolved commit SHA (e.g.,
+`gateway:dev-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2`,
+`supervisor:dev-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2`) so branch builds are
+distinguishable from pinned releases and from one another, and so the tag
+cannot collide across commits with the same abbreviated prefix. The
+`dev_build_metadata.sha` field (see Dev Gateway Identity) SHALL record the
+same full 40-character SHA. The platform SHALL load the branch-built gateway
+and supervisor images into the Kind cluster. The sandbox base image SHALL
+either be pre-pulled into Kind or pulled on first sandbox launch.
 
 The image references written into the seeded Gateway resource SHALL be:
 - `image`: `gateway:dev-<commit-sha>`

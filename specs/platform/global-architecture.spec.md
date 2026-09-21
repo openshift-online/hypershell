@@ -899,7 +899,10 @@ The base image tenant sandbox pods launch from (the gateway `default_image`) SHA
 be overridable via `GATEWAY_SANDBOX_IMAGE` (control-plane env), so that on clusters
 whose nodes cannot reach `ghcr.io` (e.g. ROKS) it can be pointed at a mirror in the
 cluster-internal registry. This mirrors the `HYPERSHELL_DATABASE_IMAGE` override for
-the gateway database.
+the gateway database. This cluster-wide override SHALL apply only when the Gateway
+resource does not set its own `sandbox_image` field; a per-Gateway `sandbox_image`
+(see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)) SHALL take
+precedence over `GATEWAY_SANDBOX_IMAGE`.
 
 ##### Scenario: Sandbox launch on a cluster without public egress
 

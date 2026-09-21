@@ -643,7 +643,7 @@ health_bind_address      = "0.0.0.0:8081"
 metrics_bind_address     = "0.0.0.0:9090"
 log_level                = "info"
 sandbox_namespace        = "<tenant-namespace>"
-default_image            = "<Gateway.sandbox_image or default ghcr.io/nvidia/openshell-community/sandboxes/base:latest>"
+default_image            = "<Gateway.sandbox_image, else GATEWAY_SANDBOX_IMAGE control-plane env override, else default ghcr.io/nvidia/openshell-community/sandboxes/base:latest>"
 supervisor_image         = "<Gateway.supervisor_image or default ghcr.io/nvidia/openshell/supervisor:0.0.101>"
 client_tls_secret_name   = "openshell-client-tls"
 enable_loopback_service_http = true
@@ -681,6 +681,8 @@ image = "<supervisor-image>"
 ```
 
 The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to the value of the `GATEWAY_SUPERVISOR_IMAGE` environment variable on the control-plane deployment (see `deploy/base/controller.yaml`). The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
+
+The `default_image` field (the sandbox base image) resolves in this order: the Gateway resource's `sandbox_image` field, when set; otherwise the `GATEWAY_SANDBOX_IMAGE` environment variable on the control-plane deployment, when set (see [`global-architecture.spec.md`](./global-architecture.spec.md) "Sandbox Base Image Supports an In-Cluster Registry" - this override lets clusters that cannot reach `ghcr.io` point at a mirrored image); otherwise the published default `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`. A per-Gateway `sandbox_image` always overrides the cluster-wide `GATEWAY_SANDBOX_IMAGE` mirror, the same precedence order `image`/`GATEWAY_IMAGE` and `supervisor_image`/`GATEWAY_SUPERVISOR_IMAGE` already follow.
 
 #### OIDC Section (conditional)
 
