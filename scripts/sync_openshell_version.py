@@ -142,7 +142,10 @@ def stamp_console_image(
     text = path.read_text()
     m = _CONSOLE_CONST_RE.search(text)
     if not m:
-        return []
+        raise RuntimeError(
+            f"{path}: defaultConsoleImage constant not found - "
+            "was it renamed or reformatted?"
+        )
 
     expected = f"{image}@{digest}"
     current = m.group(2)

@@ -170,6 +170,25 @@ class SyncOpenshellVersionTest(unittest.TestCase):
         self.assertIn("@" + new_digest, content)
         self.assertNotIn("b" * 64, content)
 
+    def test_error_when_console_constant_missing(self):
+        go_src = 'package gateway\n\nconst somethingElse = "foo"\n'
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".go", delete=False
+        ) as f:
+            f.write(go_src)
+            f.flush()
+            path = Path(f.name)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            MOD.stamp_console_image(
+                path,
+                "quay.io/gkrumbach07/openshell-dashboard",
+                "sha256:" + "a" * 64,
+                check_only=True,
+            )
+        path.unlink()
+        self.assertIn("defaultConsoleImage constant not found", str(ctx.exception))
+
     def test_no_mismatch_when_console_current(self):
         digest = "sha256:" + "a" * 64
         go_src = (
