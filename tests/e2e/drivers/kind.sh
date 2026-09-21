@@ -27,6 +27,31 @@ fi
 # to the openshell binary.
 export OPENSHELL_GATEWAY_INSECURE=true
 
+# macOS default: run the openshell CLI inside a container on the kind network.
+# The CLI is distributed only as a Linux binary, which cannot execute on macOS;
+# and even a native build could not reach the gateway, because cloud-provider-kind
+# publishes the gateway LoadBalancer on the kind container network whose IPs are
+# not routable from the macOS host. scripts/kind/openshell-container.sh runs the
+# Linux CLI in a container that shares a socat forwarder's netns on the kind
+# network, so it both executes and reaches the gateway (see that script's header).
+#
+# Linux is unaffected: the native binary runs directly and the host-published
+# ephemeral port is reachable, so this block is Darwin-only. Any explicit
+# OPENSHELL_BIN override (a value other than the "openshell" default) is honored.
+if [[ "$(uname -s)" == "Darwin" && ( -z "${OPENSHELL_BIN:-}" || "${OPENSHELL_BIN}" == "openshell" ) ]]; then
+  _E2E_OSH_WRAPPER="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/kind/openshell-container.sh"
+  if [[ -x "${_E2E_OSH_WRAPPER}" ]]; then
+    export OPENSHELL_BIN="${_E2E_OSH_WRAPPER}"
+    # The wrapper runs the Linux CLI straight from the container image, so there
+    # is nothing to download or extract onto the host.
+    export E2E_OPENSHELL_INSTALL=never
+    # The wrapper's in-container forwarder listens on loopback :443, so the CLI
+    # gateway endpoint must target :443 rather than the host-published ephemeral
+    # port that discover_gateway_endpoint would otherwise bake into metadata.json.
+    : "${_KINDCCM_GW_PORT:=443}"
+  fi
+fi
+
 # Force IPv4 and remap *.hypershell.localhost:443 to the cloud-provider-kind
 # envoy ephemeral port. Two problems motivate this:
 #   1. DNS stub returns both 127.0.0.1 and ::1 for *.localhost; the envoy proxy
