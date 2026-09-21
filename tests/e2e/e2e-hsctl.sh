@@ -68,6 +68,53 @@ elif [[ "${HSCTL_INSECURE}" == "auto" ]]; then
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# _kind_curl - curl for *.hypershell.localhost routes in Kind.
+#
+# *.localhost resolves to both 127.0.0.1 and ::1 but cloud-provider-kind's
+# envoy only binds IPv4 -- so plain curl may connect on IPv6 and get ECONNREFUSED.
+# Strategy:
+#   1. Always pass --ipv4 so curl prefers the IPv4 address.
+#   2. If the connection still fails (curl exit 7), discover the kindccm-gw
+#      container's ephemeral port and retry with --connect-to so the port-443
+#      SNI routing still works even without sudo pfctl/iptables.
+# ---------------------------------------------------------------------------
+_KINDCCM_PORT_CACHE=""
+_kindccm_port() {
+  if [[ -z "${_KINDCCM_PORT_CACHE}" ]]; then
+    local engine
+    if command -v podman &>/dev/null; then engine=podman
+    elif command -v docker &>/dev/null; then engine=docker
+    else return 1; fi
+    local cid
+    cid=$(${engine} ps -q --filter "name=kindccm-gw" 2>/dev/null | head -1)
+    if [[ -n "${cid}" ]]; then
+      _KINDCCM_PORT_CACHE=$(${engine} port "${cid}" 443 2>/dev/null \
+        | head -1 | grep -oE '[0-9]+$' || true)
+    fi
+  fi
+  echo "${_KINDCCM_PORT_CACHE}"
+}
+
+_kind_curl() {
+  local out status
+  out=$(curl -sk --ipv4 "$@" 2>&1)
+  status=$?
+  if [[ "${status}" -eq 7 ]]; then
+    local kport
+    kport=$(_kindccm_port)
+    if [[ -n "${kport}" && "${kport}" != "443" ]]; then
+      out=$(curl -sk --ipv4 \
+        --connect-to "api.hypershell.localhost:443:127.0.0.1:${kport}" \
+        --connect-to "keycloak.hypershell.localhost:443:127.0.0.1:${kport}" \
+        "$@" 2>&1)
+      status=$?
+    fi
+  fi
+  printf '%s' "${out}"
+  return "${status}"
+}
+
 # Unique suffix for resources created by this run
 _RUN_ID="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8 || date +%s | sha256sum | cut -c1-8)"
 _TEST_RELEASE="hsctl-test-${_RUN_ID}"
@@ -158,7 +205,7 @@ if [[ "${HSCTL_TEST_API_URL}" == "http://localhost:8000" ]]; then
 
   _api_ready=""
   for _ in $(seq 1 20); do
-    if curl -s -o /dev/null -m 3 \
+    if curl -s --ipv4 -o /dev/null -m 3 \
         "${HSCTL_TEST_API_URL}/api/hypershell/v1/gateways" 2>/dev/null; then
       _api_ready=true
       break
@@ -180,7 +227,7 @@ if [[ "${HSCTL_TEST_API_URL}" == "http://localhost:8000" ]]; then
   pass "Port-forward established (${HSCTL_TEST_API_URL})"
 else
   # Verify the user-supplied URL responds
-  _code=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 \
+  _code=$(_kind_curl -o /dev/null -w '%{http_code}' --connect-timeout 5 \
     "${HSCTL_TEST_API_URL}/api/hypershell/v1/gateways" 2>/dev/null || echo "000")
   if [[ "${_code}" == "000" ]]; then
     red "API server is not reachable at ${HSCTL_TEST_API_URL}."
@@ -200,7 +247,7 @@ _TOKEN_RESP=""
 _TOKEN=""
 
 for _ in $(seq 1 15); do
-  _TOKEN_RESP=$(curl -sk -m 10 -X POST "${_TOKEN_URL}" \
+  _TOKEN_RESP=$(_kind_curl -m 10 -X POST "${_TOKEN_URL}" \
     -d "grant_type=password" \
     -d "client_id=hypershell-frontend" \
     -d "username=${OIDC_USERNAME}" \
