@@ -10,7 +10,7 @@ require (
 	github.com/golang/glog v1.2.5
 	github.com/gorilla/mux v1.7.3
 	github.com/onsi/gomega v1.27.1
-	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260819203335-5798cb607fcb
+	github.com/openshift-online/rh-trex-ai d7f66e5f0673
 	github.com/prometheus/client_golang v1.16.0
 	github.com/segmentio/ksuid v1.0.2
 	github.com/spf13/cobra v0.0.5
