@@ -60,7 +60,7 @@ Compare the spec against the current state of the code. Check all three directio
 | **SDK (Go)** | Do generated types/builders/clients exist in `components/sdk-go/` for all spec entities? |
 | **SDK (TS)** | Do generated types/clients exist in `components/sdk-typescript/` for all spec entities? |
 | **BE** | Read `plugins/<kind>/model.go` for every Kind. Compare field-by-field against the Spec. |
-| **CLI** | Does `hypershell` implement every route marked ✅ implemented in the spec CLI table? Check `components/cli/cmd/hypershell/*/cmd.go`. |
+| **CLI** | Does `hypershell` implement every route marked ✅ implemented in the spec CLI table? Check `components/cli/cmd/hsctl/*/cmd.go`. |
 | **gRPC** | Do proto definitions cover all fields? Do handlers and presenters exist? |
 | **CP** | Does the watcher subscribe to all Kinds? Does the reconciler handle all events? |
 
@@ -106,7 +106,7 @@ Gateway         CLI         partial     get/list implemented, delete missing
 
 **Wave 5 -- CLI** (parallel after Wave 3)
 - Implement all planned commands from spec CLI table
-- Commands go in `components/cli/cmd/hypershell/{verb}/{resource}/cmd.go`
+- Commands go in `components/cli/cmd/hsctl/{verb}/{resource}/cmd.go`
 - Follow existing patterns: create, get, list, delete
 - Use SDK client for all API calls
 - Acceptance: CLI commands work against running API server

@@ -223,7 +223,7 @@ The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into
 
 #### Scenario: Library extraction
 
-- GIVEN the kustomize engine currently lives in `components/hypershell-cli/cmd/hsctl/apply/cmd.go`
+- GIVEN the kustomize engine currently lives in `components/cli/cmd/hsctl/apply/cmd.go`
 - WHEN the shared library is created
 - THEN it SHALL be placed in a package accessible to both the CLI and the control plane (e.g., `components/hypershell-sdk/go-sdk/kustomize/`)
 - AND it SHALL expose functions for: loading a kustomization directory, resolving bases, merging resources, applying strategic-merge patches, and producing a flat manifest stream
