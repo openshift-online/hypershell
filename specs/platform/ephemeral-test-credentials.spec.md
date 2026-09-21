@@ -11,7 +11,8 @@
              `openshift-development.spec.md` (HYPERSHELL-44) -- the `make openshift-*`
              lifecycle and the shared `scripts/cluster/` dispatcher;
              `local-development.spec.md` -- the Kind Keycloak realm/client model and
-             static local test users;
+             static local test users this spec also applies to local
+             `make openshift-up`;
              `oidc-integration.spec.md` -- platform OIDC, realm clients, and the
              `make kind-up` banner;
              `../security/rbac-enforcement.spec.md` -- `platform:admin` vs
@@ -27,9 +28,11 @@ cluster, in the same class of pre-provisioned dependency as the GitHub OAuth App
 `ephemeral-pr-environments.spec.md` assumes. Standing CI secrets for that workflow
 (cluster login, the OAuth App itself) live in the same cloud store and are owned by
 `ephemeral-ci-secrets.spec.md`; this spec owns only the test-tier password payload.
-The cluster's cloud secret store is the durable source of truth. ESO is the generic
-in-cluster seam that copies those values into a Kubernetes Secret. HyperShell seed
-and e2e talk only to that Secret.
+On CI-owned PR environments the cluster's cloud secret store is the durable source
+of truth and ESO is the generic in-cluster seam that copies those values into a
+Kubernetes Secret. HyperShell seed and CI e2e talk only to that Secret.
+Developer-owned environments (Kind and local `make openshift-up`) do not use that
+store or that Secret; they seed static username-equals-password values.
 
 On `hysh-aws-01` the cloud secret store is AWS Secrets Manager. A later cluster on
 another cloud SHALL keep the same Kubernetes Secret contract and swap only the ESO
@@ -46,32 +49,38 @@ and drive that environment.
 
 Today `deploy/base/keycloak/keycloak.yaml` bakes those three human realm users into
 the shared realm import, each with a password equal to its username. That one base
-is consumed by the local Kind cluster, the ephemeral per-PR OpenShift environments,
-and a persistent Keycloak shared by integration, staging, and production. Kind is
-never network-exposed, so the static passwords stay acceptable there. Every
-OpenShift environment that inherits the base publishes them.
+is consumed by the local Kind cluster, developer-owned OpenShift environments, the
+ephemeral per-PR OpenShift environments, and a persistent Keycloak shared by
+integration, staging, and production. Developer-owned environments need those seeds
+so a human can run the e2e suite locally. A CI-owned PR environment that inherits
+the base publishes them on the public internet.
 
-These seeded realm users - the test-tier principals - exist so the automated e2e
-suite can authenticate, and so a GitHub-authenticated human can self-service
-impersonate a lower-privilege tier to test its permission boundary. No human ever
-logs in directly as one of them: interactive access to per-PR environments is always
-GitHub-brokered (see `ephemeral-pr-environments.spec.md`); a human reaches these
-tiers only by impersonating into them from an already-authenticated GitHub session.
-The password value itself has exactly one consumer - the automated e2e password-grant
-path, which reads it from the ESO-aligned Kubernetes Secret, authenticates, and never
-persists or prints it. The GitHub-brokered e2e path never sends these passwords at
-all.
+These seeded realm users - the test-tier principals - exist so the e2e suite can
+authenticate, and so a GitHub-authenticated human on a CI-owned PR environment can
+self-service impersonate a lower-privilege tier. On those PR environments no human
+logs in directly as one of them: interactive access is always GitHub-brokered (see
+`ephemeral-pr-environments.spec.md`); a human reaches these tiers only by
+impersonating into them from an already-authenticated GitHub session. On a
+developer-owned environment a human MAY password-grant as `admin`/`admin` or
+`developer`/`developer` - that is how local e2e and manual OpenShift testing work.
+The password value itself has two consumers, split by who owns the environment. A
+developer running e2e locally - Kind or `make openshift-up` against OpenShift -
+authenticates with the well-known username-equals-password seeds. The GitHub-brokered
+CI path never sends these passwords at all; when CI does use password grant against a
+CI-owned PR environment, it reads the password from the ESO-aligned Kubernetes Secret
+and never persists or prints it.
 
-The desired state is that an internet-facing environment never presents a guessable
-human login. The shared realm base ships no static human passwords. The cloud secret
-store holds and rotates high-entropy passwords for the three tiers. ESO keeps a
-stable Kubernetes Secret in each ephemeral namespace aligned to that store.
-OpenShift seed reconciles Keycloak to the Secret's current values for as long as a
-run needs those accounts. The e2e suite deletes the Keycloak accounts when the run
-ends, on every exit path, so the public Route has no test-tier password login except
-during an in-flight e2e window. The cloud-store values persist across runs and rotate
-on the store's cadence. Local Kind development keeps its static credentials,
-untouched by the cloud store or ESO. The Keycloak master-realm bootstrap admin
+The desired state is that a CI-owned, internet-facing PR environment never presents a
+guessable human login, while any locally run test - Kind or OpenShift - keeps the
+same `admin`/`admin`, `developer`/`developer`, and `platform-admin`/`platform-admin`
+seeds a developer already uses. The shared realm base ships no static human passwords,
+so int/stage/prod and a freshly deployed CI PR environment are not born with them.
+Developer-owned bring-up (`make kind-up` and local `make openshift-up`) reconciles the
+static seeds itself. On CI-owned PR environments the cloud secret store holds and
+rotates high-entropy passwords for the three tiers; ESO keeps a stable Kubernetes
+Secret in each of those namespaces; seed reconciles Keycloak to the Secret; the CI
+e2e suite deletes the Keycloak accounts when that run ends. Local e2e does not
+de-seed. The Keycloak master-realm bootstrap admin
 (`KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD`) is Keycloak's own
 console login and is explicitly out of scope.
 
@@ -81,19 +90,20 @@ This spec covers:
 
 - the removal of the static `admin`, `developer`, and `platform-admin` human realm
   users from the shared realm base so no environment ships them by default,
-- the ephemeral seeding of those three realm users (the test-tier principals) on every
-  OpenShift bring-up and seed, reconciling each one's password to the current value
-  in the ESO-aligned Kubernetes Secret, rather than create-or-skip,
-- the cloud-store and ESO contract the PR-environment cluster MUST satisfy so those
-  passwords survive restart, stay least-privilege in IAM, and reach every ephemeral
-  namespace through one in-cluster Secret shape (see Cloud Secret Store, ESO
+- the ephemeral seeding of those three realm users (the test-tier principals): on
+  CI-owned PR environments, reconciling each password to the ESO-aligned Kubernetes
+  Secret; on developer-owned environments (Kind and local `make openshift-up`),
+  reconciling each password to the username,
+- the cloud-store and ESO contract CI-owned PR environments MUST satisfy so those
+  rotated passwords survive restart, stay least-privilege in IAM, and reach every
+  CI PR namespace through one in-cluster Secret shape (see Cloud Secret Store, ESO
   Alignment, and In-Cluster Secret Contract),
-- the de-seeding of those Keycloak accounts when an OpenShift e2e run ends, regardless
-  of pass or fail, independent of the cloud store's rotation cadence, so a public
-  Route does not keep a live test-tier password login after the run,
-- Kind's continued use of static local credentials, now reconciled by `make kind-up`
-  itself, with no change to local developer experience, unaffected by the cloud store
-  or ESO,
+- the de-seeding of those Keycloak accounts when a CI-owned OpenShift e2e run ends,
+  regardless of pass or fail, independent of the cloud store's rotation cadence, so
+  a public CI PR Route does not keep a live test-tier password login after the run,
+- static username-equals-password seeds for every locally run test, Kind or OpenShift,
+  reconciled by `make kind-up` / local `make openshift-up`, with no change to local
+  developer experience, unaffected by the cloud store or ESO,
 - the masking of any password value that touches the OpenShift e2e CI workflow, and
 - generalizing the three test-tier principals into shared impersonation targets so any
   authenticated GitHub user, not only an admin, can self-service test a lower
@@ -116,9 +126,14 @@ testing authenticates as and that a GitHub-authenticated human may impersonate; 
 not a HyperShell resource kind. "Master bootstrap admin" means Keycloak's own
 master-realm administrator, which this spec leaves unchanged. "PR-environment
 cluster" means the shared OpenShift cluster that hosts per-PR ephemeral environments
-(`hysh-aws-01`). "Cloud secret store" means that cluster's cloud-provider secret
+(`hysh-aws-01`). "CI-owned PR environment" means a pull-request namespace
+`hypershell-ci-pr-<n>` whose environment identifier is `pr-<n>`, as
+`ephemeral-pr-environments.spec.md` defines. "Developer-owned environment" means
+Kind, or a local `make openshift-up` whose environment identifier is not `pr-*`.
+"Cloud secret store" means that cluster's cloud-provider secret
 service: AWS Secrets Manager on `hysh-aws-01`. "ESO" means External Secrets Operator.
-The in-cluster Secret name `hypershell-e2e-test-users` is the HyperShell seam.
+The in-cluster Secret name `hypershell-e2e-test-users` is the HyperShell seam for
+CI-owned PR environments.
 
 ## Requirements
 
@@ -127,10 +142,15 @@ The in-cluster Secret name `hypershell-e2e-test-users` is the HyperShell seam.
 The shared Keycloak realm base SHALL NOT ship any human realm user whose credential
 is baked into the realm import. The `admin`, `developer`, and `platform-admin` realm
 users SHALL NOT be present in the realm import's `users` array, so that no environment
-consuming the shared base - the persistent int/stage/prod Keycloak, the per-PR
-OpenShift environments, or Kind - inherits a static human login by default. The
-persistent Keycloak reachable at its external Route SHALL therefore expose no realm
-login whose password equals its username.
+consuming the shared base - the persistent int/stage/prod Keycloak, a CI-owned PR
+environment, Kind, or local `make openshift-up` - inherits a static human login by
+default. Developer-owned bring-up SHALL put those users back (see Developer-Owned
+Environments Retain Static Credentials). The persistent Keycloak reachable at its
+external Route SHALL therefore expose no realm login whose password equals its
+username merely because it consumed the base. This spec SHALL NOT add a replacement
+human password login there; interactive and automated access to int, stage, and
+prod remains whatever those environments already use. GitHub-brokered login is a
+pull-request-environment concern (`ephemeral-pr-environments.spec.md`).
 
 Removing these users SHALL NOT remove the realm's service-account users (for example
 `service-account-hypershell-provisioner` and `service-account-hypershell-e2e`), which
@@ -144,6 +164,8 @@ are Keycloak client service accounts with no password and are not human logins.
 - THEN there SHALL be no `admin`, `developer`, or `platform-admin` realm user with a
   password equal to its username
 - AND no environment SHALL have created such a user merely by consuming the base
+- AND this spec SHALL NOT have added a replacement human password login on that
+  Keycloak
 
 #### Scenario: Internet-facing PR environment is not born with admin/admin
 
@@ -248,10 +270,10 @@ On `hysh-aws-01` GitOps SHALL provide:
   at bring-up) that copies `hysh-aws-01/e2e/test-users` into Secret
   `hypershell-e2e-test-users` in every ephemeral environment namespace.
 
-The `ClusterExternalSecret` SHALL select namespaces that host these environments
-(owned pull-request namespaces such as `hypershell-ci-*`, including the companion
-`-keycloak` namespace if seed runs there). A newly created per-PR namespace SHALL
-receive the Secret without a GitOps commit per pull request.
+The `ClusterExternalSecret` SHALL select CI-owned PR environment namespaces
+(`hypershell-ci-pr-*`, including the companion `-keycloak` namespace if seed runs
+there). It SHALL NOT select developer-owned OpenShift namespaces. A newly created
+CI PR namespace SHALL receive the Secret without a GitOps commit per pull request.
 
 ESO SHALL refresh the Secret on a bounded interval so a cloud-store rotation lands
 in-cluster without a redeploy. The IAM role SHALL be allowed only
@@ -295,11 +317,13 @@ SHALL be `admin`, `developer`, and `platform-admin`, each holding the current
 password for that principal. Seed and password-grant e2e SHALL treat that shape as
 the whole interface.
 
-The Secret SHALL exist only in ephemeral OpenShift environment namespaces that need
-it. Kind SHALL NOT create this Secret. No password value from it SHALL be printed in
-a bring-up banner, lifecycle output, CI logs, or any artifact. An operator who needs
-the current password SHALL read it from AWS Secrets Manager (or the cluster's cloud
-store), using their own cloud identity, rather than expect it in command output.
+The Secret SHALL exist only in CI-owned PR environment namespaces that need it.
+Developer-owned environments (Kind and local `make openshift-up`) SHALL NOT create
+this Secret and SHALL NOT require it. No password value from it SHALL be printed in
+a CI bring-up banner, lifecycle output, CI logs, or any artifact. An operator who
+needs the current rotated password SHALL read it from AWS Secrets Manager (or the
+cluster's cloud store), using their own cloud identity, rather than expect it in
+command output.
 
 #### Scenario: Secret keys match the three principals
 
@@ -308,33 +332,45 @@ store), using their own cloud identity, rather than expect it in command output.
 - THEN keys `admin`, `developer`, and `platform-admin` SHALL each be present
 - AND each value SHALL be the current password for that principal
 
-#### Scenario: Bring-up banner does not print the current password
+#### Scenario: Bring-up banner does not print the rotated password
 
-- GIVEN an operator runs `make openshift-up`
+- GIVEN CI runs `make openshift-up` for a CI-owned PR environment
 - WHEN bring-up finishes
-- THEN the banner SHALL NOT print any test-tier principal's password
+- THEN the banner SHALL NOT print any test-tier principal's rotated password
 - AND the Keycloak-console line SHALL still describe the master bootstrap admin, not
   a seeded test-tier principal
 
-### Requirement: Test-User Seeding Reconciles to the ESO Secret
+### Requirement: Test-User Seeding Reconciles to the ESO Secret on CI-Owned PR Environments
 
-On every OpenShift bring-up (`make openshift-up`) and every standalone seed
+On every CI-owned PR environment bring-up (`make openshift-up` with environment
+identifier `pr-<n>`) and every standalone seed of such an environment
 (`make openshift-seed`), the lifecycle SHALL wait until Secret
 `hypershell-e2e-test-users` exists in the environment namespace, read the three
 passwords from it, and reconcile each Keycloak realm user to that value: if the user
 does not exist it SHALL be created with the Secret's current password, and if the
 user already exists its password SHALL be reset to match. Seeding SHALL NOT use a
-password equal to the username on OpenShift. Because the cloud store - not the seed
-step - controls when the value changes, two seeds run before the next rotation SHALL
-converge on the same password; this is expected, not a bug.
+password equal to the username on a CI-owned PR environment. Because the cloud store
+- not the seed step - controls when the value changes, two seeds run before the next
+rotation SHALL converge on the same password; this is expected, not a bug.
+
+Developer-owned OpenShift bring-up SHALL NOT wait on this Secret and SHALL NOT read
+it; it SHALL seed the static username-equals-password values instead (see
+Developer-Owned Environments Retain Static Credentials).
 
 Seeding SHALL assign each test-tier principal the realm roles it needs for its e2e
 tier, using an idempotent lookup-then-assign that does not fail when the role is
 already assigned:
 
-- `admin`: `hypershell-admins`, `hypershell-users`, and `gateway:creator`
+- `admin`: `hypershell-admins`, `hypershell-users`, `gateway:creator`, and
+  `platform:admin`
 - `developer`: `hypershell-users`
 - `platform-admin`: `hypershell-users` and `platform:admin`
+
+Seeding SHALL NOT assign `gateway:viewer` or `gateway:owner`. Those are
+per-gateway DB bindings (`../security/rbac-enforcement.spec.md`), not Keycloak
+realm roles. The `developer` principal's path to an `openshell-user` token on a
+reachable gateway is owned by `ephemeral-pr-environments.spec.md` (the e2e
+driver's per-gateway client-role grant), not by this seed step.
 
 Seeding SHALL authenticate to the Keycloak Admin API as the out-of-scope master
 bootstrap admin. A seeding failure - including a missing or not-Ready Secret - SHALL
@@ -345,7 +381,7 @@ an empty or default password when the Secret did not provide one.
 
 #### Scenario: Seeding reconciles Keycloak to the Secret
 
-- GIVEN an OpenShift environment is brought up or seeded
+- GIVEN a CI-owned PR environment is brought up or seeded
 - AND Secret `hypershell-e2e-test-users` is present
 - WHEN the lifecycle seeds the `admin`, `developer`, and `platform-admin` test-tier
   principals
@@ -372,110 +408,145 @@ an empty or default password when the Secret did not provide one.
 
 - GIVEN a fresh OpenShift environment
 - WHEN the lifecycle seeds the test-tier principals
-- THEN `admin` SHALL hold `hypershell-admins`, `hypershell-users`, and
-  `gateway:creator`
+- THEN `admin` SHALL hold `hypershell-admins`, `hypershell-users`,
+  `gateway:creator`, and `platform:admin`
 - AND `developer` SHALL hold `hypershell-users`
 - AND `platform-admin` SHALL hold `hypershell-users` and `platform:admin`
+- AND none of the three SHALL hold a `gateway:viewer` realm role
 
 #### Scenario: Seeding failure is non-fatal but honest
 
-- GIVEN test-user seeding fails during bring-up because the ESO Secret is missing
+- GIVEN test-user seeding fails during CI-owned PR bring-up because the ESO Secret is
+  missing
 - WHEN the lifecycle continues
 - THEN it SHALL warn rather than abort the bring-up
 - AND any step that would send a seeded password SHALL warn rather than send an empty
   or default password
+- AND it SHALL NOT fall back to username-equals-password on that CI-owned PR
+  environment
 
-### Requirement: Password-Grant E2E Reads the Same Secret
+### Requirement: Password-Grant E2E Reads the Same Secret on CI-Owned PR Environments
 
-The OpenShift e2e password-grant path SHALL fetch each test-tier principal's current
-password from Secret `hypershell-e2e-test-users` in the environment namespace. It
-SHALL NOT default to `admin`/`admin`, `developer`/`developer`, or
-`platform-admin`/`platform-admin` on OpenShift when the Secret is absent; it SHALL
-fail with a clear error instead.
+The password-grant path against a CI-owned PR environment SHALL fetch each test-tier
+principal's current password from Secret `hypershell-e2e-test-users` in the
+environment namespace. It SHALL NOT default to `admin`/`admin`,
+`developer`/`developer`, or `platform-admin`/`platform-admin` on that environment
+when the Secret is absent; it SHALL fail with a clear error instead.
+
+The password-grant path against a developer-owned environment (Kind or local
+OpenShift) SHALL use the static username-equals-password seeds and SHALL NOT require
+Secret `hypershell-e2e-test-users`.
 
 A GitHub-brokered e2e job SHALL NOT read this Secret (see Brokered Environments Seed
 Users for Identity Resolution).
 
 #### Scenario: E2E suite fetches its own password from the Secret
 
-- GIVEN an OpenShift e2e run using the password-grant path
+- GIVEN a CI-owned PR environment e2e run using the password-grant path
 - WHEN the suite needs to authenticate as a test-tier principal
 - THEN it SHALL read that principal's key from Secret `hypershell-e2e-test-users`
 - AND it SHALL NOT call AWS Secrets Manager or Vault
 
-#### Scenario: Missing Secret fails fast on OpenShift
+#### Scenario: Missing Secret fails fast on a CI-owned PR environment
 
-- GIVEN an OpenShift e2e run using the password-grant path
+- GIVEN a CI-owned PR environment e2e run using the password-grant path
 - AND Secret `hypershell-e2e-test-users` is absent
 - WHEN the suite starts
 - THEN it SHALL exit non-zero with an error that names the missing Secret
 - AND it SHALL NOT fall back to username-equals-password
 
-### Requirement: De-Seeding When the E2E Run Ends
+#### Scenario: Local OpenShift e2e uses static seeds
 
-Running the OpenShift e2e suite is the only action that opens the exposure window a
-seeded Keycloak account represents on a public Route, so the run SHALL close its own
-window. Until de-seed, a high-entropy password login exists on the internet; after
-de-seed, that login is gone even though the cloud store and the ESO Secret still hold
-the value. The e2e suite SHALL delete the seeded OpenShift test-tier Keycloak
-accounts when the run ends, and SHALL do so on every exit path - success, test
-failure, or early abort - through the suite's existing cleanup trap. Deletion SHALL
-be idempotent: an account that is already gone SHALL be treated as success, not an
-error. De-seeding deletes the Keycloak account only; it SHALL NOT alter, rotate, or
-delete anything in AWS Secrets Manager or the ESO Secret - those persist and continue
-on the store's own rotation cadence independent of any single run's account
-lifecycle.
+- GIVEN a developer runs the OpenShift e2e suite against a developer-owned
+  environment
+- WHEN the suite needs to authenticate as `admin` or `developer`
+- THEN it SHALL use `admin`/`admin` and `developer`/`developer`
+- AND it SHALL NOT require Secret `hypershell-e2e-test-users`
+
+### Requirement: De-Seeding When a CI-Owned E2E Run Ends
+
+Running the e2e suite against a CI-owned PR environment is the only action that
+opens the exposure window a rotated Keycloak password represents on a public Route,
+so that run SHALL close its own window. Until de-seed, a high-entropy password login
+exists on the internet; after de-seed, that login is gone even though the cloud store
+and the ESO Secret still hold the value. The e2e suite SHALL delete the seeded
+CI-owned OpenShift test-tier Keycloak accounts when that run ends, and SHALL do so on
+every exit path - success, test failure, or early abort - through the suite's
+existing cleanup trap. Deletion SHALL be idempotent: an account that is already gone
+SHALL be treated as success, not an error. De-seeding deletes the Keycloak account
+only; it SHALL NOT alter, rotate, or delete anything in AWS Secrets Manager or the
+ESO Secret - those persist and continue on the store's own rotation cadence
+independent of any single run's account lifecycle.
+
+De-seeding deletes the impersonation targets that Self-Service Role Assumption
+and `ephemeral-pr-environments.spec.md` use. That is intended. After de-seed,
+token-exchange impersonation SHALL fail until the next seed (a later deploying
+trigger or `make openshift-seed`). Self-service impersonation is available in
+the window between seed and that run's de-seed, not for the whole life of the
+environment. The public Route must not keep a test-tier password login after
+e2e; restoring impersonation is the next seed's job, not de-seed's.
 
 De-seeding SHALL follow the driver-override model the suite already uses for other
-teardown steps: the suite calls a single de-seed step, the default implementation for
-Kind is a deliberate no-op (Kind's users are static and MUST NOT be deleted by a test
-run), and the OpenShift driver overrides it to delete the `admin`, `developer`, and
-`platform-admin` Keycloak accounts. This SHALL hold identically for a CI run and for a
-manual OpenShift e2e run, so no separate teardown target is required.
+teardown steps: the suite calls a single de-seed step. Developer-owned environments
+SHALL no-op that step (Kind and local OpenShift users are static and MUST NOT be
+deleted by a test run). The OpenShift driver SHALL delete the `admin`, `developer`,
+and `platform-admin` Keycloak accounts only when the run is against a CI-owned PR
+environment.
 
-#### Scenario: Accounts are removed after a passing run
+#### Scenario: Accounts are removed after a passing CI run
 
-- GIVEN an OpenShift e2e run seeded the three test-tier Keycloak accounts
+- GIVEN a CI-owned PR environment e2e run seeded the three test-tier Keycloak accounts
 - WHEN the suite exits successfully
 - THEN the cleanup trap SHALL delete `admin`, `developer`, and `platform-admin` from
   the realm
 - AND the cloud-store and ESO Secret values SHALL be unaffected
 
-#### Scenario: Accounts are removed after a failing or aborted run
+#### Scenario: Accounts are removed after a failing or aborted CI run
 
-- GIVEN an OpenShift e2e run seeded the three test-tier Keycloak accounts
+- GIVEN a CI-owned PR environment e2e run seeded the three test-tier Keycloak accounts
 - WHEN the suite exits on a test failure or is aborted early
 - THEN the cleanup trap SHALL still delete the three Keycloak accounts
 - AND the exposure window SHALL be closed regardless of the run's outcome
 
-#### Scenario: Public Route has no test-tier password login after de-seed
+#### Scenario: Public CI Route has no test-tier password login after de-seed
 
-- GIVEN an OpenShift e2e run has finished and de-seeded
+- GIVEN a CI-owned PR environment e2e run has finished and de-seeded
 - WHEN an unauthenticated caller attempts a password grant as `admin`, `developer`,
   or `platform-admin` against that environment's public Keycloak Route
 - THEN the grant SHALL fail because those realm users are gone
 - AND a GitHub-brokered login SHALL still succeed for an allowlisted user
+- AND impersonation of `developer` or `platform-admin` SHALL fail until the next
+  seed restores those principals
 
-#### Scenario: Kind de-seeding is a no-op
+#### Scenario: Local e2e de-seeding is a no-op
 
-- GIVEN an e2e run against Kind
+- GIVEN an e2e run against Kind or a developer-owned OpenShift environment
 - WHEN the suite reaches its de-seed step
-- THEN the default de-seed SHALL do nothing
-- AND Kind's static test users SHALL remain intact
+- THEN de-seed SHALL do nothing
+- AND the static test users SHALL remain intact so a later local run can
+  authenticate as `admin`/`admin` and `developer`/`developer`
 
-### Requirement: Kind Retains Static Local Credentials
+### Requirement: Developer-Owned Environments Retain Static Credentials
 
-The local Kind cluster SHALL keep its static test credentials - `admin`/`admin`,
-`developer`/`developer`, and `platform-admin`/`platform-admin` - because Kind is a
-local cluster that is not published on the internet, so those passwords are not a
-reachable login. Because the shared realm base no longer supplies these users,
-`make kind-up` SHALL reconcile them itself: after Keycloak is confirmed ready and
-before the summary banner, it SHALL idempotently create each user with its password
-fixed to its username, or reset it to that value if the user already exists. This
-SHALL be a straight reconcile with no change to local developer experience: the
-`make kind-up` banner SHALL still print the static test credentials, and existing
-local flows that authenticate as `admin`/`admin` SHALL continue to work. Kind SHALL
-NOT require ESO, AWS Secrets Manager, or Secret `hypershell-e2e-test-users`.
+Every locally run test SHALL keep the static test credentials - `admin`/`admin`,
+`developer`/`developer`, and `platform-admin`/`platform-admin`. That includes Kind
+and a developer running e2e against OpenShift after local `make openshift-up`. Those
+seeds are how a human drives the suite from a laptop; they are not limited to Kind.
+
+Because the shared realm base no longer supplies these users, developer-owned
+bring-up SHALL reconcile them itself. After Keycloak is confirmed ready and before
+the summary banner, `make kind-up` and local `make openshift-up` SHALL each
+idempotently create each user with its password fixed to its username, or reset it
+to that value if the user already exists. This SHALL be a straight reconcile with no
+change to local developer experience: the bring-up banner SHALL still print the
+static test credentials, and existing local flows that authenticate as
+`admin`/`admin` SHALL continue to work. Developer-owned environments SHALL NOT
+require ESO, AWS Secrets Manager, or Secret `hypershell-e2e-test-users`.
+
+A developer-owned OpenShift namespace on a shared cluster MAY still be reachable on
+the public internet. That exposure is accepted for developer-owned environments so
+manual OpenShift e2e keeps the same seeds as Kind. It does not apply to CI-owned PR
+environments, which SHALL NOT use these passwords.
 
 #### Scenario: Kind reconciles its static users on bring-up
 
@@ -485,13 +556,31 @@ NOT require ESO, AWS Secrets Manager, or Secret `hypershell-e2e-test-users`.
   each with its password equal to its username
 - AND the reconcile SHALL be idempotent across repeated `make kind-up` runs
 
+#### Scenario: Local OpenShift reconciles the same static users on bring-up
+
+- GIVEN the shared realm base no longer ships human users
+- WHEN a developer runs `make openshift-up` into a developer-owned environment
+- THEN that environment SHALL end with `admin`, `developer`, and `platform-admin`
+  present, each with its password equal to its username
+- AND the reconcile SHALL be idempotent across repeated local `make openshift-up`
+  runs
+- AND bring-up SHALL NOT wait on Secret `hypershell-e2e-test-users`
+
 #### Scenario: Local developer experience is unchanged
 
-- GIVEN a developer runs `make kind-up`
+- GIVEN a developer runs `make kind-up` or local `make openshift-up`
 - WHEN bring-up finishes
 - THEN the banner SHALL still show the static `admin/admin`, `developer/developer`,
   and `platform-admin/platform-admin` credentials
 - AND local flows that authenticate as `admin`/`admin` SHALL continue to succeed
+
+#### Scenario: Local OpenShift e2e still password-grants
+
+- GIVEN a developer runs the e2e suite against a developer-owned OpenShift
+  environment
+- WHEN the suite authenticates
+- THEN it SHALL use the password grant against the static seeds
+- AND it SHALL NOT require GitHub-brokered client-credentials
 
 ### Requirement: CI Reads the Secret Through the Cluster, and Masks What It Fetches
 
@@ -566,8 +655,11 @@ tier's permission boundary without a second interactive account or a password.
 mechanics, and the scenarios for who may impersonate whom and what each tier can do;
 this spec owns only where the impersonated principals and their credentials come
 from. A GitHub-authenticated user's own session already carries `platform:admin` and
-`gateway:creator` - equivalent to the seeded `admin` tier - so impersonation exists to
-reach the narrower `developer` and `platform-admin` tiers, not to reach `admin`.
+`gateway:creator` - the same HyperShell API capability as the seeded `admin` tier
+- so impersonation exists to reach the narrower `developer` and `platform-admin`
+tiers, not to reach `admin`. Those principals exist after CI seed and until that
+environment's next CI e2e de-seed; after de-seed, impersonation fails until the
+next seed.
 
 Because impersonation via Keycloak token exchange never sends a password, this
 generalization SHALL NOT require any GitHub-authenticated user to know or fetch a
@@ -591,24 +683,34 @@ test-tier principal's password from the cloud store or the ESO Secret.
 - THEN no AWS, Vault, or ESO credential SHALL be involved
 - AND their own GitHub-brokered session remains the only credential they hold
 
+#### Scenario: Impersonation fails after de-seed until the next seed
+
+- GIVEN a CI e2e run has de-seeded the three test-tier principals
+- WHEN a GitHub-authenticated user requests an impersonated token for `developer`
+  or `platform-admin`
+- THEN Keycloak SHALL NOT issue that token
+- AND a later seed SHALL restore the principals so impersonation works again
+
 ## Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| Remove the three human users from the shared realm base entirely | Per-PR environments on `hysh-aws-01` are on the public internet. A realm login whose password equals its username is a live credential for anyone who can hit the Route. Removing the users from the shared base means no internet-facing environment ships them by default |
+| Remove the three human users from the shared realm base entirely | Per-PR environments on `hysh-aws-01` are on the public internet. A realm login whose password equals its username is a live credential for anyone who can hit the Route. Removing the users from the shared base means no internet-facing environment ships them by default. Int/stage/prod get no replacement human password login; those environments keep whatever access they already have, and GitHub brokering is a PR-environment concern |
 | AWS Secrets Manager is the durable store on `hysh-aws-01` | The cluster already uses the cloud operator's secret store and ESO IRSA for application secrets. Putting e2e passwords in the same class of store avoids standing up a second secret backend and keeps rotation, IAM, and audit in AWS |
 | ESO is the generic in-cluster seam | Seed and e2e should not know AWS vs IBM vs Vault. They read one Kubernetes Secret. GitOps binds that Secret to the cluster's cloud store through a `SecretStore` / `ExternalSecret`. A later cloud swap changes only GitOps |
 | In-cluster Secret `hypershell-e2e-test-users` with keys `admin`, `developer`, `platform-admin` | One name and one key set is the HyperShell contract. Matching the AWS JSON properties keeps ESO mapping one-to-one |
-| `ClusterExternalSecret` into owned ephemeral namespaces | PR namespaces are created at runtime. A cluster-scoped ESO object can project the Secret into each new namespace without a Git commit per pull request |
+| `ClusterExternalSecret` into CI-owned PR namespaces only | PR namespaces are created at runtime. A cluster-scoped ESO object can project the Secret into each new `hypershell-ci-pr-*` namespace without a Git commit per pull request. Developer-owned OpenShift namespaces must not receive it, or local seed would pick up rotated passwords |
 | One IRSA identity, read-only on `hysh-aws-01/e2e/test-users` | Same IRSA pattern as `SecretStore/hypershell-aws` and `keycloak-hub-aws`: bound token, audience `sts.amazonaws.com`, no static keys. Least privilege so ESO cannot rotate the secret or read unrelated HyperShell secrets |
 | Vault is not the source for these passwords | In-cluster Vault on other hubs is dev-mode and a different ownership boundary (gateway credential driver). Application and e2e secrets on this AWS cluster follow the cloud store |
-| Seed and password-grant e2e read the Kubernetes Secret, not AWS directly | Keeps lifecycle scripts cluster-portable and avoids putting AWS keys in CI. ESO already has the IRSA path |
-| OpenShift password-grant does not fall back to username-equals-password | A missing Secret must fail closed. Falling back to `admin`/`admin` would republish the exposure this spec exists to close |
-| De-seed the Keycloak account on every e2e exit path; never touch the cloud store | The public Route only has a test-tier password login while e2e is in flight. Closing that window is what keeps a test environment from remaining a standing target. The AWS secret and ESO Secret are longer-lived alignment copies |
-| Driver-override de-seed; Kind default is a no-op | Reuses the suite's established driver-override model. Kind is not on the internet; its static users must never be deleted by a test run |
-| Kind keeps static credentials, reconciled by `make kind-up`, no ESO | Kind is local and not published, so username-equals-password is not a reachable login. AWS and ESO on a laptop would add infrastructure for no security benefit |
+| Seed and password-grant e2e on CI-owned PR environments read the Kubernetes Secret, not AWS directly | Keeps lifecycle scripts cluster-portable and avoids putting AWS keys in CI. ESO already has the IRSA path. Local password-grant does not read this Secret |
+| CI-owned OpenShift password-grant does not fall back to username-equals-password | A missing Secret on a public PR environment must fail closed. Falling back to `admin`/`admin` would republish the exposure this spec exists to close. Developer-owned OpenShift keeps those seeds on purpose |
+| De-seed the Keycloak account on every CI-owned e2e exit path; never touch the cloud store | The public CI PR Route only has a rotated test-tier password login while that e2e is in flight. Closing that window is what keeps a CI environment from remaining a standing target. Impersonation targets go with the accounts and return on the next seed; that gap is accepted so de-seed stays absolute. The AWS secret and ESO Secret are longer-lived alignment copies |
+| Driver-override de-seed; developer-owned default is a no-op | Reuses the suite's established driver-override model. Kind and local OpenShift static users must never be deleted by a test run; only CI-owned PR environments de-seed |
+| Developer-owned environments keep static credentials, Kind or OpenShift | A human running e2e from a laptop - against Kind or after `make openshift-up` - needs `admin`/`admin` and `developer`/`developer`. Restricting those seeds to Kind would break manual OpenShift e2e. AWS and ESO on a laptop would add infrastructure for no local-dev benefit |
+| Developer-owned OpenShift may still publish guessable logins | Those namespaces are the developer's isolation boundary (`ephemeral-pr-environments.spec.md` already excludes them from the CI timebox and reaper). The guessable-login closure applies to CI-owned `pr-*` environments, not to a developer exercising the suite by hand |
 | Master bootstrap admin left out of scope | It is Keycloak's own console login, a different credential class from the realm test users |
-| Passwords are never printed; humans use GitHub-brokered login | Nobody needs to type `admin`/`admin` against a public Route. Impersonation never sends a password |
+| Passwords are never printed in CI; humans on PR envs use GitHub-brokered login | Nobody needs to type `admin`/`admin` against a public CI PR Route. Impersonation never sends a password. Local bring-up still prints the static seeds |
 | CI uses cluster login plus the ESO Secret, not a static AWS key | A long-lived cloud credential in a GitHub Actions secret is the same class of standing exposure this spec removes from Keycloak. Cluster login is `ephemeral-ci-secrets.spec.md`; this spec only reads the in-cluster password Secret after that login |
 | Brokered PR environments seed users but never password-login | Client-credentials and token exchange resolve users by username. The users must exist for impersonation; their passwords are never sent on the public internet during that path |
-| The three test-tier principals double as shared impersonation targets, generalized to any authenticated user | Reusing the seeded principals avoids a second account concept. A GitHub session already carries the `admin` tier's roles, so impersonation exists to reach narrower tiers without a password |
+| The three test-tier principals double as shared impersonation targets, generalized to any authenticated user | Reusing the seeded principals avoids a second account concept. A GitHub session already carries the `admin` tier's HyperShell API capability (`platform:admin` plus `gateway:creator`), so impersonation exists to reach narrower tiers without a password |
+| Seed assigns Keycloak realm roles only | `gateway:viewer` is a per-gateway DB binding. A Keycloak seed step cannot grant it. Area 9's `openshell-user` path is a per-gateway client-role grant owned by `ephemeral-pr-environments.spec.md` |

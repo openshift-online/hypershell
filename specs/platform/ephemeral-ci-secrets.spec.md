@@ -10,8 +10,8 @@
              restate that payload;
              `openshift-development.spec.md` (HYPERSHELL-44) -- `make openshift-up`
              after the workflow has a cluster context;
-             `e2e-testing.spec.md` (HYPERSHELL-18) -- Kind CI, which does not use
-             these standing cluster secrets;
+             `e2e-testing.spec.md` (HYPERSHELL-18) -- Kind CI and local OpenShift
+             e2e, which do not use these standing cluster secrets;
              `../standards/security/security.spec.md` -- no secrets in logs
 
 Standing credentials the OpenShift pull-request workflow needs today would live as
@@ -33,7 +33,7 @@ OIDC (the same issuer pattern `hypershell-gitops` already uses for Renovate), fe
 only the secrets that run needs, and masks them before any later step. External
 Secrets Operator copies the subset that Keycloak needs into the cluster. GitHub's
 built-in `github.token` stays GitHub-issued. Per-PR Keycloak client secrets stay
-in the deployed realm. Kind CI is unchanged.
+in the deployed realm. Kind CI and local OpenShift e2e are unchanged.
 
 ### Scope
 
@@ -94,7 +94,7 @@ On `hysh-aws-01` the standing CI secrets SHALL be:
 
 | AWS secret name | JSON properties | Class | Consumers |
 | --- | --- | --- | --- |
-| `hysh-aws-01/ci/cluster-login` | `kubeconfig` or `server` plus `token` | Runner-only | OpenShift pull-request workflow (`oc login` / `KUBECONFIG`) |
+| `hysh-aws-01/ci/cluster-login` | `server`, `token` | Runner-only | OpenShift pull-request workflow (`oc login --server --token`) |
 | `hysh-aws-01/ci/github-oauth` | `client_id`, `client_secret`, `callback_url` | In-cluster (and the workflow if it must pass them into bring-up) | Keycloak GitHub identity provider via ESO; bring-up configuration |
 
 `callback_url` is not confidential; it travels with the OAuth secret so one object
@@ -114,7 +114,7 @@ These secrets SHALL NOT include:
 
 - GIVEN secret `hysh-aws-01/ci/cluster-login`
 - WHEN ESO reconciles ephemeral namespaces
-- THEN it SHALL NOT copy that kubeconfig or token into a pull-request namespace
+- THEN it SHALL NOT copy that server URL or token into a pull-request namespace
 - AND only the GitHub Actions job SHALL read it
 
 #### Scenario: OAuth App material is shared with Keycloak
@@ -135,14 +135,18 @@ policy SHALL require the origin repository, the workflow that owns this job, and
 trust policy.
 
 The role SHALL be allowed only `secretsmanager:GetSecretValue` and
-`secretsmanager:DescribeSecret`, and only on the standing CI secrets this spec names
-(plus `hysh-aws-01/e2e/test-users` if a password-grant job on this cluster must read
-it; the brokered PR path SHALL NOT). The role SHALL NOT put, delete, or list other
-HyperShell secrets.
+`secretsmanager:DescribeSecret`, and only on the standing CI secrets this spec names.
+It SHALL NOT read `hysh-aws-01/e2e/test-users`; those passwords stay
+`ephemeral-test-credentials.spec.md`. ESO is the only cloud-store client for
+that secret. CI password-grant reads the in-cluster ESO Secret after cluster
+login. The role SHALL NOT put, delete, or list other HyperShell secrets.
 
-After fetch, the workflow SHALL register each secret value as a masked Actions secret
-immediately, before any later step can echo it. Fetched values SHALL NOT appear in
-logs, pull-request comments, or public artifacts.
+After fetch, the workflow SHALL register each secret value as a masked secret in
+the CI runner immediately, before any later step can echo it. Masking in the
+runner is not a GitHub Actions repository or organization secret; those SHALL
+remain absent as Standing CI Secrets Live in the Cloud Store already requires.
+Fetched values SHALL NOT appear in logs, pull-request comments, or public
+artifacts.
 
 This matches the existing GitHub OIDC issuer and `AssumeRoleWithWebIdentity` pattern
 already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
@@ -153,7 +157,15 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 - WHEN the job needs cluster login
 - THEN it SHALL exchange its GitHub OIDC token for the CI IAM role
 - AND SHALL read `hysh-aws-01/ci/cluster-login`
-- AND SHALL mask the value before `oc login`
+- AND SHALL mask the `server` and `token` values in the runner before `oc login`
+
+#### Scenario: CI IAM cannot read test-tier passwords
+
+- GIVEN the OpenShift pull-request workflow's IAM role
+- WHEN it attempts `GetSecretValue` on `hysh-aws-01/e2e/test-users`
+- THEN AWS SHALL deny the call
+- AND any CI password-grant step SHALL read Secret `hypershell-e2e-test-users`
+  after cluster login instead
 
 #### Scenario: Fork workflow cannot assume the role
 
@@ -173,14 +185,18 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 
 ESO SHALL copy in-cluster standing CI secrets from AWS Secrets Manager into the
 namespaces that need them, using the same IRSA SecretStore class
-`ephemeral-test-credentials.spec.md` uses for test-tier passwords. The GitHub OAuth
-secret SHALL land as a Kubernetes Secret Keycloak's GitHub identity provider reads
-(for example `hypershell-github-oauth` with keys `client_id`, `client_secret`, and
-`callback_url`).
+`ephemeral-test-credentials.spec.md` uses for test-tier passwords. GitOps SHALL
+provide a `ClusterExternalSecret` (or equivalent) that copies
+`hysh-aws-01/ci/github-oauth` into Secret `hypershell-github-oauth` in every
+CI-owned Keycloak namespace (`hypershell-ci-pr-*-keycloak`) with keys `client_id`,
+`client_secret`, and `callback_url`. A newly created Keycloak namespace SHALL
+receive that Secret without a GitOps commit per pull request. The selector SHALL
+NOT include developer-owned namespaces. Keycloak's GitHub identity provider SHALL
+read that Secret.
 
 Runner-only secrets SHALL NOT be projected into ephemeral namespaces. The IAM role
 ESO assumes for OAuth material SHALL read only `hysh-aws-01/ci/github-oauth`, not
-`hysh-aws-01/ci/cluster-login`.
+`hysh-aws-01/ci/cluster-login` and not `hysh-aws-01/e2e/test-users`.
 
 Bring-up SHALL fail before the access comment is posted if the OAuth Secret is
 missing or not Ready, rather than leave an environment nobody can log into -- the
@@ -194,12 +210,13 @@ OAuth configuration.
 - THEN Secret `hypershell-github-oauth` SHALL exist in that namespace
 - AND Keycloak SHALL configure the GitHub identity provider from it
 - AND the workflow SHALL NOT have written that Secret from an Actions secret
+- AND no GitOps commit unique to pull request 232 SHALL have been required
 
-#### Scenario: Cluster kubeconfig never appears in a PR namespace
+#### Scenario: Cluster login never appears in a PR namespace
 
 - GIVEN ESO is reconciling `hypershell-ci-pr-232`
 - WHEN a reader lists Secrets in that namespace
-- THEN no Secret SHALL contain the cluster-login kubeconfig or token
+- THEN no Secret SHALL contain the cluster-login `server` or `token`
 
 ### Requirement: Rotation Stays in AWS
 
@@ -228,6 +245,8 @@ rotate the AWS secret and, if the IAM trust was wrong, correct the role.
 | AWS Secrets Manager, not GitHub Actions secrets | Actions secrets do not rotate with the fleet, are a second copy of cluster and OAuth material, and cannot be the in-cluster source Keycloak needs. The cloud operator's store already backs ESO on this cluster |
 | GitHub OIDC into IAM, no static AWS keys in Actions | Same issuer already used from Actions in `hypershell-gitops`. Removing standing secrets from GitHub is wasted if the replacement is a long-lived AWS key stored as an Actions secret |
 | Runner-only vs in-cluster split | The cluster login must never land in a public-internet PR namespace. The OAuth App secret must land in Keycloak. ESO for the second, OIDC fetch for the first |
+| Cluster-login JSON is `server` plus `token` | One pinned shape so Terraform and the workflow cannot disagree. `oc login --server --token` is the OpenShift-native path; a kubeconfig blob is a second encoding of the same facts |
+| `ClusterExternalSecret` into `hypershell-ci-pr-*-keycloak` | Keycloak namespaces are created at runtime. A cluster-scoped ESO object projects the OAuth Secret into each new companion namespace without a Git commit per pull request |
 | Per-PR `hypershell-e2e` secret stays in Keycloak | A standing AWS or Actions copy cannot match a realm that is created per pull request. CI already reads it after bring-up |
 | `github.token` stays GitHub-issued | It is short-lived, job-scoped, and not a standing fleet secret |
 | Fail closed when OAuth material is missing | An environment nobody can log into is worse than a failed job; this is the same rule the PR-environment spec already has |

@@ -607,9 +607,10 @@ as `../security/rbac-enforcement.spec.md` defines those roles.
 `platform:admin` grants global gateway view and delete; it does not grant
 gateway create. `gateway:creator` grants gateway create. The realm SHALL assign
 both roles to brokered GitHub users on first broker login, so no manual role
-assignment is required after login. This combination is the same as the seeded
-`admin` test-tier principal's roles (`ephemeral-test-credentials.spec.md`), so a
-GitHub session already starts at that tier.
+assignment is required after login. That is the same HyperShell API capability
+as the seeded `admin` test-tier principal (`ephemeral-test-credentials.spec.md`
+assigns that principal `platform:admin` and `gateway:creator`), so a GitHub
+session already starts at that tier.
 
 To let any authenticated GitHub user verify a lower-privilege permission boundary
 with the same GitHub login, the environment SHALL support self-service role
@@ -617,19 +618,30 @@ assumption by impersonation rather than by a second interactive account. Keycloa
 federates one GitHub identity to exactly one Keycloak user, so a GitHub user
 cannot "pick" between tiers by logging in differently; instead the environment
 SHALL seed the `developer` and `platform-admin` test-tier principals that
-`ephemeral-test-credentials.spec.md` defines and seeds - `developer` holds
-`gateway:viewer` (mapped to `openshell-user` on a reachable gateway, per
-`e2e-testing.spec.md` area 9) and neither `platform:admin` nor `gateway:creator`;
-`platform-admin` holds `platform:admin` without `gateway:creator` - and SHALL
-enable impersonation so **any** authenticated GitHub user, not only a designated
-admin, can obtain tokens for either principal. Impersonation SHALL be available
-both interactively (through the Keycloak account/admin console) and
+`ephemeral-test-credentials.spec.md` defines and seeds. `developer` holds the
+realm role `hypershell-users` and neither `platform:admin` nor `gateway:creator`.
+`platform-admin` holds `platform:admin` without `gateway:creator`.
+`gateway:viewer` is a per-gateway DB binding (`../security/rbac-enforcement.spec.md`),
+not a Keycloak realm role, so seeding SHALL NOT assign it. The path to an
+`openshell-user` token on a reachable gateway is the per-gateway Keycloak client
+role grant in Automated E2E Authentication.
+
+Impersonation SHALL be enabled so **any** authenticated GitHub user, not only a
+designated admin, can obtain tokens for either principal. Impersonation SHALL be
+available both interactively (through the Keycloak account/admin console) and
 programmatically through Keycloak token exchange, so the e2e suite can also
 acquire scoped tokens without an interactive login (see Automated E2E
 Authentication). Impersonation SHALL NOT require the impersonating user to know
 or supply the target principal's password; `ephemeral-test-credentials.spec.md`
-owns where that password lives (the cluster's cloud secret store, aligned in-cluster
-by ESO) and it is never part of this flow.
+owns where that password lives (the cluster's cloud secret store, aligned
+in-cluster by ESO) and it is never part of this flow.
+
+Those principals exist after CI seed and until that environment's next CI e2e
+de-seed (`ephemeral-test-credentials.spec.md`). After de-seed, impersonation
+SHALL fail until the next seed (a later deploying trigger or `make openshift-seed`).
+Self-service impersonation is therefore available in the window between seed and
+de-seed, not for the whole life of the environment. That is the intended
+trade-off: a public Route must not keep a test-tier password login after e2e.
 
 #### Scenario: Authenticated GitHub user can fully drive the environment
 
@@ -641,27 +653,45 @@ by ESO) and it is never part of this flow.
 - AND viewing or deleting any gateway SHALL succeed because they hold
   `platform:admin`
 
-#### Scenario: Any authenticated user tests the developer boundary by impersonation
+#### Scenario: Any authenticated user tests the developer HyperShell API boundary by impersonation
 
 - GIVEN any GitHub user is logged in to a pull-request environment
-- AND the environment has seeded the `developer` test-tier principal with
-  `gateway:viewer` / `openshell-user` and without `platform:admin` or
+- AND the environment currently has the seeded `developer` test-tier principal
+  (after seed and before de-seed)
+- AND that principal holds `hypershell-users` and neither `platform:admin` nor
   `gateway:creator`
 - WHEN that user obtains developer-scoped tokens by impersonating that principal
-- THEN operations allowed to that tier (creating a sandbox on a reachable
-  gateway) SHALL succeed
-- AND creating a gateway via the HyperShell API SHALL return `403 Forbidden`
+- THEN creating a gateway via the HyperShell API SHALL return `403 Forbidden`
 - AND the user SHALL NOT have needed the `developer` principal's password to do so
+
+#### Scenario: Developer sandbox create needs the per-gateway client role
+
+- GIVEN any GitHub user is logged in to a pull-request environment
+- AND the environment currently has the seeded `developer` test-tier principal
+- AND a reachable gateway exists whose Keycloak client has granted that principal
+  `openshell-user` (the same grant Automated E2E Authentication requires)
+- WHEN that user obtains a per-gateway token by impersonating that principal
+- THEN creating a sandbox on that gateway SHALL succeed
+- AND creating a gateway via the HyperShell API SHALL return `403 Forbidden`
 
 #### Scenario: Any authenticated user tests the platform-admin boundary by impersonation
 
 - GIVEN any GitHub user is logged in to a pull-request environment
-- AND the environment has seeded the `platform-admin` test-tier principal with
-  `platform:admin` and without `gateway:creator`
+- AND the environment currently has the seeded `platform-admin` test-tier
+  principal (after seed and before de-seed)
+- AND that principal holds `platform:admin` and without `gateway:creator`
 - WHEN that user obtains platform-admin-scoped tokens by impersonating that
   principal
 - THEN viewing or deleting any gateway SHALL succeed
 - AND creating a gateway via the HyperShell API SHALL return `403 Forbidden`
+
+#### Scenario: Impersonation fails after de-seed until the next seed
+
+- GIVEN a CI e2e run has de-seeded the three test-tier principals
+- WHEN a GitHub-authenticated user requests an impersonated token for `developer`
+  or `platform-admin`
+- THEN Keycloak SHALL NOT issue that token
+- AND a later seed SHALL restore the principals so impersonation works again
 
 ### Requirement: Automated E2E Authentication
 
@@ -670,10 +700,12 @@ brokered users have no resource-owner password grant, the e2e suite SHALL NOT
 authenticate with a username/password grant against a brokered user. The
 OpenShift driver's `acquire_oidc_token` and `acquire_gateway_token_with_role`
 keep the same signatures and call sites `e2e-testing.spec.md` defines; they
-SHALL become grant-agnostic. Kind and manual OpenShift runs default to the
-password grant against seeded users. This workflow SHALL set `E2E_OIDC_GRANT` to
-the service-account and token-exchange path so the suite still calls those
-functions.
+SHALL become grant-agnostic. Kind and local OpenShift runs default to the
+password grant against the static seeded users (`admin`/`admin`,
+`developer`/`developer`, `platform-admin`/`platform-admin`) that
+`ephemeral-test-credentials.spec.md` retains for every locally run test. This
+workflow SHALL set `E2E_OIDC_GRANT` to the service-account and token-exchange path
+so the suite still calls those functions.
 
 The realm SHALL include a dedicated confidential client `hypershell-e2e` whose
 service account holds `platform:admin` and `gateway:creator`. The workflow SHALL
@@ -693,7 +725,20 @@ Both SHALL come from Keycloak token exchange impersonating the seeded developer
 principal: `acquire_oidc_token` for the HyperShell API audience, and
 `acquire_gateway_token_with_role` targeting that gateway's Keycloak client for
 the gateway audience. Neither call SHALL use a password grant on these
-environments. Area 10 SHALL acquire the platform-admin token through the
+environments.
+
+Before `acquire_gateway_token_with_role` for area 9, the OpenShift e2e driver
+SHALL grant the seeded `developer` principal the `openshell-user` client role on
+that gateway's Keycloak client. Kind already does this as a test-setup shortcut
+(`assign_gateway_client_role`); the OpenShift driver SHALL do the same. That
+grant mirrors what the control-plane RoleBinding reconciler does for a
+`gateway:viewer` binding. The suite SHALL NOT create a HyperShell
+`gateway:viewer` RoleBinding for this: there is no user-id discovery path for a
+non-owner through the API, and a Keycloak seed step cannot grant a per-gateway
+DB binding. Token exchange then yields an `openshell-user` token because the
+client role is already present, not because seed assigned `gateway:viewer`.
+
+Area 10 SHALL acquire the platform-admin token through the
 `hypershell-e2e` service account, not through a passworded `admin` user.
 
 The `hypershell-e2e` client secret and any impersonation credential SHALL NOT
@@ -716,6 +761,16 @@ appear in logs, the pull-request comment, or public artifacts.
 - THEN `acquire_oidc_token` SHALL obtain it by impersonating that principal
   through token exchange
 - AND the token SHALL NOT carry `platform:admin` or `gateway:creator`
+
+#### Scenario: Area 9 grants openshell-user before token exchange
+
+- GIVEN a reachable gateway with a per-gateway Keycloak client
+- AND the seeded `developer` principal exists
+- WHEN area 9 prepares to acquire that principal's gateway token
+- THEN the OpenShift driver SHALL grant `openshell-user` on that client to
+  `developer`
+- AND only then SHALL `acquire_gateway_token_with_role` token-exchange onto
+  that client
 
 #### Scenario: CI acquires the developer gateway token by impersonation
 
@@ -836,7 +891,8 @@ exists).
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both during authentication (not by post-hoc roles) means a denied user never gets a token |
-| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower boundary with the same login and without a password |
-| Dedicated `hypershell-e2e` client; secret read from the deployed Keycloak | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. `E2E_OIDC_GRANT` keeps Kind and manual OpenShift on the password grant |
+| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. Impersonation works between seed and de-seed; after de-seed it waits for the next seed |
+| Area 9 grants `openshell-user` on the gateway client before token exchange | Kind already uses `assign_gateway_client_role` because there is no user-id discovery path to create a `gateway:viewer` RoleBinding for a non-owner. The OpenShift driver does the same so a brokered PR env has a specified path to an `openshell-user` token. That grant is not a Keycloak realm-role seed |
+| Dedicated `hypershell-e2e` client; secret read from the deployed Keycloak | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
 | Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, GitHub OIDC fetch, and ESO alignment so this spec can treat them as cluster infrastructure |
 | Deprecate `e2e-openshell.sh` now, remove it later; leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded. Team members still run it, so it is deprecated first (notice + docs pointing at the shared harness) and removed later once that usage migrates. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component stays until both scripts are gone |
