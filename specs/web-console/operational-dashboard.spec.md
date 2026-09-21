@@ -475,7 +475,7 @@ Users SHALL be able to add widgets from the drawer, drag to rearrange, and remov
 
 ### Requirement: OP-DASH-11 -- Layout Persistence
 
-The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v42`.
+The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v44`.
 
 Each default-layout change that would leave saved positions incompatible with the new template SHALL bump the layout persistence key so browsers load the updated default instead of a stale saved grid. Documented bumps:
 
@@ -492,6 +492,8 @@ Each default-layout change that would leave saved positions incompatible with th
 | `v40` | Combined v38 inventory layout and v39 trend sparkline widget heights |
 | `v41` | Hub utilization widgets render through `UtilizationCard` with sparklines; widget mapping defaults use `UTILIZATION_WIDGET_HEIGHT` / `POD_CAPACITY_WIDGET_HEIGHT` (HCUT-08) |
 | `v42` | Remove the `managed-database-status` widget and widen `managed-cluster-regions` back across columns 2-3; the ManagedDatabase resource no longer exists (OP-DASH-22) |
+| `v43` | Taller `sandbox-status` for Attention required labels (SSA-09) |
+| `v44` | Align `gateway-releases` height with `sandbox-status` on adoption row 2 |
 
 On mount, a saved template SHALL be loaded when it parses as valid JSON and contains an array entry for every responsive variant (`xl`, `lg`, `md`, `sm`). Invalid or corrupt saved state SHALL fall back to the default template without surfacing an error to the user.
 
