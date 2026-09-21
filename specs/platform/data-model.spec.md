@@ -181,11 +181,13 @@ A Gateway SHALL include provisioning configuration fields that the control plane
 
 All fields in the table below SHALL be part of the REST and gRPC Gateway create and update contract as optional inputs (except where marked read-only), exposed through the generated OpenAPI schema (`components/api-server/openapi/openapi.gateways.yaml`) and gRPC message the same way `image`, `supervisor_image`, and `credential_driver` already are, and SHALL be added to the `gateways` table via a schema migration. This applies in particular to `sandbox_image`, `dev_build`, and `dev_build_metadata`, which are new fields introduced by [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) and are not yet present in the implemented schema or OpenAPI contract.
 
+`sandbox_image` SHALL be a desired-spec field: a change to it SHALL cause the control plane to re-provision the gateway (Helm upgrade), the same as a change to `image` or `supervisor_image`. If the control plane uses a generation/`observed_generation` pair and a desired-state comparison to decide whether to re-provision, `sandbox_image` SHALL be included in that comparison. `dev_build` and `dev_build_metadata` SHALL also be included, because a change to either must be re-applied onto workload labels and annotations through Helm values.
+
 | Field | Type | Description |
 |---|---|---|
 | `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/controller.yaml`) |
-| `sandbox_image` | string | Sandbox base image the gateway uses when launching sandboxes (default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`). See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) |
+| `sandbox_image` | string | Sandbox base image the gateway uses when launching sandboxes (default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`). Control plane passes the resolved value as Helm `server.sandboxImage`. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
 | `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
@@ -194,8 +196,8 @@ All fields in the table below SHALL be part of the REST and gRPC Gateway create 
 | `observed_release_id` | string | Read-only (control-plane-owned) release currently rolled out and observed healthy; advanced only after a new revision passes its health gates. Distinct from the desired `release_id`. See [`gateway-release-rollout.spec.md`](./gateway-release-rollout.spec.md) |
 | `database` | JSONB | Database backend config: `{storageSize, image, externalSecretRef}` |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
-| `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane copies to `hypershell.redhat.io/openshell-dev-build` label on K8s resources. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
-| `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane copies to annotations on K8s resources. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
+| `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
+| `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
 See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and its sub-specs for full provisioning details.
 
@@ -356,7 +358,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 
 | Kind | Fields applied | Status |
 |---|---|---|
-| `Gateway` | `name`, `cluster_id`, `release_id`, `database_id`, `image`, `server_dns_names`, `oidc`, `route`, `database`, `external_dns`, `tls_mode`, `service_type` | ✅ implemented |
+| `Gateway` | `name`, `cluster_id`, `release_id`, `database_id`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `database`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata` | ✅ implemented |
 | `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | ✅ implemented |
 | `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | ✅ implemented |
 | `ManagedCluster` | `name`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | ✅ implemented |

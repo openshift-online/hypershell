@@ -902,7 +902,8 @@ cluster-internal registry. This mirrors the `HYPERSHELL_DATABASE_IMAGE` override
 the gateway database. This cluster-wide override SHALL apply only when the Gateway
 resource does not set its own `sandbox_image` field; a per-Gateway `sandbox_image`
 (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)) SHALL take
-precedence over `GATEWAY_SANDBOX_IMAGE`.
+precedence over `GATEWAY_SANDBOX_IMAGE`. The control plane SHALL pass the resolved
+image to the OpenShell Helm chart as `server.sandboxImage`.
 
 ##### Scenario: Sandbox launch on a cluster without public egress
 

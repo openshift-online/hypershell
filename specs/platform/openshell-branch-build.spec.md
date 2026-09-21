@@ -15,8 +15,12 @@ standard `dev-gateway` created by `make kind-up`.
 
 This feature is a local-development and testing capability. It reuses the
 existing Kind environment ([`local-development.spec.md`](./local-development.spec.md))
-and gateway provisioning flow ([`openshell-gateway.spec.md`](./openshell-gateway.spec.md));
-it does not change how production gateways are provisioned.
+and gateway provisioning flow ([`openshell-gateway.spec.md`](./openshell-gateway.spec.md)).
+It also adds three optional Gateway schema fields (`sandbox_image`, `dev_build`,
+`dev_build_metadata`) and makes `release_id` optional so a Gateway can be created
+from a direct `image`/`supervisor_image` reference. Those schema changes apply
+to every environment; they do not change the production provisioning path for
+Gateways that continue to use a GatewayRelease.
 
 ## Requirements
 
@@ -101,7 +105,8 @@ against a moved branch tip picks up new commits.
 
 #### Scenario: Branch tip advances between runs
 
-- GIVEN a prior `kind-openshell-up` built commit `abc123` from branch `my-feature`
+- GIVEN a prior `kind-openshell-up` built commit
+  `a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2` from branch `my-feature`
 - AND new commits have since landed on `my-feature`
 - WHEN the developer re-runs `OPENSHELL_BRANCH=my-feature make kind-openshell-up`
 - THEN the platform SHALL fetch the current tip, resolve its SHA, and rebuild
@@ -167,16 +172,27 @@ when both `release_id` and `image` are present, `release_id` takes precedence
 and the direct image references would be ignored. The `sandbox_image` field
 SHALL reference the published community base image.
 
+The seed SHALL reuse the Kind environment's existing placement and exposure
+fields so the branch-built gateway is reachable the same way `dev-gateway` is:
+the `cluster_id` and `database_id` of the ManagedCluster and ManagedDatabase
+that `make kind-up` (or the full-stack path of `kind-openshell-up`) seeded, the
+same Kind Keycloak OIDC config `dev-gateway` uses, and `route: {enabled: true}`.
 The control plane SHALL reconcile the gateway workload so that the running
 gateway container and supervisor sidecar use the branch-built images, and launched
-sandboxes use the community base image.
+sandboxes use the community base image. Image and `sandbox_image` changes SHALL
+be applied by Helm upgrade (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)),
+not by patching a static ConfigMap or SSA placeholder.
 
 #### Scenario: Dev gateway runs branch-built images
 
 - GIVEN a completed OpenShell branch build with gateway and supervisor images
   loaded into Kind
+- AND the Kind environment already has a seeded ManagedCluster, ManagedDatabase,
+  and Keycloak OIDC issuer
 - WHEN the dev gateway is seeded and reconciled
 - THEN the Gateway resource SHALL have no `release_id` field set
+- AND SHALL reuse that environment's `cluster_id` and `database_id`
+- AND SHALL set `route: {enabled: true}` and the Kind Keycloak OIDC config
 - AND the gateway container SHALL run `gateway:dev-<sha>`
 - AND the supervisor sidecar SHALL run `supervisor:dev-<sha>`
 - AND sandboxes launched by the gateway SHALL use the published community base
@@ -196,23 +212,27 @@ build, distinguishing it from gateways created by the standard `kind-up` flow.
 
 The seeded Gateway resource SHALL be named `openshell-dev-gateway` (a stable,
 DNS-valid name that allows update-or-create semantics on subsequent runs). The
-control plane SHALL copy Gateway-level metadata onto the Kubernetes workload
-resources it creates. The seeding flow SHALL set two new Gateway fields to mark
-branch builds:
+seeding flow SHALL set two Gateway fields to mark branch builds, and the
+control plane SHALL pass them into the OpenShell Helm install/upgrade so they
+survive Helm-owned reconcile (not a post-apply SSA/`kubectl label` that the
+next upgrade would overwrite):
 
 - `dev_build`: boolean field set to `true` for branch-built gateways, unset
-  (or `false`) otherwise. The control plane SHALL copy this to a label
-  `hypershell.redhat.io/openshell-dev-build: "true"` on Deployment, Service,
-  and other K8s resources it provisions.
+  (or `false`) otherwise. When true, the control plane SHALL set the Helm value
+  `podLabels["hypershell.redhat.io/openshell-dev-build"] = "true"` and SHALL
+  apply the same label on the Helm-rendered Deployment and Service metadata so
+  a label selector on those resources returns the branch-built gateway.
 - `dev_build_metadata`: JSONB field carrying provenance:
-  `{ref: "<branch/PR>", sha: "<commit>", repo: "<repo-url>"}`. The control plane
-  SHALL copy this to annotations `hypershell.redhat.io/openshell-dev-build-ref`,
+  `{ref: "<branch/PR>", sha: "<full-40-character-commit-sha>", repo: "<repo-url>"}`.
+  The control plane SHALL set Helm `podAnnotations`
+  `hypershell.redhat.io/openshell-dev-build-ref`,
   `hypershell.redhat.io/openshell-dev-build-sha`, and
-  `hypershell.redhat.io/openshell-dev-build-repo` on the K8s resources.
+  `hypershell.redhat.io/openshell-dev-build-repo` from that object, and SHALL
+  apply the same annotations on the Helm-rendered Deployment and Service
+  metadata.
 
-This survives reconcile because the control plane reads the Gateway fields and
-re-applies them on every reconciliation. Gateways created by the standard
-`kind-up` flow SHALL NOT have `dev_build` set.
+When `dev_build` is unset or `false`, those Helm values SHALL be omitted.
+Gateways created by the standard `kind-up` flow SHALL NOT have `dev_build` set.
 
 #### Scenario: Dev gateway has a stable name
 
@@ -237,12 +257,13 @@ re-applies them on every reconciliation. Gateways created by the standard
 
 #### Scenario: Provenance is recorded on the workload
 
-- GIVEN a branch-built gateway built from branch `my-feature` at commit `abc123`
+- GIVEN a branch-built gateway built from branch `my-feature` at commit
+  `a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2`
   from `https://github.com/NVIDIA/OpenShell.git`
 - WHEN the operator inspects the deployed Deployment
 - THEN annotations SHALL record:
   - `hypershell.redhat.io/openshell-dev-build-ref: "my-feature"`
-  - `hypershell.redhat.io/openshell-dev-build-sha: "abc123"`
+  - `hypershell.redhat.io/openshell-dev-build-sha: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"`
   - `hypershell.redhat.io/openshell-dev-build-repo: "https://github.com/NVIDIA/OpenShell.git"`
 
 #### Scenario: Standard gateways are not labeled as dev builds

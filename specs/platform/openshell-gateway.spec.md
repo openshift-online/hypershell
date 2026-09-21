@@ -684,6 +684,8 @@ The `supervisor_image` field is configurable on the Gateway resource. If not set
 
 The `default_image` field (the sandbox base image) resolves in this order: the Gateway resource's `sandbox_image` field, when set; otherwise the `GATEWAY_SANDBOX_IMAGE` environment variable on the control-plane deployment, when set (see [`global-architecture.spec.md`](./global-architecture.spec.md) "Sandbox Base Image Supports an In-Cluster Registry" - this override lets clusters that cannot reach `ghcr.io` point at a mirrored image); otherwise the published default `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`. A per-Gateway `sandbox_image` always overrides the cluster-wide `GATEWAY_SANDBOX_IMAGE` mirror, the same precedence order `image`/`GATEWAY_IMAGE` and `supervisor_image`/`GATEWAY_SUPERVISOR_IMAGE` already follow.
 
+The control plane SHALL pass that resolved sandbox image into the OpenShell Helm chart as `server.sandboxImage` on every install and upgrade, the same way it supplies `image.repository`/`image.tag` and `supervisor.image.repository`/`supervisor.image.tag`. The chart SHALL render `server.sandboxImage` into `[openshell.gateway].default_image` in the `openshell-gateway-config` ConfigMap. The control plane SHALL NOT write `default_image` by patching a static ConfigMap or SSA placeholder after Helm has rendered the release. A change to `sandbox_image` SHALL be treated as a desired-spec change that causes a Helm upgrade, the same way a change to `image` or `supervisor_image` does.
+
 #### OIDC Section (conditional)
 
 When `oidc.issuer` is set on the Gateway resource, the reconciler injects the OIDC section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
@@ -808,7 +810,7 @@ Control Plane
 | `namespace` | No | API assigned | Read-only Kubernetes namespace derived from the Gateway identifier |
 | `image` | No | Supplied by `GATEWAY_IMAGE` env var on the control-plane deployment | Gateway container image reference |
 | `supervisor_image` | No | Supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment | Supervisor sidecar container image |
-| `sandbox_image` | No | `ghcr.io/nvidia/openshell-community/sandboxes/base:latest` | Sandbox base image the gateway uses when launching sandboxes |
+| `sandbox_image` | No | `ghcr.io/nvidia/openshell-community/sandboxes/base:latest` | Sandbox base image the gateway uses when launching sandboxes. Control plane passes the resolved value as Helm `server.sandboxImage` |
 | `serverDnsNames` | Yes | - | DNS names for TLS certificate generation |
 | `oidc` | No | - | OIDC authentication configuration (see OIDC spec) |
 | `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |
@@ -821,8 +823,8 @@ Control Plane
 | `route` | No | - | Route configuration for external exposure |
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
-| `dev_build` | No | `false` | Marks this as a dev/branch build. Control plane applies `hypershell.redhat.io/openshell-dev-build` label to K8s resources |
-| `dev_build_metadata` | No | - | Dev build provenance (JSONB): `{ref, sha, repo}`. Control plane copies to annotations on K8s resources |
+| `dev_build` | No | `false` | Marks this as a dev/branch build. Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels` onto the gateway workload |
+| `dev_build_metadata` | No | - | Dev build provenance (JSONB): `{ref, sha, repo}`. Control plane passes the SHA/ref/repo via Helm `podAnnotations` |
 
 > **Database provisioning:** Gateway databases are provisioned automatically by the control plane using the CloudNativePG operator. The gateway's `database_id` field references a ManagedDatabase resource (provider=cnpg) that determines which CNPG Cluster hosts the gateway's logical database. When `database_id` is blank at creation time and the fleet has exactly one ManagedDatabase, the API server auto-assigns it. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
 
@@ -832,6 +834,7 @@ Control Plane
 |---|---|---|
 | `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
 | `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.0.109-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
+| `GATEWAY_SANDBOX_IMAGE` | *(unset - published community default)* | Sandbox base image used when a Gateway resource does not specify `sandbox_image`. Passed to the chart as `server.sandboxImage`. See [`global-architecture.spec.md`](./global-architecture.spec.md). |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
@@ -931,6 +934,11 @@ The GatewayReconciler creates RBAC resources within each tenant namespace for th
 
 ## Template Packaging
 
+The control plane deploys gateways via Helm at reconcile time. The static
+manifest packaging below is historical and SHALL NOT be the install path for
+`sandbox_image`, `dev_build`, or `dev_build_metadata`; those fields are Helm
+values (`server.sandboxImage`, `podLabels`, `podAnnotations`).
+
 Gateway manifests SHALL be:
 - Stored in the HyperShell codebase at `components/hypershell-control-plane/manifests/gateway/`
 - Generated once during development using `helm template` (NOT Helm at runtime)
@@ -941,7 +949,7 @@ Gateway manifests SHALL be:
 
 ## Upstream Helm Chart Provenance
 
-HyperShell does NOT install the OpenShell gateway via Helm at runtime. The gateway manifests at `components/hypershell-control-plane/manifests/gateway/` were generated once using `helm template` from the upstream chart, then maintained as static files. Similarly, cert-manager resources and OpenShift adjustments are applied programmatically by the GatewayReconciler, not via Helm.
+The control plane installs the OpenShell gateway by supplying values to the upstream Helm chart at reconcile time (`internal/helm/values.go`, `internal/gateway/helm_deploy.go`). This section maps Gateway fields and cluster facts to those chart values. `server.sandboxImage`, `podLabels`, and `podAnnotations` are the values this spec adds for per-Gateway sandbox images and branch-build identity. Cert-manager resources and OpenShift adjustments that the chart does not own remain the GatewayReconciler's responsibility.
 
 This section documents which upstream Helm chart values each HyperShell behavior is equivalent to, so that future configuration changes can be traced back to the upstream chart source.
 
@@ -961,6 +969,9 @@ helm template openshell-gateway oci://ghcr.io/nvidia/openshell/helm-chart \
 
 | Helm `--set` value | HyperShell equivalent | Implementation location |
 |---|---|---|
+| `server.sandboxImage` | Resolved sandbox base image: `Gateway.sandbox_image` when set, else `GATEWAY_SANDBOX_IMAGE`, else the published community default. The chart renders this into `gateway.toml` `default_image` | `internal/helm/values.go` |
+| `podLabels["hypershell.redhat.io/openshell-dev-build"]` | `Gateway.dev_build`; set only when true | `internal/helm/values.go` |
+| `podAnnotations["hypershell.redhat.io/openshell-dev-build-*"]` | `Gateway.dev_build_metadata.{ref,sha,repo}` | `internal/helm/values.go` |
 | `pkiInitJob.serverDnsNames={...}` | `serverDnsNames` field on the Gateway API resource; substituted into cert-manager Certificate SANs at reconcile time | `internal/reconciler/gateway_reconciler.go` |
 | `certManager.enabled=true` | Auto-detected: GatewayReconciler checks for `cert-manager.io` API group at startup via `detectCertManager()`. When present, creates Issuer/Certificate resources inline | `internal/reconciler/gateway_reconciler.go` |
 | `podSecurityContext.fsGroup=null` | On OpenShift only: `applyOpenShiftOverrides()` clears `fsGroup` from the Deployment pod securityContext before apply | `internal/gateway/reconciler.go` |
