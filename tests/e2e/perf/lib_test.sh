@@ -32,6 +32,35 @@ if e2e_step short && ! e2e_step long; then
 else
   fail_u "short mode step gating is wrong"
 fi
+if e2e_multi_identity; then
+  fail_u "short should not be multi-identity"
+else
+  pass_u "short runs as a single identity (no impersonation)"
+fi
+
+E2E_MODE=perf
+if e2e_step short && ! e2e_step long; then
+  pass_u "perf mode runs short steps and skips long steps"
+else
+  fail_u "perf mode step gating is wrong"
+fi
+if (e2e_validate_mode) &>/dev/null; then
+  pass_u "perf is a valid E2E_MODE"
+else
+  fail_u "perf should be a valid E2E_MODE"
+fi
+if e2e_multi_identity; then
+  pass_u "perf is multi-identity"
+else
+  fail_u "perf should allow multiple identities"
+fi
+
+E2E_MODE=long
+if e2e_multi_identity; then
+  pass_u "long is multi-identity"
+else
+  fail_u "long should allow multiple identities"
+fi
 
 E2E_MODE=medium
 if (e2e_validate_mode) &>/dev/null; then
@@ -41,7 +70,7 @@ else
 fi
 E2E_MODE=long
 
-# --- Seed ids for short-mode throwaway gateway ---
+# --- Seed ids for perf-mode throwaway gateway ---
 
 gw_json='{"items":[{"name":"perf-gw-canary","cluster_id":"cluster-1","release_id":"release-1","database_id":"db-1"}]}'
 E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_DATABASE_ID=""

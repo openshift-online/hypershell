@@ -20,7 +20,12 @@
 #   E2E_INFRA_DRIVER      Infra driver override: kind, openshift (default: auto-detected)
 #   E2E_NAMESPACE          Namespace for e2e resources (default: openshell-e2e)
 #   E2E_GATEWAY_NAME       Gateway name (default: e2e-gw-<random8hex>, unique per run)
-#   E2E_MODE               Run depth: long (default, every step) or short (essential steps)
+#   E2E_MODE               Run depth: long (default, every step), short (core
+#                          gateway + sandbox lifecycle; owns+tears down its
+#                          gateway, single identity; self-contained check safe
+#                          against a live env, e.g. post-rollout promotion gate),
+#                          or perf (short subset against a reused canary gateway;
+#                          performance harness only)
 #   E2E_SANDBOX_TIMEOUT    Seconds to wait for sandbox (default: 300)
 #   E2E_PROVISION_TIMEOUT  Seconds to wait for gateway provisioning (default: 300)
 #   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 300)
@@ -125,9 +130,9 @@ cleanup() {
     kill "$E2E_GW_PF_PID" 2>/dev/null || true
     wait "$E2E_GW_PF_PID" 2>/dev/null || true
   fi
-  # Short mode never deletes the supplied/reused gateway: checkpoints and
+  # perf mode never deletes the supplied/reused canary gateway: checkpoints and
   # canary runs must leave it standing. E2E_SKIP_CLEANUP also preserves it.
-  if [[ "$E2E_MODE" != "short" && "$E2E_SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
+  if [[ "$E2E_MODE" != "perf" && "$E2E_SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
     dim "  Cleaning up gateway ${GW_NAME}..."
     # JWT is enforced, so the DELETE needs a bearer token. The token acquired
     # earlier may have expired during provisioning, so refresh best-effort before
@@ -615,8 +620,8 @@ dim "  Gateway namespace: ${GW_NAMESPACE}"
 
 # Seed a synthetic orphaned managed namespace for periodic GC. Created here so
 # steps 3–10 run while the reaper sweeps; step 11 only validates (no extra wait
-# if the reaper already ran during the suite). Long-only: short mode does not
-# exercise the periodic reaper.
+# if the reaper already ran during the suite). Long-only: the quick checks
+# (short/perf) do not exercise the periodic reaper.
 if e2e_step long && [[ "$E2E_SKIP_CLEANUP" != "1" ]]; then
   ORPHAN_NS="openshell-e2e-orphan-$(date +%s)"
   ORPHAN_ELIGIBLE_SINCE=$(e2e_gc_eligible_since_backdate 3)
@@ -1410,6 +1415,9 @@ echo ""
 e2e_area "9. Developer User RBAC Verification"
 echo ""
 
+if ! e2e_multi_identity; then
+  dim "  Skipped (E2E_MODE=${E2E_MODE}): developer RBAC needs a second user identity (token-exchange impersonation); short runs as a single principal and is not granted impersonation"
+else
 # The developer's gateway/CLI token, like the admin's, must be minted against the
 # per-gateway client on every infra target. The gateway requires user_role
 # (openshell-user) on that client or it rejects the developer outright ("role
@@ -1688,6 +1696,7 @@ print(json.dumps(body))
 
   "${OPENSHELL_BIN}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
 fi
+fi
 sep
 
 # ── 10. platform admin RBAC verification ─────────────────────────────────
@@ -1697,7 +1706,7 @@ e2e_area "10. Platform Admin RBAC Verification"
 echo ""
 
 if ! e2e_step long; then
-  dim "  Skipped (E2E_MODE=short): platform-admin assertions delete a gateway"
+  dim "  Skipped (E2E_MODE=${E2E_MODE}): platform-admin assertions delete a gateway"
 else
 # The platform:admin role is a realm role (not a client role) assigned in Keycloak.
 # Platform admins can view all gateways and delete any gateway, but cannot modify
@@ -1867,8 +1876,8 @@ echo ""
 e2e_area "11. Gateway Deletion + Namespace Garbage Collection"
 echo ""
 
-if [[ "$E2E_MODE" == "short" ]]; then
-  # Short mode must not tear down the supplied/reused gateway. Exercise
+if [[ "$E2E_MODE" == "perf" ]]; then
+  # perf mode must not tear down the supplied/reused canary gateway. Exercise
   # delete-driven GC against a throwaway gateway instead, with a bounded wait.
   THROW_NAME="${GW_NAME}-gc-throwaway"
   dim "  Delete-driven GC on throwaway gateway ${THROW_NAME} (not ${GW_NAME})"

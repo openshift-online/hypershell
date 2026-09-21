@@ -11,6 +11,11 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kind.sh"
 
 : "${E2E_OPENSHIFT_KEYCLOAK_ROUTE:=keycloak}"
+# Namespace holding the Keycloak Route. Defaults to the "<platform>-keycloak"
+# convention the PR-environment deploys use; set it when the deployment names
+# the Keycloak namespace differently (e.g. a GitOps environment where it is
+# "keycloak-<platform>").
+: "${E2E_OPENSHIFT_KEYCLOAK_NAMESPACE:=}"
 : "${E2E_OPENSHIFT_CA_SECRET:=}"
 : "${E2E_OPENSHIFT_CA_NAMESPACE:=}"
 
@@ -27,7 +32,7 @@ _openshift_require_config() {
     dim "  OPENSHIFT_NAMESPACE unset; using oc project '${OPENSHIFT_NAMESPACE}'"
   fi
   E2E_HS_NAMESPACE="${OPENSHIFT_NAMESPACE}"
-  E2E_KEYCLOAK_NAMESPACE="${OPENSHIFT_NAMESPACE}-keycloak"
+  E2E_KEYCLOAK_NAMESPACE="${E2E_OPENSHIFT_KEYCLOAK_NAMESPACE:-${OPENSHIFT_NAMESPACE}-keycloak}"
 }
 
 _openshift_configure_oidc() {

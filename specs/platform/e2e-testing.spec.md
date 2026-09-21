@@ -937,7 +937,7 @@ deploy/
 | `OPENSHIFT_NAMESPACE` | current `oc project` | Platform namespace the OpenShift driver and `make openshift-up` target; Keycloak is `${OPENSHIFT_NAMESPACE}-keycloak` |
 | `E2E_NAMESPACE` | `openshell-e2e` | Namespace for e2e test resources (gateway deployment) |
 | `E2E_GATEWAY_NAME` | `e2e-gw` | Gateway name for the e2e test |
-| `E2E_MODE` | `long` | Run depth: `long` runs every step, `short` runs the essential steps of each area (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) |
+| `E2E_MODE` | `long` | Run depth: `long` runs every step; `short` runs the essential steps of each area, owns and tears down its own gateway, and runs as a single identity (self-contained full-lifecycle check, safe against a live env); `perf` runs the same essential subset against a reused canary gateway (performance harness only) (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) |
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
@@ -1025,7 +1025,7 @@ The CI e2e workflow SHALL verify web console distributed tracing end to end, sat
 
 ## Performance Testing
 
-The performance test measures how the platform behaves when many gateways run at the same time. It provisions a large fleet of gateways on the target cluster in batches. After every batch it runs a fast mini test (the e2e suite in short mode against a canary gateway) and appends a checkpoint record to the results, so a regression is pinned to the scale at which it appears rather than surfacing only at the end. Once the fleet is fully provisioned it runs the full functional e2e suite to confirm the platform still works correctly under that load. A user runs the test with `make e2e-performance`.
+The performance test measures how the platform behaves when many gateways run at the same time. It provisions a large fleet of gateways on the target cluster in batches. After every batch it runs a fast mini test (the e2e suite in perf mode against a canary gateway) and appends a checkpoint record to the results, so a regression is pinned to the scale at which it appears rather than surfacing only at the end. Once the fleet is fully provisioned it runs the full functional e2e suite to confirm the platform still works correctly under that load. A user runs the test with `make e2e-performance`.
 
 The performance test reuses the e2e driver abstraction. It runs against any infrastructure target that supplies a driver. It auto-detects the target from the current KUBECONFIG context, the same as the e2e suite, with `E2E_INFRA_DRIVER` available as an override. A user runs the test against Kind for local checks. A user runs the test against any OpenShift cluster for on-demand load tests.
 
@@ -1045,7 +1045,7 @@ tests/e2e/e2e-performance.sh (infra-agnostic performance harness)
     ├── Phase 1  Preflight        -- discover API host, OIDC token, cluster/release ids, baseline;
     │                                provision the canary gateway and grant its OIDC role once
     ├── Phase 2  Batched scale-up -- add E2E_PERF_BATCH_SIZE gateways (bounded concurrency),
-    │                                then run the e2e suite in short mode against the canary
+    │                                then run the e2e suite in perf mode against the canary
     │                                and append a checkpoint; repeat to N (optional early-stop)
     ├── Phase 3  Functional check -- run the e2e suite in long mode (all steps) on a dedicated gateway
     ├── Phase 4  Report           -- write metrics + per-batch checkpoint series (summary + JSON)
@@ -1126,11 +1126,11 @@ The harness SHALL wait until each gateway reaches `Running` phase, or until `E2E
 
 The harness SHALL validate the platform incrementally as the fleet grows, so a scale problem is caught as it appears rather than only at the end. It SHALL provision the fleet in batches of `E2E_PERF_BATCH_SIZE` (default 5; a value of 5--10 is recommended). After each batch reaches `Running` (or times out), the harness SHALL run a checkpoint mini test and SHALL append one checkpoint record to the run results before starting the next batch. This means the results file is written incrementally across the run, not only at teardown.
 
-The checkpoint mini test SHALL be the e2e suite run in **short mode** (`E2E_MODE=short`, see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), not the full suite (running every step of all 11 areas after every batch would dominate the run). Short mode runs the essential steps of every area -- so the checkpoint touches a slice of each portion of the test -- while long mode (the default, used for the final run) runs all steps. This reuses the suite's real assertions and driver code; the harness adds no separate probe.
+The checkpoint mini test SHALL be the e2e suite run in **perf mode** (`E2E_MODE=perf`, see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), not the full suite (running every step of all 11 areas after every batch would dominate the run). Perf mode runs the essential (`short`-tagged) steps of every area -- so the checkpoint touches a slice of each portion of the test -- while long mode (the default, used for the final run) runs all steps. This reuses the suite's real assertions and driver code; the harness adds no separate probe.
 
-The mini test SHALL run against a dedicated **canary** gateway that the harness provisions once during preflight and whose per-gateway OIDC role it grants once (through the driver's `acquire_gateway_token_with_role` helper, so the harness still calls only driver interface functions), so no batch pays repeated Keycloak setup or gateway provisioning. The canary is separate from the counted fleet and is named `<E2E_PERF_GATEWAY_PREFIX>-canary`. The checkpoint SHALL invoke short mode with `E2E_GATEWAY_NAME=<prefix>-canary` and `E2E_SKIP_CLEANUP=1` so the suite reuses the canary and does not tear it down between batches. These two variables SHALL be set only on the child suite invocation (for example prefixed on the command line), NOT exported into the harness environment; the harness's own `EXIT` trap therefore still runs and deletes the canary and the whole fleet at teardown (see [Performance Test Cleanup](#requirement-performance-test-cleanup)).
+The mini test SHALL run against a dedicated **canary** gateway that the harness provisions once during preflight and whose per-gateway OIDC role it grants once (through the driver's `acquire_gateway_token_with_role` helper, so the harness still calls only driver interface functions), so no batch pays repeated Keycloak setup or gateway provisioning. The canary is separate from the counted fleet and is named `<E2E_PERF_GATEWAY_PREFIX>-canary`. The checkpoint SHALL invoke perf mode with `E2E_GATEWAY_NAME=<prefix>-canary` and `E2E_SKIP_CLEANUP=1` so the suite reuses the canary and does not tear it down between batches. These two variables SHALL be set only on the child suite invocation (for example prefixed on the command line), NOT exported into the harness environment; the harness's own `EXIT` trap therefore still runs and deletes the canary and the whole fleet at teardown (see [Performance Test Cleanup](#requirement-performance-test-cleanup)).
 
-Each checkpoint record SHALL capture the cumulative number of gateways `Running`, the time-to-`Running` latency percentiles for the batch just added, the mode run (`short`), the mini-test duration in seconds, the mini-test result (`pass`/`fail`), and a timestamp.
+Each checkpoint record SHALL capture the cumulative number of gateways `Running`, the time-to-`Running` latency percentiles for the batch just added, the mode run (`perf`), the mini-test duration in seconds, the mini-test result (`pass`/`fail`), and a timestamp.
 
 A user SHALL be able to disable checkpoints by setting `E2E_PERF_CHECKPOINT=0`, in which case the harness provisions the full fleet in one pass and records no checkpoint entries. When a checkpoint mini test fails and `E2E_PERF_STOP_ON_CHECKPOINT_FAILURE=1` (the default), the harness SHALL stop scaling, record the cumulative gateway count as the breaking scale, run the failure diagnostics, and proceed to reporting and teardown; the run SHALL then be a failure. When `E2E_PERF_STOP_ON_CHECKPOINT_FAILURE=0`, the harness SHALL record the failed checkpoint and continue scaling, so a user can observe whether the platform recovers at a higher scale.
 
@@ -1140,7 +1140,7 @@ Setting `E2E_PERF_BATCH_SIZE` greater than or equal to `E2E_PERF_GATEWAY_COUNT` 
 
 - GIVEN `E2E_PERF_GATEWAY_COUNT=20` and `E2E_PERF_BATCH_SIZE=5`
 - WHEN the harness runs the scale-up phase
-- THEN it SHALL run the e2e suite in short mode after each batch of 5 gateways reaches `Running`
+- THEN it SHALL run the e2e suite in perf mode after each batch of 5 gateways reaches `Running`
 - AND it SHALL append a checkpoint record (cumulative count, batch latency percentiles, mode, mini-test duration, mini-test result) after each batch
 
 #### Scenario: Canary Provisioned Once
@@ -1172,9 +1172,15 @@ Setting `E2E_PERF_BATCH_SIZE` greater than or equal to `E2E_PERF_GATEWAY_COUNT` 
 
 ### Requirement: E2E Short and Long Modes
 
-The e2e suite (`tests/e2e/e2e-openshell.sh`) SHALL support two run depths selected by `E2E_MODE`: `long` (the default) and `short`. The depth is chosen per step, not per area: each area's checks SHALL be organized as named steps, and each step SHALL declare the minimum mode it belongs to. A step tagged `short` runs in both modes; a step tagged `long` runs only in long mode. Long mode therefore runs every step (the current full behavior), and short mode runs the `short`-tagged subset of every area -- a slice of each portion of the test, exercising each area's essential path while skipping its deep or slow steps.
+The e2e suite (`tests/e2e/e2e-openshell.sh`) SHALL support three run depths selected by `E2E_MODE`: `long` (the default), `short`, and `perf`. The depth is chosen per step, not per area: each area's checks SHALL be organized as named steps, and each step SHALL declare the minimum mode it belongs to. A step tagged `short` runs in every mode; a step tagged `long` runs only in long mode. Long mode therefore runs every step (the current full behavior), and both `short` and `perf` run the `short`-tagged subset of every area -- a slice of each portion of the test, exercising each area's essential path while skipping its deep or slow steps.
 
-When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so existing invocations (the CI e2e job and the final run of the performance test) are unchanged. When `E2E_MODE=short`, the suite SHALL run only the `short`-tagged steps, in the suite's normal order. The suite SHALL exit non-zero if `E2E_MODE` is set to any value other than `short` or `long`. The tags SHALL live in the suite so both modes run the same assertion code; there SHALL be no second copy of any check.
+When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so existing invocations (the CI e2e job and the final run of the performance test) are unchanged. When `E2E_MODE=short` or `E2E_MODE=perf`, the suite SHALL run only the `short`-tagged steps, in the suite's normal order. The suite SHALL exit non-zero if `E2E_MODE` is set to any value other than `short`, `perf`, or `long`. The tags SHALL live in the suite so all modes run the same assertion code; there SHALL be no second copy of any check.
+
+`short` is the canonical quick check. It owns the gateway it creates and SHALL tear it fully down at the end (the same delete-driven namespace-GC path a long run uses for its own gateway), leaving nothing behind. `short` is therefore a self-contained, non-destructive full-lifecycle check -- create, run, interact, delete -- safe to run repeatedly against a live or shared environment: a post-rollout promotion gate, synthetic monitoring, or a post-deploy sanity check.
+
+`short` additionally runs as a single identity: it SHALL NOT impersonate other users (token-exchange with `requested_subject`), so it SHALL skip the developer RBAC area (area 9), which mints a token for a second principal. This keeps the check minimal-privilege -- its OIDC client needs only `gateway:creator` and `hypershell-users` (plus same-subject token-exchange for the per-gateway audience), not `platform:admin` or an impersonation policy -- so it is safe as a live-environment promotion gate. The suite SHALL express this through a mode predicate (`e2e_multi_identity`), false for `short` and true for `perf` and `long`; any step that acts as a principal other than the run's own identity SHALL gate on it. The platform-admin area (area 10) is long-only and so is already skipped in `short`.
+
+`perf` runs the same `short`-tagged step subset but is tailored to the performance harness (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)) and SHALL be used only from `e2e-performance.sh`. It differs from `short` in two ways: it follows the harness's reuse-or-preserve pattern -- it may reuse a supplied long-lived canary gateway and SHALL NOT tear it down, so the canary survives repeated checkpoints -- and it exercises the multi-identity developer RBAC path (area 9). It is not a live-environment gate; it assumes the harness owns the canary's lifecycle.
 
 Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every one of the 11 areas (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only steps:
 
@@ -1188,15 +1194,17 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | 6. Connectivity | one route reachability check | n/a |
 | 7. Sandbox lifecycle | one sandbox create -> ready -> delete, `active_sandbox_count` = 1 then 0 | second concurrent sandbox to assert the count increments |
 | 8. Sandbox interaction | one in-sandbox exec (`uname -a`) | the remaining exec commands (`ls /workspace`) |
-| 9. Developer RBAC | one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix |
-| 10. Platform-admin RBAC | n/a; skipped in short (its assertion deletes a gateway) | full platform-admin matrix, including gateway deletion |
-| 11. Namespace GC | delete-driven GC with a bounded wait, on a throwaway namespace (not the reused gateway) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
+| 9. Developer RBAC | short: skipped (single-identity; no impersonation). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix |
+| 10. Platform-admin RBAC | n/a; skipped in short and perf (its assertion deletes a gateway) | full platform-admin matrix, including gateway deletion |
+| 11. Namespace GC | short: delete-driven GC of the run's own gateway. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
 
-Short mode SHALL follow the same reuse-or-create pattern as the perf harness: when `E2E_GATEWAY_NAME` names an existing gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated short runs). This constraint governs the two areas that would otherwise tear a gateway down: the platform-admin RBAC area (area 10) SHALL NOT run its gateway-deletion step in short mode, and the namespace-GC area (area 11) SHALL exercise delete-driven GC against a throwaway gateway it creates, never against the supplied gateway. Creating that throwaway gateway SHALL reuse the seeded `cluster_id` and `release_id`. The suite SHALL take cluster and release ids from the environment when a parent (the performance harness) forwards them, from the reused gateway's JSON when that gateway already exists, or by discovering them from the API when either is missing. Any long-only step that deletes the run's own gateway SHALL NOT run in short mode.
+`short` mode SHALL own the gateway it provisions: it SHALL delete that gateway at the end and assert its namespace is garbage collected (the same delete-driven GC path area 11 runs for a long run's own gateway), and its cleanup path SHALL also delete the gateway on any exit, so a short run leaves nothing behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace (that periodic-reaper assertion is long-only) and SHALL NOT mutate shared controller state (namespace-GC timing is adjusted only for long runs). Any long-only step that deletes the run's own gateway as part of the RBAC matrix SHALL NOT run in short or perf mode; area 11's own-gateway deletion, being the assertion itself, SHALL run in short and long but not perf.
 
-#### Scenario: Short Mode Throwaway Uses Seed Ids
+`perf` mode SHALL follow the reuse-or-create pattern the harness relies on: when `E2E_GATEWAY_NAME` names an existing gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated perf runs). This constraint governs the two areas that would otherwise tear a gateway down: the platform-admin RBAC area (area 10) SHALL NOT run its gateway-deletion step in short or perf mode, and the namespace-GC area (area 11) SHALL, in perf mode, exercise delete-driven GC against a throwaway gateway it creates, never against the supplied canary. Creating that throwaway gateway SHALL reuse the seeded `cluster_id` and `release_id`. The suite SHALL take cluster and release ids from the environment when a parent (the performance harness) forwards them, from the reused gateway's JSON when that gateway already exists, or by discovering them from the API when either is missing.
 
-- GIVEN `E2E_MODE=short` and a reused canary gateway
+#### Scenario: Perf Mode Throwaway Uses Seed Ids
+
+- GIVEN `E2E_MODE=perf` and a reused canary gateway
 - WHEN the suite creates the namespace-GC throwaway gateway
 - THEN it SHALL POST that gateway with the seeded cluster and release ids
 - AND it SHALL NOT fail with unknown seed ids when the parent forwarded those ids or the reused gateway JSON contains them
@@ -1207,22 +1215,33 @@ Short mode SHALL follow the same reuse-or-create pattern as the perf harness: wh
 - WHEN the e2e suite runs
 - THEN it SHALL run every step of every area, the same as before mode selection existed
 
-#### Scenario: Short Mode Runs a Slice of Each Area
+#### Scenario: Short Mode Runs the Short Slice and Owns Its Gateway
 
 - GIVEN `E2E_MODE=short`
 - WHEN the e2e suite runs
-- THEN it SHALL run the `short`-tagged steps of every area
-- AND it SHALL skip the `long`-only steps (for example the second sandbox and the full RBAC matrix)
+- THEN it SHALL run the `short`-tagged steps of every area and skip the `long`-only steps (for example the second sandbox and the full RBAC matrix)
+- AND it SHALL skip the developer RBAC area (area 9), running as a single identity without impersonation
+- AND it SHALL delete the gateway it created and assert its namespace is garbage collected
+- AND it SHALL NOT seed the synthetic orphan namespace or mutate shared namespace-GC timing
+- AND it SHALL leave no gateway behind on any exit
+
+#### Scenario: Perf Mode Runs the Short Slice Against a Reused Canary
+
+- GIVEN `E2E_MODE=perf` and a supplied canary gateway
+- WHEN the e2e suite runs
+- THEN it SHALL run the `short`-tagged steps of every area and skip the `long`-only steps
+- AND it SHALL reuse the supplied gateway and SHALL NOT delete it
+- AND it SHALL exercise the developer RBAC area (area 9)
 
 #### Scenario: Invalid Mode Fails Fast
 
 - GIVEN `E2E_MODE=medium`
 - WHEN the e2e suite starts
-- THEN it SHALL exit non-zero and state that the valid modes are `short` and `long`
+- THEN it SHALL exit non-zero and state that the valid modes are `short`, `perf`, and `long`
 
 ### Requirement: Functional Validation Under Load
 
-After the fleet is fully provisioned, the harness SHALL run the functional e2e suite (`tests/e2e/e2e-openshell.sh`) against the target cluster as the final, comprehensive gate. Where the per-batch checkpoint runs the suite in short mode (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), this phase runs it in long mode -- every step of all 11 areas -- to confirm the platform still works correctly while the large gateway fleet runs. The functional suite SHALL use a dedicated gateway name (`E2E_PERF_FUNCTIONAL_GATEWAY_NAME`, default `perf-e2e-gw`) so it does not collide with the perf fleet or the canary. The functional suite SHALL use the same `E2E_INFRA_DRIVER`. The functional suite exits non-zero when any of its checks fail. The harness SHALL treat that non-zero exit as a performance test failure.
+After the fleet is fully provisioned, the harness SHALL run the functional e2e suite (`tests/e2e/e2e-openshell.sh`) against the target cluster as the final, comprehensive gate. Where the per-batch checkpoint runs the suite in perf mode (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), this phase runs it in long mode -- every step of all 11 areas -- to confirm the platform still works correctly while the large gateway fleet runs. The functional suite SHALL use a dedicated gateway name (`E2E_PERF_FUNCTIONAL_GATEWAY_NAME`, default `perf-e2e-gw`) so it does not collide with the perf fleet or the canary. The functional suite SHALL use the same `E2E_INFRA_DRIVER`. The functional suite exits non-zero when any of its checks fail. The harness SHALL treat that non-zero exit as a performance test failure.
 
 A user SHALL be able to skip the functional phase by setting `E2E_PERF_RUN_FUNCTIONAL=0`. This supports pure load measurement without the functional gate.
 
@@ -1256,18 +1275,18 @@ The harness SHALL compute and report metrics for the scale-up phase:
 - average time-to-`Running` latency plus p50, p90, p99, and max
 - provisioning throughput (gateways that reached `Running` per minute of wall-clock scale-up)
 - total wall-clock time for the scale-up phase, printed as `HH:MM:SS` (JSON still stores `wall_clock_seconds` as a number of seconds)
-- the per-batch checkpoint series (cumulative count, batch latency percentiles, mode, short e2e duration, and short e2e result per checkpoint)
+- the per-batch checkpoint series (cumulative count, batch latency percentiles, mode, perf e2e duration, and perf e2e result per checkpoint)
 
-The human-readable stdout summary is the primary digest: a user reads it right after a run. The harness SHALL print an aligned summary table to stdout. Label columns SHALL be wide enough that values share one vertical gutter; the checkpoint table SHALL size each column to at least its header so headers and values line up. Checkpoint `mode` and `result` SHALL be unquoted (`short`, `fail`), not JSON fragments (`short"`, `fail"`). Throughput SHALL be labeled `gateways / min` so the unit is explicit: provisioned gateways divided by scale-up wall-clock minutes. The checkpoint table SHALL include one row per batch so a user can see how latency and the short e2e result track with the growing fleet. The harness SHALL also write a machine-readable JSON summary for tooling (see [Performance Results Consumption](#requirement-performance-results-consumption)).
+The human-readable stdout summary is the primary digest: a user reads it right after a run. The harness SHALL print an aligned summary table to stdout. Label columns SHALL be wide enough that values share one vertical gutter; the checkpoint table SHALL size each column to at least its header so headers and values line up. Checkpoint `mode` and `result` SHALL be unquoted (`perf`, `fail`), not JSON fragments (`perf"`, `fail"`). Throughput SHALL be labeled `gateways / min` so the unit is explicit: provisioned gateways divided by scale-up wall-clock minutes. The checkpoint table SHALL include one row per batch so a user can see how latency and the perf e2e result track with the growing fleet. The harness SHALL also write a machine-readable JSON summary for tooling (see [Performance Results Consumption](#requirement-performance-results-consumption)).
 
 #### Scenario: Metrics Printed
 
-- GIVEN the scale-up phase has finished with a 92-second wall clock and a failed short e2e checkpoint
+- GIVEN the scale-up phase has finished with a 92-second wall clock and a failed perf e2e checkpoint
 - WHEN the harness reaches its report phase
 - THEN it SHALL print the success rate, the latency percentiles, and the throughput to stdout as an aligned table
 - AND wall clock SHALL be printed as `00:01:32`
 - AND throughput SHALL be labeled `gateways / min`
-- AND the checkpoint row SHALL show `short` and `fail` without trailing quotes
+- AND the checkpoint row SHALL show `perf` and `fail` without trailing quotes
 
 #### Scenario: JSON Summary Written
 
@@ -1341,7 +1360,7 @@ The performance test is run locally or against any OpenShift cluster, not in CI 
       "gateways_running": 5,
       "at": "2026-08-21T15:33:10Z",
       "batch_time_to_running_seconds": { "avg": 111, "p50": 92, "p90": 140, "p99": 150, "max": 152 },
-      "mode": "short",
+      "mode": "perf",
       "mini_test": "pass",
       "mini_test_seconds": 34
     },
@@ -1349,7 +1368,7 @@ The performance test is run locally or against any OpenShift cluster, not in CI 
       "gateways_running": 10,
       "at": "2026-08-21T15:35:41Z",
       "batch_time_to_running_seconds": { "avg": 142, "p50": 110, "p90": 180, "p99": 190, "max": 192 },
-      "mode": "short",
+      "mode": "perf",
       "mini_test": "pass",
       "mini_test_seconds": 39
     }
@@ -1368,7 +1387,7 @@ The results directory holds local run output, not source. The default `E2E_PERF_
 
 **Local report target.** The system SHALL provide a `scripts/perf-report.sh` script and a `make e2e-performance-report` target. The report SHALL read the JSON history files under `E2E_PERF_RESULTS_DIR` and print an aligned table of the most recent `E2E_PERF_REPORT_LIMIT` runs (default 10), one row per run, most recent first. This lets a user spot a regression across local runs from the terminal. A field that is missing or `null` in the JSON SHALL render as `-`. That includes a partial history file written before scale-up metrics and `result` were filled (interrupt, canary failure, or crash): the row SHALL still show the timestamp, driver, and requested count when those values exist, and `-` for the rest.
 
-Each tabulated run provisions `E2E_PERF_GATEWAY_COUNT` gateways (the `count` column; default 5) in batches of `E2E_PERF_BATCH_SIZE` (default 5). After each batch reaches `Running` (or times out), the harness SHALL run a short e2e test (`E2E_MODE=short` against the canary) as the checkpoint mini test, then continue to the next batch. Set `E2E_PERF_CHECKPOINT=0` to skip those per-batch short tests and provision the fleet in one pass. With the defaults (`count=5`, `batch size=5`), a run is one batch followed by one short e2e test, then the long functional suite. Raise `E2E_PERF_GATEWAY_COUNT` and keep `E2E_PERF_BATCH_SIZE` smaller to get several short e2e checkpoints as the fleet grows (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)).
+Each tabulated run provisions `E2E_PERF_GATEWAY_COUNT` gateways (the `count` column; default 5) in batches of `E2E_PERF_BATCH_SIZE` (default 5). After each batch reaches `Running` (or times out), the harness SHALL run a perf e2e test (`E2E_MODE=perf` against the canary) as the checkpoint mini test, then continue to the next batch. Set `E2E_PERF_CHECKPOINT=0` to skip those per-batch perf tests and provision the fleet in one pass. With the defaults (`count=5`, `batch size=5`), a run is one batch followed by one perf e2e test, then the long functional suite. Raise `E2E_PERF_GATEWAY_COUNT` and keep `E2E_PERF_BATCH_SIZE` smaller to get several perf e2e checkpoints as the fleet grows (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)).
 
 The recent-runs table SHALL use these columns:
 
@@ -1381,19 +1400,19 @@ The recent-runs table SHALL use these columns:
 | `avg` | `scale_up.time_to_running_seconds.avg` | Mean time-to-`Running` in seconds (API create until the gateway is `Running`) across the whole fleet |
 | `p99` | `scale_up.time_to_running_seconds.p99` | 99th-percentile time-to-`Running` in seconds, same clock as `avg` |
 | `tput/min` | `scale_up.throughput_per_min` | Gateways that reached `Running` per minute of wall-clock scale-up (`provisioned / (wall_clock_seconds / 60)`). The stdout summary labels the same value `gateways / min` |
-| `result` | `result` | Overall pass/fail of the run, not of provisioning. Includes the per-batch short e2e tests and the final long functional suite |
+| `result` | `result` | Overall pass/fail of the run, not of provisioning. Includes the per-batch perf e2e tests and the final long functional suite |
 
-`result` SHALL be independent of `success%`. With no SLO env vars set, the run SHALL fail when (a) the canary never reaches `Running`, (b) a per-batch short e2e test fails and `E2E_PERF_STOP_ON_CHECKPOINT_FAILURE=1` (the default), or (c) the functional suite (`E2E_MODE=long`) fails under load. Optional SLOs (`E2E_PERF_MIN_SUCCESS_RATE`, `E2E_PERF_MAX_PROVISION_P99`) MAY also fail the run. A row with `success%` of `100.0` and `result` of `fail` therefore means every counted gateway reached `Running`, but a short e2e checkpoint or the functional suite failed.
+`result` SHALL be independent of `success%`. With no SLO env vars set, the run SHALL fail when (a) the canary never reaches `Running`, (b) a per-batch perf e2e test fails and `E2E_PERF_STOP_ON_CHECKPOINT_FAILURE=1` (the default), or (c) the functional suite (`E2E_MODE=long`) fails under load. Optional SLOs (`E2E_PERF_MIN_SUCCESS_RATE`, `E2E_PERF_MAX_PROVISION_P99`) MAY also fail the run. A row with `success%` of `100.0` and `result` of `fail` therefore means every counted gateway reached `Running`, but a perf e2e checkpoint or the functional suite failed.
 
-The report SHALL also be able to render the per-batch checkpoint series of a single run, so a user can see at which scale latency climbs or the short e2e test starts failing within one run. A user SHALL select that single-run view by setting `E2E_PERF_REPORT_RUN` to a run's history-file path or its UTC timestamp (equivalently, passing it as the script's first argument); with no run selected the report prints the recent-runs table. Each checkpoint row is one batch of `E2E_PERF_BATCH_SIZE` followed by that short e2e test. The checkpoint table SHALL use these columns:
+The report SHALL also be able to render the per-batch checkpoint series of a single run, so a user can see at which scale latency climbs or the perf e2e test starts failing within one run. A user SHALL select that single-run view by setting `E2E_PERF_REPORT_RUN` to a run's history-file path or its UTC timestamp (equivalently, passing it as the script's first argument); with no run selected the report prints the recent-runs table. Each checkpoint row is one batch of `E2E_PERF_BATCH_SIZE` followed by that perf e2e test. The checkpoint table SHALL use these columns:
 
 | Column | Meaning |
 |--------|---------|
 | `count` | Cumulative gateways `Running` after that batch of `E2E_PERF_BATCH_SIZE` |
 | `batch avg` | Mean time-to-`Running` in seconds for the batch just added |
 | `batch p99` | 99th-percentile time-to-`Running` in seconds for that batch |
-| `mini s` | Duration of the short e2e test (`E2E_MODE=short`) that ran after that batch, in seconds |
-| `result` | Pass/fail of that short e2e test |
+| `mini s` | Duration of the perf e2e test (`E2E_MODE=perf`) that ran after that batch, in seconds |
+| `result` | Pass/fail of that perf e2e test |
 
 The report SHALL depend only on `bash`; it SHALL NOT require `python3`, `jq`, or any external service.
 
@@ -1505,8 +1524,8 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `E2E_PERF_GATEWAY_COUNT` | `5` | Fleet size for scale-up (the report `count` column). The canary and the functional gateway add two more stacks, so a run provisions `count + 2` gateways. The default suits a local Kind cluster; raise it on an OpenShift cluster with spare capacity |
-| `E2E_PERF_BATCH_SIZE` | `5` | Gateways added per batch. After each batch the harness runs a short e2e test (`E2E_MODE=short`) against the canary (5--10 recommended) |
-| `E2E_PERF_CHECKPOINT` | `1` | Run that short e2e test after each batch (`0` provisions in one pass, no checkpoints) |
+| `E2E_PERF_BATCH_SIZE` | `5` | Gateways added per batch. After each batch the harness runs a perf e2e test (`E2E_MODE=perf`) against the canary (5--10 recommended) |
+| `E2E_PERF_CHECKPOINT` | `1` | Run that perf e2e test after each batch (`0` provisions in one pass, no checkpoints) |
 | `E2E_PERF_STOP_ON_CHECKPOINT_FAILURE` | `1` | Stop scaling and fail on a failing checkpoint (`0` records it and continues) |
 | `E2E_PERF_CONCURRENCY` | `4` | Max concurrent create / provision / delete operations |
 | `E2E_PERF_GATEWAY_PREFIX` | `perf-gw` | Name prefix for the perf gateway fleet (canary is `<prefix>-canary`) |
@@ -1544,9 +1563,9 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | Performance harness reuses the e2e driver interface | The performance test needs the same cross-infrastructure portability as the e2e suite: run on Kind locally, run on any OpenShift cluster for on-demand load tests. Reusing the driver interface means the harness holds no infra-specific code and a new target needs only a new driver file. It also keeps one abstraction to maintain, not two |
 | Performance test runs the e2e suite for functional validation | The user requirement is "spin up a ton of gateways, then confirm things still function." The e2e suite already validates the full functional path (provisioning, connectivity, sandbox lifecycle, RBAC, GC) and exits non-zero on any failure. Running it while the perf fleet is up proves the platform still works correctly under load, without duplicating functional assertions in the perf harness |
 | Bounded concurrency for scale-up and teardown | Creating hundreds of gateways at once would flood the API server and control plane and would not model a realistic ramp. `E2E_PERF_CONCURRENCY` caps in-flight operations so the client applies steady, controllable load and the harness itself does not become the bottleneck |
-| Batched scale-up with per-batch checkpoints | Provisioning all N gateways and validating once at the end hides the scale at which a problem first appears. Adding gateways in batches of `E2E_PERF_BATCH_SIZE` (5--10) and running the e2e suite in short mode after each batch produces a time series (count vs latency, count vs pass/fail), so a regression is pinned to a scale and the results file is written incrementally. Optional early-stop reports the breaking scale instead of pushing to a guaranteed failure. The suite runs once in long mode at the end as the comprehensive gate |
-| Short vs long mode by step tag, not area selector | The checkpoint needs to touch every area but stay fast. Tagging each step `short` or `long` (rather than selecting whole areas by name) lets short mode run a slice of each portion of the test -- the essential path of every area -- while long mode runs everything. Both modes execute the same assertion code in `e2e-openshell.sh`, so there is one copy of each check and the incremental signal is trustworthy. `E2E_MODE` defaults to `long`, so CI and the final run are unchanged |
-| Dedicated canary gateway for the mini test | Short mode needs a stable target it can reuse across batches without re-paying gateway provisioning and per-gateway OIDC role setup each time. A single canary gateway, provisioned once with its role granted once, is passed via `E2E_GATEWAY_NAME`; short mode does not delete a supplied gateway, so the canary survives repeated runs. The canary is kept separate from the counted fleet so its own lifecycle is unaffected by fleet churn and it is not double-counted in scale metrics |
+| Batched scale-up with per-batch checkpoints | Provisioning all N gateways and validating once at the end hides the scale at which a problem first appears. Adding gateways in batches of `E2E_PERF_BATCH_SIZE` (5--10) and running the e2e suite in perf mode after each batch produces a time series (count vs latency, count vs pass/fail), so a regression is pinned to a scale and the results file is written incrementally. Optional early-stop reports the breaking scale instead of pushing to a guaranteed failure. The suite runs once in long mode at the end as the comprehensive gate |
+| Short vs long mode by step tag, not area selector | The quick checks need to touch every area but stay fast. Tagging each step `short` or `long` (rather than selecting whole areas by name) lets the quick modes (`short` and `perf`) run a slice of each portion of the test -- the essential path of every area -- while long mode runs everything. Both modes execute the same assertion code in `e2e-openshell.sh`, so there is one copy of each check and the incremental signal is trustworthy. `E2E_MODE` defaults to `long`, so CI and the final run are unchanged |
+| Dedicated canary gateway for the mini test | The perf checkpoint needs a stable target it can reuse across batches without re-paying gateway provisioning and per-gateway OIDC role setup each time. A single canary gateway, provisioned once with its role granted once, is passed via `E2E_GATEWAY_NAME`; perf mode does not delete a supplied gateway, so the canary survives repeated runs. The canary is kept separate from the counted fleet so its own lifecycle is unaffected by fleet churn and it is not double-counted in scale metrics |
 | Deterministic gateway names + reuse-or-create | Naming perf gateways `<prefix>-<index>` makes a run idempotent and makes cleanup a simple prefix match. This follows the repo-wide "reconcile, don't create-or-skip" convention and lets a developer re-run the test without accumulating duplicate fleets |
 | SLO gating is optional and off by default | A plain run should just report metrics so a developer can explore capacity. Gating (`E2E_PERF_MIN_SUCCESS_RATE`, `E2E_PERF_MAX_PROVISION_P99`) is opt-in so a manual or on-demand run can fail on a regression without forcing thresholds on every local run |
 | Performance test is not wired into PR CI | A large-scale provisioning run is too heavy and too slow for the per-PR e2e gate (20-minute ceiling). The performance test is run on demand locally, against any OpenShift cluster, or on a schedule. Keeping it out of the PR path avoids flaky, resource-bound CI failures |

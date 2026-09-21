@@ -228,32 +228,58 @@ e2e_dump_namespace_gc_logs() {
     | while IFS= read -r line; do dim "    $line"; done || true
 }
 
-# --- E2E_MODE (short | long) ---
+# --- E2E_MODE (short | perf | long) ---
 #
-# Each suite step declares a minimum mode. short-tagged steps run in both
-# modes; long-tagged steps run only in long mode. Default is long so existing
+# Each suite step declares a minimum mode. short-tagged steps run in every
+# mode; long-tagged steps run only in long mode. Default is long so existing
 # CI invocations are unchanged. See e2e-testing.spec.md "E2E Short and Long Modes".
+#
+# short is the canonical quick check: the core gateway + sandbox lifecycle (no
+# shared-env mutation, no broad-RBAC or infra sweeps). It owns the gateway it
+# creates and tears it fully down (see the E2E_MODE != "perf" cleanup/GC paths in
+# e2e-openshell.sh), and runs as a single principal (see e2e_multi_identity). It
+# is a self-contained, non-destructive full-lifecycle check -- create -> run ->
+# interact -> delete, leaving nothing behind -- safe to run repeatedly against a
+# live/shared environment (post-rollout promotion gate, synthetic monitoring,
+# post-deploy sanity check).
+#
+# perf runs the same step subset as short but is tailored to the performance
+# harness: it reuses a long-lived "canary" gateway instead of owning one (it does
+# not create or tear down the gateway) and exercises the multi-identity RBAC path.
+# Use perf only from e2e-performance.sh.
 
 e2e_validate_mode() {
   case "${E2E_MODE}" in
-    short|long) ;;
+    short|perf|long) ;;
     *)
-      red "ERROR: E2E_MODE must be 'short' or 'long' (got '${E2E_MODE}')"
+      red "ERROR: E2E_MODE must be 'short', 'perf', or 'long' (got '${E2E_MODE}')"
       exit 1
       ;;
   esac
 }
 
 # e2e_step <short|long> - return 0 if the current mode should run this step.
+# perf gates identically to short: it runs short-tagged steps and skips
+# long-tagged ones.
 e2e_step() {
   local min_mode="${1:?mode tag required}"
   case "${E2E_MODE}" in
     long) return 0 ;;
-    short)
+    short|perf)
       [[ "${min_mode}" == "short" ]] && return 0
       return 1
       ;;
   esac
+}
+
+# e2e_multi_identity - return 0 when the run may act as more than one principal
+# (impersonating other users via token-exchange, e.g. the developer/platform
+# RBAC matrix). short runs as a single identity and is not granted impersonation,
+# so it returns non-zero; perf and long return 0. Steps that mint a token for a
+# *different* user than the run's own identity SHALL gate on this so the short
+# check stays minimal-privilege and safe against a live environment.
+e2e_multi_identity() {
+  [[ "${E2E_MODE}" != "short" ]]
 }
 
 e2e_utc_now() {
