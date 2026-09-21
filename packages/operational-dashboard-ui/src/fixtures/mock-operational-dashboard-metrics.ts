@@ -95,10 +95,13 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
         value: "97",
       }),
       Object.freeze({
+        expiringSandboxes: 12,
         hourlyTrend: Object.freeze({
           points: Object.freeze(buildHourlyTrendPoints(180, 1)),
         }),
         id: "provisioned-sandboxes",
+        idleSandboxes: 7,
+        orphanedSandboxes: 3,
         trend: Object.freeze({
           points: Object.freeze(buildSevenDayTrendPoints(190, 3)),
         }),
@@ -214,3 +217,58 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
     ]),
     lastSuccessfulRefresh: new Date("2026-08-25T10:55:00.000Z"),
   });
+
+function replaceProvisionedSandboxes(
+  metrics: OperationalDashboardMetrics,
+  sandboxes: OperationalDashboardMetrics["metrics"][number],
+): OperationalDashboardMetrics {
+  return Object.freeze({
+    ...metrics,
+    metrics: Object.freeze(
+      metrics.metrics.map((metric) =>
+        metric.id === "provisioned-sandboxes" ? sandboxes : metric,
+      ),
+    ),
+  });
+}
+
+/**
+ * SSA-11 Storybook / local-dev state: all attention counts present and zero
+ * (Attention required section hidden; Active and trends still shown).
+ */
+export const mockOperationalDashboardMetricsZeroAttention: OperationalDashboardMetrics =
+  replaceProvisionedSandboxes(
+    mockOperationalDashboardMetrics,
+    Object.freeze({
+      expiringSandboxes: 0,
+      hourlyTrend: Object.freeze({
+        points: Object.freeze(buildHourlyTrendPoints(180, 1)),
+      }),
+      id: "provisioned-sandboxes",
+      idleSandboxes: 0,
+      orphanedSandboxes: 0,
+      trend: Object.freeze({
+        points: Object.freeze(buildSevenDayTrendPoints(190, 3)),
+      }),
+      value: "214",
+    }),
+  );
+
+/**
+ * SSA-11 Storybook / local-dev state: Active present without attention fields
+ * (Attention required shows the unavailable state).
+ */
+export const mockOperationalDashboardMetricsAttentionUnavailable: OperationalDashboardMetrics =
+  replaceProvisionedSandboxes(
+    mockOperationalDashboardMetrics,
+    Object.freeze({
+      hourlyTrend: Object.freeze({
+        points: Object.freeze(buildHourlyTrendPoints(180, 1)),
+      }),
+      id: "provisioned-sandboxes",
+      trend: Object.freeze({
+        points: Object.freeze(buildSevenDayTrendPoints(190, 3)),
+      }),
+      value: "214",
+    }),
+  );

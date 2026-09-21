@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
@@ -48,15 +49,18 @@ func Enabled() bool { return enabled }
 func MetricsEnabled() bool { return metricsEnabled }
 
 // Init initializes the OTel SDK when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+// namespace is the control-plane instance namespace (HYPERSHELL_NAMESPACE); when
+// non-empty it is recorded as k8s.namespace.name so BFF PromQL can scope OTLP
+// series the same way as provision-time metrics.
 // It returns a shutdown function that flushes providers, bounded by a timeout.
 // When telemetry is disabled or initialization fails, the returned function
 // is a no-op and Enabled() returns false.
-func Init(ctx context.Context) (shutdown func(context.Context) error, err error) {
+func Init(ctx context.Context, namespace string) (shutdown func(context.Context) error, err error) {
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
 		return func(context.Context) error { return nil }, nil
 	}
 
-	shutdown, err = setup(ctx)
+	shutdown, err = setup(ctx, namespace)
 	if err != nil {
 		return func(context.Context) error { return nil }, fmt.Errorf("otel init: %w", err)
 	}
@@ -83,15 +87,17 @@ func Shutdown(shutdown func(context.Context) error) {
 	}
 }
 
-func setup(ctx context.Context) (func(context.Context) error, error) {
+func setup(ctx context.Context, namespace string) (func(context.Context) error, error) {
 	serviceName := os.Getenv("OTEL_SERVICE_NAME")
 	if serviceName == "" {
 		serviceName = defaultServiceNm
 	}
 
-	res, err := resource.New(ctx,
-		resource.WithAttributes(semconv.ServiceName(serviceName)),
-	)
+	attrs := []attribute.KeyValue{semconv.ServiceName(serviceName)}
+	if namespace != "" {
+		attrs = append(attrs, semconv.K8SNamespaceName(namespace))
+	}
+	res, err := resource.New(ctx, resource.WithAttributes(attrs...))
 	if err != nil {
 		return nil, fmt.Errorf("creating telemetry resource: %w", err)
 	}

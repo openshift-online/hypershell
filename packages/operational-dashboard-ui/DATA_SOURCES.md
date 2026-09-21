@@ -54,6 +54,7 @@ multiple metrics from the same payload.
 | Widget type                 | Metric ID               | Notes                                                                                                                           |
 | --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `gateway-status`            | `provisioned-gateways`  | Fleet-wide phase counts from `hypershell_gateways_total`. Display status via `gatewayPhaseCountsToDisplayStatusCounts`.         |
+| `sandbox-status`            | `provisioned-sandboxes` | Active total plus optional attention labels and Active trends. Spec: `platform/gateway-sandbox-attention-status.spec.md`.       |
 | `gateway-releases`          | `gateway-releases`      | Per-release counts from paginated gateway and gateway-release list APIs. Spec: `platform/gateway-release-distribution.spec.md`. |
 | `registered-users`          | `registered-users`      | See [Registered users](#registered-users) below.                                                                                |
 | `provision-time`            | `provision-time`        | See [Provision time](#provision-time) below.                                                                                    |
@@ -68,8 +69,38 @@ multiple metrics from the same payload.
 | `usage-summary`             | several                 | Gateways (`provisioned-gateways`), sandboxes (`provisioned-sandboxes`), users (`registered-users`).                             |
 | `system-summary`            | several                 | Provision time and reliability metrics from `gateway-metrics` source.                                                           |
 
-`provisioned-sandboxes` has no standalone widget; it appears only in the usage
-summary sandboxes row (`hypershell_gateways_active_sandboxes_total` sum).
+### Sandbox status / Active sandboxes
+
+Source: BFF `GET /api/metrics/gateway-sandboxes`. Specs:
+`platform/openshell-gateway-sandbox-count.spec.md`,
+`platform/gateway-sandbox-active-trends.spec.md`,
+`platform/gateway-sandbox-attention-status.spec.md`.
+
+| Field / metric id field | Prometheus series / BFF field                                                           | Meaning                                                               |
+| ----------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `value`                 | `hypershell_gateways_active_sandboxes_total` / `active_sandboxes`                       | Fleet Active total (sum of live Gateway `active_sandbox_count`)       |
+| `orphanedSandboxes`     | `sum(max by (hypershell_cluster_id) (gateway_sandbox_orphaned))` / `orphaned_sandboxes` | Active sandboxes in namespaces with no live Gateway (optional)        |
+| `expiringSandboxes`     | `sum(max by (hypershell_cluster_id) (gateway_sandbox_expiring))` / `expiring_sandboxes` | Active sandboxes with `shutdownTime` overdue or within 24h (optional) |
+| `idleSandboxes`         | `sum(max by (hypershell_cluster_id) (gateway_sandbox_idle))` / `idle_sandboxes`         | Idle active sandboxes with a live Gateway (optional)                  |
+| `hourlyTrend`           | `hourly_active_sandboxes`                                                               | Last 24 hours Active sparkline (optional)                             |
+| `trend`                 | `daily_active_sandboxes`                                                                | Last 7 days Active sparkline (optional)                               |
+
+Attention fields are optional within the `gateway-metrics` source (SSA-07 /
+SSA-10). When Active succeeds but an attention gauge fails, the BFF omits only
+that field; the adapter does not invent zeros; the Sandbox status widget shows
+Attention required as unavailable when all three are absent.
+
+Attention gauges are control-plane OTLP metrics
+(`gateway.sandbox.orphaned|expiring|idle` → Prometheus
+`gateway_sandbox_*` with `hypershell_cluster_id`). The BFF fleet total is
+`sum(max by (hypershell_cluster_id) (...))` so control-plane replicas for the
+same managed cluster do not double-count; when `PROMETHEUS_NAMESPACE` is set the
+selector uses `k8s_namespace_name` (not scrape `namespace`). Prometheus
+staleness drops silent instances so they do not inflate the fleet sum. Hard
+derive failures export zeros so sticky last-success values cannot linger while
+the process stays up. Active remains an API-server scrape gauge.
+
+`provisioned-sandboxes` also feeds the usage summary Sandboxes row.
 
 ### Registered users
 

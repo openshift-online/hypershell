@@ -29,10 +29,11 @@ export const REGISTERED_USERS_WIDGET_HEIGHT = ADOPTION_TOP_ROW_WIDGET_HEIGHT;
 /** Gateway status on platform adoption row 1, aligned with Users. */
 export const ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT =
   ADOPTION_TOP_ROW_WIDGET_HEIGHT;
-/** Sandbox status with hourly and daily sparklines (row 2, columns 1-2). */
-export const ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT = 7;
-/** Gateway releases beside sandbox on row 2 (column 3). */
-export const ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT = 7;
+/** Sandbox status with attention labels plus hourly and daily sparklines. */
+export const ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT = 9;
+/** Gateway releases beside sandbox on row 2 (column 3); match sandbox height. */
+export const ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT =
+  ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT;
 const ADOPTION_SECTION_START_Y = TITLE_WIDGET_HEIGHT;
 /** Grid row where sandbox status and gateway releases begin (below Users). */
 export const ADOPTION_ROW_2_Y =

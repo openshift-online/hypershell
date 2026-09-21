@@ -87,6 +87,9 @@ interface GatewayProvisionOutcomesResponse {
 
 interface GatewaySandboxesResponse {
   active_sandboxes: number;
+  orphaned_sandboxes?: number;
+  expiring_sandboxes?: number;
+  idle_sandboxes?: number;
   daily_active_sandboxes?: { count: number; date: string }[];
   hourly_active_sandboxes?: { count: number; hour: string }[];
 }
@@ -440,6 +443,15 @@ async function fetchGatewaySandboxesMetric(
   return {
     id: "provisioned-sandboxes",
     value: String(body.active_sandboxes),
+    ...(body.orphaned_sandboxes === undefined
+      ? {}
+      : { orphanedSandboxes: body.orphaned_sandboxes }),
+    ...(body.expiring_sandboxes === undefined
+      ? {}
+      : { expiringSandboxes: body.expiring_sandboxes }),
+    ...(body.idle_sandboxes === undefined
+      ? {}
+      : { idleSandboxes: body.idle_sandboxes }),
     ...(hourlyTrend ? { hourlyTrend } : {}),
     ...(trend ? { trend } : {}),
   };

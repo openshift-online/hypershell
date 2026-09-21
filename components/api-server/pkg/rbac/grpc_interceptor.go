@@ -141,10 +141,9 @@ func isGRPCAuthorized(fullMethod string, bindings []BindingSummary) bool {
 // mutation that ordinary role bindings must never reach. AdjustActiveSandboxCount
 // and SetActiveSandboxCount write active_sandbox_count. SetGatewayVersion writes
 // the observed runtime version. Only the control plane may write these fields.
-// Without this guard,
-// isGRPCAuthorized would grant them to any gateway:creator / gateway:owner in any
-// namespace. The restriction applies only when a service-account allowlist is
-// configured (see the interceptors).
+// Without this guard, isGRPCAuthorized would grant them to any gateway:creator /
+// gateway:owner in any namespace. The restriction applies only when a
+// service-account allowlist is configured (see the interceptors).
 func isServiceAccountOnlyMethod(fullMethod string) bool {
 	parts := strings.Split(fullMethod, "/")
 	if len(parts) < 3 {

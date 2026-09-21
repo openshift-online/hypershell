@@ -468,6 +468,43 @@ export const messages = defineMessages({
     description:
       "Label for restoring the operational dashboard default layout.",
   },
+  sandboxActiveSandboxesPerDay: {
+    id: "app.dashboard.sandboxStatus.activeSandboxesPerDay",
+    defaultMessage: "Active sandboxes per day",
+    description: "Title above the daily active-sandboxes sparkline.",
+  },
+  sandboxActiveSandboxesPerHour: {
+    id: "app.dashboard.sandboxStatus.activeSandboxesPerHour",
+    defaultMessage: "Active sandboxes per hour",
+    description: "Title above the hourly active-sandboxes sparkline.",
+  },
+  sandboxAttentionExpiringSoon: {
+    id: "app.dashboard.sandboxStatus.expiringSoon",
+    defaultMessage: "{count} Expiring soon",
+    description: "Attention label for sandboxes expiring within 24 hours.",
+  },
+  sandboxAttentionIdle: {
+    id: "app.dashboard.sandboxStatus.idle",
+    defaultMessage: "{count} Idle",
+    description: "Attention label for idle sandboxes with a live Gateway.",
+  },
+  sandboxAttentionOrphaned: {
+    id: "app.dashboard.sandboxStatus.orphaned",
+    defaultMessage: "{count} Orphaned",
+    description: "Attention label for sandboxes whose owning Gateway is gone.",
+  },
+  sandboxAttentionRequired: {
+    id: "app.dashboard.sandboxStatus.attentionRequired",
+    defaultMessage: "Attention required",
+    description:
+      "Heading for the sandbox status attention labels (expiring, orphaned, idle).",
+  },
+  sandboxAttentionUnavailable: {
+    id: "app.dashboard.sandboxStatus.attentionUnavailable",
+    defaultMessage: "Attention counts unavailable",
+    description:
+      "Shown when Active loads but orphaned/expiring/idle attention fields are absent.",
+  },
   sandboxStatusActive: {
     id: "app.dashboard.sandboxStatus.active",
     defaultMessage: "Active",

@@ -291,13 +291,41 @@
     "defaultMessage": "Active",
     "description": "Legend label for active sandboxes when no status breakdown exists."
   },
+  "app.dashboard.sandboxStatus.activeSandboxesPerDay": {
+    "defaultMessage": "Active sandboxes per day",
+    "description": "Title above the daily active-sandboxes sparkline."
+  },
+  "app.dashboard.sandboxStatus.activeSandboxesPerHour": {
+    "defaultMessage": "Active sandboxes per hour",
+    "description": "Title above the hourly active-sandboxes sparkline."
+  },
   "app.dashboard.sandboxStatus.ariaDesc": {
     "defaultMessage": "Active sandboxes across the gateway fleet.",
     "description": "Accessible description for the sandbox status donut chart."
   },
+  "app.dashboard.sandboxStatus.attentionRequired": {
+    "defaultMessage": "Attention required",
+    "description": "Heading for the sandbox status attention labels (expiring, orphaned, idle)."
+  },
+  "app.dashboard.sandboxStatus.attentionUnavailable": {
+    "defaultMessage": "Attention counts unavailable",
+    "description": "Shown when Active loads but orphaned/expiring/idle attention fields are absent."
+  },
   "app.dashboard.sandboxStatus.chartTitle": {
     "defaultMessage": "Sandbox status",
     "description": "Accessible title for the sandbox status donut chart."
+  },
+  "app.dashboard.sandboxStatus.expiringSoon": {
+    "defaultMessage": "{count} Expiring soon",
+    "description": "Attention label for sandboxes expiring within 24 hours."
+  },
+  "app.dashboard.sandboxStatus.idle": {
+    "defaultMessage": "{count} Idle",
+    "description": "Attention label for idle sandboxes with a live Gateway."
+  },
+  "app.dashboard.sandboxStatus.orphaned": {
+    "defaultMessage": "{count} Orphaned",
+    "description": "Attention label for sandboxes whose owning Gateway is gone."
   },
   "app.dashboard.sectionTitle.hubCluster": {
     "defaultMessage": "Hub cluster",

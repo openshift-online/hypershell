@@ -1329,6 +1329,66 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  it("maps sandbox attention counts onto provisioned-sandboxes", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateway-sandboxes") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              active_sandboxes: 214,
+              orphaned_sandboxes: 3,
+              expiring_sandboxes: 12,
+              idle_sandboxes: 7,
+            }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const sandboxMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-sandboxes",
+    );
+
+    expect(sandboxMetric).toEqual({
+      expiringSandboxes: 12,
+      id: "provisioned-sandboxes",
+      idleSandboxes: 7,
+      orphanedSandboxes: 3,
+      value: "214",
+    });
+  });
+
+  it("omits absent sandbox attention fields without inventing zeros", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateway-sandboxes") {
+        return Promise.resolve({
+          json: () => Promise.resolve({ active_sandboxes: 214 }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const sandboxMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-sandboxes",
+    );
+
+    expect(sandboxMetric).toEqual({
+      id: "provisioned-sandboxes",
+      value: "214",
+    });
+    expect(sandboxMetric).not.toHaveProperty("orphanedSandboxes");
+    expect(sandboxMetric).not.toHaveProperty("expiringSandboxes");
+    expect(sandboxMetric).not.toHaveProperty("idleSandboxes");
+  });
+
   it("maps cluster daily_used into memory, cpu, and pods trends", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
     const baseFetch = getDashboardFetchMock();

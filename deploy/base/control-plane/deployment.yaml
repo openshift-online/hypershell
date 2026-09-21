@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: hypershell-control-plane
 spec:
+  # Keep replicas at 1. Attention gauges are cluster-local; the BFF dedupes
+  # same-cluster replica series via max by (hypershell_cluster_id), but a
+  # single replica remains the supported topology for the control plane.
   replicas: 1
   selector:
     matchLabels:

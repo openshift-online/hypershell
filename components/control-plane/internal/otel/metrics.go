@@ -16,6 +16,9 @@ var (
 	reconcileQueueWaitDuration metric.Float64Histogram
 	gatewayProvisionDuration   metric.Float64Histogram
 	gatewayProvisionOutcomes   metric.Int64Counter
+	gatewaySandboxOrphaned     metric.Int64Gauge
+	gatewaySandboxExpiring     metric.Int64Gauge
+	gatewaySandboxIdle         metric.Int64Gauge
 	reconcileErrors            metric.Int64Counter
 	watchReconnects            metric.Int64Counter
 )
@@ -66,6 +69,33 @@ func registerMetrics() error {
 		"gateway.provision.outcomes",
 		metric.WithUnit("{outcome}"),
 		metric.WithDescription("Count of terminal gateway provision outcomes (success or failure)"),
+	)
+	if err != nil {
+		return err
+	}
+
+	gatewaySandboxOrphaned, err = meter.Int64Gauge(
+		"gateway.sandbox.orphaned",
+		metric.WithUnit("{sandbox}"),
+		metric.WithDescription("Cluster-local orphaned active sandbox count"),
+	)
+	if err != nil {
+		return err
+	}
+
+	gatewaySandboxExpiring, err = meter.Int64Gauge(
+		"gateway.sandbox.expiring",
+		metric.WithUnit("{sandbox}"),
+		metric.WithDescription("Cluster-local expiring-soon active sandbox count"),
+	)
+	if err != nil {
+		return err
+	}
+
+	gatewaySandboxIdle, err = meter.Int64Gauge(
+		"gateway.sandbox.idle",
+		metric.WithUnit("{sandbox}"),
+		metric.WithDescription("Cluster-local idle active sandbox count"),
 	)
 	if err != nil {
 		return err
@@ -149,6 +179,38 @@ func RecordGatewayProvisionOutcome(ctx context.Context, outcome string) {
 	gatewayProvisionOutcomes.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("outcome", outcome),
 	))
+}
+
+// DefaultAttentionClusterID is the hypershell.cluster_id attribute value when
+// the control plane runs in single-cluster mode (empty ClusterID).
+const DefaultAttentionClusterID = "default"
+
+// AttentionClusterID returns a low-cardinality cluster key for attention gauges.
+// Empty clusterID maps to DefaultAttentionClusterID so hub and spoke series share
+// a stable label for PromQL max-by-cluster dedupe of control-plane replicas.
+func AttentionClusterID(clusterID string) string {
+	if clusterID == "" {
+		return DefaultAttentionClusterID
+	}
+	return clusterID
+}
+
+// RecordSandboxAttentionCounts updates the cluster-local attention gauges from
+// the most recent sandbox attention reconcile tick (SSA-06). clusterID labels
+// the series so fleet PromQL can max-by-cluster before summing (replica dedupe).
+func RecordSandboxAttentionCounts(ctx context.Context, clusterID string, orphaned, expiring, idle int) {
+	attrs := metric.WithAttributes(
+		attribute.String("hypershell.cluster_id", AttentionClusterID(clusterID)),
+	)
+	if gatewaySandboxOrphaned != nil {
+		gatewaySandboxOrphaned.Record(ctx, int64(max(0, orphaned)), attrs)
+	}
+	if gatewaySandboxExpiring != nil {
+		gatewaySandboxExpiring.Record(ctx, int64(max(0, expiring)), attrs)
+	}
+	if gatewaySandboxIdle != nil {
+		gatewaySandboxIdle.Record(ctx, int64(max(0, idle)), attrs)
+	}
 }
 
 // RecordReconcileError increments the reconcile error counter.

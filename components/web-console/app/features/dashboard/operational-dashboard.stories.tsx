@@ -7,7 +7,11 @@ import {
   type DashboardOperations,
   type DashboardUiNavigation,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
-import { mockOperationalDashboardMetrics } from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
+import {
+  mockOperationalDashboardMetrics,
+  mockOperationalDashboardMetricsAttentionUnavailable,
+  mockOperationalDashboardMetricsZeroAttention,
+} from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { expect, userEvent, within } from "storybook/test";
@@ -152,6 +156,33 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const MockedMetrics: Story = {};
+
+export const SandboxAttentionZeroCounts: Story = {
+  render: () => (
+    <DashboardPreview metrics={mockOperationalDashboardMetricsZeroAttention} />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("Sandbox status");
+    await expect(canvas.queryByText("Attention required")).toBeNull();
+    await expect(canvas.queryByText(/Orphaned/)).toBeNull();
+  },
+};
+
+export const SandboxAttentionUnavailable: Story = {
+  render: () => (
+    <DashboardPreview
+      metrics={mockOperationalDashboardMetricsAttentionUnavailable}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("Attention counts unavailable");
+    await expect(canvas.getByText("Attention required")).toBeVisible();
+  },
+};
 
 export const InventorySummary: Story = {
   play: async ({ canvasElement }) => {

@@ -117,7 +117,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	otelShutdown, otelErr := cpotel.Init(ctx)
+	otelShutdown, otelErr := cpotel.Init(ctx, cfg.Namespace)
 	if otelErr != nil {
 		log.Printf("WARN OpenTelemetry initialization failed, continuing without telemetry: %v", otelErr)
 	}
@@ -402,6 +402,16 @@ func main() {
 		sandboxCountReconciler := reconciler.NewSandboxCountReconciler(clientset, conn, 0, cfg.ClusterID)
 		supervise("sandbox count reconciler", sandboxCountReconciler.Run)
 		log.Printf("INFO sandbox count reconciler launched")
+
+		if dynamicClient != nil {
+			sandboxAttentionReconciler := reconciler.NewSandboxAttentionReconciler(
+				clientset, dynamicClient, conn, 0, cfg.ClusterID, cfg.Namespace,
+			)
+			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
+			log.Printf("INFO sandbox attention reconciler launched")
+		} else {
+			log.Printf("WARN no dynamic client available, sandbox attention reconciliation disabled")
+		}
 	} else {
 		log.Printf("WARN no kubernetes client available, sandbox count reconciliation disabled")
 	}

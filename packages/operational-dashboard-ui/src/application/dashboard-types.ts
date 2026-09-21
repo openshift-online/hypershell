@@ -45,6 +45,9 @@ export interface OperationalMetric {
   inventoryProviders?: Record<string, number>;
   inventoryRegions?: Record<string, number>;
   inventoryStatus?: Record<string, number>;
+  orphanedSandboxes?: number;
+  expiringSandboxes?: number;
+  idleSandboxes?: number;
   podPhases?: OperationalMetricPodPhases;
   provisionDuration?: OperationalMetricProvisionDuration;
   provisionOutcomes?: OperationalMetricProvisionOutcomes;

@@ -45,6 +45,11 @@ import { getGatewayExceptionStatusCounts } from "../dashboard/gateway-exception-
 import { GatewayReleasesChart } from "../dashboard/gateway-releases-chart";
 import { GatewayStatusChart } from "../dashboard/gateway-status-chart";
 import { SandboxStatusChart } from "../dashboard/sandbox-status-chart";
+import {
+  hasSandboxAttentionData,
+  hasSandboxAttentionRequired,
+  SandboxAttentionSection,
+} from "../dashboard/sandbox-attention-section";
 import { ManagedClusterProvidersChart } from "../dashboard/managed-cluster-providers-chart";
 import { ManagedClusterRegionsChart } from "../dashboard/managed-cluster-regions-chart";
 import { NodeStatusChart } from "../dashboard/node-status-chart";
@@ -318,35 +323,94 @@ export function SandboxStatusCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
   const intl = useIntl();
-  const sparklineTitle = intl.formatMessage(messages.widgetSandboxes);
+  const sparklineTooltipMetric = intl.formatMessage(messages.widgetSandboxes);
+  const hourlySparklineTitle = intl.formatMessage(
+    messages.sandboxActiveSandboxesPerHour,
+  );
+  const dailySparklineTitle = intl.formatMessage(
+    messages.sandboxActiveSandboxesPerDay,
+  );
+  const hourlyTrend =
+    metric.hourlyTrend !== undefined && metric.hourlyTrend.points.length >= 2
+      ? metric.hourlyTrend
+      : undefined;
+  const dailyTrend =
+    metric.trend !== undefined && metric.trend.points.length >= 2
+      ? metric.trend
+      : undefined;
+  const hasSparklines = hourlyTrend !== undefined || dailyTrend !== undefined;
+  const showAttention =
+    hasSandboxAttentionRequired(metric) || !hasSandboxAttentionData(metric);
 
   return (
     <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
-      <Content className="hypershell-dashboard-status-donut-card">
+      <div className="hypershell-dashboard-status-donut-card">
         <Stack hasGutter>
           <StackItem>
-            <SandboxStatusChart metric={metric} />
+            <Content>
+              <SandboxStatusChart metric={metric} />
+            </Content>
           </StackItem>
-          {metric.hourlyTrend && metric.hourlyTrend.points.length >= 2 ? (
+          {showAttention ? (
             <StackItem>
-              <TrendSparklineChart
-                caption={intl.formatMessage(messages.trendLast24Hours)}
-                trend={metric.hourlyTrend}
-                title={sparklineTitle}
-              />
+              <SandboxAttentionSection metric={metric} />
             </StackItem>
           ) : null}
-          {metric.trend && metric.trend.points.length >= 2 ? (
+          {hasSparklines ? (
             <StackItem>
-              <TrendSparklineChart
-                caption={intl.formatMessage(messages.trendLast7Days)}
-                trend={metric.trend}
-                title={sparklineTitle}
-              />
+              <Stack
+                hasGutter
+                className="hypershell-dashboard-sandbox-status-card__sparklines"
+              >
+                {hourlyTrend !== undefined ? (
+                  <StackItem>
+                    <Stack
+                      hasGutter
+                      className="hypershell-dashboard-sandbox-status-card__sparkline"
+                    >
+                      <StackItem>
+                        <Title headingLevel="h4" size="md">
+                          {hourlySparklineTitle}
+                        </Title>
+                      </StackItem>
+                      <StackItem>
+                        <TrendSparklineChart
+                          caption={intl.formatMessage(
+                            messages.trendLast24Hours,
+                          )}
+                          trend={hourlyTrend}
+                          title={sparklineTooltipMetric}
+                        />
+                      </StackItem>
+                    </Stack>
+                  </StackItem>
+                ) : null}
+                {dailyTrend !== undefined ? (
+                  <StackItem>
+                    <Stack
+                      hasGutter
+                      className="hypershell-dashboard-sandbox-status-card__sparkline"
+                    >
+                      <StackItem>
+                        <Title headingLevel="h4" size="md">
+                          {dailySparklineTitle}
+                        </Title>
+                      </StackItem>
+                      <StackItem>
+                        <TrendSparklineChart
+                          caption={intl.formatMessage(messages.trendLast7Days)}
+                          trend={dailyTrend}
+                          title={sparklineTooltipMetric}
+                        />
+                      </StackItem>
+                    </Stack>
+                  </StackItem>
+                ) : null}
+              </Stack>
             </StackItem>
           ) : null}
         </Stack>
-      </Content>
+      </div>
     </WidgetContent>
   );
 }

@@ -20,6 +20,9 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousReconcileQueueWaitDuration := reconcileQueueWaitDuration
 	previousGatewayProvisionDuration := gatewayProvisionDuration
 	previousGatewayProvisionOutcomes := gatewayProvisionOutcomes
+	previousGatewaySandboxOrphaned := gatewaySandboxOrphaned
+	previousGatewaySandboxExpiring := gatewaySandboxExpiring
+	previousGatewaySandboxIdle := gatewaySandboxIdle
 	previousReconcileErrors := reconcileErrors
 	previousWatchReconnects := watchReconnects
 
@@ -31,6 +34,9 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	reconcileQueueWaitDuration = nil
 	gatewayProvisionDuration = nil
 	gatewayProvisionOutcomes = nil
+	gatewaySandboxOrphaned = nil
+	gatewaySandboxExpiring = nil
+	gatewaySandboxIdle = nil
 	reconcileErrors = nil
 	watchReconnects = nil
 	t.Cleanup(func() {
@@ -40,6 +46,9 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		reconcileQueueWaitDuration = previousReconcileQueueWaitDuration
 		gatewayProvisionDuration = previousGatewayProvisionDuration
 		gatewayProvisionOutcomes = previousGatewayProvisionOutcomes
+		gatewaySandboxOrphaned = previousGatewaySandboxOrphaned
+		gatewaySandboxExpiring = previousGatewaySandboxExpiring
+		gatewaySandboxIdle = previousGatewaySandboxIdle
 		reconcileErrors = previousReconcileErrors
 		watchReconnects = previousWatchReconnects
 		_ = provider.Shutdown(context.Background())
@@ -147,6 +156,81 @@ func TestRecordGatewayProvisionOutcome(t *testing.T) {
 	}
 	if successCount != 1 || failureCount != 1 {
 		t.Fatalf("outcome counts = success %d, failure %d; want 1 each", successCount, failureCount)
+	}
+}
+
+func TestRecordSandboxAttentionCounts(t *testing.T) {
+	reader := testMetricsReader(t)
+
+	RecordSandboxAttentionCounts(context.Background(), "cluster-a", 3, 12, 7)
+
+	assertSandboxAttentionGauges(t, reader, "cluster-a", 3, 12, 7)
+}
+
+func TestRecordSandboxAttentionCountsFloorsNegatives(t *testing.T) {
+	reader := testMetricsReader(t)
+
+	RecordSandboxAttentionCounts(context.Background(), "", -1, -2, -3)
+
+	assertSandboxAttentionGauges(t, reader, DefaultAttentionClusterID, 0, 0, 0)
+}
+
+func TestAttentionClusterID(t *testing.T) {
+	if got := AttentionClusterID(""); got != DefaultAttentionClusterID {
+		t.Fatalf("AttentionClusterID(\"\") = %q, want %q", got, DefaultAttentionClusterID)
+	}
+	if got := AttentionClusterID("spoke-1"); got != "spoke-1" {
+		t.Fatalf("AttentionClusterID(spoke-1) = %q, want spoke-1", got)
+	}
+}
+
+func assertSandboxAttentionGauges(t *testing.T, reader *sdkmetric.ManualReader, clusterID string, orphaned, expiring, idle int64) {
+	t.Helper()
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect() returned an error: %v", err)
+	}
+
+	want := map[string]int64{
+		"gateway.sandbox.orphaned": orphaned,
+		"gateway.sandbox.expiring": expiring,
+		"gateway.sandbox.idle":     idle,
+	}
+	found := map[string]bool{}
+	for _, scope := range collected.ScopeMetrics {
+		for _, gotMetric := range scope.Metrics {
+			wantValue, ok := want[gotMetric.Name]
+			if !ok {
+				continue
+			}
+			found[gotMetric.Name] = true
+			if gotMetric.Unit != "{sandbox}" {
+				t.Fatalf("%s unit = %q, want {sandbox}", gotMetric.Name, gotMetric.Unit)
+			}
+			gauge, ok := gotMetric.Data.(metricdata.Gauge[int64])
+			if !ok {
+				t.Fatalf("%s data type = %T, want int64 gauge", gotMetric.Name, gotMetric.Data)
+			}
+			if len(gauge.DataPoints) != 1 {
+				t.Fatalf("%s data points = %v, want one", gotMetric.Name, gauge.DataPoints)
+			}
+			if gauge.DataPoints[0].Value != wantValue {
+				t.Fatalf("%s value = %d, want %d", gotMetric.Name, gauge.DataPoints[0].Value, wantValue)
+			}
+			attrs := gauge.DataPoints[0].Attributes
+			if attrs.Len() != 1 {
+				t.Fatalf("%s attributes = %v, want hypershell.cluster_id only", gotMetric.Name, attrs)
+			}
+			v, ok := attrs.Value(attribute.Key("hypershell.cluster_id"))
+			if !ok || v.AsString() != clusterID {
+				t.Fatalf("%s hypershell.cluster_id = %v, want %q", gotMetric.Name, v, clusterID)
+			}
+		}
+	}
+	for name := range want {
+		if !found[name] {
+			t.Fatalf("%s metric was not collected", name)
+		}
 	}
 }
 
