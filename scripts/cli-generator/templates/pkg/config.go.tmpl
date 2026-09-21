@@ -8,10 +8,13 @@ import (
 )
 
 type Config struct {
-	AccessToken string `json:"access_token,omitempty"`
-	URL         string `json:"url,omitempty"`
-	Insecure    bool   `json:"insecure,omitempty"`
-	Pager       string `json:"pager,omitempty"`
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	IssuerURL    string `json:"issuer_url,omitempty"`
+	ClientID     string `json:"client_id,omitempty"`
+	URL          string `json:"url,omitempty"`
+	Insecure     bool   `json:"insecure,omitempty"`
+	Pager        string `json:"pager,omitempty"`
 }
 
 func Load() (cfg *Config, err error) {
@@ -68,7 +71,7 @@ func Save(cfg *Config) error {
 }
 
 func Location() (path string, err error) {
-	if envConfig := os.Getenv("{{.Binary | upper}}_CONFIG"); envConfig != "" {
+	if envConfig := os.Getenv("{{.Project | upper}}_CONFIG"); envConfig != "" {
 		return envConfig, nil
 	}
 
@@ -77,7 +80,7 @@ func Location() (path string, err error) {
 		return "", err
 	}
 
-	path = filepath.Join(home, ".{{.Binary}}.json")
+	path = filepath.Join(home, ".{{.Project}}.json")
 
 	_, err = os.Stat(path)
 	if os.IsNotExist(err) {
@@ -85,7 +88,7 @@ func Location() (path string, err error) {
 		if err != nil {
 			return path, err
 		}
-		path = filepath.Join(configDir, "{{.Binary}}", "config.json")
+		path = filepath.Join(configDir, "{{.Project}}", "config.json")
 	}
 
 	return path, nil
@@ -106,6 +109,9 @@ func (c *Config) Armed() (armed bool, reason string) {
 
 func (c *Config) Disarm() {
 	c.AccessToken = ""
+	c.RefreshToken = ""
+	c.IssuerURL = ""
+	c.ClientID = ""
 	c.URL = ""
 	c.Insecure = false
 }

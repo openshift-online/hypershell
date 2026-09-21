@@ -191,7 +191,7 @@ build-controller:
 
 .PHONY: build-cli
 build-cli:
-	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hypershell
+	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hsctl
 
 .PHONY: build-web-console
 build-web-console:
@@ -543,6 +543,7 @@ generate-cli:
 		--project hypershell \
 		--api-prefix /api/hypershell/v1 \
 		--module github.com/openshift-online/hypershell/components/cli
+	gofmt -w components/cli
 
 generate-sdk-go:
 	$(MAKE) -C components/api-server generate-sdk

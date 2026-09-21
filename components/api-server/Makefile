@@ -92,6 +92,7 @@ generate-cli:
 	test -f "$(CLI_GENERATOR_DIR)/go.mod"
 	# Preserve the reviewed apply/delete commands; generated files are replaced
 	# in place and scoped-resource commands are added alongside them.
+	# main.go and go.mod are NOT generated - they are hand-maintained.
 	cd "$(CLI_GENERATOR_DIR)" && GOWORK=off go run . \
 		--spec "$(OPENAPI_SPEC)" \
 		--out "$(CLI_DIR)" \
@@ -99,6 +100,7 @@ generate-cli:
 		--project hypershell \
 		--api-prefix "$(SDK_API_PREFIX)" \
 		--module "$(CLI_MODULE)"
+	gofmt -w "$(CLI_DIR)"
 
 generate-sdk-ts:
 	test -f "$(SDK_GENERATOR_DIR)/go.mod"

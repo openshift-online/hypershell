@@ -50,6 +50,10 @@ func (b *ConnectionBuilder) Build() (result *Connection, err error) {
 		return
 	}
 
+	if err = config.EnsureFreshToken(b.cfg); err != nil {
+		return
+	}
+
 	result = &Connection{
 		baseURL: strings.TrimRight(b.cfg.URL, "/"),
 		token:   b.cfg.AccessToken,
@@ -85,7 +89,7 @@ func (c *Connection) Do(method, path string, query url.Values, body io.Reader) (
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("User-Agent", "{{.Binary}}/"+info.Version)
+	req.Header.Set("User-Agent", "{{.Project}}/"+info.Version)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
