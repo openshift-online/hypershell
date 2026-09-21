@@ -129,7 +129,7 @@ func ReconcileGateway(
 	report(ConditionGatewayDeployed, StatusInProgress, "")
 
 	// Copy trusted CA bundle (for OIDC issuer verification)
-	reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
+	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
 
 	// Reconcile OpenShift SCC binding BEFORE Helm install
 	// (sandbox pods need privileged SCC to schedule)
@@ -142,7 +142,7 @@ func ReconcileGateway(
 	// Deploy gateway via Helm
 	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
 	// BackendTLSPolicy, Route, credential KEK, NetworkPolicy (disabled)
-	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts); err != nil {
+	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA); err != nil {
 		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
 	}

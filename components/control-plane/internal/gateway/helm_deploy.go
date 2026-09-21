@@ -15,6 +15,7 @@ func deployGatewayViaHelm(
 	helmClient *helm.ShellClient,
 	nsConfig NamespaceConfig,
 	opts ReconcileOpts,
+	hasTrustedCA bool,
 ) error {
 	// Build Helm values from gateway configuration
 	valuesBuilder := &helm.ValuesBuilder{
@@ -45,6 +46,7 @@ func deployGatewayViaHelm(
 		IngressBaseDomain:          opts.IngressBaseDomain,
 		ExternalCAIssuerName:       opts.ExternalCAIssuerName,
 		ExternalCAIssuerKind:       opts.ExternalCAIssuerKind,
+		HasTrustedCA:               hasTrustedCA,
 	}
 
 	values, err := valuesBuilder.Build()

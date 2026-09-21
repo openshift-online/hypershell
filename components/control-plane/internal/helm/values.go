@@ -59,6 +59,8 @@ type ValuesBuilder struct {
 	ExternalCAIssuerName string
 	// ExternalCAIssuerKind is the kind of the external CA issuer (ClusterIssuer or Issuer)
 	ExternalCAIssuerKind string
+	// HasTrustedCA indicates whether the gateway-trusted-ca ConfigMap exists
+	HasTrustedCA bool
 }
 
 // Build computes Helm chart values from the Gateway configuration.
@@ -147,8 +149,8 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Database configuration
 	setNestedValue(values, "openshell-gateway-db-credentials", "server", "externalDbSecret")
 
-	// Trusted CA ConfigMap (optional - set when OIDC is configured)
-	if b.Gateway.OIDC.Issuer != "" {
+	// Trusted CA ConfigMap - only set when the ConfigMap was actually copied
+	if b.HasTrustedCA {
 		setNestedValue(values, "gateway-trusted-ca", "server", "oidc", "caConfigMapName")
 	}
 
