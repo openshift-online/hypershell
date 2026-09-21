@@ -988,10 +988,16 @@ the OpenShift e2e driver. A local `make openshift-up` and a CI deploy SHALL NOT
 drift. `make openshift-up` SHALL NOT stamp a pull-request timebox; expiry is a
 CI annotation defined in `ephemeral-pr-environments.spec.md`.
 
-Kind e2e, including the merge-queue gate, stays in `e2e-testing.spec.md`. The
-OpenShift pull-request job SHALL run for origin `pull_request` events that
-trigger Kind e2e, and for changes under `deploy/openshift/` or the OpenShift
-lifecycle scripts. It SHALL NOT run on `merge_group`.
+Kind e2e stays in `e2e-testing.spec.md`. The OpenShift pull-request job (this
+ephemeral-environment lifecycle, with GitHub-brokered OAuth, the access
+comment, and `/pr-extend`/`/pr-destroy`) SHALL run for origin `pull_request`
+events that trigger Kind e2e, and for changes under `deploy/openshift/` or the
+OpenShift lifecycle scripts. It SHALL NOT run on `merge_group`: a
+merge-queue entry has no pull-request number to key the namespace, comment,
+or retainment label on. `e2e-testing.spec.md` separately runs the same
+`make openshift-up`/`make openshift-down` lifecycle for a merge-queue entry,
+without any of those pull-request-only features, as its own CI E2E Workflow
+requirement defines.
 
 #### Scenario: CI reuses the local-dev lifecycle
 

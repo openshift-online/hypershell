@@ -244,6 +244,11 @@ runs:
       if: failure()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
-        name: pr-env-diagnostics-${{ inputs.pr_number || 'main' }}
+        name: >-
+          pr-env-diagnostics-${{
+            inputs.pr_number ||
+            (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
+            'main'
+          }}
         path: e2e-diagnostics/
         retention-days: 7

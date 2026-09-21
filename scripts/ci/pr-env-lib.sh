@@ -20,6 +20,11 @@ PR_ENV_NS_PREFIX="hypershell-ci-pr-"
 # -keycloak exceed 63).
 PR_ENV_MAIN_NS_PREFIX="hypershell-ci-main-"
 PR_ENV_MAIN_SHA_LEN=7
+# Merge queue entries are per-commit for the same reason: a cancelled older
+# entry's teardown must not delete a different entry's namespace, and two
+# entries can be validated concurrently (unlike push to main, which is
+# effectively serial).
+PR_ENV_MERGE_QUEUE_NS_PREFIX="hypershell-ci-mq-"
 PR_ENV_OWNED_LABEL="hypershell.redhat.io/owned"
 PR_ENV_ENVIRONMENT_LABEL="hypershell.redhat.io/environment"
 PR_ENV_MANAGED_LABEL="app.kubernetes.io/managed-by"
@@ -65,17 +70,35 @@ pr_env_namespace() {
   printf '%s%s' "${PR_ENV_NS_PREFIX}" "$1"
 }
 
-# pr_env_main_namespace <commit-sha> -> the push-to-main platform namespace.
-# Uses the first 7 hex characters so two in-flight main runs never share a
-# namespace, while -keycloak stays an RFC 1123 name under 63 characters.
-pr_env_main_namespace() {
+# pr_env_short_sha <commit-sha> -> the lowercase 7-char prefix shared by the
+# main and merge-queue namespace schemes. Long enough that two in-flight
+# runs never collide, short enough that -keycloak stays an RFC 1123 name
+# under 63 characters.
+pr_env_short_sha() {
   local sha
   sha="$(printf '%s' "${1:?commit SHA is required}" | tr '[:upper:]' '[:lower:]')"
   if [[ ${#sha} -lt "${PR_ENV_MAIN_SHA_LEN}" ]]; then
     echo "commit SHA is shorter than ${PR_ENV_MAIN_SHA_LEN} characters" >&2
     return 1
   fi
-  printf '%s%s' "${PR_ENV_MAIN_NS_PREFIX}" "${sha:0:${PR_ENV_MAIN_SHA_LEN}}"
+  printf '%s' "${sha:0:${PR_ENV_MAIN_SHA_LEN}}"
+}
+
+# pr_env_main_namespace <commit-sha> -> the push-to-main platform namespace.
+pr_env_main_namespace() {
+  local short_sha
+  short_sha="$(pr_env_short_sha "$1")" || return 1
+  printf '%s%s' "${PR_ENV_MAIN_NS_PREFIX}" "${short_sha}"
+}
+
+# pr_env_merge_queue_namespace <commit-sha> -> the merge-queue-entry platform
+# namespace. Distinct prefix from pr_env_main_namespace so a merge-queue
+# environment never shares a namespace (or a concurrency group) with a push
+# to main, even if GitHub ever produced the same commit SHA for both.
+pr_env_merge_queue_namespace() {
+  local short_sha
+  short_sha="$(pr_env_short_sha "$1")" || return 1
+  printf '%s%s' "${PR_ENV_MERGE_QUEUE_NS_PREFIX}" "${short_sha}"
 }
 
 # pr_env_keycloak_namespace <platform-namespace> -> the companion Keycloak

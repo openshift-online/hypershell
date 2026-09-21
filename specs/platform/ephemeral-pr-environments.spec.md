@@ -204,9 +204,13 @@ between deploy and the suite. `/pr-extend` and `/pr-destroy` live in
 destroy workflow SHALL trigger on `closed` (which covers both merge and close)
 to destroy a retained environment (see the Timebox and Reaping requirement), so
 Tests runs do not list a skipped Destroy check. None of these jobs SHALL run
-on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
-merge-queue gate; this environment does not share a namespace with a
-merge-queue SHA.
+on `merge_group`: this ephemeral-environment lifecycle (GitHub-brokered
+OAuth, the access comment, `/pr-extend`/`/pr-destroy`) is pull-request-only,
+and this environment does not share a namespace with a merge-queue SHA.
+`e2e-testing.spec.md` separately runs Kind and OpenShift as the merge-queue
+gate, the latter through the same `Deploy OpenShift Environment`/`OpenShift`
+jobs this spec's pull-request path uses, but without any of this spec's
+pull-request-only features.
 
 Deploy and OpenShift SHALL run only for pull requests targeting the origin
 repository. Fork pull requests SHALL NOT receive cluster credentials and SHALL
@@ -321,9 +325,13 @@ SHALL preserve any active per-namespace component swap the same way
 
 - GIVEN a pull request enters the GitHub merge queue
 - WHEN CI evaluates which jobs to run
-- THEN this workflow SHALL NOT run
-- AND the Kind e2e job SHALL remain the merge-queue gate as
-  `e2e-testing.spec.md` defines
+- THEN this pull-request-only ephemeral-environment lifecycle (this spec)
+  SHALL NOT run: no GitHub-brokered OAuth, no access comment, no
+  `/pr-extend`/`/pr-destroy`
+- AND the Kind and OpenShift e2e jobs SHALL still gate the merge queue as
+  `e2e-testing.spec.md` defines, OpenShift using a distinct
+  `hypershell-ci-mq-<short-sha>` namespace that never collides with a
+  pull-request or push-to-main namespace
 
 ### Requirement: Extend and Destroy Controls
 
@@ -1472,7 +1480,7 @@ exists).
 | `/pr-extend` and `/pr-destroy` require write access, checked before using credentials | The comment-triggered workflow runs with repository and cluster credentials; an arbitrary commenter must not be able to pin or delete shared-cluster environments. A GitHub permission check (not `author_association`) matches the existing origin-only trust boundary |
 | Every deploy stamps `expires-at`; retained gets the inactivity window, unretained a short backstop | The reaper keys on `expires-at`. A retained PR wants a multi-day inactivity timebox; an unretained PR relies on in-run teardown but needs a short backstop so a crashed teardown is still reclaimed promptly. `make openshift-up` does not stamp either; local dev is not time-boxed |
 | Seed after every image swap; reuse existing named resources, except `dev-gateway` | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) rather than POST a second copy. `dev-gateway` is the one exception: Keycloak runs on in-memory storage with no persistent volume, so a Keycloak pod restart discards its dynamically-provisioned OIDC client while the `dev-gateway` row survives untouched in PostgreSQL, and the reconciler deliberately never auto-recreates a missing client (`openshell-gateway-keycloak.spec.md`, "Existing gateway client is missing"). Reusing a `dev-gateway` that predates the current Keycloak instance would permanently strand it in status `Keycloak client is missing`, so seeding deletes and recreates it on every run instead. This is a stopgap until Keycloak has durable storage across restarts |
-| Origin `pull_request` only; Kind remains the merge-queue gate | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
+| This pull-request-scoped lifecycle is origin `pull_request` only; `merge_group` gets OpenShift e2e through `e2e-testing.spec.md`'s own commit-SHA-keyed namespace instead | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
 | Per-PR concurrency group | Two in-flight swaps on one namespace can leave mixed digests; cancelling or queuing the older run keeps the comment SHA honest |
 | One GitHub OAuth App and one stable callback | GitHub does not allow wildcard redirect URIs and limits callback URLs, so per-PR Keycloak Routes cannot be registered as GitHub callbacks. A cluster-scoped callback, like the shared Gateway, is the identity infrastructure this workflow depends on |
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |

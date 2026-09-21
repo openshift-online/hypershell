@@ -22,12 +22,15 @@ name: E2E
 # unit failure (this stage never starts) skips deploy. After the suite, the
 # OpenShift job tears the environment down unless the pull request is marked
 # retained (/pr-extend). Origin pull requests deploy hypershell-ci-pr-<n>;
-# push to main deploys hypershell-ci-main-<short-sha> so a cancelled older
-# run cannot tear down a newer commit's namespace. Concurrency stays
-# pr-env-main (cancel-in-progress) so rapid pushes do not all occupy the
-# shared cluster at once. Main never has the retainment label, so teardown
-# always runs. Fork PRs and merge_group skip deploy and OpenShift (no
-# per-PR environment; Kind remains the merge-queue gate).
+# push to main deploys hypershell-ci-main-<short-sha>; a merge queue entry
+# deploys hypershell-ci-mq-<short-sha> -- both per-commit so a cancelled
+# older run cannot tear down a newer deploy's namespace. Concurrency keys on
+# the PR number, 'main', or the merge-queue commit SHA so unrelated runs
+# never cancel each other while rapid pushes to the same target still
+# serialize. Neither main nor a merge queue entry ever carries the
+# retainment label, so teardown always runs for them. Fork PRs skip deploy
+# and OpenShift (no per-PR environment; a fork PR cannot enter the merge
+# queue either).
 on:
   workflow_call:
     inputs:
@@ -76,16 +79,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect Konflux components
-        id: detect-konflux
-        if: github.event_name == 'merge_group' || github.event_name == 'push'
+      # Only components whose path-filtered pipelines actually run may use the
+      # event's commit-tagged image and wait for the corresponding check.
+      # Only pull_request, merge_group, and push events select a real
+      # Konflux pipeline suffix; workflow_dispatch has none, so plan-images'
+      # `*` branch below does not depend on this step.
+      - name: Compute changed files
+        id: diff
+        if: >-
+          github.event_name == 'pull_request' ||
+          github.event_name == 'merge_group' ||
+          github.event_name == 'push'
         env:
           EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
           PUSH_SHA: ${{ github.sha }}
         run: |
           case "${EVENT_NAME}" in
+            pull_request)
+              # Three-dot (merge-base) diff: compares the PR head against the
+              # point where this PR forked from the base branch, so a
+              # component change that landed on the base branch *after* this
+              # PR forked is never misattributed to the PR.
+              changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
+              pipeline_suffix="pull-request"
+              ;;
             merge_group)
               changed_files="$(git diff --name-only "${MERGE_GROUP_BASE_SHA}...${PUSH_SHA}")"
               pipeline_suffix="merge-queue"
@@ -104,35 +125,29 @@ jobs:
               ;;
           esac
 
-          api_server=false
-          control_plane=false
-          web_console=false
+          echo "pipeline_suffix=${pipeline_suffix}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "changed_files<<EOF"
+            echo "${changed_files}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
 
-          # These patterns MUST mirror each component's event-specific Konflux
-          # CEL trigger in .tekton/hypershell-<component>-main-${pipeline_suffix}.yaml.
-          # Only components whose path-filtered pipelines actually run may use
-          # the event's commit-tagged image and wait for the corresponding check.
-          if grep -qE "^components/api-server/|^\\.tekton/hypershell-api-server-main-${pipeline_suffix}\\.yaml$" <<<"${changed_files}"; then
-            api_server=true
-          fi
-          if grep -qE "^components/control-plane/|^\\.tekton/hypershell-control-plane-main-${pipeline_suffix}\\.yaml$|^Dockerfile$" <<<"${changed_files}"; then
-            control_plane=true
-          fi
-          if grep -qE "^components/web-console/|^packages/gateway-management-ui/|^\\.tekton/hypershell-web-console-main-${pipeline_suffix}\\.yaml$" <<<"${changed_files}"; then
-            web_console=true
-          fi
-
-          echo "api_server=${api_server}" >> "${GITHUB_OUTPUT}"
-          echo "control_plane=${control_plane}" >> "${GITHUB_OUTPUT}"
-          echo "web_console=${web_console}" >> "${GITHUB_OUTPUT}"
+      - name: Detect Konflux components
+        id: detect-konflux
+        if: >-
+          github.event_name == 'pull_request' ||
+          github.event_name == 'merge_group' ||
+          github.event_name == 'push'
+        uses: ./.github/actions/detect-konflux-components
+        with:
+          changed-files: ${{ steps.diff.outputs.changed_files }}
+          pipeline-suffix: ${{ steps.diff.outputs.pipeline_suffix }}
 
       - name: Plan images and required Konflux builds
         id: plan
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PUSH_SHA: ${{ github.sha }}
           DETECT_API_SERVER: ${{ inputs.api_server }}
           DETECT_CONTROL_PLANE: ${{ inputs.control_plane }}
@@ -170,32 +185,19 @@ jobs:
 
           case "${EVENT_NAME}" in
             pull_request)
-              # Determine which components need a Konflux-built image. These
-              # patterns MUST mirror each component's pull-request Konflux CEL
-              # trigger in .tekton/hypershell-<component>-main-pull-request.yaml.
-              # detect-components uses broad paths (includes Makefile, .github/,
-              # sdk-typescript, lockfiles, etc.) which is correct for lint but
-              # NOT for "will Konflux build an image" or "should Kind e2e run".
-              # A PR that changes only the pipeline file itself (or, for
-              # control-plane, the root Dockerfile) still triggers that
-              # component's on-pr build, so we must wait for it -- otherwise we
-              # silently fall back to main's image and skip the on-pr image this
-              # PR actually produces.
-              #
-              # Use a three-dot (merge-base) diff: "${PR_BASE_SHA}...${PR_HEAD_SHA}"
-              # compares the PR head against the point where this PR forked from the
-              # base branch. A two-dot "${PR_BASE_SHA} HEAD" diff (where HEAD is a
-              # merge commit) would also report component changes that landed on the
-              # base branch *after* this PR forked, misattributing them to the PR --
-              # then we would wait for a Konflux build that only ever runs for files
-              # this PR actually touched.
-              changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
-              api_konflux=false
-              cp_konflux=false
-              wc_konflux=false
-              if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-pull-request\.yaml$' <<<"${changed_files}"; then api_konflux=true; fi
-              if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-pull-request\.yaml$|^Dockerfile$' <<<"${changed_files}"; then cp_konflux=true; fi
-              if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-pull-request\.yaml$' <<<"${changed_files}"; then wc_konflux=true; fi
+              # Determine which components need a Konflux-built image, via the
+              # detect-konflux step above (pipeline-suffix pull-request).
+              # detect-components (DETECT_*) uses broad paths (includes
+              # Makefile, .github/, sdk-typescript, lockfiles, etc.) which is
+              # correct for lint but NOT for "will Konflux build an image" or
+              # "should Kind e2e run". A PR that changes only the pipeline
+              # file itself (or, for control-plane, the root Dockerfile)
+              # still triggers that component's on-pr build, so we must wait
+              # for it -- otherwise we silently fall back to main's image and
+              # skip the on-pr image this PR actually produces.
+              api_konflux="${KONFLUX_API_SERVER}"
+              cp_konflux="${KONFLUX_CONTROL_PLANE}"
+              wc_konflux="${KONFLUX_WEB_CONSOLE}"
 
               e2e_relevant=false
               if [[ "${detect_e2e_relevant}" == "true" || "${wc_konflux}" == "true" ]]; then
@@ -294,10 +296,11 @@ jobs:
               #
               # Same e2e-relevant skip as pull_request, against the merge batch
               # (detect-components and detect-konflux already diff
-              # merge_group.base_sha...github.sha). Kind remains the merge-queue
-              # gate when those paths change; a docs-only batch must not occupy
-              # three Kind runners. Tests CI Gate is the required check, so a
-              # skipped Kind job does not leave the queue pending.
+              # merge_group.base_sha...github.sha). Kind and OpenShift remain the
+              # merge-queue gate when those paths change; a docs-only batch must
+              # not occupy three Kind runners or a shared-cluster namespace.
+              # Tests CI Gate is the required check, so a skipped e2e job does
+              # not leave the queue pending.
               if [[ "${detect_e2e_relevant}" != "true" && "${KONFLUX_WEB_CONSOLE}" != "true" ]]; then
                 echo "No e2e-relevant components changed in merge batch"
                 echo "should_run=false" >> "${GITHUB_OUTPUT}"
@@ -678,16 +681,19 @@ jobs:
           path: e2e-diagnostics/
           retention-days: 7
 
-  # Origin-PR deploy of hypershell-ci-pr-<n>, or hypershell-ci-main-<short-sha>
-  # on push to main (ephemeral-pr-environments.spec.md). Per-commit main
-  # namespaces mean cancel-in-progress teardown of an older push cannot
-  # delete a newer deploy. Concurrency stays pr-env-main so only one main
-  # OpenShift cycle occupies the cluster at a time. Same plan-images /
-  # should_run gate as Kind and OpenShift. Runs after Unit because this
-  # workflow is only called then. Shares pr-env-<n> (or pr-env-main) with
-  # /pr-extend, /pr-destroy, and close so those cannot race an in-flight
-  # deploy. Kind runs in parallel with this job. merge_group and fork PRs
-  # skip it so the merge queue does not share a namespace with a PR env.
+  # Origin-PR deploy of hypershell-ci-pr-<n>, hypershell-ci-main-<short-sha> on
+  # push to main, or hypershell-ci-mq-<short-sha> for a merge queue entry
+  # (ephemeral-pr-environments.spec.md). Per-commit main/merge-queue
+  # namespaces mean cancel-in-progress teardown of an older run cannot delete
+  # a newer deploy. Concurrency keys on the PR number, 'main', or the
+  # merge-queue commit SHA, so unrelated runs (including two merge queue
+  # entries validated concurrently) never cancel each other while repeats of
+  # the same target still serialize. Same plan-images / should_run gate as
+  # Kind and OpenShift. Runs after Unit because this workflow is only called
+  # then. Shares pr-env-<n> (or pr-env-main) with /pr-extend, /pr-destroy,
+  # and close so those cannot race an in-flight deploy. Kind runs in
+  # parallel with this job. Fork PRs skip it (no per-PR environment; a fork
+  # PR cannot enter the merge queue either).
   deploy:
     name: Deploy OpenShift Environment
     needs: plan-images
@@ -695,6 +701,7 @@ jobs:
       needs.plan-images.outputs.should_run == 'true' &&
       (
         github.event_name == 'push' ||
+        github.event_name == 'merge_group' ||
         (
           github.event_name == 'pull_request' &&
           github.event.pull_request.head.repo.full_name == github.repository
@@ -708,7 +715,12 @@ jobs:
       pull-requests: write
       id-token: write
     concurrency:
-      group: pr-env-${{ github.event.pull_request.number || 'main' }}
+      group: >-
+        pr-env-${{
+          github.event.pull_request.number ||
+          (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
+          'main'
+        }}
       cancel-in-progress: true
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -741,9 +753,9 @@ jobs:
           api_server_image: ${{ needs.plan-images.outputs.api_server_image }}
           control_plane_image: ${{ needs.plan-images.outputs.control_plane_image }}
           web_console_image: ${{ needs.plan-images.outputs.web_console_image }}
-          api_server_check_regexp: ${{ github.event_name == 'push' && 'hypershell-api-server-main-on-push$' || 'hypershell-api-server-main-on-pull-request$' }}
-          control_plane_check_regexp: ${{ github.event_name == 'push' && 'hypershell-control-plane-main-on-push$' || 'hypershell-control-plane-main-on-pull-request$' }}
-          web_console_check_regexp: ${{ github.event_name == 'push' && 'hypershell-web-console-main-on-push$' || 'hypershell-web-console-main-on-pull-request$' }}
+          api_server_check_regexp: ${{ github.event_name == 'push' && 'hypershell-api-server-main-on-push$' || github.event_name == 'merge_group' && 'hypershell-api-server-main-on-merge-queue$' || 'hypershell-api-server-main-on-pull-request$' }}
+          control_plane_check_regexp: ${{ github.event_name == 'push' && 'hypershell-control-plane-main-on-push$' || github.event_name == 'merge_group' && 'hypershell-control-plane-main-on-merge-queue$' || 'hypershell-control-plane-main-on-pull-request$' }}
+          web_console_check_regexp: ${{ github.event_name == 'push' && 'hypershell-web-console-main-on-push$' || github.event_name == 'merge_group' && 'hypershell-web-console-main-on-merge-queue$' || 'hypershell-web-console-main-on-pull-request$' }}
 
       # OpenShift never starts if this job fails or is cancelled, so tear down
       # here. Skip ONLY when the environment is retained.
@@ -755,9 +767,9 @@ jobs:
   # deployed (ephemeral-pr-environments.spec.md). needs: deploy replaces the
   # old cross-workflow poller. Same should_run gate as Kind. After the suite
   # (pass, fail, or cancel) tears the environment down unless retained.
-  # Main never has pr-environment/pr-extended, so teardown always runs there.
-  # Destroy uses if: always() so an unretained env is torn down after a
-  # failed suite. The suite step itself fails the job.
+  # Neither main nor a merge queue entry ever has pr-environment/pr-extended,
+  # so teardown always runs there. Destroy uses if: always() so an unretained
+  # env is torn down after a failed suite. The suite step itself fails the job.
   e2e-openshift:
     name: OpenShift
     needs: [plan-images, deploy]
@@ -766,6 +778,7 @@ jobs:
       needs.deploy.result == 'success' &&
       (
         github.event_name == 'push' ||
+        github.event_name == 'merge_group' ||
         (
           github.event_name == 'pull_request' &&
           github.event.pull_request.head.repo.full_name == github.repository
@@ -778,7 +791,12 @@ jobs:
       pull-requests: write
       id-token: write
     concurrency:
-      group: pr-env-${{ github.event.pull_request.number || 'main' }}
+      group: >-
+        pr-env-${{
+          github.event.pull_request.number ||
+          (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
+          'main'
+        }}
       cancel-in-progress: true
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -837,7 +855,12 @@ jobs:
         if: steps.e2e-suite.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: pr-env-diagnostics-${{ github.event.pull_request.number || 'main' }}
+          name: >-
+            pr-env-diagnostics-${{
+              github.event.pull_request.number ||
+              (github.event_name == 'merge_group' && format('mq-{0}', github.sha)) ||
+              'main'
+            }}
           path: e2e-diagnostics/
           retention-days: 7
 
