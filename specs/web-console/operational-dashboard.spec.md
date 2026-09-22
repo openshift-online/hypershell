@@ -9,6 +9,8 @@ Provide a widgetized operational dashboard in the HyperShell web console where a
 
 This specification covers the reusable `operational-dashboard-ui` package, the host adapter that loads operational metrics from BFF Prometheus proxy routes and HyperShell REST where noted below, admin-only access controls, SPA and BFF route surfaces, layout persistence, and the widget catalog. Platform inventory metrics (managed clusters and managed databases) are defined in `platform/platform-inventory.spec.md`. Prometheus gateway phase counts (`hypershell_gateways_total`, BFF `GET /api/metrics/gateways`) are defined in `platform/gateway-metrics-dashboard.spec.md` and consumed by this dashboard for `provisioned-gateways` and `gateway-status`. Gateway provision duration and provision outcomes are defined in `platform/gateway-provision-time.spec.md` and `platform/gateway-provision-outcomes.spec.md`. Gateway release adoption (`gateway-releases`, REST list aggregation) is defined in `platform/gateway-release-distribution.spec.md` (OP-DASH-25). The embeddable `GatewayMetricsDashboard` component remains a separate surface. Remaining REST-to-Prometheus migration work is tracked in `packages/operational-dashboard-ui/PROMETHEUS_MIGRATION.md`.
 
+The sibling **reliability dashboard** (`/dashboard/reliability`) lives in the same package and is specified in `web-console/reliability-dashboard.spec.md`. API request rate, 5xx error rate, and median latency are defined in `platform/api-reliability-metrics.spec.md` and SHALL NOT appear on this operational overview. Both dashboards share PatternFly secondary horizontal navigation (OP-DASH-26 / REL-DASH-06) and the same `platform:admin` access gate.
+
 **Data-source direction:** Aggregate operational dashboard widgets SHALL prefer Prometheus-backed BFF routes over direct HyperShell REST list pagination. The API server exposes fleet-wide gauges from database state on its `/metrics` scrape; the BFF queries Prometheus and returns JSON to the browser adapter. HyperShell REST List APIs remain authoritative for resource collection pages (for example, the gateway table) and for metrics explicitly defined on REST list aggregation (for example, `gateway-releases`) but are not the preferred source for dashboard totals otherwise.
 
 ### Relationship to gateway metrics
@@ -16,6 +18,7 @@ This specification covers the reusable `operational-dashboard-ui` package, the h
 | Concern | Operational dashboard (this spec) | Gateway metrics dashboard |
 | --- | --- | --- |
 | Primary route | `/dashboard` and `dashboard.*` host root (`/`) | `GatewayMetricsDashboard` component (embeddable) |
+| Peer reliability route | `/dashboard/reliability` (`web-console/reliability-dashboard.spec.md`) | Out of scope |
 | Gateway counts source | BFF `GET /api/metrics/gateways` (Prometheus `hypershell_gateways_total`) | Same BFF route |
 | Scope | Fleet-wide database aggregate (dashboard-operator access only) | Fleet-wide database aggregate (dashboard-operator access only) |
 | Status model | Display buckets: `healthy`, `provisioning`, `degraded`, `failed` (mapped from phase labels) | Lifecycle phases: `Pending`, `Provisioning`, `Running`, `Degraded`, `Failed` |
@@ -84,15 +87,15 @@ The application shell SHALL wrap authenticated routes in `DashboardUiProvider`, 
 
 Access to the operational dashboard SHALL be restricted to users with the `platform:admin` realm role (effective `platform:admin` RoleBinding, including JWT-synced `platform:admin` realm role). The legacy Keycloak realm role `hypershell-admins` SHALL NOT grant dashboard access on its own.
 
-The SPA route modules for `/dashboard` and the dashboard-host root (`/`) SHALL wrap `OperationalDashboardPage` in `RequireDashboardAdmin`, which:
+The SPA route modules for `/dashboard`, `/dashboard/reliability`, and the dashboard-host root (`/`) SHALL wrap the corresponding dashboard page in `RequireDashboardAdmin`, which:
 
 - Shows a localized access-denied `EmptyState` when OIDC is enabled and the user is unauthenticated
 - Shows a localized access-denied `EmptyState` when the user is authenticated but lacks a dashboard-admin role
 - Renders children when OIDC is disabled (no-auth dev mode) or when the user holds a dashboard-admin role
 
-When OIDC is enabled, the BFF SHALL enforce the same role requirement for browser navigations to `/dashboard` and for `/` on hosts whose hostname starts with `dashboard.`. Non-admin users SHALL be redirected away (to `/` on the console host, or to the console host when the request arrived on a dashboard subdomain).
+When OIDC is enabled, the BFF SHALL enforce the same role requirement for browser navigations to `/dashboard`, `/dashboard/reliability`, and for `/` on hosts whose hostname starts with `dashboard.`. Non-admin users SHALL be redirected away (to `/` on the console host, or to the console host when the request arrived on a dashboard subdomain). Reliability-route details are also specified in REL-DASH-04 / REL-DASH-05.
 
-When OIDC is enabled, the BFF SHALL enforce the same dashboard-admin role requirement on every `GET /api/metrics/*` route consumed by the operational dashboard host adapter (`cluster-memory`, `cluster-cpu`, `cluster-pods`, `cluster-nodes`, `gateways`, `gateway-sandboxes`, `gateway-provision-duration`, `gateway-provision-outcomes`, `platform-inventory`, and `registered-users` per OP-DASH-08). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled (no-auth dev mode), these routes SHALL remain open to unauthenticated callers, matching page behavior.
+When OIDC is enabled, the BFF SHALL enforce the same dashboard-admin role requirement on every `GET /api/metrics/*` route consumed by the operational or reliability dashboard host adapters (`cluster-memory`, `cluster-cpu`, `cluster-pods`, `cluster-nodes`, `gateways`, `gateway-sandboxes`, `gateway-provision-duration`, `gateway-provision-outcomes`, `platform-inventory`, `registered-users` per OP-DASH-08, and `api-reliability` per ARM-03). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled (no-auth dev mode), these routes SHALL remain open to unauthenticated callers, matching page behavior.
 
 #### Scenario: Non-admin is turned away from /dashboard
 
@@ -137,6 +140,8 @@ When the browser hostname is `dashboard.hypershell.localhost`, the SPA root rout
 
 `route-contract.json` SHALL declare `"dashboard": "dashboard"`. The BFF SHALL treat `/dashboard` as a valid application route that returns `index.html` for direct navigation and refresh, alongside `/`, `/login`, `/gateways/new`, and `/gateways/:gatewayId`.
 
+The reliability dashboard route `/dashboard/reliability` is specified in REL-DASH-05. Both dashboard pages SHALL render the shared secondary horizontal navigation defined in OP-DASH-26.
+
 #### Scenario: Direct navigation to /dashboard
 
 - GIVEN an authenticated dashboard administrator
@@ -149,6 +154,23 @@ When the browser hostname is `dashboard.hypershell.localhost`, the SPA root rout
 - GIVEN the browser hostname is `dashboard.hypershell.localhost`
 - WHEN the user opens `/`
 - THEN the SPA SHALL render `OperationalDashboardPage` instead of the gateways list
+
+---
+
+### Requirement: OP-DASH-26 -- Secondary Horizontal Navigation to Reliability
+
+`OperationalDashboardPage` SHALL render the shared PatternFly secondary horizontal navigation defined in `web-console/reliability-dashboard.spec.md` REL-DASH-06.
+
+On `/dashboard`, the **Operational** item SHALL be selected and the **Reliability** item SHALL navigate to `/dashboard/reliability`.
+
+This requirement exists so the operational overview participates in the same cross-dashboard chrome as the reliability page without hosting reliability metrics on this route.
+
+#### Scenario: Operational page shows reliability as a peer destination
+
+- GIVEN an authenticated dashboard administrator is viewing `/dashboard`
+- WHEN the secondary horizontal navigation renders
+- THEN **Operational** SHALL be selected
+- AND activating **Reliability** SHALL navigate to `/dashboard/reliability`
 
 ---
 
