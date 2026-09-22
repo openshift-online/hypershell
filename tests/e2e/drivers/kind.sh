@@ -128,7 +128,9 @@ _kind_pin_gw_host_ipv4() {
 # _kind_unpin_gw_hosts - remove entries added by _kind_pin_gw_host_ipv4.
 _kind_unpin_gw_hosts() {
   command -v sudo >/dev/null 2>&1 || return 0
-  sudo sed -i "/# ${_KIND_GW_HOSTS_TAG}/d" /etc/hosts 2>/dev/null || true
+  local sed_i=(-i)
+  [[ "$(uname -s)" == "Darwin" ]] && sed_i=(-i '')
+  sudo sed "${sed_i[@]}" "/# ${_KIND_GW_HOSTS_TAG}/d" /etc/hosts 2>/dev/null || true
 }
 
 _driver_curl() {
