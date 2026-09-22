@@ -1432,7 +1432,6 @@ type GatewayReconciler struct {
 	hasCertManager        bool
 	hasGatewayAPI         bool
 	ingressMode           string
-	skipNetworkPolicies   bool
 	hasCNPG               bool
 	controlPlaneNamespace string
 	keycloakClient        *keycloak.Client
@@ -1458,7 +1457,6 @@ func NewGatewayReconciler(
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
 	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
-	skipNetworkPolicies := os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true"
 	hasCNPG := gateway.DetectCNPG(clientset)
 
 	var kcClient *keycloak.Client
@@ -1484,8 +1482,8 @@ func NewGatewayReconciler(
 		log.Printf("WARN EXTERNAL_CA_ISSUER_NAME not set but Gateway API unavailable; Route passthrough mode will fail cert validation")
 	}
 
-	log.Printf("INFO gateway reconciler initialized: helm=%s openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s cnpg=%v keycloak=%v netpol=%v ingress=%s ca-issuer=%s",
-		helmClient.ChartPath, isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, hasCNPG, kcClient != nil, !skipNetworkPolicies, ingressBaseDomain, externalCAIssuerName)
+	log.Printf("INFO gateway reconciler initialized: helm=%s openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s cnpg=%v keycloak=%v ingress=%s ca-issuer=%s",
+		helmClient.ChartPath, isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, hasCNPG, kcClient != nil, ingressBaseDomain, externalCAIssuerName)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -1497,7 +1495,6 @@ func NewGatewayReconciler(
 		hasCertManager:        hasCertManager,
 		hasGatewayAPI:         hasGatewayAPI,
 		ingressMode:           ingressMode,
-		skipNetworkPolicies:   skipNetworkPolicies,
 		hasCNPG:               hasCNPG,
 		controlPlaneNamespace: controlPlaneNamespace,
 		keycloakClient:        kcClient,
@@ -1576,7 +1573,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				IsOpenShift:           r.isOpenShift,
 				HasCertManager:        r.hasCertManager,
 				HasGatewayAPI:         r.hasGatewayAPI,
-				SkipNetworkPolicies:   r.skipNetworkPolicies,
 				HasCNPG:               r.hasCNPG,
 				CNPG:                  deleteDBConfig.CNPG,
 				DatabaseProvider:      deleteDBConfig.Provider,
@@ -1821,7 +1817,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		IsOpenShift:           r.isOpenShift,
 		HasCertManager:        r.hasCertManager,
 		HasGatewayAPI:         r.hasGatewayAPI,
-		SkipNetworkPolicies:   r.skipNetworkPolicies,
 		HasCNPG:               r.hasCNPG,
 		DatabaseProvider:      dbConfig.Provider,
 		CNPG:                  dbConfig.CNPG,
@@ -2201,7 +2196,7 @@ func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, 
 // wait is observed only by the independent health loop -- the watcher phase gate
 // blocks a re-provision -- which tears the gateway down and clears its stored
 // addresses; without this re-check the in-flight pass would recreate the
-// BackendTLSPolicy, backend-CA ConfigMap, router NetworkPolicy, console, and
+// BackendTLSPolicy, backend-CA ConfigMap, console, and
 // Keycloak client behind that teardown, and the health loop's torn-down cache
 // (keyed on empty addresses) would then hide the orphans indefinitely. Returns
 // false on NotFound (the gateway is gone, so nothing is desired) and propagates

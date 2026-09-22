@@ -66,7 +66,6 @@ type GatewayHealthReconciler struct {
 	isOpenShift           bool
 	hasGatewayAPI         bool
 	ingressMode           string
-	skipNetworkPolicies   bool
 	versionObserver       gatewayVersionObserver
 	controlPlaneNamespace string
 
@@ -136,7 +135,6 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		isOpenShift:           isOpenShift,
 		hasGatewayAPI:         hasGatewayAPI,
 		ingressMode:           ingressMode,
-		skipNetworkPolicies:   os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
 		now:                   time.Now,
 		routeNotReadySince:    make(map[string]time.Time),
 		routeTornDown:         make(map[string]bool),
@@ -446,12 +444,11 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 		return
 	}
 	opts := gateway.ReconcileOpts{
-		IsOpenShift:         h.isOpenShift,
-		HasGatewayAPI:       h.hasGatewayAPI,
-		SkipNetworkPolicies: h.skipNetworkPolicies,
-		Keycloak:            h.keycloakConfig,
-		GatewayID:           gatewayID,
-		GatewayName:         gw.GetName(),
+		IsOpenShift:   h.isOpenShift,
+		HasGatewayAPI: h.hasGatewayAPI,
+		Keycloak:      h.keycloakConfig,
+		GatewayID:     gatewayID,
+		GatewayName:   gw.GetName(),
 	}
 	if err := gateway.ReconcileConsole(ctx, h.dynamicClient, h.concreteClientset(), gateway.NamespaceConfig{Name: namespace}, opts); err != nil {
 		log.Printf("WARN console self-heal in %s: %v", namespace, err)
@@ -511,12 +508,11 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 		}
 	}
 	opts := gateway.ReconcileOpts{
-		IsOpenShift:         h.isOpenShift,
-		HasGatewayAPI:       h.hasGatewayAPI,
-		SkipNetworkPolicies: h.skipNetworkPolicies,
-		Keycloak:            h.keycloakConfig,
-		GatewayID:           gatewayID,
-		GatewayName:         gw.GetName(),
+		IsOpenShift:   h.isOpenShift,
+		HasGatewayAPI: h.hasGatewayAPI,
+		Keycloak:      h.keycloakConfig,
+		GatewayID:     gatewayID,
+		GatewayName:   gw.GetName(),
 	}
 	// Wire an address-clearing callback only when an address is actually stored,
 	// so a gateway that never published one adds no gateway-update traffic.

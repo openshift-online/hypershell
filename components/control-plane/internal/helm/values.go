@@ -132,8 +132,7 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	setNestedValue(values, true, "serviceAccount", "create")
 	setNestedValue(values, true, "sandboxServiceAccount", "create")
 
-	// NetworkPolicy disabled (see spec decision); the control plane manages
-	// network isolation outside the chart.
+	// NetworkPolicy disabled; see openshell-gateway-helm-adoption.spec.md.
 	setNestedValue(values, false, "networkPolicy", "enabled")
 	setNestedValue(values, true, "supervisor", "sandboxRuntime", "networkPolicyEnforced")
 

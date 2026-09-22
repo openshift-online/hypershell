@@ -221,20 +221,18 @@ or `status` update.
 
 The dedicated `openshell-gateway-health` Service SHALL expose the health
 endpoint on an internal port. The health reconciler SHALL be the only writer
-for this Service and its controller NetworkPolicy. Provisioning manifests SHALL
-NOT contain a second definition of either resource. A NetworkPolicy SHALL permit access to this port
-only from the control plane controller in the control plane namespace. Before
-the first version request, the health reconciler SHALL reconcile this Service
-and NetworkPolicy with update-or-create operations. After success, it SHALL
-repeat access checks every five minutes. A failed version observation SHALL
-force an access check on the next health pass. Each Service or policy operation
-SHALL have its own three-second timeout, including conflict retries. This reconciliation SHALL repair
-existing gateways after a control plane upgrade and SHALL repair later drift or
-deletion. It SHALL also remove old TCP health-port permissions from the owned
-sandbox and router policies. It SHALL keep their other permissions. If a rule
-only permits the health port, the reconciler SHALL remove that rule rather than
-leave an empty port list, which would permit every port. This repair SHALL run
-for existing gateways even when their provisioning phase gate is closed.
+for this Service. Provisioning manifests SHALL NOT contain a second definition
+of the resource. Access to the health port is permitted by the default
+allow-all network posture (OVN-Kubernetes); the control plane does not create a
+NetworkPolicy for this endpoint (see
+[`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md),
+NetworkPolicy Decision: Do Not Install). Before the first version request, the
+health reconciler SHALL reconcile this Service with update-or-create operations.
+After success, it SHALL repeat access checks every five minutes. A failed
+version observation SHALL force an access check on the next health pass. Each
+Service operation SHALL have its own three-second timeout, including conflict
+retries. This reconciliation SHALL repair existing gateways after a control
+plane upgrade and SHALL repair later drift or deletion.
 
 #### Scenario: Runtime version is observed for the first time
 

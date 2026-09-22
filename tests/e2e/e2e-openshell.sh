@@ -822,21 +822,16 @@ else
   fail_test "Gateway server certificate not ready (status=${GW_SRV_READY:-unknown})"
 fi
 
-# Kind deliberately skips the per-tenant gateway NetworkPolicies: its Gateway
-# data plane is cloud-provider-kind's out-of-cluster Envoy, whose source IP no
-# selector can match, so the policies would blackhole gateway ingress. Dev needs
-# no tenant isolation (see GATEWAY_SKIP_NETWORK_POLICIES in deploy/kind), so the
-# ≥3 assertion does not apply here.
-if [[ "${E2E_INFRA_DRIVER}" == "kind" ]]; then
-  dim "  Gateway NetworkPolicies intentionally skipped on kind (not applicable)"
+# The control plane no longer creates NetworkPolicies for gateway namespaces
+# (see openshell-gateway-helm-adoption.spec.md). On OVN-Kubernetes, gateway pods
+# use the default allow-all posture; imperative policies caused a cascading
+# deny-by-default problem that broke sandbox connectivity.
+show_cmd "$CLI get networkpolicy -n $GW_NAMESPACE"
+GW_NP_COUNT=$($CLI get networkpolicy -n "$GW_NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+if [[ "${GW_NP_COUNT:-0}" -eq 0 ]]; then
+  pass "No gateway NetworkPolicies (expected per helm-adoption spec)"
 else
-  show_cmd "$CLI get networkpolicy -n $GW_NAMESPACE"
-  GW_NP_COUNT=$($CLI get networkpolicy -n "$GW_NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
-  if [[ "${GW_NP_COUNT:-0}" -ge 3 ]]; then
-    pass "Gateway NetworkPolicies present (${GW_NP_COUNT} found)"
-  else
-    fail_test "Expected at least 3 gateway NetworkPolicies, found ${GW_NP_COUNT:-0}"
-  fi
+  dim "  ${GW_NP_COUNT} NetworkPolicies found in gateway namespace (may be residual)"
 fi
 fi
 sep

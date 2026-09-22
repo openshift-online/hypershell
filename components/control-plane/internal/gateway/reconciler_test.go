@@ -25,7 +25,6 @@ func routeResourceListKinds() map[schema.GroupVersionResource]string {
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}: "BackendTLSPolicyList",
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}:         "HTTPRouteList",
 		{Group: "route.openshift.io", Version: "v1", Resource: "routes"}:                    "RouteList",
-		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}:            "NetworkPolicyList",
 		{Group: "apps", Version: "v1", Resource: "deployments"}:                             "DeploymentList",
 	}
 }
@@ -354,12 +353,11 @@ func TestCopyDeploymentDatabaseCredentialsRejectsIncompleteSource(t *testing.T) 
 	}
 }
 
-// TestReconcileRouteResourcesCreatesNetworkPolicyOnly verifies that
-// reconcileRouteResources creates the router NetworkPolicy but does NOT create
-// a Route (the Helm chart owns the Route via openshiftRoute.enabled).
-func TestReconcileRouteResourcesCreatesNetworkPolicyOnly(t *testing.T) {
+// TestReconcileRouteResourcesDoesNotCreateRoute verifies that
+// reconcileRouteResources does NOT create a Route (the Helm chart owns the
+// Route via openshiftRoute.enabled).
+func TestReconcileRouteResourcesDoesNotCreateRoute(t *testing.T) {
 	routesGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
-	netpolGVR := schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}
 	nsConfig := NamespaceConfig{
 		Name: "openshell-test",
 		Gateway: GatewayConfig{
@@ -375,14 +373,5 @@ func TestReconcileRouteResourcesCreatesNetworkPolicyOnly(t *testing.T) {
 
 	if _, err := dc.Resource(routesGVR).Namespace(nsConfig.Name).Get(context.Background(), "openshell-gateway", metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
 		t.Errorf("reconciler must not create Route (chart owns it), get err = %v", err)
-	}
-
-	netpol, err := dc.Resource(netpolGVR).Namespace(nsConfig.Name).Get(context.Background(), "openshell-gateway-allow-router", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get NetworkPolicy: %v", err)
-	}
-	labels, _, _ := unstructured.NestedStringMap(netpol.Object, "metadata", "labels")
-	if labels["app.kubernetes.io/managed-by"] != "hypershell-control-plane" {
-		t.Errorf("managed-by label = %q, want hypershell-control-plane", labels["app.kubernetes.io/managed-by"])
 	}
 }

@@ -9,7 +9,7 @@
 
 ## Purpose
 
-This specification defines how OpenShell gateways are exposed to external clients via the **Gateway API** (GRPCRoute + BackendTLSPolicy). The control plane auto-detects Gateway API availability at startup and provisions per-tenant GRPCRoutes that attach to a pre-existing shared Gateway. An administrator provisions the Gateway as cluster infrastructure (similar to a GatewayClass). A NetworkPolicy for external router ingress is required for connectivity.
+This specification defines how OpenShell gateways are exposed to external clients via the **Gateway API** (GRPCRoute + BackendTLSPolicy). The control plane auto-detects Gateway API availability at startup and provisions per-tenant GRPCRoutes that attach to a pre-existing shared Gateway. An administrator provisions the Gateway as cluster infrastructure (similar to a GatewayClass).
 
 ---
 
@@ -41,42 +41,13 @@ Requires:
 
 ### Requirement: NetworkPolicy for Gateway API Proxy Ingress
 
-The GatewayReconciler creates `openshell-gateway-allow-sandbox-v2` which allows ingress only from pods in the same namespace. The Gateway API controller spawns Envoy proxy pods in the tenant namespace (co-located with the gateway). A separate NetworkPolicy SHALL be required for external route connectivity.
+**Superseded.** The control plane no longer creates NetworkPolicies for gateway
+namespaces. On OVN-Kubernetes the default network posture is allow-all, so no
+explicit policy is needed for Gateway API proxy ingress.
 
-> **Future consideration:** This same-namespace policy assumes gateways and sandboxes are co-located on the same cluster. When separating GatewayClusters from SandboxClusters, or when supporting non-Kubernetes sandbox backends (e.g., VMs), the NetworkPolicy model will need to be extended to allow cross-namespace or cross-cluster ingress. For now, the smallest blast radius is achieved by keeping a dedicated gateway per tenant namespace.
-
-#### Scenario: Proxy NetworkPolicy required for GRPCRoute
-
-- GIVEN an OpenShell gateway exposed via GRPCRoute
-- AND the gateway namespace has NetworkPolicies applied
-- WHEN an external client connects via the shared Gateway
-- THEN Gateway API proxy pods (Envoy, running in `openshift-ingress`) must reach the gateway pod on port 8080
-- AND without the proxy NetworkPolicy, the TLS handshake hangs with zero bytes read
-
-#### NetworkPolicy Definition
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: openshell-gateway-allow-router
-  namespace: <tenant-namespace>
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/instance: openshell-gateway
-      app.kubernetes.io/name: openshell
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: <GATEWAY_API_GATEWAY_NAMESPACE>
-    ports:
-    - port: 8080
-      protocol: TCP
-```
-
-> The GatewayReconciler SHALL create this NetworkPolicy automatically when the Gateway has a `route` configuration. The ingress rule restricts source traffic to the namespace hosting the shared Gateway (`GATEWAY_API_GATEWAY_NAMESPACE`, default `openshift-ingress`), so only the admin-provisioned proxy can reach the gateway gRPC port.
+See [`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md)
+(NetworkPolicy Decision: Do Not Install) for rationale and empirical
+verification.
 
 ---
 
@@ -126,7 +97,6 @@ The Gateway resource SHALL support an optional `route` field that declares exter
 - GIVEN a Gateway that previously had `route` configuration and associated route resources
 - WHEN the `route` field is removed or set to null
 - THEN the GatewayReconciler SHALL trigger removal of route-owned resources via Helm upgrade with routing disabled (or Helm uninstall if the gateway is being deleted). The chart manages: GRPCRoute, BackendTLSPolicy, `openshell-gateway-backend-ca` ConfigMap, and associated routing resources
-- AND the `openshell-gateway-allow-router` NetworkPolicy (managed outside the chart) SHALL be deleted by the reconciler directly
 - AND the reconciler SHALL clear the `routeAddress` field on the Gateway resource via the API server
 - AND the gateway SHALL revert to cluster-internal-only access
 
@@ -235,7 +205,7 @@ API adapter SHALL read the per-tenant `Gateway` object's status using the typed
 `sigs.k8s.io/gateway-api` client.
 
 > **Scope note:** provisioning of the backend-specific resources (Gateway,
-> GRPCRoute, BackendTLSPolicy, NetworkPolicy for the Gateway API adapter) MAY
+> GRPCRoute, BackendTLSPolicy for the Gateway API adapter) MAY
 > also move behind this port as adapters are added; at minimum, address
 > resolution and readiness observation SHALL be behind it.
 
@@ -321,7 +291,7 @@ The `openshift-ingress` Role is deployed via `controller-gateway-rbac.yaml` in t
 
 | Symptom | Root Cause | Fix |
 |---|---|---|
-| TLS handshake: 0 bytes read, immediate EOF | NetworkPolicy blocking Gateway proxy → gateway | Create `openshell-gateway-allow-router` |
+| TLS handshake: 0 bytes read, immediate EOF | Stale NetworkPolicy putting the gateway pod in deny-by-default | Check for and remove any leftover NetworkPolicies in the gateway namespace |
 | Wrong TLS certificate served | DNS pointing to wrong LB (e.g. OpenShift default router instead of shared Gateway) | Verify DNS CNAME points to the shared Gateway's LB address |
 | `hsctl apply` creates gateway but no external access | No `route` field on Gateway resource | Add `route: {}` to the Gateway resource |
 | Gateway pods Ready but phase stuck `Provisioning`, then `Degraded` after the grace window | The shared Gateway API `Gateway` reports `Programmed=False` / no ADDRESS (cloud LB not provisioned, DNS/quota failure) | `oc get gateway -n $GATEWAY_API_GATEWAY_NAMESPACE $GATEWAY_API_GATEWAY_NAME -o wide`; inspect `.status.conditions` and events on the Gateway / its ELB |

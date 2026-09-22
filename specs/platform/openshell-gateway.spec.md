@@ -14,7 +14,7 @@ This specification covers core provisioning. Domain-specific concerns are define
 |---|---|
 | [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) | TLS certificate management via cert-manager, SAN management, cert rotation |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
-| [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy, route discovery |
+| [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), route discovery |
 | [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | PostgreSQL provisioning, credential security, manual rotation, deletion protection |
 | [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) | Credential storage driver selection (encrypted DB, Kubernetes Secrets, Vault), RBAC, TOML generation |
 | [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) | Automated per-gateway Keycloak OIDC client provisioning, RBAC-driven role assignment, visibility scoping |
@@ -55,7 +55,7 @@ Control Plane - GatewayReconciler (internal/reconciler/)
     │  creates the API-assigned namespace when absent
     │  applies gateway K8s manifests to that namespace
     ▼
-Kubernetes (Deployment, Service, RBAC, certgen Job, NetworkPolicy)
+Kubernetes (Deployment, Service, RBAC, certgen Job)
 ```
 
 ### Gateway Namespace Ownership
@@ -449,7 +449,7 @@ All gateway resources SHALL use fixed names (one gateway per namespace):
 - ServiceAccounts: `openshell-gateway`, `openshell-gateway-sandbox`, `openshell-gateway-certgen`
 - ConfigMap: `openshell-gateway-config` (contains `gateway.toml`)
 - Roles, RoleBindings, ClusterRole, ClusterRoleBinding (see RBAC section below)
-- NetworkPolicies (see NetworkPolicy section below)
+- NetworkPolicies are NOT created (see [helm-adoption decision](./openshell-gateway-helm-adoption.spec.md))
 
 Additionally, the reconciler creates these resources based on gateway configuration:
 - cert-manager Issuer and Certificate resources (see [TLS spec](./openshell-gateway-tls.spec.md))
@@ -586,38 +586,17 @@ The GatewayReconciler SHALL create a Job (`openshell-gateway-certgen`) to genera
 
 ### Requirement: Gateway NetworkPolicies
 
-The GatewayReconciler SHALL create NetworkPolicies to enforce network segmentation between the gateway, sandboxes, and external traffic.
+The control plane SHALL NOT create any NetworkPolicies in gateway namespaces.
+On OVN-Kubernetes the default network posture is allow-all; installing any
+NetworkPolicy with `policyTypes: [Ingress]` switches the selected pod to
+deny-by-default, triggering a cascading need for additional policies that
+breaks sandbox-to-gateway connectivity.
 
-#### Sandbox SSH NetworkPolicies
+See [`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md)
+(NetworkPolicy Decision: Do Not Install) for rationale and empirical
+verification.
 
-The gateway connects to sandbox pods via SSH on port 2222. Two NetworkPolicies SHALL be created to support both legacy and v2 sandbox label patterns:
-
-1. **`openshell-gateway-sandbox-ssh`** (legacy labels):
-   - Selects pods with label `openshell.ai/managed-by: openshell`
-   - Allows ingress on TCP port 2222 from gateway pods (`app.kubernetes.io/name: openshell`, `app.kubernetes.io/instance: openshell-gateway`)
-
-2. **`openshell-gateway-sandbox-ssh-v2`** (v2 labels):
-   - Selects pods where label `agents.x-k8s.io/sandbox-name-hash` exists
-   - Allows ingress on TCP port 2222 from gateway pods
-
-#### Sandbox-to-Gateway NetworkPolicy
-
-Sandbox pods need to connect back to the gateway for gRPC communication:
-
-3. **`openshell-gateway-allow-sandbox-v2`**:
-   - Selects gateway pods (`app.kubernetes.io/instance: openshell-gateway`, `app.kubernetes.io/name: openshell`)
-   - Allows ingress on TCP port 8080 from pods with label `agents.x-k8s.io/sandbox-name-hash` (exists)
-
-#### Controller Health NetworkPolicy
-
-4. **`openshell-gateway-allow-controller-health`**:
-   - Selects gateway pods (`app.kubernetes.io/instance: openshell-gateway`, `app.kubernetes.io/name: openshell`)
-   - Allows ingress on TCP port 8081 only from the HyperShell controller pods in the control plane namespace
-   - Lets the health reconciler read the gateway runtime version
-
-#### Router Ingress NetworkPolicy
-
-See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) for the `openshell-gateway-allow-router` NetworkPolicy that allows ingress from Gateway-labeled Envoy proxy pods.
+The upstream Helm chart's `networkPolicy.enabled` is set to `false`.
 
 #### Database Access
 
