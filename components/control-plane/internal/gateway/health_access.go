@@ -19,7 +19,7 @@ const (
 	// GatewayHealthPort is the gateway HTTP health port.
 	GatewayHealthPort int32 = 8081
 	// GatewayHealthServiceName is the controller-only health Service name.
-	GatewayHealthServiceName  = "openshell-gateway-health"
+	GatewayHealthServiceName   = "openshell-gateway-health"
 	gatewayHealthAccessTimeout = 3 * time.Second
 )
 

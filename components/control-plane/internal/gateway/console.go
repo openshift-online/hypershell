@@ -883,7 +883,6 @@ func deleteConsoleExposures(ctx context.Context, dynamicClient dynamic.Interface
 	)
 }
 
-
 // deleteConsole removes all console resources and the console Keycloak client.
 // It attempts every deletion regardless of individual failures and returns their
 // joined errors (nil when the console is already absent), so a caller can retry
