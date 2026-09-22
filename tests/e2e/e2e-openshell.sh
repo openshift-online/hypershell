@@ -827,11 +827,11 @@ fi
 # use the default allow-all posture; imperative policies caused a cascading
 # deny-by-default problem that broke sandbox connectivity.
 show_cmd "$CLI get networkpolicy -n $GW_NAMESPACE"
-GW_NP_COUNT=$($CLI get networkpolicy -n "$GW_NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
-if [[ "${GW_NP_COUNT:-0}" -eq 0 ]]; then
-  pass "No gateway NetworkPolicies (expected per helm-adoption spec)"
+MANAGED_NP_COUNT=$($CLI get networkpolicy -n "$GW_NAMESPACE" -l hypershell.redhat.io/managed=true --no-headers 2>/dev/null | wc -l | tr -d ' ')
+if [[ "${MANAGED_NP_COUNT:-0}" -eq 0 ]]; then
+  pass "No managed gateway NetworkPolicies (expected per helm-adoption spec)"
 else
-  dim "  ${GW_NP_COUNT} NetworkPolicies found in gateway namespace (may be residual)"
+  fail_test "Found ${MANAGED_NP_COUNT} managed NetworkPolicies in gateway namespace (control plane should not create any)"
 fi
 fi
 sep
