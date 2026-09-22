@@ -99,7 +99,7 @@ Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYC
 
 ### Gateway Resource
 
-`make kind-up` SHALL seed all resources needed for a functional local environment: ManagedCluster, GatewayRelease, ManagedDatabase (`openshell-db` when `DATABASE_PROVIDER=cnpg`), and a Gateway with OIDC configuration pointing at the local Keycloak instance. The ManagedDatabase seed triggers the ManagedDatabaseReconciler to create the gateway database CNPG Cluster infrastructure. When a single ManagedDatabase exists, gateways created without an explicit `database_id` are auto-assigned to it. The seeding step obtains a Bearer token from Keycloak using the admin user (not the control-plane service account), then creates each resource via the REST API. If any seed step fails (e.g. the resource already exists from a previous run), it SHALL warn and continue rather than abort. This makes `kind-up` fully self-contained -- a developer gets a working gateway without any manual API calls after the initial setup.
+`make kind-up` SHALL seed all resources needed for a functional local environment: ManagedCluster, GatewayRelease, ManagedDatabase (`openshell-db` when `DATABASE_PROVIDER=cnpg`), and a Gateway with OIDC configuration pointing at the local Keycloak instance. The ManagedDatabase seed triggers the ManagedDatabaseReconciler to create the gateway database CNPG Cluster infrastructure. When a single ManagedDatabase exists, gateways created without an explicit `database_id` are auto-assigned to it. The seeding step obtains a Bearer token from Keycloak using the admin user (not the control-plane service account), then creates each resource via the REST API. Seeding SHALL be reuse-or-create for the named seed resources (`local-kind`, `dev-release`, `openshell-db`, `dev-gateway`): when a resource with that name already exists, the command SHALL reuse its id and SHALL NOT create another. If any seed step fails, it SHALL warn and continue rather than abort, unless `SEED_STRICT=true`. This makes `kind-up` fully self-contained -- a developer gets a working gateway without any manual API calls after the initial setup.
 
 The local environment SHALL NOT deploy the gateway's PostgreSQL directly - the control plane reconciler provisions a dedicated database and role for each gateway in the shared CNPG Cluster using CNPG `Database` and `DatabaseRole` CRDs (see `specs/platform/openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production. The API server's database is also managed by CNPG via a separate Cluster CR in `hypershell-system` (see Cluster-Level Prerequisites above).
 
@@ -115,9 +115,9 @@ The Kind cluster Keycloak instance serves as the local equivalent of the downstr
 | Client | `hypershell-frontend` (public, standard flow + direct access grants, used by web console BFF) |
 | CLI client | `hypershell-cli` (public, standard flow + device authorization grant, used by `hsctl login`) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
-| Admin role | `hypershell-admins` |
+| Admin groups | `hypershell-admins`, `platform:admin` (dashboard-operator access requires `platform:admin`) |
 | User role | `hypershell-users` |
-| Users | `admin` / `admin` (admin role), `developer` / `developer` (user role) - password matches username (local dev only) |
+| Users | `admin` / `admin` (admin groups), `developer` / `developer` (user role) - password matches username (local dev only) |
 
 The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod) and outside (developer workstation).
 
@@ -302,7 +302,7 @@ For each HyperShell Gateway resource, the control plane reconciler creates three
        caCertificateRefs:
        - group: ""
          kind: ConfigMap
-         name: openshell-backend-ca
+         name: openshell-gateway-backend-ca
        hostname: openshell-gateway.hypershell-system.svc.cluster.local
    ```
 
@@ -311,7 +311,7 @@ For each HyperShell Gateway resource, the control plane reconciler creates three
    apiVersion: v1
    kind: ConfigMap
    metadata:
-     name: openshell-backend-ca
+     name: openshell-gateway-backend-ca
      namespace: hypershell-system
    data:
      ca.crt: |
@@ -331,7 +331,7 @@ Client                   Networking Gateway              Gateway Pod
 ```
 
 1. **Client to networking Gateway:** The client connects via HTTPS. The networking Gateway terminates external TLS using the wildcard certificate (`*.gw.localhost`) issued by cert-manager. HTTP/2 is negotiated through ALPN during the TLS handshake.
-2. **Networking Gateway to pod:** BackendTLSPolicy instructs the networking Gateway to re-encrypt traffic to the backend pod. The Gateway verifies the pod's certificate against the CA in the `openshell-backend-ca` ConfigMap. The pod's cert is issued by cert-manager from the same self-signed CA.
+2. **Networking Gateway to pod:** BackendTLSPolicy instructs the networking Gateway to re-encrypt traffic to the backend pod. The Gateway verifies the pod's certificate against the CA in the `openshell-gateway-backend-ca` ConfigMap. The pod's cert is issued by cert-manager from the same self-signed CA.
 
 #### Kind vs Production Differences
 
@@ -805,6 +805,9 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 | `CLOUD_PROVIDER_KIND_REPO` | (pinned in Makefile) | Git repository URL for cloud-provider-kind fork (BackendTLSPolicy + ALPN h2 support) |
 | `CLOUD_PROVIDER_KIND_REF` | (pinned in Makefile) | Exact commit SHA of the cloud-provider-kind fork to build (deterministic; idempotent-by-SHA rebuild) |
 | `CLOUD_PROVIDER_KIND_BRANCH` | (unset) | Optional testing override: build from a branch tip or arbitrary git ref instead of the pinned SHA; always rebuilds when set |
+| `OPENSHELL_REPO` | (canonical upstream OpenShell repo) | Git repository URL to build OpenShell from for `make kind-openshell-up`; override to target a fork |
+| `OPENSHELL_BRANCH` | (unset) | OpenShell git ref (branch, tag, or commit) to build the gateway and supervisor images from for `make kind-openshell-up`; the sandbox base image is not built from this ref (see `openshell-branch-build.spec.md`) |
+| `OPENSHELL_PR` | (unset) | Convenience for `make kind-openshell-up`: OpenShell pull request number, resolved to its head ref |
 | `KIND_RESTART_CPK` | (unset) | Set to `true` to force `make kind-up` to restart cloud-provider-kind (republishes ephemeral LB ports; otherwise the running instance is reused to keep ports stable) |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager release version |
 | `CNPG_VERSION` | `v1.30.0` | CloudNativePG operator release version |
@@ -823,6 +826,7 @@ All Kind targets operate on `KIND_NAMESPACE` (default: `hypershell-system`). Ope
 | `make kind-teardown` | Destroy the Kind cluster + stop cloud-provider-kind + stop CoreDNS + flush port forwarding rules + revert resolver |
 | `make kind-status` | Show cluster info, pods, services, hostnames, DNS status, port forwarding status, and active component swaps |
 | `make kind-fix-ports` | Re-establish host port forwarding (443 + 8080) after a cloud-provider-kind restart; re-discovers ephemeral ports and re-runs the stop-then-start flush |
+| `make kind-openshell-up` | Build OpenShell (gateway + supervisor; the sandbox base is the published community image, not built from source) from `OPENSHELL_BRANCH`/`OPENSHELL_PR` + load into cluster (creating it if needed) + seed a dev-labeled gateway running those images. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `make kind-api-server-up` | Build api-server from working tree + load + replace deployment + wait (cluster must exist; idempotent - rebuilds and replaces on every call) |
 | `make kind-api-server-down` | Revert api-server to baseline image + restart + wait |
 | `make kind-control-plane-up` | Build control-plane from working tree + load + replace deployment + wait (cluster must exist; idempotent - rebuilds and replaces on every call) |

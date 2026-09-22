@@ -124,19 +124,26 @@ When OIDC is enabled, the route SHALL require dashboard-operator authorization m
 
 Managed cluster and managed database List endpoints SHALL be readable by **dashboard operators**, matching the operational dashboard audience (`web-console/operational-dashboard.spec.md` OP-DASH-04) and registered user inventory (`platform/registered-users.spec.md` RU-03):
 
-- Caller holds an effective `platform:admin` RoleBinding (including JWT-synced realm role), **or**
-- Caller presents a JWT whose `realm_access.roles` includes `hypershell-admins`, **or**
+- Caller holds an effective `platform:admin` RoleBinding (including JWT-synced `platform:admin` realm role), **or**
 - Caller holds an effective `gateway:creator` RoleBinding (existing behavior)
+
+Holding only the legacy Keycloak realm role `hypershell-admins` SHALL NOT grant dashboard-inventory List access when `platform:admin` is absent.
 
 All other callers SHALL be denied List access with HTTP `403`.
 
 The RBAC middleware SHALL treat `managed_clusters` and `managed_databases` collection List (`GET` with empty resource ID) with the same dashboard-inventory access helper used for `users`. Singleton Get authorization for these resources MAY retain the existing `gateway:creator` requirement.
 
-#### Scenario: Hypershell admin without gateway:creator can list clusters
+#### Scenario: Platform admin without gateway:creator can list clusters
 
-- GIVEN a caller presents a JWT with `hypershell-admins` and no `gateway:creator` binding
+- GIVEN a caller with effective `platform:admin` and no `gateway:creator` binding
 - WHEN the caller sends `GET /api/hypershell/v1/managed_clusters`
 - THEN the API SHALL respond with HTTP `200`
+
+#### Scenario: Legacy hypershell-admins role alone cannot list clusters
+
+- GIVEN a caller presents a JWT with `hypershell-admins` and no `platform:admin` or `gateway:creator` binding
+- WHEN the caller sends `GET /api/hypershell/v1/managed_clusters`
+- THEN the API SHALL respond with HTTP `403`
 
 #### Scenario: Gateway owner without creator cannot list clusters
 
@@ -234,19 +241,18 @@ The widget catalog SHALL add these types:
 | --- | --- | --- | --- |
 | `managed-cluster-providers` | `managed-clusters` | Yes | Provider donut from `inventoryProviders`; legend ordered by descending count (PI-05) |
 | `managed-cluster-regions` | `managed-clusters` | Yes | Placement donut from `inventoryRegions` (`{region} ({provider})` keys); legend ordered by descending count (PI-05) |
-| `managed-clusters` | `managed-clusters` | No | `MetricCard` large number |
-| `managed-cluster-status` | `managed-clusters` | No | Status donut when ≤5 non-zero status buckets (PI-04) |
-| `managed-databases` | `managed-databases` | No | `MetricCard` large number |
 | `managed-database-status` | `managed-databases` | Yes | Status donut when ≤5 non-zero status buckets (PI-04) |
 
-Users MAY add optional widgets from the add-widgets drawer. Status and provider donut widgets SHALL omit sparklines.
+The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, or `managed-databases` widget types. Cluster and database totals SHALL be presented through `inventory-summary` (PI-06); status and dimension breakdowns SHALL use the default-layout donut widgets above (`web-console/operational-dashboard.spec.md` OP-DASH-22, OP-DASH-21).
+
+Users MAY add optional widgets from the add-widgets drawer when not already on the grid. Status and provider donut widgets SHALL omit sparklines.
 
 A dedicated **Platform inventory** dashboard route (`/dashboard/inventory`) SHALL NOT be introduced in version 1. Future work MAY add that route when the inventory summary exceeds eight rows or multiple full-width breakdown charts are required.
 
 #### Scenario: Status donut is suppressed for many statuses
 
-- GIVEN managed clusters have six distinct non-zero `status` values
-- WHEN the `managed-cluster-status` widget renders
+- GIVEN managed databases have six distinct non-zero `status` values
+- WHEN the `managed-database-status` widget renders
 - THEN the donut area SHALL render nothing
 - AND the widget title bar SHALL remain
 

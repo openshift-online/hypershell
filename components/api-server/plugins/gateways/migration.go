@@ -169,6 +169,18 @@ func migrationDropFleetId() *gormigrate.Migration {
 	}
 }
 
+func migrationAddProvisioningConditions() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026091012000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS provisioning_conditions JSONB").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS provisioning_conditions").Error
+		},
+	}
+}
+
 func migrationDropFleetsTable() *gormigrate.Migration {
 	// The Fleet resource was removed platform-wide; drop its orphaned table.
 	type Fleet struct{ db.Model }
@@ -195,6 +207,18 @@ func migrationAddGatewayVersion() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS gateway_version").Error
+		},
+	}
+}
+
+func migrationAddObservedReleaseId() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026091412000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS observed_release_id TEXT").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS observed_release_id").Error
 		},
 	}
 }

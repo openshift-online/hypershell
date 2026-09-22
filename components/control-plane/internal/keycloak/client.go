@@ -15,7 +15,16 @@ import (
 	"time"
 )
 
-const deviceAuthorizationGrantAttribute = "oauth2.device.authorization.grant.enabled"
+const (
+	deviceAuthorizationGrantAttribute = "oauth2.device.authorization.grant.enabled"
+
+	e2eClientID                   = "hypershell-e2e"
+	e2eTokenExchangePolicyName    = "hypershell-e2e-token-exchange"
+	realmManagementClientID       = "realm-management"
+	frontendClientID              = "hypershell-frontend"
+	tokenExchangeScope            = "token-exchange"
+	tokenExchangeDecisionStrategy = "UNANIMOUS"
+)
 
 // Client wraps the Keycloak Admin REST API for gateway OIDC provisioning.
 // Configuration and httpClient do not change after construction. The HTTP
@@ -57,6 +66,7 @@ func (c *Client) Realm() string {
 type keycloakClient struct {
 	ID         string            `json:"id,omitempty"`
 	ClientID   string            `json:"clientId"`
+	Enabled    bool              `json:"enabled"`
 	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
@@ -110,6 +120,15 @@ func (c *Client) ProvisionGatewayClient(ctx context.Context, gatewayName string)
 		return "", fmt.Errorf("create protocol mappers: %w", err)
 	}
 	log.Printf("INFO keycloak: created protocol mappers on client %s", gatewayName)
+
+	log.Printf("INFO keycloak: granting %s token-exchange on client %s", e2eClientID, gatewayName)
+	if err := c.EnsureE2ETokenExchange(ctx, clientUUID); err != nil {
+		log.Printf("WARN keycloak: token-exchange grant failed for %s, rolling back client: %v", gatewayName, err)
+		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
+			log.Printf("WARN keycloak: failed to rollback client %s after token-exchange grant failure: %v", gatewayName, rollbackErr)
+		}
+		return "", fmt.Errorf("grant e2e token-exchange: %w", err)
+	}
 
 	return clientUUID, nil
 }
@@ -396,6 +415,261 @@ func (c *Client) EnsureDeviceAuthorizationGrant(ctx context.Context, clientUUID 
 	return nil
 }
 
+type managementPermissions struct {
+	Enabled          bool              `json:"enabled"`
+	Resource         string            `json:"resource,omitempty"`
+	ScopePermissions map[string]string `json:"scopePermissions,omitempty"`
+}
+
+type authzPolicy struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+// EnsureE2ETokenExchange grants the hypershell-e2e client FGAP v1
+// token-exchange onto targetClientUUID and, when present, hypershell-frontend.
+// Area 4 exchanges onto the per-gateway client; area 9 exchanges onto the
+// frontend API audience. Skip unless that client exists and is enabled: a
+// present-but-disabled representation (Kind, local OpenShift, hub) must not
+// enable admin-fine-grained-authz or attach token-exchange policies on the
+// gateway reconcile path.
+func (c *Client) EnsureE2ETokenExchange(ctx context.Context, targetClientUUID string) error {
+	if targetClientUUID == "" {
+		return fmt.Errorf("target client UUID is required for token-exchange")
+	}
+
+	e2e, err := c.getClient(ctx, e2eClientID)
+	if err != nil {
+		return fmt.Errorf("look up %s client: %w", e2eClientID, err)
+	}
+	if e2e == nil {
+		log.Printf("INFO keycloak: %s client not present; skipping token-exchange grants", e2eClientID)
+		return nil
+	}
+	if !e2e.Enabled {
+		log.Printf("INFO keycloak: %s client is present but disabled; skipping token-exchange grants", e2eClientID)
+		return nil
+	}
+	e2eUUID := e2e.ID
+	if e2eUUID == "" {
+		return fmt.Errorf("keycloak client %s is enabled but has no id", e2eClientID)
+	}
+
+	rmUUID, err := c.getClientUUID(ctx, realmManagementClientID)
+	if err != nil {
+		return fmt.Errorf("look up %s client: %w", realmManagementClientID, err)
+	}
+	if rmUUID == "" {
+		return fmt.Errorf("keycloak client %s not found", realmManagementClientID)
+	}
+
+	// Enabling FGAP on the target client lazily initializes realm-management's
+	// authorization resource server. Without it, the policy search/create
+	// endpoints 404 on a fresh realm, so this must precede the policy work.
+	targetPermID, err := c.enableTokenExchangePermissions(ctx, targetClientUUID)
+	if err != nil {
+		return err
+	}
+
+	policyID, err := c.ensureE2EClientPolicy(ctx, rmUUID, e2eUUID)
+	if err != nil {
+		return err
+	}
+
+	if err := c.attachPolicyToPermission(ctx, rmUUID, targetPermID, policyID); err != nil {
+		return fmt.Errorf("grant token-exchange on client %s: %w", targetClientUUID, err)
+	}
+
+	frontendUUID, err := c.getClientUUID(ctx, frontendClientID)
+	if err != nil {
+		return fmt.Errorf("look up %s client: %w", frontendClientID, err)
+	}
+	if frontendUUID == "" || frontendUUID == targetClientUUID {
+		return nil
+	}
+	frontendPermID, err := c.enableTokenExchangePermissions(ctx, frontendUUID)
+	if err != nil {
+		return err
+	}
+	if err := c.attachPolicyToPermission(ctx, rmUUID, frontendPermID, policyID); err != nil {
+		return fmt.Errorf("grant token-exchange on %s: %w", frontendClientID, err)
+	}
+	return nil
+}
+
+func (c *Client) ensureE2EClientPolicy(ctx context.Context, realmMgmtUUID, e2eClientUUID string) (string, error) {
+	if id, err := c.findE2EClientPolicy(ctx, realmMgmtUUID); err != nil {
+		return "", err
+	} else if id != "" {
+		return id, nil
+	}
+
+	payload, err := json.Marshal(map[string]interface{}{
+		"name":             e2eTokenExchangePolicyName,
+		"logic":            "POSITIVE",
+		"decisionStrategy": tokenExchangeDecisionStrategy,
+		"clients":          []string{e2eClientUUID},
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal %s policy: %w", e2eTokenExchangePolicyName, err)
+	}
+
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/policy/client", c.realm, realmMgmtUUID)
+	resp, err := c.doRequestRaw(ctx, http.MethodPost, path, payload)
+	if err != nil {
+		return "", fmt.Errorf("create %s policy: %w", e2eTokenExchangePolicyName, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusConflict {
+		id, err := c.findE2EClientPolicy(ctx, realmMgmtUUID)
+		if err != nil {
+			return "", err
+		}
+		if id == "" {
+			return "", fmt.Errorf("create %s policy returned 409 but the policy was not found", e2eTokenExchangePolicyName)
+		}
+		return id, nil
+	}
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("create %s policy returned %d: %s", e2eTokenExchangePolicyName, resp.StatusCode, string(body))
+	}
+
+	var created authzPolicy
+	if err := json.Unmarshal(body, &created); err != nil {
+		return "", fmt.Errorf("parse %s policy: %w", e2eTokenExchangePolicyName, err)
+	}
+	if created.ID == "" {
+		return "", fmt.Errorf("create %s policy returned no id", e2eTokenExchangePolicyName)
+	}
+	return created.ID, nil
+}
+
+func (c *Client) findE2EClientPolicy(ctx context.Context, realmMgmtUUID string) (string, error) {
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/policy/search?name=%s",
+		c.realm, realmMgmtUUID, url.QueryEscape(e2eTokenExchangePolicyName))
+	resp, err := c.doRequestRaw(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return "", fmt.Errorf("search %s policy: %w", e2eTokenExchangePolicyName, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+
+	// Keycloak's policy search-by-name returns 404 (not an empty 200/204) when no
+	// policy of that name exists yet, so treat it as "not found" and let the caller
+	// create the policy rather than failing the reconcile.
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound || len(bytes.TrimSpace(body)) == 0 {
+		return "", nil
+	}
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("search %s policy returned %d: %s", e2eTokenExchangePolicyName, resp.StatusCode, string(body))
+	}
+
+	var found authzPolicy
+	if err := json.Unmarshal(body, &found); err != nil {
+		return "", fmt.Errorf("parse %s policy search: %w", e2eTokenExchangePolicyName, err)
+	}
+	return found.ID, nil
+}
+
+func (c *Client) attachPolicyToPermission(ctx context.Context, realmMgmtUUID, permID, policyID string) error {
+	associatedPath := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/policy/%s/associatedPolicies",
+		c.realm, realmMgmtUUID, permID)
+	associatedBody, err := c.doRequest(ctx, http.MethodGet, associatedPath, nil)
+	if err != nil {
+		return fmt.Errorf("list token-exchange associated policies: %w", err)
+	}
+	var associated []authzPolicy
+	if len(bytes.TrimSpace(associatedBody)) > 0 {
+		if err := json.Unmarshal(associatedBody, &associated); err != nil {
+			return fmt.Errorf("parse token-exchange associated policies: %w", err)
+		}
+	}
+	for _, policy := range associated {
+		if policy.ID == policyID {
+			return nil
+		}
+	}
+
+	permPath := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/permission/scope/%s",
+		c.realm, realmMgmtUUID, permID)
+	permBody, err := c.doRequest(ctx, http.MethodGet, permPath, nil)
+	if err != nil {
+		return fmt.Errorf("get token-exchange permission: %w", err)
+	}
+
+	var representation map[string]json.RawMessage
+	if err := json.Unmarshal(permBody, &representation); err != nil {
+		return fmt.Errorf("parse token-exchange permission: %w", err)
+	}
+
+	policyIDs := make([]string, 0, len(associated)+1)
+	for _, policy := range associated {
+		if policy.ID != "" {
+			policyIDs = append(policyIDs, policy.ID)
+		}
+	}
+	policyIDs = append(policyIDs, policyID)
+	rawPolicies, err := json.Marshal(policyIDs)
+	if err != nil {
+		return fmt.Errorf("marshal token-exchange policies: %w", err)
+	}
+	representation["policies"] = rawPolicies
+
+	if rawStrategy, ok := representation["decisionStrategy"]; !ok ||
+		len(rawStrategy) == 0 ||
+		bytes.Equal(bytes.TrimSpace(rawStrategy), []byte("null")) ||
+		bytes.Equal(bytes.TrimSpace(rawStrategy), []byte(`""`)) {
+		representation["decisionStrategy"] = json.RawMessage(`"` + tokenExchangeDecisionStrategy + `"`)
+	}
+
+	body, err := json.Marshal(representation)
+	if err != nil {
+		return fmt.Errorf("marshal token-exchange permission: %w", err)
+	}
+	if _, err := c.doRequest(ctx, http.MethodPut, permPath, body); err != nil {
+		return fmt.Errorf("attach token-exchange policy: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) enableTokenExchangePermissions(ctx context.Context, targetClientUUID string) (string, error) {
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/management/permissions", c.realm, targetClientUUID)
+	payload, err := json.Marshal(managementPermissions{Enabled: true})
+	if err != nil {
+		return "", fmt.Errorf("marshal management permissions: %w", err)
+	}
+
+	body, err := c.doRequest(ctx, http.MethodPut, path, payload)
+	if err != nil {
+		return "", fmt.Errorf("enable management permissions on client %s: %w", targetClientUUID, err)
+	}
+
+	var perms managementPermissions
+	if len(bytes.TrimSpace(body)) > 0 {
+		if err := json.Unmarshal(body, &perms); err != nil {
+			return "", fmt.Errorf("parse management permissions for client %s: %w", targetClientUUID, err)
+		}
+	}
+	if permID := perms.ScopePermissions[tokenExchangeScope]; permID != "" {
+		return permID, nil
+	}
+
+	getBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return "", fmt.Errorf("get management permissions for client %s: %w", targetClientUUID, err)
+	}
+	if err := json.Unmarshal(getBody, &perms); err != nil {
+		return "", fmt.Errorf("parse management permissions for client %s: %w", targetClientUUID, err)
+	}
+	permID := perms.ScopePermissions[tokenExchangeScope]
+	if permID == "" {
+		return "", fmt.Errorf("client %s has no token-exchange permission; enable admin-fine-grained-authz:v1", targetClientUUID)
+	}
+	return permID, nil
+}
+
 func (c *Client) createClientRoles(ctx context.Context, clientUUID string) error {
 	for _, roleName := range []string{"openshell-admin", "openshell-user"} {
 		role := keycloakRole{Name: roleName}
@@ -443,23 +717,34 @@ func (c *Client) createProtocolMappers(ctx context.Context, clientUUID, gatewayN
 	return nil
 }
 
-func (c *Client) getClientUUID(ctx context.Context, clientID string) (string, error) {
+func (c *Client) getClient(ctx context.Context, clientID string) (*keycloakClient, error) {
 	path := fmt.Sprintf("/admin/realms/%s/clients?clientId=%s", c.realm, url.QueryEscape(clientID))
 	respBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	var clients []keycloakClient
 	if err := json.Unmarshal(respBody, &clients); err != nil {
-		return "", fmt.Errorf("parse client list: %w", err)
+		return nil, fmt.Errorf("parse client list: %w", err)
 	}
-	for _, kc := range clients {
-		if kc.ClientID == clientID {
-			return kc.ID, nil
+	for i := range clients {
+		if clients[i].ClientID == clientID {
+			return &clients[i], nil
 		}
 	}
-	return "", nil
+	return nil, nil
+}
+
+func (c *Client) getClientUUID(ctx context.Context, clientID string) (string, error) {
+	kc, err := c.getClient(ctx, clientID)
+	if err != nil {
+		return "", err
+	}
+	if kc == nil {
+		return "", nil
+	}
+	return kc.ID, nil
 }
 
 func (c *Client) listClientRoles(ctx context.Context, clientUUID string) ([]keycloakRole, error) {

@@ -12,17 +12,23 @@ import Fastify, {
   LogController,
 } from "fastify";
 
-import { clearSession, persistTokenSet, registerAuth } from "./auth.js";
+import {
+  AUTH_DENIED_PAGE_HTML,
+  clearSession,
+  persistTokenSet,
+  registerAuth,
+} from "./auth.js";
 import { hasDashboardAdminRole } from "./roles.js";
 import {
   browserRuntimeConfig,
   type BrowserRuntimeConfig,
   type ServerConfig,
 } from "./config.js";
-import { queryGatewayPhaseCounts } from "./metrics-gateways.js";
+import { queryGatewayMetrics } from "./metrics-gateways.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
 import { queryClusterMemory } from "./metrics-cluster-memory.js";
 import { queryGatewayProvisionDuration } from "./metrics-gateway-provision-duration.js";
+import { queryGatewayProvisionOutcomes } from "./metrics-gateway-provision-outcomes.js";
 import { queryGatewaySandboxes } from "./metrics-gateway-sandboxes.js";
 import { queryPlatformInventory } from "./metrics-platform-inventory.js";
 import { queryRegisteredUsers } from "./metrics-registered-users.js";
@@ -154,10 +160,19 @@ function injectRuntimeConfig(
 }
 
 function inlineScriptHashes(document: string): string[] {
-  const hashes = new Set<string>();
-  const scriptPattern = /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/giu;
+  return cspHashes(
+    document,
+    /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/giu,
+  );
+}
 
-  for (const match of document.matchAll(scriptPattern)) {
+function inlineStyleHashes(document: string): string[] {
+  return cspHashes(document, /<style\b[^>]*>([\s\S]*?)<\/style>/giu);
+}
+
+function cspHashes(document: string, pattern: RegExp): string[] {
+  const hashes = new Set<string>();
+  for (const match of document.matchAll(pattern)) {
     const body = match[1];
     if (body) {
       hashes.add(
@@ -165,7 +180,6 @@ function inlineScriptHashes(document: string): string[] {
       );
     }
   }
-
   return [...hashes];
 }
 
@@ -195,6 +209,7 @@ export async function buildApp(
     browserRuntimeConfig(config),
   );
   const scriptHashes = inlineScriptHashes(indexDocument);
+  const styleHashes = inlineStyleHashes(AUTH_DENIED_PAGE_HTML);
 
   const app = Fastify({
     bodyLimit: 1_048_576,
@@ -239,7 +254,7 @@ export async function buildApp(
         imgSrc: ["'self'", "data:"],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'", ...scriptHashes],
-        styleSrc: ["'self'"],
+        styleSrc: ["'self'", ...styleHashes],
         styleSrcAttr: ["'none'"],
         // The BFF serves plain HTTP behind the deployment TLS terminator.
         // HTTPS already blocks mixed active content, while this directive
@@ -465,12 +480,11 @@ export async function buildApp(
     { preHandler: requireDashboardMetricsAccess },
     async (request, reply) => {
       try {
-        const counts = await queryGatewayPhaseCounts(
+        return await queryGatewayMetrics(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
           config.prometheusNamespace,
         );
-        return { counts };
       } catch (error) {
         request.log.warn({ err: error }, "gateway metrics query failed");
         reply.code(502);
@@ -577,6 +591,27 @@ export async function buildApp(
         request.log.warn(
           { err: error },
           "gateway provision duration metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/gateway-provision-outcomes",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryGatewayProvisionOutcomes(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "gateway provision outcomes metrics query failed",
         );
         reply.code(502);
         return { error: "Metrics unavailable", statusCode: 502 };

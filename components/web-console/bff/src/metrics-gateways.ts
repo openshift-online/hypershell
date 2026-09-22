@@ -3,6 +3,12 @@ import {
   namespaceSelector,
   type MetricsSource,
 } from "./metrics-source.js";
+import {
+  alignDailyIntegerSeries,
+  dailyRangeStepSeconds,
+  queryPrometheusRangeScalarSamples,
+  sevenDayUtcCalendarRange,
+} from "./prometheus-range-query.js";
 
 import {
   emptyGatewayPhaseCounts,
@@ -15,6 +21,27 @@ export type GatewayPhaseCounts = Record<GatewayCanonicalPhase, number>;
 export const gatewayPhases = gatewayCanonicalPhaseStrings;
 
 export { emptyGatewayPhaseCounts };
+
+export const gatewayFleetTotalDailyPromql = "sum(hypershell_gateways_total)";
+export const gatewayFleetTotalDailyStepSeconds = dailyRangeStepSeconds;
+
+export interface DailyFleetTotal {
+  date: string;
+  total: number;
+}
+
+export interface GatewayMetricsResponse {
+  counts: GatewayPhaseCounts;
+  daily_fleet_totals?: DailyFleetTotal[];
+}
+
+function gatewayFleetTotalDailyQuery(namespace?: string): string {
+  if (!namespace) {
+    return gatewayFleetTotalDailyPromql;
+  }
+
+  return `sum(hypershell_gateways_total${namespaceSelector(namespace)})`;
+}
 
 interface PrometheusQueryResponse {
   status: string;
@@ -82,5 +109,49 @@ export async function queryGatewayPhaseCounts(
     return counts;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function queryGatewayDailyFleetTotals(
+  prometheusUrl: MetricsSource,
+  timeoutMs: number,
+  namespace?: string,
+): Promise<DailyFleetTotal[]> {
+  const { end, start } = sevenDayUtcCalendarRange();
+  const samples = await queryPrometheusRangeScalarSamples(
+    prometheusUrl,
+    gatewayFleetTotalDailyQuery(namespace),
+    start,
+    end,
+    `${String(gatewayFleetTotalDailyStepSeconds)}s`,
+    timeoutMs,
+  );
+
+  return alignDailyIntegerSeries(samples).map(({ date, value }) => ({
+    date,
+    total: value,
+  }));
+}
+
+export async function queryGatewayMetrics(
+  prometheusUrl: MetricsSource,
+  timeoutMs: number,
+  namespace?: string,
+): Promise<GatewayMetricsResponse> {
+  const counts = await queryGatewayPhaseCounts(
+    prometheusUrl,
+    timeoutMs,
+    namespace,
+  );
+
+  try {
+    const daily_fleet_totals = await queryGatewayDailyFleetTotals(
+      prometheusUrl,
+      timeoutMs,
+      namespace,
+    );
+    return { counts, daily_fleet_totals };
+  } catch {
+    return { counts };
   }
 }

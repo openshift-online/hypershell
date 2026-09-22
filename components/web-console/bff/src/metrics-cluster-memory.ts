@@ -1,12 +1,29 @@
 import { fetchMetrics, type MetricsSource } from "./metrics-source.js";
+import {
+  alignDailyIntegerSeries,
+  dailyRangeStepSeconds,
+  queryPrometheusRangeScalarSamples,
+  sevenDayUtcCalendarRange,
+} from "./prometheus-range-query.js";
 
 export const clusterMemoryCapacityPromql = "sum(node_memory_MemTotal_bytes)";
 export const clusterMemoryAvailablePromql =
   "sum(node_memory_MemAvailable_bytes)";
+export const clusterMemoryDailyUsedPromql =
+  "sum(node_memory_MemTotal_bytes) - sum(node_memory_MemAvailable_bytes)";
+export const clusterMemoryDailyUsedStepSeconds = dailyRangeStepSeconds;
+
+const gibibyteDivisor = 1024 ** 3;
+
+export interface ClusterMemoryDailyUsed {
+  date: string;
+  value: number;
+}
 
 export interface ClusterMemoryBytes {
   available_bytes: number;
   capacity_bytes: number;
+  daily_used?: ClusterMemoryDailyUsed[];
   used_bytes: number;
 }
 
@@ -94,9 +111,31 @@ export async function queryClusterMemory(
 
   const used_bytes = capacity_bytes - available_bytes;
 
-  return {
+  const response: ClusterMemoryBytes = {
     available_bytes,
     capacity_bytes,
     used_bytes,
   };
+
+  try {
+    const { end, start } = sevenDayUtcCalendarRange();
+    const samples = await queryPrometheusRangeScalarSamples(
+      prometheusUrl,
+      clusterMemoryDailyUsedPromql,
+      start,
+      end,
+      `${String(clusterMemoryDailyUsedStepSeconds)}s`,
+      timeoutMs,
+    );
+    response.daily_used = alignDailyIntegerSeries(samples).map(
+      ({ date, value }) => ({
+        date,
+        value: Math.round(value / gibibyteDivisor),
+      }),
+    );
+  } catch {
+    // Omit trend only.
+  }
+
+  return response;
 }

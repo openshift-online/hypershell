@@ -16,10 +16,10 @@ import (
 // attribute.
 var observedGatewayProvisions sync.Map
 
-// observeGatewayProvisionDuration records the time from API creation until the
-// first successful transition to Running. It ignores incomplete or invalid
-// timestamps so telemetry cannot change reconciliation behavior.
-func observeGatewayProvisionDuration(ctx context.Context, gw *pb.Gateway) {
+// observeGatewayProvisionSuccess records the first successful transition to
+// Running. It ignores incomplete or invalid timestamps so telemetry cannot
+// change reconciliation behavior.
+func observeGatewayProvisionSuccess(ctx context.Context, gw *pb.Gateway) {
 	duration, ok := gatewayProvisionDuration(gw)
 	if !ok {
 		return
@@ -29,6 +29,16 @@ func observeGatewayProvisionDuration(ctx context.Context, gw *pb.Gateway) {
 		return
 	}
 	cpotel.RecordGatewayProvisionDuration(ctx, duration)
+	cpotel.RecordGatewayProvisionOutcome(ctx, "success")
+}
+
+// observeGatewayProvisionFailure records the first successful transition to
+// Failed. Success and failure observations share the same one-per-gateway claim.
+func observeGatewayProvisionFailure(ctx context.Context, gatewayID string) {
+	if !claimGatewayProvisionObservation(gatewayID) {
+		return
+	}
+	cpotel.RecordGatewayProvisionOutcome(ctx, "failure")
 }
 
 func claimGatewayProvisionObservation(gatewayID string) bool {

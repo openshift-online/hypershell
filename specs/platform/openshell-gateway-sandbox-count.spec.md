@@ -188,7 +188,7 @@ It surfaces load to operators; it never blocks an action.
 
 ### Requirement: Operational Dashboard Fleet Aggregate
 
-The API server SHALL expose a Prometheus gauge `hypershell_gateways_active_sandboxes_total` that sums `active_sandbox_count` across all gateways on each scrape. The operational dashboard loads this fleet-wide total through BFF `GET /api/metrics/gateway-sandboxes` (`web-console/operational-dashboard.spec.md` OP-DASH-06). This aggregate is dashboard-operator scoped and is independent of per-gateway RBAC visibility on the gateway collection table.
+The API server SHALL expose a Prometheus gauge `hypershell_gateways_active_sandboxes_total` that sums `active_sandbox_count` across all gateways on each scrape. The operational dashboard loads this fleet-wide total through BFF `GET /api/metrics/gateway-sandboxes` (`web-console/operational-dashboard.spec.md` OP-DASH-06). Optional 24-hour hourly and 7-day daily fleet totals for trend sparklines in the usage summary are defined in `platform/gateway-sandbox-active-trends.spec.md`. This aggregate is dashboard-operator scoped and is independent of per-gateway RBAC visibility on the gateway collection table.
 
 #### Scenario: Fleet sandbox gauge reflects database sum
 

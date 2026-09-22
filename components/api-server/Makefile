@@ -1,5 +1,18 @@
 BINARY_NAME=hypershell
 CONTAINER_ENGINE?=$(shell command -v podman 2>/dev/null || echo docker)
+
+# On macOS, testcontainers-go cannot discover the Podman socket automatically.
+# Export DOCKER_HOST and disable the Ryuk reaper so testcontainers works with
+# Podman Machine without requiring the user to set these manually.
+ifeq ($(shell uname -s),Darwin)
+  ifndef DOCKER_HOST
+    _PODMAN_SOCK:=$(shell podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null)
+    ifneq ($(_PODMAN_SOCK),)
+      export DOCKER_HOST:=unix://$(_PODMAN_SOCK)
+      export TESTCONTAINERS_RYUK_DISABLED:=true
+    endif
+  endif
+endif
 POSTGRES_IMAGE=postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
 OPENAPI_SPEC=$(abspath openapi/openapi.yaml)
 SDK_GENERATOR_DIR=$(abspath ../../scripts/sdk-generator)
@@ -79,6 +92,7 @@ generate-cli:
 	test -f "$(CLI_GENERATOR_DIR)/go.mod"
 	# Preserve the reviewed apply/delete commands; generated files are replaced
 	# in place and scoped-resource commands are added alongside them.
+	# main.go and go.mod are NOT generated - they are hand-maintained.
 	cd "$(CLI_GENERATOR_DIR)" && GOWORK=off go run . \
 		--spec "$(OPENAPI_SPEC)" \
 		--out "$(CLI_DIR)" \
@@ -86,6 +100,7 @@ generate-cli:
 		--project hypershell \
 		--api-prefix "$(SDK_API_PREFIX)" \
 		--module "$(CLI_MODULE)"
+	gofmt -w "$(CLI_DIR)"
 
 generate-sdk-ts:
 	test -f "$(SDK_GENERATOR_DIR)/go.mod"

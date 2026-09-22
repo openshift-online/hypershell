@@ -5,6 +5,15 @@
   "minimumReleaseAge": "14 days",
   "internalChecksFilter": "strict",
   "prConcurrentLimit": 6,
+  "extends": ["github>konflux-ci/mintmaker-presets:cve-automerge-critical"],
+  "tekton": {
+    "managerFilePatterns": [
+      "/\\.yaml$/",
+      "/\\.yml$/"
+    ],
+    "includePaths": [".tekton/**"],
+    "automerge": true
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -23,33 +32,38 @@
       "matchManagers": ["gomod"],
       "matchDepTypes": ["indirect"],
       "matchUpdateTypes": ["digest", "minor", "patch"],
-      "groupName": "Go indirect dependencies"
+      "groupName": "Go indirect dependencies",
+      "automerge": true
     },
     {
       "description": "Group non-major npm development dependencies",
       "matchManagers": ["npm"],
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["digest", "minor", "patch", "pin", "pinDigest"],
-      "groupName": "npm development dependencies"
+      "groupName": "npm development dependencies",
+      "automerge": true
     },
     {
       "description": "Group non-major npm production dependencies",
       "matchManagers": ["npm"],
       "matchDepTypes": ["dependencies", "optionalDependencies"],
       "matchUpdateTypes": ["digest", "minor", "patch", "pin", "pinDigest"],
-      "groupName": "npm production dependencies"
+      "groupName": "npm production dependencies",
+      "automerge": true
     },
     {
       "description": "Group container image updates",
       "matchManagers": ["dockerfile"],
       "matchUpdateTypes": ["digest", "minor", "patch", "pinDigest"],
-      "groupName": "container images"
+      "groupName": "container images",
+      "automerge": true
     },
     {
       "description": "Group GitHub Actions updates",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["digest", "minor", "patch", "pinDigest"],
-      "groupName": "GitHub Actions"
+      "groupName": "GitHub Actions",
+      "automerge": true
     },
     {
       "description": "Group OpenShell gateway and supervisor image updates into a single PR",
@@ -59,6 +73,54 @@
         "quay.io/opendatahub/odh-openshell-supervisor"
       ],
       "groupName": "OpenShell images"
+    },
+    {
+      "description": "PatternFly family: peer, dev, and web-console pins in one PR",
+      "matchManagers": ["npm"],
+      "matchPackageNames": [
+        "@patternfly/react-core",
+        "@patternfly/react-icons",
+        "@patternfly/react-table",
+        "@patternfly/react-charts",
+        "@patternfly/widgetized-dashboard"
+      ],
+      "groupName": "PatternFly"
+    },
+    {
+      "description": "Packages declared as both peer and dev in workspace UI packages",
+      "matchManagers": ["npm"],
+      "matchFileNames": [
+        "packages/gateway-management-ui/package.json",
+        "packages/operational-dashboard-ui/package.json"
+      ],
+      "matchDepTypes": ["peerDependencies", "devDependencies"],
+      "matchPackageNames": [
+        "@tanstack/react-query",
+        "react",
+        "react-dom",
+        "react-hook-form",
+        "react-intl",
+        "zod",
+        "victory-area",
+        "victory-axis",
+        "victory-bar",
+        "victory-box-plot",
+        "victory-chart",
+        "victory-core",
+        "victory-create-container",
+        "victory-cursor-container",
+        "victory-group",
+        "victory-legend",
+        "victory-line",
+        "victory-pie",
+        "victory-scatter",
+        "victory-stack",
+        "victory-tooltip",
+        "victory-voronoi-container",
+        "victory-zoom-container"
+      ],
+      "groupName": "workspace UI peer providers",
+      "automerge": true
     }
   ]
 }

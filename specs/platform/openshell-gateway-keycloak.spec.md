@@ -546,13 +546,14 @@ OIDC Role Bridge operations (from RoleBinding events) are separate from client p
 The RoleBinding event and the Gateway event are emitted by the API server in the same transaction. Because the control plane processes watch events concurrently, the RoleBindingReconciler MAY attempt to assign a Keycloak client role before the GatewayReconciler has finished provisioning the Keycloak client. The RoleBindingReconciler SHALL handle this race by retrying role assignment with exponential backoff.
 
 The retry policy SHALL be:
-- Maximum attempts: 10
+- Unlimited attempts until assignment succeeds, the RoleBinding is deleted, or the context is cancelled
 - Initial backoff: 2 seconds
 - Backoff multiplier: 2x per attempt
 - Maximum backoff: 30 seconds
-- Context-aware: retries SHALL stop immediately if the context is cancelled
+- Permanent failures (the RoleBinding's Gateway no longer exists) SHALL NOT be retried
+- Transient failures SHALL be retried, including a missing Keycloak client, a client whose `openshell-admin` / `openshell-user` roles are not yet created, and a watch event whose username or role name has not been enriched yet
 
-Each retry attempt SHALL be logged at INFO level with the attempt number, target client, and error. A successful assignment after retry SHALL be logged at INFO level. Exhaustion of all retry attempts SHALL return the last error to the watcher, which logs it at ERROR level.
+Each retry attempt SHALL be logged at WARN level with the delay, target client, and error. A successful assignment after retry SHALL be logged at INFO level. A permanent missing-gateway failure SHALL be logged at ERROR level and SHALL NOT be retried.
 
 #### Scenario: RoleBinding arrives before Keycloak client exists
 
@@ -568,9 +569,16 @@ Each retry attempt SHALL be logged at INFO level with the attempt number, target
 #### Scenario: Keycloak client never provisioned
 
 - GIVEN the GatewayReconciler fails to provision the Keycloak client (e.g., Keycloak is down)
-- WHEN the RoleBindingReconciler exhausts all retry attempts
+- WHEN the RoleBindingReconciler retries role assignment
+- THEN it SHALL keep retrying with capped exponential backoff until the client exists or the RoleBinding is deleted
+- AND it SHALL NOT drop the binding after a fixed attempt budget
+
+#### Scenario: Gateway for the RoleBinding has been deleted
+
+- GIVEN a RoleBinding whose `gateway_id` no longer resolves
+- WHEN the RoleBindingReconciler attempts to assign a Keycloak role
 - THEN it SHALL log the failure at ERROR level
-- AND the role assignment SHALL be retried on the next RoleBinding event for this binding
+- AND it SHALL NOT retry that binding
 
 ---
 
@@ -688,7 +696,7 @@ When a gateway-scoped RoleBinding is deleted (after checking no remaining covera
 | Bulk realm import does not scale | Importing a realm with thousands of clients runs as a single transaction | Use incremental Admin REST API calls for each gateway |
 | Audience resolve mapper leaks audiences | The built-in `oidc-audience-resolve-mapper` adds all clients' IDs to `aud` when `fullScopeAllowed = true` | Omit the audience-resolve mapper from the realm; use per-client audience mappers |
 | User lookup by subject | Keycloak user search uses `username`, which may differ from the OIDC `sub` claim depending on identity provider federation | The RBAC spec auto-provisions Users from `preferred_username`; ensure this matches the Keycloak username |
-| Gateway created with auto-provisioned RoleBinding | Race between Gateway ADDED and RoleBinding ADDED events (both emitted from the same API transaction) | RoleBindingReconciler retries role assignment with exponential backoff until the Keycloak client is provisioned |
+| Gateway created with auto-provisioned RoleBinding | Race between Gateway ADDED and RoleBinding ADDED events (both emitted from the same API transaction) | RoleBindingReconciler retries role assignment with exponential backoff until the Keycloak client is provisioned. A half-provisioned client (client exists, roles not yet created) is retried the same way. |
 | RoleBinding deletion requires coverage check | Removing one binding may leave the user covered by another | Resolve all remaining bindings for the user+gateway before removing the Keycloak role |
 | Gateway deletion cascades role assignments | Deleting a Keycloak client removes all user role assignments for that client | RBAC RoleBindings in HyperShell are also deleted when the gateway is deleted (gateway_id FK) |
 

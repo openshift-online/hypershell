@@ -1,15 +1,15 @@
 # Operational Dashboard
 
 **Status:** Active
-**Applies to:** `packages/operational-dashboard-ui`, `components/web-console` SPA and BFF, `packages/gateway-management-ui` (display-status aggregation)
+**Applies to:** `packages/operational-dashboard-ui`, `components/web-console` SPA and BFF, `packages/gateway-management-ui` (display-status aggregation), `components/sdk-typescript` (gateway list client)
 
 ## Purpose
 
 Provide a widgetized operational dashboard in the HyperShell web console where administrators can assess fleet health at a glance. The dashboard composes summary and detail widgets in a customizable grid layout. Live data is loaded through a narrow application port (`DashboardControlPlane`) implemented by the web-console host; widgets without a connected source remain on the page and render a localized unavailable state rather than being hidden.
 
-This specification covers the reusable `operational-dashboard-ui` package, the host adapter that loads operational metrics from BFF Prometheus proxy routes, admin-only access controls, SPA and BFF route surfaces, layout persistence, and the widget catalog. Platform inventory metrics (managed clusters and managed databases) are defined in `platform/platform-inventory.spec.md`. Prometheus gateway phase counts (`hypershell_gateways_total`, BFF `GET /api/metrics/gateways`) are defined in `platform/gateway-metrics-dashboard.spec.md` and consumed by this dashboard for `provisioned-gateways` and `gateway-status`. The embeddable `GatewayMetricsDashboard` component remains a separate surface.
+This specification covers the reusable `operational-dashboard-ui` package, the host adapter that loads operational metrics from BFF Prometheus proxy routes and HyperShell REST where noted below, admin-only access controls, SPA and BFF route surfaces, layout persistence, and the widget catalog. Platform inventory metrics (managed clusters and managed databases) are defined in `platform/platform-inventory.spec.md`. Prometheus gateway phase counts (`hypershell_gateways_total`, BFF `GET /api/metrics/gateways`) are defined in `platform/gateway-metrics-dashboard.spec.md` and consumed by this dashboard for `provisioned-gateways` and `gateway-status`. Gateway provision duration and provision outcomes are defined in `platform/gateway-provision-time.spec.md` and `platform/gateway-provision-outcomes.spec.md`. Gateway release adoption (`gateway-releases`, REST list aggregation) is defined in `platform/gateway-release-distribution.spec.md` (OP-DASH-25). The embeddable `GatewayMetricsDashboard` component remains a separate surface. Remaining REST-to-Prometheus migration work is tracked in `packages/operational-dashboard-ui/PROMETHEUS_MIGRATION.md`.
 
-**Data-source direction:** Aggregate operational dashboard widgets SHALL prefer Prometheus-backed BFF routes over direct HyperShell REST list pagination. The API server exposes fleet-wide gauges from database state on its `/metrics` scrape; the BFF queries Prometheus and returns JSON to the browser adapter. HyperShell REST List APIs remain authoritative for resource collection pages (for example, the gateway table) but are not the preferred source for dashboard totals.
+**Data-source direction:** Aggregate operational dashboard widgets SHALL prefer Prometheus-backed BFF routes over direct HyperShell REST list pagination. The API server exposes fleet-wide gauges from database state on its `/metrics` scrape; the BFF queries Prometheus and returns JSON to the browser adapter. HyperShell REST List APIs remain authoritative for resource collection pages (for example, the gateway table) and for metrics explicitly defined on REST list aggregation (for example, `gateway-releases`) but are not the preferred source for dashboard totals otherwise.
 
 ### Relationship to gateway metrics
 
@@ -82,7 +82,7 @@ The application shell SHALL wrap authenticated routes in `DashboardUiProvider`, 
 
 ### Requirement: OP-DASH-04 -- Administrator Access Control
 
-Access to the operational dashboard SHALL be restricted to users with the `hypershell-admins` or `platform:admin` realm role.
+Access to the operational dashboard SHALL be restricted to users with the `platform:admin` realm role (effective `platform:admin` RoleBinding, including JWT-synced `platform:admin` realm role). The legacy Keycloak realm role `hypershell-admins` SHALL NOT grant dashboard access on its own.
 
 The SPA route modules for `/dashboard` and the dashboard-host root (`/`) SHALL wrap `OperationalDashboardPage` in `RequireDashboardAdmin`, which:
 
@@ -92,7 +92,7 @@ The SPA route modules for `/dashboard` and the dashboard-host root (`/`) SHALL w
 
 When OIDC is enabled, the BFF SHALL enforce the same role requirement for browser navigations to `/dashboard` and for `/` on hosts whose hostname starts with `dashboard.`. Non-admin users SHALL be redirected away (to `/` on the console host, or to the console host when the request arrived on a dashboard subdomain).
 
-When OIDC is enabled, the BFF SHALL enforce the same dashboard-admin role requirement on every `GET /api/metrics/*` route consumed by the operational dashboard host adapter (`cluster-memory`, `cluster-cpu`, `cluster-pods`, `cluster-nodes`, `gateways`, `gateway-sandboxes`, `gateway-provision-duration`, `platform-inventory`, and `registered-users` per OP-DASH-08). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled (no-auth dev mode), these routes SHALL remain open to unauthenticated callers, matching page behavior.
+When OIDC is enabled, the BFF SHALL enforce the same dashboard-admin role requirement on every `GET /api/metrics/*` route consumed by the operational dashboard host adapter (`cluster-memory`, `cluster-cpu`, `cluster-pods`, `cluster-nodes`, `gateways`, `gateway-sandboxes`, `gateway-provision-duration`, `gateway-provision-outcomes`, `platform-inventory`, and `registered-users` per OP-DASH-08). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled (no-auth dev mode), these routes SHALL remain open to unauthenticated callers, matching page behavior.
 
 #### Scenario: Non-admin is turned away from /dashboard
 
@@ -114,9 +114,15 @@ When OIDC is enabled, the BFF SHALL enforce the same dashboard-admin role requir
 - WHEN the user sends `GET /api/metrics/cluster-cpu`
 - THEN the BFF SHALL respond with HTTP `403`
 
-#### Scenario: Dashboard administrator can fetch cluster metrics
+#### Scenario: Legacy hypershell-admins cannot fetch cluster metrics
 
-- GIVEN OIDC is enabled and the signed-in user has `hypershell-admins`
+- GIVEN OIDC is enabled and the signed-in user has only `hypershell-admins` (no `platform:admin`)
+- WHEN the user sends `GET /api/metrics/cluster-memory`
+- THEN the BFF SHALL respond with HTTP `403`
+
+#### Scenario: Platform admin can fetch cluster metrics
+
+- GIVEN OIDC is enabled and the signed-in user has `platform:admin`
 - AND Prometheus returns successful instant-query results
 - WHEN the user sends `GET /api/metrics/cluster-memory`
 - THEN the BFF SHALL respond with HTTP `200`
@@ -154,7 +160,11 @@ The BFF route SHALL query Prometheus for `hypershell_gateways_active_sandboxes_t
 
 The adapter SHALL emit a `provisioned-sandboxes` metric whose `value` is the stringified `active_sandboxes` count from the BFF response. The value SHALL NOT be a non-finite number.
 
-A non-success BFF response for gateway sandboxes SHALL fail the entire `gateway-metrics` source (including `provisioned-gateways` and `provision-time`). Access control is enforced at the BFF route (dashboard-operator roles per OP-DASH-04).
+When BFF `hourly_active_sandboxes` and `daily_active_sandboxes` are present, the adapter SHALL also emit optional `hourlyTrend` and `trend` per `platform/gateway-sandbox-active-trends.spec.md` GSAT-06. When a historical field is absent, the adapter SHALL omit the corresponding trend field only.
+
+The `provisioned-sandboxes` metric SHALL remain connected for the `usage-summary` sandboxes row (OP-DASH-13). The standalone `provisioned-sandboxes` grid widget is retired from the default layout and widget catalog (OP-DASH-11, OP-DASH-25).
+
+A non-success BFF response for gateway sandboxes SHALL fail the entire `gateway-metrics` source (including `provisioned-gateways`, `provision-time`, and `provision-reliability`). Access control is enforced at the BFF route (dashboard-operator roles per OP-DASH-04).
 
 #### Scenario: Prometheus sandbox count populates provisioned-sandboxes
 
@@ -168,22 +178,27 @@ A non-success BFF response for gateway sandboxes SHALL fail the entire `gateway-
 - GIVEN `GET /api/metrics/gateway-sandboxes` fails
 - WHEN the adapter processes the `gateway-metrics` source
 - THEN the `gateway-metrics` source SHALL be treated as failed
-- AND `provisioned-sandboxes`, `provisioned-gateways`, and `provision-time` SHALL be omitted
+- AND `provisioned-sandboxes`, `provisioned-gateways`, `provision-time`, and `provision-reliability` SHALL be omitted
 - AND the dashboard SHALL NOT synthesize a zero sandbox count
 
 ---
 
 ### Requirement: OP-DASH-23 -- Gateway Prometheus Metrics Adapter
 
-The host `DashboardControlPlane` adapter SHALL load `provisioned-gateways` (see OP-DASH-07), `provisioned-sandboxes` (OP-DASH-06), and optionally `provision-time` from BFF Prometheus proxy routes in the `gateway-metrics` metric source:
+The host `DashboardControlPlane` adapter SHALL load `provisioned-gateways` (see OP-DASH-07), `provisioned-sandboxes` (OP-DASH-06), and optionally `provision-time` and `provision-reliability` from BFF Prometheus proxy routes in the `gateway-metrics` metric source:
 
 - `GET /api/metrics/gateways` - fleet-wide phase counts from `hypershell_gateways_total` (see `platform/gateway-metrics-dashboard.spec.md` DASH-05)
 - `GET /api/metrics/gateway-sandboxes` - fleet-wide active sandbox sum from `hypershell_gateways_active_sandboxes_total` (OP-DASH-06)
 - `GET /api/metrics/gateway-provision-duration` - provision duration histogram (see `platform/gateway-provision-time.spec.md`)
+- `GET /api/metrics/gateway-provision-outcomes` - 24-hour provision success/failure counts and hourly success-rate series (see `platform/gateway-provision-outcomes.spec.md`)
 
 The adapter SHALL call `fetchGatewayMetrics` from `@openshift-online/hypershell-gateway-management-ui` for phase counts. A non-success BFF response for gateways or gateway sandboxes SHALL fail the entire `gateway-metrics` source.
 
 `provision-time` SHALL be appended to the same source only when the provision-duration BFF route succeeds. When the route fails or returns no qualifying samples, `provision-time` SHALL be omitted while `provisioned-gateways` and `provisioned-sandboxes` MAY still be emitted.
+
+`provision-reliability` SHALL be appended to the same source only when the provision-outcomes BFF route succeeds and `success_rate_percent` is non-null (GPO-05, GPO-07). When the route fails or returns `success_rate_percent: null`, `provision-reliability` SHALL be omitted while `provisioned-gateways`, `provisioned-sandboxes`, and `provision-time` MAY still be emitted.
+
+The adapter SHALL fetch provision duration and provision outcomes concurrently. Failure of one route SHALL NOT prevent emission of the other when that route succeeds.
 
 Gateway phase counts SHALL be fleet-wide and SHALL NOT be filtered by per-gateway RoleBindings. Access control is enforced at the BFF route (dashboard-operator roles per OP-DASH-04).
 
@@ -199,7 +214,23 @@ Gateway phase counts SHALL be fleet-wide and SHALL NOT be filtered by per-gatewa
 - GIVEN `GET /api/metrics/gateways` fails
 - WHEN the adapter processes the `gateway-metrics` source
 - THEN the `gateway-metrics` source SHALL be treated as failed
-- AND `provisioned-gateways`, `provisioned-sandboxes`, and `provision-time` SHALL be omitted
+- AND `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, and `provision-reliability` SHALL be omitted
+
+#### Scenario: Provision outcomes populate provision-reliability
+
+- GIVEN `GET /api/metrics/gateway-provision-outcomes` returns `{ "success_count_24h": 9, "failure_count_24h": 1, "success_rate_percent": 90.0, "hourly_success_rate": [ { "hour": "2026-08-09T12:00", "success_count": 4, "failure_count": 1, "success_rate_percent": 80.0 }, { "hour": "2026-08-09T13:00", "success_count": 5, "failure_count": 0, "success_rate_percent": 100.0 } ] }`
+- WHEN `getOperationalMetrics` runs
+- THEN the adapter SHALL emit `provision-reliability` with `value: "90.0"`
+- AND `provisionOutcomes` SHALL include `successCount24h: "9"`, `failureCount24h: "1"`, and `successRatePercent: "90.0"`
+- AND `successRateTrend.points` SHALL contain two hourly entries
+
+#### Scenario: Provision outcomes unavailable does not hide provision duration
+
+- GIVEN `GET /api/metrics/gateway-provision-duration` succeeds
+- AND `GET /api/metrics/gateway-provision-outcomes` fails
+- WHEN `getOperationalMetrics` runs
+- THEN `provision-time` SHALL still be emitted
+- AND `provision-reliability` SHALL be omitted
 
 ---
 
@@ -233,22 +264,24 @@ Version 1 of the operational dashboard SHALL distinguish **connected** metrics (
 
 | Metric ID | Connected in v1 | Source when connected |
 | --- | --- | --- |
-| `provisioned-gateways` | Yes | BFF `GET /api/metrics/gateways` (Prometheus); OP-DASH-23, OP-DASH-07 |
-| `provisioned-sandboxes` | Yes | BFF `GET /api/metrics/gateway-sandboxes` (Prometheus); OP-DASH-06 |
-| `registered-users` | Yes | BFF `GET /api/metrics/registered-users` (Prometheus); see `platform/registered-users.spec.md` |
-| `memory` | Yes | BFF `GET /api/metrics/cluster-memory` (Prometheus node-exporter); see `platform/cluster-memory.spec.md` |
+| `provisioned-gateways` | Yes | BFF `GET /api/metrics/gateways` (Prometheus); OP-DASH-23, OP-DASH-07; optional 7-day fleet-total `trend` per `platform/gateway-fleet-total-trend.spec.md` |
+| `provisioned-sandboxes` | Yes | BFF `GET /api/metrics/gateway-sandboxes` (Prometheus); OP-DASH-06; optional 24-hour hourly and 7-day daily `hourlyTrend` / `trend` per `platform/gateway-sandbox-active-trends.spec.md` |
+| `registered-users` | Yes | BFF `GET /api/metrics/registered-users` (Prometheus); adoption totals, added counts, unique-login rollups, and daily `trend` per `platform/registered-users.spec.md` |
+| `memory` | Yes | BFF `GET /api/metrics/cluster-memory` (Prometheus node-exporter); see `platform/cluster-memory.spec.md`; optional 7-day used GiB `trend` per `platform/hub-cluster-utilization-trends.spec.md` |
 | `nodes` | Yes | BFF `GET /api/metrics/cluster-nodes` (Prometheus kube-state-metrics); see `platform/cluster-nodes.spec.md` |
-| `cpu` | Yes | BFF `GET /api/metrics/cluster-cpu` (Prometheus node-exporter); see `platform/cluster-cpu.spec.md` |
-| `pods` | Yes | BFF `GET /api/metrics/cluster-pods` (Prometheus kube-state-metrics); see `platform/cluster-pods.spec.md` |
+| `cpu` | Yes | BFF `GET /api/metrics/cluster-cpu` (Prometheus node-exporter); see `platform/cluster-cpu.spec.md`; optional 7-day used cores `trend` per `platform/hub-cluster-utilization-trends.spec.md` |
+| `pods` | Yes | BFF `GET /api/metrics/cluster-pods` (Prometheus kube-state-metrics); see `platform/cluster-pods.spec.md`; optional 7-day used pods `trend` per `platform/hub-cluster-utilization-trends.spec.md` |
 | `provision-time` | Yes | BFF `GET /api/metrics/gateway-provision-duration` (Prometheus control-plane histogram); see `platform/gateway-provision-time.spec.md` |
+| `provision-reliability` | Yes | BFF `GET /api/metrics/gateway-provision-outcomes` (Prometheus control-plane counter); see `platform/gateway-provision-outcomes.spec.md` |
 | `managed-clusters` | Yes | BFF `GET /api/metrics/platform-inventory` (Prometheus); see `platform/platform-inventory.spec.md` |
 | `managed-databases` | Yes | BFF `GET /api/metrics/platform-inventory` (Prometheus); see `platform/platform-inventory.spec.md` |
+| `gateway-releases` | Yes | HyperShell API gateway and gateway release list aggregation (SDK); see `platform/gateway-release-distribution.spec.md` (OP-DASH-25) |
 
 Widgets for placeholder metrics SHALL remain in the default layout and in the add-widgets drawer. When a metric ID is missing from the adapter response - whether because the metric is not yet connected or because its data source failed (OP-DASH-19) - the widget body SHALL render a localized "Metric unavailable" empty state (title and recovery guidance) instead of failing the entire dashboard.
 
 Summary rows (`usage-summary`, `system-summary`) that reference a missing metric SHALL render the same localized metric-unavailable message in place of the value instead of omitting the row or showing a blank cell.
 
-Historical trend data (`OperationalMetric.trend`) and utilization capacity fields (`unit`, `total`) are not loaded by the production adapter in v1. Widgets SHALL omit trend sparklines and utilization donuts when those fields are absent.
+Historical trend data (`OperationalMetric.trend`) is loaded for `registered-users` (30 UTC calendar days of daily unique logins per `platform/registered-users.spec.md`), for `provisioned-gateways` (7 UTC calendar days of daily fleet gateway totals per `platform/gateway-fleet-total-trend.spec.md`), for `provisioned-sandboxes` (7 UTC calendar days of daily fleet active sandbox totals per `platform/gateway-sandbox-active-trends.spec.md`), and for hub-cluster `memory`, `cpu`, and `pods` (7 UTC calendar days of daily **used** amounts per `platform/hub-cluster-utilization-trends.spec.md`). The `provisioned-sandboxes` metric MAY also include `OperationalMetric.hourlyTrend` (24-hour hourly active sandbox totals per `platform/gateway-sandbox-active-trends.spec.md`). The `provision-reliability` widget MAY include `OperationalMetric.successRateTrend` from hourly success-rate buckets in the provision-outcomes BFF response. Widgets and summary rows SHALL omit trend sparklines when the relevant trend field is absent or has fewer than two points.
 
 The package SHALL maintain `DATA_SOURCES.md` documenting connected vs placeholder metrics and the adapter update procedure.
 
@@ -309,13 +342,14 @@ The host `DashboardControlPlane` adapter SHALL load operational metrics from ind
 
 | Source | Metric IDs affected |
 | --- | --- |
-| BFF `GET /api/metrics/gateways`, `GET /api/metrics/gateway-sandboxes`, and `GET /api/metrics/gateway-provision-duration` (`gateway-metrics`) | `provisioned-gateways`, `provisioned-sandboxes`, `provision-time` |
+| BFF `gateway-metrics` fetch (`GET /api/metrics/gateways`, `GET /api/metrics/gateway-sandboxes`, optional `GET /api/metrics/gateway-provision-duration`, optional `GET /api/metrics/gateway-provision-outcomes`) | `provisioned-gateways`, `provisioned-sandboxes`, `provision-time` (optional), `provision-reliability` (optional) |
 | BFF `GET /api/metrics/registered-users` (`registered-users`) | `registered-users` |
 | BFF `GET /api/metrics/cluster-memory` | `memory` |
 | BFF `GET /api/metrics/cluster-cpu` | `cpu` |
 | BFF `GET /api/metrics/cluster-pods` | `pods` |
 | BFF `GET /api/metrics/cluster-nodes` | `nodes` |
 | BFF `GET /api/metrics/platform-inventory` (`platform-inventory`) | `managed-clusters`, `managed-databases` |
+| HyperShell API gateway list + gateway release list (`gateway-release-distribution`) | `gateway-releases` |
 
 The adapter SHALL fetch these sources concurrently. When a source fails (network error, non-success HTTP status, inconsistent pagination, or other adapter validation error for that source), the adapter SHALL:
 
@@ -340,7 +374,7 @@ The dashboard page SHALL derive partial-failure warnings from the adapter result
 - AND every other BFF metrics request fails (gateway metrics, platform inventory, and cluster metrics)
 - WHEN the operator opens `/dashboard`
 - THEN the registered-user widget SHALL display loaded values
-- AND gateway, sandbox, inventory, provision-time, and cluster metric widgets SHALL render the localized metric-unavailable state
+- AND gateway, sandbox, inventory, provision-time, provision-reliability, and cluster metric widgets SHALL render the localized metric-unavailable state
 - AND a warning `Alert` SHALL explain that some metrics could not be loaded
 
 #### Scenario: Gateway metrics failure does not hide cluster metrics
@@ -348,8 +382,8 @@ The dashboard page SHALL derive partial-failure warnings from the adapter result
 - GIVEN every BFF cluster-metrics request succeeds
 - AND the `gateway-metrics` source fails (for example, `GET /api/metrics/gateways` returns HTTP `502`)
 - WHEN the operator opens `/dashboard`
-- THEN cluster metric widgets SHALL display loaded values
-- AND gateway, sandbox, and provision-time widgets or summary rows SHALL render the localized metric-unavailable state
+- THEN registered-user, inventory, and cluster metric widgets SHALL display loaded values
+- AND gateway count, sandbox, provision-time, and provision-reliability widgets SHALL render the localized metric-unavailable state
 - AND a warning `Alert` SHALL explain that some metrics could not be loaded
 
 #### Scenario: Platform inventory failure does not hide other metrics
@@ -371,6 +405,32 @@ The dashboard page SHALL derive partial-failure warnings from the adapter result
 - AND the provision-time widget or summary row SHALL render the localized metric-unavailable state
 - AND the dashboard SHALL NOT enter the total load-error state
 
+#### Scenario: No qualifying provision-outcomes omit only provision reliability
+
+- GIVEN `GET /api/metrics/gateways` succeeds
+- AND `GET /api/metrics/gateway-provision-outcomes` fails or returns `success_rate_percent: null`
+- WHEN `getOperationalMetrics` runs
+- THEN `provisioned-gateways` SHALL still be emitted
+- AND `provision-reliability` SHALL be omitted
+- AND the provision-reliability widget and system-summary success-rate row SHALL render the localized metric-unavailable state
+- AND the dashboard SHALL NOT enter the total load-error state
+
+#### Scenario: Gateway metrics failure does not hide release distribution
+
+- GIVEN gateway list and gateway release list aggregation succeed
+- AND the `gateway-metrics` Prometheus source fails
+- WHEN the operator opens `/dashboard`
+- THEN the Gateway releases widget SHALL display loaded release rows
+- AND gateway status and usage-summary gateway rows SHALL render the localized metric-unavailable state
+
+#### Scenario: Gateway list failure omits only release distribution
+
+- GIVEN every other metric source succeeds
+- AND gateway list aggregation fails
+- WHEN the operator opens `/dashboard`
+- THEN the Gateway releases widget SHALL render the localized metric-unavailable state
+- AND other connected widgets SHALL remain populated
+
 ---
 
 ### Requirement: OP-DASH-10 -- Widgetized Grid Layout
@@ -382,19 +442,22 @@ The default layout template (`defaultDashboardLayoutTemplate`) SHALL place these
 | Widget type | Layout item `i` | Default position (4-column) |
 | --- | --- | --- |
 | `section-title` | `section-title#platform-adoption` | Full width, row 0 (platform adoption header) |
-| `usage-summary` | `usage-summary#1` | Column 0, platform adoption |
-| `gateway-status` | `gateway-status#1` | Columns 1–2, platform adoption, spans two columns |
-| `provisioned-sandboxes` | `provisioned-sandboxes#1` | Column 3, platform adoption |
-| `registered-users` | `registered-users#1` | Column 3, platform adoption second row |
+| `usage-summary` | `usage-summary#1` | Column 0, platform adoption; height `REGISTERED_USERS_WIDGET_HEIGHT` (see RU-06) |
+| `registered-users` | `registered-users#1` | Columns 1–2, platform adoption, spans two columns; height `REGISTERED_USERS_WIDGET_HEIGHT` (see RU-06) |
+| `gateway-status` | `gateway-status#1` | Column 3, platform adoption top row; height `ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT` |
+| `gateway-releases` | `gateway-releases#1` | Column 3, platform adoption second row (below gateway status); height `GATEWAY_RELEASES_WIDGET_HEIGHT` (see OP-DASH-25) |
 | `section-title` | `section-title#hub-cluster` | Full width, hub cluster header row |
-| `system-summary` | `system-summary#1` | Column 0, hub cluster |
-| `memory` | `memory#1` | Column 1, hub cluster |
-| `provision-time` | `provision-time#1` | Column 1, hub cluster second row (below memory) |
-| `cpu` | `cpu#1` | Column 2, hub cluster |
-| `pods` | `pods#1` | Column 3, hub cluster |
-| `nodes` | `nodes#1` | Column 2, hub cluster second row (below cpu) |
+| `system-summary` | `system-summary#1` | Column 0, hub cluster (spans two rows; height `HUB_CLUSTER_SECTION_HEIGHT`) |
+| `memory` | `memory#1` | Column 1, hub cluster row 1 |
+| `cpu` | `cpu#1` | Column 2, hub cluster row 1 |
+| `nodes` | `nodes#1` | Column 3, hub cluster row 1 |
+| `pods` | `pods#1` | Column 1, hub cluster row 2 |
+| `provision-time` | `provision-time#1` | Column 2, hub cluster row 2 |
+| `provision-reliability` | `provision-reliability#1` | Column 3, hub cluster row 2 |
 
-On `sm`, widgets SHALL stack in section order: platform adoption title, adoption metrics, hub cluster title, then hub cluster metrics.
+The hub cluster section SHALL use a two-row grid beside `system-summary`. Row 1 SHALL place `memory` and `cpu` at `UTILIZATION_WIDGET_HEIGHT`, and `nodes` at `NODE_STATUS_WIDGET_HEIGHT`. Row 2 SHALL place `pods` at `POD_CAPACITY_WIDGET_HEIGHT`, `provision-time` at `PROVISION_TIME_WIDGET_HEIGHT`, and `provision-reliability` at `PROVISION_RELIABILITY_WIDGET_HEIGHT`. `UTILIZATION_WIDGET_HEIGHT` and `POD_CAPACITY_WIDGET_HEIGHT` are taller than `NODE_STATUS_WIDGET_HEIGHT` so utilization widgets can show the primary chart and 7-day usage trend sparkline (HCUT-08).
+
+On `sm`, widgets SHALL stack in section order: platform adoption title, adoption metrics (`usage-summary`, `gateway-status`, `gateway-releases`, `registered-users`), hub cluster title, then hub cluster metrics (`system-summary`, `memory`, `cpu`, `nodes`, `pods`, `provision-time`, `provision-reliability`).
 
 The page header SHALL place the localized last-refreshed timestamp, manual refresh control, reset-to-default link, and add-widgets button in the top-right column, stacked vertically with compact spacing. The grid SHALL NOT use a separate sticky toolbar between the page header and widgets. The last-refreshed timestamp SHALL be formatted from `lastSuccessfulRefresh`. The page description SHALL describe v1 scope and the 15-minute refresh interval without duplicating refresh instructions already shown in the timestamp area.
 
@@ -413,9 +476,26 @@ Users SHALL be able to add widgets from the drawer, drag to rearrange, and remov
 
 ### Requirement: OP-DASH-11 -- Layout Persistence
 
-The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v23`.
+The dashboard SHALL persist the sanitized layout template to `localStorage` under the key `hypershell.operational-dashboard.layout.v41`.
+
+Each default-layout change that would leave saved positions incompatible with the new template SHALL bump the layout persistence key so browsers load the updated default instead of a stale saved grid. Documented bumps:
+
+| Key | Trigger |
+| --- | --- |
+| `v23` | Section title widgets (OP-DASH-20) |
+| `v30` | Platform inventory section and default inventory widgets (OP-DASH-22, OP-DASH-21) |
+| `v31` | Taller `registered-users` widget for activity stats rows (RU-10) |
+| `v32` | `registered-users` spans two columns; `gateway-status` compact single column |
+| `v35` | Hub cluster two-row grid; `provision-reliability` widget; taller `system-summary` (OP-DASH-10, OP-DASH-24) |
+| `v37` | Retire `provisioned-sandboxes` grid widget; add `gateway-releases` below `gateway-status` in column 3 (OP-DASH-25) |
+| `v38` | Platform inventory widgets on one row: inventory summary, cluster providers, cluster regions (one column), database status (OP-DASH-22) |
+| `v39` | Taller `usage-summary`, `gateway-status`, `memory`, `cpu`, and `pods` widgets for HYPERSHELL-281 trend sparklines (GFT-06, GSAT-07, HCUT-08) |
+| `v40` | Combined v38 inventory layout and v39 trend sparkline widget heights |
+| `v41` | Hub utilization widgets render through `UtilizationCard` with sparklines; widget mapping defaults use `UTILIZATION_WIDGET_HEIGHT` / `POD_CAPACITY_WIDGET_HEIGHT` (HCUT-08) |
 
 On mount, a saved template SHALL be loaded when it parses as valid JSON and contains an array entry for every responsive variant (`xl`, `lg`, `md`, `sm`). Invalid or corrupt saved state SHALL fall back to the default template without surfacing an error to the user.
+
+Saved layouts SHALL be passed through `stripRemovedWidgetTypes` before render and persistence. Retired widget types (`provisioned-sandboxes`, legacy inventory number tiles, and other entries in `REMOVED_WIDGET_TYPES`) SHALL be removed from saved templates so stale tiles do not reappear after catalog changes.
 
 Duplicate layout item `i` values in a single variant SHALL be deduplicated on save (first occurrence wins). Duplicate metric `widgetType` entries (every type except `section-title`) SHALL also be deduplicated on save (first occurrence wins). Multiple `section-title` instances with distinct `i` values SHALL be preserved.
 
@@ -446,7 +526,7 @@ The chart SHALL:
 
 When `status` is absent or all bucket counts are zero, the chart area SHALL render nothing (the widget shell remains).
 
-If the metric includes `trend` data, a `TrendSparklineChart` SHALL render below the donut; otherwise the sparkline SHALL be omitted.
+If the metric includes `trend` data, a `TrendSparklineChart` SHALL render below the donut with caption **Last 7 days** (`platform/gateway-fleet-total-trend.spec.md` GFT-06); otherwise the sparkline SHALL be omitted.
 
 #### Scenario: Degraded and failed counts appear in usage summary
 
@@ -472,7 +552,7 @@ Gateway and node inventory metrics that expose `OperationalMetric.value` plus `O
 
 Node status donuts SHALL reuse the same `status.healthy` and `status.failed` keys as the adapter mapping in `platform/cluster-nodes.spec.md` CLN-05, but SHALL render localized **Ready** and **Not ready** labels instead of gateway vocabulary.
 
-`NodeStatusCard` SHALL wrap `NodeStatusChart` with the same card shell used by `GatewayStatusCard`. The default layout template SHALL include a `nodes` widget (OP-DASH-10) at `NODE_STATUS_WIDGET_HEIGHT` (one grid unit taller than `cpu`/`pods`). The `nodes` widget SHALL NOT render a trend sparkline. `NodeStatusChart` SHALL use the compact `StatusDonutChart` size without a chart subtitle (the widget title already identifies the metric) and reduced card-body padding so the donut is not clipped.
+`NodeStatusCard` SHALL wrap `NodeStatusChart` with the same card shell used by `GatewayStatusCard`. The default layout template SHALL include a `nodes` widget (OP-DASH-10) at `NODE_STATUS_WIDGET_HEIGHT` (shorter than `memory`, `cpu`, and `pods`, which use sparkline-capable heights per HCUT-08). The `nodes` widget SHALL NOT render a trend sparkline. `NodeStatusChart` SHALL use the compact `StatusDonutChart` size without a chart subtitle (the widget title already identifies the metric) and reduced card-body padding so the donut is not clipped.
 
 When `status` is absent or all bucket counts are zero, status donut charts SHALL render nothing while their widget shell remains.
 
@@ -493,7 +573,9 @@ The `pods` widget SHALL render `PodCapacityChart` when the metric includes `unit
 
 `PodCapacityChart` SHALL use the compact `StatusDonutChart` size. When a donut subtitle is rendered, the chart SHALL use expanded compact height and padding so the subtitle and legend are not clipped. The chart center title SHALL show **used** pods (`value`). The chart subtitle SHALL read "of {total} pods". Segments SHALL include Running, Pending, Failed, Succeeded, Unknown (from `podPhases`), plus an **Unused** segment (gray) for `total - value` (available capacity).
 
-The default layout template SHALL place the `pods` widget at `POD_CAPACITY_WIDGET_HEIGHT` (same height as `nodes`). The `pods` widget SHALL NOT render a trend sparkline.
+The default layout template SHALL place the `pods` widget at `POD_CAPACITY_WIDGET_HEIGHT` (taller than `nodes` to fit the capacity donut and 7-day usage trend sparkline per `platform/hub-cluster-utilization-trends.spec.md` HCUT-08).
+
+When `pods.trend.points` contains at least two entries, the `pods` widget SHALL render a `TrendSparklineChart` below the capacity donut with caption **Last 7 days** (HCUT-08). When `trend` is absent or has fewer than two points, the widget SHALL omit the sparkline with no error state.
 
 When `podPhases` is absent, `PodCapacityChart` SHALL render nothing while its widget shell remains.
 
@@ -506,22 +588,34 @@ When `podPhases` is absent, `PodCapacityChart` SHALL render nothing while its wi
 - AND the chart subtitle SHALL read "of 2000 pods"
 - AND the widget title SHALL be localized "Pods"
 
+#### Scenario: Pods widget shows capacity donut and usage trend sparkline
+
+- GIVEN the `pods` metric has instant capacity and phase fields
+- AND `trend.points` contains 7 daily used pod counts
+- WHEN the pods widget renders
+- THEN a capacity donut SHALL appear
+- AND a usage trend sparkline SHALL appear below it with caption **Last 7 days**
+
 ---
 
 ### Requirement: OP-DASH-13 -- Metric and Utilization Widgets
 
 **Metric cards** (`MetricCard`) SHALL center a large heading with the metric value and an optional subtitle. When `trend.points` is present, a `TrendSparklineChart` SHALL render beneath the heading.
 
-**Utilization widgets** (`cpu`, `memory`) SHALL render `UtilizationChart` when the metric includes both `unit` and `total`. Utilization percentage SHALL be `round((value / total) * 100)`. Status icons SHALL use thresholds: warning at `>= 60%`, danger at `>= 90%`.
+**Utilization widgets** (`cpu`, `memory`) SHALL render `UtilizationCard`, which wraps `UtilizationChart` when the metric includes both `unit` and `total`. Utilization percentage SHALL be `round((value / total) * 100)`. Status icons SHALL use thresholds: warning at `>= 60%`, danger at `>= 90%`.
 
-The `pods` widget SHALL use `PodCapacityChart` (OP-DASH-17), not `UtilizationChart`. The `system-summary` pods row SHALL continue to show utilization percentage from the same `pods` metric and SHALL show a failed pod count when `podPhases.failed` is non-zero.
+When `trend.points` contains at least two entries, `UtilizationCard` SHALL render a `TrendSparklineChart` below the utilization chart with caption **Last 7 days** (`platform/hub-cluster-utilization-trends.spec.md` HCUT-08).
+
+The `pods` widget SHALL use `PodCapacityChart` (OP-DASH-17), not `UtilizationChart`. When `pods.trend.points` contains at least two entries, the pods widget SHALL render a `TrendSparklineChart` below the capacity donut with caption **Last 7 days** (HCUT-08). The `system-summary` pods row SHALL continue to show utilization percentage from the same `pods` metric and SHALL show a failed pod count when `podPhases.failed` is non-zero.
 
 **Summary widgets:**
 
-- `usage-summary` - horizontal `DescriptionList` for active users, gateways (with exception status counts), and sandboxes
-- `system-summary` - horizontal `DescriptionList` for memory, CPU, pods (with failed pod count when `podPhases.failed` is non-zero), nodes (with exception status counts when `status.failed` is non-zero), and provision duration (average, P50, and P95 rows when `provisionDuration` is present on the `provision-time` metric; see `platform/gateway-provision-time.spec.md` GPT-05)
+- `usage-summary` - horizontal `DescriptionList` for users (total registered count with optional unique-login trend arrow per `platform/registered-users.spec.md` RU-13), gateways (with exception status counts and optional fleet-total trend arrow per `platform/gateway-fleet-total-trend.spec.md` GFT-07), and sandboxes (with optional hourly and daily active-sandbox sparklines and trend arrow per `platform/gateway-sandbox-active-trends.spec.md` GSAT-07)
+- `system-summary` - horizontal `DescriptionList` for memory, CPU, and pods (utilization value with optional 7-day used trend arrow when `trend` meets the 5% threshold per HCUT-08; pods row also shows failed pod count when `podPhases.failed` is non-zero), nodes (with exception status counts when `status.failed` is non-zero), provision duration (average, P50, and P95 rows when `provisionDuration` is present on the `provision-time` metric; see `platform/gateway-provision-time.spec.md` GPT-05), and provision success rate (24h row with optional hourly success-rate trend arrow when `successRateTrend` meets the 5% threshold; see `platform/gateway-provision-outcomes.spec.md` GPO-05)
 
-Trend direction indicators in summary rows SHALL appear only when `getMetricTrendChange` detects at least a 5% change between the first and last trend point.
+Trend direction indicators in summary rows SHALL appear only when `getMetricTrendChange` detects at least a 5% change between the first and last trend point. The sandboxes row SHALL prefer `hourlyTrend` over `trend` when both qualify (GSAT-07).
+
+When `provisioned-sandboxes.hourlyTrend.points` contains at least two entries, the usage summary sandboxes row SHALL render a `TrendSparklineChart` with caption **Last 24 hours** below the count. When `provisioned-sandboxes.trend.points` contains at least two entries, the row SHALL render a second `TrendSparklineChart` with caption **Last 7 days** below the hourly sparkline when present, or below the count when hourly trend is absent (GSAT-07).
 
 #### Scenario: Utilization widget without capacity fields
 
@@ -538,9 +632,54 @@ Trend direction indicators in summary rows SHALL appear only when `getMetricTren
 
 #### Scenario: Provision duration shows average, P50, and P95
 
-- GIVEN the `provision-time` metric has `unit: "minutes"`, `value: "5.25"`, and `provisionDuration: { mean: "5.25", p50: "4.80", p95: "12.10" }`
+- GIVEN the `provision-time` metric has `unit: "sec"`, `value: "315.00"`, and `provisionDuration: { mean: "315.00", p50: "288.00", p95: "726.00" }`
 - WHEN the system summary provision-duration rows render
 - THEN three localized rows SHALL appear for average, P50, and P95
+
+#### Scenario: Provision success rate appears in system summary
+
+- GIVEN the `provision-reliability` metric has `value: "90.0"` and `provisionOutcomes: { successCount24h: "9", failureCount24h: "1", successRatePercent: "90.0" }`
+- WHEN the system summary success-rate row renders
+- THEN a localized **Success rate (24h)** row SHALL show `90.0%`
+
+---
+
+### Requirement: OP-DASH-24 -- Provision Reliability Widget
+
+The `provision-reliability` widget SHALL render a compact `StatusDonutChart` driven by the `provision-reliability` metric's `provisionOutcomes` counts, reusing the shared status-donut presentation stack (OP-DASH-16).
+
+The donut center title SHALL show the 24-hour success rate as a localized percentage (`provisionOutcomes.successRatePercent`). The donut subtitle SHALL document the rolling 24-hour lookback window.
+
+The success slice color SHALL reflect provision health thresholds:
+
+| Success rate | Color treatment |
+| --- | --- |
+| `>= 99%` | Healthy (green) |
+| `>= 95%` and `< 99%` | Warning (yellow) |
+| `< 95%` | Danger (red) |
+
+The failure slice SHALL use the danger (red) status color. Segments SHALL include only non-zero success and failure counts.
+
+When `successRateTrend.points` contains at least two entries, the widget SHALL render an hourly success-rate `TrendSparklineChart` below the donut with a localized **Hourly success rate** title and a **Last 24 hours** caption. When fewer than two hourly points are present, the sparkline SHALL be omitted.
+
+The default layout template SHALL place `provision-reliability` at `PROVISION_RELIABILITY_WIDGET_HEIGHT` in the hub cluster section (OP-DASH-10).
+
+When `provisionOutcomes` is absent, the widget body SHALL render the localized metric-unavailable empty state (OP-DASH-08).
+
+#### Scenario: Provision reliability donut shows success and failure counts
+
+- GIVEN the `provision-reliability` metric has `provisionOutcomes: { successCount24h: "9", failureCount24h: "1", successRatePercent: "90.0" }`
+- WHEN the provision-reliability widget renders
+- THEN the donut SHALL show success and failure segments with counts `9` and `1`
+- AND the center title SHALL show `90.0%`
+- AND the success slice SHALL use the warning color threshold
+
+#### Scenario: Hourly success-rate sparkline renders with two or more points
+
+- GIVEN the `provision-reliability` metric includes `successRateTrend.points` with at least two hourly entries
+- WHEN the provision-reliability widget renders
+- THEN an hourly success-rate sparkline SHALL appear below the donut
+- AND the sparkline caption SHALL read **Last 24 hours**
 
 ---
 
@@ -625,7 +764,7 @@ The fallback message SHALL be declared in the operational-dashboard-ui `messages
 
 ### Requirement: OP-DASH-15 -- Verification Fixtures
 
-The operational-dashboard-ui package SHALL ship `mockOperationalDashboardMetrics` containing all widget metric IDs with representative fields matching production adapter output (`status`, `podPhases`, `unit`, `total` where applicable). Fixtures SHALL NOT include `trend` data because historical series are not loaded in version 1.
+The operational-dashboard-ui package SHALL ship `mockOperationalDashboardMetrics` containing all widget metric IDs with representative fields matching production adapter output (`status`, `podPhases`, `unit`, `total`, and `trend` where applicable). Fixtures for hub-cluster `memory`, `cpu`, and `pods` SHALL include representative 7-day `trend.points` so Storybook and unit tests exercise usage trend sparklines (`platform/hub-cluster-utilization-trends.spec.md` HCUT-10).
 
 The web console SHALL provide Storybook stories for default, loading, partial-load-warning, total-initial-load-error, and refresh-partial-failure states using mock or stub `DashboardControlPlane` adapters.
 
@@ -639,7 +778,7 @@ The host mock adapter (`createMockDashboardControlPlane`) MAY introduce an artif
 
 ---
 
-### Requirement: OP-DASH-20 -- Platform Inventory Summary
+### Requirement: OP-DASH-22 -- Platform Inventory Summary
 
 The operational dashboard SHALL include an `inventory-summary` widget that renders platform inventory totals and top dimensions from the `managed-clusters` and `managed-databases` metrics defined in `platform/platform-inventory.spec.md` (PI-05, PI-06).
 
@@ -649,8 +788,8 @@ The default layout template SHALL add a **Platform inventory** section below the
 | --- | --- | --- |
 | `inventory-summary` | `inventory-summary#1` | Column 0, platform inventory section |
 | `managed-cluster-providers` | `managed-cluster-providers#1` | Column 1, platform inventory section |
-| `managed-cluster-regions` | `managed-cluster-regions#1` | Columns 2–3 (two columns wide), platform inventory section |
-| `managed-database-status` | `managed-database-status#1` | Column 1, platform inventory second row |
+| `managed-cluster-regions` | `managed-cluster-regions#1` | Column 2, platform inventory section |
+| `managed-database-status` | `managed-database-status#1` | Column 3, platform inventory section |
 
 `localizeDashboardLayoutTemplate` SHALL resolve `section-title#platform-inventory` through `SECTION_TITLE_MESSAGE_BY_ID` with message ID `app.dashboard.sectionTitle.platformInventory`.
 
@@ -658,7 +797,7 @@ The inventory summary widget SHALL use the same `DescriptionList` summary presen
 
 The `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` widgets SHALL use the shared `StatusDonutChart` stack (OP-DASH-16) with labels from `inventoryProviders`, `inventoryRegions`, and `inventoryStatus` keys respectively.
 
-Adding the two-column region donut to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v26` (OP-DASH-11). Aligning `gateway-status` height with `usage-summary` SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v27`. Adding `managed-database-status` to the default layout SHALL bump the layout persistence key to `hypershell.operational-dashboard.layout.v28`.
+The default layout changes in this requirement are covered by the layout persistence key bumps documented in OP-DASH-11 (`v30` through `v38`).
 
 #### Scenario: Default layout includes inventory summary
 
@@ -673,22 +812,70 @@ Adding the two-column region donut to the default layout SHALL bump the layout p
 
 The widget catalog SHALL register optional inventory detail widgets defined in `platform/platform-inventory.spec.md` (PI-07):
 
-- `managed-cluster-providers` - provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-20)
-- `managed-cluster-regions` - placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-20)
-- `managed-clusters` - large number tile for total managed clusters
-- `managed-cluster-status` - status donut driven by `managed-clusters.inventoryStatus`
-- `managed-databases` - large number tile for total managed databases
-- `managed-database-status` - status donut driven by `managed-databases.inventoryStatus` (on default layout; OP-DASH-20)
+- `managed-cluster-providers` - provider donut driven by `managed-clusters.inventoryProviders` (on default layout; OP-DASH-22)
+- `managed-cluster-regions` - placement donut driven by `managed-clusters.inventoryRegions` (`{region} ({provider})` keys; on default layout; OP-DASH-22)
+- `managed-database-status` - status donut driven by `managed-databases.inventoryStatus` (on default layout; OP-DASH-22)
 
-These optional widget types SHALL be available in the add-widgets drawer. `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` SHALL also appear in `defaultDashboardLayoutTemplate` (OP-DASH-20).
+The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, or `managed-databases` widget types. Cluster and database totals SHALL be presented through `inventory-summary` (OP-DASH-22); status and dimension breakdowns SHALL use the default-layout donut widgets above.
+
+These optional widget types SHALL be available in the add-widgets drawer when not already on the grid. `managed-cluster-providers`, `managed-cluster-regions`, and `managed-database-status` SHALL also appear in `defaultDashboardLayoutTemplate` (OP-DASH-22).
 
 Status donut widgets SHALL reuse the shared `StatusDonutChart` stack (OP-DASH-16) with inventory-specific bucket labels from `inventoryStatus` keys. They SHALL NOT reuse gateway display-status colors or vocabulary.
 
 A separate `/dashboard/inventory` route SHALL NOT be added in version 1.
 
-#### Scenario: Operator adds managed cluster status donut
+---
 
-- GIVEN the default layout is active and inventory metrics are connected
-- WHEN the operator adds `managed-cluster-status` from the widget drawer
-- THEN the grid SHALL render a status donut for managed cluster inventory
-- AND the widget SHALL omit a trend sparkline
+### Requirement: OP-DASH-25 -- Gateway Releases Widget
+
+The operational dashboard SHALL include a `gateway-releases` widget that presents fleet-wide gateway counts grouped by resolved `GatewayRelease` name. Aggregation rules, the `gateway-releases` metric contract, and dashboard-operator authorization are defined in `platform/gateway-release-distribution.spec.md`.
+
+The widget SHALL load from the independent `gateway-release-distribution` metric source (OP-DASH-19). A failure in gateway or gateway release list aggregation SHALL omit only `gateway-releases`; Prometheus gateway phase counts and sandbox totals SHALL NOT block release distribution when REST aggregation succeeds.
+
+**Presentation:**
+
+- Widget title SHALL be localized **Gateway releases** (`app.dashboard.widget.gatewayReleases`)
+- The add-widgets drawer SHALL register `gateway-releases` with the same localized title and a `CodeBranchIcon` catalog icon (matching other metric widgets that expose title only)
+- `GatewayReleasesChart` SHALL render a vertical `DashboardStatPanel` list (same presentation stack as the provision-time widget), not a donut chart
+- `GatewayReleasesCard` SHALL reuse the provision-time card body class for compact stat-panel spacing
+- Each row SHALL show a release label and gateway count
+- Rows SHALL include every release in `releaseDistribution` with count greater than zero, sorted by descending count via `sortInventoryDimensionEntries` (no top-N cap)
+- Release labels SHALL be localized through `inventoryDimensionLabel` (including the `unknown` bucket for gateways without `release_id`)
+- The stat panel SHALL expose a localized accessible name via `app.dashboard.gatewayReleases.summaryAriaLabel` (**Gateways by release**)
+- The widget SHALL NOT render a center fleet total or headline number (avoids confusion with gateway status and usage-summary gateway totals)
+- The widget SHALL NOT render a trend sparkline
+- When `releaseDistribution` is present but every bucket count is zero, the chart area SHALL render nothing while the widget shell remains
+
+**Default layout:**
+
+- The default layout template SHALL place `gateway-releases` in column 3 of the platform adoption section, directly below `gateway-status`
+- Widget height SHALL match `GATEWAY_STATUS_WIDGET_HEIGHT` via `GATEWAY_RELEASES_WIDGET_HEIGHT` (compact stat panel)
+
+**Retired sandboxes widget:**
+
+- The standalone `provisioned-sandboxes` grid widget SHALL be removed from `defaultDashboardLayoutTemplate` and from the add-widgets catalog
+- `provisioned-sandboxes` SHALL remain a connected metric for the `usage-summary` sandboxes row (OP-DASH-06, OP-DASH-13), including optional hourly and daily trend sparklines (GSAT-07)
+- `stripRemovedWidgetTypes` SHALL remove saved `provisioned-sandboxes` tiles on load (OP-DASH-11)
+
+`localizeDashboardLayoutTemplate` SHALL resolve `gateway-releases#1` through `WIDGET_TITLE_MESSAGE_BY_TYPE`. Partial-failure warnings SHALL label the source through `app.dashboard.metricSource.gatewayReleaseDistribution` (**Gateway releases**).
+
+#### Scenario: Release list shows all releases by count
+
+- GIVEN `gateway-releases` has `releaseDistribution: { "OpenShell 2.0": 4, "OpenShell 2.1": 2, "unknown": 1 }`
+- WHEN the Gateway releases widget renders
+- THEN three stat-panel rows SHALL appear ordered `OpenShell 2.0` (4), `OpenShell 2.1` (2), then the localized unknown label (1)
+- AND the widget SHALL NOT render a donut or center total
+
+#### Scenario: Missing release distribution renders empty chart area
+
+- GIVEN the `gateway-releases` metric is absent from the adapter response
+- WHEN the Gateway releases widget renders
+- THEN the widget body SHALL show the localized metric-unavailable empty state (OP-DASH-08)
+
+#### Scenario: Default layout stacks gateway status above gateway releases
+
+- GIVEN the default layout template is active
+- WHEN the dashboard grid renders on a four-column breakpoint
+- THEN `gateway-status#1` SHALL occupy column 3 on the platform adoption top row
+- AND `gateway-releases#1` SHALL occupy column 3 on the row below gateway status
+- AND no `provisioned-sandboxes` widget SHALL appear on the grid

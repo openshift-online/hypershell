@@ -112,7 +112,7 @@ The BFF SHALL NOT contact the Kubernetes API directly for pod counts in version 
 
 The web-console BFF SHALL expose `GET /api/metrics/cluster-pods` as a same-origin route that:
 
-1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` OP-DASH-04: `hypershell-admins` or `platform:admin`)
+1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` OP-DASH-04: `platform:admin` only)
 2. Executes Prometheus instant queries for hub-cluster pods (CLP-03)
 3. Returns JSON:
 
@@ -133,9 +133,11 @@ The route SHALL NOT forward to the HyperShell API server and SHALL NOT require a
 
 On Prometheus failure, timeout, or non-success Prometheus response status, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT return zeroed pod figures as a fallback.
 
+When instant queries succeed, the route MAY also include optional `daily_used` (7 UTC calendar days of daily used pod counts) per `platform/hub-cluster-utilization-trends.spec.md` HCUT-03 and HCUT-06.
+
 #### Scenario: Dashboard administrator receives pod counts
 
-- GIVEN OIDC is enabled and the caller has `hypershell-admins` or `platform:admin`
+- GIVEN OIDC is enabled and the caller has `platform:admin`
 - AND Prometheus returns successful instant-query results
 - WHEN the caller sends `GET /api/metrics/cluster-pods`
 - THEN the BFF SHALL respond with HTTP `200` and the CLP-04 JSON body
@@ -170,7 +172,9 @@ The operational dashboard host adapter (`createDashboardControlPlaneAdapter`) SH
 | `podPhases.failed` | `phase_failed_pods` |
 | `podPhases.unknown` | `phase_unknown_pods` |
 
-The adapter SHALL NOT emit `trend` or `status` for the `pods` metric in version 1.
+The adapter SHALL NOT emit `status` for the `pods` metric in version 1.
+
+When BFF `daily_used` is present, the adapter SHALL also emit optional `trend` per `platform/hub-cluster-utilization-trends.spec.md` HCUT-07. When `daily_used` is absent, the adapter SHALL omit `trend`.
 
 The `system-summary` card SHALL continue to source its pods row from the same `pods` metric (OP-DASH-13). The summary row SHALL show utilization percentage because `unit` and `total` are present. When `podPhases.failed` is non-zero, the pods row SHALL show a failed count with a danger status icon below the utilization value (same presentation as gateway and node exception counts).
 
@@ -254,7 +258,7 @@ The operational dashboard package SHALL update `mockOperationalDashboardMetrics`
 
 - Memory, CPU, and node inventory metrics (see `platform/cluster-nodes.spec.md`)
 - Gateway sandbox pod counts (`provisioned-sandboxes` on the operational dashboard)
-- Historical trend series or sparklines for pods in version 1
+- Per-day capacity, phase, or utilization-percentage trend series (used-only daily trends are defined in `platform/hub-cluster-utilization-trends.spec.md`)
 - Per-node, per-namespace, or per-workload pod breakdown in the UI
 - Pod metrics for registered **managed clusters** or individual gateway tenant namespaces
 - A HyperShell REST `/cluster_pods` OpenAPI resource in version 1

@@ -2750,6 +2750,12 @@ components:
             description: Runtime version from the last successful gateway health response
             readOnly: true
             type: string
+          observed_release_id:
+            description: "Release the control plane has rolled out and observed healthy,\
+              \ advanced only after a new revision passes its health gates; distinct\
+              \ from the desired release_id and populated by the control plane"
+            readOnly: true
+            type: string
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -2767,6 +2773,13 @@ components:
             format: int32
             readOnly: true
             type: integer
+          provisioning_conditions:
+            description: Ordered list of provisioning conditions describing sub-phase
+              progress
+            items:
+              $ref: "#/components/schemas/Gateway_allOf_provisioning_conditions"
+            readOnly: true
+            type: array
           created_by:
             description: "Username of the user who provisioned this gateway, resolved\
               \ from RBAC role bindings"
@@ -2794,7 +2807,15 @@ components:
         external_dns: external_dns
         phase: phase
         image: image
+        observed_release_id: observed_release_id
         active_sandbox_count: 5
+        provisioning_conditions:
+        - condition_status: Pending
+          type: type
+          message: message
+        - condition_status: Pending
+          type: type
+          message: message
         kind: kind
         console_address: console_address
         route_address: route_address
@@ -2841,7 +2862,15 @@ components:
           external_dns: external_dns
           phase: phase
           image: image
+          observed_release_id: observed_release_id
           active_sandbox_count: 5
+          provisioning_conditions:
+          - condition_status: Pending
+            type: type
+            message: message
+          - condition_status: Pending
+            type: type
+            message: message
           kind: kind
           console_address: console_address
           route_address: route_address
@@ -2869,7 +2898,15 @@ components:
           external_dns: external_dns
           phase: phase
           image: image
+          observed_release_id: observed_release_id
           active_sandbox_count: 5
+          provisioning_conditions:
+          - condition_status: Pending
+            type: type
+            message: message
+          - condition_status: Pending
+            type: type
+            message: message
           kind: kind
           console_address: console_address
           route_address: route_address
@@ -3676,6 +3713,27 @@ components:
       - database_id
       - name
       - release_id
+      type: object
+    Gateway_allOf_provisioning_conditions:
+      example:
+        condition_status: Pending
+        type: type
+        message: message
+      properties:
+        type:
+          description: "Condition identifier (e.g., EnvironmentReady)"
+          type: string
+        condition_status:
+          description: Current status of this provisioning step
+          enum:
+          - Pending
+          - InProgress
+          - Complete
+          - Failed
+          type: string
+        message:
+          description: Human-readable detail (failure reason when Failed)
+          type: string
       type: object
     Role_allOf_permissions:
       type: object

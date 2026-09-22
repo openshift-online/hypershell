@@ -1,15 +1,29 @@
 import { fetchMetrics, type MetricsSource } from "./metrics-source.js";
+import {
+  alignDailyIntegerSeries,
+  dailyRangeStepSeconds,
+  queryPrometheusRangeScalarSamples,
+  sevenDayUtcCalendarRange,
+} from "./prometheus-range-query.js";
 
 export const clusterCpuCapacityPromql =
   'sum(count by (instance) (node_cpu_seconds_total{mode="idle"}))';
 export const clusterCpuUsedPromql =
   'sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))';
+export const clusterCpuDailyUsedPromql = clusterCpuUsedPromql;
+export const clusterCpuDailyUsedStepSeconds = dailyRangeStepSeconds;
 
 const usedExceedsCapacityToleranceCores = 0.01;
+
+export interface ClusterCpuDailyUsed {
+  date: string;
+  value: number;
+}
 
 export interface ClusterCpuCores {
   available_cores: number;
   capacity_cores: number;
+  daily_used?: ClusterCpuDailyUsed[];
   used_cores: number;
 }
 
@@ -89,9 +103,31 @@ export async function queryClusterCpu(
 
   const available_cores = capacity_cores - used_cores;
 
-  return {
+  const response: ClusterCpuCores = {
     available_cores,
     capacity_cores,
     used_cores,
   };
+
+  try {
+    const { end, start } = sevenDayUtcCalendarRange();
+    const samples = await queryPrometheusRangeScalarSamples(
+      prometheusUrl,
+      clusterCpuDailyUsedPromql,
+      start,
+      end,
+      `${String(clusterCpuDailyUsedStepSeconds)}s`,
+      timeoutMs,
+    );
+    response.daily_used = alignDailyIntegerSeries(samples).map(
+      ({ date, value }) => ({
+        date,
+        value: Math.round(value),
+      }),
+    );
+  } catch {
+    // Omit trend only.
+  }
+
+  return response;
 }

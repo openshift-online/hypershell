@@ -25,10 +25,12 @@ Name | Type | Description | Notes
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
 **GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly] 
+**ObservedReleaseId** | Pointer to **string** | Release the control plane has rolled out and observed healthy, advanced only after a new revision passes its health gates; distinct from the desired release_id and populated by the control plane | [optional] [readonly] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
 **ActiveSandboxCount** | Pointer to **int32** | Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane | [optional] [readonly] 
+**ProvisioningConditions** | Pointer to [**[]GatewayAllOfProvisioningConditions**](GatewayAllOfProvisioningConditions.md) | Ordered list of provisioning conditions describing sub-phase progress | [optional] [readonly] 
 **CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
 
 ## Methods
@@ -550,6 +552,31 @@ SetGatewayVersion sets GatewayVersion field to given value.
 
 HasGatewayVersion returns a boolean if a field has been set.
 
+### GetObservedReleaseId
+
+`func (o *Gateway) GetObservedReleaseId() string`
+
+GetObservedReleaseId returns the ObservedReleaseId field if non-nil, zero value otherwise.
+
+### GetObservedReleaseIdOk
+
+`func (o *Gateway) GetObservedReleaseIdOk() (*string, bool)`
+
+GetObservedReleaseIdOk returns a tuple with the ObservedReleaseId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetObservedReleaseId
+
+`func (o *Gateway) SetObservedReleaseId(v string)`
+
+SetObservedReleaseId sets ObservedReleaseId field to given value.
+
+### HasObservedReleaseId
+
+`func (o *Gateway) HasObservedReleaseId() bool`
+
+HasObservedReleaseId returns a boolean if a field has been set.
+
 ### GetOidc
 
 `func (o *Gateway) GetOidc() string`
@@ -649,6 +676,31 @@ SetActiveSandboxCount sets ActiveSandboxCount field to given value.
 `func (o *Gateway) HasActiveSandboxCount() bool`
 
 HasActiveSandboxCount returns a boolean if a field has been set.
+
+### GetProvisioningConditions
+
+`func (o *Gateway) GetProvisioningConditions() []GatewayAllOfProvisioningConditions`
+
+GetProvisioningConditions returns the ProvisioningConditions field if non-nil, zero value otherwise.
+
+### GetProvisioningConditionsOk
+
+`func (o *Gateway) GetProvisioningConditionsOk() (*[]GatewayAllOfProvisioningConditions, bool)`
+
+GetProvisioningConditionsOk returns a tuple with the ProvisioningConditions field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetProvisioningConditions
+
+`func (o *Gateway) SetProvisioningConditions(v []GatewayAllOfProvisioningConditions)`
+
+SetProvisioningConditions sets ProvisioningConditions field to given value.
+
+### HasProvisioningConditions
+
+`func (o *Gateway) HasProvisioningConditions() bool`
+
+HasProvisioningConditions returns a boolean if a field has been set.
 
 ### GetCreatedBy
 

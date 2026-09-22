@@ -175,6 +175,13 @@ Reaping SHALL be best-effort and idempotent, and SHALL only ever delete gateway
 workload namespaces owned by this instance (matching the gateway prefix, not the
 database prefix, and carrying this instance's identity label).
 
+Environment teardown is a separate path. When the platform project is deleted,
+this controller is gone and cannot run periodic GC. `make openshift-down` and the
+pull-request reaper SHALL delete namespaces labeled
+`hypershell.redhat.io/instance=<the platform namespace>` as
+`openshift-development.spec.md` and `ephemeral-pr-environments.spec.md` define,
+including ManagedDatabase namespaces that this sweep excludes.
+
 #### Scenario: Orphaned gateway namespace reaped after grace period
 
 - GIVEN a namespace owned by this control-plane instance with a gateway-prefixed

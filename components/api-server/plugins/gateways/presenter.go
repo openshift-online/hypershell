@@ -3,6 +3,7 @@ package gateways
 import (
 	"encoding/json"
 
+	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
 )
@@ -37,29 +38,30 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
-		Id:               reference.Id,
-		Kind:             reference.Kind,
-		Href:             reference.Href,
-		CreatedAt:        openapi.PtrTime(gateway.CreatedAt),
-		UpdatedAt:        openapi.PtrTime(gateway.UpdatedAt),
-		Name:             gateway.Name,
-		ClusterId:        gateway.ClusterId,
-		ReleaseId:        gateway.ReleaseId,
-		DatabaseId:       gateway.DatabaseId,
-		Namespace:        gateway.Namespace,
-		ExternalDns:      gateway.ExternalDns,
-		TlsMode:          gateway.TlsMode,
-		ServiceType:      gateway.ServiceType,
-		Status:           gateway.Status,
-		Phase:            gateway.Phase,
-		Image:            gateway.Image,
-		SupervisorImage:  gateway.SupervisorImage,
-		RouteAddress:     gateway.RouteAddress,
-		ConsoleAddress:   gateway.ConsoleAddress,
-		GatewayVersion:   gateway.GatewayVersion,
-		Oidc:             gateway.Oidc,
-		Route:            gateway.Route,
-		CredentialDriver: gateway.CredentialDriver,
+		Id:                reference.Id,
+		Kind:              reference.Kind,
+		Href:              reference.Href,
+		CreatedAt:         openapi.PtrTime(gateway.CreatedAt),
+		UpdatedAt:         openapi.PtrTime(gateway.UpdatedAt),
+		Name:              gateway.Name,
+		ClusterId:         gateway.ClusterId,
+		ReleaseId:         gateway.ReleaseId,
+		DatabaseId:        gateway.DatabaseId,
+		Namespace:         gateway.Namespace,
+		ExternalDns:       gateway.ExternalDns,
+		TlsMode:           gateway.TlsMode,
+		ServiceType:       gateway.ServiceType,
+		Status:            gateway.Status,
+		Phase:             gateway.Phase,
+		Image:             gateway.Image,
+		SupervisorImage:   gateway.SupervisorImage,
+		RouteAddress:      gateway.RouteAddress,
+		ConsoleAddress:    gateway.ConsoleAddress,
+		GatewayVersion:    gateway.GatewayVersion,
+		ObservedReleaseId: gateway.ObservedReleaseId,
+		Oidc:              gateway.Oidc,
+		Route:             gateway.Route,
+		CredentialDriver:  gateway.CredentialDriver,
 		ActiveSandboxCount: func() *int32 {
 			if gateway.ActiveSandboxCount != nil {
 				return openapi.PtrInt32(int32(*gateway.ActiveSandboxCount))
@@ -76,6 +78,27 @@ func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 		var names []string
 		if err := json.Unmarshal([]byte(*gateway.ServerDnsNames), &names); err == nil {
 			g.ServerDnsNames = names
+		}
+	}
+
+	if gateway.ProvisioningConditions != nil {
+		var conditions []struct {
+			Type            string `json:"type"`
+			ConditionStatus string `json:"condition_status"`
+			Message         string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(*gateway.ProvisioningConditions), &conditions); err != nil {
+			glog.Warningf("failed to unmarshal provisioning_conditions for gateway %s: %v", gateway.ID, err)
+		} else {
+			apiConditions := make([]openapi.GatewayAllOfProvisioningConditions, 0, len(conditions))
+			for _, c := range conditions {
+				apiConditions = append(apiConditions, openapi.GatewayAllOfProvisioningConditions{
+					Type:            &c.Type,
+					ConditionStatus: &c.ConditionStatus,
+					Message:         &c.Message,
+				})
+			}
+			g.ProvisioningConditions = apiConditions
 		}
 	}
 

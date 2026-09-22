@@ -50,22 +50,31 @@ func (b *ConnectionBuilder) Build() (result *Connection, err error) {
 		return
 	}
 
-	transport := &http.Transport{}
-	if b.cfg.Insecure {
-		transport.TLSClientConfig = &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: true, //nolint:gosec
-		}
+	if err = config.EnsureFreshToken(b.cfg); err != nil {
+		return
 	}
 
 	result = &Connection{
 		baseURL: strings.TrimRight(b.cfg.URL, "/"),
 		token:   b.cfg.AccessToken,
 		httpClient: &http.Client{
-			Transport: transport,
+			Transport: newTransport(b.cfg.Insecure),
 		},
 	}
 	return
+}
+
+// newTransport sets Proxy explicitly because a zero-value http.Transport,
+// unlike http.DefaultTransport, ignores HTTPS_PROXY / HTTP_PROXY / NO_PROXY.
+func newTransport(insecure bool) *http.Transport {
+	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
+	if insecure {
+		transport.TLSClientConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true, //nolint:gosec
+		}
+	}
+	return transport
 }
 
 func (c *Connection) Do(method, path string, query url.Values, body io.Reader) (*http.Response, error) {
@@ -80,7 +89,7 @@ func (c *Connection) Do(method, path string, query url.Values, body io.Reader) (
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("User-Agent", "{{.Binary}}/"+info.Version)
+	req.Header.Set("User-Agent", "{{.Project}}/"+info.Version)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")

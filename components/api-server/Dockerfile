@@ -19,6 +19,7 @@ COPY pkg/ pkg/
 COPY plugins/ plugins/
 COPY openapi/ openapi/
 
+# Embed the version and build time in the API binary.
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
 ARG TARGETARCH

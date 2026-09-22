@@ -36,7 +36,9 @@ REPO_ROOT="$(cd "${CLUSTER_SCRIPT_DIR}/../.." && pwd)"
 : "${web_console_local:=localhost/hypershell-web-console:dev}"
 : "${build_version:=$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 : "${build_time:=$(date -u '+%Y-%m-%d %H:%M:%S UTC')}"
-: "${GATEWAY_IMAGE:=quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd}"
+# shellcheck source=../../OPENSHELL_VERSION
+source "${REPO_ROOT}/OPENSHELL_VERSION"
+: "${GATEWAY_IMAGE:=${OPENSHELL_GATEWAY_IMAGE}:${OPENSHELL_TAG}}"
 : "${GATEWAY_API_GATEWAY_NAME:=openshell-grpc-gateway}"
 : "${GATEWAY_API_GATEWAY_NAMESPACE:=openshift-ingress}"
 
@@ -133,6 +135,19 @@ require_swap_registry() {
     error "SWAP_REGISTRY must be a registry org prefix (for example quay.io/<org>), not '${SWAP_REGISTRY}'."
     return 1
   fi
+}
+
+# Laptop GOARCH for native compile stages (BUILDARCH). Distinct from
+# swap_target_goarch, which is the cluster architecture (TARGETARCH).
+swap_build_goarch() {
+  case "$(uname -m)" in
+    x86_64) printf 'amd64' ;;
+    aarch64|arm64) printf 'arm64' ;;
+    *)
+      error "Unsupported laptop architecture '$(uname -m)'. Swap builds support amd64 and arm64."
+      return 1
+      ;;
+  esac
 }
 
 # GOARCH for OpenShift swap images. Laptop architecture is not used: ROSA and
@@ -448,6 +463,29 @@ print(docs[0]["id"] if docs else "")
 '
 }
 
+# Id of the first HyperShell list item whose name matches. Field order in the
+# list payload is not stable (presenters emit id before name), so callers must
+# not grep "name" then "id" in one object. Empty on missing name or bad JSON.
+json_named_id() {
+  python3 -c 'import json,sys
+name=sys.argv[1]
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if isinstance(data, dict):
+    items=data.get("items") or []
+elif isinstance(data, list):
+    items=data
+else:
+    items=[]
+for it in items:
+    if isinstance(it, dict) and it.get("name") == name:
+        print(it.get("id") or "")
+        break
+' "$1"
+}
+
 # Restrict a Keycloak client representation to this console origin.
 # Spec: oidc-integration Identity Provider Client Security: no wildcards.
 keycloak_client_with_console_redirects() {
@@ -458,6 +496,36 @@ doc=json.load(sys.stdin)
 doc["redirectUris"]=[f"https://{host}/auth/callback", f"https://{host}"]
 json.dump(doc, sys.stdout)
 ' "${console_host}"
+}
+
+# Strategic-merge patch that stamps Route-derived Keycloak env on the named
+# containers. HYPERSHELL_CONSOLE_HOST is read by init container
+# render-realm-config, not by the keycloak container. `oc set env` without -c
+# only patches spec.containers on OpenShift, so a later start-dev --import-realm
+# on empty H2 would restore localhost frontend redirect URIs. A full-object
+# replace races Deployment status updates ("the object has been modified").
+keycloak_route_env_patch() {
+  local kc_hostname="$1"
+  local console_host="$2"
+  python3 -c 'import json,sys
+kc_hostname, console_host = sys.argv[1], sys.argv[2]
+json.dump({
+    "spec": {
+        "template": {
+            "spec": {
+                "initContainers": [{
+                    "name": "render-realm-config",
+                    "env": [{"name": "HYPERSHELL_CONSOLE_HOST", "value": console_host}],
+                }],
+                "containers": [{
+                    "name": "keycloak",
+                    "env": [{"name": "KC_HOSTNAME", "value": kc_hostname}],
+                }],
+            }
+        }
+    }
+}, sys.stdout)
+' "${kc_hostname}" "${console_host}"
 }
 
 # SKIP_SEED and SEED_STRICT apply to Kind and OpenShift. KIND_* names remain aliases.

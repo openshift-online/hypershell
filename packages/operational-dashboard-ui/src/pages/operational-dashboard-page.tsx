@@ -16,7 +16,10 @@ import {
   Title,
 } from "@patternfly/react-core";
 import {
+  CheckCircleIcon,
   ClusterIcon,
+  CodeBranchIcon,
+  ContainerNodeIcon,
   CubesIcon,
   DatabaseIcon,
   HourglassHalfIcon,
@@ -41,48 +44,59 @@ import type { OperationalDashboardMetrics } from "../application/dashboard-types
 import type { DashboardProbe } from "../application/dashboard-probes";
 import { noopDashboardProbePublisher } from "../application/dashboard-probes";
 import {
+  ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
+  ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
+  ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
   defaultDashboardLayoutTemplate,
   DASHBOARD_COLUMN_COUNT,
-  GATEWAY_STATUS_WIDGET_HEIGHT,
-  NODE_STATUS_WIDGET_HEIGHT,
   INVENTORY_SUMMARY_WIDGET_HEIGHT,
   localizeDashboardLayoutTemplate,
+  NODE_STATUS_WIDGET_HEIGHT,
+  POD_CAPACITY_WIDGET_HEIGHT,
+  PROVISION_RELIABILITY_WIDGET_HEIGHT,
   PROVISION_TIME_WIDGET_HEIGHT,
+  REGISTERED_USERS_WIDGET_HEIGHT,
   SECTION_TITLE_WIDGET_TYPE,
   SYSTEM_SUMMARY_WIDGET_HEIGHT,
   TITLE_WIDGET_HEIGHT,
   USAGE_SUMMARY_WIDGET_HEIGHT,
+  UTILIZATION_WIDGET_HEIGHT,
 } from "../dashboard/dashboard-layout-template";
 import {
   getActiveWidgetTypes,
   isValidSavedTemplate,
   sanitizeDashboardTemplate,
+  stripRemovedWidgetTypes,
 } from "../dashboard/dashboard-layout-persistence";
-import { UtilizationChart } from "../dashboard/utilization-chart";
 import { useDashboardUi } from "../dashboard-ui-provider";
 import { messages } from "../messages";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
+import { dashboardResizeWidgetConfig } from "./dashboard-resize-handle";
 import "./dashboard-widget.css";
 import {
+  GatewayReleasesCard,
   GatewayStatusCard,
+  SandboxStatusCard,
   InventorySummaryCard,
   ManagedClusterProvidersCard,
   ManagedClusterRegionsCard,
-  ManagedClusterStatusCard,
   ManagedDatabaseStatusCard,
   MetricCard,
   NodeStatusCard,
   PodCapacityCard,
+  ProvisionReliabilityCard,
   ProvisionTimeCard,
   SystemSummaryCard,
   SectionTitleCard,
   UsageSummaryCard,
+  UsersCard,
+  UtilizationCard,
 } from "./dashboard-widget";
 import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v28";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v41";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
@@ -122,7 +136,10 @@ function readSavedTemplate(
 
     return {
       invalid: false,
-      template: localizeDashboardLayoutTemplate(parsed, intl),
+      template: localizeDashboardLayoutTemplate(
+        stripRemovedWidgetTypes(parsed),
+        intl,
+      ),
     };
   } catch {
     return { invalid: true, template: localizedBaseTemplate };
@@ -177,10 +194,14 @@ function createWidgetMapping(
     titleMessage: (typeof messages)[keyof typeof messages],
     metricType:
       | "metric"
+      | "users"
       | "gateway-status"
+      | "sandbox-status"
+      | "gateway-releases"
       | "node-status"
       | "pod-capacity"
       | "provision-time"
+      | "provision-reliability"
       | "inventory-providers"
       | "inventory-regions"
       | "inventory-status"
@@ -204,12 +225,24 @@ function createWidgetMapping(
       );
     }
 
+    if (metricType === "users") {
+      return <UsersCard metric={metric} />;
+    }
+
     if (metricType === "metric") {
       return <MetricCard metric={metric} subtitle={subtitle} title={title} />;
     }
 
     if (metricType === "gateway-status") {
       return <GatewayStatusCard metric={metric} />;
+    }
+
+    if (metricType === "sandbox-status") {
+      return <SandboxStatusCard metric={metric} />;
+    }
+
+    if (metricType === "gateway-releases") {
+      return <GatewayReleasesCard metric={metric} />;
     }
 
     if (metricType === "node-status") {
@@ -224,11 +257,11 @@ function createWidgetMapping(
       return <ProvisionTimeCard metric={metric} />;
     }
 
-    if (metricType === "inventory-status") {
-      if (metricId === "managed-clusters") {
-        return <ManagedClusterStatusCard metric={metric} />;
-      }
+    if (metricType === "provision-reliability") {
+      return <ProvisionReliabilityCard metric={metric} />;
+    }
 
+    if (metricType === "inventory-status") {
       return <ManagedDatabaseStatusCard metric={metric} />;
     }
 
@@ -240,7 +273,7 @@ function createWidgetMapping(
       return <ManagedClusterRegionsCard metric={metric} />;
     }
 
-    return <UtilizationChart metric={metric} />;
+    return <UtilizationCard metric={metric} />;
   };
 
   return {
@@ -299,25 +332,30 @@ function createWidgetMapping(
       renderWidget: () => <SystemSummaryCard metrics={metrics.metrics} />,
     },
     "registered-users": {
-      defaults: METRIC_WIDGET_DEFAULTS,
+      defaults: {
+        h: REGISTERED_USERS_WIDGET_HEIGHT,
+        maxH: REGISTERED_USERS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 2,
+      },
       config: {
         icon: <UsersIcon />,
         title: intl.formatMessage(messages.registeredUsers),
       },
-      renderWidget: () =>
-        renderMetric(
-          "registered-users",
-          "",
-          messages.registeredUsers,
-          "metric",
-        ),
+      renderWidget: () => (
+        <UsersCard
+          metric={metrics.metrics.find(
+            (metric) => metric.id === "registered-users",
+          )}
+        />
+      ),
     },
     "gateway-status": {
       defaults: {
-        h: GATEWAY_STATUS_WIDGET_HEIGHT,
-        maxH: GATEWAY_STATUS_WIDGET_HEIGHT + 2,
+        h: ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
+        maxH: REGISTERED_USERS_WIDGET_HEIGHT,
         minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 2,
+        w: 1,
       },
       config: {
         icon: <ClusterIcon />,
@@ -329,6 +367,44 @@ function createWidgetMapping(
           "",
           messages.gatewayStatusWidget,
           "gateway-status",
+        ),
+    },
+    "sandbox-status": {
+      defaults: {
+        h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
+        maxH: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 2,
+      },
+      config: {
+        icon: <ContainerNodeIcon />,
+        title: intl.formatMessage(messages.sandboxStatusWidget),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "provisioned-sandboxes",
+          "",
+          messages.sandboxStatusWidget,
+          "sandbox-status",
+        ),
+    },
+    "gateway-releases": {
+      defaults: {
+        h: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
+        maxH: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <CodeBranchIcon />,
+        title: intl.formatMessage(messages.gatewayReleasesWidget),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "gateway-releases",
+          "",
+          messages.gatewayReleasesWidget,
+          "gateway-releases",
         ),
     },
     "provision-time": {
@@ -350,22 +426,32 @@ function createWidgetMapping(
           "provision-time",
         ),
     },
-    "provisioned-sandboxes": {
-      defaults: METRIC_WIDGET_DEFAULTS,
+    "provision-reliability": {
+      defaults: {
+        h: PROVISION_RELIABILITY_WIDGET_HEIGHT,
+        maxH: PROVISION_RELIABILITY_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
       config: {
-        icon: <CubesIcon />,
-        title: intl.formatMessage(messages.widgetSandboxes),
+        icon: <CheckCircleIcon />,
+        title: intl.formatMessage(messages.provisionReliabilityWidget),
       },
       renderWidget: () =>
         renderMetric(
-          "provisioned-sandboxes",
+          "provision-reliability",
           "",
-          messages.widgetSandboxes,
-          "metric",
+          messages.provisionReliabilityWidget,
+          "provision-reliability",
         ),
     },
     cpu: {
-      defaults: METRIC_WIDGET_DEFAULTS,
+      defaults: {
+        h: UTILIZATION_WIDGET_HEIGHT,
+        maxH: UTILIZATION_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
       config: {
         icon: <MicrochipIcon />,
         title: intl.formatMessage(messages.widgetCpu),
@@ -374,7 +460,12 @@ function createWidgetMapping(
         renderMetric("cpu", "", messages.widgetCpu, "utilization"),
     },
     memory: {
-      defaults: METRIC_WIDGET_DEFAULTS,
+      defaults: {
+        h: UTILIZATION_WIDGET_HEIGHT,
+        maxH: UTILIZATION_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
       config: {
         icon: <MemoryIcon />,
         title: intl.formatMessage(messages.widgetMemory),
@@ -384,8 +475,8 @@ function createWidgetMapping(
     },
     pods: {
       defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
+        h: POD_CAPACITY_WIDGET_HEIGHT,
+        maxH: POD_CAPACITY_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
@@ -459,53 +550,6 @@ function createWidgetMapping(
           "",
           messages.widgetManagedClusterRegions,
           "inventory-regions",
-        ),
-    },
-    "managed-clusters": {
-      defaults: METRIC_WIDGET_DEFAULTS,
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.widgetManagedClusters),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-clusters",
-          "",
-          messages.widgetManagedClusters,
-          "metric",
-        ),
-    },
-    "managed-cluster-status": {
-      defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.widgetManagedClusterStatus),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-clusters",
-          "",
-          messages.widgetManagedClusterStatus,
-          "inventory-status",
-        ),
-    },
-    "managed-databases": {
-      defaults: METRIC_WIDGET_DEFAULTS,
-      config: {
-        icon: <DatabaseIcon />,
-        title: intl.formatMessage(messages.widgetManagedDatabases),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-databases",
-          "",
-          messages.widgetManagedDatabases,
-          "metric",
         ),
     },
     "managed-database-status": {
@@ -634,7 +678,9 @@ export function OperationalDashboardPage({
       return;
     }
 
-    const sanitized = sanitizeDashboardTemplate(nextTemplate);
+    const sanitized = stripRemovedWidgetTypes(
+      sanitizeDashboardTemplate(nextTemplate),
+    );
     const correlationId = crypto.randomUUID();
 
     setDashboardTemplate(sanitized);
@@ -833,6 +879,7 @@ export function OperationalDashboardPage({
             droppingWidgetType={droppingWidgetType}
             onDrawerExpandChange={setDrawerOpen}
             onTemplateChange={handleTemplateChange}
+            resizeWidgetConfig={dashboardResizeWidgetConfig}
             template={displayTemplate}
             widgetMapping={widgetMapping}
           />

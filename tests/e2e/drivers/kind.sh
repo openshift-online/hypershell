@@ -27,6 +27,31 @@ fi
 # to the openshell binary.
 export OPENSHELL_GATEWAY_INSECURE=true
 
+# macOS default: run the openshell CLI inside a container on the kind network.
+# The CLI is distributed only as a Linux binary, which cannot execute on macOS;
+# and even a native build could not reach the gateway, because cloud-provider-kind
+# publishes the gateway LoadBalancer on the kind container network whose IPs are
+# not routable from the macOS host. scripts/kind/openshell-container.sh runs the
+# Linux CLI in a container that shares a socat forwarder's netns on the kind
+# network, so it both executes and reaches the gateway (see that script's header).
+#
+# Linux is unaffected: the native binary runs directly and the host-published
+# ephemeral port is reachable, so this block is Darwin-only. Any explicit
+# OPENSHELL_BIN override (a value other than the "openshell" default) is honored.
+if [[ "$(uname -s)" == "Darwin" && ( -z "${OPENSHELL_BIN:-}" || "${OPENSHELL_BIN}" == "openshell" ) ]]; then
+  _E2E_OSH_WRAPPER="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/kind/openshell-container.sh"
+  if [[ -x "${_E2E_OSH_WRAPPER}" ]]; then
+    export OPENSHELL_BIN="${_E2E_OSH_WRAPPER}"
+    # The wrapper runs the Linux CLI straight from the container image, so there
+    # is nothing to download or extract onto the host.
+    export E2E_OPENSHELL_INSTALL=never
+    # The wrapper's in-container forwarder listens on loopback :443, so the CLI
+    # gateway endpoint must target :443 rather than the host-published ephemeral
+    # port that discover_gateway_endpoint would otherwise bake into metadata.json.
+    : "${_KINDCCM_GW_PORT:=443}"
+  fi
+fi
+
 # Force IPv4 and remap *.hypershell.localhost:443 to the cloud-provider-kind
 # envoy ephemeral port. Two problems motivate this:
 #   1. DNS stub returns both 127.0.0.1 and ::1 for *.localhost; the envoy proxy
@@ -84,6 +109,30 @@ _kind_start_gw_socat() {
   _KINDCCM_SOCAT_PID=$!
   _KINDCCM_GW_PORT="${socat_port}"
 }
+# _kind_pin_gw_host_ipv4 - force IPv4-only resolution for a gateway hostname.
+# The openshell CLI (>=0.0.116) prefers IPv6 for *.gw.localhost and neither
+# falls back to IPv4 nor tolerates a dual-stack DNS answer: it prints nothing
+# (and can segfault). On dual-stack hosts *.localhost resolves to both ::1 and
+# 127.0.0.1, so the IPv4-only socat forwarder is never reached. Pinning the host
+# to 127.0.0.1 in /etc/hosts removes ::1 from the answer. Idempotent and
+# best-effort (skipped without sudo); tagged for cleanup by _kind_unpin_gw_hosts.
+_KIND_GW_HOSTS_TAG="e2e-kind-gw-pin"
+_kind_pin_gw_host_ipv4() {
+  local host="${1:-}"
+  [[ -z "$host" ]] && return 0
+  if grep -q " ${host} " /etc/hosts 2>/dev/null; then return 0; fi
+  command -v sudo >/dev/null 2>&1 || return 0
+  echo "127.0.0.1 ${host} # ${_KIND_GW_HOSTS_TAG}" | sudo tee -a /etc/hosts >/dev/null 2>&1 || dim "  Could not pin ${host} to IPv4 in /etc/hosts (continuing)"
+}
+
+# _kind_unpin_gw_hosts - remove entries added by _kind_pin_gw_host_ipv4.
+_kind_unpin_gw_hosts() {
+  command -v sudo >/dev/null 2>&1 || return 0
+  local sed_i=(-i)
+  [[ "$(uname -s)" == "Darwin" ]] && sed_i=(-i '')
+  sudo sed "${sed_i[@]}" "/# ${_KIND_GW_HOSTS_TAG}/d" /etc/hosts 2>/dev/null || true
+}
+
 _driver_curl() {
   # Try direct HTTPRoute access first. This works in most setups where the
   # routes are directly accessible on port 443 (docker, podman, or iptables-
@@ -196,6 +245,7 @@ discover_gateway_endpoint() {
         | grep -c 'Programmed=True' || true)
       if [[ "${gw_programmed:-0}" -ge 1 ]]; then
         _kind_start_gw_socat
+        _kind_pin_gw_host_ipv4 "$grpc_host"
         if [[ -n "${_KINDCCM_GW_PORT}" && "${_KINDCCM_GW_PORT}" != "443" ]]; then
           _DISCOVER_GW_ENDPOINT="https://${grpc_host}:${_KINDCCM_GW_PORT}"
         else
@@ -223,19 +273,13 @@ discover_gateway_endpoint() {
 # audience mapper, and the gateway's Envoy validates aud == that client. A token
 # from the shared frontend client is rejected with InvalidAudience, so gateway and
 # CLI calls must mint tokens against the per-gateway client.
-_driver_acquire_oidc_token() {
-  _OIDC_ACCESS_TOKEN=""
-  local username="${1:-${E2E_OIDC_USERNAME}}"
-  local password="${2:-${E2E_OIDC_PASSWORD}}"
-  local client_id="${3:-${E2E_OIDC_CLIENT_ID}}"
-
+# _driver_token_request - POST the given form fields to the realm token endpoint
+# and set _OIDC_ACCESS_TOKEN from the access_token field. Every grant flow funnels
+# through here so error handling and JSON parsing stay in one place.
+_driver_token_request() {
   local token_endpoint="${E2E_OIDC_ISSUER}/protocol/openid-connect/token"
   local response
-  response=$(_driver_curl -X POST "${token_endpoint}" \
-    -d "grant_type=password" \
-    -d "client_id=${client_id}" \
-    -d "username=${username}" \
-    -d "password=${password}" 2>/dev/null || true)
+  response=$(_driver_curl -X POST "${token_endpoint}" "$@" 2>/dev/null || true)
 
   _OIDC_ACCESS_TOKEN=$(echo "$response" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
 
@@ -244,6 +288,91 @@ _driver_acquire_oidc_token() {
     dim "  Token error: $(echo "$response" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error_description','unknown'))" 2>/dev/null || echo 'no response')"
     return 1
   fi
+}
+
+# _driver_acquire_oidc_token - obtain an OIDC access token, honoring E2E_OIDC_GRANT
+# (ephemeral-pr-environments.spec.md). Keeps the same [username] [password]
+# [client_id] signature and call sites regardless of grant.
+#
+#   password (default) -- resource-owner password grant against the seeded user.
+#       The Kind path and the default for manual OpenShift runs.
+#   client_credentials -- the GitHub-brokered pull-request path. Brokered GitHub
+#       users have no password grant, so tokens come from the confidential
+#       hypershell-e2e client instead:
+#         * admin HyperShell API token (username == E2E_OIDC_USERNAME and
+#           client_id == E2E_OIDC_CLIENT_ID) -- client-credentials on
+#           hypershell-e2e.
+#         * admin per-gateway token (username == E2E_OIDC_USERNAME, a
+#           different client_id) -- token-exchange of the hypershell-e2e
+#           service account onto that gateway audience. The SA is the
+#           gateway owner on this path, so impersonating the seeded
+#           passworded admin user would never carry openshell-admin.
+#         * every other call (developer, platform-admin, ...) --
+#           token-exchange impersonating that principal for the requested
+#           audience. Never a password grant.
+_driver_acquire_oidc_token() {
+  _OIDC_ACCESS_TOKEN=""
+  local username="${1:-${E2E_OIDC_USERNAME}}"
+  local password="${2:-${E2E_OIDC_PASSWORD}}"
+  local client_id="${3:-${E2E_OIDC_CLIENT_ID}}"
+
+  case "${E2E_OIDC_GRANT:-password}" in
+    password)
+      _driver_token_request \
+        -d "grant_type=password" \
+        -d "client_id=${client_id}" \
+        -d "username=${username}" \
+        -d "password=${password}"
+      ;;
+    client_credentials)
+      if [[ -z "${E2E_OIDC_SA_CLIENT_SECRET:-}" ]]; then
+        red "  E2E_OIDC_GRANT=client_credentials requires E2E_OIDC_SA_CLIENT_SECRET"
+        red "  (the ${E2E_OIDC_SA_CLIENT_ID} client secret read from the Keycloak namespace after openshift-up)"
+        return 1
+      fi
+      if [[ "${username}" == "${E2E_OIDC_USERNAME}" && "${client_id}" == "${E2E_OIDC_CLIENT_ID}" ]]; then
+        # Admin HyperShell API token: client-credentials on hypershell-e2e.
+        # Per-gateway tokens (a different client_id) must not use this path:
+        # the CC token is issued for hypershell-e2e / hypershell-frontend and
+        # never carries openshell-admin on the gateway client.
+        _driver_token_request \
+          -d "grant_type=client_credentials" \
+          -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
+          -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"
+      else
+        # Token-exchange targeting that audience. Keycloak 26 standard
+        # token-exchange rejects requested_subject; impersonation uses the
+        # legacy token-exchange feature and needs a subject_token (the
+        # hypershell-e2e client-credentials token).
+        if ! _driver_token_request \
+          -d "grant_type=client_credentials" \
+          -d "client_id=${E2E_OIDC_SA_CLIENT_ID}" \
+          -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"; then
+          return 1
+        fi
+        local subject_token="$_OIDC_ACCESS_TOKEN"
+        local -a exchange_args=(
+          -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange"
+          -d "client_id=${E2E_OIDC_SA_CLIENT_ID}"
+          -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"
+          -d "subject_token=${subject_token}"
+        )
+        # The CI admin identity is the hypershell-e2e service account, which
+        # owns gateways it creates. Impersonating the seeded admin user
+        # would mint a token for a principal with no RoleBinding on that
+        # gateway. Developer (and other) principals still need impersonation.
+        if [[ "${username}" != "${E2E_OIDC_USERNAME}" ]]; then
+          exchange_args+=(-d "requested_subject=${username}")
+        fi
+        exchange_args+=(-d "audience=${client_id}")
+        _driver_token_request "${exchange_args[@]}"
+      fi
+      ;;
+    *)
+      red "  Unknown E2E_OIDC_GRANT '${E2E_OIDC_GRANT}' (valid: password, client_credentials)"
+      return 1
+      ;;
+  esac
 }
 
 acquire_oidc_token() {
@@ -273,7 +402,7 @@ _patch_namespace_gc_timing() {
     return 1
   fi
   _GC_TIMING_PATCHED=1
-  if ! "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=120s >/dev/null; then
+  if ! "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=300s >/dev/null; then
     red "  hypershell-controller did not roll out after GC timing patch"
     return 1
   fi
@@ -285,7 +414,7 @@ _restore_namespace_gc_timing() {
   dim "  Restoring controller namespace GC timing to deployment defaults..."
   "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
     GATEWAY_NAMESPACE_GC_INTERVAL- GATEWAY_NAMESPACE_GC_GRACE_PERIOD- >/dev/null 2>&1 || true
-  "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=120s >/dev/null 2>&1 || true
+  "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=300s >/dev/null 2>&1 || true
   _GC_TIMING_PATCHED=""
 }
 
@@ -458,18 +587,55 @@ sys.exit(0 if role in roles else 1)
 PY
 }
 
+# _token_debug_claims - print the identity and role claims from a JWT so a
+# timed-out role wait shows which principal was minted, not just that the
+# role was missing. Never prints the raw token.
+# Usage: _token_debug_claims <token>
+_token_debug_claims() {
+  local token="${1:?token required}"
+  python3 - "$token" <<'PY'
+import base64, json, sys
+tok = sys.argv[1]
+try:
+    payload = tok.split('.')[1]
+    payload += '=' * (-len(payload) % 4)
+    claims = json.loads(base64.urlsafe_b64decode(payload))
+except Exception:
+    print("unreadable jwt")
+    sys.exit(0)
+roles = []
+hs = claims.get('hypershell')
+if isinstance(hs, dict):
+    roles = hs.get('roles', []) or []
+if not roles:
+    roles = claims.get('hypershell.roles', []) or []
+print("preferred_username=%s sub=%s azp=%s aud=%s hypershell.roles=%s" % (
+    claims.get('preferred_username', ''),
+    claims.get('sub', ''),
+    claims.get('azp', ''),
+    claims.get('aud', ''),
+    ','.join(roles) if roles else '<none>',
+))
+PY
+}
+
 # acquire_gateway_token_with_role - mint a per-gateway-client token and wait until
 # the requested client role appears in it. The owner-binding -> reconciler ->
 # AssignClientRole bridge is asynchronous, so a token minted immediately after
 # gateway creation may not yet carry openshell-admin; poll until it does.
 # Sets _OIDC_ACCESS_TOKEN on success.
+#
+# Grant-agnostic: it delegates to acquire_oidc_token, so E2E_OIDC_GRANT selects
+# the flow (password grant on Kind/manual OpenShift; token-exchange of the
+# hypershell-e2e service account onto the gateway audience on the GitHub-brokered
+# PR admin path, or impersonation of a non-admin principal such as developer).
 # Usage: acquire_gateway_token_with_role <user> <pass> <client_id> <role> [timeout]
 acquire_gateway_token_with_role() {
   local username="${1:?username required}"
   local password="${2:?password required}"
   local client_id="${3:?client_id required}"
   local role="${4:?role required}"
-  local timeout="${5:-120}"
+  local timeout="${5:-300}"
 
   local deadline=$(($(date +%s) + timeout))
   while [[ $(date +%s) -lt $deadline ]]; do
@@ -484,6 +650,9 @@ acquire_gateway_token_with_role() {
     sleep 5
   done
 
+  if [[ -n "${_OIDC_ACCESS_TOKEN}" ]]; then
+    dim "    Last token claims: $(_token_debug_claims "${_OIDC_ACCESS_TOKEN}")"
+  fi
   _OIDC_ACCESS_TOKEN=""
   return 1
 }
@@ -511,7 +680,7 @@ wait_for_gateway_route() {
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
 
-  local timeout="${E2E_PROVISION_TIMEOUT:-180}"
+  local timeout="${E2E_PROVISION_TIMEOUT:-300}"
   local deadline=$(($(date +%s) + timeout))
 
   dim "  Waiting for Gateway route readiness (timeout: ${timeout}s)..."

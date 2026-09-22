@@ -58,7 +58,7 @@ CLOUD_PROVIDER_KIND_REF?=08ce4ea4cc10bce8ffbcf4f859a086bb6b292230
 CLOUD_PROVIDER_KIND_BRANCH?=
 CERT_MANAGER_VERSION?=v1.21.1
 CNPG_VERSION?=v1.30.0
-AGENT_SANDBOX_VERSION?=v0.5.4
+AGENT_SANDBOX_VERSION?=v0.5.6
 
 # PostgreSQL image for API server CNPG cluster (unset = CNPG default)
 HYPERSHELL_DATABASE_IMAGE?=
@@ -72,7 +72,7 @@ KIND_DNS_PORT?=5553
 # The gateway base domain is discovered from that Gateway's listener hostname.
 GATEWAY_API_GATEWAY_NAME?=openshell-grpc-gateway
 GATEWAY_API_GATEWAY_NAMESPACE?=openshift-ingress
-GATEWAY_IMAGE?=quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd
+GATEWAY_IMAGE?=$(shell . ./OPENSHELL_VERSION && echo "$${OPENSHELL_GATEWAY_IMAGE}:$${OPENSHELL_TAG}")
 
 # Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
@@ -118,8 +118,10 @@ help:
 	@echo "                             LOCAL_IMAGES=true KIND_SKIP_BUILD=true: reuse existing local images"
 	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
+	@echo "    kind-reconcile-keycloak-users  Assign platform:admin to admin on stale Keycloak imports"
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
 	@echo "                             SEED_STRICT=true: fail the command if seeding is incomplete"
+	@echo "                             FORCE=true: openshift-down skips ownership labels (still refuses reserved names)"
 	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
 	@echo "    kind-gateway-trust       Print SSL_CERT_FILE export so the openshell CLI trusts the dev CA"
 	@echo "    LOCAL_IMAGES=true        Build baseline images from the working tree (kind-up)"
@@ -189,7 +191,7 @@ build-controller:
 
 .PHONY: build-cli
 build-cli:
-	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hypershell
+	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hsctl
 
 .PHONY: build-web-console
 build-web-console:
@@ -228,8 +230,20 @@ test-dependency-age-policy:
 check-dependency-age: test-dependency-age-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
 
+.PHONY: sync-openshell-version
+sync-openshell-version:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py --stamp
+
+.PHONY: test-openshell-version-policy
+test-openshell-version-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_sync_openshell_version.py
+
+.PHONY: check-openshell-version
+check-openshell-version: test-openshell-version-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-openshell-version test-release-bundle
 
 # ============================================================================
 # Git hooks
@@ -331,7 +345,7 @@ export api_server_local control_plane_local web_console_local
 export build_version build_time
 export API_HOSTNAME CONSOLE_HOSTNAME HEALTH_HOSTNAME KEYCLOAK_HOSTNAME METRICS_HOSTNAME KEYCLOAK_OIDC_ISSUER
 export KIND_DNS_PORT
-export OPENSHIFT_NAMESPACE SWAP_REGISTRY SWAP_REPOSITORY SWAP_PLATFORM SWAP_ARCH PULL_SECRET SKIP_SEED SEED_STRICT
+export OPENSHIFT_NAMESPACE SWAP_REGISTRY SWAP_REPOSITORY SWAP_PLATFORM SWAP_ARCH PULL_SECRET SKIP_SEED SEED_STRICT FORCE
 export GATEWAY_API_GATEWAY_NAME GATEWAY_API_GATEWAY_NAMESPACE GATEWAY_IMAGE
 
 # Build cloud-provider-kind from a fork that adds BackendTLSPolicy support
@@ -420,6 +434,10 @@ kind-up:
 .PHONY: kind-seed
 kind-seed:
 	@CLUSTER_DRIVER=kind scripts/cluster/seed.sh
+
+.PHONY: kind-reconcile-keycloak-users
+kind-reconcile-keycloak-users:
+	@bash scripts/kind/reconcile-keycloak-users.sh
 
 .PHONY: kind-down
 kind-down:
@@ -525,6 +543,7 @@ generate-cli:
 		--project hypershell \
 		--api-prefix /api/hypershell/v1 \
 		--module github.com/openshift-online/hypershell/components/cli
+	gofmt -w components/cli
 
 generate-sdk-go:
 	$(MAKE) -C components/api-server generate-sdk
@@ -566,3 +585,7 @@ e2e-tracing:
 	@echo "    (requires: KIND_JAEGER=true make kind-up)"
 	@echo ""
 	@pnpm --filter @openshift-online/hypershell-web-console test:e2e:live
+
+.PHONY: test-release-bundle
+test-release-bundle:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_release_bundle.py

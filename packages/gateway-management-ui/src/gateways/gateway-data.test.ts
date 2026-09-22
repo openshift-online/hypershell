@@ -412,6 +412,6 @@ describe("gateway presentation data", () => {
     expect(connection.consoleUrl).toBeUndefined();
     expect(connection.gatewayVersion).toBeUndefined();
     expect(connection.oidcIssuer).toBeUndefined();
-    expect(connection.status).toBe("Unknown");
+    expect(connection.status).toBe("Provisioning");
   });
 });

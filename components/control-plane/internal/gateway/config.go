@@ -26,10 +26,10 @@ const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:l
 // defaultConsoleImage is the OpenShell dashboard image (the per-gateway
 // console). The upstream project publishes it to quay.io, so clusters pull it
 // directly (imagePullPolicy IfNotPresent) rather than building from source.
-// Pinned by digest to the sha-07f1b13 build for reproducibility; bump
+// Pinned by digest to the sha-978bcb5 build for reproducibility; bump
 // deliberately when adopting a new dashboard contract. Overridable via
 // HYPERSHELL_CONSOLE_IMAGE (e.g. a platform-registry mirror in production).
-const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:cb5e5b18b4cdf62efb1ce33e2ae73ed646d3cdf438966cae3c328f1c04cce0b4"
+const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:c69c1f34c574556684710a7d2d2a3654f164b855efe0d273a098782447068fc5"
 
 // defaultOAuth2ProxyImage is the oauth2-proxy sidecar image. Overridable via
 // HYPERSHELL_OAUTH2_PROXY_IMAGE.
@@ -108,7 +108,14 @@ type NamespaceConfig struct {
 }
 
 type GatewayConfig struct {
-	Image            string                  `yaml:"image"`
+	Image string `yaml:"image"`
+	// ReleaseID is the GatewayRelease the Image was resolved from (empty for a
+	// direct-image gateway). It is stamped onto the gateway Deployment as an
+	// annotation at apply time so the health loop can advance observed_release_id
+	// only to the release actually applied to the workload, never to a desired
+	// release the provisioning path has not yet rolled out. See
+	// gateway-release-rollout.spec.md.
+	ReleaseID        string                  `yaml:"releaseID"`
 	SupervisorImage  string                  `yaml:"supervisorImage"`
 	ServerDnsNames   []string                `yaml:"serverDnsNames"`
 	ExternalDns      string                  `yaml:"externalDns"`
@@ -235,7 +242,33 @@ type ReconcileOpts struct {
 	// resources, so an in-flight pass does not recreate them behind a concurrent
 	// health-loop teardown. Nil disables the re-check (the pass proceeds).
 	RouteStillDesired func(ctx context.Context) (bool, error)
+	// ReportProgress is called at provisioning step boundaries to report
+	// condition transitions. Nil means no reporting (progress is silently
+	// skipped).
+	ReportProgress ProgressReporter
+	// RecordOrphan, when set, records a durable, operator-visible signal that a
+	// gateway-owned resource was left unreclaimed during deletion with no
+	// automatic recovery path (e.g. a Keycloak client that could not be deleted
+	// because Keycloak was unavailable). It exists so a best-effort cleanup
+	// failure is never a silent orphan. Nil disables recording (the failure is
+	// only logged, matching legacy behavior). Implementations must not include
+	// secrets in any argument.
+	RecordOrphan OrphanRecorder
+	// ExternalCAIssuerName is the name of the cert-manager issuer for externally trusted certificates.
+	// Required for Route passthrough mode (TLS termination at pod, client sees cert directly).
+	ExternalCAIssuerName string
+	// ExternalCAIssuerKind is the kind of the external CA issuer (ClusterIssuer or Issuer).
+	ExternalCAIssuerKind string
+	// IngressBaseDomain is the base domain for auto-derived ingress hostnames (e.g. apps.example.com).
+	IngressBaseDomain string
 }
+
+// OrphanRecorder records a durable, operator-visible signal that a gateway-owned
+// resource was left behind during deletion with no automatic recovery path.
+// resourceKind and resourceName identify the leaked resource; reason explains
+// why it was not reclaimed. Implementations must be best-effort and must never
+// carry secrets.
+type OrphanRecorder func(ctx context.Context, resourceKind, resourceName, reason string)
 
 // KeycloakClientAPI is the subset of keycloak.Client needed by the gateway package.
 type KeycloakClientAPI interface {

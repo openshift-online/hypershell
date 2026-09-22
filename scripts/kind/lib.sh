@@ -35,7 +35,9 @@ fi
 if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
   export KIND_EXPERIMENTAL_PROVIDER=podman
 fi
-: "${GATEWAY_IMAGE:=quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd}"
+# shellcheck source=../../OPENSHELL_VERSION
+source "${REPO_ROOT}/OPENSHELL_VERSION"
+: "${GATEWAY_IMAGE:=${OPENSHELL_GATEWAY_IMAGE}:${OPENSHELL_TAG}}"
 : "${KEYCLOAK_HOSTNAME:=keycloak.hypershell.localhost}"
 : "${KEYCLOAK_OIDC_ISSUER:=https://${KEYCLOAK_HOSTNAME}/realms/hypershell}"
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"
@@ -57,6 +59,29 @@ seed_strict() {
     true|TRUE|1|yes|YES) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# Id of the first HyperShell list item whose name matches. Field order in the
+# list payload is not stable (presenters emit id before name), so callers must
+# not grep "name" then "id" in one object. Empty on missing name or bad JSON.
+json_named_id() {
+  python3 -c 'import json,sys
+name=sys.argv[1]
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if isinstance(data, dict):
+    items=data.get("items") or []
+elif isinstance(data, list):
+    items=data
+else:
+    items=[]
+for it in items:
+    if isinstance(it, dict) and it.get("name") == name:
+        print(it.get("id") or "")
+        break
+' "$1"
 }
 
 # --- Cluster helpers ---
@@ -488,4 +513,98 @@ stop_port_forward() {
       sudo iptables -t nat -X "${IPTABLES_CHAIN}" 2>/dev/null || true
       ;;
   esac
+}
+
+# --- Keycloak seed-user reconciliation ---
+
+_keycloak_admin_api_token() {
+  local token_url token_resp
+  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
+    token_url="${KIND_KEYCLOAK_URL%/}/realms/master/protocol/openid-connect/token"
+  else
+    token_url="https://${KEYCLOAK_HOSTNAME}/realms/master/protocol/openid-connect/token"
+  fi
+
+  token_resp=$(curl -sSk -m 10 -X POST "${token_url}" \
+    -d "grant_type=password" \
+    -d "client_id=admin-cli" \
+    -d "username=admin" \
+    -d "password=admin" 2>&1 || true)
+  echo "${token_resp}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true
+}
+
+_keycloak_assign_realm_role() {
+  local admin_token="$1"
+  local username="$2"
+  local role="$3"
+  local base user_uuid role_json role_id role_name code
+
+  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
+    base="${KIND_KEYCLOAK_URL%/}"
+  else
+    base="https://${KEYCLOAK_HOSTNAME}"
+  fi
+
+  user_uuid=$(curl -sSk -m 10 -H "Authorization: Bearer ${admin_token}" \
+    "${base}/admin/realms/hypershell/users?username=${username}&exact=true" 2>/dev/null \
+    | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
+  if [[ -z "${user_uuid}" ]]; then
+    warn "Keycloak user not found while reconciling roles: ${username}"
+    return 1
+  fi
+
+  role_json=$(curl -sSk -m 10 -H "Authorization: Bearer ${admin_token}" \
+    "${base}/admin/realms/hypershell/roles/$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${role}")" 2>/dev/null || true)
+  role_id=$(echo "${role_json}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+  role_name=$(echo "${role_json}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || true)
+  if [[ -z "${role_id}" || -z "${role_name}" ]]; then
+    warn "Keycloak realm role not found while reconciling roles: ${role}"
+    return 1
+  fi
+
+  code=$(curl -sSk -m 10 -o /dev/null -w '%{http_code}' -X POST \
+    -H "Authorization: Bearer ${admin_token}" \
+    -H "Content-Type: application/json" \
+    "${base}/admin/realms/hypershell/users/${user_uuid}/role-mappings/realm" \
+    -d "[{\"id\":\"${role_id}\",\"name\":\"${role_name}\"}]" 2>/dev/null || true)
+  if [[ "${code}" != "204" && "${code}" != "200" ]]; then
+    warn "Failed to assign Keycloak realm role ${role} to ${username} (HTTP ${code})"
+    return 1
+  fi
+  return 0
+}
+
+# Aligns live Keycloak users with deploy/base/keycloak/keycloak.yaml. Idempotent.
+reconcile_keycloak_seed_users() {
+  local admin_token=""
+  local -a required_roles=("platform:admin" "gateway:creator" "hypershell-admins" "hypershell-users")
+
+  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
+    info "Reconciling Keycloak seed users via ${KIND_KEYCLOAK_URL}..."
+  else
+    info "Reconciling Keycloak seed users at https://${KEYCLOAK_HOSTNAME}..."
+  fi
+
+  for _ in $(seq 1 30); do
+    admin_token="$(_keycloak_admin_api_token)"
+    if [[ -n "${admin_token}" ]]; then
+      break
+    fi
+    sleep 2
+  done
+  if [[ -z "${admin_token}" ]]; then
+    warn "Could not obtain Keycloak admin API token; skipping seed-user role reconciliation"
+    return 0
+  fi
+
+  local role failed=""
+  for role in "${required_roles[@]}"; do
+    if ! _keycloak_assign_realm_role "${admin_token}" "admin" "${role}"; then
+      failed=true
+    fi
+  done
+
+  if [[ -z "${failed}" ]]; then
+    success "Keycloak admin user reconciled (dashboard requires platform:admin)"
+  fi
 }

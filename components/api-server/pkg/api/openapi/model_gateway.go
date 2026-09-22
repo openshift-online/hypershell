@@ -51,6 +51,8 @@ type Gateway struct {
 	ConsoleAddress *string `json:"console_address,omitempty"`
 	// Runtime version from the last successful gateway health response
 	GatewayVersion *string `json:"gateway_version,omitempty"`
+	// Release the control plane has rolled out and observed healthy, advanced only after a new revision passes its health gates; distinct from the desired release_id and populated by the control plane
+	ObservedReleaseId *string `json:"observed_release_id,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration
@@ -59,6 +61,8 @@ type Gateway struct {
 	CredentialDriver *string `json:"credential_driver,omitempty"`
 	// Number of active (Running or Pending) agent sandboxes observed in the gateway namespace by the control plane
 	ActiveSandboxCount *int32 `json:"active_sandbox_count,omitempty"`
+	// Ordered list of provisioning conditions describing sub-phase progress
+	ProvisioningConditions []GatewayAllOfProvisioningConditions `json:"provisioning_conditions,omitempty"`
 	// Username of the user who provisioned this gateway, resolved from RBAC role bindings
 	CreatedBy *string `json:"created_by,omitempty"`
 }
@@ -719,6 +723,38 @@ func (o *Gateway) SetGatewayVersion(v string) {
 	o.GatewayVersion = &v
 }
 
+// GetObservedReleaseId returns the ObservedReleaseId field value if set, zero value otherwise.
+func (o *Gateway) GetObservedReleaseId() string {
+	if o == nil || IsNil(o.ObservedReleaseId) {
+		var ret string
+		return ret
+	}
+	return *o.ObservedReleaseId
+}
+
+// GetObservedReleaseIdOk returns a tuple with the ObservedReleaseId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetObservedReleaseIdOk() (*string, bool) {
+	if o == nil || IsNil(o.ObservedReleaseId) {
+		return nil, false
+	}
+	return o.ObservedReleaseId, true
+}
+
+// HasObservedReleaseId returns a boolean if a field has been set.
+func (o *Gateway) HasObservedReleaseId() bool {
+	if o != nil && !IsNil(o.ObservedReleaseId) {
+		return true
+	}
+
+	return false
+}
+
+// SetObservedReleaseId gets a reference to the given string and assigns it to the ObservedReleaseId field.
+func (o *Gateway) SetObservedReleaseId(v string) {
+	o.ObservedReleaseId = &v
+}
+
 // GetOidc returns the Oidc field value if set, zero value otherwise.
 func (o *Gateway) GetOidc() string {
 	if o == nil || IsNil(o.Oidc) {
@@ -847,6 +883,38 @@ func (o *Gateway) SetActiveSandboxCount(v int32) {
 	o.ActiveSandboxCount = &v
 }
 
+// GetProvisioningConditions returns the ProvisioningConditions field value if set, zero value otherwise.
+func (o *Gateway) GetProvisioningConditions() []GatewayAllOfProvisioningConditions {
+	if o == nil || IsNil(o.ProvisioningConditions) {
+		var ret []GatewayAllOfProvisioningConditions
+		return ret
+	}
+	return o.ProvisioningConditions
+}
+
+// GetProvisioningConditionsOk returns a tuple with the ProvisioningConditions field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetProvisioningConditionsOk() ([]GatewayAllOfProvisioningConditions, bool) {
+	if o == nil || IsNil(o.ProvisioningConditions) {
+		return nil, false
+	}
+	return o.ProvisioningConditions, true
+}
+
+// HasProvisioningConditions returns a boolean if a field has been set.
+func (o *Gateway) HasProvisioningConditions() bool {
+	if o != nil && !IsNil(o.ProvisioningConditions) {
+		return true
+	}
+
+	return false
+}
+
+// SetProvisioningConditions gets a reference to the given []GatewayAllOfProvisioningConditions and assigns it to the ProvisioningConditions field.
+func (o *Gateway) SetProvisioningConditions(v []GatewayAllOfProvisioningConditions) {
+	o.ProvisioningConditions = v
+}
+
 // GetCreatedBy returns the CreatedBy field value if set, zero value otherwise.
 func (o *Gateway) GetCreatedBy() string {
 	if o == nil || IsNil(o.CreatedBy) {
@@ -942,6 +1010,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.GatewayVersion) {
 		toSerialize["gateway_version"] = o.GatewayVersion
 	}
+	if !IsNil(o.ObservedReleaseId) {
+		toSerialize["observed_release_id"] = o.ObservedReleaseId
+	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc
 	}
@@ -953,6 +1024,9 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ActiveSandboxCount) {
 		toSerialize["active_sandbox_count"] = o.ActiveSandboxCount
+	}
+	if !IsNil(o.ProvisioningConditions) {
+		toSerialize["provisioning_conditions"] = o.ProvisioningConditions
 	}
 	if !IsNil(o.CreatedBy) {
 		toSerialize["created_by"] = o.CreatedBy

@@ -28,12 +28,20 @@ func newHTTPClient(insecure bool) *http.Client {
 		return &http.Client{Timeout: 30 * time.Second}
 	}
 	return &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				MinVersion:         tls.VersionTLS12,
-				InsecureSkipVerify: true, //nolint:gosec
-			},
+		Timeout:   30 * time.Second,
+		Transport: newInsecureTransport(),
+	}
+}
+
+// newInsecureTransport sets Proxy explicitly because a zero-value
+// http.Transport, unlike http.DefaultTransport, ignores HTTPS_PROXY /
+// HTTP_PROXY / NO_PROXY.
+func newInsecureTransport() *http.Transport {
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true, //nolint:gosec
 		},
 	}
 }

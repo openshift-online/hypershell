@@ -117,6 +117,10 @@ def _is_digest_pinned(reference: str) -> bool:
     return _DIGEST_PIN.search(reference) is not None
 
 
+def _is_make_dynamic(reference: str) -> bool:
+    return "$(" in reference or "${" in reference
+
+
 def _is_local_image(reference: str) -> bool:
     return reference.startswith("localhost/") or reference.startswith("localhost:")
 
@@ -321,7 +325,11 @@ def _makefile_violations(
         name, reference = match.groups()
         reference = _unquote(reference)
         image_variables[name] = reference
-        if not _is_local_image(reference) and not _is_digest_pinned(reference):
+        if (
+            not _is_local_image(reference)
+            and not _is_digest_pinned(reference)
+            and not _is_make_dynamic(reference)
+        ):
             violations.append(
                 (relative_path, line_number, f"{name} lacks a sha256 digest")
             )

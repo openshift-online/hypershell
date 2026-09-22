@@ -21,6 +21,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
@@ -1375,40 +1376,84 @@ func (r *GatewayReleaseReconciler) forget(id string) {
 	delete(r.lastImage, id)
 }
 
+// recordIncompleteFinalizationEvent records a durable, operator-visible
+// Kubernetes Event stating that a gateway-owned resource was left unreclaimed
+// during deletion with no automatic recovery path. The Event is created in the
+// control-plane namespace (not the gateway namespace, which is itself being
+// reaped) so it outlives the deleted resources, satisfying the no-silent-orphan
+// contract. It fails closed when no control-plane namespace is configured: a
+// leaked resource with no durable record is exactly the silent orphan this
+// guards against. The message must never carry secrets; callers pass only the
+// resource kind, name, and a human-readable reason.
+//
+// It takes kubernetes.Interface (not the concrete *kubernetes.Clientset the
+// reconciler holds) so it is unit-testable with a fake clientset.
+func recordIncompleteFinalizationEvent(ctx context.Context, client kubernetes.Interface, cpNamespace, gatewayID, resourceKind, resourceName, reason string) error {
+	if cpNamespace == "" {
+		return fmt.Errorf("no control-plane namespace configured; cannot record the required IncompleteFinalization Event for gateway %s resource %s %q", gatewayID, resourceKind, resourceName)
+	}
+	now := metav1.NewTime(time.Now())
+	event := &corev1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "gateway-finalization-",
+			Namespace:    cpNamespace,
+		},
+		InvolvedObject: corev1.ObjectReference{
+			Kind: "Gateway",
+			Name: gatewayID,
+			// The Event lives in the control-plane namespace so it outlives the
+			// reaped gateway resources. Kubernetes requires involvedObject.namespace
+			// to match event.namespace for namespaced Events; Name still identifies
+			// the gateway whose finalization was incomplete.
+			Namespace: cpNamespace,
+		},
+		Reason:         "IncompleteFinalization",
+		Message:        fmt.Sprintf("gateway %s deletion left %s %q unreclaimed with no automatic recovery path: %s", gatewayID, resourceKind, resourceName, reason),
+		Type:           corev1.EventTypeWarning,
+		Source:         corev1.EventSource{Component: "hypershell-control-plane"},
+		FirstTimestamp: now,
+		LastTimestamp:  now,
+		Count:          1,
+	}
+	if _, err := client.CoreV1().Events(cpNamespace).Create(ctx, event, metav1.CreateOptions{}); err != nil {
+		return err
+	}
+	return nil
+}
+
 type GatewayReconciler struct {
 	mu                    sync.Mutex
 	active                map[string]struct{}
 	dynamicClient         dynamic.Interface
 	clientset             *kubernetes.Clientset
 	grpcConn              *grpc.ClientConn
-	manifests             map[string][]*unstructured.Unstructured
+	helmClient            *helm.ShellClient
 	isOpenShift           bool
 	hasCertManager        bool
 	hasGatewayAPI         bool
 	ingressMode           string
 	skipNetworkPolicies   bool
 	hasCNPG               bool
-	manifestsDir          string
 	controlPlaneNamespace string
 	keycloakClient        *keycloak.Client
 	keycloakConfig        *gateway.KeycloakConfig
 	exposure              exposure.Port
+	externalCAIssuerName  string
+	externalCAIssuerKind  string
+	ingressBaseDomain     string
 }
 
 func NewGatewayReconciler(
 	dynamicClient dynamic.Interface,
 	clientset *kubernetes.Clientset,
 	grpcConn *grpc.ClientConn,
-	manifestsDir string,
+	helmClient *helm.ShellClient,
 	controlPlaneNamespace string,
 	keycloakConfig *gateway.KeycloakConfig,
 	exposurePort exposure.Port,
+	externalCAIssuerName string,
+	externalCAIssuerKind string,
 ) (*GatewayReconciler, error) {
-	manifests, err := gateway.LoadGatewayManifests(manifestsDir)
-	if err != nil {
-		return nil, fmt.Errorf("load gateway manifests from %s: %w", manifestsDir, err)
-	}
-
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
@@ -1427,26 +1472,40 @@ func NewGatewayReconciler(
 		log.Printf("INFO keycloak integration enabled: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
 	}
 
-	log.Printf("INFO gateway reconciler initialized: manifests=%d openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s cnpg=%v keycloak=%v netpol=%v",
-		len(manifests), isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, hasCNPG, kcClient != nil, !skipNetworkPolicies)
+	// Derive ingress base domain from environment
+	ingressBaseDomain := os.Getenv("INGRESS_BASE_DOMAIN")
+	if ingressBaseDomain == "" {
+		ingressBaseDomain = "gateway.cluster.local"
+		log.Printf("WARN INGRESS_BASE_DOMAIN not set, using default: %s", ingressBaseDomain)
+	}
+
+	// Validate external CA issuer for Route passthrough mode
+	if !hasGatewayAPI && externalCAIssuerName == "" {
+		log.Printf("WARN EXTERNAL_CA_ISSUER_NAME not set but Gateway API unavailable; Route passthrough mode will fail cert validation")
+	}
+
+	log.Printf("INFO gateway reconciler initialized: helm=%s openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s cnpg=%v keycloak=%v netpol=%v ingress=%s ca-issuer=%s",
+		helmClient.ChartPath, isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, hasCNPG, kcClient != nil, !skipNetworkPolicies, ingressBaseDomain, externalCAIssuerName)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
 		dynamicClient:         dynamicClient,
 		clientset:             clientset,
 		grpcConn:              grpcConn,
-		manifests:             manifests,
+		helmClient:            helmClient,
 		isOpenShift:           isOpenShift,
 		hasCertManager:        hasCertManager,
 		hasGatewayAPI:         hasGatewayAPI,
 		ingressMode:           ingressMode,
 		skipNetworkPolicies:   skipNetworkPolicies,
 		hasCNPG:               hasCNPG,
-		manifestsDir:          manifestsDir,
 		controlPlaneNamespace: controlPlaneNamespace,
 		keycloakClient:        kcClient,
 		keycloakConfig:        keycloakConfig,
 		exposure:              exposurePort,
+		externalCAIssuerName:  externalCAIssuerName,
+		externalCAIssuerKind:  externalCAIssuerKind,
+		ingressBaseDomain:     ingressBaseDomain,
 	}, nil
 }
 
@@ -1527,14 +1586,29 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				GatewayID:             event.ResourceID,
 				GatewayName:           gw.Name,
 			}
+			// A best-effort cleanup failure that leaves a gateway-owned resource
+			// behind (a ClusterRoleBinding or Keycloak client with no cascading
+			// owner and no reclaiming reconciler) must not be a silent orphan: it is
+			// recorded as a durable, operator-visible Event. Recording is itself
+			// best-effort within the delete pass -- a failed record is logged but
+			// does not fail finalization, since the underlying deletion error was
+			// already tolerated as best-effort.
+			opts.RecordOrphan = func(rctx context.Context, resourceKind, resourceName, reason string) {
+				if err := recordIncompleteFinalizationEvent(rctx, r.clientset, r.controlPlaneNamespace, event.ResourceID, resourceKind, resourceName, reason); err != nil {
+					log.Printf("ERROR gateway %s: failed to record IncompleteFinalization Event for %s %q: %v", event.ResourceID, resourceKind, resourceName, err)
+				}
+			}
 			if r.keycloakClient != nil {
 				clientID, err := existingGatewayKeycloakClientID(event.ResourceID, gw)
 				if err != nil {
 					// Invalid stored identity never becomes valid on retry, so failing
 					// here would pin the delete tombstone after namespace and database
-					// cleanup. Keycloak is not contacted. Log the failure for operator
-					// recovery instead.
+					// cleanup. Keycloak is not contacted. Record the leak durably (not
+					// just a log line) so the orphaned Keycloak clients are visible to
+					// operators for recovery.
 					log.Printf("ERROR gateway %s stored identity cannot be resolved (%v); skipping Keycloak cleanup; Keycloak clients may remain for operator recovery", event.ResourceID, err)
+					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
+						fmt.Sprintf("stored identity cannot be resolved (%v); Keycloak clients could not be deleted", err))
 				} else {
 					opts.KeycloakClient = r.keycloakClient
 					opts.GatewayClientID = clientID
@@ -1547,8 +1621,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				clientID, idErr := existingGatewayKeycloakClientID(event.ResourceID, gw)
 				if idErr != nil {
 					log.Printf("ERROR gateway %s identity cleanup requires the Keycloak client; stored identity cannot be resolved (%v); Keycloak clients may remain for operator recovery", event.ResourceID, idErr)
+					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
+						fmt.Sprintf("Keycloak provisioner is deconfigured and stored identity cannot be resolved (%v); Keycloak clients could not be deleted", idErr))
 				} else {
 					log.Printf("ERROR gateway %s identity cleanup requires the Keycloak client; leaving Keycloak clients %q and %q for operator recovery", event.ResourceID, clientID, clientID+"-console")
+					opts.RecordOrphan(ctx, "KeycloakClient", clientID,
+						"Keycloak provisioner is deconfigured; the gateway Keycloak client could not be deleted")
+					opts.RecordOrphan(ctx, "KeycloakClient", clientID+"-console",
+						"Keycloak provisioner is deconfigured; the console Keycloak client could not be deleted")
 				}
 			}
 			var credentialNamespaces []string
@@ -1562,7 +1642,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					}
 				}
 			}
-			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, namespace, opts, credentialNamespaces...); err != nil {
+			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, r.helmClient, namespace, opts, credentialNamespaces...); err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway resources in %s: %w", namespace, err))
 			} else {
 				log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
@@ -1649,7 +1729,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		var resolveErr error
 		dbConfig, resolveErr = r.resolveDatabaseConfig(ctx, gw)
 		if resolveErr != nil {
-			reconcileErr = fmt.Errorf("resolve database config for gateway %s: %w", gw.Name, resolveErr)
+			r.updateGatewayPhase(ctx, event.ResourceID, "Failed")
+			reconcileErr = fmt.Errorf("resolve database config for gateway %s: %w", event.ResourceID, resolveErr)
 			return reconcileErr
 		}
 	} else {
@@ -1682,21 +1763,25 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ExternalDns:    externalDns,
 	}
 
-	// Database-backed gateway version selection: a release_id takes precedence
-	// over a direct image, and an empty result lets the manifest layer apply the
-	// platform default. See specs/platform/gateway-version-selection.spec.md.
+	// Select the release image, direct image, or platform default before Helm
+	// values are built. See specs/platform/gateway-version-selection.spec.md.
 	image, err := r.selectGatewayImage(ctx, gw)
 	if err != nil {
 		reconcileErr = fmt.Errorf("select image for gateway %s: %w", gw.Name, err)
 		return reconcileErr
 	}
-	if image != "" {
-		gwConfig.Image = image
-	}
+	gwConfig.Image = image
+	// Record the release the image was resolved from so the applied release is
+	// stamped onto the Deployment and the health loop advances observed_release_id
+	// only to what was actually rolled out. Empty for a direct-image gateway.
+	gwConfig.ReleaseID = gw.ReleaseId
 
-	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
-		gwConfig.SupervisorImage = *gw.SupervisorImage
+	supervisorImage := selectSupervisorImage(gw)
+	if supervisorImage == "" {
+		reconcileErr = fmt.Errorf("supervisor image is not configured for gateway %s; set GATEWAY_SUPERVISOR_IMAGE or specify a supervisor_image", gw.Name)
+		return reconcileErr
 	}
+	gwConfig.SupervisorImage = supervisorImage
 
 	if gw.Oidc != nil && *gw.Oidc != "" {
 		var oidcConfig gateway.OIDCConfig
@@ -1752,27 +1837,60 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
 		Exposure:              r.exposure,
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
+		ExternalCAIssuerName:  r.externalCAIssuerName,
+		ExternalCAIssuerKind:  r.externalCAIssuerKind,
+		IngressBaseDomain:     r.ingressBaseDomain,
+	}
+
+	conditions := gateway.InitConditions(r.keycloakConfig != nil)
+	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+
+	opts.ReportProgress = func(step, status, message string) {
+		gateway.SetCondition(conditions, step, status, message)
+		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 	}
 
 	r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning))
 
-	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, nsConfig, r.manifests, opts); err != nil {
-		// A generated-configuration validation failure is non-recoverable until the
-		// declared config changes: settle to Failed with a human-readable reason so
-		// an operator sees why, and log with the gateway name and namespace. Because
-		// the gate runs before any config-derived write, a Running gateway keeps
-		// serving its last-good configuration. See
-		// specs/platform/generated-gateway-config-validation.spec.md.
+	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, r.helmClient, nsConfig, opts); err != nil {
 		var renderErr *gateway.RenderedConfigValidationError
 		if errors.As(err, &renderErr) {
 			reason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
-			r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), reason)
+			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), reason); failedGateway != nil {
+				observeGatewayProvisionFailure(ctx, event.ResourceID)
+			}
 			log.Printf("ERROR gateway %s generated configuration invalid in namespace %s: %v", gw.Name, namespace, renderErr.Err)
-		} else {
-			r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed))
+		} else if r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed)) {
+			observeGatewayProvisionFailure(ctx, event.ResourceID)
 		}
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
+	}
+
+	// Step 5: GatewayHealthy
+	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
+	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
+
+	if r.exposure != nil && isRoutedGateway(gw) {
+		routeHost := ""
+		if gw.Route != nil {
+			var rc struct{ Host string }
+			_ = json.Unmarshal([]byte(*gw.Route), &rc)
+			routeHost = rc.Host
+		}
+		addr, err := r.exposure.ResolveAddress(ctx, exposure.Request{
+			Namespace: namespace,
+			Host:      routeHost,
+		})
+		if err != nil {
+			log.Printf("WARN gateway %s: failed to resolve route address: %v", gw.Name, err)
+		} else if addr != "" {
+			if err := r.updateRouteAddress(ctx, event.ResourceID, addr); err != nil {
+				log.Printf("WARN gateway %s: failed to publish route address: %v", gw.Name, err)
+			} else {
+				log.Printf("INFO gateway %s: published route address %s", gw.Name, addr)
+			}
+		}
 	}
 
 	// Manifests are applied, but the gateway is not Running until its workload is
@@ -1780,6 +1898,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// Deployment never becomes ready, set Degraded and record why.
 	ready, reason := gateway.WaitForGatewayReady(ctx, r.clientset, namespace, 2*time.Minute)
 	if !ready {
+		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusFailed, "Gateway health check timed out - the gateway workload is not yet ready")
+		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseDegraded), reason)
 		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
 		return nil
@@ -1797,21 +1917,46 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// is Running on Deployment readiness alone. See
 	// openshell-gateway-health.spec.md § Phase Reflects Workload and Route Readiness.
 	routed := isRoutedGateway(gw)
+	client := pb.NewGatewayServiceClient(r.grpcConn)
 	if r.exposure != nil && routed {
 		if r.waitForRouteReady(ctx, namespace) {
+			gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
+			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 			// The observation guard rejects work that started in Running or Degraded.
 			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
-				observeGatewayProvisionDuration(ctx, runningGateway)
+				observeGatewayProvisionSuccess(ctx, runningGateway)
+			}
+			// The new revision has passed its workload and route health gates: now
+			// report the release actually rolled out. This path just rendered the
+			// Deployment from gw.ReleaseId (gwConfig.ReleaseID above), so the applied
+			// release is gw.GetReleaseId(). A write-back failure is surfaced so the
+			// reconcile is retried rather than leaving the gateway falsely reporting
+			// the new release. See gateway-release-rollout.spec.md.
+			if err := advanceObservedRelease(ctx, client, gw.GetMetadata().GetId(), gw.GetObservedReleaseId(), gw.GetReleaseId()); err != nil {
+				log.Printf("WARN gateway %s: %v", gw.Name, err)
+				return err
 			}
 			log.Printf("INFO gateway %s provisioned and route ready in namespace %s", gw.Name, namespace)
 		} else {
+			// Route gate not yet passed: hold at Provisioning and do NOT advance the
+			// observed release. The continuous health reconciler promotes to Running
+			// (and advances the observed release) once the route is ready.
 			r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning), "Deployment ready; awaiting route readiness")
 			log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
 		}
 	} else {
+		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
+		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		// The observation guard rejects work that started in Running or Degraded.
 		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
-			observeGatewayProvisionDuration(ctx, runningGateway)
+			observeGatewayProvisionSuccess(ctx, runningGateway)
+		}
+		// The new revision has passed its health gate: report the release rolled out.
+		// This path just rendered the Deployment from gw.ReleaseId, so the applied
+		// release is gw.GetReleaseId().
+		if err := advanceObservedRelease(ctx, client, gw.GetMetadata().GetId(), gw.GetObservedReleaseId(), gw.GetReleaseId()); err != nil {
+			log.Printf("WARN gateway %s: %v", gw.Name, err)
+			return err
 		}
 		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
 	}
@@ -1870,6 +2015,9 @@ func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.C
 	}
 	if err := r.keycloakClient.EnsureDeviceAuthorizationGrant(ctx, clientUUID); err != nil {
 		return fmt.Errorf("reconcile device authorization grant on Keycloak client %q: %w", clientID, err)
+	}
+	if err := r.keycloakClient.EnsureE2ETokenExchange(ctx, clientUUID); err != nil {
+		return fmt.Errorf("reconcile e2e token-exchange on Keycloak client %q: %w", clientID, err)
 	}
 	log.Printf("INFO reconciled Keycloak client %q (uuid=%q)", clientID, clientUUID)
 	return nil
@@ -2193,7 +2341,7 @@ func (r *GatewayReconciler) updateGatewayHealth(ctx context.Context, gatewayID, 
 	return response.GetGateway()
 }
 
-func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID string, phase string) {
+func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID string, phase string) bool {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
 		Id:    gatewayID,
@@ -2201,6 +2349,42 @@ func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID st
 	})
 	if err != nil {
 		log.Printf("WARN failed to update gateway %s phase to %s: %v", gatewayID, phase, err)
+		return false
+	}
+	return true
+}
+
+func conditionStatusToProto(s string) pb.ProvisioningConditionStatus {
+	switch s {
+	case gateway.StatusPending:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_PENDING
+	case gateway.StatusInProgress:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_IN_PROGRESS
+	case gateway.StatusComplete:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE
+	case gateway.StatusFailed:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_FAILED
+	default:
+		return pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_UNSPECIFIED
+	}
+}
+
+func (r *GatewayReconciler) updateProvisioningConditions(ctx context.Context, gatewayID string, conditions []gateway.ProvisioningCondition) {
+	client := pb.NewGatewayServiceClient(r.grpcConn)
+	pbConditions := make([]*pb.ProvisioningCondition, len(conditions))
+	for i, c := range conditions {
+		pbConditions[i] = &pb.ProvisioningCondition{
+			Type:            c.Type,
+			ConditionStatus: conditionStatusToProto(c.ConditionStatus),
+			Message:         c.Message,
+		}
+	}
+	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:                     gatewayID,
+		ProvisioningConditions: pbConditions,
+	})
+	if err != nil {
+		log.Printf("WARN failed to update provisioning conditions for gateway %s: %v", gatewayID, err)
 	}
 }
 
@@ -2215,6 +2399,31 @@ func (r *GatewayReconciler) updateGatewayStatus(ctx context.Context, gatewayID, 
 	}); err != nil {
 		return fmt.Errorf("update gateway %s status: %w", gatewayID, err)
 	}
+	return nil
+}
+
+// advanceObservedRelease reports the release the control plane has rolled out and
+// observed healthy by setting the Gateway's observed_release_id to appliedRelease
+// -- the release actually rendered onto the ready workload -- once the new
+// revision has passed its health gates. Callers MUST pass the applied release, not
+// the desired release_id: advancing to a desired release the workload has not yet
+// rolled out would falsely report it ready (the exact failure the spec forbids).
+// It is a no-op when appliedRelease is empty (a direct-image gateway, whose
+// observed release stays empty) or when observed_release_id already matches, so it
+// issues no redundant write for an unchanged release. A write-back failure is
+// returned so the caller can retry rather than leave the gateway falsely reporting
+// the new release as rolled out. See gateway-release-rollout.spec.md.
+func advanceObservedRelease(ctx context.Context, client pb.GatewayServiceClient, gatewayID, observedRelease, appliedRelease string) error {
+	if appliedRelease == "" || gatewayID == "" || observedRelease == appliedRelease {
+		return nil
+	}
+	if _, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:                gatewayID,
+		ObservedReleaseId: &appliedRelease,
+	}); err != nil {
+		return fmt.Errorf("advance observed_release_id for gateway %s to %s: %w", gatewayID, appliedRelease, err)
+	}
+	log.Printf("INFO gateway %s observed release advanced to %s", gatewayID, appliedRelease)
 	return nil
 }
 
@@ -2343,11 +2552,19 @@ type databaseConfig struct {
 	ExternalDB      gateway.ExternalDBConfig
 }
 
-// selectGatewayImage applies database-backed gateway version selection: a
-// non-empty release_id is authoritative and resolves to its GatewayRelease
-// image; a direct image is the fallback; and an empty result signals the
-// manifest layer to apply the platform default. See
-// specs/platform/gateway-version-selection.spec.md.
+// selectSupervisorImage returns the gateway's explicit supervisor image or the
+// platform default from GATEWAY_SUPERVISOR_IMAGE. Returns empty when neither is
+// configured so the caller can fail fast instead of deploying a chart default.
+func selectSupervisorImage(gw *pb.Gateway) string {
+	if gw.SupervisorImage != nil && *gw.SupervisorImage != "" {
+		return *gw.SupervisorImage
+	}
+	return (gateway.StaticImageDefaults{}).DefaultSupervisorImage()
+}
+
+// selectGatewayImage selects the release image, direct image, or platform
+// default, in that order. Image selection must succeed before Helm deployment.
+// See specs/platform/gateway-version-selection.spec.md.
 func (r *GatewayReconciler) selectGatewayImage(ctx context.Context, gw *pb.Gateway) (string, error) {
 	if gw.ReleaseId != "" {
 		return r.resolveReleaseImage(ctx, gw)
@@ -2355,7 +2572,11 @@ func (r *GatewayReconciler) selectGatewayImage(ctx context.Context, gw *pb.Gatew
 	if gw.Image != nil && *gw.Image != "" {
 		return *gw.Image, nil
 	}
-	return "", nil
+	image := (gateway.StaticImageDefaults{}).DefaultGatewayImage()
+	if image == "" {
+		return "", fmt.Errorf("gateway image is not configured; set GATEWAY_IMAGE or specify a gateway image or release_id")
+	}
+	return image, nil
 }
 
 // resolveReleaseImage resolves a Gateway's release_id to the image published by

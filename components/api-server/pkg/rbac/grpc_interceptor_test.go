@@ -198,7 +198,7 @@ func TestUnaryInterceptor_SandboxCountRestrictedToServiceAccount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			interceptor := RBACUnaryInterceptor(ownerLookup, prov, nil, AuthzConfig{
+			interceptor := RBACUnaryInterceptor(ownerLookup, prov, nil, nil, AuthzConfig{
 				EnforceRBAC:     true,
 				ServiceAccounts: tt.serviceAccounts,
 			})
@@ -255,7 +255,7 @@ func TestStreamInterceptor_ManagedDatabaseReplayRestrictedToServiceAccount(t *te
 				ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("hypershell-managed-database-replay", "deleted-v1"))
 			}
 			stream := &fakeServerStream{ctx: ctx}
-			interceptor := RBACStreamInterceptor(ownerLookup, provisioner, nil, AuthzConfig{
+			interceptor := RBACStreamInterceptor(ownerLookup, provisioner, nil, nil, AuthzConfig{
 				EnforceRBAC:     true,
 				ServiceAccounts: tt.serviceAccounts,
 			})
@@ -366,7 +366,7 @@ func TestUnaryInterceptor_GatewayVersionRestrictedToServiceAccount(t *testing.T)
 		for _, username := range []string{"human-user", serviceAccount} {
 			t.Run(role+"/"+username, func(t *testing.T) {
 				lookup := fakeLookup{bindings: []BindingSummary{{RoleName: role, Scope: "gateway", GatewayID: strPtr("gw-1")}}}
-				interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{serviceAccount}})
+				interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{serviceAccount}})
 				ctx := auth.SetUsernameContext(context.Background(), username)
 				called := false
 				_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: method}, func(context.Context, interface{}) (interface{}, error) {

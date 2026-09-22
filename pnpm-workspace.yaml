@@ -20,6 +20,8 @@ syncInjectedDepsAfterScripts:
 strictPeerDependencies: true
 disallowWorkspaceCycles: true
 failIfNoMatch: true
+# engines.node is the compatibility floor (Mintmaker/Renovate runs Node 24.11.0).
+# .node-version pins the recommended version for local dev, CI, and container builds.
 engineStrict: true
 
 minimumReleaseAge: 20160
@@ -39,5 +41,5 @@ verifyDepsBeforeRun: error
 strictDepBuilds: true
 dangerouslyAllowAllBuilds: false
 allowBuilds:
-  esbuild@0.28.1: true
+  esbuild@0.28.2: true
   msw@2.15.0: false

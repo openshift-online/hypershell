@@ -38,4 +38,46 @@ describe("getMetricTrendChange", () => {
   it("returns undefined when the starting trend value is zero", () => {
     expect(getMetricTrendChange(metricWithTrend([0, 50]))).toBeUndefined();
   });
+
+  it("uses successRateTrend for provision reliability summary arrows", () => {
+    expect(
+      getMetricTrendChange({
+        id: "provision-reliability",
+        successRateTrend: {
+          points: [
+            { label: "2026-08-09T12:00", value: 80 },
+            { label: "2026-08-09T13:00", value: 100 },
+          ],
+        },
+        value: "100",
+      }),
+    ).toEqual({
+      direction: "increase",
+      percent: 25,
+    });
+  });
+
+  it("prefers hourlyTrend over daily trend for summary arrows", () => {
+    expect(
+      getMetricTrendChange({
+        hourlyTrend: {
+          points: [
+            { label: "2026-09-15T10:00", value: 10 },
+            { label: "2026-09-15T11:00", value: 20 },
+          ],
+        },
+        id: "provisioned-sandboxes",
+        trend: {
+          points: [
+            { label: "2026-09-09", value: 100 },
+            { label: "2026-09-15", value: 90 },
+          ],
+        },
+        value: "20",
+      }),
+    ).toEqual({
+      direction: "increase",
+      percent: 100,
+    });
+  });
 });

@@ -19,6 +19,7 @@ func init() {
 
 		userService := users.Service(envServices)
 		rbService := roleBindings.Service(envServices)
+		activityRecorder := users.ActivityRecorder(envServices)
 
 		if userService != nil {
 			provisioner := rbac.NewUserProvisioner(userService)
@@ -31,9 +32,10 @@ func init() {
 		if rbService != nil {
 			enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
 			authzConfig := rbac.AuthzConfig{
-				EnforceRBAC: enforceRBAC,
+				EnforceRBAC:     enforceRBAC,
+				ServiceAccounts: rbac.ServiceAccountsFromEnv(),
 			}
-			rbacMiddleware := rbac.NewRBACAuthzMiddleware(rbService, authzConfig)
+			rbacMiddleware := rbac.NewRBACAuthzMiddleware(rbService, authzConfig, activityRecorder)
 			apiV1Router.Use(rbacMiddleware.AuthorizeApi)
 		}
 	})

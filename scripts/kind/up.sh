@@ -800,17 +800,17 @@ fi
 
 if [[ -n "${PORT_SUFFIX}" ]]; then
   warn "Port forwarding not active - overriding OIDC URLs with port suffix ${PORT_SUFFIX}"
-  warn "Caveat: gateway OIDC validation expects the canonical issuer"
-  warn "  https://${KEYCLOAK_HOSTNAME} that the gateway is seeded with. On this"
-  warn "  fallback path Keycloak mints tokens with a port-suffixed issuer, which"
-  warn "  will not match, so gateway token validation will fail. Use port"
-  warn "  forwarding (the default) for end-to-end gateway OIDC."
 
   if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
     kube set env deployment/keycloak -n keycloak \
       KC_HOSTNAME="https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}"
     kube rollout restart deployment/keycloak -n keycloak
     kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=120s
+  fi
+
+  if ! is_swapped control-plane; then
+    kube set env deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
+      GATEWAY_OIDC_ISSUER_URL="https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}/realms/hypershell"
   fi
 
   if ! is_swapped web-console; then

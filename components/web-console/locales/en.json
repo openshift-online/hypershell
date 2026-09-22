@@ -35,6 +35,10 @@
     "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     "description": "Supporting text on the operational dashboard page."
   },
+  "app.dashboard.gatewayReleases.summaryAriaLabel": {
+    "defaultMessage": "Gateways by release",
+    "description": "Accessible label for the gateway releases stat panel in the dashboard."
+  },
   "app.dashboard.gatewayStatus.ariaDesc": {
     "defaultMessage": "Gateway count by status",
     "description": "Accessible description for the gateway status donut chart."
@@ -107,14 +111,6 @@
     "defaultMessage": "Managed cluster regions chart",
     "description": "Accessible title for the managed cluster region donut chart."
   },
-  "app.dashboard.managedClusterStatus.ariaDesc": {
-    "defaultMessage": "Managed cluster count by status",
-    "description": "Accessible description for the managed cluster status donut chart."
-  },
-  "app.dashboard.managedClusterStatus.chartTitle": {
-    "defaultMessage": "Managed cluster status chart",
-    "description": "Accessible title for the managed cluster status donut chart."
-  },
   "app.dashboard.managedDatabaseStatus.ariaDesc": {
     "defaultMessage": "Managed database count by status",
     "description": "Accessible description for the managed database status donut chart."
@@ -130,6 +126,10 @@
   "app.dashboard.metricCouldNotBeDetermined": {
     "defaultMessage": "Metric could not be determined",
     "description": "Fallback when a dashboard metric value is non-finite or cannot be shown as a number."
+  },
+  "app.dashboard.metricSource.gatewayReleaseDistribution": {
+    "defaultMessage": "Gateway releases",
+    "description": "Label for the gateway release distribution metric source in partial-load warnings."
   },
   "app.dashboard.metricUnavailable.body": {
     "defaultMessage": "This information is not currently available.",
@@ -199,6 +199,38 @@
     "defaultMessage": "Unused",
     "description": "Legend label for unused pod capacity slots."
   },
+  "app.dashboard.provisionReliability.ariaDesc": {
+    "defaultMessage": "Gateway provision success and failure counts",
+    "description": "Accessible description for the provision reliability donut chart."
+  },
+  "app.dashboard.provisionReliability.chartTitle": {
+    "defaultMessage": "Gateway provision reliability chart",
+    "description": "Accessible title for the provision reliability donut chart."
+  },
+  "app.dashboard.provisionReliability.failures": {
+    "defaultMessage": "Failures",
+    "description": "Legend label for failed gateway provisions."
+  },
+  "app.dashboard.provisionReliability.hourlySuccessRate": {
+    "defaultMessage": "Hourly success rate",
+    "description": "Title for the hourly provision success-rate sparkline in the provision reliability widget."
+  },
+  "app.dashboard.provisionReliability.last24Hours": {
+    "defaultMessage": "Last 24 hours",
+    "description": "Caption documenting the rolling 24-hour provision reliability lookback window."
+  },
+  "app.dashboard.provisionReliability.lifetimeSuccessCount": {
+    "defaultMessage": "Lifetime success count",
+    "description": "Caption when provision reliability success counts come from the lifetime duration histogram fallback."
+  },
+  "app.dashboard.provisionReliability.rate": {
+    "defaultMessage": "{rate}%",
+    "description": "Center title for the provision reliability donut showing the 24-hour success rate."
+  },
+  "app.dashboard.provisionReliability.successes": {
+    "defaultMessage": "Successes",
+    "description": "Legend label for successful gateway provisions."
+  },
   "app.dashboard.provisionTime.average": {
     "defaultMessage": "Average",
     "description": "Label for average gateway provision duration."
@@ -231,9 +263,49 @@
     "defaultMessage": "Could not refresh dashboard metrics",
     "description": "Title shown when operational dashboard metrics cannot be refreshed."
   },
+  "app.dashboard.registeredUsers.added30Days": {
+    "defaultMessage": "Added (30 days)",
+    "description": "Stat label for users added in the last 30 days."
+  },
+  "app.dashboard.registeredUsers.added7Days": {
+    "defaultMessage": "Added (7 days)",
+    "description": "Stat label for users added in the last 7 days."
+  },
+  "app.dashboard.registeredUsers.hero": {
+    "defaultMessage": "{value} Registered users",
+    "description": "Hero line for the Users adoption widget."
+  },
+  "app.dashboard.registeredUsers.uniqueLogins": {
+    "defaultMessage": "Unique logins",
+    "description": "Metric name in registered users login sparkline tooltips."
+  },
+  "app.dashboard.registeredUsers.uniqueLogins30Days": {
+    "defaultMessage": "Unique logins (30 days)",
+    "description": "Stat label for unique logins in the last 30 days."
+  },
+  "app.dashboard.registeredUsers.uniqueLogins7Days": {
+    "defaultMessage": "Unique logins (7 days)",
+    "description": "Stat label for unique logins in the last 7 days."
+  },
+  "app.dashboard.registeredUsers.uniqueLoginsPerDay": {
+    "defaultMessage": "Unique logins per day",
+    "description": "Title above the registered users login sparkline."
+  },
   "app.dashboard.resetToDefault": {
     "defaultMessage": "Reset to default",
     "description": "Label for restoring the operational dashboard default layout."
+  },
+  "app.dashboard.sandboxStatus.active": {
+    "defaultMessage": "Active",
+    "description": "Legend label for active sandboxes when no status breakdown exists."
+  },
+  "app.dashboard.sandboxStatus.ariaDesc": {
+    "defaultMessage": "Active sandboxes across the gateway fleet.",
+    "description": "Accessible description for the sandbox status donut chart."
+  },
+  "app.dashboard.sandboxStatus.chartTitle": {
+    "defaultMessage": "Sandbox status",
+    "description": "Accessible title for the sandbox status donut chart."
   },
   "app.dashboard.sectionTitle.hubCluster": {
     "defaultMessage": "Hub cluster",
@@ -287,6 +359,14 @@
     "defaultMessage": "Pods",
     "description": "Summary label for pod utilization."
   },
+  "app.dashboard.summary.provisionSuccessRate24h": {
+    "defaultMessage": "Success rate (24h)",
+    "description": "Summary label for the rolling 24-hour gateway provision success rate."
+  },
+  "app.dashboard.summary.provisionSuccessRateLifetime": {
+    "defaultMessage": "Success rate (lifetime)",
+    "description": "Summary label when provision reliability uses the lifetime duration histogram fallback."
+  },
   "app.dashboard.summary.provisionTime": {
     "defaultMessage": "Provision time (average)",
     "description": "Summary label for average gateway provision time."
@@ -300,7 +380,7 @@
     "description": "Deprecated summary label retained for locale extraction."
   },
   "app.dashboard.summary.registeredUsers": {
-    "defaultMessage": "Registered users",
+    "defaultMessage": "Users",
     "description": "Summary label for registered users."
   },
   "app.dashboard.summary.sandboxes": {
@@ -316,11 +396,11 @@
     "description": "Accessible label for the system metrics list in the summary widget."
   },
   "app.dashboard.summary.trendDecrease": {
-    "defaultMessage": "{percent}% decrease",
+    "defaultMessage": "{percent}% decrease in {subject}",
     "description": "Tooltip for a usage summary metric that decreased since the start of its trend."
   },
   "app.dashboard.summary.trendIncrease": {
-    "defaultMessage": "{percent}% increase",
+    "defaultMessage": "{percent}% increase in {subject}",
     "description": "Tooltip for a usage summary metric that increased since the start of its trend."
   },
   "app.dashboard.summary.usage": {
@@ -334,6 +414,14 @@
   "app.dashboard.title": {
     "defaultMessage": "HyperShell operational dashboard",
     "description": "Main heading on the operational dashboard page."
+  },
+  "app.dashboard.trend.last24Hours": {
+    "defaultMessage": "Last 24 hours",
+    "description": "Caption below a twenty-four-hour trend sparkline on the operational dashboard."
+  },
+  "app.dashboard.trend.last7Days": {
+    "defaultMessage": "Last 7 days",
+    "description": "Caption below a seven-day trend sparkline on the operational dashboard."
   },
   "app.dashboard.trend.lastDays": {
     "defaultMessage": "Last {days} days",
@@ -371,9 +459,13 @@
     "defaultMessage": "CPU",
     "description": "Title for the CPU utilization dashboard widget."
   },
+  "app.dashboard.widget.gatewayReleases": {
+    "defaultMessage": "Gateway releases",
+    "description": "Title for the gateway releases dashboard widget."
+  },
   "app.dashboard.widget.gatewayStatus": {
-    "defaultMessage": "Gateway status",
-    "description": "Title for the gateway status dashboard widget."
+    "defaultMessage": "Gateways",
+    "description": "Title for the gateways dashboard widget."
   },
   "app.dashboard.widget.inventorySummary": {
     "defaultMessage": "Inventory summary",
@@ -387,21 +479,9 @@
     "defaultMessage": "Cluster regions",
     "description": "Title for the managed cluster region breakdown dashboard widget."
   },
-  "app.dashboard.widget.managedClusterStatus": {
-    "defaultMessage": "Cluster status",
-    "description": "Title for the managed cluster status dashboard widget."
-  },
-  "app.dashboard.widget.managedClusters": {
-    "defaultMessage": "Clusters",
-    "description": "Title for the managed clusters count dashboard widget."
-  },
   "app.dashboard.widget.managedDatabaseStatus": {
     "defaultMessage": "Database status",
     "description": "Title for the managed database status dashboard widget."
-  },
-  "app.dashboard.widget.managedDatabases": {
-    "defaultMessage": "Databases",
-    "description": "Title for the managed databases count dashboard widget."
   },
   "app.dashboard.widget.memory": {
     "defaultMessage": "Memory",
@@ -415,6 +495,10 @@
     "defaultMessage": "Pods",
     "description": "Title for the pods utilization dashboard widget."
   },
+  "app.dashboard.widget.provisionReliability": {
+    "defaultMessage": "Gateway provision reliability",
+    "description": "Title for the gateway provision reliability dashboard widget."
+  },
   "app.dashboard.widget.provisionTime": {
     "defaultMessage": "Gateway provision time",
     "description": "Title for the gateway provision time dashboard widget."
@@ -424,8 +508,12 @@
     "description": "Title for the provisioned gateways dashboard widget."
   },
   "app.dashboard.widget.registeredUsers": {
-    "defaultMessage": "Registered users",
+    "defaultMessage": "Users",
     "description": "Title for the registered users dashboard widget."
+  },
+  "app.dashboard.widget.sandboxStatus": {
+    "defaultMessage": "Sandbox status",
+    "description": "Title for the sandbox status dashboard widget."
   },
   "app.dashboard.widget.sectionTitle": {
     "defaultMessage": "Section title",
@@ -607,6 +695,10 @@
     "defaultMessage": "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
     "description": "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase."
   },
+  "app.gateway.connection.loginConfigure.title": {
+    "defaultMessage": "Log in and configure",
+    "description": "Sub-header for the login and configuration command within one-time setup."
+  },
   "app.gateway.connection.sandbox.description": {
     "defaultMessage": "Once setup is done, run this whenever you want a fresh sandbox running Claude through this gateway.",
     "description": "Supporting text for the create-sandbox connection step."
@@ -638,6 +730,10 @@
   "app.gateway.connection.tabsLabel": {
     "defaultMessage": "Gateway connection, service accounts, and details",
     "description": "Accessible label for the gateway detail tabs."
+  },
+  "app.gateway.connection.waitingForProvisioning": {
+    "defaultMessage": "Waiting for gateway provisioning...",
+    "description": "Shown in the connection tab while the gateway is still being provisioned."
   },
   "app.gateway.copyCliConnectionCommand": {
     "defaultMessage": "Copy CLI connection command",
@@ -703,6 +799,10 @@
     "defaultMessage": "Loading gateways",
     "description": "Accessible label shown while gateway data is loading."
   },
+  "app.gateway.manageServiceAccounts": {
+    "defaultMessage": "Manage service accounts",
+    "description": "Link text that navigates to the service accounts tab from the connection tab."
+  },
   "app.gateway.managedDatabaseId": {
     "defaultMessage": "Managed database ID",
     "description": "Label for a gateway's managed database identifier."
@@ -726,6 +826,62 @@
   "app.gateway.provisioningConsole": {
     "defaultMessage": "Provisioning console...",
     "description": "Tooltip on the disabled console button while the console is not yet ready."
+  },
+  "app.gateway.provisioningProgress.label": {
+    "defaultMessage": "Provisioning progress",
+    "description": "Accessible label for the progress stepper showing provisioning steps."
+  },
+  "app.gateway.provisioningProgress.step.consoleReady": {
+    "defaultMessage": "Console ready",
+    "description": "Completed-state label for the console readiness provisioning step."
+  },
+  "app.gateway.provisioningProgress.step.database": {
+    "defaultMessage": "Provisioning database",
+    "description": "Label for the database provisioning step."
+  },
+  "app.gateway.provisioningProgress.step.databaseReady": {
+    "defaultMessage": "Database ready",
+    "description": "Completed-state label for the database provisioning step."
+  },
+  "app.gateway.provisioningProgress.step.deploy": {
+    "defaultMessage": "Deploying gateway",
+    "description": "Label for the gateway deployment provisioning step."
+  },
+  "app.gateway.provisioningProgress.step.environment": {
+    "defaultMessage": "Preparing environment",
+    "description": "Label for the environment preparation provisioning step."
+  },
+  "app.gateway.provisioningProgress.step.environmentReady": {
+    "defaultMessage": "Environment ready",
+    "description": "Completed-state label for the environment preparation step."
+  },
+  "app.gateway.provisioningProgress.step.gatewayDeployed": {
+    "defaultMessage": "Gateway deployed",
+    "description": "Completed-state label for the gateway deployment step."
+  },
+  "app.gateway.provisioningProgress.step.health": {
+    "defaultMessage": "Verifying gateway health",
+    "description": "Label for the gateway health verification provisioning step."
+  },
+  "app.gateway.provisioningProgress.step.healthVerified": {
+    "defaultMessage": "Health verified",
+    "description": "Completed-state label for the gateway health verification step."
+  },
+  "app.gateway.provisioningProgress.step.identityProvider": {
+    "defaultMessage": "Configuring identity provider",
+    "description": "Label for the identity provider provisioning step."
+  },
+  "app.gateway.provisioningProgress.step.identityProviderReady": {
+    "defaultMessage": "IdP ready",
+    "description": "Completed-state label for the identity provider configuration step."
+  },
+  "app.gateway.provisioningProgress.step.provisioned": {
+    "defaultMessage": "Provisioned",
+    "description": "Label for the final provisioning step indicating completion."
+  },
+  "app.gateway.provisioningProgress.step.startingConsole": {
+    "defaultMessage": "Starting console",
+    "description": "Active-state label for the console readiness provisioning step."
   },
   "app.gateway.releaseId": {
     "defaultMessage": "Gateway release ID",

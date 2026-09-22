@@ -17,6 +17,17 @@ export const messages = defineMessages({
       "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     description: "Supporting text on the operational dashboard page.",
   },
+  gatewayReleasesSummaryAriaLabel: {
+    id: "app.dashboard.gatewayReleases.summaryAriaLabel",
+    defaultMessage: "Gateways by release",
+    description:
+      "Accessible label for the gateway releases stat panel in the dashboard.",
+  },
+  gatewayReleasesWidget: {
+    id: "app.dashboard.widget.gatewayReleases",
+    defaultMessage: "Gateway releases",
+    description: "Title for the gateway releases dashboard widget.",
+  },
   gateways: {
     id: "app.dashboard.summary.gateways",
     defaultMessage: "Gateways",
@@ -65,8 +76,8 @@ export const messages = defineMessages({
   },
   gatewayStatusWidget: {
     id: "app.dashboard.widget.gatewayStatus",
-    defaultMessage: "Gateway status",
-    description: "Title for the gateway status dashboard widget.",
+    defaultMessage: "Gateways",
+    description: "Title for the gateways dashboard widget.",
   },
   inventoryStatusUnknown: {
     id: "app.dashboard.inventoryStatus.unknown",
@@ -148,17 +159,6 @@ export const messages = defineMessages({
     defaultMessage: "Clusters",
     description: "Summary label for total managed clusters.",
   },
-  managedClusterStatusAriaDesc: {
-    id: "app.dashboard.managedClusterStatus.ariaDesc",
-    defaultMessage: "Managed cluster count by status",
-    description:
-      "Accessible description for the managed cluster status donut chart.",
-  },
-  managedClusterStatusChartTitle: {
-    id: "app.dashboard.managedClusterStatus.chartTitle",
-    defaultMessage: "Managed cluster status chart",
-    description: "Accessible title for the managed cluster status donut chart.",
-  },
   managedDatabasesSummary: {
     id: "app.dashboard.summary.managedDatabases",
     defaultMessage: "Databases",
@@ -186,6 +186,12 @@ export const messages = defineMessages({
     defaultMessage: "Metric could not be determined",
     description:
       "Fallback when a dashboard metric value is non-finite or cannot be shown as a number.",
+  },
+  metricSourceGatewayReleaseDistribution: {
+    id: "app.dashboard.metricSource.gatewayReleaseDistribution",
+    defaultMessage: "Gateway releases",
+    description:
+      "Label for the gateway release distribution metric source in partial-load warnings.",
   },
   metricUnavailableBody: {
     id: "app.dashboard.metricUnavailable.body",
@@ -298,6 +304,69 @@ export const messages = defineMessages({
     defaultMessage: "Provisioned gateways",
     description: "Title for the provisioned gateways dashboard widget.",
   },
+  provisionReliabilityAriaDesc: {
+    id: "app.dashboard.provisionReliability.ariaDesc",
+    defaultMessage: "Gateway provision success and failure counts",
+    description:
+      "Accessible description for the provision reliability donut chart.",
+  },
+  provisionReliabilityChartTitle: {
+    id: "app.dashboard.provisionReliability.chartTitle",
+    defaultMessage: "Gateway provision reliability chart",
+    description: "Accessible title for the provision reliability donut chart.",
+  },
+  provisionReliabilityFailures: {
+    id: "app.dashboard.provisionReliability.failures",
+    defaultMessage: "Failures",
+    description: "Legend label for failed gateway provisions.",
+  },
+  provisionReliabilityHourlySuccessRate: {
+    id: "app.dashboard.provisionReliability.hourlySuccessRate",
+    defaultMessage: "Hourly success rate",
+    description:
+      "Title for the hourly provision success-rate sparkline in the provision reliability widget.",
+  },
+  provisionReliabilityLast24Hours: {
+    id: "app.dashboard.provisionReliability.last24Hours",
+    defaultMessage: "Last 24 hours",
+    description:
+      "Caption documenting the rolling 24-hour provision reliability lookback window.",
+  },
+  provisionReliabilityLifetimeSuccessCount: {
+    id: "app.dashboard.provisionReliability.lifetimeSuccessCount",
+    defaultMessage: "Lifetime success count",
+    description:
+      "Caption when provision reliability success counts come from the lifetime duration histogram fallback.",
+  },
+  provisionReliabilityRate: {
+    id: "app.dashboard.provisionReliability.rate",
+    defaultMessage: "{rate}%",
+    description:
+      "Center title for the provision reliability donut showing the 24-hour success rate.",
+  },
+  provisionReliabilitySuccesses: {
+    id: "app.dashboard.provisionReliability.successes",
+    defaultMessage: "Successes",
+    description: "Legend label for successful gateway provisions.",
+  },
+  provisionReliabilityWidget: {
+    id: "app.dashboard.widget.provisionReliability",
+    defaultMessage: "Gateway provision reliability",
+    description:
+      "Title for the gateway provision reliability dashboard widget.",
+  },
+  provisionSuccessRate24h: {
+    id: "app.dashboard.summary.provisionSuccessRate24h",
+    defaultMessage: "Success rate (24h)",
+    description:
+      "Summary label for the rolling 24-hour gateway provision success rate.",
+  },
+  provisionSuccessRateLifetime: {
+    id: "app.dashboard.summary.provisionSuccessRateLifetime",
+    defaultMessage: "Success rate (lifetime)",
+    description:
+      "Summary label when provision reliability uses the lifetime duration histogram fallback.",
+  },
   provisionTime: {
     id: "app.dashboard.summary.provisionTime",
     defaultMessage: "Provision time (average)",
@@ -367,19 +436,75 @@ export const messages = defineMessages({
   },
   registeredUsers: {
     id: "app.dashboard.widget.registeredUsers",
-    defaultMessage: "Registered users",
+    defaultMessage: "Users",
     description: "Title for the registered users dashboard widget.",
+  },
+  registeredUsersAdded7Days: {
+    id: "app.dashboard.registeredUsers.added7Days",
+    defaultMessage: "Added (7 days)",
+    description: "Stat label for users added in the last 7 days.",
+  },
+  registeredUsersAdded30Days: {
+    id: "app.dashboard.registeredUsers.added30Days",
+    defaultMessage: "Added (30 days)",
+    description: "Stat label for users added in the last 30 days.",
+  },
+  registeredUsersHero: {
+    id: "app.dashboard.registeredUsers.hero",
+    defaultMessage: "{value} Registered users",
+    description: "Hero line for the Users adoption widget.",
   },
   registeredUsersSummary: {
     id: "app.dashboard.summary.registeredUsers",
-    defaultMessage: "Registered users",
+    defaultMessage: "Users",
     description: "Summary label for registered users.",
+  },
+  registeredUsersUniqueLogins: {
+    id: "app.dashboard.registeredUsers.uniqueLogins",
+    defaultMessage: "Unique logins",
+    description: "Metric name in registered users login sparkline tooltips.",
+  },
+  registeredUsersUniqueLogins7Days: {
+    id: "app.dashboard.registeredUsers.uniqueLogins7Days",
+    defaultMessage: "Unique logins (7 days)",
+    description: "Stat label for unique logins in the last 7 days.",
+  },
+  registeredUsersUniqueLogins30Days: {
+    id: "app.dashboard.registeredUsers.uniqueLogins30Days",
+    defaultMessage: "Unique logins (30 days)",
+    description: "Stat label for unique logins in the last 30 days.",
+  },
+  registeredUsersUniqueLoginsPerDay: {
+    id: "app.dashboard.registeredUsers.uniqueLoginsPerDay",
+    defaultMessage: "Unique logins per day",
+    description: "Title above the registered users login sparkline.",
   },
   resetToDefault: {
     id: "app.dashboard.resetToDefault",
     defaultMessage: "Reset to default",
     description:
       "Label for restoring the operational dashboard default layout.",
+  },
+  sandboxStatusActive: {
+    id: "app.dashboard.sandboxStatus.active",
+    defaultMessage: "Active",
+    description:
+      "Legend label for active sandboxes when no status breakdown exists.",
+  },
+  sandboxStatusAriaDesc: {
+    id: "app.dashboard.sandboxStatus.ariaDesc",
+    defaultMessage: "Active sandboxes across the gateway fleet.",
+    description: "Accessible description for the sandbox status donut chart.",
+  },
+  sandboxStatusChartTitle: {
+    id: "app.dashboard.sandboxStatus.chartTitle",
+    defaultMessage: "Sandbox status",
+    description: "Accessible title for the sandbox status donut chart.",
+  },
+  sandboxStatusWidget: {
+    id: "app.dashboard.widget.sandboxStatus",
+    defaultMessage: "Sandbox status",
+    description: "Title for the sandbox status dashboard widget.",
   },
   sectionTitleDefault: {
     id: "app.dashboard.widget.sectionTitle",
@@ -431,13 +556,13 @@ export const messages = defineMessages({
   },
   summaryTrendDecrease: {
     id: "app.dashboard.summary.trendDecrease",
-    defaultMessage: "{percent}% decrease",
+    defaultMessage: "{percent}% decrease in {subject}",
     description:
       "Tooltip for a usage summary metric that decreased since the start of its trend.",
   },
   summaryTrendIncrease: {
     id: "app.dashboard.summary.trendIncrease",
-    defaultMessage: "{percent}% increase",
+    defaultMessage: "{percent}% increase in {subject}",
     description:
       "Tooltip for a usage summary metric that increased since the start of its trend.",
   },
@@ -461,6 +586,18 @@ export const messages = defineMessages({
     id: "app.dashboard.title",
     defaultMessage: "HyperShell operational dashboard",
     description: "Main heading on the operational dashboard page.",
+  },
+  trendLast7Days: {
+    id: "app.dashboard.trend.last7Days",
+    defaultMessage: "Last 7 days",
+    description:
+      "Caption below a seven-day trend sparkline on the operational dashboard.",
+  },
+  trendLast24Hours: {
+    id: "app.dashboard.trend.last24Hours",
+    defaultMessage: "Last 24 hours",
+    description:
+      "Caption below a twenty-four-hour trend sparkline on the operational dashboard.",
   },
   trendLastDays: {
     id: "app.dashboard.trend.lastDays",
@@ -523,21 +660,6 @@ export const messages = defineMessages({
     defaultMessage: "Cluster regions",
     description:
       "Title for the managed cluster region breakdown dashboard widget.",
-  },
-  widgetManagedClusters: {
-    id: "app.dashboard.widget.managedClusters",
-    defaultMessage: "Clusters",
-    description: "Title for the managed clusters count dashboard widget.",
-  },
-  widgetManagedClusterStatus: {
-    id: "app.dashboard.widget.managedClusterStatus",
-    defaultMessage: "Cluster status",
-    description: "Title for the managed cluster status dashboard widget.",
-  },
-  widgetManagedDatabases: {
-    id: "app.dashboard.widget.managedDatabases",
-    defaultMessage: "Databases",
-    description: "Title for the managed databases count dashboard widget.",
   },
   widgetManagedDatabaseStatus: {
     id: "app.dashboard.widget.managedDatabaseStatus",

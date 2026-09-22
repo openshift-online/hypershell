@@ -82,7 +82,7 @@ A `Prometheus` CR, a `ServiceAccount`, a `ClusterRole`, and a `ClusterRoleBindin
 - Set `runAsNonRoot: true` with a non-zero `runAsUser`
 - Scope `serviceMonitorSelector` to `matchLabels: app: hypershell-api-server`
 - Scope `serviceMonitorNamespaceSelector` to `hypershell-system`
-- Retain data for `7d`
+- Retain data for `7d` (default; sufficient for operational dashboard Prometheus range trends including gateway fleet totals and hub cluster utilization; see `platform/gateway-fleet-total-trend.spec.md` GFT-01 and `platform/hub-cluster-utilization-trends.spec.md` HCUT-01)
 - Request persistent storage via a `volumeClaimTemplate`
 
 The `ClusterRole` SHALL grant `get`, `list`, and `watch` on `nodes`, `nodes/metrics`, `services`, `endpoints`, `pods`, `configmaps`, `ingresses`, and the monitoring CRDs (`servicemonitors`, `podmonitors`, `prometheusrules`), and `GET` on the `/metrics` non-resource URL.
@@ -130,11 +130,13 @@ The BFF SHALL accept a `PROMETHEUS_URL` environment variable (validated as an HT
 
 The response SHALL be `{ "counts": { "Running": N, "Provisioning": N, "Degraded": N, "Failed": N } }` where each value is an integer. Phases absent from the Prometheus response SHALL NOT be omitted from the JSON; the client is responsible for defaulting absent phases to zero.
 
+When daily fleet-total history is available, the same route MAY also return optional `daily_fleet_totals` (7 UTC calendar days of fleet gateway totals) per `platform/gateway-fleet-total-trend.spec.md` GFT-03. Clients that consume only instant phase counts (`GatewayMetricsDashboard`, existing adapter logic) SHALL ignore unknown fields.
+
 When Prometheus is unreachable or returns a non-`200` status, or when the Prometheus response body has `status != "success"`, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT propagate raw Prometheus error messages to the browser.
 
 The `/api/metrics/gateways` route SHALL be exempt from the general `/api/*` proxy handler: it does not forward to the API server, it does not require or forward a bearer token, and it does not require a Prometheus authentication header in its current form.
 
-When OIDC is enabled, the route SHALL require **dashboard-operator authorization** matching `web-console/operational-dashboard.spec.md` OP-DASH-04 (`hypershell-admins` or `platform:admin`). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled, no session or role is required.
+When OIDC is enabled, the route SHALL require **dashboard-operator authorization** matching `web-console/operational-dashboard.spec.md` OP-DASH-04 (`platform:admin` only). Authenticated callers without a dashboard-admin role SHALL receive HTTP `403`. Unauthenticated callers SHALL receive HTTP `401` or the standard BFF re-authentication response. When OIDC is disabled, no session or role is required.
 
 Fleet-wide phase counts from Prometheus are intentionally **not** filtered by per-gateway RoleBindings; this route is restricted to dashboard administrators who are authorized to view platform-wide operational data. The operational dashboard gateway-status widget consumes this same route (`operational-dashboard.spec.md` OP-DASH-23). Per-user gateway visibility for the gateway collection table remains on the RBAC-scoped HyperShell REST list API (`web-console/architecture.spec.md` WEB-DATA-01).
 
@@ -165,7 +167,7 @@ Fleet-wide phase counts from Prometheus are intentionally **not** filtered by pe
 
 #### Scenario: Dashboard administrator can fetch gateway phase counts
 
-- GIVEN OIDC is enabled and the caller has `hypershell-admins` or `platform:admin`
+- GIVEN OIDC is enabled and the caller has `platform:admin`
 - AND Prometheus returns successful `hypershell_gateways_total` samples
 - WHEN the SPA calls `GET /api/metrics/gateways`
 - THEN the BFF SHALL respond with HTTP `200`

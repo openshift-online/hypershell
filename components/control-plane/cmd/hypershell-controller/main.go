@@ -23,6 +23,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
@@ -36,11 +37,9 @@ import (
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
-const defaultManifestsDir = "/manifests/gateway"
-
 // registerWithBackoff calls regClient.Register with exponential backoff until it
 // succeeds. A 403 response is non-retryable: the spoke lacks the required Keycloak
-// role, so it logs a fatal message and exits immediately.
+// role, so it returns a fatal error immediately.
 func registerWithBackoff(ctx context.Context, regClient *registration.Client) (string, error) {
 	backoff := time.Second
 	const maxBackoff = 60 * time.Second
@@ -69,8 +68,15 @@ func registerWithBackoff(ctx context.Context, regClient *registration.Client) (s
 
 // instanceLabelBackfillTimeout bounds the one-shot startup backfill that stamps
 // this instance's identity label onto its legacy gateway namespaces, so a stalled
-// API server or apiserver cannot delay the GC reconciler's launch indefinitely.
+// API server cannot delay the GC reconciler's launch indefinitely.
 const instanceLabelBackfillTimeout = 2 * time.Minute
+
+func helmBinaryPath() string {
+	if v := os.Getenv("HELM_BINARY"); v != "" {
+		return v
+	}
+	return "/usr/local/bin/helm"
+}
 
 func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
 	return clientset != nil && dynamicClient != nil
@@ -89,6 +95,18 @@ func main() {
 	} else {
 		log.Printf("INFO single-cluster mode: handling all gateways (no cluster_id filter)")
 	}
+
+	// Verify helm binary is available
+	helmBin := helmBinaryPath()
+	if err := helm.VerifyHelmAvailable(context.Background(), helmBin); err != nil {
+		log.Fatalf("helm binary verification failed: %v", err)
+	}
+
+	// Verify Helm chart is available
+	if err := helm.VerifyChartPath(cfg.HelmChartPath); err != nil {
+		log.Fatalf("helm chart verification failed: %v", err)
+	}
+	log.Printf("INFO helm chart verified at %s", cfg.HelmChartPath)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -256,9 +274,10 @@ func main() {
 	}
 	networkReconciler := reconciler.NewGatewayNetworkReconciler(conn)
 
-	manifestsDir := os.Getenv("GATEWAY_MANIFESTS_DIR")
-	if manifestsDir == "" {
-		manifestsDir = defaultManifestsDir
+	// Initialize Helm client for gateway deployments
+	helmClient := &helm.ShellClient{
+		ChartPath:  cfg.HelmChartPath,
+		HelmBinary: helmBin,
 	}
 
 	var keycloakConfig *gateway.KeycloakConfig
@@ -299,7 +318,17 @@ func main() {
 	var gatewayReconciler watcher.Handler[*pb.Gateway]
 
 	if clientset != nil && dynamicClient != nil {
-		gr, grErr := reconciler.NewGatewayReconciler(dynamicClient, clientset, conn, manifestsDir, cfg.Namespace, keycloakConfig, exposurePort)
+		gr, grErr := reconciler.NewGatewayReconciler(
+			dynamicClient,
+			clientset,
+			conn,
+			helmClient,
+			cfg.Namespace,
+			keycloakConfig,
+			exposurePort,
+			cfg.ExternalCAIssuerName,
+			cfg.ExternalCAIssuerKind,
+		)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)
 			gatewayReconciler = reconciler.NewStubGatewayReconciler()

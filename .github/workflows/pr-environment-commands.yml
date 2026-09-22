@@ -1,0 +1,223 @@
+name: PR Environment Commands
+
+# /pr-extend and /pr-destroy on origin pull requests
+# (ephemeral-pr-environments.spec.md, Extend and Destroy Controls).
+#
+# The pull request's authorized command history is authoritative: the latest
+# /pr-extend or /pr-destroy from a write/maintain/admin commenter wins, even
+# when comment events are delivered out of order. The pr-environment/pr-extended
+# label is a cache of that decision. Unauthorized comments are acknowledged
+# and do not change retained state or use cluster credentials for their own
+# body.
+#
+# Shares the per-PR concurrency group with E2E / Deploy OpenShift Environment and
+# E2E / OpenShift so deploy/destroy cannot mutate the cluster concurrently.
+# /pr-extend queues behind an in-flight e2e deploy/suite rather than
+# cancelling it (a redeploy is not worth losing test results for); /pr-destroy
+# preempts immediately, same as the close-triggered destroy, since the
+# environment is going away regardless. The concurrency group is declared per
+# job (not per workflow) so resolve/plan-images, which only read GitHub state,
+# never wait on it.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: write
+  issues: write
+
+env:
+  KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
+  BASELINE_REGISTRY: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
+
+jobs:
+  resolve:
+    name: Resolve command
+    # contains(), not startsWith(): GitHub's web UI stores comment bodies with
+    # CRLF and sometimes a leading newline, so "/pr-extend\r\n" and
+    # "\r\n/pr-extend" must still start this job. The script is authoritative
+    # and no-ops bodies that do not begin with the command. Skip bots so the
+    # access comment (which advertises /pr-extend) does not retrigger this
+    # workflow on every deploy.
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      (contains(github.event.comment.body, '/pr-extend') ||
+       contains(github.event.comment.body, '/pr-destroy'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      action: ${{ steps.resolve.outputs.action }}
+      origin: ${{ steps.resolve.outputs.origin }}
+      retained: ${{ steps.resolve.outputs.retained }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      trigger_authorized: ${{ steps.resolve.outputs.trigger_authorized }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      TRIGGER_USER: ${{ github.event.comment.user.login }}
+      TRIGGER_BODY: ${{ github.event.comment.body }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve latest authorized command
+        id: resolve
+        run: bash scripts/ci/pr-env-commands.sh
+
+  plan-images:
+    name: Plan component images
+    needs: resolve
+    if: >-
+      needs.resolve.outputs.origin == 'true' &&
+      needs.resolve.outputs.action == 'extend'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      api_server_image: ${{ steps.plan.outputs.api_server_image }}
+      control_plane_image: ${{ steps.plan.outputs.control_plane_image }}
+      web_console_image: ${{ steps.plan.outputs.web_console_image }}
+      wait_api_server: ${{ steps.plan.outputs.wait_api_server }}
+      wait_control_plane: ${{ steps.plan.outputs.wait_control_plane }}
+      wait_web_console: ${{ steps.plan.outputs.wait_web_console }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: refs/pull/${{ github.event.issue.number }}/head
+
+      - name: Plan images and required Konflux builds
+        id: plan
+        env:
+          PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          PR_BASE_SHA="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq .base.sha)"
+          changed_files="$(git diff --name-only "${PR_BASE_SHA}...${PR_HEAD_SHA}")"
+          api_konflux=false; cp_konflux=false; wc_konflux=false
+          if grep -qE '^components/api-server/|^\.tekton/hypershell-api-server-main-pull-request\.yaml$' <<<"${changed_files}"; then api_konflux=true; fi
+          if grep -qE '^components/control-plane/|^\.tekton/hypershell-control-plane-main-pull-request\.yaml$|^Dockerfile$' <<<"${changed_files}"; then cp_konflux=true; fi
+          if grep -qE '^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-pull-request\.yaml$' <<<"${changed_files}"; then wc_konflux=true; fi
+
+          tag="on-pr-${PR_HEAD_SHA}"
+          api_img=""; cp_img=""; wc_img=""
+          wait_api=false; wait_cp=false; wait_wc=false
+          if [[ "${api_konflux}" == "true" ]]; then api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"; wait_api=true; fi
+          if [[ "${cp_konflux}" == "true" ]]; then cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"; wait_cp=true; fi
+          if [[ "${wc_konflux}" == "true" ]]; then wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"; wait_wc=true; fi
+
+          {
+            echo "api_server_image=${api_img}"
+            echo "control_plane_image=${cp_img}"
+            echo "web_console_image=${wc_img}"
+            echo "wait_api_server=${wait_api}"
+            echo "wait_control_plane=${wait_cp}"
+            echo "wait_web_console=${wait_wc}"
+          } >> "${GITHUB_OUTPUT}"
+
+  deploy:
+    name: Deploy OpenShift Environment
+    needs: [resolve, plan-images]
+    if: >-
+      needs.resolve.outputs.origin == 'true' &&
+      needs.resolve.outputs.action == 'extend'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: pr-env-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    env:
+      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.issue.number }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      PR_ENV_RETAINED_MAX_HOURS: ${{ vars.PR_ENV_RETAINED_MAX_HOURS || '72' }}
+      PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
+      PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
+      PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
+      OPENSHIFT_PR_ENV_SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
+      OPENSHIFT_PR_ENV_TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
+      PR_ENV_GITHUB_OAUTH_CLIENT_ID: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_ID }}
+      PR_ENV_GITHUB_OAUTH_CLIENT_SECRET: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_SECRET }}
+      PR_ENV_GITHUB_OAUTH_CALLBACK_URL: ${{ secrets.PR_ENV_GITHUB_OAUTH_CALLBACK_URL }}
+      KUBECONFIG: ${{ github.workspace }}/.kube/config
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: refs/pull/${{ github.event.issue.number }}/merge
+
+      - name: Deploy OpenShift Environment
+        uses: ./.github/actions/deploy-pr-environment
+        with:
+          pr_number: ${{ github.event.issue.number }}
+          head_sha: ${{ needs.resolve.outputs.head_sha }}
+          updated: 'true'
+          retained: 'true'
+          wait_api_server: ${{ needs.plan-images.outputs.wait_api_server }}
+          wait_control_plane: ${{ needs.plan-images.outputs.wait_control_plane }}
+          wait_web_console: ${{ needs.plan-images.outputs.wait_web_console }}
+          api_server_image: ${{ needs.plan-images.outputs.api_server_image }}
+          control_plane_image: ${{ needs.plan-images.outputs.control_plane_image }}
+          web_console_image: ${{ needs.plan-images.outputs.web_console_image }}
+
+  destroy:
+    name: Destroy PR environment
+    needs: resolve
+    if: >-
+      needs.resolve.outputs.origin == 'true' &&
+      needs.resolve.outputs.action == 'destroy'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: pr-env-${{ github.event.issue.number }}
+      cancel-in-progress: true
+    env:
+      OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.issue.number }}
+      KUBECONFIG: ${{ github.workspace }}/.kube/config
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install oc
+        run: |
+          mkdir -p "$(dirname "${KUBECONFIG}")"
+          curl -LsS https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+            | sudo tar -xz -C /usr/local/bin oc kubectl
+          oc version --client
+
+      - name: Log in to the target cluster
+        env:
+          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
+          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
+        run: |
+          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
+            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
+            exit 1
+          fi
+          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
+
+      # No-op success when nothing is up: make openshift-down is idempotent.
+      - name: Remove environment (make openshift-down)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          make openshift-down
+          if ! PR_ENV_PHASE=destroyed bash scripts/ci/upsert-pr-comment.sh; then
+            echo "::warning::Could not update the access comment after destroy; the environment is still gone"
+          fi

@@ -142,4 +142,4 @@ Do not present a heuristic, five-user study, automated score, visual mockup, or 
 
 ## Boundary with General Code Review
 
-Keep this review focused on user outcomes, accessibility, PatternFly 6 and component reuse, Red Hat brand/color, interaction, content, trust, localization, resilience, narrow web-console/BFF application boundaries, domain observability, and UI evidence. For a mixed change, apply `ui-standards` to these UI standards and the repository's `amber-review` skill to other code, architecture, and security concerns without duplicating findings.
+Keep this review focused on user outcomes, accessibility, PatternFly 6 and component reuse, Red Hat brand/color, interaction, content, trust, localization, resilience, narrow web-console/BFF application boundaries, domain observability, and UI evidence. For a mixed change, apply `ui-standards` to these UI standards and the repository's `amber-review` skill to other code, architecture, and security concerns without duplicating findings. For implementation guidance while building UI, use `patternfly` instead of re-deriving component choices here.

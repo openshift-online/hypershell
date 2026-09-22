@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -845,13 +846,13 @@ func WatchGatewayNetworks(ctx context.Context, conn *grpc.ClientConn, handler Ha
 
 func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.RoleBinding]) error {
 	client := pb.NewRoleBindingServiceClient(conn)
-	// Process different bindings in parallel. One binding can wait for its
-	// Keycloak client, but it must not stop the watch receiver or other bindings.
-	// Retry a missing client ten times, as the old synchronous handler did. Queue
-	// backoff frees the worker between attempts. Do not retry permanent errors.
+	// Retry assignment until it succeeds. The RoleBinding event often arrives
+	// before the Keycloak client (or its roles) exist; a half-provisioned client
+	// returns a generic 404 rather than ClientNotFoundError. A finite attempt
+	// budget strands the owner without openshell-admin until the watch reconnects.
+	// Missing-gateway errors are permanent (the binding's gateway was deleted).
 	rq := newReconcileQueue(ctx, "RoleBinding", handler,
-		withMaxRetries[*pb.RoleBinding](9),
-		withRetryIf[*pb.RoleBinding](isMissingKeycloakClient))
+		withRetryIf[*pb.RoleBinding](isRoleBindingRetryable))
 	defer rq.stop()
 	return watchLoop(ctx, "RoleBinding", func(ctx context.Context) error {
 		stream, err := client.WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{})
@@ -878,6 +879,42 @@ func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handl
 func isMissingKeycloakClient(err error) bool {
 	var notFound *keycloak.ClientNotFoundError
 	return errors.As(err, &notFound)
+}
+
+func isMissingGateway(err error) bool {
+	for err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+			return true
+		}
+		err = errors.Unwrap(err)
+	}
+	return false
+}
+
+func isUnresolvedRoleBindingIdentity(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "username not yet resolved") ||
+		strings.Contains(msg, "role name not yet resolved")
+}
+
+func isKeycloakHTTPNotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "returned 404")
+}
+
+// isRoleBindingRetryable reports whether a RoleBinding reconcile failure should
+// be retried. Missing client, generic Keycloak 404 (half-provisioned roles),
+// and unresolved username/role are provisioning races. Missing-gateway,
+// auth, and config errors are terminal.
+func isRoleBindingRetryable(err error) bool {
+	if err == nil || isMissingGateway(err) {
+		return false
+	}
+	return isMissingKeycloakClient(err) ||
+		isUnresolvedRoleBindingIdentity(err) ||
+		isKeycloakHTTPNotFound(err)
 }
 
 func watchLoop(ctx context.Context, kind string, connectAndRecv func(ctx context.Context) error) error {

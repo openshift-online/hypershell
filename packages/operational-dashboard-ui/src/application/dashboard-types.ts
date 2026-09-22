@@ -28,7 +28,18 @@ export interface OperationalMetricProvisionDuration {
   p95: string;
 }
 
+export type ProvisionSuccessCountWindow =
+  "duration_24h" | "duration_lifetime" | "outcomes_24h";
+
+export interface OperationalMetricProvisionOutcomes {
+  failureCount24h: string;
+  successCount24h: string;
+  successCountWindow?: ProvisionSuccessCountWindow;
+  successRatePercent: string;
+}
+
 export interface OperationalMetric {
+  createdLast7Days?: string;
   createdLast30Days?: string;
   id: string;
   inventoryProviders?: Record<string, number>;
@@ -36,9 +47,15 @@ export interface OperationalMetric {
   inventoryStatus?: Record<string, number>;
   podPhases?: OperationalMetricPodPhases;
   provisionDuration?: OperationalMetricProvisionDuration;
+  provisionOutcomes?: OperationalMetricProvisionOutcomes;
+  releaseDistribution?: Record<string, number>;
   status?: OperationalMetricStatus;
+  hourlyTrend?: OperationalMetricTrend;
+  successRateTrend?: OperationalMetricTrend;
   total?: string;
   trend?: OperationalMetricTrend;
+  uniqueLoginsLast7Days?: string;
+  uniqueLoginsLast30Days?: string;
   unit?: string;
   value: string;
 }
@@ -54,6 +71,7 @@ export type DashboardMetricSourceId =
   | "cluster-nodes"
   | "cluster-pods"
   | "gateway-metrics"
+  | "gateway-release-distribution"
   | "platform-inventory"
   | "registered-users";
 

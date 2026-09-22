@@ -21,7 +21,7 @@ checks manually with `make check`.
 - `packages/gateway-management-ui/` - Private reusable React package containing canonical gateway management workflows
 - `packages/operational-dashboard-ui/` - Private reusable React package containing the operational metrics dashboard
 - `specs/` - Desired state of the system ([platform](specs/platform/), [standards](specs/standards/))
-- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [ibm-cluster](skills/deploy/ibm-cluster), [deploy-cluster](skills/deploy/deploy-cluster), [cloud-hub-ingress-bootstrap](skills/deploy/cloud-hub-ingress-bootstrap), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/)
+- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [patternfly](skills/build/patternfly), [ibm-cluster](skills/deploy/ibm-cluster), [deploy-cluster](skills/deploy/deploy-cluster), [cloud-hub-ingress-bootstrap](skills/deploy/cloud-hub-ingress-bootstrap), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/)
 - `apm.yml` - APM manifest declaring upstream skill dependencies
 
 ## Key Files
@@ -54,16 +54,22 @@ Gateway Deployed on Cluster -> Network Mesh Established -> Traffic Flows
 
 ## SDLC Workflow
 
-The development lifecycle follows 6 steps, each backed by a skill:
+The development lifecycle follows 5 steps, each backed by a skill:
 
 ```
 0. /reconcile             -- autonomous spec-to-code reconciliation (build/reconcile)
 1. /spec                  -- define desired state (plan/spec)
 2. /full-stack-pipeline   -- build the feature (build/full-stack-pipeline)
 3. /dev-cluster           -- test locally in Kind (build/dev-cluster)
-4. /pr-test               -- deploy PR to cluster (test/pr-test)
-5. /deploy-cluster        -- ship to production (deploy/deploy-cluster)
+4. /deploy-cluster        -- ship to production (deploy/deploy-cluster)
 ```
+
+Origin pull-request OpenShift e2e is the ephemeral PR environment workflow
+(`specs/platform/ephemeral-pr-environments.spec.md`): deploy, Tests / E2E /
+OpenShift, destroy unless `/pr-extend`. The legacy
+`components/pr-test/e2e-openshell.sh` script is deprecated; use
+`E2E_INFRA_DRIVER=openshift bash tests/e2e/e2e-openshell.sh`. The ROKS
+variant `e2e-openshell-roks.sh` is unchanged.
 
 `/reconcile` is the top-level entrypoint. It reads `skills/RECONCILE.md` for checkpoint
 state (coverage summary, gap table, wave plan), then executes waves to close gaps.
@@ -74,6 +80,7 @@ Support skills available at any point:
 - `/review-guidance` -- PR review checklist
 - `/amber-review` -- Amber agent comprehensive code review
 - `/ui-standards` -- UI/UX audit or intent-driven design guidance
+- `/patternfly` -- PatternFly 6 component selection and implementation patterns
 - `/align` -- convention health check
 - `/maintain-ci` -- CI workflow and component registration maintenance
 - `/update-openshell` -- sync HyperShell to a new upstream OpenShell release (self-reinforcing)

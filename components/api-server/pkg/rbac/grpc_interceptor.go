@@ -3,6 +3,7 @@ package rbac
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -13,15 +14,16 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
 
-func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, config AuthzConfig) grpc.UnaryServerInterceptor {
+func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, config AuthzConfig) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		ctx = provisionUserForGRPC(ctx, provisioner, syncer)
 
+		username := auth.GetUsernameFromContext(ctx)
 		if !config.EnforceRBAC {
+			recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, activityRecorder)
 			return handler(ctx, req)
 		}
 
-		username := auth.GetUsernameFromContext(ctx)
 		if isServiceAccount(username, config.ServiceAccounts) {
 			return handler(ctx, req)
 		}
@@ -53,20 +55,21 @@ func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner,
 			return nil, status.Errorf(codes.PermissionDenied, "forbidden")
 		}
 
+		recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, activityRecorder)
 		return handler(ctx, req)
 	}
 }
 
-func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, config AuthzConfig) grpc.StreamServerInterceptor {
+func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, config AuthzConfig) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := provisionUserForGRPC(ss.Context(), provisioner, syncer)
 		wrapped := &wrappedServerStream{ServerStream: ss, ctx: ctx}
 
+		username := auth.GetUsernameFromContext(ctx)
 		if !config.EnforceRBAC {
+			recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, activityRecorder)
 			return handler(srv, wrapped)
 		}
-
-		username := auth.GetUsernameFromContext(ctx)
 		if isManagedDatabaseTombstoneReplay(ctx, info.FullMethod) {
 			// Historical tombstones are control-plane recovery data.
 			// Unlike the ordinary live watch, replay is never available through role
@@ -104,6 +107,7 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 			return status.Errorf(codes.PermissionDenied, "forbidden")
 		}
 
+		recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, activityRecorder)
 		return handler(srv, wrapped)
 	}
 }
@@ -213,6 +217,19 @@ func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, sync
 	}
 
 	return ctx
+}
+
+func recordAuthorizedDailyActivityGRPC(ctx context.Context, username string, serviceAccounts []string, activityRecorder DailyActivityRecorder) {
+	if activityRecorder == nil || isServiceAccount(username, serviceAccounts) {
+		return
+	}
+
+	userID := GetUserIDFromContext(ctx)
+	if userID == "" {
+		return
+	}
+
+	activityRecorder.RecordDailyActivity(ctx, userID, time.Now().UTC())
 }
 
 type wrappedServerStream struct {

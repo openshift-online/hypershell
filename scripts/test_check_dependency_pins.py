@@ -102,6 +102,18 @@ class DependencyPinTest(unittest.TestCase):
             ),
         )
 
+    def test_allows_make_dynamic_image_reference(self):
+        self.assertEqual(
+            [],
+            CHECKER._makefile_violations(
+                "Makefile",
+                [
+                    'GATEWAY_IMAGE?=$(shell . ./OPENSHELL_VERSION && echo'
+                    ' "$${OPENSHELL_GATEWAY_IMAGE}:$${OPENSHELL_TAG}")',
+                ],
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

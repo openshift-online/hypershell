@@ -124,27 +124,26 @@ h1.pf-v5-c-title.pf-m-3xl,
 }
 
 /* Form inputs */
+/*
+ * PatternFly 5 normally draws this border with ::before (top/right/left)
+ * plus an ::after hairline (bottom only, widened natively on :focus-within).
+ * That split rendering goes sub-pixel-inconsistent between a standalone
+ * form-control (username) and one nested in a flex .pf-v5-c-input-group
+ * (password + reveal button), making one look thicker than the other.
+ * Painting a single explicit border directly on the element keeps both
+ * fields pixel-identical regardless of their parent layout.
+ */
 .pf-v5-c-form-control {
-  --pf-v5-c-form-control--BorderTopColor: #e0e0e0;
-  --pf-v5-c-form-control--BorderRightColor: #e0e0e0;
-  --pf-v5-c-form-control--BorderBottomColor: #e0e0e0;
-  --pf-v5-c-form-control--BorderLeftColor: #e0e0e0;
-  --pf-v5-c-form-control--hover--BorderBottomColor: #0066cc;
-  --pf-v5-c-form-control--focus--BorderBottomColor: #0066cc;
-  --pf-v5-c-form-control--m-expanded--BorderBottomColor: #0066cc;
-  --pf-v5-c-form-control--BackgroundColor: #ffffff;
-  --pf-v5-c-form-control--Color: #151515;
-  --pf-v5-c-form-control--OutlineOffset: 0;
-  --pf-v5-c-form-control--after--BorderBottomColor: #e0e0e0;
-  --pf-v5-c-form-control--hover__after--BorderBottomColor: #0066cc;
-  --pf-v5-c-form-control--focus__after--BorderBottomColor: #0066cc;
+  box-sizing: border-box !important;
   background-color: #ffffff !important;
-  border-color: #e0e0e0 !important;
   color: #151515 !important;
+  border: 1px solid #e0e0e0 !important;
+  transition: border-bottom-color 0.2s ease;
 }
 
-.pf-v5-c-form-control::before {
-  border-color: #e0e0e0 !important;
+.pf-v5-c-form-control::before,
+.pf-v5-c-form-control::after {
+  border: none !important;
 }
 
 .pf-v5-c-form-control input {
@@ -152,19 +151,18 @@ h1.pf-v5-c-title.pf-m-3xl,
   color: #151515 !important;
 }
 
-.pf-v5-c-form-control::after {
-  border-bottom-color: #e0e0e0 !important;
-  transition: border-bottom-color 0.2s ease;
-}
-
-.pf-v5-c-form-control:hover::after,
-.pf-v5-c-form-control:focus-within::after {
-  border-bottom-color: #0066cc !important;
-}
-
+/*
+ * Highlight only the bottom edge on hover/focus. The password field's
+ * right edge sits flush against the reveal button's left border inside
+ * .pf-v5-c-input-group; recoloring all four sides here would turn that
+ * edge blue while the button's edge stays gray, producing a mismatched
+ * seam. Leaving the right/top/left edges gray keeps that seam consistent
+ * with the button's own default state.
+ */
+.pf-v5-c-form-control:hover,
 .pf-v5-c-form-control:focus-within,
 .pf-v5-c-form-control:focus {
-  border-color: #0066cc !important;
+  border-bottom-color: #0066cc !important;
   outline: none !important;
 }
 
@@ -204,43 +202,34 @@ h1.pf-v5-c-title.pf-m-3xl,
   --pf-v5-c-input-group--item--BorderLeftColor: #e0e0e0 !important;
 }
 
-.pf-v5-c-button.pf-m-control::before {
-  border-color: #e0e0e0 !important;
-}
-
+/*
+ * Same technique as .pf-v5-c-form-control above: PatternFly draws this
+ * button's border via a ::after overlay, and its m-control variant natively
+ * widens that overlay's bottom edge to 2px on hover/focus/active
+ * (--pf-v5-c-button--m-control--hover--after--BorderBottomWidth defaults to
+ * BorderWidth--md), while the adjacent text input only ever recolors its
+ * 1px bottom edge. Painting one explicit border directly on the button and
+ * only ever changing its color (never its width) keeps the eye-toggle's
+ * hover highlight the same 1px thickness as the input's.
+ */
 .pf-v5-c-button.pf-m-control {
-  border-left-color: #e0e0e0 !important;
-  --pf-v5-c-button--m-control--BackgroundColor: #ffffff;
-  --pf-v5-c-button--m-control--hover--BackgroundColor: #ffffff;
-  --pf-v5-c-button--m-control--focus--BackgroundColor: #ffffff;
-  --pf-v5-c-button--m-control--active--BackgroundColor: #ffffff;
-  --pf-v5-c-button--m-control--BorderColor: #e0e0e0;
-  --pf-v5-c-button--m-control--after--BorderBottomColor: #e0e0e0;
-  --pf-v5-c-button--m-control--hover--after--BorderBottomColor: #0066cc;
-  --pf-v5-c-button--m-control--focus--after--BorderBottomColor: #0066cc;
-  --pf-v5-c-button--m-control--active--after--BorderBottomColor: #0066cc;
+  box-sizing: border-box !important;
+  border: 1px solid #e0e0e0 !important;
   background-color: #ffffff !important;
-  border-color: #e0e0e0 !important;
   color: #707070 !important;
-  transition: color 0.2s ease, border-color 0.2s ease;
+  transition: color 0.2s ease, border-bottom-color 0.2s ease;
 }
 
+.pf-v5-c-button.pf-m-control::before,
 .pf-v5-c-button.pf-m-control::after {
-  border-bottom-color: #e0e0e0 !important;
-  transition: border-bottom-color 0.2s ease;
-}
-
-.pf-v5-c-button.pf-m-control:hover::after,
-.pf-v5-c-button.pf-m-control:focus::after,
-.pf-v5-c-button.pf-m-control:active::after {
-  border-bottom-color: #0066cc !important;
+  border: none !important;
 }
 
 .pf-v5-c-button.pf-m-control:hover,
 .pf-v5-c-button.pf-m-control:focus,
 .pf-v5-c-button.pf-m-control:active {
   color: #0066cc !important;
-  border-color: #0066cc !important;
+  border-bottom-color: #0066cc !important;
   background-color: #ffffff !important;
   box-shadow: none !important;
   outline: none !important;
@@ -280,6 +269,93 @@ h1.pf-v5-c-title.pf-m-3xl,
   background-color: transparent;
 }
 
+/*
+ * Social login buttons (e.g. "Sign in with GitHub"). Keycloak ships these as
+ * a full-width pf-m-secondary button (blue outline, blue text) with a raw
+ * <svg> icon that has no width/height attributes -- browsers fall back to a
+ * 300x150 default replaced-element size, ballooning the whole button. Reskin
+ * to match PatternFly's tertiary button (transparent fill, pill border, icon
+ * and text centered together) and size the icon explicitly.
+ *
+ * PatternFly's secondary/tertiary variants don't draw their border on the
+ * button box (box border-width is 0) -- it's painted by a ::after
+ * pseudo-element with its own --pf-v5-c-button--after--BorderRadius, which
+ * defaults to a small radius. Overriding the box's border-radius alone
+ * rounds an invisible box and leaves the visible border square, so the
+ * pseudo-element's radius and border color both need to be driven here.
+ */
+#kc-social-providers .pf-v5-c-button.pf-m-secondary {
+  --pf-v5-c-button--after--BorderRadius: 50rem;
+  --pf-v5-c-button--m-secondary--after--BorderColor: #0066cc;
+  --pf-v5-c-button--m-secondary--hover--after--BorderColor: #004d99;
+  --pf-v5-c-button--m-secondary--focus--after--BorderColor: #004d99;
+  --pf-v5-c-button--m-secondary--active--after--BorderColor: #004d99;
+  background-color: transparent !important;
+  color: #0066cc !important;
+  border-radius: 50rem !important;
+  font-family: 'Red Hat Text', system-ui, -apple-system, sans-serif !important;
+  justify-content: center !important;
+  gap: 0.5rem;
+  transition: color 0.2s ease;
+}
+
+#kc-social-providers .pf-v5-c-button.pf-m-secondary:hover,
+#kc-social-providers .pf-v5-c-button.pf-m-secondary:focus,
+#kc-social-providers .pf-v5-c-button.pf-m-secondary:active {
+  color: #004d99 !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* The provider name ships with the pf-v5-u-m-auto utility (margin: auto
+   !important), which absorbs the button's flex free space on its own and
+   pins the icon to the far left regardless of justify-content. Zero it so
+   the icon and name sit next to each other as a single centered group. */
+#kc-social-providers .pf-v5-c-button.pf-m-secondary > span {
+  margin: 0 !important;
+}
+
+#kc-social-providers svg {
+  width: 1.25rem !important;
+  height: 1.25rem !important;
+  flex-shrink: 0;
+}
+
+/* The provider list reuses the .pf-v5-c-login__main-body class for its
+   horizontal edge-to-edge padding, but that class also carries the same
+   large PaddingBottom as the real card body wrapping it -- doubling up and
+   leaving a large gap under the button before the card ends. */
+#kc-social-providers .pf-v5-c-login__main-body {
+  padding-block-end: 0 !important;
+}
+
+/*
+ * Keycloak's base keycloak.v2 theme applies a CSS filter (invert/sepia/
+ * hue-rotate) to non-google provider icons to recolor their default black
+ * fill into Keycloak's own blue -- it repaints the rendered pixels after fill,
+ * so it fights the fixed icon color below and must be cancelled explicitly.
+ */
+#kc-social-providers svg:not(.google) {
+  filter: none !important;
+}
+
+/*
+ * Google ships a multi-color logo with per-path fills; every other provider
+ * (github, etc.) draws a single path with no fill. The button text/border is
+ * blue (tertiary style), but the icon should read as neutral ink -- dark on
+ * the light card, light on the dark card -- not the accent blue.
+ */
+#kc-social-providers svg:not(.google) path {
+  fill: #151515 !important;
+}
+
+/* Logout confirmation page -- "Do you want to log out?" text renders flush
+   against the Log out button with no separating space by default. */
+#kc-logout-confirm p.instruction {
+  margin: 0 0 1.5rem !important;
+}
+
 /* Alert styling */
 .pf-v5-c-alert {
   background-color: #ffffff !important;
@@ -293,6 +369,22 @@ h1.pf-v5-c-title.pf-m-3xl,
 /* Checkbox */
 .pf-v5-c-check__label {
   color: #4d4d4d !important;
+}
+
+/* "or" divider between password login and social/IDP buttons -- hide the lines, keep the label */
+.kc-login-divider::before,
+.kc-login-divider::after {
+  border-bottom: none !important;
+}
+
+/*
+ * PatternFly's Login component draws a border-top on .pf-v5-c-login__main-
+ * footer-band by default, used here to separate the "No account? Register"
+ * link from whatever sits above it (the Sign In button when no social/IDP
+ * buttons are configured). Remove it to keep the card divider-free.
+ */
+.pf-v5-c-login__main-footer-band {
+  border-top: none !important;
 }
 
 /* Page footer */
@@ -328,28 +420,18 @@ h1.pf-v5-c-title.pf-m-3xl,
   }
 
   .pf-v5-c-form-control {
-    --pf-v5-c-form-control--BorderTopColor: #3c3f42;
-    --pf-v5-c-form-control--BorderRightColor: #3c3f42;
-    --pf-v5-c-form-control--BorderBottomColor: #3c3f42;
-    --pf-v5-c-form-control--BorderLeftColor: #3c3f42;
-    --pf-v5-c-form-control--BackgroundColor: #1b1d21;
-    --pf-v5-c-form-control--Color: #e0e0e0;
-    --pf-v5-c-form-control--after--BorderBottomColor: #3c3f42;
     background-color: #1b1d21 !important;
-    border-color: #3c3f42 !important;
     color: #e0e0e0 !important;
+    border: 1px solid #3c3f42 !important;
   }
 
-  .pf-v5-c-form-control::before {
-    border-color: #3c3f42 !important;
+  .pf-v5-c-form-control::before,
+  .pf-v5-c-form-control::after {
+    border: none !important;
   }
 
   .pf-v5-c-form-control input {
     color: #e0e0e0 !important;
-  }
-
-  .pf-v5-c-form-control::after {
-    border-bottom-color: #3c3f42 !important;
   }
 
   .pf-v5-c-form__label-text {
@@ -369,26 +451,15 @@ h1.pf-v5-c-title.pf-m-3xl,
   }
 
   .pf-v5-c-button.pf-m-control {
-    border-left-color: #3c3f42 !important;
-    --pf-v5-c-button--m-control--BackgroundColor: #1b1d21;
-    --pf-v5-c-button--m-control--hover--BackgroundColor: #1b1d21;
-    --pf-v5-c-button--m-control--focus--BackgroundColor: #1b1d21;
-    --pf-v5-c-button--m-control--active--BackgroundColor: #1b1d21;
-    --pf-v5-c-button--m-control--BorderColor: #3c3f42;
-    --pf-v5-c-button--m-control--after--BorderBottomColor: #3c3f42;
+    box-sizing: border-box !important;
+    border: 1px solid #3c3f42 !important;
     background-color: #1b1d21 !important;
-    border-color: #3c3f42 !important;
     color: #a2a2a2 !important;
   }
 
+  .pf-v5-c-button.pf-m-control::before,
   .pf-v5-c-button.pf-m-control::after {
-    border-bottom-color: #3c3f42 !important;
-  }
-
-  .pf-v5-c-button.pf-m-control:hover,
-  .pf-v5-c-button.pf-m-control:focus,
-  .pf-v5-c-button.pf-m-control:active {
-    background-color: #1b1d21 !important;
+    border: none !important;
   }
 
   .pf-v5-c-button.pf-m-control i.fa-eye,
@@ -399,14 +470,10 @@ h1.pf-v5-c-title.pf-m-3xl,
     color: #a2a2a2 !important;
   }
 
-  .pf-v5-c-form-control:hover::after,
-  .pf-v5-c-form-control:focus-within::after {
-    border-bottom-color: #1fa7f8 !important;
-  }
-
+  .pf-v5-c-form-control:hover,
   .pf-v5-c-form-control:focus-within,
   .pf-v5-c-form-control:focus {
-    border-color: #1fa7f8 !important;
+    border-bottom-color: #1fa7f8 !important;
   }
 
   .pf-v5-c-button.pf-m-primary {
@@ -427,17 +494,11 @@ h1.pf-v5-c-title.pf-m-3xl,
     color: #151515 !important;
   }
 
-  .pf-v5-c-button.pf-m-control:hover::after,
-  .pf-v5-c-button.pf-m-control:focus::after,
-  .pf-v5-c-button.pf-m-control:active::after {
-    border-bottom-color: #1fa7f8 !important;
-  }
-
   .pf-v5-c-button.pf-m-control:hover,
   .pf-v5-c-button.pf-m-control:focus,
   .pf-v5-c-button.pf-m-control:active {
     color: #1fa7f8 !important;
-    border-color: #1fa7f8 !important;
+    border-bottom-color: #1fa7f8 !important;
     background-color: #1b1d21 !important;
   }
 
@@ -474,5 +535,25 @@ h1.pf-v5-c-title.pf-m-3xl,
 
   .pf-v5-c-login__footer {
     color: #a2a2a2;
+  }
+
+  #kc-social-providers .pf-v5-c-button.pf-m-secondary {
+    --pf-v5-c-button--m-secondary--after--BorderColor: #73bcf7;
+    --pf-v5-c-button--m-secondary--hover--after--BorderColor: #bee1f4;
+    --pf-v5-c-button--m-secondary--focus--after--BorderColor: #bee1f4;
+    --pf-v5-c-button--m-secondary--active--after--BorderColor: #bee1f4;
+    background-color: transparent !important;
+    color: #73bcf7 !important;
+  }
+
+  #kc-social-providers .pf-v5-c-button.pf-m-secondary:hover,
+  #kc-social-providers .pf-v5-c-button.pf-m-secondary:focus,
+  #kc-social-providers .pf-v5-c-button.pf-m-secondary:active {
+    background-color: transparent !important;
+    color: #bee1f4 !important;
+  }
+
+  #kc-social-providers svg:not(.google) path {
+    fill: #e0e0e0 !important;
   }
 }

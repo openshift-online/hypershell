@@ -1,7 +1,9 @@
 import {
-  fetchGatewayMetrics,
+  emptyGatewayPhaseCounts,
   gatewayPhaseCountsToDisplayStatusCounts,
+  gatewayPhases,
   type GatewayDisplayStatusCounts,
+  type GatewayPhaseCounts,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import type {
   DashboardControlPlane,
@@ -13,6 +15,10 @@ import type {
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
 
 import {
+  aggregateGatewayReleaseDistribution,
+  buildGatewayReleasesMetric,
+} from "./gateway-release-distribution-aggregation";
+import {
   platformInventoryMetricsResponseToMetrics,
   type PlatformInventoryMetricsResponse,
 } from "./platform-inventory-aggregation";
@@ -20,23 +26,30 @@ import {
 type DashboardApiFactory = (correlationId: string) => SDKClient;
 
 const gibibyteDivisor = 1024 ** 3;
-const secondsPerMinute = 60;
+
+interface DailyTrendPoint {
+  date: string;
+  value: number;
+}
 
 interface ClusterMemoryResponse {
   available_bytes: number;
   capacity_bytes: number;
+  daily_used?: DailyTrendPoint[];
   used_bytes: number;
 }
 
 interface ClusterCpuResponse {
   available_cores: number;
   capacity_cores: number;
+  daily_used?: DailyTrendPoint[];
   used_cores: number;
 }
 
 interface ClusterPodsResponse {
   available_pods: number;
   capacity_pods: number;
+  daily_used?: DailyTrendPoint[];
   phase_failed_pods: number;
   phase_pending_pods: number;
   phase_running_pods: number;
@@ -58,12 +71,115 @@ interface GatewayProvisionDurationResponse {
   p95_seconds: number;
 }
 
+interface GatewayProvisionHourlySuccessRate {
+  failure_count: number;
+  hour: string;
+  success_count: number;
+  success_rate_percent: number;
+}
+
+interface GatewayProvisionOutcomesResponse {
+  failure_count_24h: number;
+  hourly_success_rate: GatewayProvisionHourlySuccessRate[];
+  success_count_24h: number;
+  success_rate_percent: number | null;
+}
+
 interface GatewaySandboxesResponse {
   active_sandboxes: number;
+  daily_active_sandboxes?: { count: number; date: string }[];
+  hourly_active_sandboxes?: { count: number; hour: string }[];
+}
+
+interface GatewayMetricsResponse {
+  counts: Record<string, number>;
+  daily_fleet_totals?: { date: string; total: number }[];
+}
+
+interface RegisteredUsersDailyLogin {
+  count: number;
+  date: string;
 }
 
 interface RegisteredUsersResponse {
+  created_last_7_days?: number;
+  created_last_30_days?: number;
+  daily_unique_logins?: RegisteredUsersDailyLogin[];
   total_registered: number;
+  unique_logins_last_7_days?: number;
+  unique_logins_last_30_days?: number;
+}
+
+function registeredUsersResponseToMetric(
+  body: RegisteredUsersResponse,
+): OperationalMetric {
+  const metric: OperationalMetric = {
+    id: "registered-users",
+    value: String(body.total_registered),
+  };
+
+  if (body.created_last_7_days !== undefined) {
+    metric.createdLast7Days = String(body.created_last_7_days);
+  }
+  if (body.created_last_30_days !== undefined) {
+    metric.createdLast30Days = String(body.created_last_30_days);
+  }
+  if (body.unique_logins_last_7_days !== undefined) {
+    metric.uniqueLoginsLast7Days = String(body.unique_logins_last_7_days);
+  }
+  if (body.unique_logins_last_30_days !== undefined) {
+    metric.uniqueLoginsLast30Days = String(body.unique_logins_last_30_days);
+  }
+  if (body.daily_unique_logins !== undefined) {
+    metric.trend = {
+      points: body.daily_unique_logins.map((point) => ({
+        label: point.date,
+        value: point.count,
+      })),
+    };
+  }
+
+  return metric;
+}
+
+function mapDailyTrend(
+  dailySeries: readonly { date: string; value: number }[] | undefined,
+) {
+  if (dailySeries === undefined) {
+    return undefined;
+  }
+
+  return {
+    points: dailySeries.map((point) => ({
+      label: point.date,
+      value: point.value,
+    })),
+  };
+}
+
+function mapFleetTotalTrend(
+  dailyFleetTotals: GatewayMetricsResponse["daily_fleet_totals"],
+) {
+  if (dailyFleetTotals === undefined) {
+    return undefined;
+  }
+
+  return {
+    points: dailyFleetTotals.map((point) => ({
+      label: point.date,
+      value: point.total,
+    })),
+  };
+}
+
+function parseGatewayPhaseCounts(
+  counts: Record<string, number>,
+): GatewayPhaseCounts {
+  const phaseCounts = emptyGatewayPhaseCounts();
+  for (const phase of gatewayPhases) {
+    phaseCounts[phase] = counts[phase] ?? 0;
+  }
+  return phaseCounts;
 }
 
 function bytesToRoundedGib(bytes: number): string {
@@ -89,11 +205,14 @@ async function fetchClusterMemoryMetric(
 
   const body = (await response.json()) as ClusterMemoryResponse;
 
+  const trend = mapDailyTrend(body.daily_used);
+
   return {
     id: "memory",
     total: bytesToRoundedGib(body.capacity_bytes),
     unit: "GiB",
     value: bytesToRoundedGib(body.used_bytes),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -112,11 +231,14 @@ async function fetchClusterCpuMetric(
 
   const body = (await response.json()) as ClusterCpuResponse;
 
+  const trend = mapDailyTrend(body.daily_used);
+
   return {
     id: "cpu",
     total: coresToRoundedString(body.capacity_cores),
     unit: "cores",
     value: coresToRoundedString(body.used_cores),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -135,6 +257,8 @@ async function fetchClusterPodsMetric(
 
   const body = (await response.json()) as ClusterPodsResponse;
 
+  const trend = mapDailyTrend(body.daily_used);
+
   return {
     id: "pods",
     podPhases: {
@@ -147,6 +271,7 @@ async function fetchClusterPodsMetric(
     total: String(body.capacity_pods),
     unit: "pods",
     value: String(body.used_pods),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -175,8 +300,58 @@ async function fetchClusterNodesMetric(
   };
 }
 
-function formatProvisionMinutesFromSeconds(seconds: number): string {
-  return (seconds / secondsPerMinute).toFixed(2);
+function formatProvisionSeconds(seconds: number): string {
+  return seconds.toFixed(2);
+}
+
+function formatSuccessRatePercent(value: number): string {
+  return value.toFixed(1);
+}
+
+async function fetchGatewayProvisionOutcomesMetric(
+  signal?: AbortSignal,
+): Promise<OperationalMetric | undefined> {
+  try {
+    const response = await fetch("/api/metrics/gateway-provision-outcomes", {
+      credentials: "same-origin",
+      signal,
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const body = (await response.json()) as GatewayProvisionOutcomesResponse;
+    if (body.success_rate_percent === null) {
+      return undefined;
+    }
+
+    const successRatePercent = formatSuccessRatePercent(
+      body.success_rate_percent,
+    );
+    const hourlyPoints = body.hourly_success_rate.map((point) => ({
+      label: point.hour,
+      value: point.success_rate_percent,
+    }));
+
+    return {
+      id: "provision-reliability",
+      provisionOutcomes: {
+        failureCount24h: String(body.failure_count_24h),
+        successCount24h: String(body.success_count_24h),
+        successRatePercent,
+      },
+      ...(hourlyPoints.length >= 2
+        ? {
+            successRateTrend: {
+              points: hourlyPoints,
+            },
+          }
+        : {}),
+      value: successRatePercent,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 async function fetchGatewayProvisionDurationMetric(
@@ -192,9 +367,9 @@ async function fetchGatewayProvisionDurationMetric(
     }
 
     const body = (await response.json()) as GatewayProvisionDurationResponse;
-    const mean = formatProvisionMinutesFromSeconds(body.mean_seconds);
-    const p50 = formatProvisionMinutesFromSeconds(body.p50_seconds);
-    const p95 = formatProvisionMinutesFromSeconds(body.p95_seconds);
+    const mean = formatProvisionSeconds(body.mean_seconds);
+    const p50 = formatProvisionSeconds(body.p50_seconds);
+    const p95 = formatProvisionSeconds(body.p95_seconds);
 
     return {
       id: "provision-time",
@@ -203,7 +378,7 @@ async function fetchGatewayProvisionDurationMetric(
         p50,
         p95,
       },
-      unit: "minutes",
+      unit: "sec",
       value: mean,
     };
   } catch {
@@ -214,6 +389,7 @@ async function fetchGatewayProvisionDurationMetric(
 function gatewayDisplayCountsToMetric(
   total: number,
   counts: GatewayDisplayStatusCounts,
+  trend?: ReturnType<typeof mapFleetTotalTrend>,
 ): OperationalMetric {
   return {
     id: "provisioned-gateways",
@@ -224,6 +400,7 @@ function gatewayDisplayCountsToMetric(
       provisioning: counts.provisioning,
     },
     value: String(total),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -241,10 +418,30 @@ async function fetchGatewaySandboxesMetric(
   }
 
   const body = (await response.json()) as GatewaySandboxesResponse;
+  const hourlyTrend =
+    body.hourly_active_sandboxes === undefined
+      ? undefined
+      : {
+          points: body.hourly_active_sandboxes.map((point) => ({
+            label: point.hour,
+            value: point.count,
+          })),
+        };
+  const trend =
+    body.daily_active_sandboxes === undefined
+      ? undefined
+      : {
+          points: body.daily_active_sandboxes.map((point) => ({
+            label: point.date,
+            value: point.count,
+          })),
+        };
 
   return {
     id: "provisioned-sandboxes",
     value: String(body.active_sandboxes),
+    ...(hourlyTrend ? { hourlyTrend } : {}),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -260,15 +457,27 @@ function isAbortError(error: unknown): boolean {
 async function fetchGatewayPrometheusMetric(
   signal?: AbortSignal,
 ): Promise<OperationalMetric> {
-  const phaseCounts = await fetchGatewayMetrics(signal);
+  const response = await fetch("/api/metrics/gateways", {
+    credentials: "same-origin",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch gateway metrics: ${String(response.status)}`,
+    );
+  }
+
+  const body = (await response.json()) as GatewayMetricsResponse;
+  const phaseCounts = parseGatewayPhaseCounts(body.counts);
   const displayStatusCounts =
     gatewayPhaseCountsToDisplayStatusCounts(phaseCounts);
   const total = Object.values(phaseCounts).reduce(
     (sum, count) => sum + count,
     0,
   );
+  const trend = mapFleetTotalTrend(body.daily_fleet_totals);
 
-  return gatewayDisplayCountsToMetric(total, displayStatusCounts);
+  return gatewayDisplayCountsToMetric(total, displayStatusCounts, trend);
 }
 
 async function fetchGatewayPrometheusMetrics(
@@ -281,11 +490,15 @@ async function fetchGatewayPrometheusMetrics(
 
   const metrics: OperationalMetric[] = [gatewayMetric, sandboxMetric];
 
-  const provisionTimeMetric = await fetchGatewayProvisionDurationMetric(
-    context.signal,
-  );
+  const [provisionTimeMetric, provisionReliabilityMetric] = await Promise.all([
+    fetchGatewayProvisionDurationMetric(context.signal),
+    fetchGatewayProvisionOutcomesMetric(context.signal),
+  ]);
   if (provisionTimeMetric !== undefined) {
     metrics.push(provisionTimeMetric);
+  }
+  if (provisionReliabilityMetric !== undefined) {
+    metrics.push(provisionReliabilityMetric);
   }
 
   return metrics;
@@ -306,12 +519,20 @@ async function fetchRegisteredUsersMetric(
 
   const body = (await response.json()) as RegisteredUsersResponse;
 
-  return [
-    {
-      id: "registered-users",
-      value: String(body.total_registered),
-    },
-  ];
+  return [registeredUsersResponseToMetric(body)];
+}
+
+async function fetchGatewayReleaseDistributionMetrics(
+  context: DashboardInvocationContext,
+  apiFactory: DashboardApiFactory,
+): Promise<OperationalMetric[]> {
+  const client = apiFactory(context.correlationId);
+  const aggregate = await aggregateGatewayReleaseDistribution(
+    client,
+    context.signal,
+  );
+
+  return [buildGatewayReleasesMetric(aggregate)];
 }
 
 async function fetchPlatformInventoryMetrics(
@@ -351,6 +572,11 @@ const metricSources: readonly MetricSourceDefinition[] = [
   {
     id: "platform-inventory",
     fetch: async (context) => fetchPlatformInventoryMetrics(context),
+  },
+  {
+    id: "gateway-release-distribution",
+    fetch: async (context, apiFactory) =>
+      fetchGatewayReleaseDistributionMetrics(context, apiFactory),
   },
   {
     id: "cluster-memory",

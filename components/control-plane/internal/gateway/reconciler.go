@@ -2,32 +2,29 @@ package gateway
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/watch"
 )
 
 // networkPoliciesDisabledLogOnce keeps the "network policies disabled" notice to
@@ -47,21 +44,27 @@ func ReconcileGateway(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
 	clientset *kubernetes.Clientset,
+	helmClient *helm.ShellClient,
 	nsConfig NamespaceConfig,
-	manifests map[string][]*unstructured.Unstructured,
 	opts ReconcileOpts,
 ) error {
-	images := opts.Images
-	if images == nil {
-		images = StaticImageDefaults{}
+	report := opts.ReportProgress
+	if report == nil {
+		report = func(string, string, string) {}
 	}
+
 	ingressMode := gatewayIngressMode(opts)
 
+	// Step 1: EnvironmentReady
+	report(ConditionEnvironmentReady, StatusInProgress, "")
+
 	if err := EnsureManagedNamespace(ctx, clientset, nsConfig.Name, opts.ControlPlaneNamespace); err != nil {
+		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - unable to set up the gateway namespace")
 		return fmt.Errorf("ensure namespace %s: %w", nsConfig.Name, err)
 	}
 
 	if err := ValidateGatewayConfig(nsConfig.Gateway); err != nil {
+		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the gateway configuration is invalid")
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
 
@@ -79,85 +82,79 @@ func ReconcileGateway(
 			log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
 		} else {
 			nsConfig.Gateway.ServerDnsNames = appendDNSNameIfMissing(nsConfig.Gateway.ServerDnsNames, hostname)
+			if nsConfig.Gateway.Route.Host == "" {
+				nsConfig.Gateway.Route.Host = hostname
+			}
 		}
 	}
+
+	report(ConditionEnvironmentReady, StatusComplete, "")
+
+	// Step 2: DatabaseReady
+	report(ConditionDatabaseReady, StatusInProgress, "")
 
 	dbReconciler, err := newDatabaseReconciler(opts)
 	if err != nil {
+		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - the database service is unavailable")
 		return fmt.Errorf("database provider for gateway in namespace %s: %w", nsConfig.Name, err)
 	}
 	if err := dbReconciler.Reconcile(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID, opts.RotateDBCredentials); err != nil {
+		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to provision the gateway database")
 		return err
 	}
 
-	if nsConfig.Gateway.CredentialDriver == nil {
-		if err := reconcileCredentialKEK(ctx, clientset, nsConfig.Name); err != nil {
-			return fmt.Errorf("reconcile credential KEK in %s: %w", nsConfig.Name, err)
-		}
-		deleteCredentialSecretsRBAC(ctx, dynamicClient, nsConfig.Name)
-	} else {
+	// Credential driver resources (Vault RBAC, etc.) are not managed by the
+	// Helm chart; reconcile them here. The chart handles the default credential
+	// KEK secret.
+	if nsConfig.Gateway.CredentialDriver != nil {
 		if err := reconcileCredentialDriverResources(ctx, dynamicClient, clientset, nsConfig); err != nil {
+			report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to configure credential storage")
 			return fmt.Errorf("reconcile credential driver resources in %s: %w", nsConfig.Name, err)
 		}
 	}
 
-	if opts.HasCertManager {
-		if err := reconcileCertManagerResources(ctx, dynamicClient, nsConfig); err != nil {
-			return fmt.Errorf("reconcile cert-manager resources in %s: %w", nsConfig.Name, err)
-		}
-	} else {
-		return fmt.Errorf("cert-manager is required but not available on the cluster: gateway deployment blocked for namespace %s", nsConfig.Name)
-	}
+	report(ConditionDatabaseReady, StatusComplete, "")
 
+	// Step 3: IdentityProviderReady (only when Keycloak is configured)
 	if opts.Keycloak != nil {
+		report(ConditionIdentityProviderReady, StatusInProgress, "")
 		if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
+			report(ConditionIdentityProviderReady, StatusFailed, "Identity provider configuration failed - the authentication service is currently unavailable")
 			return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
 		}
+		report(ConditionIdentityProviderReady, StatusComplete, "")
 	}
 
+	// Step 4: GatewayDeployed
+	report(ConditionGatewayDeployed, StatusInProgress, "")
+
+	// Copy trusted CA bundle (for OIDC issuer verification)
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
 
-	// Validate the fully rendered configuration artifact before any config-derived
-	// resource is written. nsConfig.Gateway is final here: the ingress-hostname SAN
-	// injection and the Keycloak client reconcile (which may set OIDC) have already
-	// run, so this validates exactly the gateway.toml deployGateway would ship.
-	// Gating before the first write means an invalid render never writes the
-	// ConfigMap and never rolls the workload, so a Running gateway keeps serving its
-	// last-good configuration. See
-	// specs/platform/generated-gateway-config-validation.spec.md.
-	renderedTOML, err := RenderGatewayConfigTOML(manifests, nsConfig, images)
-	if err != nil {
-		return &RenderedConfigValidationError{Err: fmt.Errorf("render gateway configuration: %w", err)}
-	}
-	if err := ValidateRenderedGatewayConfig(renderedTOML, nsConfig.Gateway); err != nil {
-		return &RenderedConfigValidationError{Err: err}
-	}
-
-	if err := deployGateway(ctx, dynamicClient, clientset, nsConfig, manifests, images, opts, hasTrustedCA); err != nil {
-		return fmt.Errorf("deploy gateway in %s: %w", nsConfig.Name, err)
-	}
-
+	// Reconcile OpenShift SCC binding BEFORE Helm install
+	// (sandbox pods need privileged SCC to schedule)
 	if opts.IsOpenShift {
 		if err := reconcileOpenShiftSCC(ctx, dynamicClient, nsConfig.Name); err != nil {
 			log.Printf("WARN failed to reconcile OpenShift SCC binding in %s: %v", nsConfig.Name, err)
 		}
 	}
 
-	// Tenant ingress is environment-adaptive: Gateway API where available,
-	// OpenShift Routes where it is not. See gatewayIngressMode.
+	// Deploy gateway via Helm
+	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
+	// BackendTLSPolicy, Route, credential KEK, NetworkPolicy (disabled)
+	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA); err != nil {
+		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
+		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
+	}
+
+	// Console reconciliation and route-address publishing are not managed by
+	// the Helm chart. Reconcile them after the Helm release so the gateway
+	// workload is already deployed.
 	switch ingressMode {
 	case IngressModeGatewayAPI:
 		if nsConfig.Gateway.Route.Enabled {
-			// Propagate this error rather than logging and swallowing it: the only
-			// hard failures reconcileGatewayAPIResources returns are a TLS-secret
-			// wait timeout and a fail-closed route-intent re-check (its best-effort
-			// console/NetworkPolicy/CA steps log internally and never return). Both
-			// leave a routed gateway without a usable route, so Handle must see the
-			// error and mark the gateway Failed -- a Failed gateway is not phase-
-			// gated, so the next watch event re-provisions and rebuilds the route.
-			// Swallowing it here would strand a partial route the phase gate then
-			// blocks any later event from repairing.
 			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
+				report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to configure network routing")
 				return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
 			}
 		} else {
@@ -167,12 +164,9 @@ func ReconcileGateway(
 		}
 	case IngressModeRoute:
 		if nsConfig.Gateway.Route.Enabled {
-			if err := reconcileRouteResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
+			if err := reconcileRouteResources(ctx, dynamicClient, nsConfig, opts); err != nil {
 				log.Printf("WARN failed to reconcile Route resources in %s: %v", nsConfig.Name, err)
 			}
-			// The console uses the same selected ingress mode as the gateway. A
-			// console error must not fail gateway provisioning. The health loop
-			// retries the console until it can serve.
 			if err := ReconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
 				log.Printf("WARN failed to reconcile console in %s: %v", nsConfig.Name, err)
 			}
@@ -184,6 +178,8 @@ func ReconcileGateway(
 	default:
 		log.Printf("INFO no ingress mode selected for %s (not OpenShift and no Gateway API); skipping tenant ingress", nsConfig.Name)
 	}
+
+	report(ConditionGatewayDeployed, StatusComplete, "")
 
 	log.Printf("INFO gateway reconciled in namespace %s", nsConfig.Name)
 	return nil
@@ -203,10 +199,18 @@ func DeleteGatewayResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
 	clientset *kubernetes.Clientset,
+	helmClient *helm.ShellClient,
 	namespace string,
 	opts ReconcileOpts,
 	credentialNamespaces ...string,
 ) error {
+	// Uninstall Helm release (removes all chart-managed resources in the namespace)
+	if helmClient != nil {
+		if err := helmClient.Uninstall(ctx, namespace); err != nil {
+			log.Printf("WARN failed to uninstall helm release in namespace %s: %v", namespace, err)
+		}
+	}
+
 	crbGVR := schema.GroupVersionResource{
 		Group:    "rbac.authorization.k8s.io",
 		Version:  "v1",
@@ -216,6 +220,11 @@ func DeleteGatewayResources(
 	if err := dynamicClient.Resource(crbGVR).Delete(ctx, crbName, metav1.DeleteOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
 			log.Printf("WARN failed to delete ClusterRoleBinding %s: %v", crbName, err)
+			// This cluster-scoped binding has no owning namespace to cascade-reap
+			// it and no reconciler that reclaims leaked bindings, so a failure here
+			// is a silent orphan unless it is recorded durably.
+			recordOrphan(ctx, opts, "ClusterRoleBinding", crbName,
+				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		}
 	} else {
 		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
@@ -243,12 +252,16 @@ func DeleteGatewayResources(
 		consoleClientID := kcClientID + "-console"
 		if err := opts.KeycloakClient.DeleteConsoleClient(ctx, consoleClientID); err != nil {
 			log.Printf("WARN failed to delete console client %s (orphaned): %v", consoleClientID, err)
+			recordOrphan(ctx, opts, "KeycloakClient", consoleClientID,
+				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
 			log.Printf("INFO deleted console client %s", consoleClientID)
 		}
 
 		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
 			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
+			recordOrphan(ctx, opts, "KeycloakClient", kcClientID,
+				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
 			log.Printf("INFO deleted keycloak client %s", kcClientID)
 		}
@@ -276,6 +289,16 @@ func DeleteGatewayResources(
 
 	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
 	return nil
+}
+
+// recordOrphan invokes opts.RecordOrphan if the caller wired one, so a
+// best-effort deletion failure that leaves a gateway-owned resource behind is
+// surfaced durably instead of only logged. It is a no-op when no recorder is
+// configured, keeping the best-effort branches backward compatible.
+func recordOrphan(ctx context.Context, opts ReconcileOpts, resourceKind, resourceName, reason string) {
+	if opts.RecordOrphan != nil {
+		opts.RecordOrphan(ctx, resourceKind, resourceName, reason)
+	}
 }
 
 // DeleteLabeledNamespaceResources reclaims this gateway's own in-namespace
@@ -391,7 +414,7 @@ func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		errs = append(errs, fmt.Errorf("delete BackendTLSPolicy in %s: %w", namespace, err))
 	}
 
-	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, "openshell-backend-ca", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, "openshell-gateway-backend-ca", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
 		errs = append(errs, fmt.Errorf("delete backend CA ConfigMap in %s: %w", namespace, err))
 	}
 
@@ -491,10 +514,10 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 	}
 
 	if ingressMode == IngressModeGatewayAPI {
-		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-backend-ca", metav1.GetOptions{}); err == nil {
+		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-gateway-backend-ca", metav1.GetOptions{}); err == nil {
 			return false, nil
 		} else if !k8serrors.IsNotFound(err) {
-			return false, fmt.Errorf("probe configmap openshell-backend-ca in %s: %w", namespace, err)
+			return false, fmt.Errorf("probe configmap openshell-gateway-backend-ca in %s: %w", namespace, err)
 		}
 	}
 	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
@@ -543,24 +566,12 @@ func readServerTLSCA(ctx context.Context, clientset kubernetes.Interface, namesp
 	return ""
 }
 
-// reconcileRouteResources exposes a tenant gateway through an OpenShift Route
-// instead of the Gateway API. The TLS termination is selected by
-// GATEWAY_ROUTE_TERMINATION (see routeTermination):
-//
-//   - passthrough (default): the least invasive mode. The gateway pod already
-//     terminates TLS with its per-tenant self-signed CA and performs client
-//     mTLS, so HAProxy forwards the encrypted connection end-to-end (SNI-routed)
-//     with no wildcard cert, cert-manager ClusterIssuer, or external DNS
-//     integration required. This is the ingress mode used where the Gateway
-//     API/Istio cannot run (e.g. IBM Cloud ROKS).
-//   - reencrypt: the router terminates external TLS with its own publicly-trusted
-//     wildcard and re-encrypts to the pod, verifying the backend against the
-//     openshell-server-tls ca.crt. Clients see a trusted certificate. Used on
-//     ROSA/OpenShift where a *.apps wildcard is already provisioned on the
-//     router. This is safe because the gateway server requires no client mTLS
-//     (no client_ca_path in the gateway config), so the router presenting no
-//     client certificate is accepted; OIDC remains the sole client auth.
-func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
+// reconcileRouteResources handles the non-Route resources needed when the
+// gateway is exposed through an OpenShift Route. The Route itself is owned by
+// the Helm chart (openshiftRoute.enabled=true in the chart values); this
+// function publishes the route address back to the API server and reconciles
+// the router NetworkPolicy that allows traffic from the ingress namespace.
+func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	namespace := nsConfig.Name
 
 	hostname, err := deriveGatewayHostname(nsConfig)
@@ -569,103 +580,8 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 		return nil
 	}
 
-	termination := routeTermination()
-
-	// reencrypt requires the backend CA so the router can verify the gateway
-	// pod's self-signed server certificate. Without it the router falls back to
-	// its default trust bundle, which does not include openshell-ca, and every
-	// backend connection fails TLS verification. Fail closed: skip creating the
-	// Route until the CA is available (the reconcile is retried on the next watch
-	// event), rather than publish a broken reencrypt Route.
-	tlsConfig := map[string]interface{}{
-		// Passthrough preserves the gateway pod's own TLS + client mTLS
-		// end-to-end. No router-side certificate is involved.
-		"termination":                   "passthrough",
-		"insecureEdgeTerminationPolicy": "None",
-	}
-	if termination == RouteTerminationReencrypt {
-		caData := readServerTLSCA(ctx, clientset, namespace)
-		if caData == "" {
-			return fmt.Errorf("reencrypt Route in %s requires openshell-server-tls ca.crt, which is not yet available", namespace)
-		}
-		// No certificate/key fields: the router serves its default
-		// publicly-trusted wildcard automatically. destinationCACertificate lets
-		// the router verify the re-encrypted backend connection to the gateway.
-		tlsConfig = map[string]interface{}{
-			"termination":                   "reencrypt",
-			"insecureEdgeTerminationPolicy": "Redirect",
-			"destinationCACertificate":      caData,
-		}
-	}
-
-	// gRPC streams are long-lived; extend the router timeout well beyond the 30s
-	// default so streams are not torn down.
-	routeAnnotations := map[string]interface{}{
-		"haproxy.router.openshift.io/timeout": "3600s",
-	}
-
-	// Per-gateway public certificate for a reencrypt Route. On OpenShift the
-	// router advertises ALPN h2 on an edge/reencrypt Route only when the Route
-	// carries its own certificate; a Route riding the shared default *.apps
-	// wildcard is denied h2 (cross-route connection-coalescing protection), which
-	// breaks gRPC (grpcs://) even though reencrypt already fixes UnknownIssuer.
-	// When GATEWAY_ROUTE_TLS_ISSUER names a cert-manager ClusterIssuer, annotate
-	// the Route so the cert-manager openshift-routes controller mints a
-	// certificate from it and injects it into spec.tls.{certificate,key}.
-	if issuer := routeTLSIssuer(); termination == RouteTerminationReencrypt && issuer != "" {
-		routeAnnotations["cert-manager.io/issuer-name"] = issuer
-		routeAnnotations["cert-manager.io/issuer-kind"] = "ClusterIssuer"
-
-		// reconcileResource replaces the whole Route on every reconcile, and the
-		// spec built here intentionally omits certificate/key. openshift-routes
-		// co-owns this Route (we own termination + destinationCACertificate, it
-		// owns the edge cert), so carry forward any certificate/key it has already
-		// injected -- otherwise each reconcile strips the cert and flaps h2.
-		if cert, key := readInjectedRouteCert(ctx, dynamicClient, namespace, gatewayRouteName); cert != "" {
-			tlsConfig["certificate"] = cert
-			if key != "" {
-				tlsConfig["key"] = key
-			}
-		}
-	}
-
 	publishRouteAddress(ctx, opts, namespace, hostname)
 
-	route := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "route.openshift.io/v1",
-			"kind":       "Route",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-gateway",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-				"annotations": routeAnnotations,
-			},
-			"spec": map[string]interface{}{
-				"host": hostname,
-				"to": map[string]interface{}{
-					"kind":   "Service",
-					"name":   "openshell-gateway",
-					"weight": int64(100),
-				},
-				"port": map[string]interface{}{
-					"targetPort": "grpc",
-				},
-				"tls":            tlsConfig,
-				"wildcardPolicy": "None",
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, route); err != nil {
-		return fmt.Errorf("reconcile Route: %w", err)
-	}
-
-	// Allow ingress from the OpenShift router namespace to the gateway ports.
 	routerNS := gatewayIngressNamespace()
 	ingressRule := map[string]interface{}{
 		"ports": []interface{}{
@@ -762,71 +678,6 @@ func DeleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, 
 	return errors.Join(errs...)
 }
 
-func deployGateway(
-	ctx context.Context,
-	dynamicClient dynamic.Interface,
-	clientset *kubernetes.Clientset,
-	nsConfig NamespaceConfig,
-	manifests map[string][]*unstructured.Unstructured,
-	images ImageDefaults,
-	opts ReconcileOpts,
-	hasTrustedCA bool,
-) error {
-	order := []string{
-		"rbac.yaml",
-		"serviceaccount.yaml",
-		"configmap.yaml",
-		"certgen-job.yaml",
-		"service.yaml",
-		"deployment.yaml",
-		"networkpolicy.yaml",
-	}
-
-	for _, filename := range order {
-		resources, ok := manifests[filename]
-		if !ok {
-			log.Printf("WARN manifest file %s not found, skipping", filename)
-			continue
-		}
-
-		for _, manifest := range resources {
-			if opts.SkipNetworkPolicies && manifest.GetKind() == "NetworkPolicy" {
-				logNetworkPoliciesDisabled()
-				continue
-			}
-
-			obj, err := ApplyManifestToNamespace(manifest.DeepCopy(), nsConfig.Name, nsConfig.Gateway, images)
-			if err != nil {
-				return fmt.Errorf("apply substitutions for %s: %w", filename, err)
-			}
-
-			if err := ApplyConfigOverrides(obj, nsConfig.Gateway, nsConfig.Name); err != nil {
-				return fmt.Errorf("apply config overrides for %s: %w", filename, err)
-			}
-
-			if obj.GetKind() == "Deployment" {
-				applyConfigHashAnnotation(ctx, clientset, obj, nsConfig.Name)
-			}
-
-			if hasTrustedCA && obj.GetKind() == "Deployment" {
-				applyTrustedCAOverrides(obj)
-			}
-
-			if opts.IsOpenShift && obj.GetKind() == "Deployment" {
-				applyOpenShiftOverrides(obj)
-			}
-
-			if err := reconcileResource(ctx, dynamicClient, obj); err != nil {
-				return fmt.Errorf("reconcile resource from %s: %w", filename, err)
-			}
-
-			log.Printf("DEBUG reconciled %s %s in %s", obj.GetKind(), obj.GetName(), nsConfig.Name)
-		}
-	}
-
-	return nil
-}
-
 func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespace, name string, timeout time.Duration) error {
 	watchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -883,11 +734,83 @@ func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespa
 // whose readiness gates the Gateway `Running` phase.
 const GatewayDeploymentName = "openshell-gateway"
 
+// AppliedReleaseAnnotation records, on the gateway Deployment's metadata, the
+// GatewayRelease id the Deployment's current pod template was rendered from. The
+// control plane stamps it at apply time so the continuous health loop can advance
+// observed_release_id only to the release actually applied to the workload -- not
+// to a desired release the provisioning path has committed to the database but not
+// yet rolled out. Empty for a direct-image gateway. See
+// gateway-release-rollout.spec.md.
+const AppliedReleaseAnnotation = "hypershell.redhat.io/applied-release-id"
+
+// AppliedRelease returns the GatewayRelease id the given gateway Deployment was
+// rendered from, read from AppliedReleaseAnnotation, or "" when unset (a
+// direct-image gateway, or a Deployment applied before this annotation existed).
+func AppliedRelease(deploy *appsv1.Deployment) string {
+	if deploy == nil {
+		return ""
+	}
+	return deploy.Annotations[AppliedReleaseAnnotation]
+}
+
+// deploymentRolloutComplete judges a Deployment's rollout on its *new* revision,
+// not on any still-Ready old pod. It reports complete=true only when the
+// Deployment's spec change has been observed by its controller, its updated
+// replicas are available at the desired count, and no old replicas remain. It
+// also reports rollingOut=true when a new revision is still being rolled out
+// (spec not yet observed, updated replicas not yet at desired, or old replicas
+// still terminating), so callers can distinguish an in-progress rollout from a
+// steady-state degradation of the current revision. With maxUnavailable:0 and a
+// positive maxSurge, a still-Ready old pod would satisfy a plain
+// ReadyReplicas>=desired check while the new revision is still starting or
+// crash-looping; judging on the updated replicas closes that gap. When the
+// updated revision is fully rolled out but its pods are not all available, the
+// current revision is unhealthy (rollingOut=false). See
+// gateway-release-rollout.spec.md.
+func deploymentRolloutComplete(deploy *appsv1.Deployment) (complete bool, rollingOut bool, reason string) {
+	desired := int32(1)
+	if deploy.Spec.Replicas != nil {
+		desired = *deploy.Spec.Replicas
+	}
+	if desired < 1 {
+		return false, false, "deployment has zero desired replicas"
+	}
+	if deploy.Status.ObservedGeneration < deploy.Generation {
+		return false, true, "waiting for deployment spec update to be observed"
+	}
+	if deploy.Status.UpdatedReplicas < desired {
+		return false, true, fmt.Sprintf("%d/%d updated replicas rolled out", deploy.Status.UpdatedReplicas, desired)
+	}
+	if deploy.Status.Replicas > deploy.Status.UpdatedReplicas {
+		old := deploy.Status.Replicas - deploy.Status.UpdatedReplicas
+		if deploy.Status.AvailableReplicas < deploy.Status.Replicas {
+			// With maxUnavailable:0 the old replica(s) are kept running until the
+			// updated revision becomes available, so an unavailable pod during the
+			// surge window means the new revision is not up yet (e.g.
+			// ImagePullBackOff or a slow start), not that an old replica is winding
+			// down. Report that truthfully so an operator debugging a stuck roll is
+			// not misdirected to a healthy-looking termination message.
+			return false, true, fmt.Sprintf("updated revision not yet available; %d old replica(s) retained", old)
+		}
+		return false, true, fmt.Sprintf("waiting for %d old replica(s) to terminate", old)
+	}
+	if deploy.Status.AvailableReplicas < desired {
+		return false, false, fmt.Sprintf("%d/%d updated replicas available", deploy.Status.AvailableReplicas, desired)
+	}
+	return true, false, ""
+}
+
 // DeploymentReadiness performs a single, non-blocking check of a Deployment's
 // readiness. It returns ready=true when ready replicas meet or exceed desired
 // replicas. When the Deployment is not ready, reason carries a short
 // human-readable descriptor (e.g. "1/2 replicas ready" or "deployment not
 // found") suitable for the Gateway `status` field.
+//
+// This is the general readiness primitive used for auxiliary workloads (the
+// per-gateway console and the embedded database). The gateway workload's own
+// rollout is judged on the *new* revision instead, via ObserveGatewayRollout /
+// deploymentRolloutComplete, so a still-Ready old pod cannot mask an unready new
+// revision during a release roll. See gateway-release-rollout.spec.md.
 func DeploymentReadiness(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (ready bool, reason string, err error) {
 	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -910,13 +833,42 @@ func DeploymentReadiness(ctx context.Context, clientset kubernetes.Interface, na
 	return false, fmt.Sprintf("%d/%d replicas ready", deploy.Status.ReadyReplicas, desired), nil
 }
 
+// ObserveGatewayRollout reports the gateway Deployment's revision-aware readiness,
+// whether a new revision is still rolling out, and the GatewayRelease the ready
+// revision was actually rendered from (AppliedReleaseAnnotation). The health
+// reconciler uses rollingOut to leave an in-progress rollout to the provisioning
+// path (which owns the Provisioning -> Running/Degraded transition and preserves
+// the last-good workload) rather than flapping the phase, and uses appliedRelease
+// to advance observed_release_id only to the release actually on the workload --
+// never to a desired release the provisioning path has not yet applied. It returns
+// rollingOut=false with reason "deployment not found" when the Deployment does not
+// yet exist. See gateway-release-rollout.spec.md.
+func ObserveGatewayRollout(ctx context.Context, clientset kubernetes.Interface, namespace, name string) (ready bool, rollingOut bool, appliedRelease string, reason string, err error) {
+	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return false, false, "", "deployment not found", nil
+		}
+		return false, false, "", "", fmt.Errorf("get deployment %s/%s: %w", namespace, name, err)
+	}
+	complete, rollingOut, reason := deploymentRolloutComplete(deploy)
+	return complete, rollingOut, AppliedRelease(deploy), reason, nil
+}
+
+// gatewayReadyPollInterval is how often WaitForGatewayReady re-observes the
+// gateway workload while waiting for readiness. It is a package variable so tests
+// can shorten it; production keeps the 2s cadence.
+var gatewayReadyPollInterval = 2 * time.Second
+
 // WaitForGatewayReady blocks until the openshell-gateway Deployment reaches
-// readiness or the timeout elapses. It returns ready=true on readiness, or
-// ready=false with the last observed reason when the provisioning readiness
+// readiness or the timeout elapses. Readiness is judged on the new revision
+// (see ObserveGatewayRollout), so a still-Ready old pod cannot let a defective
+// release be reported ready during a roll. It returns ready=true on readiness,
+// or ready=false with the last observed reason when the provisioning readiness
 // window expires without the workload becoming ready.
-func WaitForGatewayReady(ctx context.Context, clientset *kubernetes.Clientset, namespace string, timeout time.Duration) (bool, string) {
+func WaitForGatewayReady(ctx context.Context, clientset kubernetes.Interface, namespace string, timeout time.Duration) (bool, string) {
 	deadline := time.After(timeout)
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(gatewayReadyPollInterval)
 	defer ticker.Stop()
 
 	lastReason := "not ready"
@@ -927,7 +879,7 @@ func WaitForGatewayReady(ctx context.Context, clientset *kubernetes.Clientset, n
 		case <-deadline:
 			return false, lastReason
 		case <-ticker.C:
-			ready, reason, err := DeploymentReadiness(ctx, clientset, namespace, GatewayDeploymentName)
+			ready, _, _, reason, err := ObserveGatewayRollout(ctx, clientset, namespace, GatewayDeploymentName)
 			if err != nil {
 				lastReason = err.Error()
 				continue
@@ -1063,53 +1015,6 @@ func mergeClusterRoleBindingSubjects(existing, desired *unstructured.Unstructure
 	_ = unstructured.SetNestedSlice(desired.Object, desiredSubjects, "subjects")
 }
 
-func applyConfigHashAnnotation(ctx context.Context, clientset *kubernetes.Clientset, obj *unstructured.Unstructured, namespace string) {
-	h := sha256.New()
-
-	cm, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-gateway-config", metav1.GetOptions{})
-	if err == nil {
-		keys := make([]string, 0, len(cm.Data))
-		for k := range cm.Data {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			h.Write([]byte(k))
-			h.Write([]byte(cm.Data[k]))
-		}
-	} else if !k8serrors.IsNotFound(err) {
-		log.Printf("WARN skipping config-hash annotation in %s: failed to get ConfigMap: %v", namespace, err)
-		return
-	}
-
-	for _, secretName := range []string{"openshell-server-tls", "openshell-gateway-db-credentials"} {
-		secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
-		if err == nil {
-			keys := make([]string, 0, len(secret.Data))
-			for k := range secret.Data {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				h.Write([]byte(k))
-				h.Write(secret.Data[k])
-			}
-		} else if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN skipping config-hash annotation in %s: failed to get Secret %s: %v", namespace, secretName, err)
-			return
-		}
-	}
-
-	hashStr := hex.EncodeToString(h.Sum(nil))
-
-	annotations, _, _ := unstructured.NestedMap(obj.Object, "spec", "template", "metadata", "annotations")
-	if annotations == nil {
-		annotations = make(map[string]interface{})
-	}
-	annotations["hypershell.redhat.io/config-hash"] = hashStr
-	_ = unstructured.SetNestedMap(obj.Object, annotations, "spec", "template", "metadata", "annotations")
-}
-
 func applyOpenShiftOverrides(obj *unstructured.Unstructured) {
 	unstructured.RemoveNestedField(obj.Object, "spec", "template", "spec", "securityContext", "fsGroup")
 
@@ -1194,6 +1099,16 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 		return false
 	}
 
+	data := make(map[string]string, len(sourceCM.Data)+1)
+	for k, v := range sourceCM.Data {
+		data[k] = v
+	}
+	if _, ok := data["ca.crt"]; !ok {
+		if v, ok := data["ca-bundle.crt"]; ok {
+			data["ca.crt"] = v
+		}
+	}
+
 	targetCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      caConfigMapName,
@@ -1205,7 +1120,7 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 				"hypershell.redhat.io/managed": "true",
 			},
 		},
-		Data: sourceCM.Data,
+		Data: data,
 	}
 
 	existing, err := clientset.CoreV1().ConfigMaps(targetNamespace).Get(ctx, caConfigMapName, metav1.GetOptions{})
@@ -1228,56 +1143,6 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 		return false
 	}
 	return true
-}
-
-func applyTrustedCAOverrides(obj *unstructured.Unstructured) {
-	volumes, found, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "volumes")
-	if !found {
-		return
-	}
-
-	caVolume := map[string]interface{}{
-		"name": "trusted-ca",
-		"configMap": map[string]interface{}{
-			"name": "gateway-trusted-ca",
-		},
-	}
-	volumes = append(volumes, caVolume)
-	_ = unstructured.SetNestedSlice(obj.Object, volumes, "spec", "template", "spec", "volumes")
-
-	containers, found, _ := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "containers")
-	if !found {
-		return
-	}
-	for i, c := range containers {
-		container, ok := c.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		name, _, _ := unstructured.NestedString(container, "name")
-		if name != "openshell-gateway" {
-			continue
-		}
-
-		volumeMounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
-		volumeMounts = append(volumeMounts, map[string]interface{}{
-			"name":      "trusted-ca",
-			"mountPath": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
-			"subPath":   "ca-bundle.crt",
-			"readOnly":  true,
-		})
-		_ = unstructured.SetNestedSlice(container, volumeMounts, "volumeMounts")
-
-		env, _, _ := unstructured.NestedSlice(container, "env")
-		env = append(env, map[string]interface{}{
-			"name":  "SSL_CERT_FILE",
-			"value": "/etc/pki/tls/certs/hypershell-ca-bundle.crt",
-		})
-		_ = unstructured.SetNestedSlice(container, env, "env")
-
-		containers[i] = container
-	}
-	_ = unstructured.SetNestedSlice(obj.Object, containers, "spec", "template", "spec", "containers")
 }
 
 func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *NamespaceConfig) error {
@@ -1304,6 +1169,9 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 	if existingUUID != "" {
 		if err := kc.EnsureDeviceAuthorizationGrant(ctx, existingUUID); err != nil {
 			return fmt.Errorf("reconcile device authorization grant on keycloak client %s: %w", kcClientID, err)
+		}
+		if err := kc.EnsureE2ETokenExchange(ctx, existingUUID); err != nil {
+			return fmt.Errorf("reconcile e2e token-exchange on keycloak client %s: %w", kcClientID, err)
 		}
 		log.Printf("INFO reconciled keycloak client %s (uuid=%s)", kcClientID, existingUUID)
 	} else {
@@ -1343,50 +1211,6 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 		}
 	}
 
-	return nil
-}
-
-// reconcileCredentialKEK uses create-or-skip (not update-or-create) because
-// replacing an existing key would render all previously encrypted credentials
-// unrecoverable.
-func reconcileCredentialKEK(ctx context.Context, clientset *kubernetes.Clientset, namespace string) error {
-	secretName := "openshell-gateway-credential-kek"
-	_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
-	if err == nil {
-		log.Printf("DEBUG credential KEK secret %s already exists in %s, skipping", secretName, namespace)
-		return nil
-	}
-	if !k8serrors.IsNotFound(err) {
-		return fmt.Errorf("get credential KEK secret: %w", err)
-	}
-
-	kekBytes := make([]byte, 32)
-	if _, err := rand.Read(kekBytes); err != nil {
-		return fmt.Errorf("generate credential KEK: %w", err)
-	}
-
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/name":       "openshell",
-				"app.kubernetes.io/component":  "gateway",
-				"app.kubernetes.io/managed-by": "hypershell-control-plane",
-				"hypershell.redhat.io/managed": "true",
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			"key-encryption-key": []byte(base64.StdEncoding.EncodeToString(kekBytes)),
-		},
-	}
-
-	if _, err := clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("create credential KEK secret: %w", err)
-	}
-
-	log.Printf("INFO created credential KEK secret %s in %s", secretName, namespace)
 	return nil
 }
 
@@ -1643,56 +1467,15 @@ const (
 	IngressModeNone       = ""
 )
 
-// Route TLS termination modes for the "route" ingress mode, selected via
-// GATEWAY_ROUTE_TERMINATION.
-//
-//   - passthrough (default): HAProxy forwards the gateway pod's own TLS
-//     end-to-end. No router certificate is involved, so no wildcard cert or DNS
-//     is needed, but external clients must trust the per-tenant self-signed
-//     openshell-ca. This preserves the ROKS behavior.
-//   - reencrypt: the router terminates external TLS with its own publicly-trusted
-//     wildcard (e.g. a ROSA/OpenShift *.apps Let's Encrypt cert, served
-//     automatically with no certificate on the Route) and re-encrypts to the
-//     gateway pod, verifying the backend against the openshell-server-tls ca.crt
-//     set as destinationCACertificate. Clients see a trusted certificate, so the
-//     UnknownIssuer error is gone with no new LB, DNS, or cert-manager issuer.
-const (
-	RouteTerminationPassthrough = "passthrough"
-	RouteTerminationReencrypt   = "reencrypt"
-
-	// gatewayRouteName is the OpenShift Route serving the gateway itself.
-	// openshift-routes injects the issued certificate into it, and each reconcile
-	// must carry that injection forward (see readInjectedRouteCert).
-	gatewayRouteName = "openshell-gateway"
-)
-
-// routeTermination resolves the Route TLS termination for the "route" ingress
-// mode from GATEWAY_ROUTE_TERMINATION, defaulting to passthrough. Any
-// unrecognized value falls back to passthrough so a typo cannot silently expose
-// a gateway with the wrong termination.
-func routeTermination() string {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("GATEWAY_ROUTE_TERMINATION")), RouteTerminationReencrypt) {
-		return RouteTerminationReencrypt
-	}
-	return RouteTerminationPassthrough
-}
-
-// routeTLSIssuer resolves the cert-manager ClusterIssuer that mints a per-gateway
-// public certificate for a reencrypt Route, from GATEWAY_ROUTE_TLS_ISSUER. Empty
-// (the default) leaves the Route on the router's shared default *.apps wildcard,
-// which does not advertise ALPN h2 and therefore cannot serve gRPC. Only
-// meaningful with reencrypt termination; reconcileRouteResources ignores it
-// otherwise.
+// routeTLSIssuer resolves the cert-manager ClusterIssuer that mints a per-host
+// public certificate for a Route, from GATEWAY_ROUTE_TLS_ISSUER.
 func routeTLSIssuer() string {
 	return strings.TrimSpace(os.Getenv("GATEWAY_ROUTE_TLS_ISSUER"))
 }
 
 // readInjectedRouteCert returns the certificate and key that the cert-manager
-// openshift-routes controller has injected into the existing openshell-gateway
-// Route's spec.tls, or empty strings when the Route or those fields are absent.
-// The route reconcile does a full replace, so reconcileRouteResources carries
-// these forward to avoid clobbering the injected edge certificate (which would
-// flap ALPN h2, and hence gRPC, on every reconcile).
+// openshift-routes controller has injected into the named Route's spec.tls, or
+// empty strings when the Route or those fields are absent.
 func readInjectedRouteCert(ctx context.Context, dynamicClient dynamic.Interface, namespace, routeName string) (string, string) {
 	gvr := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
 	existing, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
@@ -2065,167 +1848,5 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	}
 
 	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
-	return nil
-}
-
-func reconcileCertManagerResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig) error {
-	namespace := nsConfig.Name
-	dnsNames := nsConfig.Gateway.ServerDnsNames
-
-	selfSignedIssuer := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Issuer",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-selfsigned",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"selfSigned": map[string]interface{}{},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, selfSignedIssuer); err != nil {
-		return fmt.Errorf("reconcile self-signed issuer: %w", err)
-	}
-
-	caCert := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Certificate",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-ca",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"isCA":           true,
-				"commonName":     "openshell-ca",
-				"secretName":     "openshell-ca-tls",
-				"rotationPolicy": "Always",
-				"privateKey": map[string]interface{}{
-					"algorithm": "ECDSA",
-					"size":      int64(256),
-				},
-				"issuerRef": map[string]interface{}{
-					"name":  "openshell-selfsigned",
-					"kind":  "Issuer",
-					"group": "cert-manager.io",
-				},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, caCert); err != nil {
-		return fmt.Errorf("reconcile CA certificate: %w", err)
-	}
-
-	caIssuer := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Issuer",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-ca-issuer",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"ca": map[string]interface{}{
-					"secretName": "openshell-ca-tls",
-				},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, caIssuer); err != nil {
-		return fmt.Errorf("reconcile CA issuer: %w", err)
-	}
-
-	dnsNamesInterface := make([]interface{}, len(dnsNames))
-	for i, d := range dnsNames {
-		dnsNamesInterface[i] = d
-	}
-
-	serverCert := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Certificate",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-server",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"secretName": "openshell-server-tls",
-				"dnsNames":   dnsNamesInterface,
-				"issuerRef": map[string]interface{}{
-					"name":  "openshell-ca-issuer",
-					"kind":  "Issuer",
-					"group": "cert-manager.io",
-				},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, serverCert); err != nil {
-		return fmt.Errorf("reconcile server certificate: %w", err)
-	}
-
-	// The client certificate is NOT for external-client mTLS (external clients
-	// authenticate via OIDC over the Route). It exists so sandbox runners can
-	// verify the gateway's TLS server cert: openshell 0.0.109's Kubernetes driver
-	// mounts this secret into every sandbox and sets OPENSHELL_TLS_CA from its
-	// ca.crt whenever gateway.toml sets client_tls_secret_name. Because it is
-	// issued by the same openshell-ca-issuer as the server cert, its ca.crt
-	// chains to the gateway's server certificate. Without it the sandbox agent
-	// crashloops ("OPENSHELL_TLS_CA is required") and never reaches Ready.
-	clientCert := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cert-manager.io/v1",
-			"kind":       "Certificate",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-client",
-				"namespace": namespace,
-				"labels": map[string]interface{}{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			"spec": map[string]interface{}{
-				"secretName": "openshell-client-tls",
-				"commonName": "openshell-client",
-				"issuerRef": map[string]interface{}{
-					"name":  "openshell-ca-issuer",
-					"kind":  "Issuer",
-					"group": "cert-manager.io",
-				},
-			},
-		},
-	}
-	if err := reconcileResource(ctx, dynamicClient, clientCert); err != nil {
-		return fmt.Errorf("reconcile client certificate: %w", err)
-	}
-
-	log.Printf("INFO cert-manager resources reconciled in namespace %s", namespace)
 	return nil
 }

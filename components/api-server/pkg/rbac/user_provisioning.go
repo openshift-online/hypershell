@@ -3,6 +3,7 @@ package rbac
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/golang/glog"
 
@@ -18,11 +19,16 @@ type contextKey string
 const ContextUserIDKey contextKey = "rbac_user_id"
 const ContextJWTRolesKey contextKey = "rbac_jwt_roles"
 
-// HypershellAdminRole is the Keycloak realm role that grants dashboard-operator access.
+// HypershellAdminRole is the legacy Keycloak realm group name. Dashboard-operator
+// access requires platform:admin (JWT-synced binding), not this role alone.
 const HypershellAdminRole = "hypershell-admins"
 
 type UserProvisioner interface {
 	UpsertFromJWT(ctx context.Context, payload *auth.Payload) (userID string, err error)
+}
+
+type DailyActivityRecorder interface {
+	RecordDailyActivity(ctx context.Context, userID string, at time.Time)
 }
 
 func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSyncer) func(http.Handler) http.Handler {
@@ -84,15 +90,6 @@ func GetJWTRolesFromContext(ctx context.Context) []string {
 		return nil
 	}
 	return roles
-}
-
-func HasHypershellAdminRole(jwtRoles []string) bool {
-	for _, role := range jwtRoles {
-		if role == HypershellAdminRole {
-			return true
-		}
-	}
-	return false
 }
 
 func HasPlatformAdminRole(ctx context.Context, userID string) bool {

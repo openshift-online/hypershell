@@ -141,3 +141,44 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
+  # Shared-cluster e2e cannot spare surge pods. A 1-replica RollingUpdate is
+  # maxUnavailable:0 / maxSurge:1, so a digest swap needs two pods and the
+  # new one sits Pending. Recreate kills the old replica first. Production
+  # (deploy/hub, deploy/base) keeps the default rolling strategy.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-api-server
+        namespace: hypershell-system
+      spec:
+        strategy:
+          type: Recreate
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-controller
+        namespace: hypershell-system
+      spec:
+        strategy:
+          type: Recreate
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-web-console
+        namespace: hypershell-system
+      spec:
+        strategy:
+          type: Recreate
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: keycloak
+        namespace: keycloak
+      spec:
+        strategy:
+          type: Recreate
+

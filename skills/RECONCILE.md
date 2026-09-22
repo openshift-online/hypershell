@@ -22,7 +22,8 @@ skills/
 ├── build/
 │   ├── reconcile/            # Meta-orchestrator: reads this file, executes waves
 │   ├── full-stack-pipeline/  # Single-spec wave-based implementation pipeline
-│   └── dev-cluster/          # Kind cluster lifecycle for local testing
+│   ├── dev-cluster/          # Kind cluster lifecycle for local testing
+│   └── patternfly/           # PatternFly 6 component selection and implementation patterns
 ├── deploy/
 │   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
 │   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, CNPG, kustomize)
@@ -48,9 +49,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-04 (scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
-**Spec corpus**: 48 spec files; the coverage table tracks 39 analyzed feature/spec groups after adding OpenShell Gateway Console, OpenShift Development, Operational Dashboard, Registered Users, Cluster Memory, Cluster CPU, Cluster Pods, Cluster Nodes, and Gateway Provision Time
-**Codebase commit**: `c9d68e0` (rebased HYPERSHELL-276 initial dashboard data branch; section titles + last-refreshed header; partial metric-source failure; NaN/Infinity display fallback; layout persistence v23)
+**Last analyzed**: 2026-09-16 (scoped reanalysis + execution of specs/platform/ephemeral-pr-environments.spec.md for HYPERSHELL-240 after the spec moved from continuous-deploy-for-life-of-PR to ephemeral-by-default with `/pr-extend` / `/pr-destroy`; D-E2E-OIDC closed as Present via PR-ENV-10; the last full-corpus analysis remains 2026-08-31). Prior 2026-09-14 scoped analysis of specs/platform/gateway-deletion-finalization.spec.md for HYPERSHELL-182; closed the no-silent-orphan gap G1: best-effort deletion failures for gateway-owned resources with no automatic recovery path -- leaked ClusterRoleBinding, leaked Keycloak gateway/console clients, and Keycloak clients skipped when the stored identity is unresolvable or the provisioner is deconfigured -- now emit a durable IncompleteFinalization Warning Event in the control-plane namespace instead of only logging; in-namespace sweep G2 already satisfied. Prior 2026-09-09 scoped reanalysis of e2e-testing.spec.md + local-development.spec.md against HEAD `21f02a0` for the new OpenShift E2E CI content added by the HYPERSHELL-240 docs commit: OpenShift driver unification #232/#244, dynamic namespace-GC timing, and the merge-queue Kind CI gate are all implemented; D-E2E-OIDC was then still listed as a divergence pending HYPERSHELL-240 (closed 2026-09-16). Prior 2026-09-04 scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
+**Spec corpus**: 49 spec files; the coverage table tracks 39 analyzed feature/spec groups after adding OpenShell Gateway Console, OpenShift Development, Operational Dashboard, Registered Users, Cluster Memory, Cluster CPU, Cluster Pods, Cluster Nodes, and Gateway Provision Time
+**Codebase commit**: `464ec5e` (ci: skip PR environment deploy when e2e would skip; then HYPERSHELL-240 ephemeral-by-default + slash commands on this working tree)
 
 ### Coverage Summary
 
@@ -71,6 +72,7 @@ skills/
 | Platform - Sandbox Count | 1 | 6 | 6 | 0 | 0 | 0 | 100% |
 | Platform - Local Development | 1 | 25 | 23 | 0 | 1 | 1 | 96% |
 | Platform - E2E Testing | 1 | 19 | 19 | 0 | 0 | 0 | 100% |
+| Platform - Ephemeral PR Environments | 1 | 12 | 12 | 0 | 0 | 0 | 100% |
 | Platform - OpenShift Development | 1 | 13 | 7 | 2 | 4 | 0 | 54% |
 | Platform - OIDC Integration | 1 | 7 | 6 | 1 | 0 | 0 | 93% |
 | Platform - Gateway Metrics Dashboard | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
@@ -84,7 +86,7 @@ skills/
 | Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **39** | **291** | **248** | **17** | **13** | **5** | **85%** |
+| **TOTAL** | **39** | **292** | **251** | **15** | **13** | **5** | **86%** |
 
 ### Spec Dependency Order
 
@@ -216,7 +218,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | SA-7 | Replacement-based credential rotation | Present | - | `plugins/serviceAccounts/`, `components/cli/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W3..W5 |
 | SA-8 | Gateway lifecycle cleanup | Present | - | `plugins/gateways/deletion_cleanup.go`, `control-plane/internal/keycloak/client.go` | SA-W3 |
 | SA-9 | Secret-safe management UI | Present | - | `packages/gateway-management-ui/src/service-accounts/`, `components/web-console/` | SA-W5 |
-| SA-10 | CLI and CI workflow | Present | - | `scripts/cli-generator/`, `components/cli/cmd/hypershell/{create,list,get,revoke,delete}/`, `components/cli/pkg/serviceaccount/` | SA-W4 |
+| SA-10 | CLI and CI workflow | Present | - | `scripts/cli-generator/`, `components/cli/cmd/hsctl/{create,list,get,revoke,delete}/`, `components/cli/pkg/serviceaccount/` | SA-W4 |
 | SA-11 | Workspace membership is a separate grant | Present | - | `plugins/serviceAccounts/presenter.go`, `components/cli/pkg/serviceaccount/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W1, W4, W5 |
 | SA-12 | Scopes are not configurable in version 1 | Present | - | `openapi.serviceAccounts.yaml`, `pkg/keycloak/service_accounts.go` | SA-W1, W3 |
 | SA-13 | Auditability and secret redaction | Present | - | `plugins/serviceAccounts/`, `pkg/keycloak/`, generated SDKs, `components/web-console/bff/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W3, W5 |
@@ -576,6 +578,10 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | E2E-7 | Deploy Base/Overlay Structure | Present | deploy/base/ + deploy/kind/ overlay + deploy/openshift/ stub | `deploy/base/`, `deploy/kind/kustomization.yaml` | E2E-W1 ✅ |
 | E2E-8 | Backward Compatibility | Present | make kind-up unchanged; IMAGE_TAG now overrides initial deploy images | `scripts/kind/up.sh` | E2E-W1 ✅ |
 | E2E-9 | E2E short and long modes (`E2E_MODE`) | Present | Step-tagged `e2e_step short\|long`; default `long`; invalid mode fails fast | `tests/e2e/lib.sh`, `tests/e2e/e2e-openshell.sh` | PERF-W1 ✅ |
+| E2E-10 | OpenShift e2e driver (contract parity) | Present | Delivered by #232/#244: OpenShift driver unified with Kind (shared token/role helpers, Route discovery, shared-Gateway base domain) | `tests/e2e/drivers/openshift.sh`, `tests/e2e/openshift_driver_test.sh` | HYPERSHELL-44 ✅ |
+| E2E-11 | Dynamic namespace GC timing | Present | `configure_namespace_gc_timing` / `restore_namespace_gc_timing` patch controller env + restore on cleanup; no overlay bakes e2e timing | `tests/e2e/drivers/kind.sh`, `tests/e2e/drivers/openshift.sh`, `tests/e2e/e2e-openshell.sh` | #244 ✅ |
+| E2E-12 | Merge-queue Kind CI gate | Present | `e2e.yml` `merge_group` trigger always runs; per-component merge-queue Konflux waits on `on-merge-queue-<merge_sha>`; browser trace skipped on `merge_group`; dedicated `.tekton/*-merge-queue.yaml` | `.github/workflows/e2e.yml`, `.tekton/hypershell-*-main-merge-queue.yaml` | #161/#232 ✅ |
+| D-E2E-OIDC | `E2E_OIDC_GRANT` grant selection (`client_credentials` + token-exchange) | Present | Implemented as PR-ENV-10: `_driver_acquire_oidc_token` honors `E2E_OIDC_GRANT`; CI uses client_credentials + token-exchange impersonation | `tests/e2e/drivers/kind.sh`, `tests/e2e/openshift_driver_test.sh` | PR-ENV-10 ✅ |
 | PERF-1 | `make e2e-performance` entry point | Present | Defaults `E2E_INFRA_DRIVER` to `kind`; honors CLI override | `Makefile` | PERF-W1 ✅ |
 | PERF-2 | Infra-agnostic harness | Present | Driver-selected; `$(get_cli_binary)` only; no kubectl/oc/kind in harness | `tests/e2e/e2e-performance.sh` | PERF-W1 ✅ |
 | PERF-3 | Gateway fleet scale-up | Present | Batch + bounded concurrency, reuse-or-create, per-gateway latency | `tests/e2e/e2e-performance.sh`, `tests/e2e/perf/lib.sh` | PERF-W1 ✅ |
@@ -587,7 +593,38 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | PERF-9 | Performance cleanup | Present | EXIT trap deletes fleet + canary + functional GW; bounded concurrency; skippable | `tests/e2e/e2e-performance.sh` | PERF-W1 ✅ |
 | PERF-10 | Failure diagnostics | Present | Pending pods, node capacity, gateway phases, CP logs; `::group::` only under Actions | `tests/e2e/perf/lib.sh` | PERF-W1 ✅ |
 
-The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) remains a gap for HYPERSHELL-44; this wave delivered the performance harness against the existing Kind driver. `make e2e` / `make e2e-performance` honor `E2E_INFRA_DRIVER=openshift` once that driver exists.
+The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) now exists and is unified with the Kind driver (#232/#244): it shares the token/role helpers, discovers the API/console via Routes, derives the gateway base domain from the shared Gateway listener, and overrides only where OpenShift constructs differ. Dynamic namespace-GC timing (`configure_namespace_gc_timing` / `restore_namespace_gc_timing`) and the merge-queue Kind CI gate (`merge_group` trigger, dedicated `.tekton/*-merge-queue.yaml`, browser-trace skip) are implemented. `make e2e` / `make e2e-performance` honor `E2E_INFRA_DRIVER=openshift`.
+
+The OpenShift e2e driver's `E2E_OIDC_GRANT=client_credentials` path (D-E2E-OIDC) is implemented and tracked as PR-ENV-10 (Present).
+
+### ephemeral-pr-environments.spec.md (HYPERSHELL-240)
+
+Ephemeral-by-default pull-request environments on a shared OpenShift cluster. Builds on `make openshift-up` (`scripts/cluster/drivers/openshift.sh`), the `deploy/openshift/` overlay, the Keycloak realm JSON ConfigMap (`deploy/base/keycloak/keycloak.yaml`), and `scripts/kind/set-component-images.sh`.
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| PR-ENV-1 | Per-PR environment identity (`hypershell-ci-pr-<n>` + labels) | Present | `pr_env_namespace/environment_id` derive `hypershell-ci-pr-<n>` + `pr-<n>`; `stamp-pr-env.sh` overwrites env id + fails closed on label error; workflow sets `OPENSHIFT_NAMESPACE`. Unit-tested. | `scripts/ci/pr-env-lib.sh`, `scripts/ci/stamp-pr-env.sh`, `.github/workflows/pr-environment.yml` | W3 ✅ |
+| PR-ENV-2 | Ephemeral-by-default deploy/test/destroy (`should_run`-gated `openshift-up`; in-run teardown unless retained; per-PR concurrency) | Present | Deploy workflow triggers on open/reopen/synchronize; `plan-images` `should_run` matches Kind e2e; `Teardown PR environment` waits for Tests / E2E / OpenShift then runs `make openshift-down` unless `pr-environment/pr-extended`; failed deploy still tears down; destroy workflow on `closed`; shared `concurrency: pr-env-<n>` cancel-in-progress | `.github/workflows/pr-environment.yml`, `.github/workflows/pr-environment-destroy.yml` | W6 ✅ |
+| PR-ENV-12 | `/pr-extend` / `/pr-destroy` slash commands (write access, latest authorized comment wins, label cache) | Present | `pr-env-commands.sh` checks GitHub collaborator permission before cluster creds, acknowledges unauthorized commands, derives retained state from latest authorized command by `created_at`, reconciles `pr-environment/pr-extended`. Command workflow deploys on extend and `openshift-down` on destroy. Pure latest-wins logic unit-tested. | `scripts/ci/pr-env-lib.sh`, `scripts/ci/pr-env-commands.sh`, `.github/workflows/pr-environment-commands.yml` | W6 ✅ |
+| PR-ENV-3 | Image gating + swap by digest (Konflux; reuse `set-component-images.sh` mechanism) | Present | `plan-images` mirrors e2e CEL triggers -> `on-pr-<sha>`; `wait-on-check-action` gates; `swap-openshift-images-by-digest.sh` resolves `@sha256` (tag fallback recorded) | `.github/workflows/pr-environment.yml`, `.github/actions/deploy-pr-environment/action.yml`, `scripts/ci/swap-openshift-images-by-digest.sh` | W3 ✅ |
+| PR-ENV-4 | E2E against the environment (`E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials`) | Present | Tests / E2E / OpenShift polls the `Deploy OpenShift Environment` check, then runs the shared harness with those envs + `E2E_OIDC_SA_CLIENT_SECRET` read from the Keycloak ns; diagnostics on failure before in-run teardown of an unretained env | `.github/workflows/e2e.yml`, `.github/workflows/tests.yml`, `scripts/ci/read-e2e-client-secret.sh` | W3 ✅ |
+| PR-ENV-5 | Dual timebox (retained inactivity window + unretained backstop) + out-of-band reaper via `openshift-down` teardown | Present | `stamp-pr-env.sh` stamps hours when retained (`PR_ENV_RETAINED_MAX_HOURS`, default 72) and when not (`PR_ENV_UNRETAINED_MAX_HOURS`, default 24). Reaper invokes `teardown-pr-env.sh` per expired env (same deletion path `cluster_down` uses). Close releases via `openshift-down`. Predicate + reaper unit-tested. **Sync `deploy/e2e/reaper` into hypershell-gitops.** | `scripts/ci/pr-env-lib.sh`, `scripts/ci/stamp-pr-env.sh`, `scripts/ci/teardown-pr-env.sh`, `scripts/ci/reap-pr-environments.sh`, `deploy/e2e/reaper/`, `scripts/cluster/drivers/openshift.sh` | W6 ✅ |
+| PR-ENV-6 | PR comment + access handoff (marked, one-per-PR, no creds, lifetime wording) | Present | `pr_env_comment_body` carries the hidden marker + redacted `oc login`; unretained comments advertise `/pr-extend` and never imply persistence; retained comments state renewal + inactivity timebox. Marker/redaction/lifetime unit-tested. | `scripts/ci/pr-env-lib.sh`, `scripts/ci/upsert-pr-comment.sh` | W6 ✅ |
+| PR-ENV-7 | Trust boundary (origin-only `pull_request`, no `pull_request_target`, no fork creds) | Present | `pull_request` only; every job guarded on `head.repo.full_name == github.repository`; command workflow also refuses fork PRs before cluster creds | `.github/workflows/pr-environment.yml`, `.github/workflows/pr-environment-commands.yml` | W3 ✅ |
+| PR-ENV-8 | GitHub-brokered Keycloak (GitHub IdP, org gate + allowlist, stable callback) | Present | **Declarative IdP:** GitHub IdP, org/allowlist realm attributes, and `hypershell-e2e` client secret live in the base realm as placeholders resolved from the optional `hypershell-github-oauth` Secret. Kind/local/stage have no Secret, so the IdP stays off. **Org-gate enforcement (weaker, no custom Keycloak image):** the web-console BFF checks org membership / allowlist after the OIDC callback (`GITHUB_ORG_GATE` / `GITHUB_USERNAME_ALLOWLIST`, copied from the Secret by `openshift-up`). Denied users get no HyperShell session, so the BFF never forwards an API bearer. The API server is not separately org-gated. Unit-tested. | `deploy/base/keycloak/keycloak.yaml`, `components/web-console/bff/src/github-org-gate.ts`, `components/web-console/bff/src/auth.ts`, `scripts/cluster/drivers/openshift.sh`, `.github/actions/deploy-pr-environment/action.yml` | W2 ✅ |
+| PR-ENV-9 | Admin roles + developer-tier impersonation (seeded dev principal) | Present | Base realm grants `platform:admin`+`gateway:creator` on GitHub broker login; seeded `developer` user holds neither (hypershell-users only). `hypershell-e2e` has realm-management impersonation + token exchange so CI and an admin can impersonate that principal. Inert on Kind (IdP disabled). | `deploy/base/keycloak/keycloak.yaml`, `tests/e2e/drivers/kind.sh` | W2 ✅ |
+| PR-ENV-10 | Automated E2E auth: grant-agnostic driver (`E2E_OIDC_GRANT`), `hypershell-e2e` client-credentials + token-exchange (= D-E2E-OIDC) | Present | `_driver_acquire_oidc_token` dispatches password/client_credentials (admin CC + developer token-exchange impersonation); CI reads the client secret from the Keycloak namespace after `openshift-up`. Unit-tested (`openshift_driver_test.sh`). | `tests/e2e/drivers/kind.sh`, `tests/e2e/lib.sh`, `deploy/base/keycloak/keycloak.yaml`, `scripts/ci/read-e2e-client-secret.sh`, `tests/e2e/openshift_driver_test.sh` | W1 ✅ |
+| PR-ENV-11 | Legacy `pr-test` deprecation notice + docs | Present | Deprecation header on `components/pr-test/e2e-openshell.sh` (names shared harness; excludes ROKS); DEVELOPMENT.md, CLAUDE.md, and full-stack-pipeline skill point at `tests/e2e/e2e-openshell.sh` + this workflow; ROKS/GCP variants + `pr_test` CI wiring untouched | `components/pr-test/e2e-openshell.sh`, `DEVELOPMENT.md`, `CLAUDE.md`, `skills/build/full-stack-pipeline/SKILL.md` | W5 ✅ |
+
+**Human-provisioned prerequisites (not code):** GitHub OAuth App (client id/secret) + one stable callback URL, CI cluster kubeconfig secret, the `openshift-online` org gate + allowlist values, and deploying/syncing the reaper onto the target cluster via hypershell-gitops.
+
+**Handoff (ops, not code):**
+1. **GitHub Actions secrets** (repo or a `pr-environments` environment): `OPENSHIFT_PR_ENV_SERVER_URL`, `OPENSHIFT_PR_ENV_TOKEN`, `PR_ENV_GITHUB_OAUTH_CLIENT_ID`, `PR_ENV_GITHUB_OAUTH_CLIENT_SECRET`, `PR_ENV_GITHUB_OAUTH_CALLBACK_URL`. **Vars:** `PR_ENV_GITHUB_ORG` (default `openshift-online`), `PR_ENV_GITHUB_ALLOWLIST`, `PR_ENV_RETAINED_MAX_HOURS` (default 72), `PR_ENV_UNRETAINED_MAX_HOURS` (default 24).
+2. **CI service account on the cluster:** create/patch/delete projects, apply the overlay, patch namespaces, read Secrets in the `-keycloak` namespace; mint its token into `OPENSHIFT_PR_ENV_TOKEN`.
+3. **GitHub OAuth App:** one App with a single stable callback URL; set the three OAuth secrets above.
+4. **Sync the reaper into hypershell-gitops** (`clusters/hysh-aws-01/apps/pr-env-reaper`) from this repo's `deploy/e2e/reaper` reference copy after any reaper behavior/RBAC/schedule change.
+
+**Wave plan:** W1-W5 delivered the first (continuous-deploy) slice. W6 (this run) re-shaped the workflow to the ephemeral-by-default spec: in-run teardown, `/pr-extend`/`/pr-destroy`, dual timebox, shared `openshift-down` teardown for the reaper, and comment lifetime wording.
 
 ### oidc-integration.spec.md
 
@@ -1231,6 +1268,49 @@ label-selected pod informer.
 
 ## Reconciliation History
 
+### Wave HELM: Helm Adoption (Shell-Out Implementation Complete)
+
+**Scope:** Shift from static YAML manifests to Helm-based gateway deployment (openshell-gateway-helm-adoption.spec.md)
+
+**Status:** Foundation complete - Using shell-out approach instead of Go SDK
+
+**Completed:**
+- ✅ Created `internal/helm/` package with chart validation, values mapping, and shell client wrapper
+- ✅ Added Helm configuration env vars to `internal/config/config.go`
+- ✅ Created `charts/VERSION` file (0.4.0)
+- ✅ Resolved dependency conflicts by using `helm` CLI instead of Go SDK
+- ✅ Implemented `ShellClient` with install/uninstall/upgrade/status operations
+- ✅ Verified build: `go build ./...` and `go vet ./...` pass
+- ✅ Documented decision in `.claude/helm-dependency-resolution-decision.md`
+
+**Pending:**
+- ⏸️ Refactor `ReconcileGateway` to use Helm install instead of `deployGateway`
+- ⏸️ Add Helm uninstall to `DeleteGatewayResources`
+- ⏸️ Remove obsolete code (manifests.go, manifest loading, inline cert-manager/credential/routing reconciliation)
+- ⏸️ Update Dockerfile to embed Helm chart
+- ⏸️ Verify integration tests in dev-cluster
+
+**Decision:** Shell-out to `helm` CLI instead of using Helm Go SDK
+- **Why:** Helm SDK has irreconcilable k8s.io version conflicts (needs v0.27, we need v0.36+)
+- **Approach:** Execute `helm install/uninstall/status` via `exec.Command`
+- **Benefits:** No dependency conflicts, production-ready, simple implementation
+- **Runtime Requirement:** `helm` binary must be in PATH
+
+**Files Created:**
+- `internal/helm/chart.go` - Chart path validation and OCI pull helper
+- `internal/helm/values.go` - Gateway config → Helm values mapping (13 value categories, 189 LOC)
+- `internal/helm/shell_client.go` - Helm CLI wrapper (install/uninstall/upgrade/status, 280 LOC)
+- `charts/VERSION` - Chart version declaration (0.4.0)
+- `.claude/helm-dependency-resolution-decision.md` - Decision rationale and implementation plan
+
+**Files Modified:**
+- `internal/config/config.go` - Added 5 Helm-related env vars
+- `go.mod` - NO Helm SDK dependency (using shell exec instead)
+
+---
+
+## Reconciliation History
+
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
 | 2026-09-07 | working tree | Reconciled gateway-reconcile-concurrency.spec.md (CP-CONC-01..03) | 3/3 scoped requirements present | Made the gateway reconcile worker-pool size deployment configuration via `GATEWAY_RECONCILE_WORKERS` (new `getEnvInt` helper + `Config.GatewayReconcileWorkers`, default 4 = prior hardcoded pool), plumbed config -> `WatchGateways` -> `withWorkers`, clamped non-positive to the default at the watcher boundary (preserving the test-only 0-worker queue pattern), and added config/getEnvInt tests. Per-gateway serialization and bounded throttle already held (existing queue tests). The full-corpus percentage is unchanged. |
@@ -1278,15 +1358,15 @@ label-selected pod informer.
 | 2026-08-31 | 5572127+spec | Dry-run: registered-users | 78% | Authored `platform/registered-users.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Users plugin has persistence + auto-provision but no HTTP/OpenAPI/RBAC/SDK/dashboard wiring. Planned RU-W1 (API+auth+tests) and RU-W2 (dashboard rename+adapter). |
 | 2026-08-31 | eb99f6b | Executed RU-W1 + RU-W2: registered users | 78% | OpenAPI List/Get, `platform:admin`/`hypershell-admins` auth, integration tests, SDK, dashboard `registered-users` metric (layout v14). Registered users 8/8 present. |
 | 2026-08-31 | 217452a | Dry-run: cluster-memory | 78% | Authored `platform/cluster-memory.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Prometheus scrape + BFF route + dashboard adapter not implemented. Planned CM-W1 (scrape), CM-W2 (BFF), CM-W3 (adapter). |
-| 2026-08-31 | working tree | Executed CM-W1–W3: cluster memory | 81% | node-exporter DaemonSet + ServiceMonitor; BFF `GET /api/metrics/cluster-memory`; dashboard `memory` GiB metric; BFF + adapter tests. Cluster memory 8/8 present. |
+| 2026-08-31 | working tree | Executed CM-W1-W3: cluster memory | 81% | node-exporter DaemonSet + ServiceMonitor; BFF `GET /api/metrics/cluster-memory`; dashboard `memory` GiB metric; BFF + adapter tests. Cluster memory 8/8 present. |
 | 2026-08-31 | 9f9b0da | Dry-run: cluster-cpu | 79% | Authored `platform/cluster-cpu.spec.md` (8 reqs). Planned CC-W1 (PromQL docs), CC-W2 (BFF), CC-W3 (adapter). |
-| 2026-08-31 | working tree | Executed CC-W1–W3: cluster CPU | 81% | BFF `GET /api/metrics/cluster-cpu`; dashboard `cpu` cores metric; BFF + adapter tests; `i18n:extract` reorder for `26a62eb`/`dc696eb` drift. Cluster CPU 8/8 present. |
+| 2026-08-31 | working tree | Executed CC-W1-W3: cluster CPU | 81% | BFF `GET /api/metrics/cluster-cpu`; dashboard `cpu` cores metric; BFF + adapter tests; `i18n:extract` reorder for `26a62eb`/`dc696eb` drift. Cluster CPU 8/8 present. |
 | 2026-08-31 | 3466e55 | Dry-run: cluster-pods | 79% | Authored `platform/cluster-pods.spec.md` (8 reqs: 1 present, 1 partial, 6 missing). Requires kube-state-metrics deploy (not node-exporter); BFF route + adapter not implemented. Planned CLP-W1 (ksm scrape + PromQL), CLP-W2 (BFF), CLP-W3 (adapter). Used count includes all phases. |
-| 2026-08-31 | working tree | Executed CLP-W1–W3: cluster pods | 84% | kube-state-metrics Deployment/ServiceMonitor; BFF `GET /api/metrics/cluster-pods`; dashboard `pods` metric; BFF + adapter tests; `DATA_SOURCES.md` + OP-DASH-08 connected. Cluster pods 8/8 present. |
+| 2026-08-31 | working tree | Executed CLP-W1-W3: cluster pods | 84% | kube-state-metrics Deployment/ServiceMonitor; BFF `GET /api/metrics/cluster-pods`; dashboard `pods` metric; BFF + adapter tests; `DATA_SOURCES.md` + OP-DASH-08 connected. Cluster pods 8/8 present. |
 | 2026-08-31 | working tree | OpenShift Keycloak NetworkPolicy for JWKS | 84% | `keycloak-allow-platform` lets platform pods reach Keycloak TCP/8080 across the default-deny project policies so API server JWKS load and Admin API calls succeed. |
 | 2026-08-31 | working tree | OpenShift console redirect URI + Route seeding | 84% | Host `curl` against Keycloak/API Routes registers the web-console `/auth/callback` (realm import only had Kind localhost URIs) and seeds the API. The API server image has no curl, so `oc exec curl` never obtained tokens. |
 | 2026-08-31 | working tree | Dry-run: cluster-nodes | 82% | Authored `platform/cluster-nodes.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Gateway-style `value` + `status` for system-summary; reuses kube-state-metrics from CLP-W1. Planned CLN-W1 (PromQL docs), CLN-W2 (BFF), CLN-W3 (adapter). |
-| 2026-08-31 | working tree | Executed CLN-W1–W3: cluster nodes | 85% | BFF `GET /api/metrics/cluster-nodes`; dashboard `nodes` metric with `healthy`/`failed` status; `SummaryGatewayValue` in system-summary; BFF + adapter tests. Cluster nodes 8/8 present. |
+| 2026-08-31 | working tree | Executed CLN-W1-W3: cluster nodes | 85% | BFF `GET /api/metrics/cluster-nodes`; dashboard `nodes` metric with `healthy`/`failed` status; `SummaryGatewayValue` in system-summary; BFF + adapter tests. Cluster nodes 8/8 present. |
 | 2026-08-31 | working tree | Dry-run: gateway-provision-time | 85% | Authored `platform/gateway-provision-time.spec.md` (8 reqs: 1 present, 7 missing). Mean duration from gateway list timestamps; no BFF route. Planned GPT-W1 (adapter). |
 | 2026-08-31 | 54cf5b0 | OP-DASH-16: status donut + nodes widget alignment | 85% | Shared `StatusDonutChart`; `nodes` widget; layout v17; `i18n:extract` for new dashboard message IDs; OP-DASH-16 scenario aligned with implementation (no chart subtitle). Operational dashboard 16/16 present. |
 | 2026-08-31 | working tree | Executed GPT-W1: gateway provision time | 85% | Adapter computes mean `Running` gateway provision minutes from paginated list; `provision-time` metric connected; adapter tests; `DATA_SOURCES.md` + OP-DASH-08 updated. Gateway provision time 8/8 present. OP-DASH-08 all metrics connected. |
@@ -1296,3 +1376,10 @@ label-selected pod informer.
 | 2026-09-02 | 06d6c56 | Post-connect polish: remove sample-data banner | 85% (unchanged) | Removed `usesSampleData` provider flag, inline info `Alert`, and `app.dashboard.sampleData.*` i18n keys after all OP-DASH-08 metrics connected. Operational dashboard 17/17 present. |
 | 2026-09-03 | 6ab016a+6583d2c | Executed OP-W2: partial metric-source failure | 85% (unchanged) | Independent adapter sources with `Promise.allSettled`; `dashboard-metric-sources.ts` stale-merge on refetch; `dashboard.metrics.partial-failure` probe; platform spec CM/CC/CLP/CLN-07 + RU-07 aligned to OP-DASH-19. Operational dashboard 19/19 present. |
 | 2026-09-03 | 56befbf | Reconcile: OP-DASH-18/19/20 verification | 85% (unchanged) | Verified OP-DASH-18 (NaN/Infinity fallback), OP-DASH-19 (partial failure), OP-DASH-20 (section titles + last-refreshed header + layout v23). All `operational-dashboard-ui` and adapter tests pass. Operational dashboard 20/20 present. |
+| 2026-09-09 | `21f02a0` | Scoped reanalysis of e2e-testing + local-development for the new OpenShift E2E CI content | E2E Testing 100% -> 95% (1 deferred) | The HYPERSHELL-240 docs commit added `E2E_OIDC_GRANT`, the merge-queue Kind CI gate, and OpenShift-driver contract wording. Verified in code: OpenShift driver unified with Kind (#232/#244), `configure/restore_namespace_gc_timing`, `merge_group` gate in `e2e.yml` (per-component `on-merge-queue-<sha>` waits, browser-trace skip), and `.tekton/*-merge-queue.yaml` are all implemented (E2E-10/11/12 present). Only gap is D-E2E-OIDC: driver token fns hardcode `grant_type=password`; the `client_credentials`+token-exchange path is owned by `ephemeral-pr-environments.spec.md` (out of scope) and flagged as a divergence pending a scope decision. No code changed this pass. |
+| 2026-09-16 | working tree | HYPERSHELL-240 W6: ephemeral-by-default + `/pr-extend`/`/pr-destroy` | Ephemeral PR Environments 91% -> 100% | Spec shifted from keep-for-life-of-PR to deploy/test/destroy unless retained. **W6:** in-run teardown after Tests / E2E / OpenShift (does not mask e2e); `/pr-extend`/`/pr-destroy` command workflow (GitHub write check, latest authorized comment wins, `pr-environment/pr-extended` label cache); dual `expires-at` (`PR_ENV_RETAINED_MAX_HOURS` vs `PR_ENV_UNRETAINED_MAX_HOURS`); reaper and `make openshift-down` share `teardown-pr-env.sh`; access comment advertises `/pr-extend` and never implies an unretained env persists. `make ci-test` 10/10. Remaining ops handoff: GitHub OAuth App secrets, CI SA token, sync reaper into hypershell-gitops. |
+| 2026-09-11 | working tree | PR-ENV-8 org-gate via BFF (no custom Keycloak image) | Ephemeral PR Environments 86% -> 91% | Enforced GitHub org membership / allowlist in the web-console BFF after OIDC callback. Denied users get no HyperShell session, so the BFF never forwards an API bearer. Kind stays ungated (`GITHUB_ORG_GATE` unset). No Keycloak SPI/custom image. |
+| 2026-09-09 | working tree | HYPERSHELL-240 W2 made declarative (config-as-data) | Ephemeral PR Environments 86% (unchanged) | Replaced the imperative post-boot admin-API script with env-gated realm data. `deploy/base/keycloak/keycloak.yaml` now carries the GitHub IdP (`enabled: ${PR_ENV_GITHUB_IDP_ENABLED:false}`), the two hardcoded-role `identityProviderMappers` (`platform:admin`+`gateway:creator`), the `github.org.gate`/`github.username.allowlist` realm attributes, and `hypershell-e2e` `secret: ${HYPERSHELL_E2E_CLIENT_SECRET:e2e-secret}`, all resolved at import from the optional `hypershell-github-oauth` Secret wired into the Keycloak Deployment as `optional: true` secretKeyRefs. Kind/local/stage have no Secret, so every placeholder resolves to its default and the realm is inert (IdP off, secret `e2e-secret`) - consistent with the realm already leaving unresolved `${client_id}` mappers literal. Deleted `scripts/ci/configure-github-broker.sh`; the workflow now provisions the Secret (per-PR random e2e secret, masked) into the `-keycloak` namespace *before* `openshift-up` and fails closed on missing OAuth cfg; `read-e2e-client-secret.sh` reads `hypershell-github-oauth/e2e-client-secret`. Validated: realm JSON parses, `kustomize build deploy/base/keycloak` + `deploy/openshift` render, yamllint + `make ci-test` (21/21) clean. **One gate before merge:** Kind smoke test that Keycloak resolves `${VAR:default}` (blast radius = realm import) - recorded in the handoff. |
+| 2026-09-09 | working tree | HYPERSHELL-240 waves W2-W4: PR-env CI workflow, reaper, GitHub broker | Ephemeral PR Environments 14% -> 86% | **W3:** added `.github/workflows/pr-environment.yml` (origin-only `pull_request` open/reopen/synchronize/closed, per-PR concurrency, unconditional `openshift-up`, Konflux gate + digest swap, e2e with `E2E_OIDC_GRANT=client_credentials`, one marked access comment, `openshift-down` on close) + helper scripts `scripts/ci/{pr-env-lib,stamp-pr-env,swap-openshift-images-by-digest,read-e2e-client-secret,upsert-pr-comment}.sh`. **W4:** `scripts/ci/reap-pr-environments.sh` + `deploy/e2e/reaper/` CronJob/RBAC (expires-at match predicate, deletes expired `pr-*` groups only). **W2 (partial):** `scripts/ci/configure-github-broker.sh` fails closed on missing OAuth cfg, upserts the GitHub IdP (`read:org`, no RH SSO), grants `platform:admin`+`gateway:creator` on broker login, publishes the per-PR `hypershell-e2e` secret; org/allowlist ENFORCEMENT authenticator + developer-principal impersonation handed off (need Keycloak SPI + live cluster). Pure logic unit-tested: `make ci-test` 21/21 (`pr-env-lib` 19, reaper 2); `openshift_driver_test` still 20/20; yamllint + kustomize clean. Registered `scripts/ci/**`, `deploy/e2e/**`, `deploy/openshift/**`, `pr-environment.yml` under the `e2e` component. Handoff list recorded above. |
+| 2026-09-09 | working tree | Began HYPERSHELL-240 (ephemeral-pr-environments) reconcile: W1 + W5 | Ephemeral PR Environments 0% -> 14% | Re-scoped to implement `ephemeral-pr-environments.spec.md` (greenfield). **W1 (PR-ENV-10 code):** made the driver token functions grant-agnostic (`E2E_OIDC_GRANT` password\|client_credentials; admin client-credentials on `hypershell-e2e`; developer Keycloak token-exchange impersonation targeting the requested audience), added `E2E_OIDC_GRANT`/`E2E_OIDC_SA_CLIENT_ID`/`E2E_OIDC_SA_CLIENT_SECRET` defaults, added the `hypershell-e2e` confidential client + service account (platform:admin+gateway:creator, `hypershell-frontend` audience mapper, standard token exchange) to the base realm, and extended `openshift_driver_test.sh` (20/20, no cluster). **W5 (PR-ENV-11):** deprecation header on `components/pr-test/e2e-openshell.sh` + DEVELOPMENT.md pointer to the shared harness; ROKS/GCP + `pr_test` CI wiring untouched. **Remaining (need live OpenShift + a GitHub OAuth App to validate):** W2 realm GitHub-brokering overlay (IdP, org gate + allowlist, dev principal, impersonation perms), W3 the PR-environment CI workflow (identity, CD lifecycle, digest swap, e2e, comment, trust boundary), W4 timebox annotation + out-of-band reaper. |
+| 2026-08-25 | working tree | Helm adoption foundation (Wave HELM partial) | ~74% | Created internal/helm/ package with shell-out implementation (chart validation, values mapping, shell client wrapper); added 5 Helm env vars to config; created charts/VERSION (0.4.0); documented shell-out decision rationale. Resolution: Use `helm` CLI via exec.Command instead of Go SDK to avoid k8s.io version conflicts. Builds successfully. Pending: reconciler refactoring, Dockerfile updates, manifest removal, integration tests. |

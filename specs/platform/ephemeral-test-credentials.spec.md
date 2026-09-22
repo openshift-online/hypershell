@@ -1,6 +1,6 @@
 # Ephemeral E2E Test Credentials Specification
 
-**Date:** 2026-09-11
+**Date:** 2026-09-21
 **Status:** Draft
 **Related:** `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) -- per-PR OpenShift
              environments, the GitHub-brokered grant path, the `hypershell-e2e`

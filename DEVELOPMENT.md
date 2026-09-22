@@ -22,6 +22,8 @@ select.
   - [OpenShift environment variables](#openshift-environment-variables)
 - [Gateway Access](#gateway-access)
 - [Testing](#testing)
+- [Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)
+  - [Keep or destroy the environment](#keep-or-destroy-the-environment)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -91,7 +93,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-down` | Remove the `hypershell-system` namespace and its resources. Leaves the Kind cluster running. |
 | `make kind-teardown` | Destroy the Kind cluster and stop cloud-provider-kind. |
 | `make kind-status` | Show cluster info, pods, services, and which components are swapped. |
-| `make kind-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding. `kind-up` already seeds unless `SKIP_SEED=true`. |
+| `make kind-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding. Reuses existing named seed resources (`local-kind`, `dev-release`, `openshell-db`, `dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
 | `make kind-prereqs` | Build the pinned `cloud-provider-kind` binary into `bin/`. `kind-up` runs this; use it alone when the binary is missing. |
 | `make kind-env` | Print `export` statements for the current Kind make variables. |
 | `make kind-fix-ports` | Re-establish host port 443 forwarding to the Gateway's ephemeral port. |
@@ -183,10 +185,15 @@ production.
 | CLI client | `hypershell-cli` (public, standard flow + device authorization grant, used by `hsctl login`) |
 | Provisioner client | `hypershell-provisioner` (confidential, service account) |
 | Control plane client | `hypershell-control-plane` (confidential, service account, client_credentials) |
-| Admin user | `admin` / `admin` (role: `hypershell-admins`) |
+| Admin user | `admin` / `admin` (roles: `hypershell-admins`, `platform:admin`, `gateway:creator`) |
 | Developer user | `developer` / `developer` (role: `hypershell-users`) |
 | OIDC Issuer URL | `https://keycloak.hypershell.localhost/realms/hypershell` |
 | Admin Console | `https://keycloak.hypershell.localhost/admin/` |
+
+Dashboard-operator access (operational dashboard, user inventory, managed
+inventory metrics) requires the `platform:admin` Keycloak realm role, which is
+JWT-synced to a `platform:admin` RoleBinding. The legacy `hypershell-admins`
+group alone does not grant dashboard access.
 
 ### OIDC
 
@@ -383,10 +390,10 @@ command stops with an error.
 | Target | Use |
 |--------|-----|
 | `make openshift-up` | Deploy the stack into the current oc project (`OPENSHIFT_NAMESPACE` override) and companion `${name}-keycloak`. Does not create an OpenShift cluster. Waits for component rollouts, then seeds unless `SKIP_SEED=true`. |
-| `make openshift-down` | Delete the platform and Keycloak projects. If project deletion is forbidden, strip HyperShell resources and leave the projects. |
+| `make openshift-down` | Delete the platform and Keycloak projects, then delete gateway and ManagedDatabase namespaces labeled `hypershell.redhat.io/instance=<platform ns>`. If project deletion is forbidden, strip HyperShell resources and leave the projects. Without ownership labels the command refuses; `FORCE=true make openshift-down` overrides that check. Reserved names (`default`, `kube-*`, `openshift-*`) stay refused. |
 | `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
 | `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |
-| `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding via API and Keycloak Routes from this machine. `openshift-up` already seeds unless `SKIP_SEED=true`. |
+| `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, ManagedDatabase, and Gateway seeding via API and Keycloak Routes from this machine. Reuses existing named seed resources (`local-openshift`, `dev-release`, `openshell-db`, `dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
 | `make openshift-api-server-up` | Build, push an immutable image to `SWAP_REGISTRY`, and point the API server Deployment at that ref. Requires `SWAP_REGISTRY`. |
 | `make openshift-api-server-down` | Revert the API server to the baseline registry image. |
 | `make openshift-control-plane-up` | Build, push, and swap the control plane. |
@@ -516,8 +523,15 @@ port). Keycloak embeds this URL as the `iss` claim in tokens, so the issuer
 passed to `openshell gateway add` must match exactly. This requires host port
 443 to be forwarded -- if it isn't, run `make kind-fix-ports` first.
 
-The e2e test (`components/pr-test/e2e-openshell.sh`) uses the same port-forward
-fallback when no passthrough route is available.
+The legacy OpenShift e2e script (`components/pr-test/e2e-openshell.sh`) uses the
+same port-forward fallback when no passthrough route is available. That script is
+**deprecated** (see `specs/platform/ephemeral-pr-environments.spec.md`): the
+canonical pull-request OpenShift e2e path is the shared harness
+`tests/e2e/e2e-openshell.sh` run with `E2E_INFRA_DRIVER=openshift`, driven
+automatically by the ephemeral pull-request environment workflow (see
+[Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)).
+Prefer the shared harness for new work; the IBM ROKS variant
+(`e2e-openshell-roks.sh`) is unaffected.
 
 ### OpenShift (automatic)
 
@@ -658,11 +672,81 @@ workflows concurrently: a lint/policy/drift failure in `checks.yml` no
 longer blocks `tests.yml`'s e2e stage from spinning up Kind - only a
 unit-test failure does.
 
+On origin pull requests whose e2e-relevant paths changed, the e2e stage
+also runs `Tests / E2E / Deploy OpenShift Environment` and
+`Tests / E2E / OpenShift` against a per-PR namespace on the shared CI
+cluster. That cycle is ephemeral by default. See
+[Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)
+for `/pr-extend` and `/pr-destroy`.
+
 ### E2E tests
 
 See `specs/platform/e2e-testing.spec.md` for the e2e and performance test
 suites (`make e2e`, `make e2e-performance`), which run against Kind or an
-existing OpenShift cluster.
+existing OpenShift cluster. Origin pull-request OpenShift e2e is the
+ephemeral PR environment described below.
+
+## Ephemeral OpenShift PR environments
+
+Origin pull requests that change e2e-relevant paths get a live OpenShift
+environment on the shared CI cluster. CI deploys into
+`hypershell-ci-pr-<number>` (Keycloak in
+`hypershell-ci-pr-<number>-keycloak`), runs Tests / E2E / OpenShift
+against it, then destroys the environment in the same run unless you opt
+in. Fork pull requests and merge-queue entries do not get an environment.
+
+`Tests / E2E / Deploy OpenShift Environment` posts one marked comment on
+the pull request and updates it in place. When the environment is ready,
+that comment has the namespaces, OpenShift console URL, API URL,
+web-console URL, and an `oc login --web` template. Log in through the web
+console with your GitHub account; you must be a member of the configured
+organization or on its allowlist.
+
+### Keep or destroy the environment
+
+By default the environment is destroyed once e2e testing concludes,
+including on a failed or cancelled run. The marked access comment then
+updates in place to say the environment is gone and to comment `/pr-extend`
+to redeploy it. To keep the environment as a debug target instead, comment
+`/pr-extend` on the pull request. The command must start the
+comment body. Trailing text is allowed:
+
+```
+/pr-extend
+```
+
+```
+/pr-extend keep this up so I can inspect the failing gateway
+```
+
+`/pr-extend` requires write, maintain, or admin permission on the origin
+repository. It adds the `pr-environment/pr-extended` label, deploys (or
+redeploys) the current head if nothing is up, and skips in-run teardown
+on later commits. You do not need to comment `/pr-extend` again after
+each push.
+
+To free a retained environment early and return the pull request to the
+ephemeral default:
+
+```
+/pr-destroy
+```
+
+Closing or merging the pull request also tears the environment down,
+whether or not it was retained.
+
+The latest authorized command wins. If you comment `/pr-extend`, then
+`/pr-destroy`, then `/pr-extend` again, the pull request stays retained.
+A comment from someone without write access is acknowledged and ignored;
+it does not flip the state.
+
+A retained environment is renewed on every commit and reclaimed after 72
+hours of inactivity unless you `/pr-destroy` or close the pull request.
+The access comment shows that UTC expiry. Unretained deploys that miss
+in-run teardown are reaped after 6 hours.
+
+See `specs/platform/ephemeral-pr-environments.spec.md` for the full
+contract.
 
 ## Troubleshooting
 

@@ -6,6 +6,7 @@ export type DashboardMetricSourceId =
   | "cluster-nodes"
   | "cluster-pods"
   | "gateway-metrics"
+  | "gateway-release-distribution"
   | "platform-inventory"
   | "registered-users";
 
@@ -16,7 +17,9 @@ export const DASHBOARD_METRIC_SOURCE_METRIC_IDS: Readonly<
     "provisioned-gateways",
     "provisioned-sandboxes",
     "provision-time",
+    "provision-reliability",
   ],
+  "gateway-release-distribution": ["gateway-releases"],
   "registered-users": ["registered-users"],
   "platform-inventory": ["managed-clusters", "managed-databases"],
   "cluster-memory": ["memory"],

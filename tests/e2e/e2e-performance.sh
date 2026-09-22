@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # e2e-performance.sh - infrastructure-agnostic performance harness.
 #
-# Provisions a fleet of gateways in batches, runs the e2e suite in short mode
+# Provisions a fleet of gateways in batches, runs the e2e suite in perf mode
 # after each batch (checkpoint), then runs the suite in long mode as a
 # functional gate. Reuses the e2e driver interface: no kubectl/oc/kind
 # commands appear in this file.
@@ -366,7 +366,7 @@ perf_run_mini_test() {
   set +e
   E2E_GATEWAY_NAME="${CANARY_NAME}" \
     E2E_SKIP_CLEANUP=1 \
-    E2E_MODE=short \
+    E2E_MODE=perf \
     E2E_PAUSE=0 \
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
@@ -537,7 +537,7 @@ while (( start_index <= E2E_PERF_GATEWAY_COUNT )); do
 
   if [[ "${E2E_PERF_CHECKPOINT}" == "1" ]]; then
     echo ""
-    dim "  Checkpoint mini test (E2E_MODE=short, gateway=${CANARY_NAME})..."
+    dim "  Checkpoint mini test (E2E_MODE=perf, gateway=${CANARY_NAME})..."
     perf_run_mini_test
     if [[ "$PERF_MINI_RC" == "0" ]]; then
       mini_result="pass"
@@ -548,7 +548,7 @@ while (( start_index <= E2E_PERF_GATEWAY_COUNT )); do
     fi
 
     perf_percentiles "${PERF_BATCH_RUNNING[@]+"${PERF_BATCH_RUNNING[@]}"}"
-    perf_results_add_checkpoint "${TOTAL_OK}" "$(e2e_utc_now)" "short" "$mini_result" "$PERF_MINI_S"
+    perf_results_add_checkpoint "${TOTAL_OK}" "$(e2e_utc_now)" "perf" "$mini_result" "$PERF_MINI_S"
 
     if [[ "$mini_result" == "fail" ]]; then
       PERF_RUN_RESULT="fail"

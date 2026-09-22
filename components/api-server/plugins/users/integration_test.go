@@ -71,17 +71,16 @@ func TestUserList_ForbiddenForGatewayCreator(t *testing.T) {
 	Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 }
 
-func TestUserList_AllowedForHypershellAdmin(t *testing.T) {
+func TestUserList_ForbiddenForHypershellAdminWithoutPlatformAdmin(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	seedUsers(2)
-	account := h.NewAccount("dashboard-admin", "Dashboard Admin", "admin@example.com")
+	account := h.NewAccount("legacy-admin", "Legacy Admin", "legacy@example.com")
 	ctx := jwtContextWithRealmRoles(h, account, []string{rbac.HypershellAdminRole})
 
-	list, resp, err := client.DefaultAPI.ListUsers(ctx).Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	Expect(len(list.Items)).To(BeNumerically(">=", 2))
+	_, resp, err := client.DefaultAPI.ListUsers(ctx).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 }
 
 func TestUserList_AllowedForPlatformAdminBinding(t *testing.T) {
@@ -114,7 +113,7 @@ func TestUserList_TotalAvailableWithSizeOne(t *testing.T) {
 
 	seedUsers(3)
 	account := h.NewAccount("count-admin", "Count Admin", "count@example.com")
-	ctx := jwtContextWithRealmRoles(h, account, []string{rbac.HypershellAdminRole})
+	ctx := jwtContextWithRealmRoles(h, account, []string{roles.RolePlatformAdmin})
 
 	list, resp, err := client.DefaultAPI.ListUsers(ctx).Page(1).Size(1).OrderBy("username asc").Execute()
 	Expect(err).NotTo(HaveOccurred())
@@ -128,7 +127,7 @@ func TestUserGet_AllowedForAuthorizedCaller(t *testing.T) {
 
 	ids := seedUsers(1)
 	account := h.NewAccount("get-admin", "Get Admin", "get@example.com")
-	ctx := jwtContextWithRealmRoles(h, account, []string{rbac.HypershellAdminRole})
+	ctx := jwtContextWithRealmRoles(h, account, []string{roles.RolePlatformAdmin})
 
 	user, resp, err := client.DefaultAPI.GetUser(ctx, ids[0]).Execute()
 	Expect(err).NotTo(HaveOccurred())
@@ -136,4 +135,35 @@ func TestUserGet_AllowedForAuthorizedCaller(t *testing.T) {
 	Expect(*user.Id).To(Equal(ids[0]))
 	Expect(user.Username).NotTo(BeEmpty())
 	Expect(user.CreatedAt).NotTo(BeNil())
+}
+
+// TestUserUpsert_ConcurrentFirstTimeProvisioning guards against the
+// check-then-act race in Upsert: two requests JIT-provisioning the same
+// brand-new OIDC identity at once must not let the losing goroutine see a
+// raw unique-constraint error instead of the persisted user.
+func TestUserUpsert_ConcurrentFirstTimeProvisioning(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	userService := users.Service(&environments.Environment().Services)
+	username := fmt.Sprintf("concurrent-user-%d", time.Now().UnixNano())
+
+	const concurrency = 8
+	ids := make([]string, concurrency)
+	errs := make([]error, concurrency)
+	done := make(chan int, concurrency)
+	for i := range concurrency {
+		go func(i int) {
+			ids[i], errs[i] = userService.UpsertByUsername(context.Background(), username, nil, nil)
+			done <- i
+		}(i)
+	}
+	for range concurrency {
+		<-done
+	}
+
+	for i := range concurrency {
+		Expect(errs[i]).NotTo(HaveOccurred())
+		Expect(ids[i]).NotTo(BeEmpty())
+		Expect(ids[i]).To(Equal(ids[0]))
+	}
 }

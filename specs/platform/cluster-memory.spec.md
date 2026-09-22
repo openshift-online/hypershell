@@ -93,7 +93,7 @@ The BFF SHALL NOT contact the Kubernetes API directly for memory in version 1.
 
 The web-console BFF SHALL expose `GET /api/metrics/cluster-memory` as a same-origin route that:
 
-1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` OP-DASH-04: `hypershell-admins` or `platform:admin`)
+1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` OP-DASH-04: `platform:admin` only)
 2. Executes Prometheus instant queries for hub-cluster memory (CM-03)
 3. Returns JSON:
 
@@ -109,9 +109,11 @@ The route SHALL NOT forward to the HyperShell API server and SHALL NOT require a
 
 On Prometheus failure, timeout, or non-success Prometheus response status, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT return zeroed memory figures as a fallback.
 
+When instant queries succeed, the route MAY also include optional `daily_used` (7 UTC calendar days of daily used GiB) per `platform/hub-cluster-utilization-trends.spec.md` HCUT-03 through HCUT-04.
+
 #### Scenario: Dashboard administrator receives memory bytes
 
-- GIVEN OIDC is enabled and the caller has `hypershell-admins` or `platform:admin`
+- GIVEN OIDC is enabled and the caller has `platform:admin`
 - AND Prometheus returns successful instant-query results
 - WHEN the caller sends `GET /api/metrics/cluster-memory`
 - THEN the BFF SHALL respond with HTTP `200` and the CM-04 JSON body
@@ -141,7 +143,9 @@ The operational dashboard host adapter (`createDashboardControlPlaneAdapter`) SH
 | `total` | Decimal string of **capacity** memory in GiB, same rounding |
 | `unit` | `"GiB"` |
 
-The adapter SHALL NOT emit `trend` or `status` for the `memory` metric in version 1.
+The adapter SHALL NOT emit `status` for the `memory` metric in version 1.
+
+When BFF `daily_used` is present, the adapter SHALL also emit optional `trend` per `platform/hub-cluster-utilization-trends.spec.md` HCUT-07. When `daily_used` is absent, the adapter SHALL omit `trend`.
 
 The `system-summary` card SHALL continue to source its memory row from the same `memory` metric (OP-DASH-13). The utilization donut SHALL render because `unit` and `total` are present.
 
@@ -216,7 +220,7 @@ The operational dashboard package SHALL update `mockOperationalDashboardMetrics`
 ## Non-Goals
 
 - CPU, pod count, node count, and provision-time metrics (separate future specs)
-- Historical trend series or sparklines for memory
+- Per-day capacity or utilization-percentage trend series (used-only daily trends are defined in `platform/hub-cluster-utilization-trends.spec.md`)
 - Per-node or per-namespace memory breakdown in the UI
 - Memory metrics for registered **managed clusters** or gateway tenant namespaces
 - A HyperShell REST `/cluster_memory` OpenAPI resource in version 1

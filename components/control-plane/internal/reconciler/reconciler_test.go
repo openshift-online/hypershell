@@ -765,8 +765,8 @@ func TestWatchGateways_KeycloakRetryPreservesGatedPayload(t *testing.T) {
 	lookupCalls := mockKC.uuidLookupCalls
 	putCalls := mockKC.putCalled
 	mockKC.mu.Unlock()
-	if lookupCalls != 2 || putCalls != 1 {
-		t.Fatalf("Keycloak calls: lookups=%d puts=%d, want one failed lookup followed by one successful lookup and PUT", lookupCalls, putCalls)
+	if lookupCalls != 3 || putCalls != 1 {
+		t.Fatalf("Keycloak calls: lookups=%d puts=%d, want one failed lookup, one successful gateway lookup, one e2e presence probe, and one PUT", lookupCalls, putCalls)
 	}
 	if updates := gatewayServer.snapshot(); len(updates) != 0 {
 		t.Fatalf("Keycloak-only retry performed provisioning gRPC updates: %v", updates)
