@@ -37,6 +37,20 @@ def render_realm(realm: dict[str, Any], environ: dict[str, str] | None = None) -
         config["clientId"] = env.get("PR_ENV_GITHUB_CLIENT_ID", "")
         config["clientSecret"] = env.get("PR_ENV_GITHUB_CLIENT_SECRET", "")
 
+    # Keycloak admin-console impersonation is a PR-environment concern.
+    # Kind/hub have no GitHub IdP, so omit those mappers from the import.
+    admin_console_mappers = {
+        "github-grant-view-users",
+        "github-grant-query-users",
+        "github-grant-impersonation",
+    }
+    mappers: list[dict[str, Any]] = []
+    for mapper in realm.get("identityProviderMappers") or []:
+        if mapper.get("name") in admin_console_mappers and not idp_enabled:
+            continue
+        mappers.append(mapper)
+    realm["identityProviderMappers"] = mappers
+
     clients: list[dict[str, Any]] = []
     for client in realm.get("clients") or []:
         client_id = client.get("clientId")

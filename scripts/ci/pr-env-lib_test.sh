@@ -44,7 +44,7 @@ assert_not_reapable() {
 # the environment when this suite runs as a CI step itself; unset them so
 # pr_env_run_link's no-run-context behavior is deterministic here, and opt
 # individual assertions back in with a scoped assignment.
-unset GITHUB_RUN_ID GITHUB_REPOSITORY GITHUB_SERVER_URL
+unset GITHUB_RUN_ID GITHUB_REPOSITORY GITHUB_SERVER_URL KEYCLOAK_URL
 
 # --- Namespace + identity derivation ---
 assert_eq 'hypershell-ci-pr-232' "$(pr_env_namespace 232)" 'platform namespace from PR number'
@@ -344,10 +344,33 @@ case "${body}" in
   *'abcdef1'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing short SHA' ;;
 esac
-# The CLI template must use --web against the cluster API, never the app Route.
 case "${body}" in
-  *'oc login --server=https://api.cluster.example.com:6443 --web'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body oc login missing cluster API --web' ;;
+  *'Log in through the web console with your GitHub account'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing GitHub web-console login' ;;
+esac
+case "${body}" in
+  *'impersonate that user'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing Keycloak impersonation guidance' ;;
+esac
+case "${body}" in
+  *'| Keycloak admin console |'*) FAIL=$((FAIL + 1)); echo 'FAIL: comment body included Keycloak admin console without KEYCLOAK_URL' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+kc_body="$(KEYCLOAK_URL=https://keycloak.pr-232.example.com/ pr_env_comment_body 232 abcdef1234567 hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak \
+  https://console.example.com https://api.pr-232.example.com https://web.pr-232.example.com \
+  https://api.cluster.example.com:6443 false)"
+case "${kc_body}" in
+  *'| Keycloak admin console | https://keycloak.pr-232.example.com/admin/hypershell/console/ |'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing hypershell-realm Keycloak admin console URL' ;;
+esac
+case "${kc_body}" in
+  *'/admin/'*'/admin/'*) FAIL=$((FAIL + 1)); echo 'FAIL: comment body linked master-realm /admin/ instead of hypershell console' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+kc_updating="$(pr_env_comment_deploying_body fffffff111111 "${kc_body}")"
+case "${kc_updating}" in
+  *'| Keycloak admin console | https://keycloak.pr-232.example.com/admin/hypershell/console/ |'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment dropped Keycloak admin console URL' ;;
 esac
 case "${body}" in
   *'oc login --server=https://api.pr-232.example.com'*) FAIL=$((FAIL + 1)); echo 'FAIL: oc login used app API Route' ;;

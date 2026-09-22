@@ -793,6 +793,24 @@ data:
           "identityProviderAlias": "github",
           "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
           "config": { "role": "github-identity", "syncMode": "FORCE" }
+        },
+        {
+          "name": "github-grant-view-users",
+          "identityProviderAlias": "github",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "config": { "role": "realm-management.view-users", "syncMode": "FORCE" }
+        },
+        {
+          "name": "github-grant-query-users",
+          "identityProviderAlias": "github",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "config": { "role": "realm-management.query-users", "syncMode": "FORCE" }
+        },
+        {
+          "name": "github-grant-impersonation",
+          "identityProviderAlias": "github",
+          "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
+          "config": { "role": "realm-management.impersonation", "syncMode": "FORCE" }
         }
       ]
     }

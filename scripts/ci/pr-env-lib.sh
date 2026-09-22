@@ -290,9 +290,10 @@ pr_env_run_link() {
 #
 # Print the access-fact table and everything after it from an existing marked
 # comment, or return non-zero when the body has no table. Namespaces, console
-# URL, API Route URL, web-console Route URL, and the CLI login do not change
-# from reconcile to reconcile, so a later deploying edit keeps this block
-# instead of replacing the comment with the first-deploy placeholder.
+# URL, API Route URL, web-console Route URL, Keycloak hypershell-realm admin
+# console URL, and the CLI login do not change from reconcile to reconcile, so
+# a later deploying edit keeps this block instead of replacing the comment
+# with the first-deploy placeholder.
 pr_env_comment_access_facts() {
   local body="${1:-}"
   local prefix="${body%%"| Fact | Value |"*}"
@@ -387,18 +388,27 @@ EOF
 # retrieval interactively. <updated> is "true" for the per-commit update
 # wording, "false" for the initial comment. <retained> is "true" when the
 # pull request carries pr-environment/pr-extended.
+# KEYCLOAK_URL (optional env) is the Keycloak Route origin; when set, the
+# table includes the hypershell-realm admin console (GitHub login +
+# impersonation), not master-realm /admin/.
 pr_env_comment_body() {
   local pr_number="$1" head_sha="$2" platform_ns="$3" keycloak_ns="$4"
   local console_url="$5" api_url="$6" web_url="$7" cluster_api_url="$8" updated="$9"
   local retained="${10:-false}"
   local short_sha="${head_sha:0:7}"
-  local heading lifetime
+  local heading lifetime kc_url kc_admin_row
   if [[ "${updated}" == "true" ]]; then
     heading="HyperShell environment updated to commit \`${short_sha}\`"
   else
     heading="HyperShell environment ready"
   fi
   lifetime="$(pr_env_comment_lifetime "${retained}")"
+  kc_url="${KEYCLOAK_URL:-}"
+  kc_url="${kc_url%/}"
+  kc_admin_row=""
+  if [[ -n "${kc_url}" ]]; then
+    kc_admin_row="| Keycloak admin console | ${kc_url}/admin/hypershell/console/ |"
+  fi
   cat <<EOF
 ${PR_ENV_COMMENT_MARKER}
 ## ${heading}
@@ -413,8 +423,9 @@ ${lifetime}
 | OpenShift console | ${console_url} |
 | API | ${api_url} |
 | Web console | ${web_url} |
+${kc_admin_row}
 
-Log in through the web console with your GitHub account (you must be a member of the configured organization or on its allowlist).
+Log in through the web console with your GitHub account (you must be a member of the configured organization or on its allowlist). To test as \`developer\` or \`platform-admin\`, open the Keycloak admin console, sign in with GitHub, and impersonate that user.
 
 <details><summary>CLI access</summary>
 

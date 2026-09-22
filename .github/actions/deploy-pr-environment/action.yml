@@ -221,9 +221,11 @@ runs:
       run: |
         api_host="$(oc get route hypershell-api -n "${OPENSHIFT_NAMESPACE}" -o jsonpath='{.spec.host}' 2>/dev/null || true)"
         web_host="$(oc get route hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+        kc_host="$(oc get route keycloak -n "${OPENSHIFT_NAMESPACE}-keycloak" -o jsonpath='{.spec.host}' 2>/dev/null || true)"
         {
           echo "api_url=https://${api_host}"
           echo "web_url=https://${web_host}"
+          echo "keycloak_url=https://${kc_host}"
           echo "console_url=$(oc whoami --show-console 2>/dev/null || echo '')"
           echo "cluster_api_url=$(oc whoami --show-server 2>/dev/null || echo '')"
         } >> "${GITHUB_OUTPUT}"
@@ -242,6 +244,7 @@ runs:
         CONSOLE_URL: ${{ steps.urls.outputs.console_url }}
         API_URL: ${{ steps.urls.outputs.api_url }}
         WEB_URL: ${{ steps.urls.outputs.web_url }}
+        KEYCLOAK_URL: ${{ steps.urls.outputs.keycloak_url }}
         CLUSTER_API_URL: ${{ steps.urls.outputs.cluster_api_url }}
       run: bash scripts/ci/upsert-pr-comment.sh
 

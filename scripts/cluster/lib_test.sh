@@ -223,6 +223,31 @@ if grep 'Keycloak:' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'admin/admin'
 else
   PASS=$((PASS + 1))
 fi
+if grep 'Keycloak admin:' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q '/admin/hypershell/console/'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: GitHub-brokered OpenShift banner does not point at the hypershell Keycloak admin console'
+fi
+if grep 'keycloak_url=' "${REPO_ROOT}/.github/actions/deploy-pr-environment/action.yml" | grep -q 'keycloak_url=https://'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: PR env deploy action does not discover the Keycloak Route for the access comment'
+fi
+if grep 'KEYCLOAK_URL:' "${REPO_ROOT}/.github/actions/deploy-pr-environment/action.yml" | grep -q 'steps.urls.outputs.keycloak_url'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: PR env access comment is not passed KEYCLOAK_URL'
+fi
+THEME_CSS="${REPO_ROOT}/deploy/base/keycloak/theme/login.css"
+if grep -q 'body:has(#kc-social-providers) #kc-form' "${THEME_CSS}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Keycloak login theme does not hide the password form when GitHub is present'
+fi
 if grep -A3 '^cluster_teardown()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cluster_down'; then
   PASS=$((PASS + 1))
 else

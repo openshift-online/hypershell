@@ -1284,6 +1284,7 @@ print_banner() {
   info "Login:         https://${OPENSHIFT_CONSOLE_HOST}/auth/login"
   if github_idp_enabled; then
     info "Interactive login is GitHub-brokered (openshift-online org, or allowlisted user)"
+    info "Keycloak admin: ${OPENSHIFT_KC_HOSTNAME}/admin/hypershell/console/ (sign in with GitHub, then impersonate developer or platform-admin)"
   else
     info "Test users:    admin/admin (admins + users), developer/developer (users only)"
   fi
