@@ -83,6 +83,14 @@ const installScriptUrl =
 
 /**
  * Builds an installation command that matches the reconciled gateway version.
+ *
+ * The full version string is passed through, suffix included (e.g.
+ * "v0.0.116-rhaiv.6"), not truncated to its base semver. A suffix identifies a
+ * downstream build that can be ahead of the last tagged public OpenShell
+ * release and is not guaranteed proto-compatible with it; install-openshell.sh
+ * pulls that exact build from quay.io/opendatahub/odh-openshell-cli instead of
+ * a public release when the suffix is present. Keep this in sync with
+ * openshell_cli_image_tag in tests/e2e/lib.sh.
  */
 export function buildOpenShellInstallCommand(
   gateway: GatewayConnection,
@@ -92,17 +100,9 @@ export function buildOpenShellInstallCommand(
     return undefined;
   }
 
-  const postfixStart = gatewayVersion.indexOf("-");
-  const versionWithoutPostfix =
-    postfixStart === -1
-      ? gatewayVersion
-      : gatewayVersion.slice(0, postfixStart);
-  if (!versionWithoutPostfix) {
-    return undefined;
-  }
-  const installerVersion = versionWithoutPostfix.startsWith("v")
-    ? versionWithoutPostfix
-    : `v${versionWithoutPostfix}`;
+  const installerVersion = gatewayVersion.startsWith("v")
+    ? gatewayVersion
+    : `v${gatewayVersion}`;
 
   return [
     "curl -LsSf \\",

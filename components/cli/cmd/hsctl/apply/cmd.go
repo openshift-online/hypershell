@@ -215,8 +215,6 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 		basePath = urls.GatewayReleasesPath
 	case "ManagedCluster":
 		basePath = urls.ManagedClustersPath
-	case "ManagedDatabase":
-		basePath = urls.ManagedDatabasesPath
 	case "Role":
 		basePath = urls.RolesPath
 	case "RoleBinding":

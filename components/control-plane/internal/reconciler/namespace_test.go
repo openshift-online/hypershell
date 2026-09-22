@@ -158,25 +158,6 @@ func TestRecordGCEvent_InvolvedObjectNamespaceMatchesEventNamespace(t *testing.T
 	}
 }
 
-func TestReconcileNamespace_SkipsManagedDatabaseNamespace(t *testing.T) {
-	ctx := context.Background()
-	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	// ManagedDatabase namespaces share management labels but use the openshell-db- prefix.
-	ns := managedNS("openshell-db-a1b2c3d4e5f67890", map[string]string{
-		gateway.GCEligibleSinceAnnotation: now.Add(-20 * time.Minute).Format(time.RFC3339),
-	})
-	client := fake.NewSimpleClientset(ns)
-	r := newTestGC(client, now)
-
-	if err := r.reconcileNamespace(ctx, ns, map[string]struct{}{}); err != nil {
-		t.Fatalf("reconcileNamespace() error = %v", err)
-	}
-
-	if !nsExists(t, client, "openshell-db-a1b2c3d4e5f67890") {
-		t.Fatalf("ManagedDatabase namespace deleted by gateway GC, want retained")
-	}
-}
-
 func TestReconcileNamespace_LiveGatewayClearsGraceAndRetains(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)

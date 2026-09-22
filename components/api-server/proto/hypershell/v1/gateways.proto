@@ -27,7 +27,8 @@ message Gateway {
   reserved "fleet_id";
   string cluster_id = 4;
   string release_id = 5;
-  string database_id = 6;
+  reserved 6;
+  reserved "database_id";
   string namespace = 7;
   optional string external_dns = 8;
   optional string tls_mode = 9;
@@ -58,7 +59,8 @@ message CreateGatewayRequest {
   reserved "fleet_id";
   string cluster_id = 3;
   string release_id = 4;
-  string database_id = 5;
+  reserved 5;
+  reserved "database_id";
   optional string external_dns = 6;
   optional string tls_mode = 7;
   optional string service_type = 8;
@@ -91,7 +93,8 @@ message UpdateGatewayRequest {
   reserved "fleet_id";
   optional string cluster_id = 4;
   optional string release_id = 5;
-  optional string database_id = 6;
+  reserved 6;
+  reserved "database_id";
   optional string external_dns = 7;
   optional string tls_mode = 8;
   optional string service_type = 9;

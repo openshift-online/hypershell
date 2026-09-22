@@ -14,13 +14,11 @@ import (
 type ImageDefaults interface {
 	DefaultGatewayImage() string
 	DefaultSupervisorImage() string
-	DefaultDatabaseImage() string
 	DefaultSandboxImage() string
 	DefaultConsoleImage() string
 	DefaultOAuth2ProxyImage() string
 }
 
-const defaultDatabaseImage = "postgres:18"
 const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
 
 // defaultConsoleImage is the OpenShell dashboard image (the per-gateway
@@ -51,36 +49,9 @@ func (StaticImageDefaults) DefaultSupervisorImage() string {
 	return os.Getenv("GATEWAY_SUPERVISOR_IMAGE")
 }
 
-func (StaticImageDefaults) DefaultDatabaseImage() string {
-	if v := os.Getenv("OPENSHELL_DATABASE_IMAGE"); v != "" {
-		return v
-	}
-	return defaultDatabaseImage
-}
-
-type CNPGConfig struct {
-	ClusterName      string
-	ClusterNamespace string
-}
-
-// ExternalDBConfig locates the admin credentials for an external
-// ManagedDatabase. CredentialsNamespace is the value of
-// ManagedDatabase.connection_secret: the NAMESPACE holding the credentials, not
-// a Secret name. It must satisfy the hypershell-managed-db- prefix rule, and
-// the control plane reads exactly one fixed-name Secret
-// (hypershell-managed-db-credentials) inside it.
-//
-// ManagedDatabaseID is carried for diagnostics only: single-shot cleanup logs
-// it so an operator can tie an orphaned role/database back to its registration.
-type ExternalDBConfig struct {
-	CredentialsNamespace string
-	ManagedDatabaseID    string
-}
-
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
 // It is overridable via GATEWAY_SANDBOX_IMAGE so clusters whose nodes cannot
-// reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror,
-// mirroring the OPENSHELL_DATABASE_IMAGE override for the gateway database.
+// reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror.
 func (StaticImageDefaults) DefaultSandboxImage() string {
 	if v := os.Getenv("GATEWAY_SANDBOX_IMAGE"); v != "" {
 		return v
@@ -186,16 +157,13 @@ type ReconcileOpts struct {
 	IsOpenShift    bool
 	HasCertManager bool
 	HasGatewayAPI  bool
-	HasCNPG        bool
-	// DatabaseProvider is the ManagedDatabase provider ("cnpg", "deployment", or "external").
-	DatabaseProvider string
-	CNPG             CNPGConfig
-	// DeploymentDBNamespace is the namespace where the Deployment-managed
-	// database lives. Used when DatabaseProvider is "deployment" to copy
-	// credentials into the tenant namespace.
-	DeploymentDBNamespace string
-	// ExternalDB carries the admin Secret reference for the external provider.
-	ExternalDB            ExternalDBConfig
+	// Database locates the mounted PostgreSQL admin credentials every gateway
+	// database is provisioned with (see database.go).
+	Database DatabaseConfig
+	// databaseReconciler, when set, replaces the DatabaseReconciler built from
+	// Database. It is a test seam for exercising provisioning and deletion
+	// without a PostgreSQL server; production wiring leaves it nil.
+	databaseReconciler    DatabaseReconciler
 	ControlPlaneNamespace string
 	Images                ImageDefaults
 	// GatewayID is the API-server resource ID for the gateway being reconciled.
@@ -207,9 +175,6 @@ type ReconcileOpts struct {
 	// UpdateConsoleAddress is an optional callback that PATCHes the console_address
 	// field on the API-server Gateway. Nil means no update will be attempted.
 	UpdateConsoleAddress ConsoleAddressUpdater
-	// RotateDBCredentials is the value of the hypershell.redhat.io/rotate-db-credentials
-	// annotation on the Gateway resource. Empty means no rotation requested.
-	RotateDBCredentials string
 	// Keycloak holds the Keycloak Admin REST API configuration. Nil means
 	// Keycloak integration is not configured.
 	Keycloak *KeycloakConfig

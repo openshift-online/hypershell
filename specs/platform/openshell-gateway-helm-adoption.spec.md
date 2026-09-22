@@ -32,7 +32,7 @@ Gateway ADDED event (gRPC watch)
   ▼
 GatewayReconciler
   ├─ 1. Create namespace (if absent)
-  ├─ 2. Reconcile CNPG database resources              ← Go (unchanged)
+  ├─ 2. Provision the per-gateway database and role      ← Go (unchanged)
   ├─ 3. Reconcile Keycloak client                       ← Go (unchanged)
   ├─ 4. Copy trusted CA ConfigMap (if present)           ← Go (unchanged)
   ├─ 5. Reconcile OpenShift SCC binding                  ← Go (before Helm install)
@@ -53,8 +53,10 @@ Gateway DELETED event (gRPC watch)
   │
   ▼
 GatewayReconciler
-  ├─ 1. Clean up non-chart resources (database, Keycloak clients)
-  ├─ 2. Helm uninstall (if release exists)
+  ├─ 1. Helm uninstall (if release exists)   ← first, so the gateway pod stops
+  │                                            holding database connections
+  ├─ 2. Clean up non-chart resources (ClusterRoleBinding, Keycloak clients,
+  │     then the per-gateway database and role)
   └─ 3. Delete namespace
 ```
 
@@ -117,10 +119,11 @@ The control plane SHALL use the Helm CLI to manage gateway Helm releases program
 
 - GIVEN a Gateway DELETED event is received
 - WHEN the GatewayReconciler processes the event
-- THEN it SHALL clean up non-chart resources (database, Keycloak clients)
-- AND if a Helm release exists in the gateway namespace, it SHALL run `helm uninstall`
+- THEN if a Helm release exists in the gateway namespace, it SHALL run `helm uninstall` first, so the gateway pod stops holding database connections before the database is dropped
+- AND it SHALL then clean up non-chart resources (ClusterRoleBinding, Keycloak clients, and the per-gateway database and role)
 - AND it SHALL delete the gateway namespace
 - AND if the Helm uninstall fails, the reconciler proceeds to delete the gateway namespace (which removes all namespaced chart resources)
+- AND if the per-gateway database cleanup fails, it SHALL record a `PostgreSQLDatabase` orphan and return an error so the delete is retried (see [`gateway-deletion-finalization.spec.md`](./gateway-deletion-finalization.spec.md))
 
 ---
 
@@ -321,7 +324,15 @@ The trusted CA ConfigMap (`gateway-trusted-ca`) is still copied from the CP name
 
 The upstream Helm chart appends `.Release.Namespace` to the ClusterRole and ClusterRoleBinding names ([PR #2939](https://github.com/NVIDIA/OpenShell/pull/2939)), producing per-release resources like `openshell-gateway-node-reader-<ns>`. Each Helm release owns its own cluster-scoped resources with no annotation conflicts, so multiple gateways on the same cluster install and uninstall independently. The rules are identical and small -- the duplication is harmless.
 
-All other resources the control plane manages (CNPG database provisioning, DB credentials, console, Keycloak clients) are HyperShell platform infrastructure deployed outside the context of the OpenShell gateway itself. The chart's `server.externalDbSecret` value references the DB credentials Secret that the control plane provisions before the Helm install, but the chart does not deploy databases.
+All other resources the control plane manages (per-gateway database provisioning, DB credentials, console, Keycloak clients) are HyperShell platform infrastructure deployed outside the context of the OpenShell gateway itself. The chart's `server.externalDbSecret` value references the DB credentials Secret that the control plane provisions before the Helm install, but the chart does not deploy databases.
+
+### Gap: No Database CA Mount
+
+The chart reads **only** the `uri` key of `server.externalDbSecret` and injects it as `OPENSHELL_DB_URL`. It offers no value for mounting an additional CA bundle into the gateway pod for the database connection: `server.oidc.caConfigMapName` and `server.credentialDrivers.vault.caConfigMapName` cover the OIDC issuer and the Vault driver respectively, and the chart has no generic `extraVolumes` / `extraVolumeMounts` / `extraEnv` escape hatch.
+
+Consequently the gateway workload's database connection is capped at `sslmode=require` (encrypted, not certificate-verified). The control plane's own admin connection is unaffected: it reads its CA from the `hypershell-gateway-database-admin` Secret that the *controller* Deployment mounts, and stays `sslmode=verify-full`. See [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) for the full contract.
+
+Closing this gap requires an upstream chart mechanism for a database CA volume (a `server.externalDbCaConfigMapName` value or equivalent). Until then, `verify-full` for the tenant connection SHALL NOT be claimed anywhere in the specs, code or e2e assertions.
 
 ---
 
@@ -350,7 +361,7 @@ Resources have ordering dependencies that the reconciler must respect:
 
 ```
 1. Namespace                          (must exist first)
-2. CNPG Database + credentials Secret (must exist before Helm install)
+2. Database + role + credentials Secret (before Helm install)
 3. Trusted CA ConfigMap copy          (must exist before Helm install if present)
 4. OpenShift SCC binding              (must run before Helm install)
 5. Helm install                       (creates core workload + chart-managed resources)
@@ -434,6 +445,7 @@ The control plane SHALL validate configuration at startup and fail fast with cle
 | PR #2728 not merged | BackendTLSPolicy and BackendCA ConfigMap gaps remain | Gate on upstream chart version that includes these features |
 | Helm CLI binary missing or incompatible | Control plane cannot deploy gateways | Verify helm binary availability and version at startup; fail fast with clear error |
 | Namespace-scoped ClusterRole names | Upgrading from fixed-name chart leaves orphaned old ClusterRole | Old `openshell-gateway-node-reader` can be cleaned up manually; new per-namespace resources are independent |
+| No chart value for a database CA volume | Gateway database connection cannot be `verify-full`, only `require` | Accepted and documented (see Gap: No Database CA Mount); raise upstream for a `server.externalDbCaConfigMapName` equivalent |
 
 ---
 

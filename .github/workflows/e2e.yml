@@ -388,14 +388,10 @@ jobs:
 
 
   e2e-kind:
-    name: Kind (${{ matrix.database-provider }})
+    name: Kind
     needs: plan-images
     if: needs.plan-images.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        database-provider: [deployment, cnpg, external]
     # This job now also absorbs the Konflux build wait that plan-images used to
     # hold: kind-up runs first and overlaps the remote build, the
     # wait-on-check-action steps then block for whatever build time is left (up
@@ -426,9 +422,6 @@ jobs:
 
       - name: Create Kind cluster with OIDC
         env:
-          # Exercise both the default per-gateway Deployment path and the
-          # explicitly selected CNPG path through the full E2E workflow.
-          DATABASE_PROVIDER: ${{ matrix.database-provider }}
           KIND_ENABLE_OIDC: "true"
           # Deploy Jaeger and point the web-console BFF at it so the browser
           # trace verification below has a collector to export to (WEB-TRACE-10).
@@ -530,7 +523,6 @@ jobs:
       # is rejected, rather than surfacing later as a confusing discovery miss.
       - name: Seed platform resources
         env:
-          DATABASE_PROVIDER: ${{ matrix.database-provider }}
           SEED_STRICT: "true"
         run: make kind-seed
 
@@ -540,8 +532,6 @@ jobs:
           E2E_OPENSHELL_INSTALL: always
           # Test the candidate installer before its public main URL is available.
           OPENSHELL_INSTALL_SCRIPT_URL: file://${{ github.workspace }}/scripts/install-openshell.sh
-          # Mirror the provider used to create this matrix job's cluster.
-          DATABASE_PROVIDER: ${{ matrix.database-provider }}
           E2E_PROVISION_TIMEOUT: "300"
           E2E_SANDBOX_TIMEOUT: "180"
           # Force plain, non-graphical output from the openshell CLI. Off a TTY

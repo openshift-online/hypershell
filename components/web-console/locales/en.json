@@ -111,14 +111,6 @@
     "defaultMessage": "Managed cluster regions chart",
     "description": "Accessible title for the managed cluster region donut chart."
   },
-  "app.dashboard.managedDatabaseStatus.ariaDesc": {
-    "defaultMessage": "Managed database count by status",
-    "description": "Accessible description for the managed database status donut chart."
-  },
-  "app.dashboard.managedDatabaseStatus.chartTitle": {
-    "defaultMessage": "Managed database status chart",
-    "description": "Accessible title for the managed database status donut chart."
-  },
   "app.dashboard.metric.value": {
     "defaultMessage": "{value} {label}",
     "description": "Formatted count for a dashboard metric card heading."
@@ -347,10 +339,6 @@
     "defaultMessage": "Clusters created (30 days)",
     "description": "Summary label for managed clusters created within the lookback window."
   },
-  "app.dashboard.summary.managedDatabases": {
-    "defaultMessage": "Databases",
-    "description": "Summary label for total managed databases."
-  },
   "app.dashboard.summary.memory": {
     "defaultMessage": "Memory",
     "description": "Summary label for memory utilization."
@@ -478,10 +466,6 @@
   "app.dashboard.widget.managedClusterRegions": {
     "defaultMessage": "Cluster regions",
     "description": "Title for the managed cluster region breakdown dashboard widget."
-  },
-  "app.dashboard.widget.managedDatabaseStatus": {
-    "defaultMessage": "Database status",
-    "description": "Title for the managed database status dashboard widget."
   },
   "app.dashboard.widget.memory": {
     "defaultMessage": "Memory",
@@ -802,10 +786,6 @@
   "app.gateway.manageServiceAccounts": {
     "defaultMessage": "Manage service accounts",
     "description": "Link text that navigates to the service accounts tab from the connection tab."
-  },
-  "app.gateway.managedDatabaseId": {
-    "defaultMessage": "Managed database ID",
-    "description": "Label for a gateway's managed database identifier."
   },
   "app.gateway.name": {
     "defaultMessage": "Gateway name",

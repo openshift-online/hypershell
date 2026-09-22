@@ -74,7 +74,6 @@ function gatewayResponse(id: string, name: string) {
   return {
     clusterId: "",
     createdAt: "2026-08-10T14:30:00Z",
-    databaseId: "database-1",
     externalDns: "gateway.example.com",
     gatewayVersion: "0.0.109",
     id,
@@ -183,7 +182,6 @@ describe("gateway shell pages", () => {
         gateway={{
           clusterId: "",
           consoleUrl: "https://console.example.test",
-          databaseId: "database-1",
           externalDns: "gateway.example.com",
           gatewayVersion: "0.0.109",
           id: "gateway-1",
@@ -311,7 +309,6 @@ describe("gateway shell pages", () => {
         gateway={{
           clusterId: "",
           consoleUrl: "https://console.example.test",
-          databaseId: "database-1",
           externalDns: "gateway.example.com",
           gatewayVersion: "0.0.109",
           id: "gateway-1",

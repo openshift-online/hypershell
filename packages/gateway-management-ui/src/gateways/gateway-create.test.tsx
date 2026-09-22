@@ -39,7 +39,6 @@ const navigation = {
 
 const createdGateway = {
   clusterId: "",
-  databaseId: "",
   externalDns: "",
   id: "gateway-1",
   name: "team-gateway",
@@ -95,7 +94,6 @@ describe("GatewayCreatePage", () => {
     ).toBe("Hub cluster (default)");
     expect(screen.queryByLabelText("Namespace")).toBeNull();
     expect(screen.queryByLabelText("Gateway release")).toBeNull();
-    expect(screen.queryByLabelText("Managed database")).toBeNull();
 
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),

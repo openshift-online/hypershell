@@ -80,7 +80,6 @@ import {
   InventorySummaryCard,
   ManagedClusterProvidersCard,
   ManagedClusterRegionsCard,
-  ManagedDatabaseStatusCard,
   MetricCard,
   NodeStatusCard,
   PodCapacityCard,
@@ -96,7 +95,7 @@ import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v41";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v42";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
@@ -204,7 +203,6 @@ function createWidgetMapping(
       | "provision-reliability"
       | "inventory-providers"
       | "inventory-regions"
-      | "inventory-status"
       | "utilization",
   ) => {
     const metric = metricById.get(metricId);
@@ -259,10 +257,6 @@ function createWidgetMapping(
 
     if (metricType === "provision-reliability") {
       return <ProvisionReliabilityCard metric={metric} />;
-    }
-
-    if (metricType === "inventory-status") {
-      return <ManagedDatabaseStatusCard metric={metric} />;
     }
 
     if (metricType === "inventory-providers") {
@@ -550,25 +544,6 @@ function createWidgetMapping(
           "",
           messages.widgetManagedClusterRegions,
           "inventory-regions",
-        ),
-    },
-    "managed-database-status": {
-      defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <DatabaseIcon />,
-        title: intl.formatMessage(messages.widgetManagedDatabaseStatus),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-databases",
-          "",
-          messages.widgetManagedDatabaseStatus,
-          "inventory-status",
         ),
     },
   };

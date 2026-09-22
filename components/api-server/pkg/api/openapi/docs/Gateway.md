@@ -12,7 +12,6 @@ Name | Type | Description | Notes
 **Name** | **string** |  | 
 **ClusterId** | **string** |  | 
 **ReleaseId** | **string** |  | 
-**DatabaseId** | **string** | Server-assigned ManagedDatabase identifier; client-supplied values are ignored | 
 **Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
@@ -37,7 +36,7 @@ Name | Type | Description | Notes
 
 ### NewGateway
 
-`func NewGateway(name string, clusterId string, releaseId string, databaseId string, namespace string, ) *Gateway`
+`func NewGateway(name string, clusterId string, releaseId string, namespace string, ) *Gateway`
 
 NewGateway instantiates a new Gateway object
 This constructor will assign default values to properties that have it defined,
@@ -235,26 +234,6 @@ and a boolean to check if the value has been set.
 `func (o *Gateway) SetReleaseId(v string)`
 
 SetReleaseId sets ReleaseId field to given value.
-
-
-### GetDatabaseId
-
-`func (o *Gateway) GetDatabaseId() string`
-
-GetDatabaseId returns the DatabaseId field if non-nil, zero value otherwise.
-
-### GetDatabaseIdOk
-
-`func (o *Gateway) GetDatabaseIdOk() (*string, bool)`
-
-GetDatabaseIdOk returns a tuple with the DatabaseId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetDatabaseId
-
-`func (o *Gateway) SetDatabaseId(v string)`
-
-SetDatabaseId sets DatabaseId field to given value.
 
 
 ### GetNamespace

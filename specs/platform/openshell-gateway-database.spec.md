@@ -1,666 +1,768 @@
 # OpenShell Gateway Database Specification
 
-**Date:** 2026-08-24
-**Status:** Draft
+**Date:** 2026-09-16
+**Status:** Active
 **Parent:** `openshell-gateway.spec.md` - core gateway provisioning
 
 ---
 
 ## Purpose
 
-This specification defines PostgreSQL database provisioning for OpenShell gateways. The control plane supports two parallel deployment modes, selected via the `DATABASE_PROVIDER` environment variable:
+This specification defines PostgreSQL database provisioning for OpenShell gateways.
 
-| Mode | `DATABASE_PROVIDER` | Description |
-|---|---|---|
-| **Deployment** (default) | unset/empty or `deployment` | Uses a standalone PostgreSQL Deployment per gateway. No operator required. Each gateway gets its own dedicated ManagedDatabase (and thus its own PostgreSQL pod) created automatically at gateway creation time. Suitable for environments where installing the CNPG operator is not feasible (e.g. minimal dev clusters), and requires no CNPG APIs at all. |
-| **CNPG** | `cnpg` | Uses the [CloudNativePG](https://cloudnative-pg.io/) operator. Multiple gateways share one ManagedDatabase's CNPG Cluster; each gateway gets its own logical database inside it. Requires the exact CNPG CRDs this code depends on (`Cluster`, `Database`, `DatabaseRole` in `postgresql.cnpg.io/v1`) to be installed on the cluster. |
-| **External** | `external` | The PostgreSQL server is provisioned outside HyperShell as a cloud-managed database (AWS RDS/Aurora, IBM Cloud Databases). HyperShell registers the endpoint and provisions one dedicated database and login role per gateway inside it, issuing the DDL itself. No operator and no in-cluster PostgreSQL workload. Specified in full by [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md). |
+PostgreSQL server infrastructure is **provisioned outside HyperShell** - a
+cloud-managed database (AWS RDS / Aurora for PostgreSQL, IBM Cloud Databases for
+PostgreSQL) or any other PostgreSQL server created out-of-band by a platform team or
+IaC. HyperShell does **not** create, resize, or delete the server. Each HyperShell
+installation is given **one** administrative credential set for that server, mounted
+into the control plane as a Kubernetes Secret, and the control plane provisions
+**one dedicated PostgreSQL database and one dedicated login role per gateway** on it,
+so each gateway is isolated from every other gateway sharing the server.
 
-Any `DATABASE_PROVIDER` value other than unset/empty, `deployment`, `cnpg`, or `external` is a startup configuration error: the API server and control plane SHALL fail to start rather than silently selecting a provider.
+There is no database resource in the HyperShell API. Gateways carry no database
+reference, gateway creation performs no database placement, and neither the REST API,
+the gRPC API, the SDKs nor the CLI expose anything about databases. The database
+server is deployment configuration of the control plane, not a domain object.
+
+The control plane issues the `CREATE DATABASE` / `CREATE ROLE` / `GRANT` statements
+itself, over a short-lived administrative connection. No operator is required and no
+in-cluster PostgreSQL workload is created. There is a single provisioning model: the
+control plane reads no setting that selects an alternative.
 
 PostgreSQL is the only supported database backend for HyperShell gateways.
+
+### Contracts
+
+- **`hypershell-gateway-database-admin`** - the Secret in the HyperShell namespace
+  holding the administrative connection to the gateway database server. Mounted
+  read-only into the controller Deployment (see Requirement: Admin Credential Mount).
+- **`GATEWAY_DATABASE_ADMIN_DIR`** - the only environment variable the control plane
+  reads for gateway databases: the directory the admin Secret is mounted at (default
+  `/etc/hypershell/gateway-database`).
+- **`openshell-gateway-db-credentials`** - the Secret in the gateway's tenant
+  namespace whose `uri` key the upstream OpenShell Helm chart injects into the
+  gateway workload as `OPENSHELL_DB_URL` (`server.externalDbSecret`).
 
 ---
 
 ## Prerequisites
 
-### CNPG Mode
+The following are the platform administrator's responsibility, out-of-band, before
+the control plane is deployed:
 
-The CNPG operator SHALL be installed on every managed cluster that opts into `DATABASE_PROVIDER=cnpg`, similar to cert-manager. The operator provides the `Cluster`, `Database`, and `DatabaseRole` CRDs in `postgresql.cnpg.io/v1`.
+1. **A running PostgreSQL server** (for example AWS RDS/Aurora or IBM Cloud Databases
+   for PostgreSQL) reachable from the control-plane cluster **and** from every cluster
+   that runs gateway workloads.
+2. **Network egress / reachability.** The control-plane cluster and the gateway
+   clusters SHALL have a network path to the server endpoint (VPC peering, private
+   endpoint/service endpoint, security-group / ACL allow rules). Loss of reachability
+   is a provisioning failure that is retried, not a silent skip.
+3. **TLS on the server, with a CA the operator can distribute.** The server SHALL
+   present a certificate whose hostname matches the `host` the control plane
+   connects to, issued by a CA whose PEM bundle the operator places in the admin
+   Secret. Cloud providers publish their bundles (AWS RDS global bundle, IBM Cloud
+   Databases CA). The control plane's own admin connection always verifies the
+   server certificate and hostname (`sslmode=verify-full`) and offers no
+   downgrade. The gateway workload's own connection is capped at
+   `sslmode=require` because the Helm chart cannot mount a database CA into the
+   gateway pod (see Requirement: Tenant Credentials Secret).
+4. **An administrative role** on the server with `CREATEDB`, `CREATEROLE` and
+   membership in `pg_signal_backend` (to terminate a gateway's sessions before its
+   database is dropped). Full superuser is **not** required; the AWS RDS
+   `rds_superuser` role and the IBM Cloud Databases administrative user are both
+   acceptable. The admin role does not need, and SHOULD NOT be granted, the ability
+   to alter server-level configuration.
+5. **The admin Secret** `hypershell-gateway-database-admin` in the HyperShell
+   namespace (see Requirement: Admin Credential Mount). It is created by the
+   deployment (dev scripts, a secret-manager sync such as the optional External
+   Secrets component, or the operator by hand), never by the control plane.
+6. **Server-side log verbosity restricted.** `CREATE ROLE` and `ALTER ROLE` statements
+   carry the plaintext password in the statement text (the PostgreSQL wire protocol
+   has no separate credential-binding channel for these statements). Operators SHOULD
+   set `log_statement` to `'mod'` or lower, or enable server-side log redaction, on
+   the server. HyperShell redacts credentials in its own application logs and error
+   messages; server-side redaction is the operator's responsibility and HyperShell
+   cannot enforce it.
 
-- In the Kind development environment with CNPG mode (`DATABASE_PROVIDER=cnpg`), `make kind-up` installs the operator (see `local-development.spec.md`)
-- In production environments, the platform administrator installs the operator before setting `DATABASE_PROVIDER=cnpg` and registering the cluster with HyperShell
+### Assumption: one HyperShell install per server
 
-The control plane SHALL verify the exact CNPG API resources it depends on at startup: `clusters`, `databases`, and `databaseroles` in `postgresql.cnpg.io/v1`. It is not sufficient for some `postgresql.cnpg.io` API group to exist; all three resources must be served. If `DATABASE_PROVIDER=cnpg` and any of them is unavailable, the control plane SHALL fail to start with an explicit, contextual error (return/propagate the error and exit non-zero) rather than starting in a partially-functional state or panicking. See Requirement: CNPG Operator Detection below.
-
-### Deployment Mode
-
-No operator prerequisites. The control plane provisions a standard PostgreSQL Deployment using the `postgres:18` image (or the image configured via `OPENSHELL_DATABASE_IMAGE`).
+Per-gateway database and role names are `gw_<gatewayID>` (KSUID-unique) with no
+install-scoped prefix. Sharing one PostgreSQL server across multiple HyperShell
+installs is **out of scope** for this spec; doing so risks name collisions and is not
+supported. One install has exactly one gateway database server.
 
 ---
 
 ## Architecture
 
-### ManagedDatabase as the Database Abstraction Layer
-
-In both modes, a `ManagedDatabase` resource is the indirection between a gateway and its PostgreSQL infrastructure. A `Gateway` has a `database_id` foreign key pointing to a `ManagedDatabase`. The `ManagedDatabase` has a `provider` field (`cnpg` or `deployment`) that determines how the ManagedDatabaseReconciler provisions its infrastructure, and a `namespace` field (auto-assigned at creation) that locates that infrastructure in the cluster.
-
-### CNPG Mode Architecture
-
 ```
-ManagedDatabase (provider=cnpg)
-  │  ManagedDatabaseReconciler
-  ▼
-Namespace: openshell-db-<hex16>
-  └── CNPG Cluster: openshell-db
-        │  GatewayReconciler (per gateway)
-        ├── DatabaseRole: gw-<gatewayID>
-        ├── Database: gw-<gatewayID>
-        └── Secret: gw-<gatewayID>-credentials
+Platform team (out of band)
+  ├── PostgreSQL server (AWS RDS / IBM Cloud Databases / ...)  (endpoint + admin user + CA)
+  └── Secret hypershell-gateway-database-admin  (HyperShell namespace)
+        host / port / user / password / sslrootcert [/ dbname / sslmode=verify-full]
+              │ mounted read-only at /etc/hypershell/gateway-database
+              ▼
+      hypershell-controller Deployment
+        ├── startup: validate the mounted files, do NOT connect
+        └── GatewayReconciler (per gateway): re-read files, short-lived admin connection
+              ▼
+PostgreSQL server:
+  ├── ROLE     gw_<gatewayID>  (LOGIN, owns its database)
+  └── DATABASE gw_<gatewayID>  (owner gw_<gatewayID>; CONNECT revoked from PUBLIC)
 
-Gateway A ──database_id──→ ManagedDatabase ──namespace──→ CNPG Cluster
-Gateway B ──database_id──→ ManagedDatabase ──namespace──→ CNPG Cluster (same)
-Gateway C ──database_id──→ ManagedDatabase (different) ──→ different CNPG Cluster
+  └── Secret openshell-gateway-db-credentials (tenant namespace)
+        uri (sslmode=require)  →  Helm server.externalDbSecret  →  OPENSHELL_DB_URL
 ```
 
-Multiple gateways can share one ManagedDatabase. The ManagedDatabaseReconciler creates the CNPG Cluster once; the GatewayReconciler adds per-gateway `DatabaseRole`, `Database`, and password `Secret` CRs to it.
+### DDL execution: in-process, in the control plane
 
-### Deployment Mode Architecture
+The control plane issues DDL **in-process** using a PostgreSQL client, opening a
+short-lived admin connection per database operation and closing it afterward. It does
+**not** maintain a long-lived connection pool and does **not** launch Kubernetes Jobs
+to run SQL.
 
-```
-Gateway created
-  │  API server (deploymentPlacement)
-  ▼
-ManagedDatabase (provider=deployment) ← auto-created per gateway
-  │  ManagedDatabaseReconciler
-  ▼
-Namespace: openshell-db-<hex16>
-  ├── PVC: openshell-gateway-db-data
-  ├── Deployment: openshell-gateway-db (postgres:18)
-  ├── Service: openshell-gateway-db
-  └── Secret: openshell-db-credentials
+Rationale: per-gateway provisioning is a database operation, not a Kubernetes one.
+In-process execution gives synchronous, structured errors (required by the control
+plane conventions - `fmt.Errorf` with context, status set on every error path),
+trivially idempotent reconcile (query `pg_database`/`pg_roles`, then act), clean
+status transitions, and testability against a throwaway PostgreSQL
+(testcontainers). A Job-based approach would reintroduce the asynchronous
+log/exit-code parsing that the gRPC-watch reconciler pattern avoids.
 
-GatewayReconciler
-  └── copies Secret → openshell-gateway-db-credentials (tenant namespace)
-```
+### Why a mounted Secret and not an API resource
 
-Each gateway gets its own dedicated ManagedDatabase (and thus its own PostgreSQL pod). The API server auto-creates the ManagedDatabase at gateway creation time; no pre-existing database resource is required.
-
-### ManagedDatabase Namespace Naming
-
-In both modes, the ManagedDatabase namespace is derived from the ManagedDatabase's KSUID using the same pattern as gateway namespaces: `openshell-db-<hex16>`, where `<hex16>` is the lowercase hexadecimal encoding of 8 bytes from the KSUID's random payload. The API server assigns this namespace in `BeforeCreate`. Example: `openshell-db-a1b2c3d4e5f67890`.
-
-### Automatic Database Assignment
-
-The Gateway create contract keeps `cluster_id` and `database_id`. The API server stores `cluster_id` but SHALL NOT resolve, validate, or use it for database placement in any mode. The `database_id` value is server-owned in every mode. Clients send an empty string, and the API server SHALL ignore and replace any non-empty value. Omitting the property is invalid. The server-side `database_id` placement strategy depends on `DATABASE_PROVIDER`:
-
-**CNPG mode (`cnpgPlacement`):** For every Gateway creation, the API server ignores the requested `database_id` and queries all ManagedDatabases with `provider=cnpg`. If exactly one such ManagedDatabase exists, the API server assigns its ID. If zero or more than one exist, the API server rejects the request.
-
-**Deployment mode (`deploymentPlacement`):** For every Gateway creation, the API server ignores the requested `database_id`, creates a new ManagedDatabase (provider=deployment) for that gateway, and assigns its ID. No existing ManagedDatabase is necessary. A caller cannot select a database that another gateway uses.
-
-**External mode (`externalPlacement`):** For every Gateway creation, the API server ignores the requested `database_id` and selects, from all ManagedDatabases with `provider=external`, the one **created first** (creation timestamp ascending, ties broken by ID ascending). More than one registered external ManagedDatabase is not an error; zero is rejected. Selection happens only at creation, so a later registration never moves an existing gateway. No ManagedDatabase is created - external servers are registered by an administrator, never provisioned by HyperShell. Specified in full by [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md).
-
-The admin workflows differ accordingly:
-
-| | CNPG mode | Deployment mode | External mode |
-|---|---|---|---|
-| Pre-requisite | Create one ManagedDatabase (provider=cnpg) | None | Provision the server out-of-band, create the `hypershell-managed-db-<name>` namespace and its `hypershell-managed-db-credentials` Secret, and register at least one ManagedDatabase (provider=external) |
-| Gateway creation | Provide `name`; database auto-resolved; `cluster_id` has no placement effect | Provide `name`; ManagedDatabase auto-created; `cluster_id` has no placement effect | Provide `name`; first-created external ManagedDatabase auto-selected; `cluster_id` has no placement effect |
-
-In the Kind development environment, `make kind-up` seeds a single `openshell-db` ManagedDatabase in CNPG mode; no seeding is needed in deployment mode.
+The previous design registered servers through the API and stored a Secret
+reference per registration. That required a reserved namespace prefix and a fixed
+Secret name to stop an API-level reference from steering the control plane at an
+unrelated Secret, a placement step at gateway creation, a foreign key on Gateway, a
+status vocabulary, deletion protection, and inventory metrics - all for a value that
+is fixed per installation. Mounting the admin Secret into the controller removes
+that whole surface: whoever can deploy the controller chooses the server, no API
+caller can name a Secret, and there is nothing to place, protect or count.
 
 ---
 
 ## Requirements
 
-### Requirement: ManagedDatabase Provider Validation and Immutability
+### Requirement: Admin Credential Mount
 
-The API server SHALL accept only `cnpg`, `deployment`, and `external` as ManagedDatabase provider values. The `external` provider carries additional create-time validation specified in [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md). Once a ManagedDatabase has a supported provider, that provider is immutable: REST patches, gRPC updates, and internal callers MAY resend the same value but SHALL NOT transition the resource to another provider. Status-only and other mutable-field updates SHALL preserve the provider. A legacy resource whose persisted provider is unsupported MAY be corrected once to a supported provider; after correction, normal immutability applies.
+The controller Deployment SHALL mount a Secret holding the gateway database server's
+administrative connection read-only at the directory named by
+`GATEWAY_DATABASE_ADMIN_DIR` (default `/etc/hypershell/gateway-database`). The
+shipped manifests SHALL mount the Secret named `hypershell-gateway-database-admin`
+from the HyperShell namespace; the Secret name is deployment configuration and MAY
+be changed in an overlay without any code change.
 
-#### Scenario: Attempt to change a supported provider
+Each Secret key becomes a file in that directory:
 
-- GIVEN an existing ManagedDatabase with `provider: "deployment"`
-- WHEN a caller attempts to update its provider to `cnpg` or an unsupported value
-- THEN the API server SHALL reject the update as invalid input
-- AND the persisted provider SHALL remain `deployment`
+| File | Required | Meaning |
+|---|---|---|
+| `host` | yes | Server hostname/endpoint. Also the name the server certificate is verified against |
+| `port` | yes | Server port, an integer in `1`-`65535` (typically `5432`) |
+| `user` | yes | Admin role with `CREATEDB`, `CREATEROLE` and `pg_signal_backend` |
+| `password` | yes | Admin role password |
+| `sslrootcert` | yes | PEM CA bundle (one or more certificates) used to verify the server certificate. Operators supply PEM text, never a path |
+| `dbname` | no | Maintenance database the admin connection opens (default `postgres`). Per-gateway DDL runs from this connection |
+| `sslmode` | no | If present, MUST be `verify-full`. Any other value is a startup error |
 
-### Requirement: ManagedDatabase Reconciliation (provider=cnpg)
+The effective TLS mode of the admin connection SHALL always be `verify-full`: the
+server certificate SHALL be verified against `sslrootcert` and its hostname SHALL be
+verified against `host`. There is no configuration that lowers it.
 
-The ManagedDatabaseReconciler SHALL provision CNPG infrastructure for each ManagedDatabase with `provider: "cnpg"`.
+The control plane SHALL re-read the mounted files for **every** database operation
+(provisioning and cleanup) rather than caching their contents. The kubelet refreshes
+mounted Secrets in place, so an admin password change takes effect on the next
+operation without a controller restart.
 
-For each such ManagedDatabase, the reconciler SHALL:
+Admin credential values SHALL NEVER appear in logs, error strings, telemetry, Events,
+or API responses. Error messages MAY name the file that failed validation and the
+directory path; they SHALL NOT include the file contents.
 
-1. **Create the namespace** derived from the ManagedDatabase ID (`openshell-db-<hex16>`), if it does not exist
-2. **Create a CNPG Cluster CR** in that namespace:
-   - `metadata.name` = `openshell-db` (fixed name; isolation is per-namespace, not per-cluster-name)
-   - `spec.instances` = 1 (fixed default)
-   - `spec.storage.size` = `1Gi` (fixed default)
-   - `spec.resources` = `requests: {memory: 256Mi}`, `limits: {memory: 512Mi}`
-   - `spec.imageName` = value of `OPENSHELL_DATABASE_IMAGE` env var (omitted when unset; CNPG uses its default image)
-3. **Wait for the CNPG Cluster** to reach `Ready` status (all instances running)
-4. **Update the ManagedDatabase status** in the API server to reflect readiness
+#### Scenario: Password changed in the mounted Secret
 
-#### Scenario: New ManagedDatabase created (provider=cnpg)
+- GIVEN a running control plane and an admin Secret whose `password` is updated
+- WHEN the kubelet refreshes the mounted files
+- AND the GatewayReconciler next provisions or cleans up a gateway database
+- THEN it SHALL authenticate with the new password
+- AND no controller restart SHALL be required
 
-- GIVEN a new ManagedDatabase resource with `provider: "cnpg"`
-- WHEN the ManagedDatabaseReconciler processes the event
-- THEN it SHALL create the namespace `openshell-db-<hex16>`
-- AND it SHALL create a CNPG Cluster CR in that namespace
-- AND it SHALL wait for the Cluster to reach Ready
-- AND it SHALL update the ManagedDatabase status
+#### Scenario: Overlay renames the admin Secret
 
-#### Scenario: ManagedDatabase already exists (idempotent, cnpg)
-
-- GIVEN a ManagedDatabase whose CNPG Cluster is already running
-- WHEN the ManagedDatabaseReconciler re-processes the event
-- THEN it SHALL verify the namespace and Cluster exist
-- AND it SHALL NOT recreate them
-
----
-
-### Requirement: ManagedDatabase Reconciliation (provider=deployment)
-
-The ManagedDatabaseReconciler SHALL provision a standalone PostgreSQL Deployment for each ManagedDatabase with `provider: "deployment"`.
-
-For each such ManagedDatabase, the reconciler SHALL:
-
-1. **Create the namespace** derived from the ManagedDatabase ID (`openshell-db-<hex16>`), if it does not exist
-2. **Create or update a credentials Secret** (`openshell-db-credentials`) in that namespace:
-   - `user` = `openshell`
-   - `password` = 32-byte cryptographically random hex string (`crypto/rand`), generated once and preserved on subsequent reconciliations
-   - `dbname` = `openshell`
-   - `host`, `port`, and `uri` are recomputed and converged on every reconciliation
-   - `uri` = `postgresql://openshell:<password>@openshell-gateway-db.<namespace>.svc.cluster.local:5432/openshell?sslmode=disable`
-3. **Create or update a PVC** (`openshell-gateway-db-data`, `1Gi`)
-4. **Create or update a Deployment** (`openshell-gateway-db`) running `postgres:18` (or `OPENSHELL_DATABASE_IMAGE`):
-   - Mounts the PVC at `/var/lib/postgresql/data`
-   - Reads `POSTGRES_PASSWORD` from the credentials Secret
-   - On vanilla Kubernetes, uses image-specific PostgreSQL UID/GID (`999` for upstream `postgres`, `26` for Red Hat PostgreSQL images), a matching pod `fsGroup`, and `fsGroupChangePolicy: OnRootMismatch` so a freshly provisioned volume is writable
-   - On OpenShift, omits fixed `runAsUser`, `runAsGroup`, `fsGroup`, and `fsGroupChangePolicy` values so the restricted SCC assigns namespace-valid identities; all other restricted security controls remain enabled
-   - Uses upstream `POSTGRES_*` variables and `/var/lib/postgresql/data` paths by default; legacy RHEL `postgresql-*` images use `POSTGRESQL_*` variables and `/var/lib/pgsql/data`
-   - Mounts writable `emptyDir` volumes for `/var/run/postgresql` and `/tmp` while keeping the container root filesystem read-only
-   - `securityContext`: `runAsNonRoot: true`, seccomp `RuntimeDefault`, no privilege escalation, and drops `ALL` capabilities
-5. **Create or update a Service** (`openshell-gateway-db`, port 5432, ClusterIP)
-6. **Wait up to 2 minutes** for the Deployment to become ready (all replicas available)
-7. **Update the ManagedDatabase status** in the API server to reflect readiness
-
-All resources carry label `hypershell.redhat.io/managed: "true"` and the `app: openshell-gateway-db` selector.
-
-#### Scenario: New ManagedDatabase created (provider=deployment)
-
-- GIVEN a new ManagedDatabase resource with `provider: "deployment"`
-- WHEN the ManagedDatabaseReconciler processes the event
-- THEN it SHALL create the namespace, credentials Secret, PVC, Deployment, and Service
-- AND it SHALL wait for the Deployment to become ready (2-minute timeout)
-- AND it SHALL update the ManagedDatabase status
-
-#### Scenario: ManagedDatabase already exists (idempotent, deployment)
-
-- GIVEN a ManagedDatabase whose Deployment is already running
-- WHEN the ManagedDatabaseReconciler re-processes the event
-- THEN it SHALL reconcile each resource (create-or-update) without regenerating the password
-
-#### Scenario: Deployment readiness timeout (provider=deployment)
-
-- GIVEN a ManagedDatabase with `provider: "deployment"`
-- WHEN the Deployment does not become ready within 2 minutes
-- THEN the reconciler SHALL return an error
-- AND the ManagedDatabase phase SHALL remain `Provisioning`
-- AND the next reconciliation SHALL retry
+- GIVEN an overlay that mounts a Secret with a different name at
+  `GATEWAY_DATABASE_ADMIN_DIR`
+- WHEN the control plane starts
+- THEN it SHALL read the credential files from that directory
+- AND SHALL NOT look up any Secret by name through the Kubernetes API
 
 ---
 
-### Requirement: ManagedDatabase Deletion Protection
+### Requirement: Startup Precondition
 
-A ManagedDatabase SHALL NOT be deleted if any Gateway references it via `database_id`. This prevents orphaned gateway databases.
+The control plane SHALL validate the admin credential directory before it serves any
+watch stream, and SHALL refuse to start - log a fatal error naming the failing file
+(never its contents) and exit non-zero - when any of the following holds:
 
-A ManagedDatabase delete watch event SHALL carry the soft-deleted resource as a tombstone, including at least its ID, provider, and namespace. The API server SHALL retain soft-deleted rows and expose their tombstones through a dedicated paginated replay mode of the watch RPC so cleanup survives control-plane restarts and watch disconnections. When RBAC is enabled, this fleet-unscoped historical replay mode SHALL be restricted to the configured control-plane service-account allowlist; ordinary gateway roles SHALL retain no access to it. The control plane SHALL start and continuously drain the live subscription before requesting historical replay, preventing replay backpressure from filling the live broker buffer. The watch subscription handshake SHALL advertise the `hypershell-managed-database-delete-tombstones: v1` capability; a control plane that requires tombstones SHALL reject a watch lacking that capability rather than silently accepting an incompatible stream. Release rollout SHALL update and confirm the API server Ready before updating the control plane. The control plane SHALL use the tombstone to select the cleanup path, retain failed cleanup in a watch-lifetime retry queue until it succeeds, and treat already-absent resources as successful cleanup. It SHALL propagate every non-NotFound cleanup failure and SHALL NOT guess a namespace from a resource name or ID.
+1. The directory does not exist or is not readable.
+2. Any required file (`host`, `port`, `user`, `password`, `sslrootcert`) is missing
+   or empty after trimming whitespace.
+3. `sslrootcert` does not contain at least one parseable PEM certificate.
+4. `port` is not an integer in `1`-`65535`.
+5. `sslmode` is present and is anything other than `verify-full`.
 
-#### Scenario: Attempt to delete ManagedDatabase with referencing gateways
+Validation is **file-only**. The control plane SHALL NOT open a connection to the
+server at startup: server reachability, authentication and admin privileges are
+checked at reconcile time, per gateway, with the reconcile queue's retries. A server
+that is down when the controller starts delays gateway provisioning; it does not
+prevent the controller from running.
 
-- GIVEN a ManagedDatabase referenced by one or more Gateways
-- WHEN a user attempts to delete the ManagedDatabase
-- THEN the API server SHALL reject the deletion with HTTP 409: "managed database cannot be deleted while gateways reference it; reassign or delete all referencing gateways first"
+> **Why fail fast on files but not on connectivity.** A missing or malformed
+> credential file is a deployment error that no retry will fix, and every gateway
+> reconcile would fail the same way; exiting makes the misconfiguration visible as a
+> crash-looping Deployment. An unreachable server is a runtime condition that
+> retries do fix, and tying controller liveness to it would take down namespace GC,
+> Keycloak reconciliation and every other controller duty for a database outage.
 
-#### Scenario: Delete ManagedDatabase (cnpg) with no referencing gateways
+#### Scenario: Required file missing
 
-- GIVEN a ManagedDatabase (provider=cnpg) with no Gateway references
-- WHEN a user deletes the ManagedDatabase
-- THEN the ManagedDatabaseReconciler SHALL delete the CNPG Cluster CR
-- AND delete the namespace `openshell-db-<hex16>`
+- GIVEN the admin Secret lacks a `sslrootcert` key
+- WHEN the control plane starts
+- THEN it SHALL log a fatal error naming `sslrootcert` and the directory
+- AND SHALL exit non-zero before serving any watch stream
 
-#### Scenario: Delete ManagedDatabase (deployment) with no referencing gateways
+#### Scenario: sslmode set to a weaker value
 
-- GIVEN a ManagedDatabase (provider=deployment) with no Gateway references
-- WHEN a user deletes the ManagedDatabase
-- THEN the delete watch event SHALL include the soft-deleted ManagedDatabase tombstone
-- AND the ManagedDatabaseReconciler SHALL delete the Deployment, Service, PVC, and credentials Secret
-- AND delete the namespace `openshell-db-<hex16>`
-- AND replaying the same delete event after those resources are absent SHALL succeed
+- GIVEN the admin Secret carries `sslmode: require`
+- WHEN the control plane starts
+- THEN it SHALL log a fatal error stating that `sslmode` must be `verify-full`
+- AND SHALL exit non-zero
+
+#### Scenario: CA bundle is not PEM
+
+- GIVEN `sslrootcert` contains text that yields no certificate when parsed as PEM
+- WHEN the control plane starts
+- THEN it SHALL log a fatal error naming `sslrootcert`
+- AND SHALL exit non-zero
+
+#### Scenario: Server unreachable at startup
+
+- GIVEN valid credential files and a server that is not reachable
+- WHEN the control plane starts
+- THEN it SHALL start normally and serve watch streams
+- AND the first gateway reconcile that needs the database SHALL fail with a
+  contextual error and be retried
 
 ---
 
-### Requirement: Gateway Database Resolution
+### Requirement: Per-Gateway Database Provisioning
 
-The GatewayReconciler SHALL resolve the gateway's `database_id` to a ManagedDatabase resource to determine the provider and the infrastructure location. The global `CNPG_CLUSTER_NAME`/`CNPG_CLUSTER_NAMESPACE` environment variables are removed; each gateway's database target is derived from its ManagedDatabase. Every gateway MUST have a `database_id`; a missing value is an error.
+The GatewayReconciler SHALL provision a dedicated PostgreSQL database and login role
+for each gateway by issuing idempotent DDL against the server over an admin
+connection opened from the mounted credentials.
 
-#### Resolution flow:
+Role and database are both named `gw_<gatewayID>` (underscores; PostgreSQL identifiers
+avoid hyphens). `<gatewayID>` is the gateway's full resource ID, lowercased.
 
-1. Read the gateway's `database_id` from the gRPC watch event
-2. Look up the ManagedDatabase resource via the API server
-3. Extract `namespace` and `provider`
-4. Dispatch based on the ManagedDatabase's `provider` field (this is independent of the control plane's `DATABASE_PROVIDER` startup setting, which only gates the CNPG-availability precondition at process startup -- see Requirement: CNPG Operator Detection -- so existing CNPG-backed gateways keep reconciling correctly even when `DATABASE_PROVIDER` defaults to `deployment`)
+For each gateway, the reconciler SHALL:
 
-#### Scenario: Gateway with valid database_id (cnpg)
+1. Re-read the admin credential files (see Requirement: Admin Credential Mount).
+2. Determine the per-gateway password: if the tenant-namespace Secret
+   `openshell-gateway-db-credentials` already exists with a `password`, **reuse it**
+   (do not regenerate on re-reconciliation); otherwise generate a 32-byte
+   cryptographically random hex password (`crypto/rand`) and treat it as
+   authoritative, forcing it onto the role in step 3.
+3. Open a short-lived admin connection and reconcile, idempotently:
+   - **Role:** if `gw_<gatewayID>` is absent (`SELECT 1 FROM pg_roles ...`), create it
+     with `LOGIN` and the password. If the role is present **and** the password was
+     reused from an existing tenant Secret, leave it alone. If the role is present but
+     the password was newly generated - because the tenant Secret was absent - the
+     reconciler SHALL `ALTER ROLE gw_<gatewayID> PASSWORD '<new>'` so the role matches
+     the Secret it is about to write. Writing a freshly generated password into the
+     tenant Secret without applying it to an existing role produces a gateway that can
+     never authenticate and that re-reconciliation would not repair.
+   - **Ownership grant:** `GRANT gw_<gatewayID> TO <admin user>`. A non-superuser
+     admin can only create a database owned by a role it is a member of, so this
+     grant is what lets `CREATEDB` + `CREATEROLE` suffice without superuser. It is
+     idempotent (re-granting an existing membership is a no-op notice).
+   - **Database:** if `gw_<gatewayID>` is absent (`SELECT 1 FROM pg_database ...`),
+     create it with `OWNER gw_<gatewayID>`. (`CREATE DATABASE` cannot run inside a
+     transaction block and has no `IF NOT EXISTS`; the reconciler SHALL guard it with
+     an existence check rather than relying on catching an error.)
+   - **Isolation:** `REVOKE CONNECT ON DATABASE gw_<gatewayID> FROM PUBLIC` and
+     `GRANT CONNECT ON DATABASE gw_<gatewayID> TO gw_<gatewayID>`, so no other
+     gateway's role can connect.
+4. Write/refresh the tenant-namespace Secret `openshell-gateway-db-credentials` (see
+   Requirement: Gateway Credentials Secret).
+5. Proceed to deploy the gateway workload only after DDL and the credentials Secret
+   succeed.
 
-- GIVEN a Gateway with a `database_id` pointing to a ManagedDatabase (provider=cnpg)
+All DDL SHALL be idempotent: re-running against an already-provisioned gateway SHALL
+make no destructive change and SHALL NOT regenerate the password. Every non-benign SQL
+error SHALL be propagated with context (never swallowed); credentials SHALL NOT appear
+in error text. A connection, authentication or privilege failure is a retryable
+provisioning error: the reconciler SHALL set the `DatabaseReady` condition to
+`Failed` with a user-facing message (see
+[`gateway-provisioning-progress.spec.md`](./gateway-provisioning-progress.spec.md))
+and return the error to the reconcile queue.
+
+> **This is provisioning repair, not credential rotation.** The `ALTER ROLE` in step 3
+> exists solely so a gateway whose tenant Secret was lost can authenticate again.
+> HyperShell does not rotate gateway database credentials - see Requirement: No
+> Credential Rotation.
+
+#### Scenario: New gateway provisioned
+
+- GIVEN a new Gateway
 - WHEN the GatewayReconciler processes the event
-- THEN it SHALL resolve the ManagedDatabase's namespace and cluster name
-- AND proceed with per-gateway CNPG resource provisioning in that namespace
+- THEN it SHALL create role and database `gw_<gatewayID>` on the server if absent
+- AND grant `gw_<gatewayID>` to the admin user before creating the database
+- AND revoke `CONNECT` from `PUBLIC` on that database and grant it to `gw_<gatewayID>`
+- AND write `openshell-gateway-db-credentials` into the tenant namespace
+- AND proceed to deploy the gateway workload
 
-#### Scenario: Gateway with valid database_id (deployment)
+#### Scenario: Re-reconcile an already-provisioned gateway
 
-- GIVEN a Gateway with a `database_id` pointing to a ManagedDatabase (provider=deployment)
+- GIVEN a Gateway whose role and database already exist
+- WHEN the GatewayReconciler re-processes the event
+- THEN it SHALL detect both exist and make no destructive change
+- AND SHALL NOT regenerate or alter the password
+
+#### Scenario: Tenant credentials Secret lost while the role still exists
+
+- GIVEN a Gateway whose role `gw_<gatewayID>` exists on the server
+- AND whose tenant-namespace `openshell-gateway-db-credentials` Secret is absent (for
+  example after tenant-namespace garbage collection or a cluster rebuild)
 - WHEN the GatewayReconciler processes the event
-- THEN it SHALL wait for the live `openshell-gateway-db` Deployment in the ManagedDatabase namespace to become ready
-- AND only after readiness SHALL it read the credentials Secret from the ManagedDatabase's namespace
-- AND copy it into the gateway's tenant namespace as `openshell-gateway-db-credentials`
+- THEN it SHALL generate a new password, apply it to the existing role with
+  `ALTER ROLE`, and write the matching tenant Secret
+- AND the gateway SHALL be able to authenticate without operator intervention
 
-#### Scenario: Gateway created with database auto-resolved (cnpg mode)
+#### Scenario: Non-superuser admin creates the database
 
-- GIVEN `DATABASE_PROVIDER=cnpg` and a Gateway with any `cluster_id` and blank `database_id`
-- WHEN the API server processes the creation request
-- THEN the API server SHALL query all ManagedDatabases
-- AND if exactly one exists, assign its ID as the gateway's `database_id`
-- AND if zero or more than one exist, reject the creation with an error
-- AND preserve the requested `cluster_id` value
+- GIVEN an admin role that has `CREATEDB` and `CREATEROLE` but is not a superuser
+- WHEN the GatewayReconciler provisions a new gateway
+- THEN `CREATE DATABASE gw_<gatewayID> OWNER gw_<gatewayID>` SHALL succeed because
+  the admin was granted membership in `gw_<gatewayID>` first
 
-#### Scenario: Gateway created (deployment mode, ManagedDatabase auto-created)
+#### Scenario: Server unreachable during gateway provisioning
 
-- GIVEN `DATABASE_PROVIDER=deployment` (or unset/empty, the default) and a Gateway request containing the required `database_id` property
-- WHEN the API server processes the creation request
-- THEN the API server SHALL ignore the property's value, including any non-empty caller-selected ID
-- AND auto-create a new ManagedDatabase (provider=deployment) for this gateway
-- AND assign the new ManagedDatabase's ID as the gateway's `database_id`
+- GIVEN a Gateway whose database server is unreachable
+- WHEN the GatewayReconciler attempts DDL
+- THEN it SHALL return a contextual error without credentials in its text
+- AND set `DatabaseReady` to `Failed` with a user-facing message
+- AND SHALL NOT create the gateway workload
+- AND the reconcile queue SHALL retry
 
----
+#### Scenario: Admin role lacks required privileges
 
-### Requirement: Per-Gateway Database Provisioning (CNPG Mode)
-
-In CNPG mode, the GatewayReconciler SHALL provision a dedicated PostgreSQL database and role for each gateway using CNPG custom resources. All CNPG resources (DatabaseRole, Database, and the password Secret) SHALL be created in the ManagedDatabase's namespace.
-
-For each gateway, the reconciler SHALL create three resources in the ManagedDatabase's namespace:
-
-1. **Password Secret** (`gw-<gatewayID>-credentials`)
-   - Type: `kubernetes.io/basic-auth`
-   - `username` = `gw_<gatewayID>` (the PostgreSQL role name)
-   - `password` = 32-byte cryptographically random hex string (`crypto/rand`)
-   - Label: `cnpg.io/reload: "true"` (ensures CNPG applies password changes immediately)
-   - Label: `hypershell.redhat.io/managed: "true"`
-   - Created with create-or-skip semantics (do NOT update password on re-reconciliation)
-
-2. **DatabaseRole** (`gw-<gatewayID>`)
-   - Kind: `DatabaseRole` (apiVersion: `postgresql.cnpg.io/v1`)
-   - `spec.cluster.name` = the ManagedDatabase's CNPG Cluster name
-   - `spec.name` = `gw_<gatewayID>` (the PostgreSQL role name; underscores for valid SQL identifiers)
-   - `spec.login` = `true`
-   - `spec.passwordSecret.name` = `gw-<gatewayID>-credentials`
-   - `spec.databaseRoleReclaimPolicy` = `delete` (drop role when CR is deleted)
-   - Label: `hypershell.redhat.io/managed: "true"`
-   - Label: `hypershell.redhat.io/gateway-namespace: "<tenant-namespace>"` (for cleanup)
-
-3. **Database** (`gw-<gatewayID>`)
-   - Kind: `Database` (apiVersion: `postgresql.cnpg.io/v1`)
-   - `spec.cluster.name` = the ManagedDatabase's CNPG Cluster name
-   - `spec.name` = `gw_<gatewayID>` (the PostgreSQL database name)
-   - `spec.owner` = `gw_<gatewayID>` (same as the role)
-   - `spec.databaseReclaimPolicy` = `delete` (drop database when CR is deleted)
-   - Label: `hypershell.redhat.io/managed: "true"`
-   - Label: `hypershell.redhat.io/gateway-namespace: "<tenant-namespace>"` (for cleanup)
-
-> **Naming convention:** `<gatewayID>` is the Gateway's full resource ID (lowercased). The database and role use underscores (`gw_<gatewayID>`) because PostgreSQL identifiers conventionally avoid hyphens. The Kubernetes CR names use hyphens (`gw-<gatewayID>`) per Kubernetes naming conventions.
-
-The reconciler SHALL then wait for the CNPG `Database` CR to reach `status.applied: true` (2-minute timeout) before creating the tenant-namespace credentials Secret and proceeding to deploy the gateway workload.
-
----
-
-### Requirement: Per-Gateway Database Provisioning (Deployment Mode)
-
-In deployment mode, the GatewayReconciler SHALL copy the shared credentials Secret from the ManagedDatabase's namespace into the gateway's tenant namespace. The PostgreSQL instance is already provisioned by the ManagedDatabaseReconciler; the gateway reconciler only propagates access.
-
-The reconciler SHALL:
-
-1. Observe the live `openshell-gateway-db` Deployment in the ManagedDatabase's namespace and wait up to 2 minutes for it to become ready
-2. Read the `openshell-db-credentials` Secret from the ManagedDatabase's namespace
-3. Create or update `openshell-gateway-db-credentials` in the gateway's tenant namespace with the same connection details
-4. Proceed to apply the gateway workload only after the readiness check and credential copy succeed
-
-No CNPG CRs are created. A timeout or canceled wait SHALL return a contextual error without copying credentials or creating a new gateway workload; transient observation errors MAY be retried within the bounded readiness window.
+- GIVEN an admin role without `CREATEDB` or `CREATEROLE`
+- WHEN the GatewayReconciler attempts to create the role or database
+- THEN the SQL permission error SHALL be propagated with context and retried
+- AND the gateway workload SHALL NOT be deployed
 
 ---
 
 ### Requirement: Gateway Credentials Secret
 
-After per-gateway database provisioning, the GatewayReconciler SHALL ensure a credentials Secret named `openshell-gateway-db-credentials` exists in the gateway's tenant namespace. The gateway workload consumes this Secret for its database connection.
-
-The Secret contents differ by provider:
-
-**CNPG mode:**
+After per-gateway DDL, the GatewayReconciler SHALL ensure the tenant-namespace Secret
+`openshell-gateway-db-credentials` exists with exactly these keys:
 
 | Key | Value |
 |---|---|
-| `host` | `openshell-db-rw.<managed-db-namespace>.svc.cluster.local` |
-| `port` | `5432` |
+| `host` | server endpoint (from the admin `host` file) |
+| `port` | server port (from the admin `port` file) |
 | `dbname` | `gw_<gatewayID>` |
 | `user` | `gw_<gatewayID>` |
-| `password` | generated password |
-| `uri` | `postgresql://gw_<gatewayID>:<password>@<host>:5432/gw_<gatewayID>?sslmode=require` |
+| `password` | generated per-gateway password |
+| `sslmode` | `require` (constant) |
+| `uri` | `postgresql://gw_<gatewayID>:<password>@<host>:<port>/gw_<gatewayID>?sslmode=require` |
 
-**Deployment mode:**
+The Secret SHALL NOT carry an `sslrootcert` key.
 
-| Key | Value |
-|---|---|
-| `host` | `openshell-gateway-db.<managed-db-namespace>.svc.cluster.local` |
-| `port` | `5432` |
-| `dbname` | `openshell` |
-| `user` | `openshell` |
-| `password` | generated password (from the ManagedDatabase's credentials Secret) |
-| `uri` | `postgresql://openshell:<password>@<host>:5432/openshell?sslmode=disable` |
+The gateway workload is deployed through the upstream OpenShell Helm chart. The
+control plane SHALL point the chart at this Secret with
+`server.externalDbSecret`, and the chart injects the Secret's `uri` key into the
+gateway container as `OPENSHELL_DB_URL` (see
+[`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and
+[`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md)).
 
-The `uri` key provides the full connection string for the gateway's `--db-url` argument. The gateway Deployment SHALL reference this Secret via environment variable.
+The chart reads **only** the `uri` key of this Secret and provides no mechanism to
+mount an additional CA file into the gateway pod for the database connection; its
+`caConfigMapName` values cover the OIDC issuer and the Vault credential driver
+only. The gateway connection is therefore capped at `sslmode=require`: the
+transport is encrypted, but the server certificate and hostname are **not**
+verified by the gateway. This is a deliberate, bounded deviation from the admin
+connection, which reads its CA from a file the control plane mounts itself and
+stays `verify-full`. Raising the gateway connection to `verify-full` requires an
+upstream chart mechanism for a database CA volume.
 
-> **TLS:** CNPG clusters enable TLS by default (`sslmode=require`). Deployment mode uses a plain TCP connection without TLS (`sslmode=disable`). Upgrading deployment mode to TLS is a future hardening step.
+The tenant Secret SHALL carry only the gateway's own role and database. Admin
+`user` and `password` SHALL NEVER be written into a tenant namespace. The tenant
+Secret SHALL carry the management label `hypershell.redhat.io/managed: "true"` so
+tenant-namespace cleanup reclaims it.
+
+The `sslmode` in the tenant Secret and in `uri` SHALL always be `require`. There is
+no configuration, annotation or environment variable that lowers it further, and
+none that raises it while the chart cannot mount a database CA.
+
+#### Scenario: Credentials Secret written
+
+- GIVEN a provisioned role and database for a Gateway
+- WHEN the GatewayReconciler writes the tenant credentials Secret
+- THEN the `uri` SHALL carry `sslmode=require`
+- AND the Secret SHALL have no `sslrootcert` key
+- AND the Secret SHALL contain no admin `user` or `password`
+
+#### Scenario: Gateway connects over an encrypted connection
+
+- GIVEN a gateway workload deployed by the Helm chart for a provisioned Gateway
+- WHEN the gateway pod starts
+- THEN `OPENSHELL_DB_URL` SHALL be sourced from the Secret's `uri` key
+- AND the connection SHALL negotiate TLS because `sslmode=require`
+- AND a server that refuses TLS SHALL make the connection fail rather than fall
+  back to plaintext
 
 ---
 
-### Requirement: Database Provisioning Readiness
+### Requirement: CA Bundle Rotation
 
-**CNPG mode:** The GatewayReconciler SHALL wait for the CNPG `Database` CR to reach `status.applied: true` (2-minute timeout) before proceeding to deploy the gateway workload.
+When the server's CA changes, the operator SHALL update the admin Secret's
+`sslrootcert` to a bundle containing **both** the old and the new CA for the
+transition period, then remove the old CA once the server no longer presents the
+old chain.
 
-**Deployment mode:** The ManagedDatabaseReconciler waits for the Deployment to become ready (2-minute timeout) before marking the ManagedDatabase ready. Because ManagedDatabase and Gateway events are reconciled independently, the GatewayReconciler SHALL also observe the live Deployment and wait up to 2 minutes for readiness before copying credentials or creating a new gateway workload. A credentials Secret alone is not proof of readiness.
+The control plane re-reads the mounted admin files on every database operation, so
+a rotated bundle takes effect without a controller restart. Because the tenant
+Secret carries no CA bundle, a CA rotation SHALL NOT require rewriting tenant
+Secrets, regenerating passwords or restarting gateway Deployments.
 
-#### Scenario: Database provisioning completes successfully (cnpg)
+#### Scenario: Admin bundle updated
 
-- GIVEN a new Gateway resource (cnpg mode)
-- WHEN the GatewayReconciler creates the DatabaseRole and Database CRs
-- AND the CNPG operator reconciles them (`status.applied: true`)
-- THEN the reconciler SHALL proceed to deploy the gateway workload
-
-#### Scenario: Database provisioning times out (cnpg)
-
-- GIVEN a new Gateway resource (cnpg mode)
-- WHEN the CNPG Database CR does not reach `status.applied: true` within 2 minutes
-- THEN the reconciler SHALL return an error
-- AND the Gateway phase SHALL remain `Provisioning`
-- AND the next reconciliation SHALL retry
-
----
-
-### Requirement: Database Credential Security
-
-- Passwords SHALL be generated using `crypto/rand` (32 bytes, hex-encoded)
-- Passwords SHALL NEVER appear in log messages or error strings
-- Password Secrets SHALL be created with create-or-skip semantics (do NOT update password on re-reconciliation)
-- In CNPG mode, the `cnpg.io/reload: "true"` label on the password Secret ensures CNPG picks up password changes immediately when rotation occurs
-
----
-
-### Requirement: Manual Credential Rotation
-
-The GatewayReconciler SHALL support manual database credential rotation for CNPG mode gateways. Deployment and external mode gateways SHALL NOT support rotation; for external mode see [`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md) § Requirement: No Credential Rotation (External Mode).
-
-- To trigger rotation, an operator adds the annotation `hypershell.redhat.io/rotate-db-credentials: "<timestamp>"` to the Gateway resource
-- When the reconciler detects a new value for this annotation (different from the last-observed value stored on the gateway credentials Secret), it SHALL:
-  1. Generate a new password using `crypto/rand`
-  2. Update the password Secret (`gw-<gatewayID>-credentials`) in the ManagedDatabase namespace
-  3. The CNPG operator applies the password change to PostgreSQL automatically (via the `cnpg.io/reload` label)
-  4. Update the gateway credentials Secret (`openshell-gateway-db-credentials`) in the tenant namespace
-  5. Set annotation `hypershell.redhat.io/last-db-rotation` on the gateway credentials Secret to match the trigger annotation
-  6. The config-hash annotation on the Deployment changes, triggering a rolling restart
-
-The full rotation design (procedure, failure handling, config-hash coverage) is specified in [`openshell-gateway-secret-rotation.spec.md`](./openshell-gateway-secret-rotation.spec.md).
+- GIVEN a running control plane provisioning gateway databases
+- AND the admin Secret's `sslrootcert` now contains the old and the new CA
+- WHEN the GatewayReconciler next performs a database operation
+- THEN it SHALL verify the server against the updated bundle without a restart
+- AND SHALL leave tenant Secrets, passwords and gateway Deployments untouched
+- AND SHALL NOT alter any role on the server
 
 ---
 
 ### Requirement: Gateway Workload Type
 
-The gateway workload SHALL always be deployed as a Deployment (not a StatefulSet). In both modes, the gateway workload does not require persistent local storage; database storage is managed by the ManagedDatabase's infrastructure (CNPG Cluster or standalone Deployment).
+The gateway workload SHALL always be deployed as a Deployment (not a StatefulSet). The
+gateway workload does not require persistent local storage; its data lives in its
+per-gateway database on the server.
 
 ---
 
-### Requirement: Database Resource Provisioning Order
+### Requirement: Per-Gateway Cleanup
 
-In CNPG mode, CNPG resources (password Secret, DatabaseRole, Database) SHALL be created BEFORE the gateway workload. After creating the Database CR, the control plane SHALL wait for `status.applied: true` (2-minute timeout) before deploying the gateway.
+When a Gateway is deleted, the control plane SHALL destroy that gateway's database and
+role. Deletion is **unconditional**: there is no retention policy, no per-database
+configuration, and no operator confirmation.
 
-In deployment mode, the ManagedDatabase's Deployment SHALL be ready before the GatewayReconciler attempts to copy the credentials Secret.
+> **Recovery is the server owner's responsibility.** AWS RDS/Aurora and IBM Cloud
+> Databases both provide automated backups and point-in-time recovery, which is among
+> the reasons an operator selects a managed offering. HyperShell's drop is not the last
+> line of defence against accidental deletion, and HyperShell SHALL NOT attempt to be
+> one by retaining orphaned tenant databases on a shared server.
 
----
+The Gateway delete watch event carries the gateway ID, which is all the state cleanup
+needs: both PostgreSQL object names derive from it, and the admin connection comes
+from the mounted credentials.
 
-### Requirement: Gateway Deletion Cleanup
+Over an admin connection opened from freshly re-read credentials, the control plane
+SHALL:
 
-When a Gateway is deleted:
+1. Terminate active backends connected to `gw_<gatewayID>` (`pg_terminate_backend` over
+   `pg_stat_activity`; this is why the admin role needs `pg_signal_backend`), so the
+   drop is not blocked by the gateway's own lingering connections.
+2. `DROP DATABASE gw_<gatewayID> WITH (FORCE)` (guarded by an existence check;
+   `DROP DATABASE` cannot run inside a transaction block).
+3. `DROP ROLE gw_<gatewayID>`.
 
-**CNPG mode:** The control plane SHALL delete the CNPG resources in the ManagedDatabase's namespace:
+Cleanup SHALL be idempotent: an already-absent database or role counts as successful
+cleanup, so replaying a delete is safe.
 
-1. Delete the `Database` CR (`gw-<gatewayID>`) -- CNPG drops the PostgreSQL database (`databaseReclaimPolicy: delete`)
-2. Delete the `DatabaseRole` CR (`gw-<gatewayID>`) -- CNPG drops the PostgreSQL role (`databaseRoleReclaimPolicy: delete`)
-3. Delete the password Secret (`gw-<gatewayID>-credentials`) in the ManagedDatabase namespace
+Resources in the gateway's tenant namespace (including
+`openshell-gateway-db-credentials`) are removed by the existing label-based tenant
+namespace cleanup (`hypershell.redhat.io/managed: "true"`).
 
-CNPG resources in the ManagedDatabase namespace are identified for cleanup using the label `hypershell.redhat.io/gateway-namespace: "<tenant-namespace>"`.
+#### Failure handling: retry plus a durable signal
 
-**Deployment mode:** Because each gateway has its own dedicated ManagedDatabase, the ManagedDatabase is deleted along with the gateway (since it will have no remaining references). ManagedDatabase deletion triggers cleanup of the Deployment, Service, PVC, and credentials Secret in the ManagedDatabase namespace.
+Per-gateway database cleanup is a **required-inline** class in
+[`gateway-deletion-finalization.spec.md`](./gateway-deletion-finalization.spec.md):
+there is no sweep that reclaims a leftover database later. When the existence query,
+the connection, the backend termination or either `DROP` fails, the control plane
+SHALL:
 
-**Both modes:** Resources in the gateway's tenant namespace (including `openshell-gateway-db-credentials`) are cleaned up by the existing label-based cleanup (`hypershell.redhat.io/managed: "true"`).
+1. Return a contextual error (no credentials in its text) so the Gateway delete event
+   is retried by the reconcile queue with bounded backoff; and
+2. Record an `IncompleteFinalization` Warning Event through the orphan recorder, with
+   resource kind `PostgreSQLDatabase` and resource name `gw_<gatewayID>`, in the
+   control-plane namespace, naming the reason without secrets.
 
-#### Scenario: Delete gateway (cnpg mode)
+The Event SHALL be recorded on the **first** failure, not only after retries are
+exhausted, because the reconcile queue is in-memory: if the controller restarts while
+a retry is pending, the pending retry is lost and the API server does not re-deliver
+the delete event for an already soft-deleted row. The Event is therefore the durable
+record that an operator must check the server, and the runbook below is the
+recovery path. A retry that later succeeds leaves the earlier Event in place; the
+Event says a leftover **may** exist, and step 1 of the runbook confirms whether it
+does.
 
-- GIVEN a Gateway (cnpg mode) with no active sandboxes
-- WHEN a user deletes the Gateway
-- THEN the control plane SHALL delete CNPG resources (Database, DatabaseRole, password Secret) from the ManagedDatabase namespace
-- AND delete all resources with label `hypershell.redhat.io/managed: "true"` from the tenant namespace
+#### Scenario: Delete gateway
 
-#### Scenario: Delete gateway (deployment mode)
+- GIVEN a Gateway with no active sandboxes
+- WHEN the Gateway is deleted
+- THEN the control plane SHALL terminate active connections to `gw_<gatewayID>`, drop
+  the database with `FORCE`, then drop the role
+- AND SHALL delete all resources with label `hypershell.redhat.io/managed: "true"` from
+  the tenant namespace, including the credentials Secret
 
-- GIVEN a Gateway (deployment mode) with no active sandboxes
-- WHEN a user deletes the Gateway
-- THEN the control plane SHALL delete the gateway's dedicated ManagedDatabase
-- AND the ManagedDatabaseReconciler SHALL delete the Deployment, Service, PVC, credentials Secret, and namespace
-- AND delete all resources with label `hypershell.redhat.io/managed: "true"` from the tenant namespace
+#### Scenario: Replay a cleanup whose objects are already gone
+
+- GIVEN a delete event for a Gateway whose database and role are absent
+- WHEN the control plane runs the cleanup
+- THEN it SHALL treat both as successfully cleaned up and SHALL NOT return an error
+- AND SHALL NOT record an `IncompleteFinalization` Event
+
+#### Scenario: Cleanup fails while the server is unreachable
+
+- GIVEN a Gateway delete event whose database server is unreachable
+- WHEN the control plane attempts cleanup
+- THEN it SHALL return a contextual error so the delete is retried
+- AND it SHALL record an `IncompleteFinalization` Warning Event with kind
+  `PostgreSQLDatabase` and name `gw_<gatewayID>` in the control-plane namespace
+- AND the Event SHALL NOT contain the admin credentials or the connection string
+- AND the role and database SHALL remain on the server until a retry succeeds or an
+  operator removes them
+
+#### Scenario: Controller restarts with a cleanup retry pending
+
+- GIVEN a Gateway delete whose database cleanup failed and recorded an Event
+- WHEN the controller restarts before the retry runs
+- THEN the pending retry is lost with the in-memory queue
+- AND the `IncompleteFinalization` Event from the failed attempt SHALL still exist
+- AND the operator runbook SHALL be the recovery path for the leftover objects
 
 ---
 
 ### Requirement: Gateway Deletion With Active Sandboxes (Advisory)
 
 Active sandboxes SHALL NOT block Gateway deletion. Before an operator deletes a
-Gateway, the active sandbox count is surfaced as a warning so they can see how
-many running sessions the deletion would disrupt (see
+Gateway, the active sandbox count is surfaced as a warning so they can see how many
+running sessions the deletion would disrupt (see
 [`openshell-gateway-namespace-gc.spec.md`](./openshell-gateway-namespace-gc.spec.md)
 § Surface Active Sandbox Count Before Deletion and
 [`openshell-gateway-sandbox-count.spec.md`](./openshell-gateway-sandbox-count.spec.md)),
-but the count is advisory only: deletion proceeds regardless and reclaims the
-gateway's resources.
+but the count is advisory only: deletion proceeds regardless and reclaims the gateway's
+resources.
 
 #### Scenario: Delete gateway that has active sandboxes
 
 - GIVEN a Gateway with one or more active sandboxes
 - WHEN a user deletes the Gateway (having been warned of the active sandbox count)
-- THEN the API server SHALL accept the deletion and SHALL NOT reject it on account of the active sandboxes
-- AND the control plane SHALL reclaim the gateway's namespace, disrupting those sandboxes and cascading removal of their in-namespace resources
+- THEN the API server SHALL accept the deletion and SHALL NOT reject it on account of
+  the active sandboxes
+- AND the control plane SHALL reclaim the gateway's namespace, disrupting those
+  sandboxes and cascading removal of their in-namespace resources
 
 ---
 
-### Requirement: DATABASE_PROVIDER Selection And Validation
+### Requirement: No Credential Rotation
 
-Both the API server and the control plane read `DATABASE_PROVIDER` independently at startup and resolve it with the same rule:
+HyperShell SHALL NOT rotate per-gateway database credentials. No Gateway annotation,
+API field, or environment variable triggers a new password. An operator who must
+change a gateway's database password does so out-of-band on the server, or by deleting
+and recreating the gateway.
 
-- Unset or empty resolves to `deployment` (the default).
-- `deployment` selects deployment-backed ManagedDatabase placement, which never requires any CNPG API.
-- `cnpg` selects CNPG-backed placement, subject to the exact-resource startup check below.
-- `external` selects external-backed placement and per-gateway DDL against a registered cloud-managed server. It imposes no CNPG startup check; its preconditions (reachability, a valid admin connection Secret) are evaluated at reconcile time, not at startup.
-- Any other value is a startup configuration error: the process SHALL fail to start (return/propagate a contextual error and exit non-zero -- never panic) rather than silently falling back to `cnpg` or any other provider.
+The `ALTER ROLE` in Requirement: Per-Gateway Database Provisioning is the provisioning
+repair path for a lost tenant Secret and SHALL be retained; it is not a rotation
+mechanism.
 
-#### Scenario: DATABASE_PROVIDER unset defaults to deployment
+Admin credential changes are not rotation performed by HyperShell either: the operator
+updates the mounted Secret and the control plane reads the new value on its next
+operation (see Requirement: Admin Credential Mount).
 
-- GIVEN `DATABASE_PROVIDER` is unset or empty
-- WHEN the API server or the control plane starts
-- THEN it SHALL resolve the database provider to `deployment`
-- AND it SHALL NOT require any CNPG API to be present
+#### Scenario: Re-reconciliation does not change the password
 
-#### Scenario: DATABASE_PROVIDER=deployment selects deployment placement
-
-- GIVEN `DATABASE_PROVIDER=deployment`
-- WHEN the API server or the control plane starts
-- THEN it SHALL select deployment-backed ManagedDatabase placement
-- AND it SHALL NOT require any CNPG API to be present
-
-#### Scenario: Unsupported DATABASE_PROVIDER value fails startup
-
-- GIVEN `DATABASE_PROVIDER` is set to a value other than unset/empty, `deployment`, `cnpg`, or `external` (e.g. `postgres`, or a differently-cased `CNPG`)
-- WHEN the API server or the control plane starts
-- THEN it SHALL fail to start with an explicit, contextual error naming the invalid value and the supported values
-- AND it SHALL NOT silently select `cnpg` (or any other provider) as a fallback
+- GIVEN a provisioned Gateway whose tenant credentials Secret exists
+- WHEN the GatewayReconciler processes any update event for the Gateway
+- THEN it SHALL NOT generate a new password
+- AND SHALL NOT alter the role on the server
+- AND the tenant-namespace `openshell-gateway-db-credentials` Secret's `password`
+  SHALL be unchanged
 
 ---
 
-### Requirement: CNPG Operator Detection
+### Requirement: Database Credential Security
 
-When `DATABASE_PROVIDER=cnpg`, the control plane SHALL verify at startup that the exact CNPG API resources this codebase depends on are served: `clusters`, `databases`, and `databaseroles` in `postgresql.cnpg.io/v1`. Checking only that some `postgresql.cnpg.io` API group exists is NOT sufficient -- a partial or version-mismatched CNPG install could serve one of these resources without serving the others, and that must be caught at startup rather than surfacing later as an unstructured-apply failure deep inside gateway or ManagedDatabase provisioning.
+- Admin credentials live only in the mounted Secret and in process memory for the
+  duration of one database operation. The control plane SHALL NOT persist them
+  anywhere else, SHALL NOT copy them into any other namespace, and SHALL NOT expose
+  them through any API.
+- Per-gateway passwords SHALL be generated with `crypto/rand` (32-byte hex), reused
+  on re-reconciliation, and never logged.
+- Passwords SHALL NEVER appear in log messages, error strings, telemetry, Kubernetes
+  Events, or API responses. PostgreSQL driver errors routinely embed the host, the
+  user and sometimes the full DSN; the control plane SHALL wrap driver errors so that
+  connection strings and passwords do not reach logs, conditions or Events.
+- Both the admin connection and the gateway connection SHALL use `sslmode=verify-full`
+  with the CA bundle from the admin Secret. `require`, `prefer`, `verify-ca` and
+  `disable` are not accepted anywhere: the control plane refuses to start on a
+  weaker admin `sslmode`, and writes only `verify-full` into tenant Secrets.
+  Development and CI stand-in servers therefore serve TLS with a self-signed CA
+  generated by the dev scripts rather than running without TLS.
 
-If any of the three required resources is unavailable, the control plane SHALL fail to start: return/propagate a contextual error and exit non-zero. It SHALL NOT panic, and it SHALL NOT start in a partially-functional state that later fails opaquely.
+#### Scenario: Driver error is not echoed with its connection string
 
-When `DATABASE_PROVIDER=deployment` (including the default, unset case), this check is skipped entirely and no CNPG API is required.
+- GIVEN an admin connection that fails with a driver error containing the endpoint,
+  the admin user and the DSN
+- WHEN the control plane logs the failure and sets the `DatabaseReady` condition
+- THEN the log line and the condition message SHALL NOT contain the password or the
+  connection string
+- AND the condition message SHALL be the user-facing summary defined in
+  [`gateway-provisioning-progress.spec.md`](./gateway-provisioning-progress.spec.md)
 
-This startup check is independent of the per-resource CNPG capability detection the reconcilers use to gate individual ManagedDatabase/Gateway resources whose `provider` is `cnpg` (see Requirement: Gateway Database Resolution): that detection remains a best-effort, non-fatal check so existing CNPG-backed gateways keep working when the cluster has CNPG installed, even if the control plane's own `DATABASE_PROVIDER` default is `deployment`.
+---
 
-#### Scenario: DATABASE_PROVIDER=cnpg with all required CNPG resources present
+### Requirement: No Database Surface in the API and CLI
 
-- GIVEN `DATABASE_PROVIDER=cnpg` and the cluster serves `clusters`, `databases`, and `databaseroles` in `postgresql.cnpg.io/v1`
-- WHEN the control plane starts
-- THEN it SHALL start successfully and select CNPG-backed placement
+The Gateway contract (REST, gRPC, OpenAPI, SDKs, CLI, web console) SHALL NOT carry a
+database reference, and the API SHALL expose no database resource kind. Gateway
+creation SHALL NOT perform a database placement step and SHALL NOT be rejected for
+lack of a registered database. The gateway provisioning form and the gateway details
+view SHALL NOT show a database identifier.
 
-#### Scenario: DATABASE_PROVIDER=cnpg with the CNPG operator absent
+#### Scenario: Create a gateway
 
-- GIVEN `DATABASE_PROVIDER=cnpg` and no `postgresql.cnpg.io` API group is served
-- WHEN the control plane starts
-- THEN it SHALL fail to start with an explicit, contextual error
-- AND it SHALL exit non-zero rather than panicking or starting in a degraded mode
+- GIVEN a valid gateway create request with `name`, `cluster_id` and `release_id`
+- WHEN the API server processes it
+- THEN it SHALL create the Gateway without consulting any database registry
+- AND the response SHALL contain no database field
 
-#### Scenario: DATABASE_PROVIDER=cnpg with a partial CNPG install
+---
 
-- GIVEN `DATABASE_PROVIDER=cnpg` and `postgresql.cnpg.io/v1` serves `clusters` and `databases` but not `databaseroles`
-- WHEN the control plane starts
-- THEN it SHALL fail to start with an explicit, contextual error naming the missing `databaseroles` resource
-- AND it SHALL NOT treat the partial install as CNPG being available
+### Requirement: Development Environments Use the Same Path
+
+`make kind-up` and `make openshift-up` SHALL deploy a stand-in PostgreSQL server that
+**serves TLS** with a self-signed CA generated by the dev scripts, and SHALL create
+`hypershell-gateway-database-admin` in the HyperShell namespace with the stand-in
+server's admin connection, `sslmode: verify-full` and that CA as `sslrootcert`. The
+control plane and the gateways then exercise exactly the production path
+(`verify-full`, per-gateway DDL, tenant Secret with CA). No database resource is
+seeded and no credentials namespace is created. See
+[`local-development.spec.md`](./local-development.spec.md) and
+[`openshift-development.spec.md`](./openshift-development.spec.md).
+
+#### Scenario: kind-up provisions a gateway database over verified TLS
+
+- GIVEN `make kind-up` has deployed the stand-in server and the admin Secret
+- WHEN the seeded Gateway is reconciled
+- THEN the control plane SHALL provision `gw_<gatewayID>` over a `verify-full`
+  connection to the stand-in server
+- AND the gateway pod SHALL connect with the self-signed CA from
+  `/etc/openshell-db/ca.crt`
 
 ---
 
 ## Configuration Reference
 
-| Variable | Type | Default | Description |
+| Setting | Where | Default | Meaning |
 |---|---|---|---|
-| `DATABASE_PROVIDER` | env var | `deployment` (unset/empty resolves to it) | Selects the database deployment mode. Valid values: `deployment`, `cnpg`, `external`. Any other value is a startup configuration error. |
-| `OPENSHELL_DATABASE_IMAGE` | env var | (unset) | PostgreSQL image override. In CNPG mode: sets `spec.imageName` on the CNPG Cluster CR. In deployment mode: sets the container image for the PostgreSQL Deployment. When unset, CNPG uses its default image; deployment mode uses `postgres:18`. Not used in external mode, which runs no in-cluster PostgreSQL workload. |
+| `GATEWAY_DATABASE_ADMIN_DIR` | controller env | `/etc/hypershell/gateway-database` | Directory the admin Secret is mounted at. The only database-related environment variable |
+| `hypershell-gateway-database-admin` | Secret, HyperShell namespace | (must exist) | Admin connection files: `host`, `port`, `user`, `password`, `sslrootcert` required; `dbname` (default `postgres`), `sslmode` (must be `verify-full`) optional |
+| `deploy/components/gateway-database-admin-secret` | Kustomize component (optional) | not included | External Secrets Operator `ExternalSecret` that syncs the admin Secret from a secret manager. Its template forces `sslmode: verify-full` so a weaker value in the secret manager cannot reach the controller |
 
-> **Removed:** `CNPG_CLUSTER_NAME` and `CNPG_CLUSTER_NAMESPACE` environment variables are no longer used. The database location is derived per-gateway from the ManagedDatabase resource referenced by the gateway's `database_id`.
+The API server reads no database-related configuration for gateways. The control
+plane reads nothing that selects a provisioning model.
 
 ---
 
 ## Configuration Examples
 
-### CNPG Mode
-
-ManagedDatabase (created via API, reconciled by ManagedDatabaseReconciler):
-
-```json
-{
-  "name": "openshell-db",
-  "provider": "cnpg"
-}
-```
-
-The ManagedDatabaseReconciler creates:
+Admin Secret (created by the deployment, before the controller starts):
 
 ```yaml
-# Namespace
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: openshell-db-a1b2c3d4e5f67890
-  labels:
-    hypershell.redhat.io/managed: "true"
----
-# CNPG Cluster
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
-metadata:
-  name: openshell-db
-  namespace: openshell-db-a1b2c3d4e5f67890
-  labels:
-    hypershell.redhat.io/managed: "true"
-spec:
-  instances: 1
-  storage:
-    size: 1Gi
-  resources:
-    requests:
-      memory: 256Mi
-    limits:
-      memory: 512Mi
-```
-
-Per-gateway CNPG resources (created by GatewayReconciler in ManagedDatabase namespace):
-
-```yaml
-# Password Secret
 apiVersion: v1
 kind: Secret
 metadata:
-  name: gw-2j5k7m9pqrstvwxyz-credentials
-  namespace: openshell-db-a1b2c3d4e5f67890
-  labels:
-    cnpg.io/reload: "true"
-    hypershell.redhat.io/managed: "true"
-    hypershell.redhat.io/gateway-namespace: openshell-a1b2c3d4e5f67890
-type: kubernetes.io/basic-auth
+  name: hypershell-gateway-database-admin
+  namespace: hypershell-system
+type: Opaque
 stringData:
-  username: gw_2j5k7m9pqrstvwxyz
-  password: <32-byte-hex-random>
----
-# DatabaseRole
-apiVersion: postgresql.cnpg.io/v1
-kind: DatabaseRole
+  host: mydb.abc123.us-east-1.rds.amazonaws.com
+  port: "5432"
+  dbname: postgres
+  user: hypershell_admin        # rds_superuser / IBM admin; CREATEDB + CREATEROLE + pg_signal_backend
+  password: <admin-password>
+  sslmode: verify-full          # optional; any other value fails startup
+  sslrootcert: |
+    -----BEGIN CERTIFICATE-----
+    ...cloud provider CA bundle (old and new CA during rotation)...
+    -----END CERTIFICATE-----
+```
+
+Controller Deployment fragment (shipped in `deploy/base`):
+
+```yaml
+env:
+  - name: GATEWAY_DATABASE_ADMIN_DIR
+    value: /etc/hypershell/gateway-database
+volumeMounts:
+  - name: gateway-database-admin
+    mountPath: /etc/hypershell/gateway-database
+    readOnly: true
+volumes:
+  - name: gateway-database-admin
+    secret:
+      secretName: hypershell-gateway-database-admin
+```
+
+Optional External Secrets component (`deploy/components/gateway-database-admin-secret`):
+
+```yaml
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
 metadata:
-  name: gw-2j5k7m9pqrstvwxyz
-  namespace: openshell-db-a1b2c3d4e5f67890
-  labels:
-    hypershell.redhat.io/managed: "true"
-    hypershell.redhat.io/gateway-namespace: openshell-a1b2c3d4e5f67890
+  name: hypershell-gateway-database-admin
 spec:
-  cluster:
-    name: openshell-db
-  name: gw_2j5k7m9pqrstvwxyz
-  login: true
-  passwordSecret:
-    name: gw-2j5k7m9pqrstvwxyz-credentials
-  databaseRoleReclaimPolicy: delete
----
-# Database
-apiVersion: postgresql.cnpg.io/v1
-kind: Database
-metadata:
-  name: gw-2j5k7m9pqrstvwxyz
-  namespace: openshell-db-a1b2c3d4e5f67890
-  labels:
-    hypershell.redhat.io/managed: "true"
-    hypershell.redhat.io/gateway-namespace: openshell-a1b2c3d4e5f67890
-spec:
-  cluster:
-    name: openshell-db
-  name: gw_2j5k7m9pqrstvwxyz
-  owner: gw_2j5k7m9pqrstvwxyz
-  databaseReclaimPolicy: delete
----
-# Gateway credentials Secret (in tenant namespace)
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: <store>
+  target:
+    name: hypershell-gateway-database-admin
+    template:
+      data:
+        host: "{{ .host }}"
+        port: "{{ .port }}"
+        user: "{{ .user }}"
+        password: "{{ .password }}"
+        sslrootcert: "{{ .sslrootcert }}"
+        sslmode: verify-full       # forced; not read from the store
+  data:
+    - secretKey: host
+      remoteRef: { key: <path>, property: host }
+    # ... port, user, password, sslrootcert
+```
+
+Per-gateway objects the GatewayReconciler creates on the server (illustrative SQL):
+
+```sql
+-- role
+CREATE ROLE gw_2j5k7m9pqrstvwxyz LOGIN PASSWORD '<32-byte-hex-random>';
+-- let a non-superuser admin create a database owned by the role
+GRANT gw_2j5k7m9pqrstvwxyz TO hypershell_admin;
+-- database owned by the role
+CREATE DATABASE gw_2j5k7m9pqrstvwxyz OWNER gw_2j5k7m9pqrstvwxyz;
+-- isolation
+REVOKE CONNECT ON DATABASE gw_2j5k7m9pqrstvwxyz FROM PUBLIC;
+GRANT  CONNECT ON DATABASE gw_2j5k7m9pqrstvwxyz TO gw_2j5k7m9pqrstvwxyz;
+```
+
+Gateway credentials Secret (tenant namespace):
+
+```yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -670,188 +772,143 @@ metadata:
     hypershell.redhat.io/managed: "true"
 type: Opaque
 stringData:
-  host: openshell-db-rw.openshell-db-a1b2c3d4e5f67890.svc.cluster.local
+  host: mydb.abc123.us-east-1.rds.amazonaws.com
   port: "5432"
   dbname: gw_2j5k7m9pqrstvwxyz
   user: gw_2j5k7m9pqrstvwxyz
   password: <32-byte-hex-random>
-  uri: postgresql://gw_2j5k7m9pqrstvwxyz:<password>@openshell-db-rw.openshell-db-a1b2c3d4e5f67890.svc.cluster.local:5432/gw_2j5k7m9pqrstvwxyz?sslmode=require
+  sslmode: verify-full
+  sslrootcert: |
+    -----BEGIN CERTIFICATE-----
+    ...same bundle as the admin Secret...
+    -----END CERTIFICATE-----
+  uri: postgresql://gw_2j5k7m9pqrstvwxyz:<password>@mydb.abc123.us-east-1.rds.amazonaws.com:5432/gw_2j5k7m9pqrstvwxyz?sslmode=verify-full&sslrootcert=/etc/openshell-db/ca.crt
 ```
 
-### Deployment Mode
-
-ManagedDatabase (auto-created by the API server per gateway):
-
-```json
-{
-  "name": "openshell-db",
-  "provider": "deployment"
-}
-```
-
-The ManagedDatabaseReconciler creates (all in namespace `openshell-db-a1b2c3d4e5f67890`). The following Deployment security context is the vanilla-Kubernetes form; on OpenShift, fixed UID/GID/FSGroup fields are omitted and assigned by SCC admission:
+Gateway Deployment fragment (rendered by the control plane):
 
 ```yaml
-# Credentials Secret
-apiVersion: v1
-kind: Secret
-metadata:
-  name: openshell-db-credentials
-  namespace: openshell-db-a1b2c3d4e5f67890
-  labels:
-    hypershell.redhat.io/managed: "true"
-type: Opaque
-stringData:
-  user: openshell
-  password: <32-byte-hex-random>
-  dbname: openshell
-  uri: postgresql://openshell:<password>@openshell-gateway-db.openshell-db-a1b2c3d4e5f67890.svc.cluster.local:5432/openshell?sslmode=disable
----
-# PVC
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: openshell-gateway-db-data
-  namespace: openshell-db-a1b2c3d4e5f67890
-  labels:
-    hypershell.redhat.io/managed: "true"
-spec:
-  accessModes: [ReadWriteOnce]
-  resources:
-    requests:
-      storage: 1Gi
----
-# Deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: openshell-gateway-db
-  namespace: openshell-db-a1b2c3d4e5f67890
-  labels:
-    hypershell.redhat.io/managed: "true"
-    app: openshell-gateway-db
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: openshell-gateway-db
-  template:
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 999
-        runAsGroup: 999
-        fsGroup: 999
-        fsGroupChangePolicy: OnRootMismatch
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: postgres
-          image: postgres:18
-          env:
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: openshell-db-credentials
-                  key: password
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/postgresql/data
-            - name: postgres-run
-              mountPath: /var/run/postgresql
-              subPath: postgresql
-            - name: tmp
-              mountPath: /tmp
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            runAsNonRoot: true
-            runAsUser: 999
-            runAsGroup: 999
-            capabilities:
-              drop: [ALL]
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: openshell-gateway-db-data
-        - name: postgres-run
-          emptyDir: {}
-        - name: tmp
-          emptyDir: {}
----
-# Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: openshell-gateway-db
-  namespace: openshell-db-a1b2c3d4e5f67890
-  labels:
-    hypershell.redhat.io/managed: "true"
-spec:
-  selector:
-    app: openshell-gateway-db
-  ports:
-    - port: 5432
-      targetPort: 5432
----
-# Gateway credentials Secret (copied by GatewayReconciler into tenant namespace)
-apiVersion: v1
-kind: Secret
-metadata:
-  name: openshell-gateway-db-credentials
-  namespace: openshell-a1b2c3d4e5f67890
-  labels:
-    hypershell.redhat.io/managed: "true"
-type: Opaque
-stringData:
-  host: openshell-gateway-db.openshell-db-a1b2c3d4e5f67890.svc.cluster.local
-  port: "5432"
-  dbname: openshell
-  user: openshell
-  password: <32-byte-hex-random>
-  uri: postgresql://openshell:<password>@openshell-gateway-db.openshell-db-a1b2c3d4e5f67890.svc.cluster.local:5432/openshell?sslmode=disable
+args: ["--config", "/etc/openshell/gateway.toml", "--db-url", "$(OPENSHELL_DB_URL)"]
+env:
+  - name: OPENSHELL_DB_URL
+    valueFrom:
+      secretKeyRef:
+        name: openshell-gateway-db-credentials
+        key: uri
+volumeMounts:
+  - name: database-ca
+    mountPath: /etc/openshell-db
+    readOnly: true
+volumes:
+  - name: database-ca
+    secret:
+      secretName: openshell-gateway-db-credentials
+      items:
+        - key: sslrootcert
+          path: ca.crt
 ```
+
+---
+
+## Operator Runbook
+
+### Finding and dropping leftover gateway databases
+
+Per-gateway cleanup retries while the controller is running, but the retry queue is
+in-memory and a failed attempt is recorded as an `IncompleteFinalization` Event (see
+Requirement: Per-Gateway Cleanup). Detect and recover leftovers as follows.
+
+1. **Check for recorded failures** in the control-plane namespace:
+   ```sh
+   kubectl -n <hypershell-namespace> get events \
+     --field-selector reason=IncompleteFinalization
+   ```
+   Each Event names the gateway ID and the `PostgreSQLDatabase gw_<id>` that may
+   have been left behind. A later retry may already have removed it; confirm on the
+   server.
+
+2. **Identify leftover databases** - connect as the admin user and query:
+   ```sql
+   SELECT datname FROM pg_database WHERE datname LIKE 'gw\_%';
+   ```
+   Compare the result to the gateway IDs currently registered in HyperShell
+   (`GET /api/hypershell/v1/gateways`). Any `gw_<id>` database whose gateway ID is
+   no longer in HyperShell is a leftover. (`_` is a `LIKE` wildcard, hence the
+   backslash escape.)
+
+3. **Identify leftover roles** - similarly:
+   ```sql
+   SELECT rolname FROM pg_roles WHERE rolname LIKE 'gw\_%';
+   ```
+
+4. **Terminate, then drop** - for each leftover:
+   ```sql
+   SELECT pg_terminate_backend(pid)
+     FROM pg_stat_activity WHERE datname = 'gw_<id>';
+   DROP DATABASE "gw_<id>" WITH (FORCE);
+   DROP ROLE "gw_<id>";
+   ```
+
+5. **Tenant Secret** - `openshell-gateway-db-credentials` in the gateway's tenant
+   namespace is removed by the platform's label-based namespace cleanup when the
+   gateway namespace is reclaimed. If the namespace was already deleted, the Secret is
+   gone. If it persists, delete it manually.
+
+### Changing the admin password
+
+1. Change the password on the server (`ALTER ROLE hypershell_admin PASSWORD ...`, or
+   the cloud provider's console).
+2. Update `password` in `hypershell-gateway-database-admin` (or in the secret manager
+   when the External Secrets component is used).
+3. Wait for the kubelet to refresh the mounted Secret (typically under a minute). No
+   controller restart is needed; the next database operation uses the new value.
+   Gateway connections are unaffected: they use their own `gw_<id>` roles.
+
+### Rotating the server CA
+
+1. Build a PEM bundle containing the **current** CA and the **new** CA.
+2. Update `sslrootcert` in the admin Secret to that bundle. The controller uses it on
+   its next database operation; on each gateway's next reconcile the tenant Secret's
+   `sslrootcert` is rewritten to match.
+3. Restart gateway Deployments (`kubectl -n openshell-<hex> rollout restart
+   deployment/openshell-gateway`) so every gateway process reads the new bundle from
+   `/etc/openshell-db/ca.crt`. Do this before the server switches to the new chain.
+4. Switch the server to the new certificate chain.
+5. Once every gateway has been restarted and reconciled, replace the bundle with the
+   new CA only and repeat steps 2 and 3.
 
 ---
 
 ## Debugging Reference
 
-| Symptom | Mode | Root Cause | Fix |
-|---|---|---|---|
-| Database CR `status.applied: false` | cnpg | CNPG operator not running or Cluster not ready | Check CNPG operator pods and Cluster status |
-| DatabaseRole stuck in `Terminating` | cnpg | Role owns objects that prevent DROP | Manually drop owned objects or delete database first |
-| Gateway pod cannot connect to database | all | Credentials Secret not created or wrong host | Verify `openshell-gateway-db-credentials` in tenant namespace |
-| ManagedDatabase namespace not found | deployment, cnpg | ManagedDatabaseReconciler has not yet processed the resource | Check ManagedDatabase status and reconciler logs |
-| Control plane exits at startup with "DATABASE_PROVIDER=cnpg requires..." | cnpg | `DATABASE_PROVIDER=cnpg` but the CNPG operator (or one of the `clusters`/`databases`/`databaseroles` resources) is not installed | Install/upgrade the CloudNativePG operator, or switch to `DATABASE_PROVIDER=deployment` (also the default when unset) |
-| API server or control plane exits at startup with "invalid DATABASE_PROVIDER" | all | `DATABASE_PROVIDER` set to a value other than unset/empty, `deployment`, `cnpg`, or `external` | Set `DATABASE_PROVIDER` to `deployment`, `cnpg`, or `external`, or unset it |
-| PostgreSQL Deployment not ready | deployment | Image pull failure or PVC not bound | Check Deployment events and PVC status in ManagedDatabase namespace |
-| `openshell-db-credentials` Secret missing | deployment | ManagedDatabaseReconciler has not yet completed | Check ManagedDatabase status and reconciler logs |
-| Password rotation not applied | cnpg | Missing `cnpg.io/reload: "true"` label on password Secret | Add the label to the Secret |
-
----
-
-## Resources Removed (vs. Pre-ManagedDatabase Spec)
-
-Before the ManagedDatabase model was introduced, each gateway namespace directly contained a standalone PostgreSQL pod. Those resources were moved to the ManagedDatabase's namespace:
-
-| Resource | Previous Location | Current Location |
+| Symptom | Root Cause | Fix |
 |---|---|---|
-| PVC (`openshell-gateway-db-data`) | gateway tenant namespace | ManagedDatabase namespace (deployment mode) |
-| Deployment (`openshell-gateway-db`) | gateway tenant namespace | ManagedDatabase namespace (deployment mode) |
-| Service (`openshell-gateway-db`) | gateway tenant namespace | ManagedDatabase namespace (deployment mode) |
-
-In CNPG mode, the Deployment/PVC/Service do not exist; CNPG manages PostgreSQL pods internally.
-
-The `database.yaml` manifest template (per-gateway PostgreSQL resources applied directly by `deployGateway()`) is removed. In deployment mode, the ManagedDatabaseReconciler creates the equivalent resources in the ManagedDatabase namespace.
-
-Both modes use the single `OPENSHELL_DATABASE_IMAGE` override. Deployment mode derives the required runtime UID/GID, environment variable names, data mount, and `PGDATA` path from that image: upstream and Red Hat Hardened PostgreSQL use upstream conventions, while legacy RHEL `postgresql-*` images retain their `POSTGRESQL_*` and `/var/lib/pgsql/data` conventions.
-
-The global `CNPG_CLUSTER_NAME` and `CNPG_CLUSTER_NAMESPACE` environment variables are removed. The database location is resolved per-gateway from the ManagedDatabase resource.
+| Controller pod crash-loops; log says a gateway database credential file is missing or empty | `hypershell-gateway-database-admin` is absent, not mounted at `GATEWAY_DATABASE_ADMIN_DIR`, or lacks a required key | Create the Secret with `host`, `port`, `user`, `password`, `sslrootcert`; check the volume mount and env var |
+| Controller refuses to start: `sslmode must be verify-full` | The admin Secret sets `sslmode` to `require`, `verify-ca`, `disable` or `prefer` | Remove the key or set it to `verify-full`; there is no downgrade |
+| Controller refuses to start: `sslrootcert` is not PEM | The CA was supplied as a path or DER, or the PEM is truncated | Put the full PEM text of the CA bundle in the `sslrootcert` key |
+| Controller refuses to start: invalid `port` | `port` is not an integer in `1`-`65535` | Correct the value (usually `5432`) |
+| Gateway stuck with `DatabaseReady: Failed` (database service unavailable) | No network path from the control-plane cluster to the server, or DNS failure | Fix VPC peering / security groups / private endpoint; the reconcile retries on its own |
+| Gateway `DatabaseReady: Failed`; controller log shows a certificate verification error | The server certificate does not chain to `sslrootcert`, or its hostname does not match `host` | Supply the provider's current CA bundle; connect by the hostname on the certificate, not an IP |
+| Gateway `DatabaseReady: Failed`; controller log shows a permission error on `CREATE DATABASE`/`CREATE ROLE` | Admin role lacks `CREATEDB` or `CREATEROLE` | Grant `rds_superuser` (AWS) / admin role (IBM) or the two privileges |
+| Gateway `DatabaseReady: Failed`; controller log shows `must be member of role` on `CREATE DATABASE` | The `GRANT gw_<id> TO <admin>` step did not run or was revoked | Check for an older controller image; re-reconcile |
+| Gateway pod `CrashLoopBackOff`, log shows TLS or certificate error connecting to PostgreSQL | Tenant `sslrootcert` is stale after a CA rotation, or the pod predates the rotation | Follow the CA rotation runbook; restart the gateway Deployment |
+| Gateway pod cannot find `/etc/openshell-db/ca.crt` | Gateway Deployment rendered by an older controller without the CA mount, or the tenant Secret lacks `sslrootcert` | Upgrade the controller and re-reconcile; the Secret is rewritten with `sslrootcert` |
+| Gateway delete never completes; `IncompleteFinalization` Event with `PostgreSQLDatabase gw_<id>` | Cleanup cannot reach the server or lacks `pg_signal_backend` to terminate sessions | Restore reachability (the retry completes) or grant `pg_signal_backend`; if the controller restarted, follow the runbook |
+| `gw_*` database or role left on the server after gateway deletion | Cleanup failed and the controller restarted before a retry succeeded | Follow the Operator Runbook above |
+| Admin password changed but the controller still authenticates with the old one | Kubelet has not yet refreshed the mounted Secret, or the Secret was mounted via `subPath` (which is never refreshed) | Wait for the refresh; never mount the admin Secret with `subPath` |
 
 ---
 
 ## References
 
-- [CloudNativePG Documentation](https://cloudnative-pg.io/docs/)
-- [CNPG Database CRD](https://cloudnative-pg.io/docs/devel/declarative_database_management)
-- [CNPG DatabaseRole CRD](https://cloudnative-pg.io/docs/devel/declarative_role_management)
+- [`gateway-deletion-finalization.spec.md`](./gateway-deletion-finalization.spec.md) - required-inline cleanup classes and the `IncompleteFinalization` Event
+- [`gateway-provisioning-progress.spec.md`](./gateway-provisioning-progress.spec.md) - the `DatabaseReady` condition and user-facing messages
+- [`security.spec.md`](../standards/security/security.spec.md) - secret handling, no secrets in responses or logs
+- [`naming-multitenancy.spec.md`](../standards/platform/naming-multitenancy.spec.md) - reserved names
+- [`control-plane/conventions.spec.md`](../standards/control-plane/conventions.spec.md) - reconciler error handling, no panic
+- [AWS RDS PostgreSQL - master user privileges (`rds_superuser`)](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_PostgreSQL.html)
+- [AWS RDS - SSL/TLS certificate bundles](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html)
+- [IBM Cloud Databases for PostgreSQL - administration](https://cloud.ibm.com/docs/databases-for-postgresql)
+- [PostgreSQL - `CREATE DATABASE`, `CREATE ROLE`, `GRANT`/`REVOKE`](https://www.postgresql.org/docs/current/sql-createdatabase.html)
+- [PostgreSQL - `sslmode` semantics (libpq)](https://www.postgresql.org/docs/current/libpq-ssl.html)
+- [External Secrets Operator - `ExternalSecret` templating](https://external-secrets.io/latest/guides/templating/)

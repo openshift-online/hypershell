@@ -5,23 +5,9 @@ resources:
   - hypershell-db-secret.yaml
 
 patches:
-  # Remove the CNPG Cluster - the external PostgreSQL server replaces it.
-  - target:
-      group: postgresql.cnpg.io
-      version: v1
-      kind: Cluster
-      name: hypershell-db
-    patch: |
-      $patch: delete
-      apiVersion: postgresql.cnpg.io/v1
-      kind: Cluster
-      metadata:
-        name: hypershell-db
-  # The external stand-in server does not terminate TLS; switch sslmode from
-  # require to disable in both the migrate init container and the api-server
-  # container. DATABASE_PROVIDER=external is NOT patched here - it is applied
-  # via kubectl set env after the initial deployment readiness wait in up.sh,
-  # so the baseline image can start cleanly before the PR image is swapped in.
+  # The API server has no CA bundle for the stand-in server's throwaway TLS
+  # certificate in Kind; switch sslmode from require to disable in both the
+  # migrate init container and the api-server container.
   - target:
       kind: Deployment
       name: hypershell-api-server

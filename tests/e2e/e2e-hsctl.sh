@@ -316,7 +316,6 @@ _list_ok() {
 _list_ok gateways
 _list_ok managedClusters
 _list_ok gatewayReleases
-_list_ok managedDatabases
 _list_ok gatewayNetworks
 _list_ok roles
 _list_ok roleBindings

@@ -57,11 +57,7 @@ CLOUD_PROVIDER_KIND_REF?=08ce4ea4cc10bce8ffbcf4f859a086bb6b292230
 # actually resolved to, so up.sh restarts to pick up a moved branch tip.
 CLOUD_PROVIDER_KIND_BRANCH?=
 CERT_MANAGER_VERSION?=v1.21.1
-CNPG_VERSION?=v1.30.0
 AGENT_SANDBOX_VERSION?=v0.5.6
-
-# PostgreSQL image for API server CNPG cluster (unset = CNPG default)
-HYPERSHELL_DATABASE_IMAGE?=
 
 # Kind config
 KIND_CONFIG=deploy/kind/kind-config.yaml
@@ -124,6 +120,8 @@ help:
 	@echo "                             FORCE=true: openshift-down skips ownership labels (still refuses reserved names)"
 	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
 	@echo "    kind-gateway-trust       Print SSL_CERT_FILE export so the openshell CLI trusts the dev CA"
+	@echo "    kind-openshell           Run the openshell CLI via Kind's own network (works on macOS with no native CLI build)"
+	@echo "                             ARGS=\"-g dev sandbox create\""
 	@echo "    LOCAL_IMAGES=true        Build baseline images from the working tree (kind-up)"
 	@echo "    BUILD_SOURCE=baseline    With LOCAL_IMAGES=true, build from origin/main"
 	@echo ""
@@ -356,8 +354,7 @@ unit-test-all: install-js ci-test
 export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE
 export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES BUILD_SOURCE
 export KIND_PULL_SECRET PULL_SECRET
-export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_REF CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION CNPG_VERSION AGENT_SANDBOX_VERSION
-export HYPERSHELL_DATABASE_IMAGE
+export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_REF CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION AGENT_SANDBOX_VERSION
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
@@ -502,6 +499,10 @@ kind-web-console-down:
 .PHONY: kind-gateway-trust
 kind-gateway-trust:
 	@scripts/kind/gateway-trust.sh
+
+.PHONY: kind-openshell
+kind-openshell:
+	@scripts/kind/openshell.sh $(ARGS)
 
 # ============================================================================
 # OpenShift cluster lifecycle - shell logic lives in scripts/cluster/

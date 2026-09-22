@@ -31,8 +31,6 @@
 #   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 300)
 #   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 300)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
-#   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: external)
-#   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 #   E2E_OPENSHELL_INSTALL  auto, always, or never (default: always)
 #   E2E_OPENSHELL_VERSION  Override CLI version/tag to install (e.g. v0.0.116, dev)
@@ -46,14 +44,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # --- Source shared utilities ---
 # shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
-
-# --- Database provider selection ---
-# external = stand-in server in a separate namespace simulating a cloud-managed
-#            external DB (default: unset/empty DATABASE_PROVIDER means external)
-# deployment = plain Kubernetes Deployment + PVC + Service (no CNPG operator,
-#              see specs/platform/openshell-gateway-database.spec.md)
-# cnpg = CloudNativePG operator (CRDs: Cluster, Database, DatabaseRole)
-DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 
 # --- Driver selection and validation ---
 
@@ -83,6 +73,9 @@ CLI=$(get_cli_binary)
 GW_NAME="${E2E_GATEWAY_NAME}"
 GW_NAMESPACE=""
 GW_ID=""
+# Set by _install_openshell_cli_container_wrapper when OPENSHELL_BIN ends up
+# resolving to a container-wrapper script rather than a native binary.
+OPENSHELL_CLI_CONTAINERIZED=0
 ORPHAN_NS=""
 ORPHAN_GC_DEADLINE=0
 SANDBOX_NAME=""
@@ -194,7 +187,6 @@ printf '  %s\n' "11. Gateway deletion + namespace garbage collection"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  Mode:              ${E2E_MODE}"
-dim  "  Database provider: ${DB_PROVIDER}"
 dim  "  HyperShell API:    ${API_HOST}"
 dim  "  Gateway name:      ${GW_NAME}"
 dim  "  OIDC issuer:       ${E2E_OIDC_ISSUER}"
@@ -289,26 +281,6 @@ if [[ "${CMW_REPLICAS:-0}" -ge 1 ]]; then
   pass "cert-manager-webhook is ready"
 else
   fail_test "cert-manager-webhook is not ready (readyReplicas=${CMW_REPLICAS:-0})"
-fi
-
-if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-  E2E_CNPG_NAMESPACE="${E2E_CNPG_NAMESPACE:-cnpg-system}"
-  show_cmd "$CLI get deployment cnpg-controller-manager -n $E2E_CNPG_NAMESPACE"
-  CNPG_REPLICAS=$($CLI get deployment cnpg-controller-manager -n "$E2E_CNPG_NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-  if [[ "${CNPG_REPLICAS:-0}" -ge 1 ]]; then
-    pass "CloudNativePG operator is ready"
-  else
-    fail_test "CloudNativePG operator is not ready (readyReplicas=${CNPG_REPLICAS:-0})"
-  fi
-
-  show_cmd "$CLI get crd clusters.postgresql.cnpg.io"
-  if $CLI get crd clusters.postgresql.cnpg.io &>/dev/null; then
-    pass "CloudNativePG CRDs installed"
-  else
-    fail_test "CloudNativePG CRDs not found"
-  fi
-else
-  dim "  CNPG checks skipped (DATABASE_PROVIDER=${DB_PROVIDER})"
 fi
 
 show_cmd "$CLI get deployment agent-sandbox-controller -n agent-sandbox-system"
@@ -415,38 +387,13 @@ for gw in data.get('items', []):
   pass "Gateway already exists: ${GW_NAME} (${GW_ID}, phase=${GW_PHASE})"
   e2e_apply_seed_ids_from_gateway_json "$EXISTING_GW" "$GW_NAME"
 else
-  # database_id is a required request property but its value is server-owned.
-  # CNPG placement resolves the sole ManagedDatabase; deployment
-  # placement ignores the empty placeholder and creates a new dedicated one.
-  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/managed_databases"
-  E2E_MD_RESP=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
-  PREEXISTING_DATABASE_IDS=$(echo "$E2E_MD_RESP" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    data = {}
-for item in data.get('items', []):
-    if item.get('id'):
-        print(item['id'])
-" 2>/dev/null || true)
-
-  if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-    E2E_DATABASE_ID=$(echo "$E2E_MD_RESP" | e2e_json_first_id)
-    if [[ -z "$E2E_DATABASE_ID" ]]; then
-      fail_test "Could not discover CNPG database_id from ManagedDatabase API"
-      exit 1
-    fi
-  else
-    E2E_DATABASE_ID=""
-  fi
   if ! e2e_ensure_seed_ids; then
     fail_test "Could not discover seeded cluster/release ids"
     exit 1
   fi
-  dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; database_id is assigned by ${DB_PROVIDER} placement"
+  dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; the gateway database is provisioned by the control plane"
 
-  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, database_id: <placement placeholder>, oidc: ...}'"
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(e2e_gateway_create_body "$GW_NAME")
   CREATE_RESPONSE=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
     -H "Content-Type: application/json" \
@@ -457,37 +404,20 @@ for item in data.get('items', []):
   # Detect the error case explicitly: otherwise the error object's id is mistaken
   # for a gateway id and the provisioning poll spins on a nonexistent gateway until
   # timeout, masking the real api-server failure.
-  IFS=$'\t' read -r CREATE_KIND CREATE_F1 CREATE_F2 CREATE_F3 <<< "$(echo "$CREATE_RESPONSE" | python3 -c "
+  IFS=$'\t' read -r CREATE_KIND CREATE_F1 CREATE_F2 <<< "$(echo "$CREATE_RESPONSE" | python3 -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
 except Exception:
-    print('PARSE\t\t\t'); sys.exit(0)
+    print('PARSE\t\t'); sys.exit(0)
 if d.get('kind') == 'Error':
-    print('ERROR\t%s\t%s\t' % (d.get('code', ''), d.get('reason', ''))); sys.exit(0)
-print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('database_id', '')))
+    print('ERROR\t%s\t%s' % (d.get('code', ''), d.get('reason', ''))); sys.exit(0)
+print('OK\t%s\t%s' % (d.get('id', ''), d.get('namespace', '')))
 " 2>/dev/null)" || true
 
   if [[ "$CREATE_KIND" == "OK" && -n "$CREATE_F1" ]]; then
     GW_ID="$CREATE_F1"
     GW_NAMESPACE="$CREATE_F2"
-    if [[ -z "$CREATE_F3" ]]; then
-      fail_test "Gateway creation succeeded without a server-assigned database_id"
-      exit 1
-    fi
-    if [[ "${DB_PROVIDER}" == "deployment" ]] && grep -Fxq "$CREATE_F3" <<< "$PREEXISTING_DATABASE_IDS"; then
-      fail_test "Deployment placement reused existing ManagedDatabase ${CREATE_F3}; expected a new per-gateway database"
-      exit 1
-    fi
-    if [[ "${DB_PROVIDER}" == "deployment" ]]; then
-      CREATED_DB_PROVIDER=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases/${CREATE_F3}" 2>/dev/null | \
-        python3 -c "import json,sys; print(json.load(sys.stdin).get('provider',''))" 2>/dev/null || true)
-      if [[ "$CREATED_DB_PROVIDER" != "deployment" ]]; then
-        fail_test "Server-assigned ManagedDatabase ${CREATE_F3} has provider=${CREATED_DB_PROVIDER:-unknown}, expected deployment"
-        exit 1
-      fi
-      pass "Deployment placement created dedicated ManagedDatabase ${CREATE_F3}"
-    fi
     pass "Gateway created: ${GW_NAME} (${GW_ID})"
   else
     fail_test "Failed to create gateway"
@@ -727,75 +657,39 @@ else
   dim "  - Certgen job status: ${CERTGEN_STATUS:-unknown}"
 fi
 
-# Resolve the ManagedDatabase namespace (provider-agnostic).
-DB_GW_NAMESPACE=""
-acquire_oidc_token 2>/dev/null || true
-GW_DB_ID=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
-  python3 -c "import json,sys; print(json.load(sys.stdin).get('database_id',''))" 2>/dev/null || true)
-if [[ -n "$GW_DB_ID" ]]; then
-  DB_GW_NAMESPACE=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases/${GW_DB_ID}" 2>/dev/null | \
-    python3 -c "import json,sys; print(json.load(sys.stdin).get('namespace',''))" 2>/dev/null || true)
-fi
-if [[ -n "$DB_GW_NAMESPACE" ]]; then
-  dim "  Database namespace: ${DB_GW_NAMESPACE}"
-else
-  fail_test "Could not resolve database namespace for gateway ${GW_ID}"
-fi
-
-if [[ "${DB_PROVIDER}" == "cnpg" ]]; then
-  # CNPG provider: verify Database CR, DatabaseRole CR, and client TLS
-  CNPG_GW_NAMESPACE="${DB_GW_NAMESPACE}"
-  CNPG_CR_NAME="gw-$(echo "${GW_ID}" | tr '[:upper:]' '[:lower:]')"
-
-  show_cmd "$CLI get database.postgresql.cnpg.io ${CNPG_CR_NAME} -n ${CNPG_GW_NAMESPACE}"
-  DB_APPLIED=$($CLI get database.postgresql.cnpg.io "${CNPG_CR_NAME}" -n "${CNPG_GW_NAMESPACE}" \
-    -o jsonpath='{.status.applied}' 2>/dev/null || true)
-  if [[ "$DB_APPLIED" == "true" ]]; then
-    pass "CNPG Database CR ready: ${CNPG_CR_NAME}"
-  else
-    fail_test "CNPG Database CR not ready (status.applied=${DB_APPLIED:-unknown})"
-  fi
-
-  show_cmd "$CLI get databaserole.postgresql.cnpg.io ${CNPG_CR_NAME} -n ${CNPG_GW_NAMESPACE}"
-  if $CLI get databaserole.postgresql.cnpg.io "${CNPG_CR_NAME}" -n "${CNPG_GW_NAMESPACE}" &>/dev/null; then
-    pass "CNPG DatabaseRole CR exists: ${CNPG_CR_NAME}"
-  else
-    fail_test "CNPG DatabaseRole CR not found: ${CNPG_CR_NAME}"
-  fi
-
-  show_cmd "$CLI get secret openshell-client-tls -n $GW_NAMESPACE"
-  if $CLI get secret openshell-client-tls -n "$GW_NAMESPACE" &>/dev/null; then
-    pass "Client TLS secret exists"
-  else
-    fail_test "Client TLS secret not found"
-  fi
-elif [[ "${DB_PROVIDER}" == "external" ]]; then
-  # External provider: no in-cluster database workload. The sole check is the
-  # gateway-namespace credentials secret, verified below for all providers.
-  dim "  External database: no in-cluster DB deployment to verify"
-else
-  # Deployment provider: verify DB Deployment readiness and credentials secret
-  show_cmd "$CLI get deployment openshell-gateway-db -n ${DB_GW_NAMESPACE}"
-  DB_DEPLOY_READY=$($CLI get deployment openshell-gateway-db -n "${DB_GW_NAMESPACE}" \
-    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-  if [[ "${DB_DEPLOY_READY:-0}" -ge 1 ]]; then
-    pass "Database deployment ready in ${DB_GW_NAMESPACE}"
-  else
-    fail_test "Database deployment not ready (readyReplicas=${DB_DEPLOY_READY:-0})"
-  fi
-
-  show_cmd "$CLI get secret openshell-db-credentials -n ${DB_GW_NAMESPACE}"
-  if $CLI get secret openshell-db-credentials -n "${DB_GW_NAMESPACE}" &>/dev/null; then
-    pass "Database credentials secret exists in ${DB_GW_NAMESPACE}"
-  else
-    fail_test "Database credentials secret not found in ${DB_GW_NAMESPACE}"
-  fi
-fi
-
-# This check is common to both providers
+# The gateway database itself lives on the PostgreSQL server named by the
+# controller's hypershell-gateway-database-admin Secret; the tenant credentials
+# Secret is what proves it was provisioned. The gateway workload is deployed by
+# the upstream OpenShell Helm chart, which reads only this Secret's uri key and
+# cannot mount an extra CA file for the database connection, so the tenant
+# connection is capped at sslmode=require (encrypted, not certificate-verified)
+# and the Secret carries no sslrootcert. The control plane's own admin
+# connection is unaffected and stays verify-full. See
+# specs/platform/openshell-gateway-database.spec.md.
 show_cmd "$CLI get secret openshell-gateway-db-credentials -n $GW_NAMESPACE"
 if $CLI get secret openshell-gateway-db-credentials -n "$GW_NAMESPACE" &>/dev/null; then
   pass "Database credentials secret exists in gateway namespace"
+  DB_SSLMODE=$($CLI get secret openshell-gateway-db-credentials -n "$GW_NAMESPACE" \
+    -o jsonpath='{.data.sslmode}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  DB_URI=$($CLI get secret openshell-gateway-db-credentials -n "$GW_NAMESPACE" \
+    -o jsonpath='{.data.uri}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  DB_SSLROOTCERT=$($CLI get secret openshell-gateway-db-credentials -n "$GW_NAMESPACE" \
+    -o jsonpath='{.data.sslrootcert}' 2>/dev/null || true)
+  if [[ "$DB_SSLMODE" == "require" ]]; then
+    pass "Database credentials pin sslmode=require"
+  else
+    fail_test "Database credentials sslmode is '${DB_SSLMODE:-<empty>}', expected require"
+  fi
+  if [[ "$DB_URI" == *"sslmode=require"* ]]; then
+    pass "Database credentials uri requests TLS (sslmode=require)"
+  else
+    fail_test "Database credentials uri does not carry sslmode=require"
+  fi
+  if [[ -z "$DB_SSLROOTCERT" ]]; then
+    pass "Database credentials carry no sslrootcert (chart cannot mount a DB CA)"
+  else
+    fail_test "Database credentials unexpectedly carry an sslrootcert key"
+  fi
 else
   fail_test "Database credentials secret not found in gateway namespace"
 fi
@@ -936,39 +830,180 @@ echo ""
 e2e_area "5. Route Discovery + CLI Registration"
 echo ""
 
-# Read the runtime version and run the installation command shown in the console.
+# _install_openshell_cli_container_wrapper - on a non-Linux host running the
+# kind driver, no native CLI build exists for a downstream-tagged image (see
+# _extract_openshell_cli_from_image below). Instead of a binary, install a
+# wrapper script that execs the exact CLI image as a container on Kind's own
+# "kind" podman network -- the same trick scripts/kind/openshell.sh uses
+# interactively -- bind-mounting the real ~/.config/openshell so the CLI sees
+# exactly the gateways this run registers under OPENSHELL_BIN. Installed
+# inside the repo (tests/e2e/.cache/bin), not ~/.local/bin, so it can never be
+# mistaken for a real openshell install outside this checkout, and so a
+# native Linux CI run is never at risk of picking it up.
+_install_openshell_cli_container_wrapper() {
+  local image="$1"
+  local install_dir="${SCRIPT_DIR}/.cache/bin"
+  mkdir -p "${install_dir}"
+  dim "  Host OS is $(uname -s); installing a container-wrapper CLI (${image}) at ${install_dir}/openshell"
+  cat >"${install_dir}/openshell" <<WRAPPER_EOF
+#!/usr/bin/env bash
+# Generated by tests/e2e/e2e-openshell.sh -- do not edit by hand.
+# Runs the exact-matching openshell CLI image as a container on Kind's own
+# "kind" podman network, since no native build exists for this host OS at
+# this (possibly downstream-suffixed) tag.
+set -euo pipefail
+CLI_IMAGE=$(printf '%q' "${image}")
+CONTAINER_ENGINE=$(printf '%q' "${CONTAINER_ENGINE}")
+GW_NAMESPACE=$(printf '%q' "${GW_NAMESPACE}")
+CONFIG_DIR="\${HOME}/.config/openshell"
+
+# The Gateway's own address is looked up fresh on every invocation (cheap
+# kubectl reads) rather than baked in at generation time: this wrapper is
+# generated before the gateway route/address are discovered.
+GW_REF_NAME=\$(kubectl get grpcroute openshell-gateway -n "\${GW_NAMESPACE}" \\
+  -o jsonpath='{.spec.parentRefs[0].name}' 2>/dev/null || true)
+GW_REF_NS=\$(kubectl get grpcroute openshell-gateway -n "\${GW_NAMESPACE}" \\
+  -o jsonpath='{.spec.parentRefs[0].namespace}' 2>/dev/null || true)
+GW_ADDR=""
+if [[ -n "\${GW_REF_NAME}" && -n "\${GW_REF_NS}" ]]; then
+  GW_ADDR=\$(kubectl get gateway "\${GW_REF_NAME}" -n "\${GW_REF_NS}" \\
+    -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
+fi
+
+ADD_HOSTS=()
+if [[ -n "\${GW_ADDR}" && -d "\${CONFIG_DIR}/gateways" ]]; then
+  while IFS= read -r host; do
+    [[ -n "\${host}" ]] && ADD_HOSTS+=(--add-host "\${host}:\${GW_ADDR}")
+  done < <(python3 -c "
+import json, glob, urllib.parse
+hosts = set()
+for path in glob.glob('\${CONFIG_DIR}/gateways/*/metadata.json'):
+    try:
+        with open(path) as f:
+            meta = json.load(f)
+    except Exception:
+        continue
+    for key in ('gateway_endpoint', 'oidc_issuer'):
+        h = urllib.parse.urlparse(meta.get(key, '') or '').hostname
+        if h:
+            hosts.add(h)
+print('\n'.join(sorted(hosts)))
+" 2>/dev/null)
+fi
+
+TTY_FLAGS=()
+if [[ -t 0 && -t 1 ]]; then
+  TTY_FLAGS=(-it)
+fi
+
+exec "\${CONTAINER_ENGINE}" run --rm \${TTY_FLAGS[@]+"\${TTY_FLAGS[@]}"} \\
+  --network kind \\
+  \${ADD_HOSTS[@]+"\${ADD_HOSTS[@]}"} \\
+  -v "\${CONFIG_DIR}:/home/cli/.config/openshell:Z" \\
+  -e HOME=/home/cli \\
+  -e OPENSHELL_GATEWAY_INSECURE=true \\
+  "\${CLI_IMAGE}" "\$@"
+WRAPPER_EOF
+  chmod 755 "${install_dir}/openshell"
+  export PATH="${install_dir}:${PATH}"
+  hash -r 2>/dev/null || true
+  OPENSHELL_CLI_CONTAINERIZED=1
+}
+
+# _extract_openshell_cli_from_image - pull an image and copy /usr/local/bin/openshell
+# out of it onto PATH. Used both for an explicit E2E_OPENSHELL_CLI_IMAGE override and
+# for the default path below, which resolves an image matching the deployed gateway.
+# A container image's binary is always built for Linux; extracting it and running it
+# directly only works when the host OS is Linux too, whatever the CPU architecture --
+# otherwise it fails with a confusing "exec format error" instead of a clear one. On
+# the kind driver with podman available, fall back to running the CLI in a container
+# instead of failing outright (see _install_openshell_cli_container_wrapper).
+_extract_openshell_cli_from_image() {
+  local image="$1"
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    if [[ "${E2E_INFRA_DRIVER}" == "kind" && "$(basename "${CONTAINER_ENGINE:-}")" == "podman" ]]; then
+      _install_openshell_cli_container_wrapper "${image}"
+      return
+    fi
+    fail_test "${image} is a Linux-only container image; there is no native openshell build for $(uname -s) at this tag. Run this on a Linux host, install podman so this driver can run the CLI in a container on Kind's network instead, or build the CLI from source at that exact commit."
+    exit 1
+  fi
+  dim "  Extracting CLI from container image: ${image}"
+  local install_dir="${HOME}/.local/bin"
+  mkdir -p "${install_dir}"
+  local ctr_name="e2e-cli-extract-$$"
+  local ctr_engine
+  ctr_engine="${CONTAINER_ENGINE:-$(command -v podman 2>/dev/null || echo docker)}"
+  show_cmd "${ctr_engine} create ${image}"
+  if ! ${ctr_engine} create --name "${ctr_name}" "${image}" true >/dev/null 2>&1; then
+    fail_test "Failed to create container from ${image}"
+    exit 1
+  fi
+  if ! ${ctr_engine} cp "${ctr_name}:/usr/local/bin/openshell" "${install_dir}/openshell" 2>/dev/null; then
+    ${ctr_engine} rm "${ctr_name}" >/dev/null 2>&1 || true
+    fail_test "Failed to extract openshell binary from ${image}"
+    exit 1
+  fi
+  ${ctr_engine} rm "${ctr_name}" >/dev/null 2>&1 || true
+  chmod 755 "${install_dir}/openshell"
+  export PATH="${install_dir}:${PATH}"
+  hash -r 2>/dev/null || true
+}
+
+# _reconcile_gateway_version_or_empty - poll the API for GW_ID's gateway_version
+# for up to E2E_GATEWAY_VERSION_TIMEOUT seconds. Echoes the raw version string, or
+# nothing on timeout; never fails the test itself, so callers decide whether an
+# empty result is fatal.
+_reconcile_gateway_version_or_empty() {
+  local raw_version="" deadline
+  deadline=$(($(date +%s) + E2E_GATEWAY_VERSION_TIMEOUT))
+  dim "  Waiting for reconciled gateway_version (timeout: ${E2E_GATEWAY_VERSION_TIMEOUT}s)..."
+  while [[ $(date +%s) -lt $deadline ]]; do
+    # Provisioning can outlast the access token; api_curl reads it each call.
+    acquire_oidc_token 2>/dev/null || true
+    raw_version=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
+      python3 -c "import json,sys; print(json.load(sys.stdin).get('gateway_version') or '')" 2>/dev/null || true)
+    [[ -n "$raw_version" ]] && break
+    sleep 5
+  done
+  printf '%s' "$raw_version"
+}
+
+# Read the runtime version and install a matching CLI.
 install_openshell_cli_from_api() {
   if [[ "${E2E_OPENSHELL_INSTALL}" == "never" ]]; then
     dim "  E2E_OPENSHELL_INSTALL=never; using pre-installed openshell CLI."
     return 0
   fi
+
+  local raw_version=""
+
   if [[ "${E2E_OPENSHELL_INSTALL}" != "always" && -z "${E2E_OPENSHELL_VERSION}" && "${OPENSHELL_PREINSTALLED}" == "1" ]]; then
-    dim "  Using pre-installed openshell CLI (E2E_OPENSHELL_INSTALL=${E2E_OPENSHELL_INSTALL})."
-    return 0
+    # A CLI already on PATH is only trustworthy if it matches the deployed
+    # gateway: the gateway/supervisor images can carry a downstream suffix
+    # (e.g. "v0.0.116-rhaiv.6") that is proto-incompatible with whatever
+    # unrelated openshell build happens to already be installed.
+    raw_version=$(_reconcile_gateway_version_or_empty)
+    local reported
+    reported=$("${OPENSHELL_BIN}" --version 2>&1 || true)
+    local wanted_tag=""
+    if [[ -n "$raw_version" ]]; then
+      wanted_tag=$(openshell_cli_image_tag "$raw_version" || true)
+    fi
+    if [[ -n "$wanted_tag" ]] && openshell_cli_matches_version "$reported" "$wanted_tag"; then
+      pass "Pre-installed openshell CLI matches the gateway (${reported})"
+      return 0
+    fi
+    if [[ -z "$raw_version" ]]; then
+      dim "  Could not confirm the gateway's version; trusting the pre-installed openshell CLI (${reported}) as-is."
+      return 0
+    fi
+    dim "  Pre-installed openshell CLI (${reported}) does not match gateway_version '${raw_version}'; installing a matching CLI instead."
   fi
 
-  # Container image path: extract the CLI binary directly from a container image.
+  # Explicit container image override.
   if [[ -n "${E2E_OPENSHELL_CLI_IMAGE}" ]]; then
-    dim "  Extracting CLI from container image: ${E2E_OPENSHELL_CLI_IMAGE}"
-    local install_dir="${E2E_OPENSHELL_INSTALL_DIR}"
-    mkdir -p "${install_dir}"
-    local ctr_name="e2e-cli-extract-$$"
-    local ctr_engine
-    ctr_engine="${CONTAINER_ENGINE:-$(command -v podman 2>/dev/null || echo docker)}"
-    show_cmd "${ctr_engine} create ${E2E_OPENSHELL_CLI_IMAGE}"
-    if ! ${ctr_engine} create --name "${ctr_name}" "${E2E_OPENSHELL_CLI_IMAGE}" true >/dev/null 2>&1; then
-      fail_test "Failed to create container from ${E2E_OPENSHELL_CLI_IMAGE}"
-      exit 1
-    fi
-    if ! ${ctr_engine} cp "${ctr_name}:/usr/local/bin/openshell" "${install_dir}/openshell" 2>/dev/null; then
-      ${ctr_engine} rm "${ctr_name}" >/dev/null 2>&1 || true
-      fail_test "Failed to extract openshell binary from ${E2E_OPENSHELL_CLI_IMAGE}"
-      exit 1
-    fi
-    ${ctr_engine} rm "${ctr_name}" >/dev/null 2>&1 || true
-    chmod 755 "${install_dir}/openshell"
-    export PATH="${install_dir}:${PATH}"
-    hash -r 2>/dev/null || true
+    _extract_openshell_cli_from_image "${E2E_OPENSHELL_CLI_IMAGE}"
     local reported
     reported=$("${OPENSHELL_BIN}" --version 2>&1 || true)
     dim "  openshell --version: ${reported}"
@@ -976,87 +1011,88 @@ install_openshell_cli_from_api() {
     return 0
   fi
 
-  local installer_version
-
   if [[ -n "${E2E_OPENSHELL_VERSION}" ]]; then
-    # Explicit version override - skip API version derivation.
-    installer_version="${E2E_OPENSHELL_VERSION}"
+    # Explicit version override: install a stable public release by tag, the
+    # one case where a plain upstream OpenShell CLI release is what's wanted
+    # (e.g. testing against a specific NVIDIA/OpenShell release directly,
+    # independent of whatever the deployed gateway happens to run).
+    local installer_version="${E2E_OPENSHELL_VERSION}"
     dim "  Using E2E_OPENSHELL_VERSION override: ${installer_version}"
-  else
-    # The control plane reconciles gateway_version from the gateway's health
-    # endpoint after the pod is Running; poll for a bounded period.
-    local raw_version="" deadline
-    deadline=$(($(date +%s) + E2E_GATEWAY_VERSION_TIMEOUT))
-    dim "  Waiting for reconciled gateway_version (timeout: ${E2E_GATEWAY_VERSION_TIMEOUT}s)..."
-    while [[ $(date +%s) -lt $deadline ]]; do
-      # Provisioning can outlast the access token; api_curl reads it each call.
-      acquire_oidc_token 2>/dev/null || true
-      raw_version=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
-        python3 -c "import json,sys; print(json.load(sys.stdin).get('gateway_version') or '')" 2>/dev/null || true)
-      [[ -n "$raw_version" ]] && break
-      sleep 5
-    done
-    if [[ -z "$raw_version" ]]; then
-      fail_test "API never reported gateway_version for ${GW_ID} within ${E2E_GATEWAY_VERSION_TIMEOUT}s"
-      exit 1
-    fi
-    pass "Reconciled gateway_version: ${raw_version}"
 
-    if ! installer_version=$(openshell_installer_version "$raw_version"); then
-      fail_test "Could not derive an installer version from gateway_version='${raw_version}'"
+    local target
+    case "$(uname -s)/$(uname -m)" in
+      Linux/x86_64)            target=x86_64-unknown-linux-musl ;;
+      Linux/aarch64|Linux/arm64) target=aarch64-unknown-linux-musl ;;
+      Darwin/arm64)            target=aarch64-apple-darwin ;;
+      *) fail_test "Unsupported platform: $(uname -s)/$(uname -m)"; exit 1 ;;
+    esac
+
+    # Try the install script first (validates checksums, works for stable releases).
+    # Fall back to a direct GitHub release download for non-semver tags (e.g. dev).
+    local install_dir="${HOME}/.local/bin"
+    if printf '%s\n' "${installer_version}" | LC_ALL=C grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+      show_cmd "curl -LsSf ${OPENSHELL_INSTALL_SCRIPT_URL} | OPENSHELL_VERSION=${installer_version} sh"
+      if ! curl -LsSf "${OPENSHELL_INSTALL_SCRIPT_URL}" | OPENSHELL_VERSION="${installer_version}" sh; then
+        fail_test "openshell install.sh failed for OPENSHELL_VERSION=${installer_version} (recommended command broken)"
+        exit 1
+      fi
+    else
+      local asset="openshell-${target}.tar.gz"
+      local release_url="https://github.com/NVIDIA/OpenShell/releases/download/${installer_version}"
+      show_cmd "curl -fLsS ${release_url}/${asset} | tar -xz -C ${install_dir}"
+      mkdir -p "${install_dir}"
+      if ! curl --proto '=https' --tlsv1.2 -fLsS --retry 3 "${release_url}/${asset}" | tar -xz -C "${install_dir}" openshell; then
+        fail_test "Direct CLI download failed for ${installer_version} (asset: ${asset})"
+        exit 1
+      fi
+      chmod 755 "${install_dir}/openshell"
+    fi
+    export PATH="${install_dir}:${PATH}"
+    hash -r 2>/dev/null || true
+    if ! command -v "${OPENSHELL_BIN}" >/dev/null 2>&1; then
+      fail_test "openshell CLI not on PATH after install (OPENSHELL_BIN=${OPENSHELL_BIN})"
       exit 1
     fi
-    dim "  Derived installer version: ${installer_version} (from '${raw_version}')"
+    local reported
+    reported=$("${OPENSHELL_BIN}" --version 2>&1 || true)
+    dim "  openshell --version: ${reported}"
+    pass "openshell CLI installed (${reported})"
+    return 0
   fi
 
-  # Determine platform target for direct GitHub release download.
-  local target
-  case "$(uname -s)/$(uname -m)" in
-    Linux/x86_64)            target=x86_64-unknown-linux-musl ;;
-    Linux/aarch64|Linux/arm64) target=aarch64-unknown-linux-musl ;;
-    Darwin/arm64)            target=aarch64-apple-darwin ;;
-    *) fail_test "Unsupported platform: $(uname -s)/$(uname -m)"; exit 1 ;;
-  esac
-
-  # Try the install script first (validates checksums, works for stable releases).
-  # Fall back to a direct GitHub release download for non-semver tags (e.g. dev).
-  local install_dir="${E2E_OPENSHELL_INSTALL_DIR}"
-  if printf '%s\n' "${installer_version}" | LC_ALL=C grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-    show_cmd "curl -LsSf ${OPENSHELL_INSTALL_SCRIPT_URL} | OPENSHELL_VERSION=${installer_version} OPENSHELL_INSTALL_DIR=${install_dir} sh"
-    if ! curl -LsSf "${OPENSHELL_INSTALL_SCRIPT_URL}" | OPENSHELL_VERSION="${installer_version}" OPENSHELL_INSTALL_DIR="${install_dir}" sh; then
-      fail_test "openshell install.sh failed for OPENSHELL_VERSION=${installer_version} (recommended command broken)"
-      exit 1
-    fi
-  else
-    local asset="openshell-${target}.tar.gz"
-    local release_url="https://github.com/NVIDIA/OpenShell/releases/download/${installer_version}"
-    show_cmd "curl -fLsS ${release_url}/${asset} | tar -xz -C ${install_dir}"
-    mkdir -p "${install_dir}"
-    if ! curl --proto '=https' --tlsv1.2 -fLsS --retry 3 "${release_url}/${asset}" | tar -xz -C "${install_dir}" openshell; then
-      fail_test "Direct CLI download failed for ${installer_version} (asset: ${asset})"
-      exit 1
-    fi
-    chmod 755 "${install_dir}/openshell"
+  # Default: install the CLI build that matches the deployed gateway exactly.
+  # The gateway/supervisor images are quay.io/opendatahub/odh-openshell-{gateway,supervisor}
+  # and can carry a downstream suffix (e.g. "v0.0.116-rhaiv.6") identifying a build
+  # ahead of the last tagged upstream OpenShell release; no public CLI release is
+  # guaranteed proto-compatible with it. quay.io/opendatahub/odh-openshell-cli is
+  # built by the same pipeline off the same commit under the same tag, so pulling it
+  # by that exact tag (never truncated to a base semver) is what actually matches.
+  # (The preinstalled-CLI check above may already have fetched this.)
+  if [[ -z "$raw_version" ]]; then
+    raw_version=$(_reconcile_gateway_version_or_empty)
   fi
-
-  # Match the console command, including its PATH order.
-  export PATH="${install_dir}:${PATH}"
-  hash -r 2>/dev/null || true
-  if ! command -v "${OPENSHELL_BIN}" >/dev/null 2>&1; then
-    fail_test "openshell CLI not on PATH after install (OPENSHELL_BIN=${OPENSHELL_BIN})"
+  if [[ -z "$raw_version" ]]; then
+    fail_test "API never reported gateway_version for ${GW_ID} within ${E2E_GATEWAY_VERSION_TIMEOUT}s"
     exit 1
   fi
+  pass "Reconciled gateway_version: ${raw_version}"
+
+  local image_tag
+  if ! image_tag=$(openshell_cli_image_tag "$raw_version"); then
+    fail_test "Could not derive a CLI image tag from gateway_version='${raw_version}'"
+    exit 1
+  fi
+  local cli_image="quay.io/opendatahub/odh-openshell-cli:${image_tag}"
+  dim "  Resolved matching CLI image: ${cli_image} (from '${raw_version}')"
+
+  _extract_openshell_cli_from_image "${cli_image}"
 
   local reported
   reported=$("${OPENSHELL_BIN}" --version 2>&1 || true)
   dim "  openshell --version: ${reported}"
-  # For stable releases, verify exact version match. For overrides (dev, SHA),
-  # just confirm the binary runs.
-  if [[ -z "${E2E_OPENSHELL_VERSION}" ]]; then
-    if ! openshell_cli_matches_version "$reported" "$installer_version"; then
-      fail_test "Installed openshell version '${reported}' does not match requested ${installer_version}"
-      exit 1
-    fi
+  if ! openshell_cli_matches_version "$reported" "$image_tag"; then
+    fail_test "Installed openshell version '${reported}' does not match requested ${image_tag}"
+    exit 1
   fi
   pass "openshell CLI installed (${reported})"
 }
@@ -1074,6 +1110,17 @@ fi
 
 discover_gateway_endpoint "$GW_NAME" "$GW_NAMESPACE"
 GW_ENDPOINT="${_DISCOVER_GW_ENDPOINT}"
+if [[ "${OPENSHELL_CLI_CONTAINERIZED}" == "1" ]]; then
+  # The CLI runs as a container on Kind's own "kind" network (see
+  # _install_openshell_cli_container_wrapper); it reaches the Gateway load
+  # balancer directly by container address on its real port, not through the
+  # host-side ephemeral-port remap _DISCOVER_GW_ENDPOINT resolves to.
+  if [[ -z "${_DISCOVER_GW_HOST}" || -z "${_DISCOVER_GW_LB_ADDR}" ]]; then
+    fail_test "Could not resolve the Gateway's in-cluster address for the containerized CLI"
+    exit 1
+  fi
+  GW_ENDPOINT="https://${_DISCOVER_GW_HOST}:443"
+fi
 if [[ -n "$GW_ENDPOINT" ]]; then
   pass "Gateway endpoint: ${GW_ENDPOINT}"
 else
@@ -1636,7 +1683,6 @@ body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
-    'database_id': 'e2e-database',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -1809,7 +1855,6 @@ body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': 'e2e-cluster',
     'release_id': 'e2e-release',
-    'database_id': 'e2e-database',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -2017,28 +2062,6 @@ else
     $CLI get namespace "$GW_NAMESPACE" -o yaml 2>&1 | tail -40 | while IFS= read -r line; do dim "    $line"; done
     dim "  Namespace GC controller logs:"
     e2e_dump_namespace_gc_logs "${E2E_HS_NAMESPACE}" "$CLI"
-  fi
-
-  if [[ "${DB_PROVIDER}" == "deployment" && -n "${GW_DB_ID:-}" ]]; then
-    dim "  Waiting for dedicated ManagedDatabase ${GW_DB_ID} and namespace ${DB_GW_NAMESPACE} to be deleted..."
-    DB_GONE=false
-    DB_GC_DEADLINE=$(($(date +%s) + E2E_GC_TIMEOUT))
-    while [[ $(date +%s) -lt $DB_GC_DEADLINE ]]; do
-      acquire_oidc_token 2>/dev/null || true
-      DB_HTTP=$(api_curl -o /dev/null -w '%{http_code}' \
-        "${API_HOST}/api/hypershell/v1/managed_databases/${GW_DB_ID}" 2>/dev/null || true)
-      if [[ "$DB_HTTP" == "404" ]] && ! $CLI get namespace "$DB_GW_NAMESPACE" &>/dev/null; then
-        DB_GONE=true
-        break
-      fi
-      dim "    ManagedDatabase HTTP=${DB_HTTP:-unknown}, namespace=$($CLI get namespace "$DB_GW_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo absent)"
-      sleep 5
-    done
-    if [[ "$DB_GONE" == "true" ]]; then
-      pass "Dedicated deployment database deleted with gateway: ${GW_DB_ID}"
-    else
-      fail_test "ManagedDatabase ${GW_DB_ID} or namespace ${DB_GW_NAMESPACE} remained after gateway deletion"
-    fi
   fi
 
   # 11a. Periodic reaper (NamespaceGCReconciler + recordGCEvent). Orphan namespace

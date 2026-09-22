@@ -1,41 +1,41 @@
 # Database architecture
 
-ManagedDatabase is the indirection between a Gateway and PostgreSQL. The provider selects either a standalone Deployment or CNPG-managed PostgreSQL.
+Each HyperShell installation uses one externally provisioned PostgreSQL server for gateway databases. Its admin credentials and CA bundle reach the control plane as a mounted Secret; HyperShell never creates, resizes or deletes the server, and the control plane provisions one database and one login role per gateway inside it over a `verify-full` admin TLS connection. The gateway's own connection to its database uses `sslmode=require` instead: the upstream OpenShell Helm chart the gateway is deployed through has no mechanism to mount a CA bundle for this connection.
 
-Authoritative source: docs/cnpg-architecture.md; specs/platform/openshell-gateway-database.spec.md
+Authoritative source: specs/platform/openshell-gateway-database.spec.md
 
-### CNPG mode: one ManagedDatabase cluster can serve multiple gateways, each with an isolated logical database and role.
+### One server backs every gateway, each with an isolated database and role.
 
 ```mermaid
 graph LR
-  MD[ManagedDatabase<br/>provider: cnpg] --> NS[openshell-db-<id>]
-  NS --> C[(CNPG Cluster<br/>openshell-db)]
-  C --> R1[DatabaseRole + Database<br/>Gateway A]
-  C --> R2[DatabaseRole + Database<br/>Gateway B]
-  R1 --> S1[Credentials Secret]
-  R2 --> S2[Credentials Secret]
+  MD[Secret hypershell-gateway-database-admin<br/>host/port/user/password/sslrootcert] -->|mounted at /etc/hypershell/gateway-database| CP
+  CP -->|verify-full| C[(PostgreSQL server<br/>cloud-managed)]
+  C --> R1[Database + role<br/>gw_gatewayA]
+  C --> R2[Database + role<br/>gw_gatewayB]
+  R1 --> S1[Credentials Secret<br/>uri, sslmode=require]
+  R2 --> S2[Credentials Secret<br/>uri, sslmode=require]
   S1 --> GA[Gateway A<br/>tenant namespace]
   S2 --> GB[Gateway B<br/>tenant namespace]
-  OP[CNPG Operator] -.-> C
+  CP[Control plane<br/>in-process DDL]
   style MD fill:#fff3cd
   style C fill:#d4edda
-  style OP fill:#cce5ff
+  style CP fill:#cce5ff
 ```
 
-### Deployment mode: the API server auto-creates a dedicated ManagedDatabase for each Gateway.
+### Provisioning and cleanup
 
 ```mermaid
 graph LR
-  G[Gateway] -->|database_id| MD[ManagedDatabase<br/>provider: deployment]
-  MD --> NS[openshell-db-<id>]
-  NS --> SEC[Credentials Secret]
-  NS --> PVC[1Gi PVC]
-  NS --> PG[PostgreSQL Deployment]
-  PG --> SVC[Service :5432]
-  SEC -->|copy after readiness| TSEC[Gateway namespace<br/>credentials Secret]
-  TSEC --> G
-  style MD fill:#fff3cd
-  style PG fill:#d4edda
-  style PVC fill:#cce5ff
+  G[Gateway create] --> P[Re-read mounted admin files]
+  P --> DDL[CREATE ROLE + GRANT to admin<br/>CREATE DATABASE gw_gatewayID]
+  DDL --> TSEC[Gateway namespace<br/>openshell-gateway-db-credentials]
+  TSEC --> W[Gateway workload<br/>--db-url, sslmode=require]
+  D[Gateway delete] --> DROP[terminate backends<br/>DROP DATABASE WITH FORCE + DROP ROLE]
+  DROP -->|failure| EV[retry + IncompleteFinalization Event<br/>PostgreSQLDatabase gw_gatewayID]
+  style P fill:#fff3cd
+  style EV fill:#f8d7da
+  style DDL fill:#d4edda
   style TSEC fill:#f8d7da
 ```
+
+No PostgreSQL workload runs in the cluster and no database resource exists in the API: the gateway namespace holds only the credentials Secret, and the admin credentials never leave the control-plane namespace.

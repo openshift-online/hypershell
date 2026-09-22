@@ -117,8 +117,6 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.ReleaseId != nil {
 				found.ReleaseId = *patch.ReleaseId
 			}
-			// database_id is server-owned placement state. Ignore any value supplied
-			// through the public API; only gateway creation business logic assigns it.
 			if patch.ExternalDns != nil {
 				found.ExternalDns = patch.ExternalDns
 			}

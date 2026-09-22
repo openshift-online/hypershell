@@ -7,7 +7,6 @@ import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/gatewayNetwork"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/gatewayRelease"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/managedCluster"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/managedDatabase"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/role"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/roleBinding"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/serviceAccount"
@@ -25,7 +24,6 @@ func init() {
 	Cmd.AddCommand(gatewayNetwork.Cmd)
 	Cmd.AddCommand(gatewayRelease.Cmd)
 	Cmd.AddCommand(managedCluster.Cmd)
-	Cmd.AddCommand(managedDatabase.Cmd)
 	Cmd.AddCommand(role.Cmd)
 	Cmd.AddCommand(roleBinding.Cmd)
 	Cmd.AddCommand(user.Cmd)

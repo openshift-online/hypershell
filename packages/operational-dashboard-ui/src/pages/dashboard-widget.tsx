@@ -45,7 +45,6 @@ import { getGatewayExceptionStatusCounts } from "../dashboard/gateway-exception-
 import { GatewayReleasesChart } from "../dashboard/gateway-releases-chart";
 import { GatewayStatusChart } from "../dashboard/gateway-status-chart";
 import { SandboxStatusChart } from "../dashboard/sandbox-status-chart";
-import { InventoryStatusChart } from "../dashboard/inventory-status-chart";
 import { ManagedClusterProvidersChart } from "../dashboard/managed-cluster-providers-chart";
 import { ManagedClusterRegionsChart } from "../dashboard/managed-cluster-regions-chart";
 import { NodeStatusChart } from "../dashboard/node-status-chart";
@@ -388,22 +387,6 @@ export function ManagedClusterRegionsCard({
   );
 }
 
-export function ManagedDatabaseStatusCard({
-  metric,
-}: Readonly<{ metric: OperationalMetric }>) {
-  return (
-    <WidgetContent bodyClassName="hypershell-dashboard-status-donut-card--compact">
-      <Content className="hypershell-dashboard-status-donut-card">
-        <InventoryStatusChart
-          ariaDescMessage={messages.managedDatabaseStatusAriaDesc}
-          ariaTitleMessage={messages.managedDatabaseStatusChartTitle}
-          metric={metric}
-        />
-      </Content>
-    </WidgetContent>
-  );
-}
-
 export function PodCapacityCard({
   metric,
 }: Readonly<{ metric: OperationalMetric }>) {
@@ -586,8 +569,6 @@ function getSummaryTrendSubject(
       return intl.formatMessage(messages.widgetSandboxes);
     case "managed-clusters":
       return intl.formatMessage(messages.managedClustersSummary);
-    case "managed-databases":
-      return intl.formatMessage(messages.managedDatabasesSummary);
     default:
       return intl.formatMessage(messages.summaryUsage);
   }
@@ -1233,9 +1214,6 @@ export function InventorySummaryCard({
   const managedClusters = metrics.find(
     (metric) => metric.id === "managed-clusters",
   );
-  const managedDatabases = metrics.find(
-    (metric) => metric.id === "managed-databases",
-  );
 
   return (
     <WidgetContent>
@@ -1266,14 +1244,6 @@ export function InventorySummaryCard({
             ) : (
               <SummaryUnavailableValue />
             )}
-          </DescriptionListDescription>
-        </DescriptionListGroup>
-        <DescriptionListGroup>
-          <DescriptionListTerm>
-            <FormattedMessage {...messages.managedDatabasesSummary} />
-          </DescriptionListTerm>
-          <DescriptionListDescription>
-            <SummaryInventoryValue metric={managedDatabases} />
           </DescriptionListDescription>
         </DescriptionListGroup>
       </DescriptionList>

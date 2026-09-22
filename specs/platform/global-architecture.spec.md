@@ -5,7 +5,7 @@
 
 ## Overview
 
-HyperShell deploys as a global fleet management platform spanning multiple clouds and regions. The architecture uses a **three-tier hub-and-spoke topology**: a Global Hub provides federated identity root, Cloud Hubs run the operational platform (API, control plane, databases), and ManagedClusters host OpenShell Gateway workloads. Every OpenShift cluster in the topology runs the full operator stack (ArgoCD, Vault, Keycloak, CNPG, Prometheus, Grafana) but serves different purposes at each tier.
+HyperShell deploys as a global fleet management platform spanning multiple clouds and regions. The architecture uses a **three-tier hub-and-spoke topology**: a Global Hub provides federated identity root, Cloud Hubs run the operational platform (API, control plane, databases), and ManagedClusters host OpenShell Gateway workloads. Every OpenShift cluster in the topology runs the full operator stack (ArgoCD, Vault, Keycloak, Prometheus, Grafana) but serves different purposes at each tier. PostgreSQL servers are provisioned outside the clusters as cloud-managed databases.
 
 **Platform delivery is GitOps pull, not hub push.** ArgoCD runs on *every* cluster and reconciles **only itself**: each cluster's ArgoCD pulls its own path from a single central GitOps repository ([`hypershell-gitops`](https://github.com/openshift-online/hypershell-gitops)) and applies the operator stack and HyperShell platform components locally. No cluster stores another cluster's kubeconfig, and no central ArgoCD pushes manifests outward. The GitOps repo is the single source of desired *platform* state; a bootstrap agent seeds each cluster (installs ArgoCD and points it at the cluster's own path), after which the cluster self-reconciles.
 
@@ -38,7 +38,7 @@ graph TB
         AArgo[ArgoCD<br/>self-reconcile]
         AK[Keycloak<br/>Federates to Global]
         AV[Vault<br/>Service Secrets]
-        ADB[(PostgreSQL<br/>CNPG)]
+        ADB[(PostgreSQL<br/>cloud-managed)]
         ACP[Control Plane]
         AAPI[API Server]
         AUI[Web UI]
@@ -50,7 +50,7 @@ graph TB
         IArgo[ArgoCD<br/>self-reconcile]
         IK[Keycloak<br/>Federates to Global]
         IV[Vault<br/>Service Secrets]
-        IDB[(PostgreSQL<br/>CNPG)]
+        IDB[(PostgreSQL<br/>cloud-managed)]
         ICP[Control Plane]
         IAPI[API Server]
         IUI[Web UI]
@@ -62,7 +62,7 @@ graph TB
         M1Argo[ArgoCD<br/>self-reconcile]
         M1K[Keycloak<br/>Gateway Clients]
         M1V[Vault<br/>Gateway Secrets]
-        M1DB[(PostgreSQL<br/>CNPG)]
+        M1DB[(PostgreSQL<br/>cloud-managed)]
         M1P[Prometheus]
         M1GW[Gateway Namespaces]
     end
@@ -71,7 +71,7 @@ graph TB
         M2Argo[ArgoCD<br/>self-reconcile]
         M2K[Keycloak<br/>Gateway Clients]
         M2V[Vault<br/>Gateway Secrets]
-        M2DB[(PostgreSQL<br/>CNPG)]
+        M2DB[(PostgreSQL<br/>cloud-managed)]
         M2P[Prometheus]
         M2GW[Gateway Namespaces]
     end
@@ -80,7 +80,7 @@ graph TB
         M3Argo[ArgoCD<br/>self-reconcile]
         M3K[Keycloak<br/>Gateway Clients]
         M3V[Vault<br/>Gateway Secrets]
-        M3DB[(PostgreSQL<br/>CNPG)]
+        M3DB[(PostgreSQL<br/>cloud-managed)]
         M3P[Prometheus]
         M3GW[Gateway Namespaces]
     end
@@ -138,14 +138,14 @@ graph TB
 
 **Components**:
 - API Server, Control Plane, Web UI (HA deployment)
-- PostgreSQL (via CNPG) - source of truth for Gateway, ManagedCluster resources
+- PostgreSQL (cloud-managed, provisioned outside the cluster) - source of truth for Gateway, ManagedCluster resources
 - ArgoCD - self-reconciles *this* Cloud Hub's operator stack and HyperShell platform components (API server, control plane, Web UI) by pulling its own path from the central GitOps repo; it does **not** reconcile into ManagedClusters
 - Keycloak - federates to Global Keycloak, serves cloud services
 - Vault - secrets for cloud hub services (API server, control plane)
 - Prometheus - aggregates metrics from this cloud's ManagedClusters
 - Grafana - cloud-level dashboards
 
-**Operational Role**: The control plane is the *tenant* reconciliation engine for the fleet. It watches the API server via gRPC and provisions the full set of OpenShell resources into ManagedClusters - not just OpenShell Gateways, but the tenant namespaces, per-tenant PKI, RBAC, ingress objects, CNPG databases, and supporting workloads each gateway depends on. This tenant plane is a runtime *push* sourced from the Cloud Hub PostgreSQL, and is distinct from platform GitOps.
+**Operational Role**: The control plane is the *tenant* reconciliation engine for the fleet. It watches the API server via gRPC and provisions the full set of OpenShell resources into ManagedClusters - not just OpenShell Gateways, but the tenant namespaces, per-tenant PKI, RBAC, ingress objects, per-gateway databases, and supporting workloads each gateway depends on. This tenant plane is a runtime *push* sourced from the Cloud Hub PostgreSQL, and is distinct from platform GitOps.
 
 The *platform* layer beneath it is pull-based GitOps: each ManagedCluster's own ArgoCD installs and self-reconciles that cluster's operator stack and baseline config from its own path in the central GitOps repo. So responsibilities split cleanly: a cluster's local ArgoCD owns the cluster's platform (operators, CRDs, cluster-scoped config), and the Cloud Hub control plane owns the tenant resources layered on top. The control plane never installs the operator stack on a ManagedCluster; it assumes the cluster has already self-reconciled it from Git.
 
@@ -157,7 +157,7 @@ The *platform* layer beneath it is pull-based GitOps: each ManagedCluster's own 
 - ArgoCD - self-reconciles this ManagedCluster's operator stack and baseline config from its own path in the central GitOps repo (pull); the Cloud Hub control plane layers tenant resources on top at runtime
 - Keycloak - federates to Cloud Hub Keycloak, holds OIDC clients for OpenShell Gateways on this cluster
 - Vault - keystore for gateway secrets
-- PostgreSQL (via CNPG) - gateway databases, each in a dedicated ManagedDatabase namespace (`openshell-db-<hash>`)
+- PostgreSQL (cloud-managed gateway database server) - one database and login role per gateway (`gw_<gateway-id>`)
 - Prometheus - local metrics (forwarded to Cloud Hub)
 - Gateway namespaces (each contains: OpenShell Gateway pod, Supervisor, Sandboxes, DB credentials Secret, TLS secrets, RBAC)
 
@@ -231,8 +231,9 @@ The control plane on the Cloud Hub watches the API server and reconciles gateway
 sequenceDiagram
     participant User as API Client
     participant API as API Server<br/>(Cloud Hub)
-    participant DB as PostgreSQL<br/>(CNPG)
+    participant DB as PostgreSQL<br/>(Cloud Hub)
     participant CP as Control Plane<br/>(Cloud Hub)
+    participant GDB as Gateway PostgreSQL<br/>(cloud-managed server)
     participant MC as ManagedCluster<br/>K8s API
 
     User->>API: POST /gateways
@@ -243,8 +244,9 @@ sequenceDiagram
     MC-->>CP: Namespace created
     CP->>MC: kubectl apply<br/>Gateway StatefulSet
     MC-->>CP: StatefulSet created
-    CP->>MC: kubectl apply<br/>CNPG Database CR<br/>(in openshell-db-<hash> ns)
-    MC-->>CP: PostgreSQL database provisioned
+    CP->>GDB: CREATE ROLE / CREATE DATABASE<br/>gw_<gateway-id>
+    GDB-->>CP: PostgreSQL database provisioned
+    CP->>MC: kubectl apply<br/>openshell-gateway-db-credentials Secret
     CP->>DB: UPDATE gateway status
     DB-->>CP: Status updated
     CP->>API: gRPC status update
@@ -256,7 +258,7 @@ sequenceDiagram
 - Runtime state owned by each OpenShell Gateway (active Sandboxes, provider credentials, live sessions) lives in that gateway's own database on its ManagedCluster, not in the Cloud Hub PostgreSQL. Where a fact could live in either store, this document names which one owns it.
 - Control Plane watches API server via gRPC streams
 - Control Plane reconciles *tenant* resources into ManagedClusters via kubeconfig secrets (runtime push; distinct from the platform GitOps pull below)
-- Gateway databases run in a dedicated ManagedDatabase namespace (`openshell-db-<hash>`) - a shared CNPG Cluster (`openshell-db`) with a per-gateway logical `Database` CR (`gw-<gateway-id>`) - not in the gateway namespace; only the DB credentials Secret is copied into the gateway namespace
+- Gateway databases live on a cloud-managed PostgreSQL server whose admin credentials are mounted into the control plane - one database and login role per gateway (`gw_<gateway-id>`) - not in any cluster; only the DB credentials Secret is written into the gateway namespace
 
 ### Platform GitOps Pull Flow
 
@@ -874,8 +876,7 @@ Gateway image references (gateway, supervisor) SHALL accept a registry host that
 carries an explicit port, as standard Docker references permit
 (`host[:port]/path[:tag]`), so images mirrored into the cluster-internal registry
 (`image-registry.openshift-image-registry.svc:5000/...`) - the only node-reachable
-source on ROKS - pass validation. The per-tenant database image SHALL be
-overridable via `HYPERSHELL_DATABASE_IMAGE` for the same reason, and the gateway's
+source on ROKS - pass validation. The gateway's
 `supervisor_image` SHALL be settable through the API (`PATCH`) so sandboxes pull
 from a node-reachable registry.
 
@@ -898,8 +899,7 @@ serve the API version the gateway requires (`v1beta1` for gateway 0.0.109; upstr
 The base image tenant sandbox pods launch from (the gateway `default_image`) SHALL
 be overridable via `GATEWAY_SANDBOX_IMAGE` (control-plane env), so that on clusters
 whose nodes cannot reach `ghcr.io` (e.g. ROKS) it can be pointed at a mirror in the
-cluster-internal registry. This mirrors the `HYPERSHELL_DATABASE_IMAGE` override for
-the gateway database. This cluster-wide override SHALL apply only when the Gateway
+cluster-internal registry. This cluster-wide override SHALL apply only when the Gateway
 resource does not set its own `sandbox_image` field; a per-Gateway `sandbox_image`
 (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)) SHALL take
 precedence over `GATEWAY_SANDBOX_IMAGE`. The control plane SHALL pass the resolved
@@ -932,7 +932,7 @@ image to the OpenShell Helm chart as `server.sandboxImage`.
 
 | Component | Tool | Purpose |
 |-----------|------|---------|
-| Database operator | CNPG (CloudNativePG) | PostgreSQL lifecycle for the default, in-cluster provider; not required by the `external` provider |
+| Databases | Cloud-managed PostgreSQL (AWS RDS/Aurora, IBM Cloud Databases) | Platform, Keycloak, and gateway databases; provisioned outside the clusters |
 | GitOps | ArgoCD (on every cluster) | Each cluster self-reconciles its own platform state by pulling its path from the central GitOps repo (pull model) |
 | Secret management | Vault | Stores and rotates secrets with cloud-native drivers |
 | Identity | Keycloak | OIDC authentication for gateways and console |
@@ -943,55 +943,48 @@ image to the OpenShell Helm chart as `server.sandboxImage`.
 
 ## Database Strategy
 
-Gateway PostgreSQL is provisioned through one of three providers, selected per
-install by `DATABASE_PROVIDER` and recorded on each ManagedDatabase. See
-[`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) and, for
-the external provider,
-[`openshell-gateway-database-external.spec.md`](./openshell-gateway-database-external.spec.md).
+Every PostgreSQL server HyperShell uses - the platform database, the Keycloak
+database, and the servers that host gateway databases - is provisioned **outside the
+clusters** as a cloud-managed database (AWS RDS/Aurora, IBM Cloud Databases) by the
+platform team or IaC. No database operator and no in-cluster PostgreSQL workload runs
+in any production tier.
 
-| Provider | Server lifecycle | Operator required |
-|---|---|---|
-| `deployment` | HyperShell runs a standalone PostgreSQL Deployment per gateway | none |
-| `cnpg` | HyperShell runs a shared CNPG `Cluster` | CloudNativePG |
-| `external` | Owned externally (AWS RDS/Aurora, IBM Cloud Databases); HyperShell registers the endpoint and provisions a database and role per gateway inside it | none |
+For gateway databases, each HyperShell installation is given one administrative
+credential set for its pre-existing server - the `hypershell-gateway-database-admin`
+Secret mounted into the control plane - and provisions one database and one login
+role per gateway inside that server over a `verify-full` TLS connection. HyperShell
+never creates, resizes, or deletes a server, and the server is not an API resource.
+There is a single provisioning model with no provider selection. See
+[`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md).
 
-### CNPG is the default, portable choice
-
-CloudNativePG runs PostgreSQL clusters as Kubernetes-native resources with automated
-failover, backup, and recovery. It is portable across clouds and requires no cloud
-database offering, which is why it is the recommended provider for a HyperShell
-install that has a free choice.
-
-### `external` is a supported, opt-in alternative
-
-The `external` provider deliberately reintroduces cloud-managed databases for
-operators who must consume one - for compliance, an existing cloud investment, or a
-managed backup and HA story they are required to use. Choosing it trades portability
-for those properties, and it is opt-in: nothing about `external` is on the default
-path. HyperShell never creates, resizes, or deletes an external server; it registers
-a pre-existing endpoint and manages only the per-gateway database and role inside it.
+Cloud-managed servers supply the backup, point-in-time recovery, and HA properties the
+platform relies on, so HyperShell does not reimplement them.
 
 ### Requirements
 
-#### Requirement: CNPG Operator Deployment
+#### Requirement: Externally Provisioned Gateway Database Servers
 
-The CNPG operator SHALL be deployed on the hub cluster when `DATABASE_PROVIDER=cnpg`. The `deployment` and `external` providers SHALL NOT require it. Each ManagedDatabase SHALL be provisioned as a CNPG Cluster resource in its own dedicated namespace (`openshell-db-<hash>`), and gateway databases SHALL be provisioned as logical CNPG `Database` resources inside that ManagedDatabase namespace - not in the gateway namespace.
+Gateway database servers SHALL be provisioned outside the clusters and their admin
+credentials supplied to the control plane as a mounted Secret. The control plane SHALL
+provision each gateway's database and role on that server with in-process DDL, and
+SHALL write only the `openshell-gateway-db-credentials` Secret into the gateway
+namespace.
 
-##### Scenario: Gateway Database Provisioning via CNPG
+##### Scenario: Gateway Database Provisioning
 
-- GIVEN a Gateway resource with a `database_id` referencing a ManagedDatabase
-- WHEN the ManagedDatabase specifies `provider: cnpg`
-- THEN the controller SHALL ensure a CNPG Cluster (`openshell-db`) exists in the ManagedDatabase namespace (`openshell-db-<hash>`)
-- AND the controller SHALL create a per-gateway logical `Database` and `DatabaseRole` (`gw-<gateway-id>`) inside that ManagedDatabase namespace
-- AND the controller SHALL copy the resulting `openshell-gateway-db-credentials` Secret into the gateway namespace
+- GIVEN a Gateway resource and a control plane with valid mounted admin credentials
+- WHEN the control plane reconciles the Gateway
+- THEN it SHALL create the database and login role `gw_<gateway-id>` on the server
+- AND it SHALL create no PostgreSQL workload in any cluster
+- AND it SHALL write the `openshell-gateway-db-credentials` Secret into the gateway namespace
 
-#### Requirement: Database Lifecycle Independence
+#### Requirement: Database Server Lifecycle Independence
 
-ManagedDatabase resources SHALL have an independent lifecycle from Gateways. A single CNPG Cluster in a ManagedDatabase namespace MAY serve multiple gateways, each via its own logical `Database` CR.
+The gateway database server SHALL have an independent lifecycle from Gateways: HyperShell never creates or deletes it, and a single server serves every gateway of the installation, each via its own database and role.
 
 ## Namespace Strategy
 
-Gateway and its sandboxes coexist in the same namespace as a scalable unit. Each gateway deployment gets its own namespace containing its workloads, config, and security resources. Its database lives in a separate ManagedDatabase namespace (see below).
+Gateway and its sandboxes coexist in the same namespace as a scalable unit. Each gateway deployment gets its own namespace containing its workloads, config, and security resources. Its database lives on the registered PostgreSQL server outside the cluster (see below).
 
 ```mermaid
 graph TB
@@ -1018,9 +1011,9 @@ graph TB
         end
     end
     
-    subgraph DBNS["namespace: openshell-db-<hash> (ManagedDatabase)"]
-        DB[(CNPG Cluster<br/>openshell-db)]
-        DBR[Database + DatabaseRole<br/>gw-<gateway-id>]
+    subgraph DBNS["cloud-managed PostgreSQL (gateway database server)"]
+        DB[(PostgreSQL server)]
+        DBR[Database + login role<br/>gw_<gateway-id>]
         DB --> DBR
     end
     
@@ -1044,13 +1037,13 @@ graph TB
 - **Config**: ConfigMaps, TLS secrets (cert-manager or certgen), Vault-backed secrets, `openshell-gateway-db-credentials`
 - **Security**: NetworkPolicies, ServiceAccounts, Roles, RoleBindings
 
-**Gateway Database (separate namespace)**: Provisioned by the ManagedDatabase controller in `openshell-db-<hash>` - a shared CNPG `Cluster` (`openshell-db`) plus a per-gateway logical `Database`/`DatabaseRole` (`gw-<gateway-id>`). See the [naming & multi-tenancy standard](../standards/platform/naming-multitenancy.spec.md).
+**Gateway Database (outside the cluster)**: Provisioned by the control plane on the registered PostgreSQL server - a per-gateway database and login role (`gw_<gateway-id>`). See the [naming & multi-tenancy standard](../standards/platform/naming-multitenancy.spec.md).
 
 This namespace-per-gateway strategy provides:
 - Isolation boundary for RBAC and network policies
 - Resource quotas per gateway
-- Self-contained workload lifecycle (delete namespace = delete gateway workload; the logical `Database` is reclaimed independently)
-- A shared CNPG instance per ManagedDatabase, reducing the Postgres footprint across gateways
+- Self-contained workload lifecycle (delete namespace = delete gateway workload; the gateway database is dropped independently)
+- One shared server per installation, reducing the Postgres footprint across gateways
 
 ## Installer Pipeline
 
@@ -1066,7 +1059,9 @@ HyperShell installation SHALL be performed via Tekton pipelines that execute ide
 
 - GIVEN a bare OpenShift cluster with Tekton installed
 - WHEN the HyperShell installer pipeline runs
-- THEN it SHALL provision: CNPG operator, cert-manager, API server, controller, PostgreSQL, ArgoCD, Vault, Keycloak
+- AND the platform, Keycloak, and gateway PostgreSQL servers have been provisioned outside the cluster
+- THEN it SHALL provision: cert-manager, API server, controller, ArgoCD, Vault, Keycloak
+- AND it SHALL configure the connection Secrets for the externally provisioned PostgreSQL servers
 - AND the installation SHALL be idempotent (safe to re-run)
 
 #### Requirement: Cattle Not Pets
@@ -1178,14 +1173,13 @@ hypershell-gitops/
 ├── bases/                              # reusable, cluster-agnostic manifests
 │   ├── hypershell/
 │   │   ├── base/                       # ESO wiring, NetworkPolicies, ServiceMonitor, name refs
-│   │   ├── profiles/{main,canary}/     # CNPG profile overlays
+│   │   ├── profiles/{main,canary}/     # instance profile overlays
 │   │   ├── keycloak/                   # Keycloak + realm import
 │   │   ├── ingress-openshift/          # OpenShift Route ingress
 │   │   └── ingress-k8s/                # plain-k8s Ingress
 │   └── operators/                      # one base (+ channel overlays) per operator
 │       ├── openshift-gitops/           # ArgoCD itself
 │       ├── openshift-pipelines/
-│       ├── cloudnative-pg/
 │       ├── keycloak-operator/
 │       ├── grafana-operator/
 │       ├── vault/                      # Helm repo + init job + cluster-secret-store
@@ -1240,16 +1234,16 @@ repo while syncing a different path. To fork the repo, edit only that file.
 |----------|-----------|
 | Three-tier topology | Separates concerns: Global (identity root), Cloud Hub (operations), ManagedCluster (workloads) |
 | Cloud Hub as primary unit | One HA instance per cloud runs API/control-plane/database; cloud isolation for latency and compliance |
-| Full operator stack on all tiers | Every cluster has ArgoCD, Vault, Keycloak, CNPG, Prometheus - but serves different purposes per tier. Because each cluster's own ArgoCD installs its stack from Git, the stack is present before any tenant workload lands. |
+| Full operator stack on all tiers | Every cluster has ArgoCD, Vault, Keycloak, Prometheus - but serves different purposes per tier. Because each cluster's own ArgoCD installs its stack from Git, the stack is present before any tenant workload lands. |
 | Federated Keycloak chain | RH SSO → Global → Cloud Hub → ManagedCluster - identity flows down, authentication bubbles up |
 | Vault per tier with distinct purposes | Cloud Hub Vault: service secrets; ManagedCluster Vault: gateway keystores |
-| CNPG as the default database provider | Kubernetes-native lifecycle, portable across clouds, no vendor lock-in. The `external` provider is available where an operator must consume a cloud-managed database, trading portability for the provider's compliance, backup, and HA properties. |
+| Cloud-managed PostgreSQL only | All databases run on externally provisioned, cloud-managed servers that supply backup, point-in-time recovery, and HA. HyperShell registers servers and manages only per-gateway databases and roles, so no database operator or in-cluster PostgreSQL workload is maintained, and there is a single provisioning model. |
 | PostgreSQL on Cloud Hub as source of truth | All Gateway/ManagedCluster resource state lives in Cloud Hub database |
 | ManagedClusters can be standard K8s | Maximizes deployment flexibility; only hubs need OpenShift |
 | Tekton over bash scripts | Deterministic, auditable, cattle-not-pets infrastructure |
 | ArgoCD on every cluster (pull model) | Every cluster runs its own ArgoCD and self-reconciles only its own path from the central GitOps repo. No cluster stores another's kubeconfig and no hub pushes manifests outward, so credential blast radius is minimized and a hub outage never stalls a spoke's platform reconciliation. (Distinct from control-plane tenant reconciliation, which remains a runtime push from the Cloud Hub.) |
 | Prometheus metrics hierarchy | ManagedCluster → Cloud Hub → Global Hub; supports cloud-level and cross-cloud dashboards |
-| Namespace-per-gateway | Isolation boundary for RBAC, NetworkPolicy, and resource quotas; the gateway database lives in a separate ManagedDatabase namespace |
+| Namespace-per-gateway | Isolation boundary for RBAC, NetworkPolicy, and resource quotas; the gateway database lives on the registered server outside the cluster |
 | Terraform for provisioning | IaC for VPC, subnet, and cluster lifecycle; cloud-agnostic |
 | Gateway OIDC clients on ManagedCluster | openshell CLI authenticates against Keycloak where the gateway runs (low latency) |
 | Shared Ingress Gateway for Tenant gRPC | A wildcard DNS record (`*.domain`) can only resolve to a single Load Balancer. A per-tenant gateway model (1 LB per tenant) fundamentally breaks wildcard routing, requiring per-tenant DNS automation and cert management. A shared Gateway allows N tenants to securely share 1 LB, 1 wildcard cert, and 1 static DNS record via `GRPCRoute` attachments. |

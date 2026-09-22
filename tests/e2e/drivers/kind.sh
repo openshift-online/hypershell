@@ -235,9 +235,17 @@ discover_console_host() {
 
 # discover_gateway_endpoint - find the gateway gRPC endpoint.
 # Sets _DISCOVER_GW_ENDPOINT from the GRPCRoute hostname once the
-# parent Gateway is Programmed.
+# parent Gateway is Programmed. Also sets _DISCOVER_GW_HOST (the bare
+# hostname) and _DISCOVER_GW_LB_ADDR (the parent Gateway's own
+# status.addresses[0].value, i.e. the cloud-provider-kind Envoy container's
+# address on Kind's own podman network) so callers that run the openshell CLI
+# in a container on that same network (see e2e-openshell.sh's
+# _install_openshell_cli_container_wrapper) can reach it directly, instead of
+# through the host-side ephemeral-port remap _DISCOVER_GW_ENDPOINT uses.
 discover_gateway_endpoint() {
   _DISCOVER_GW_ENDPOINT=""
+  _DISCOVER_GW_HOST=""
+  _DISCOVER_GW_LB_ADDR=""
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
 
@@ -257,6 +265,9 @@ discover_gateway_endpoint() {
         -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}' 2>/dev/null \
         | grep -c 'Programmed=True' || true)
       if [[ "${gw_programmed:-0}" -ge 1 ]]; then
+        _DISCOVER_GW_HOST="$grpc_host"
+        _DISCOVER_GW_LB_ADDR=$(kubectl get gateway "${gw_ref_name}" -n "${gw_ref_ns}" \
+          -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
         _kind_start_gw_socat
         if [[ -n "${_KINDCCM_GW_PORT}" && "${_KINDCCM_GW_PORT}" != "443" ]]; then
           _DISCOVER_GW_ENDPOINT="https://${grpc_host}:${_KINDCCM_GW_PORT}"

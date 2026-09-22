@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 )
@@ -67,11 +68,28 @@ func deployGatewayViaHelm(
 		if err := helmClient.Install(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm install: %w", err)
 		}
-	} else if status.Status == "failed" || status.Status == "pending-install" {
-		// Failed install, retry via upgrade
+	} else if status.Status == "failed" {
+		// A previous install/upgrade ran to completion but with an error. Helm
+		// allows retrying this via a normal upgrade.
 		log.Printf("INFO retrying failed helm release in namespace %s (status: %s)", nsConfig.Name, status.Status)
 		if err := helmClient.Upgrade(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm upgrade: %w", err)
+		}
+	} else if strings.HasPrefix(status.Status, "pending-") {
+		// An operation (install/upgrade/rollback) was interrupted before reaching
+		// a terminal state -- for example the controller restarted mid-install.
+		// Helm refuses any new operation against a release in this state
+		// ("another operation ... is in progress"), even though nothing is
+		// actually running, so retrying via upgrade can never succeed and would
+		// retry forever. The only clean recovery is to discard the stuck release
+		// and reinstall; nothing the chart renders can have been left in a
+		// working state while the release was still pending.
+		log.Printf("INFO helm release in namespace %s is stuck (status: %s); reinstalling", nsConfig.Name, status.Status)
+		if err := helmClient.Uninstall(ctx, nsConfig.Name); err != nil {
+			return fmt.Errorf("uninstall stuck helm release: %w", err)
+		}
+		if err := helmClient.Install(ctx, nsConfig.Name, values); err != nil {
+			return fmt.Errorf("reinstall helm release: %w", err)
 		}
 	} else if status.Status == "deployed" {
 		log.Printf("INFO upgrading deployed helm release in namespace %s", nsConfig.Name)

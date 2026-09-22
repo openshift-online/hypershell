@@ -28,7 +28,6 @@ describe("dashboard layout persistence", () => {
       "inventory-summary",
       "managed-cluster-providers",
       "managed-cluster-regions",
-      "managed-database-status",
     ]);
   });
 

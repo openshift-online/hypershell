@@ -56,7 +56,6 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     created_at: null,
     created_by: "",
     credential_driver: "",
-    database_id: "database-1",
     external_dns: "gateway.example.com",
     gateway_version: "",
     href: "/api/hypershell/v1/gateways/gateway-1",
@@ -643,9 +642,7 @@ describe("gateway API operations adapter", () => {
   });
 
   it("provisions on the selected cluster with hidden request defaults", async () => {
-    gatewayApi.create.mockResolvedValue(
-      gateway({ database_id: "", release_id: "" }),
-    );
+    gatewayApi.create.mockResolvedValue(gateway({ release_id: "" }));
 
     await controlPlane.provisionGateway(
       {
@@ -658,7 +655,6 @@ describe("gateway API operations adapter", () => {
     expect(gatewayApi.create).toHaveBeenCalledWith(
       {
         cluster_id: "cluster-east",
-        database_id: "",
         name: "team-gateway",
         release_id: "",
         route: '{"enabled":true}',

@@ -84,7 +84,6 @@ const WIDGET_TITLE_MESSAGES = {
   "registered-users": messages.registeredUsers,
   "managed-cluster-providers": messages.widgetManagedClusterProviders,
   "managed-cluster-regions": messages.widgetManagedClusterRegions,
-  "managed-database-status": messages.widgetManagedDatabaseStatus,
   "gateway-status": messages.gatewayStatusWidget,
   "sandbox-status": messages.sandboxStatusWidget,
   "gateway-releases": messages.gatewayReleasesWidget,
@@ -257,18 +256,9 @@ const fourColumnLayout = [
     h: NODE_STATUS_WIDGET_HEIGHT,
     i: "managed-cluster-regions#1",
     title: "Cluster regions",
-    w: 1,
+    w: 2,
     widgetType: "managed-cluster-regions",
     x: 2,
-    y: PLATFORM_INVENTORY_START_Y,
-  },
-  {
-    h: NODE_STATUS_WIDGET_HEIGHT,
-    i: "managed-database-status#1",
-    title: "Database status",
-    w: 1,
-    widgetType: "managed-database-status",
-    x: 3,
     y: PLATFORM_INVENTORY_START_Y,
   },
 ] as const;
@@ -435,15 +425,6 @@ const mobileLayout = [
     widgetType: "managed-cluster-regions",
     x: 0,
     y: 91,
-  },
-  {
-    h: NODE_STATUS_WIDGET_HEIGHT,
-    i: "managed-database-status#1",
-    title: "Database status",
-    w: 1,
-    widgetType: "managed-database-status",
-    x: 0,
-    y: 95,
   },
 ] as const;
 

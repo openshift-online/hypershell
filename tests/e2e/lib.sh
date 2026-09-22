@@ -107,22 +107,24 @@ retry_until() {
   return 1
 }
 
-# Keep this rule consistent with buildOpenShellInstallCommand in
-# packages/gateway-management-ui/src/gateways/gateway-connections.ts.
-# Remove surrounding space and the first "-" suffix. Add a leading "v".
-openshell_installer_version() {
+# openshell_cli_image_tag - normalize a gateway_version string (as the control
+# plane reconciles it from the gateway's health endpoint, e.g.
+# "0.0.116-rhaiv.6") into the image tag used by
+# quay.io/opendatahub/odh-openshell-cli. Trims whitespace and adds a leading
+# "v" when absent; the suffix (e.g. "-rhaiv.6") is kept, not stripped, because
+# it identifies a downstream build that can be ahead of the last tagged
+# upstream OpenShell release and therefore proto-incompatible with it - the
+# only CLI guaranteed to match is the one built from the same tag by the same
+# pipeline as the deployed gateway/supervisor images.
+openshell_cli_image_tag() {
   local raw="$1"
-  # trim leading/trailing whitespace (mirrors the TS .trim())
   raw="${raw#"${raw%%[![:space:]]*}"}"
   raw="${raw%"${raw##*[![:space:]]}"}"
   [[ -z "$raw" ]] && return 1
-  # Strip the first "-" and all following text (v0.0.109-rh9a8f8 -> v0.0.109).
-  local base="${raw%%-*}"
-  [[ -z "$base" ]] && return 1
-  if [[ "$base" == v* ]]; then
-    printf '%s' "$base"
+  if [[ "$raw" == v* ]]; then
+    printf '%s' "$raw"
   else
-    printf 'v%s' "$base"
+    printf 'v%s' "$raw"
   fi
 }
 
@@ -489,8 +491,9 @@ else:
 " 2>/dev/null)" || true
 }
 
-# Discover the seeded cluster, release, and managed-database ids via the API.
-# Sets E2E_CLUSTER_ID, E2E_RELEASE_ID, E2E_DATABASE_ID.
+# Discover the seeded cluster and release ids via the API.
+# Sets E2E_CLUSTER_ID, E2E_RELEASE_ID. Gateway databases are provisioned by the
+# control plane from its mounted admin Secret and need no seed id.
 # Requires API_HOST and api_curl. Never hardcodes ids.
 #
 # Name pins (optional): E2E_SEED_CLUSTER_NAME, E2E_SEED_RELEASE_NAME.
@@ -541,13 +544,12 @@ e2e_print_seed_discovery_error() {
   red "ERROR: could not discover seeded cluster/release ids from the API"
   dim "  cluster=${E2E_SEED_CLUSTER_NAME:-<first>} id=${E2E_CLUSTER_ID:-<empty>} (${_E2E_CLUSTER_LIST_SUMMARY:-unknown})"
   dim "  release=${E2E_SEED_RELEASE_NAME:-<first>} id=${E2E_RELEASE_ID:-<empty>} (${_E2E_RELEASE_LIST_SUMMARY:-unknown})"
-  dim "  database=${E2E_DATABASE_ID:-<empty>} (${_E2E_DATABASE_LIST_SUMMARY:-unknown})"
   dim "  Re-seed once the API is healthy: SEED_STRICT=true make openshift-seed"
   dim "  (Kind: SEED_STRICT=true make kind-seed)"
 }
 
 e2e_fetch_seed_ids() {
-  local clusters releases databases
+  local clusters releases
   if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]]; then
     : "${E2E_SEED_CLUSTER_NAME:=local-kind}"
     : "${E2E_SEED_RELEASE_NAME:=dev-release}"
@@ -561,14 +563,11 @@ e2e_fetch_seed_ids() {
 
   clusters=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters" 2>/dev/null || true)
   releases=$(api_curl "${API_HOST}/api/hypershell/v1/gateway_releases" 2>/dev/null || true)
-  databases=$(api_curl "${API_HOST}/api/hypershell/v1/managed_databases" 2>/dev/null || true)
 
   E2E_CLUSTER_ID=$(echo "$clusters" | e2e_json_first_id "${E2E_SEED_CLUSTER_NAME}")
   E2E_RELEASE_ID=$(echo "$releases" | e2e_json_first_id "${E2E_SEED_RELEASE_NAME}")
-  E2E_DATABASE_ID=$(echo "$databases" | e2e_json_first_id)
   _E2E_CLUSTER_LIST_SUMMARY=$(echo "$clusters" | e2e_json_list_summary)
   _E2E_RELEASE_LIST_SUMMARY=$(echo "$releases" | e2e_json_list_summary)
-  _E2E_DATABASE_LIST_SUMMARY=$(echo "$databases" | e2e_json_list_summary)
 
   e2e_seed_ids_ready
 }
@@ -603,7 +602,7 @@ e2e_ensure_seed_ids() {
   e2e_discover_seed_ids
 }
 
-# Copy cluster/release/database ids from a gateway JSON object or list.
+# Copy cluster/release ids from a gateway JSON object or list.
 # Does not overwrite ids that are already set.
 e2e_apply_seed_ids_from_gateway_json() {
   local json="${1:-}" name="${2:-}"
@@ -624,32 +623,29 @@ if isinstance(data, dict) and 'items' in data:
             break
 if not isinstance(obj, dict):
     sys.exit(0)
-print('%s\t%s\t%s' % (
+print('%s\t%s' % (
     obj.get('cluster_id', '') or '',
     obj.get('release_id', '') or '',
-    obj.get('database_id', '') or '',
 ))
 " 2>/dev/null || true)
-  local cluster release database
-  IFS=$'\t' read -r cluster release database <<< "$parsed" || true
+  local cluster release
+  IFS=$'\t' read -r cluster release <<< "$parsed" || true
   [[ -z "${E2E_CLUSTER_ID:-}" && -n "$cluster" ]] && E2E_CLUSTER_ID="$cluster"
   [[ -z "${E2E_RELEASE_ID:-}" && -n "$release" ]] && E2E_RELEASE_ID="$release"
-  [[ -z "${E2E_DATABASE_ID:-}" && -n "$database" ]] && E2E_DATABASE_ID="$database"
 }
 
-# Print a gateway create body that reuses the seeded cluster/release/database ids.
+# Print a gateway create body that reuses the seeded cluster/release ids.
 e2e_gateway_create_body() {
   local name="${1:?gateway name required}"
   GW_NAME="$name" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
-    E2E_RELEASE_ID="${E2E_RELEASE_ID}" E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" python3 -c "
+    E2E_RELEASE_ID="${E2E_RELEASE_ID}" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': os.environ['E2E_CLUSTER_ID'],
     'release_id': os.environ['E2E_RELEASE_ID'],
-    'database_id': os.environ.get('E2E_DATABASE_ID', ''),
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -685,21 +681,20 @@ e2e_wait_gateway_running() {
 }
 
 # Parse a gateway create/get JSON. Sets _CREATE_KIND (OK|ERROR|PARSE), _CREATE_ID,
-# _CREATE_NAMESPACE, _CREATE_DATABASE_ID (or error code/reason in the ERROR case).
+# _CREATE_NAMESPACE (or error code/reason in the ERROR case).
 e2e_parse_gateway_response() {
   local json="${1:-}"
   _CREATE_KIND=""
   _CREATE_ID=""
   _CREATE_NAMESPACE=""
-  _CREATE_DATABASE_ID=""
-  IFS=$'\t' read -r _CREATE_KIND _CREATE_ID _CREATE_NAMESPACE _CREATE_DATABASE_ID <<< "$(echo "$json" | python3 -c "
+  IFS=$'\t' read -r _CREATE_KIND _CREATE_ID _CREATE_NAMESPACE <<< "$(echo "$json" | python3 -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
 except Exception:
-    print('PARSE\t\t\t'); sys.exit(0)
+    print('PARSE\t\t'); sys.exit(0)
 if d.get('kind') == 'Error':
-    print('ERROR\t%s\t%s\t' % (d.get('code', ''), d.get('reason', ''))); sys.exit(0)
-print('OK\t%s\t%s\t%s' % (d.get('id', ''), d.get('namespace', ''), d.get('database_id', '')))
+    print('ERROR\t%s\t%s' % (d.get('code', ''), d.get('reason', ''))); sys.exit(0)
+print('OK\t%s\t%s' % (d.get('id', ''), d.get('namespace', '')))
 " 2>/dev/null)" || true
 }
