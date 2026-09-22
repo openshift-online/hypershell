@@ -30,6 +30,13 @@ export function useGetReliabilityMetricsData({
         mergedMetricsRef.current,
         next,
       );
+      // Soft-fail returns empty metrics + failedSources. With no prior
+      // successful load, treat that as total failure (danger empty state).
+      // After a successful load, merge restores stale metrics and the
+      // partial-load warning path applies.
+      if (merged.metrics.length === 0) {
+        throw new Error("API reliability metrics unavailable");
+      }
       mergedMetricsRef.current = merged;
       return merged;
     },

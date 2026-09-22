@@ -54,9 +54,11 @@ const initialLoadFailedDashboard = createDashboardOperations({
     },
     getReliabilityMetrics: (context) => {
       context.signal?.throwIfAborted();
-      return Promise.reject(
-        new Error("Unable to reach the reliability metrics service."),
-      );
+      return Promise.resolve({
+        failedSources: ["api-reliability"],
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
     },
   },
 });
@@ -123,9 +125,11 @@ function createRefreshFailedDashboard(): DashboardOperations {
         });
       }
 
-      return Promise.reject(
-        new Error("Unable to refresh reliability dashboard metrics."),
-      );
+      return Promise.resolve({
+        failedSources: ["api-reliability"],
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
     },
   };
 
@@ -264,7 +268,7 @@ export const RefreshFailed: Story = {
       canvas.getByRole("button", { name: "Refresh dashboard metrics" }),
     );
     await expect(
-      canvas.getByText("Could not refresh dashboard metrics"),
+      canvas.getByText("Some dashboard metrics are unavailable"),
     ).toBeVisible();
   },
 };

@@ -197,6 +197,11 @@ Reliability dashboard (`/dashboard/reliability`) loads through
 | ----------------- | ---------------------------------- | --------------------------------------------------- |
 | `api-reliability` | `GET /api/metrics/api-reliability` | `api-request-rate`, `api-error-rate`, `api-latency` |
 
+Fetch failures soft-return `failedSources: ["api-reliability"]` with an empty
+metrics list (abort still throws). `mergeReliabilityDashboardMetrics` then
+preserves stale widgets on refresh; an empty merge after first load is treated
+as total failure.
+
 Instant fields come from the API server framework Prometheus histogram
 `api_inbound_request_duration_*` scraped via the `hypershell-api-server`
 ServiceMonitor (`job="hypershell-api-server"`). The HTTP status label is

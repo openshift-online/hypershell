@@ -1596,18 +1596,20 @@ describe("createDashboardControlPlaneAdapter", () => {
       });
     });
 
-    it("throws when the BFF response is not ok", async () => {
+    it("returns failedSources when the BFF response is not ok", async () => {
       fetchMock.mockResolvedValue({
         ok: false,
         status: 502,
       });
 
-      await expect(adapter.getReliabilityMetrics(context)).rejects.toThrow(
-        "Failed to fetch API reliability metrics: 502",
-      );
+      const metrics = await adapter.getReliabilityMetrics(context);
+
+      expect(metrics.failedSources).toEqual(["api-reliability"]);
+      expect(metrics.metrics).toEqual([]);
+      expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);
     });
 
-    it("throws when required instant fields are missing", async () => {
+    it("returns failedSources when required instant fields are missing", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
         json: () =>
@@ -1617,8 +1619,19 @@ describe("createDashboardControlPlaneAdapter", () => {
           }),
       });
 
-      await expect(adapter.getReliabilityMetrics(context)).rejects.toThrow(
-        "API reliability metrics response is missing required fields",
+      const metrics = await adapter.getReliabilityMetrics(context);
+
+      expect(metrics.failedSources).toEqual(["api-reliability"]);
+      expect(metrics.metrics).toEqual([]);
+      expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);
+    });
+
+    it("rethrows abort errors instead of soft-failing", async () => {
+      const abortError = new DOMException("Aborted", "AbortError");
+      fetchMock.mockRejectedValue(abortError);
+
+      await expect(adapter.getReliabilityMetrics(context)).rejects.toBe(
+        abortError,
       );
     });
 

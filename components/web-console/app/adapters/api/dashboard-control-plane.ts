@@ -752,12 +752,26 @@ export function createDashboardControlPlaneAdapter(
     ): Promise<OperationalDashboardMetrics> {
       context.signal?.throwIfAborted();
 
-      const metrics = await fetchApiReliabilityMetrics(context);
+      try {
+        const metrics = await fetchApiReliabilityMetrics(context);
+        return {
+          lastSuccessfulRefresh: new Date(),
+          metrics,
+        };
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
 
-      return {
-        lastSuccessfulRefresh: new Date(),
-        metrics,
-      };
+        // Soft-fail like getOperationalMetrics partial sources so
+        // mergeReliabilityDashboardMetrics can keep stale widgets on
+        // refresh and the page can show the partial-load warning.
+        return {
+          failedSources: ["api-reliability"],
+          lastSuccessfulRefresh: new Date(),
+          metrics: [],
+        };
+      }
     },
   };
 }
