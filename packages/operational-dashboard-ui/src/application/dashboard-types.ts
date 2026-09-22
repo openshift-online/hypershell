@@ -78,8 +78,14 @@ export type DashboardMetricSourceId =
   | "platform-inventory"
   | "registered-users";
 
+/** Metric source id used only on reliability-dashboard payloads (REL-DASH / ARM). */
+export type ReliabilityMetricSourceId = "api-reliability";
+
+export type DashboardFailedSourceId =
+  DashboardMetricSourceId | ReliabilityMetricSourceId;
+
 export interface OperationalDashboardMetrics {
-  failedSources?: readonly DashboardMetricSourceId[];
+  failedSources?: readonly DashboardFailedSourceId[];
   lastSuccessfulRefresh: Date;
   metrics: readonly OperationalMetric[];
 }
@@ -89,16 +95,22 @@ export interface DashboardInvocationContext {
   signal?: AbortSignal;
 }
 
-/** Application-owned driven port for operational dashboard metrics. */
+/** Application-owned driven port for operational and reliability dashboard metrics. */
 export interface DashboardControlPlane {
   getOperationalMetrics(
     context: DashboardInvocationContext,
   ): Promise<OperationalDashboardMetrics>;
+  getReliabilityMetrics(
+    context: DashboardInvocationContext,
+  ): Promise<OperationalDashboardMetrics>;
 }
 
-/** Driving entry port used by the operational dashboard presentation adapters. */
+/** Driving entry port used by the dashboard presentation adapters. */
 export interface DashboardOperations {
   getOperationalMetrics(
+    signal?: AbortSignal,
+  ): Promise<OperationalDashboardMetrics>;
+  getReliabilityMetrics(
     signal?: AbortSignal,
   ): Promise<OperationalDashboardMetrics>;
 }

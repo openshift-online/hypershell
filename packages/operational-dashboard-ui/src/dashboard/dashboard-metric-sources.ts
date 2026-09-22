@@ -1,14 +1,10 @@
-import type { OperationalDashboardMetrics } from "../application/dashboard-types";
+import type {
+  DashboardMetricSourceId,
+  OperationalDashboardMetrics,
+  ReliabilityMetricSourceId,
+} from "../application/dashboard-types";
 
-export type DashboardMetricSourceId =
-  | "cluster-cpu"
-  | "cluster-memory"
-  | "cluster-nodes"
-  | "cluster-pods"
-  | "gateway-metrics"
-  | "gateway-release-distribution"
-  | "platform-inventory"
-  | "registered-users";
+export type { DashboardMetricSourceId };
 
 export const DASHBOARD_METRIC_SOURCE_METRIC_IDS: Readonly<
   Record<DashboardMetricSourceId, readonly string[]>
@@ -28,9 +24,16 @@ export const DASHBOARD_METRIC_SOURCE_METRIC_IDS: Readonly<
   "cluster-nodes": ["nodes"],
 };
 
-export function mergeOperationalDashboardMetrics(
+export const RELIABILITY_METRIC_SOURCE_METRIC_IDS: Readonly<
+  Record<ReliabilityMetricSourceId, readonly string[]>
+> = {
+  "api-reliability": ["api-request-rate", "api-error-rate", "api-latency"],
+};
+
+function mergeDashboardMetricsBySourceMap(
   previous: OperationalDashboardMetrics | undefined,
   next: OperationalDashboardMetrics,
+  sourceMetricIds: Readonly<Record<string, readonly string[]>>,
 ): OperationalDashboardMetrics {
   if (
     previous === undefined ||
@@ -42,9 +45,7 @@ export function mergeOperationalDashboardMetrics(
 
   const mergedById = new Map(next.metrics.map((metric) => [metric.id, metric]));
   const staleMetricIds = new Set(
-    next.failedSources.flatMap(
-      (sourceId) => DASHBOARD_METRIC_SOURCE_METRIC_IDS[sourceId],
-    ),
+    next.failedSources.flatMap((sourceId) => sourceMetricIds[sourceId] ?? []),
   );
 
   for (const metric of previous.metrics) {
@@ -57,4 +58,26 @@ export function mergeOperationalDashboardMetrics(
     ...next,
     metrics: [...mergedById.values()],
   };
+}
+
+export function mergeOperationalDashboardMetrics(
+  previous: OperationalDashboardMetrics | undefined,
+  next: OperationalDashboardMetrics,
+): OperationalDashboardMetrics {
+  return mergeDashboardMetricsBySourceMap(
+    previous,
+    next,
+    DASHBOARD_METRIC_SOURCE_METRIC_IDS,
+  );
+}
+
+export function mergeReliabilityDashboardMetrics(
+  previous: OperationalDashboardMetrics | undefined,
+  next: OperationalDashboardMetrics,
+): OperationalDashboardMetrics {
+  return mergeDashboardMetricsBySourceMap(
+    previous,
+    next,
+    RELIABILITY_METRIC_SOURCE_METRIC_IDS,
+  );
 }

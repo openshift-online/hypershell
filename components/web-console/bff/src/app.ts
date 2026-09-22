@@ -24,6 +24,7 @@ import {
   type BrowserRuntimeConfig,
   type ServerConfig,
 } from "./config.js";
+import { queryApiReliability } from "./metrics-api-reliability.js";
 import { queryGatewayMetrics } from "./metrics-gateways.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
 import { queryClusterMemory } from "./metrics-cluster-memory.js";
@@ -69,6 +70,7 @@ function isApplicationRoute(pathname: string): boolean {
   return (
     pathname === "/" ||
     pathname === "/dashboard" ||
+    pathname === "/dashboard/reliability" ||
     pathname === "/login" ||
     pathname === "/gateways/new" ||
     pathname === "/metrics" ||
@@ -107,6 +109,7 @@ function requiresDashboardAdminAccess(
 ): boolean {
   return (
     pathname === "/dashboard" ||
+    pathname === "/dashboard/reliability" ||
     pathname === "/metrics" ||
     (pathname === "/" && isDashboardHost(hostHeader))
   );
@@ -675,6 +678,26 @@ export async function buildApp(
         request.log.warn(
           { err: error },
           "registered user metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/api-reliability",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryApiReliability(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "API reliability metrics query failed",
         );
         reply.code(502);
         return { error: "Metrics unavailable", statusCode: 502 };

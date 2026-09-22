@@ -6,6 +6,21 @@ export const messages = defineMessages({
     defaultMessage: "Add widgets",
     description: "Label for the button that opens the widget drawer.",
   },
+  apiErrorRateWidget: {
+    id: "app.dashboard.widget.apiErrorRate",
+    defaultMessage: "API error rate",
+    description: "Title for the API 5xx error rate reliability widget.",
+  },
+  apiLatencyWidget: {
+    id: "app.dashboard.widget.apiLatency",
+    defaultMessage: "API latency",
+    description: "Title for the API median latency reliability widget.",
+  },
+  apiRequestRateWidget: {
+    id: "app.dashboard.widget.apiRequestRate",
+    defaultMessage: "API request rate",
+    description: "Title for the API request rate reliability widget.",
+  },
   cpus: {
     id: "app.dashboard.summary.cpus",
     defaultMessage: "CPUs",
@@ -462,6 +477,79 @@ export const messages = defineMessages({
     defaultMessage: "Unique logins per day",
     description: "Title above the registered users login sparkline.",
   },
+  reliabilityDescription: {
+    id: "app.dashboard.reliability.description",
+    defaultMessage:
+      "API request rate, 5xx error rate, and median latency with 24-hour hourly trends. Metrics refresh every 15 minutes.",
+    description: "Supporting text on the reliability dashboard page.",
+  },
+  reliabilityLoadErrorBody: {
+    id: "app.dashboard.reliability.loadError.body",
+    defaultMessage:
+      "An unexpected error occurred while loading reliability metrics.",
+    description:
+      "Recovery guidance when reliability dashboard metrics cannot be loaded.",
+  },
+  reliabilityLoadErrorTitle: {
+    id: "app.dashboard.reliability.loadError.title",
+    defaultMessage: "Reliability dashboard metrics are unavailable",
+    description:
+      "Title shown when reliability dashboard metrics cannot be loaded.",
+  },
+  reliabilityLoading: {
+    id: "app.dashboard.reliability.loading",
+    defaultMessage: "Loading reliability dashboard metrics",
+    description:
+      "Accessible status shown while reliability dashboard metrics load.",
+  },
+  reliabilityNavAriaLabel: {
+    id: "app.dashboard.nav.ariaLabel",
+    defaultMessage: "Dashboard views",
+    description:
+      "Accessible name for the secondary navigation between operational and reliability dashboards.",
+  },
+  reliabilityNavOperational: {
+    id: "app.dashboard.nav.operational",
+    defaultMessage: "Operational",
+    description:
+      "Secondary navigation label for the operational dashboard route.",
+  },
+  reliabilityNavReliability: {
+    id: "app.dashboard.nav.reliability",
+    defaultMessage: "Reliability",
+    description:
+      "Secondary navigation label for the reliability dashboard route.",
+  },
+  reliabilitySummaryAriaLabel: {
+    id: "app.dashboard.reliability.summaryAriaLabel",
+    defaultMessage: "API reliability summary",
+    description: "Accessible label for the reliability summary widget.",
+  },
+  reliabilitySummaryErrorRate: {
+    id: "app.dashboard.reliability.summary.errorRate",
+    defaultMessage: "Error rate",
+    description: "Summary row label for API 5xx error rate.",
+  },
+  reliabilitySummaryLatency: {
+    id: "app.dashboard.reliability.summary.latency",
+    defaultMessage: "Median latency",
+    description: "Summary row label for API median latency.",
+  },
+  reliabilitySummaryRequestRate: {
+    id: "app.dashboard.reliability.summary.requestRate",
+    defaultMessage: "Request rate",
+    description: "Summary row label for API request rate.",
+  },
+  reliabilitySummaryWidget: {
+    id: "app.dashboard.widget.reliabilitySummary",
+    defaultMessage: "Reliability summary",
+    description: "Title for the reliability summary dashboard widget.",
+  },
+  reliabilityTitle: {
+    id: "app.dashboard.reliability.title",
+    defaultMessage: "Reliability",
+    description: "Main heading on the reliability dashboard page.",
+  },
   resetToDefault: {
     id: "app.dashboard.resetToDefault",
     defaultMessage: "Reset to default",
@@ -604,7 +692,7 @@ export const messages = defineMessages({
   },
   title: {
     id: "app.dashboard.title",
-    defaultMessage: "HyperShell operational dashboard",
+    defaultMessage: "Operational",
     description: "Main heading on the operational dashboard page.",
   },
   trendLast7Days: {

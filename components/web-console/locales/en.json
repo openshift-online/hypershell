@@ -131,6 +131,18 @@
     "defaultMessage": "Metric unavailable",
     "description": "Heading shown when an individual dashboard metric is missing."
   },
+  "app.dashboard.nav.ariaLabel": {
+    "defaultMessage": "Dashboard views",
+    "description": "Accessible name for the secondary navigation between operational and reliability dashboards."
+  },
+  "app.dashboard.nav.operational": {
+    "defaultMessage": "Operational",
+    "description": "Secondary navigation label for the operational dashboard route."
+  },
+  "app.dashboard.nav.reliability": {
+    "defaultMessage": "Reliability",
+    "description": "Secondary navigation label for the reliability dashboard route."
+  },
   "app.dashboard.nodeStatus.ariaDesc": {
     "defaultMessage": "Node count by readiness",
     "description": "Accessible description for the node status donut chart."
@@ -283,6 +295,42 @@
     "defaultMessage": "Unique logins per day",
     "description": "Title above the registered users login sparkline."
   },
+  "app.dashboard.reliability.description": {
+    "defaultMessage": "API request rate, 5xx error rate, and median latency with 24-hour hourly trends. Metrics refresh every 15 minutes.",
+    "description": "Supporting text on the reliability dashboard page."
+  },
+  "app.dashboard.reliability.loadError.body": {
+    "defaultMessage": "An unexpected error occurred while loading reliability metrics.",
+    "description": "Recovery guidance when reliability dashboard metrics cannot be loaded."
+  },
+  "app.dashboard.reliability.loadError.title": {
+    "defaultMessage": "Reliability dashboard metrics are unavailable",
+    "description": "Title shown when reliability dashboard metrics cannot be loaded."
+  },
+  "app.dashboard.reliability.loading": {
+    "defaultMessage": "Loading reliability dashboard metrics",
+    "description": "Accessible status shown while reliability dashboard metrics load."
+  },
+  "app.dashboard.reliability.summary.errorRate": {
+    "defaultMessage": "Error rate",
+    "description": "Summary row label for API 5xx error rate."
+  },
+  "app.dashboard.reliability.summary.latency": {
+    "defaultMessage": "Median latency",
+    "description": "Summary row label for API median latency."
+  },
+  "app.dashboard.reliability.summary.requestRate": {
+    "defaultMessage": "Request rate",
+    "description": "Summary row label for API request rate."
+  },
+  "app.dashboard.reliability.summaryAriaLabel": {
+    "defaultMessage": "API reliability summary",
+    "description": "Accessible label for the reliability summary widget."
+  },
+  "app.dashboard.reliability.title": {
+    "defaultMessage": "Reliability",
+    "description": "Main heading on the reliability dashboard page."
+  },
   "app.dashboard.resetToDefault": {
     "defaultMessage": "Reset to default",
     "description": "Label for restoring the operational dashboard default layout."
@@ -428,7 +476,7 @@
     "description": "Accessible label for the usage metrics list in the summary widget."
   },
   "app.dashboard.title": {
-    "defaultMessage": "HyperShell operational dashboard",
+    "defaultMessage": "Operational",
     "description": "Main heading on the operational dashboard page."
   },
   "app.dashboard.trend.last24Hours": {
@@ -470,6 +518,18 @@
   "app.dashboard.utilization.summaryTooltip": {
     "defaultMessage": "{percent}% capacity{separator}{value} of {total} {unit}",
     "description": "Tooltip for utilization status in the system summary widget."
+  },
+  "app.dashboard.widget.apiErrorRate": {
+    "defaultMessage": "API error rate",
+    "description": "Title for the API 5xx error rate reliability widget."
+  },
+  "app.dashboard.widget.apiLatency": {
+    "defaultMessage": "API latency",
+    "description": "Title for the API median latency reliability widget."
+  },
+  "app.dashboard.widget.apiRequestRate": {
+    "defaultMessage": "API request rate",
+    "description": "Title for the API request rate reliability widget."
   },
   "app.dashboard.widget.cpu": {
     "defaultMessage": "CPU",
@@ -522,6 +582,10 @@
   "app.dashboard.widget.registeredUsers": {
     "defaultMessage": "Users",
     "description": "Title for the registered users dashboard widget."
+  },
+  "app.dashboard.widget.reliabilitySummary": {
+    "defaultMessage": "Reliability summary",
+    "description": "Title for the reliability summary dashboard widget."
   },
   "app.dashboard.widget.sandboxStatus": {
     "defaultMessage": "Sandbox status",
@@ -1307,6 +1371,10 @@
     "defaultMessage": "Operational dashboard",
     "description": "Page and navigation label for the HyperShell dashboard."
   },
+  "app.nav.dashboardReliability": {
+    "defaultMessage": "Reliability dashboard",
+    "description": "Page and navigation label for the HyperShell reliability dashboard."
+  },
   "app.nav.gateways": {
     "defaultMessage": "OpenShell Gateways",
     "description": "Page and resource collection label for OpenShell gateways."
@@ -1338,6 +1406,10 @@
   "app.page.dashboard.description": {
     "defaultMessage": "Operational metrics dashboard for HyperShell adoption and provisioned resources.",
     "description": "Browser metadata description for the operational dashboard page."
+  },
+  "app.page.dashboardReliability.description": {
+    "defaultMessage": "API reliability metrics dashboard for HyperShell request rate, error rate, and latency.",
+    "description": "Browser metadata description for the reliability dashboard page."
   },
   "app.page.gateway.description": {
     "defaultMessage": "Connect to this gateway and review its configuration.",

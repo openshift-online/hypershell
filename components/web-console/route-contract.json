@@ -1,5 +1,6 @@
 {
   "dashboard": "dashboard",
+  "dashboardReliability": "dashboard/reliability",
   "gatewayDetail": "gateways/:gatewayId",
   "gatewayNew": "gateways/new",
   "login": "login",
@@ -7,6 +8,7 @@
   "directNavigationExamples": [
     "/",
     "/dashboard",
+    "/dashboard/reliability",
     "/login",
     "/gateways/new",
     "/gateways/gateway-1",
