@@ -231,6 +231,13 @@ spec:
 # (manage-clients / manage-users / manage-authorization, the last needed to
 # manage the hypershell-e2e-token-exchange authorization policy on
 # realm-management; see keycloak/client.go EnsureE2ETokenExchange).
+# GitHub IdP mappers grant realm-management view-users, query-users, and
+# impersonation so a brokered user can open /admin/hypershell/console/ and
+# impersonate the seeded developer / platform-admin principals. impersonation
+# is realm-wide: Keycloak has no target-scoped form of that role without
+# user-level FGAP, which this realm does not configure (FGAP v1 is for
+# token-exchange onto gateway and frontend clients only). Kind/hub omit those
+# mappers when the GitHub IdP is off.
 # The "description"
 # field below is kept short because Keycloak's CLIENT.DESCRIPTION column is
 # VARCHAR(255); exceeding that fails the whole realm import at boot.

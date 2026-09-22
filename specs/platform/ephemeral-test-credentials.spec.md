@@ -700,14 +700,14 @@ GitHub-brokered session. Any GitHub-authenticated user in a per-PR or dev enviro
 not only a designated admin, SHALL be able to self-service impersonate `developer`
 and `platform-admin` through Keycloak token exchange, so they can exercise that
 tier's HyperShell API permission boundary without a second interactive account or a
-password. They SHALL NOT be able to impersonate another GitHub-brokered user, and
-they SHALL NOT need to impersonate `admin` (their own session already carries that
-tier). `ephemeral-pr-environments.spec.md` owns the authorization model, the
-impersonation mechanics, and the scenarios for who may impersonate whom and what
-each tier can do; this spec owns only where the impersonated principals and their
-credentials come from. Those principals exist after CI seed and until that
-environment's next CI e2e de-seed; after de-seed, impersonation fails until the
-next seed.
+password. They SHALL NOT be able to impersonate another GitHub-brokered user
+through token exchange, and they SHALL NOT need to impersonate `admin` (their
+own session already carries that tier). Interactive admin-console
+impersonation, and the rest of the authorization model for who may impersonate
+whom, is owned by `ephemeral-pr-environments.spec.md`; this spec owns only
+where the impersonated principals and their credentials come from. Those
+principals exist after CI seed and until that environment's next CI e2e
+de-seed; after de-seed, impersonation fails until the next seed.
 
 Because impersonation via Keycloak token exchange never sends a password, this
 generalization SHALL NOT require any GitHub-authenticated user to know or fetch a
@@ -723,11 +723,12 @@ test-tier principal's password from the cloud store or the ESO Secret.
 - THEN Keycloak SHALL issue a token scoped to that tier's roles
 - AND the user SHALL NOT need that tier's password to do so
 
-#### Scenario: GitHub users cannot impersonate each other
+#### Scenario: GitHub users cannot token-exchange as each other
 
 - GIVEN GitHub user A and GitHub user B are both authenticated to a per-PR
   environment
-- WHEN user A requests an impersonated token for user B
+- WHEN user A requests an impersonated token for user B through Keycloak token
+  exchange
 - THEN Keycloak SHALL deny the request
 - AND user A SHALL still be able to impersonate `developer` and `platform-admin`
 
@@ -770,5 +771,5 @@ test-tier principal's password from the cloud store or the ESO Secret.
 | Passwords are never printed in CI; humans on PR envs use GitHub-brokered login | Nobody needs to type `admin`/`admin` against a public CI PR Route. Impersonation never sends a password. Local bring-up still prints the static seeds |
 | Password-grant jobs use cluster login plus the ESO Secret, not a static AWS key | A long-lived cloud credential in a GitHub Actions secret is the same class of standing exposure this spec removes from Keycloak. Canonical PR CI is brokered and does not fetch these passwords. Cluster login is `ephemeral-ci-secrets.spec.md`; a password-grant job only reads the in-cluster password Secret after that login |
 | Brokered PR environments seed users but never password-login | Client-credentials and token exchange resolve users by username. The users must exist for impersonation; their passwords are never sent on the public internet during that path |
-| The three test-tier principals double as shared impersonation targets, generalized to any authenticated user | Reusing the seeded principals avoids a second account concept. A GitHub session already carries the `admin` tier's HyperShell API capability (`platform:admin` plus `gateway:creator`), so impersonation exists to reach `developer` and `platform-admin` without a password. Impersonation SHALL NOT include other GitHub-brokered users |
+| The three test-tier principals double as shared impersonation targets, generalized to any authenticated user | Reusing the seeded principals avoids a second account concept. A GitHub session already carries the `admin` tier's HyperShell API capability (`platform:admin` plus `gateway:creator`), so impersonation exists to reach `developer` and `platform-admin` without a password. Token-exchange impersonation SHALL NOT include other GitHub-brokered users. Interactive admin-console impersonation is owned by `ephemeral-pr-environments.spec.md` |
 | Seed assigns Keycloak realm roles only | `gateway:viewer` is a per-gateway DB binding. A Keycloak seed step cannot grant it. Area 9's `openshell-user` path is a per-gateway client-role grant owned by `ephemeral-pr-environments.spec.md` |
