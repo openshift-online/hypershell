@@ -109,6 +109,28 @@ _kind_start_gw_socat() {
   _KINDCCM_SOCAT_PID=$!
   _KINDCCM_GW_PORT="${socat_port}"
 }
+# _kind_pin_gw_host_ipv4 - force IPv4-only resolution for a gateway hostname.
+# The openshell CLI (>=0.0.116) prefers IPv6 for *.gw.localhost and neither
+# falls back to IPv4 nor tolerates a dual-stack DNS answer: it prints nothing
+# (and can segfault). On dual-stack hosts *.localhost resolves to both ::1 and
+# 127.0.0.1, so the IPv4-only socat forwarder is never reached. Pinning the host
+# to 127.0.0.1 in /etc/hosts removes ::1 from the answer. Idempotent and
+# best-effort (skipped without sudo); tagged for cleanup by _kind_unpin_gw_hosts.
+_KIND_GW_HOSTS_TAG="e2e-kind-gw-pin"
+_kind_pin_gw_host_ipv4() {
+  local host="${1:-}"
+  [[ -z "$host" ]] && return 0
+  if grep -q " ${host} " /etc/hosts 2>/dev/null; then return 0; fi
+  command -v sudo >/dev/null 2>&1 || return 0
+  echo "127.0.0.1 ${host} # ${_KIND_GW_HOSTS_TAG}" | sudo tee -a /etc/hosts >/dev/null 2>&1 || dim "  Could not pin ${host} to IPv4 in /etc/hosts (continuing)"
+}
+
+# _kind_unpin_gw_hosts - remove entries added by _kind_pin_gw_host_ipv4.
+_kind_unpin_gw_hosts() {
+  command -v sudo >/dev/null 2>&1 || return 0
+  sudo sed -i "/# ${_KIND_GW_HOSTS_TAG}/d" /etc/hosts 2>/dev/null || true
+}
+
 _driver_curl() {
   # Try direct HTTPRoute access first. This works in most setups where the
   # routes are directly accessible on port 443 (docker, podman, or iptables-
@@ -221,6 +243,7 @@ discover_gateway_endpoint() {
         | grep -c 'Programmed=True' || true)
       if [[ "${gw_programmed:-0}" -ge 1 ]]; then
         _kind_start_gw_socat
+        _kind_pin_gw_host_ipv4 "$grpc_host"
         if [[ -n "${_KINDCCM_GW_PORT}" && "${_KINDCCM_GW_PORT}" != "443" ]]; then
           _DISCOVER_GW_ENDPOINT="https://${grpc_host}:${_KINDCCM_GW_PORT}"
         else

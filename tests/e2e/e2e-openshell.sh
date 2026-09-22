@@ -143,6 +143,10 @@ cleanup() {
   # Runs on every exit path -- a fatal exit 1 mid-run included -- so the
   # summary always prints, and print_results itself notes when E2E_COMPLETED
   # was never set (i.e. the run aborted before reaching the results section).
+  # Remove IPv4 gateway-host pins the kind driver added to /etc/hosts.
+  if declare -F _kind_unpin_gw_hosts >/dev/null 2>&1; then
+    _kind_unpin_gw_hosts || true
+  fi
   print_results
 }
 trap cleanup EXIT
