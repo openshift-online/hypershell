@@ -49,9 +49,9 @@ skills/
 
 ## Reconciliation State
 
-**Last analyzed**: 2026-09-16 (scoped reanalysis + execution of specs/platform/ephemeral-pr-environments.spec.md for HYPERSHELL-240 after the spec moved from continuous-deploy-for-life-of-PR to ephemeral-by-default with `/pr-extend` / `/pr-destroy`; D-E2E-OIDC closed as Present via PR-ENV-10; the last full-corpus analysis remains 2026-08-31). Prior 2026-09-14 scoped analysis of specs/platform/gateway-deletion-finalization.spec.md for HYPERSHELL-182; closed the no-silent-orphan gap G1: best-effort deletion failures for gateway-owned resources with no automatic recovery path -- leaked ClusterRoleBinding, leaked Keycloak gateway/console clients, and Keycloak clients skipped when the stored identity is unresolvable or the provisioner is deconfigured -- now emit a durable IncompleteFinalization Warning Event in the control-plane namespace instead of only logging; in-namespace sweep G2 already satisfied. Prior 2026-09-09 scoped reanalysis of e2e-testing.spec.md + local-development.spec.md against HEAD `21f02a0` for the new OpenShift E2E CI content added by the HYPERSHELL-240 docs commit: OpenShift driver unification #232/#244, dynamic namespace-GC timing, and the merge-queue Kind CI gate are all implemented; D-E2E-OIDC was then still listed as a divergence pending HYPERSHELL-240 (closed 2026-09-16). Prior 2026-09-04 scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
-**Spec corpus**: 49 spec files; the coverage table tracks 39 analyzed feature/spec groups after adding OpenShell Gateway Console, OpenShift Development, Operational Dashboard, Registered Users, Cluster Memory, Cluster CPU, Cluster Pods, Cluster Nodes, and Gateway Provision Time
-**Codebase commit**: `464ec5e` (ci: skip PR environment deploy when e2e would skip; then HYPERSHELL-240 ephemeral-by-default + slash commands on this working tree)
+**Last analyzed**: 2026-09-22 (scoped reanalysis for commits since `464ec5e`: updated codebase commit to `5e14f29b` (external-db-only-redo HEAD: remove ManagedDatabase API); registered 6 new spec files (gateway-provision-outcomes, gateway-release-distribution, gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends, openshell-branch-build); updated E2E-9 for 3-mode E2E_MODE split (#332); added E2E-13 for macOS CLI container wrapper (#335); added DM-3g/h/i for new Gateway schema fields; added OS-14/OS-15 for openshift-seed and openshift-test requirements; full-corpus recount pending for new specs). Prior 2026-09-16 (scoped reanalysis + execution of specs/platform/ephemeral-pr-environments.spec.md for HYPERSHELL-240 after the spec moved from continuous-deploy-for-life-of-PR to ephemeral-by-default with `/pr-extend` / `/pr-destroy`; D-E2E-OIDC closed as Present via PR-ENV-10; the last full-corpus analysis remains 2026-08-31). Prior 2026-09-14 scoped analysis of specs/platform/gateway-deletion-finalization.spec.md for HYPERSHELL-182; closed the no-silent-orphan gap G1: best-effort deletion failures for gateway-owned resources with no automatic recovery path -- leaked ClusterRoleBinding, leaked Keycloak gateway/console clients, and Keycloak clients skipped when the stored identity is unresolvable or the provisioner is deconfigured -- now emit a durable IncompleteFinalization Warning Event in the control-plane namespace instead of only logging; in-namespace sweep G2 already satisfied. Prior 2026-09-09 scoped reanalysis of e2e-testing.spec.md + local-development.spec.md against HEAD `21f02a0` for the new OpenShift E2E CI content added by the HYPERSHELL-240 docs commit: OpenShift driver unification #232/#244, dynamic namespace-GC timing, and the merge-queue Kind CI gate are all implemented; D-E2E-OIDC was then still listed as a divergence pending HYPERSHELL-240 (closed 2026-09-16). Prior 2026-09-04 scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
+**Spec corpus**: 55 spec files; the coverage table tracks 45 analyzed feature/spec groups after adding Gateway Provision Outcomes, Gateway Release Distribution, Gateway Fleet Total Trend, Gateway Sandbox Active Trends, Hub Cluster Utilization Trends, and OpenShell Branch Build (6 new specs from commits `85927b3c`/`be0bf2ea`/`630a5ed1`; full per-requirement analysis pending for each)
+**Codebase commit**: `5e14f29b` (feat: remove ManagedDatabase API; provision gateway DBs from admin Secret)
 
 ### Coverage Summary
 
@@ -86,7 +86,14 @@ skills/
 | Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
-| **TOTAL** | **39** | **335** | **281** | **22** | **27** | **5** | **84%** |
+| Platform - Gateway Provision Outcomes | 1 | ~10 | ? | ? | ? | ? | Pending |
+| Platform - Gateway Release Distribution | 1 | ~8 | ? | ? | ? | ? | Pending |
+| Platform - Gateway Fleet Total Trend | 1 | ~10 | ? | ? | ? | ? | Pending |
+| Platform - Gateway Sandbox Active Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
+| Platform - Hub Cluster Utilization Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
+| Platform - OpenShell Branch Build | 1 | ~12 | 0 | 0 | ~12 | 0 | 0% |
+| **TOTAL (analyzed rows)** | **39** | **335** | **281** | **22** | **27** | **5** | **84%** |
+| **TOTAL (all 45 groups)** | **45** | **~395** | **?** | **?** | **?** | **?** | **Pending** |
 
 ### Spec Dependency Order
 
@@ -202,6 +209,8 @@ The first gap analysis found a race between the event-driven reconciler and the 
 | OS-11 | OpenShift CI Workflow Shape | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
 | OS-12 | Cluster Infrastructure Prerequisites | Present | `make openshift-up` fails fast when the shared Gateway is missing or not Programmed. GatewayClass is cluster-scoped and not GET-checked (developers typically cannot read it). | `drivers/openshift.sh` `check_infrastructure` | OS-W2 |
 | OS-13 | Cluster-Scoped Permissions + SCC/RBAC posture | Present | Default applies prefixed overlay ClusterRole then ClusterRoleBinding. If ClusterRole create is Forbidden, bind the prefixed CRB to existing ClusterRole `hypershell-controller` (replace immutable roleRef if needed). Never touches unprefixed `hypershell-controller`. Down deletes this env's prefixed ClusterRole/CRB. | `rewrite-namespaces.py`, `drivers/openshift.sh` `apply_cluster_rbac`, `deploy/base/controller-rbac.yaml` | OS-W2 |
+| OS-14 | Standalone Seed Command (`make openshift-seed`) | Missing | Seeds domain resources into an existing environment without re-applying the overlay; stops when environment is absent; always seeds (ignores `SKIP_SEED`); honors `SEED_STRICT`; idempotent | - | Future |
+| OS-15 | Lifecycle Library Unit Tests (`make openshift-test`) | Missing | No-cluster unit/static harness covering pure helpers, namespace rewriter, and source-level safety invariants (teardown==down, never delete unprefixed `hypershell-controller` RBAC, swaps never use internal registry) | - | Future |
 
 Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemented. E2E driver completion beyond the OS-W1 manual slice, legacy `pr-test` consolidation, ephemeral CI, access handoff, overlay drift CI, and the OpenShift e2e workflow remain out of scope for this wave.
 
@@ -245,6 +254,9 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | DM-3d | Gateway field: `route` (JSONB) | Present | Added to model, OpenAPI, proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3e | Gateway field: `route_address` (read-only) | Present | Added to model, OpenAPI (readOnly), proto, migration | `plugins/gateways/model.go` | W5 ✅ |
 | DM-3f | Gateway `database_config` column removal | Partial | Field removed from Go/API (W8); DROP COLUMN migration not yet added | `plugins/gateways/migration.go` | W8 |
+| DM-3g | Gateway field: `sandbox_image` | Missing | Spec added by `630a5ed1` (#148); field not yet in OpenAPI/proto/model/migration | - | Future |
+| DM-3h | Gateway field: `dev_build` | Missing | Spec added by `630a5ed1` (#148); identity flag for branch-built gateways, copied to K8s labels | - | Future |
+| DM-3i | Gateway field: `dev_build_metadata` | Missing | Spec added by `630a5ed1` (#148); JSON metadata (sha, branch, repo) for branch-built gateways | - | Future |
 | DM-4 | Gateway phase + status fields | Partial | `phase` updated by CP; `status` field exists but never written | `plugins/gateways/model.go` | Future |
 | DM-5 | Canary release strategy fields | Present | Fields exist; no logic implements canary | `plugins/gatewayReleases/model.go` | Future |
 | DM-6 | Network topology fields | Present | Fields exist; reconciler is a stub | `plugins/gatewayNetworks/model.go` | Future |
@@ -547,6 +559,61 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 - **Delivered:** Reuses CLP-W1 kube-state-metrics; BFF instant queries for total/ready nodes; adapter maps to `nodes` metric with gateway-style `value` + `status` (`healthy`/`failed`); `system-summary` row uses `SummaryGatewayValue`.
 - **UI:** Total count with failed-node exception icon when `status.failed > 0`; no `provisioning`/`degraded` buckets in v1.
 
+### gateway-provision-outcomes.spec.md (HYPERSHELL-280)
+
+> Added 2026-09-17 (`85927b3c`). Full per-requirement analysis pending. Code delivered in the same commit: `bff/src/metrics-gateway-provision-outcomes.ts` (BFF PromQL counter proxy, rolling 24-hour window), `packages/operational-dashboard-ui/src/dashboard/provision-reliability-*.ts(x)` (adapter + chart), `control-plane/internal/otel/metrics.go` (counter instrument), `reconciler/metrics.go` (outcome recording on first terminal transition). The spec defines ~10 requirements (GPO-00..GPO-09). Scoped assessment: all code-side requirements appear present; the BFF/adapter/CP implementation mirrors what the spec describes.
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GPO-00 | Prometheus counter availability (`gateway_provision_outcomes_total`) | Partial | Requires OTLP-to-Prometheus wiring in deploy/kind (same as GPT-00) | `control-plane/internal/otel/metrics.go` | GPT-W2 |
+| GPO-01 | CP outcome recording (first terminal, shared claim, no gateway label) | Present | Success and failure share the GPD in-process claim; mutually exclusive | `reconciler/metrics.go`, `internal/otel/metrics.go` | #303 ✅ |
+| GPO-02..GPO-09 | BFF route, adapter, widget, refresh, partial failure, verification | Present | BFF `GET /api/metrics/gateway-provision-outcomes`; provision-reliability widget; system-summary success-rate row; OP-DASH-23 independent metric source | `bff/src/metrics-gateway-provision-outcomes.ts`, `dashboard-control-plane.ts`, `provision-reliability-*.ts(x)` | #303 ✅ |
+
+**Scoped analysis notes:** GPO-00 (Prometheus availability) shares the same deploy/kind OTLP wiring gap as GPT-00; both are planned under GPT-W2.
+
+### gateway-release-distribution.spec.md (HYPERSHELL-280)
+
+> Added 2026-09-17 (`85927b3c`). Full per-requirement analysis pending. Code delivered in the same commit: `web-console/app/adapters/api/gateway-release-distribution-aggregation.ts` (paginated gateway+release list aggregation), `operational-dashboard-ui/src/dashboard/gateway-releases-chart.tsx`, `dashboard-control-plane.ts` (release-distribution adapter), `pkg/rbac/authorization.go` (fleet-wide list for dashboard-operator role). The spec defines ~8 requirements (GRD-01..GRD-08). Scoped assessment: all requirements appear present.
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GRD-01..GRD-08 | Release distribution scope, aggregation, unknown bucket, dashboard operator, widget, refresh, verification | Present | Paginated gateway+release aggregation; `gateway-releases` metric; `GatewayReleasesChart` widget; fleet-wide RBAC for dashboard operators | `gateway-release-distribution-aggregation.ts`, `dashboard-control-plane.ts`, `gateway-releases-chart.tsx`, `pkg/rbac/authorization.go` | #303 ✅ |
+
+### gateway-fleet-total-trend.spec.md (HYPERSHELL-281)
+
+> Added 2026-09-18 (`be0bf2ea`). Full per-requirement analysis pending. Code delivered in the same commit via `bff/src/metrics-gateways.ts` (range-query extension), `dashboard-control-plane.ts` (trend adapter), and `packages/operational-dashboard-ui` dashboard layout. The spec defines ~10 requirements.
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GFT-01..GFT-NN | Fleet total trend (range PromQL, sparkline, adapter, verification) | Present | BFF range-query extension; gateway fleet sparkline data; layout template updated | `bff/src/metrics-gateways.ts`, `prometheus-range-query.ts`, `dashboard-control-plane.ts` | #311 ✅ |
+
+### gateway-sandbox-active-trends.spec.md (HYPERSHELL-281)
+
+> Added 2026-09-18 (`be0bf2ea`). Full per-requirement analysis pending. Code delivered via `bff/src/metrics-gateway-sandboxes.ts` (range-query extension) and sandbox-status chart components.
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GSA-01..GSA-NN | Sandbox active trend (range PromQL, sparkline, adapter, verification) | Present | BFF sandbox range extension; `sandbox-status-chart.tsx`; `sandbox-status-data.ts` | `bff/src/metrics-gateway-sandboxes.ts`, `dashboard/sandbox-status-*.ts(x)` | #311 ✅ |
+
+### hub-cluster-utilization-trends.spec.md (HYPERSHELL-281)
+
+> Added 2026-09-18 (`be0bf2ea`). Full per-requirement analysis pending. Code delivered via range-query extensions to `metrics-cluster-{memory,cpu,pods}.ts` and `prometheus-range-query.ts`.
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| HCU-01..HCU-NN | Cluster memory/CPU/pods utilization trends (range PromQL, sparklines, adapter, verification) | Present | BFF range-query added to cluster metric routes; trend sparkline data in adapter | `bff/src/metrics-cluster-{memory,cpu,pods}.ts`, `prometheus-range-query.ts`, `dashboard-control-plane.ts` | #311 ✅ |
+
+### openshell-branch-build.spec.md (#148)
+
+> Added 2026-09-21 (`630a5ed1`). Spec-only commit; no implementation exists. Defines the `make kind-openshell-up` workflow for building and deploying a gateway from an arbitrary OpenShell branch or PR, plus three new Gateway schema fields (`sandbox_image`, `dev_build`, `dev_build_metadata`) tracked as DM-3g/h/i above.
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| BB-1 | Branch Build Entry Point (`make kind-openshell-up`, `OPENSHELL_BRANCH`/`OPENSHELL_PR`/`OPENSHELL_REPO`) | Missing | No Makefile target or build script | - | Future |
+| BB-2 | `openshell-dev-gateway` provisioning (stable name, update-or-create, no release_id) | Missing | Gateway schema lacks `dev_build` / `sandbox_image` fields | - | Future |
+| BB-3 | Coexistence with `dev-gateway` | Missing | Depends on BB-1 | - | Future |
+| BB-4..BB-N | Image build, load, identity labels/annotations, E2E targeting, Kind cluster reuse | Missing | Spec authored; implementation not started | - | Future |
+
 ### gateway-provision-time.spec.md (v2 - histogram mean / P50 / P95)
 
 | # | Requirement | Status | Gap | Code Location | Wave |
@@ -583,7 +650,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | E2E-6 | CI Artifact Collection | Present | Pod logs, events, describes uploaded on failure only | `.github/workflows/e2e.yml` | E2E-W3 ✅ |
 | E2E-7 | Deploy Base/Overlay Structure | Present | deploy/base/ + deploy/kind/ overlay + deploy/openshift/ stub | `deploy/base/`, `deploy/kind/kustomization.yaml` | E2E-W1 ✅ |
 | E2E-8 | Backward Compatibility | Present | make kind-up unchanged; IMAGE_TAG now overrides initial deploy images | `scripts/kind/up.sh` | E2E-W1 ✅ |
-| E2E-9 | E2E short and long modes (`E2E_MODE`) | Present | Step-tagged `e2e_step short\|long`; default `long`; invalid mode fails fast | `tests/e2e/lib.sh`, `tests/e2e/e2e-openshell.sh` | PERF-W1 ✅ |
+| E2E-9 | E2E short, long, and perf modes (`E2E_MODE`) | Present | Three modes: `long` (default, full suite, multi-identity), `short` (self-contained lifecycle gate, single identity, safe against live environments), `perf` (reuses canary, multi-identity, used only by `e2e-performance.sh`); invalid mode fails fast; `E2E_OPENSHIFT_KEYCLOAK_NAMESPACE` override added | `tests/e2e/lib.sh`, `tests/e2e/e2e-openshell.sh` | PERF-W1 / #332 ✅ |
 | E2E-10 | OpenShift e2e driver (contract parity) | Present | Delivered by #232/#244: OpenShift driver unified with Kind (shared token/role helpers, Route discovery, shared-Gateway base domain) | `tests/e2e/drivers/openshift.sh`, `tests/e2e/openshift_driver_test.sh` | HYPERSHELL-44 ✅ |
 | E2E-11 | Dynamic namespace GC timing | Present | `configure_namespace_gc_timing` / `restore_namespace_gc_timing` patch controller env + restore on cleanup; no overlay bakes e2e timing | `tests/e2e/drivers/kind.sh`, `tests/e2e/drivers/openshift.sh`, `tests/e2e/e2e-openshell.sh` | #244 ✅ |
 | E2E-12 | Merge-queue Kind CI gate | Present | `e2e.yml` `merge_group` trigger always runs; per-component merge-queue Konflux waits on `on-merge-queue-<merge_sha>`; browser trace skipped on `merge_group`; dedicated `.tekton/*-merge-queue.yaml` | `.github/workflows/e2e.yml`, `.tekton/hypershell-*-main-merge-queue.yaml` | #161/#232 ✅ |
@@ -602,6 +669,8 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) now exists and is unified with the Kind driver (#232/#244): it shares the token/role helpers, discovers the API/console via Routes, derives the gateway base domain from the shared Gateway listener, and overrides only where OpenShift constructs differ. Dynamic namespace-GC timing (`configure_namespace_gc_timing` / `restore_namespace_gc_timing`) and the merge-queue Kind CI gate (`merge_group` trigger, dedicated `.tekton/*-merge-queue.yaml`, browser-trace skip) are implemented. `make e2e` / `make e2e-performance` honor `E2E_INFRA_DRIVER=openshift`.
 
 The OpenShift e2e driver's `E2E_OIDC_GRANT=client_credentials` path (D-E2E-OIDC) is implemented and tracked as PR-ENV-10 (Present).
+
+| E2E-13 | macOS CLI container wrapper | Present | `scripts/kind/openshell-container.sh` runs the Linux openshell CLI inside a socat-connected container sharing the Kind network namespace; kind driver auto-selects on `uname -s == Darwin`, sets `E2E_OPENSHELL_INSTALL=never`, forces `_KINDCCM_GW_PORT=443`; forwarder is revalidated on IP drift; image pinned by digest; `/etc/hosts` IPv4 pin for dual-stack hosts removed on exit; `E2E_OPENSHELL_INSTALL_DIR` routes all install paths to `<repo>/bin` (gitignored) | `scripts/kind/openshell-container.sh`, `tests/e2e/drivers/kind.sh` | #335 ✅ |
 
 ### ephemeral-pr-environments.spec.md (HYPERSHELL-240)
 
@@ -927,6 +996,8 @@ Created `.github/workflows/e2e.yml` with PR/push/merge_group triggers, concurren
 **Scope:** E2E-9, PERF-1..PERF-10 | **Status:** Complete
 
 Added `E2E_MODE=short|long` step tagging in `e2e-openshell.sh` (long remains the default, so CI is unchanged). Added `tests/e2e/perf/lib.sh` (timing, average/percentile latency, bounded concurrency, schema_version=1 JSON I/O), `tests/e2e/e2e-performance.sh` (batched scale-up, canary checkpoints, functional gate, SLO, signal-safe EXIT cleanup), `scripts/perf-report.sh`, and `make e2e-performance` / `make e2e-performance-report`. Batch workers emit periodic stage/count/elapsed heartbeats while concurrent provisioning is in progress. Teardown deletes the run's Gateway records and directly reaps their tracked namespaces under one global timeout, including on INT/TERM, rather than depending on periodic namespace GC. The default per-gateway provisioning timeout is 180 seconds. `make e2e` now honors `E2E_INFRA_DRIVER` instead of hardcoding `kind`. Verified with `bash -n` and `tests/e2e/perf/lib_test.sh` (no cluster required).
+
+**Update (#332):** `E2E_MODE` was subsequently refactored from two modes (`short`/`long`) to three (`short`, `long`, `perf`). `short` is now the clean self-contained lifecycle gate (no multi-identity, single-owned gateway); the old `short` characteristics (canary reuse, multi-identity) moved to `perf`, which is only used by `e2e-performance.sh`. `long` remains the default. See E2E-9 gap table row for updated description.
 
 ### Wave OS-W1: Manual OpenShift e2e/performance driver (partial) ✅
 
@@ -1319,6 +1390,11 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-09-22 | `5e14f29b` | RECONCILE.md checkpoint update: registered 6 new spec files, updated E2E-9 for 3-mode split, added E2E-13 (macOS CLI container), DM-3g/h/i (new Gateway fields), OS-14/OS-15 (openshift-seed/test) | 84% (analyzed rows unchanged; 6 new specs pending full analysis) | Codebase commit advanced from `464ec5e` to `5e14f29b`. New specs from commits: `85927b3c` (gateway-provision-outcomes, gateway-release-distribution), `be0bf2ea` (gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends), `630a5ed1` (openshell-branch-build - spec only, 0% implemented). |
+| 2026-09-22 | `5e14f29b` | Registered E2E-9 three-mode refactor (#332) and macOS CLI container wrapper (#335) | E2E Testing 100% (unchanged; new requirements Present) | E2E_MODE `perf` split from old `short`; `e2e-performance.sh` uses `perf`; `short` is now a safe standalone gate. macOS runs openshell CLI via socat container on Kind network. |
+| 2026-09-17 | `85927b3c` | Gateway provision reliability, release distribution, user adoption metrics (HYPERSHELL-280) | New specs added; provisionally Present | `gateway-provision-outcomes.spec.md` + `gateway-release-distribution.spec.md` authored and code delivered: BFF Prometheus proxy routes, provision-reliability widget + chart, release-distribution aggregation + chart, CP outcome counter, fleet-wide RBAC for dashboard operators. |
+| 2026-09-18 | `be0bf2ea` | Trend sparklines for fleet and hub metrics (HYPERSHELL-281) | New specs added; provisionally Present | `gateway-fleet-total-trend.spec.md`, `gateway-sandbox-active-trends.spec.md`, `hub-cluster-utilization-trends.spec.md` authored and code delivered: BFF range-query infrastructure (`prometheus-range-query.ts`), range extensions to cluster metric routes, sandbox-status chart, fleet trend sparklines in layout template. |
+| 2026-09-21 | `630a5ed1` | OpenShell branch build spec added (#148) - spec only | 0% (no implementation) | `openshell-branch-build.spec.md` authored: `make kind-openshell-up` workflow, `OPENSHELL_BRANCH`/`OPENSHELL_PR`/`OPENSHELL_REPO` vars, `openshell-dev-gateway` provisioning, coexistence with `dev-gateway`, `sandbox_image`/`dev_build`/`dev_build_metadata` Gateway schema fields. Also added `openshift-seed` (OS-14) and `openshift-test` (OS-15) requirements to `openshift-development.spec.md`. |
 | 2026-09-07 | working tree | Reconciled gateway-reconcile-concurrency.spec.md (CP-CONC-01..03) | 3/3 scoped requirements present | Made the gateway reconcile worker-pool size deployment configuration via `GATEWAY_RECONCILE_WORKERS` (new `getEnvInt` helper + `Config.GatewayReconcileWorkers`, default 4 = prior hardcoded pool), plumbed config -> `WatchGateways` -> `withWorkers`, clamped non-positive to the default at the watcher boundary (preserving the test-only 0-worker queue pattern), and added config/getEnvInt tests. Per-gateway serialization and bounded throttle already held (existing queue tests). The full-corpus percentage is unchanged. |
 | 2026-09-04 | `bd02232` | Reanalyzed CP-OBS-RQ-W1 after review fixes | 5/5 scoped fields present | Defined one locked worker-claim boundary for depth and wait, kept dirty adds in backoff out of ready depth, and made the design rationale apply to each shared reconcile queue. The full-corpus percentage is unchanged. |
 | 2026-09-04 | `9c01984` | Completed CP-OBS-RQ-W1 reconcile-queue metrics | 5/5 scoped fields present | Added ready queue depth and ready-to-worker wait metrics with one bounded resource-kind attribute. Coalesced work produces one wait observation, and scheduled retry backoff is excluded. |
