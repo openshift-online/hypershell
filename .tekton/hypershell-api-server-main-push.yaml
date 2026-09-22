@@ -10,10 +10,15 @@ metadata:
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     # Changes to this file also rebuild the API image for release pipeline checks.
     # A successful managed release then runs the release bundle publisher.
+    # tests/e2e is included even though it never changes this image: the
+    # release-lock's api-server source.git.revision is what downstream GitOps
+    # clones and runs as the post-rollout e2e gate, so an e2e-only change must
+    # still advance it to a new release bundle.
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
       == "main" && ( "components/api-server/***".pathChanged() || ".tekton/hypershell-api-server-main-push.yaml".pathChanged()
       || "deploy/***".pathChanged() || "pipelines/release-bundle/***".pathChanged()
-      || "scripts/release_bundle.py".pathChanged() || "scripts/render_release_bundle_pipeline.py".pathChanged() )
+      || "scripts/release_bundle.py".pathChanged() || "scripts/render_release_bundle_pipeline.py".pathChanged()
+      || "tests/e2e/***".pathChanged() )
   labels:
     appstudio.openshift.io/application: hypershell-main
     appstudio.openshift.io/component: hypershell-api-server-main
