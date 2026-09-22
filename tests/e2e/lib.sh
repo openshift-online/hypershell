@@ -163,10 +163,12 @@ source "${_E2E_REPO_ROOT}/OPENSHELL_VERSION"
 : "${OPENSHELL_BIN:=openshell}"
 # How the e2e test obtains the openshell CLI:
 #   auto   - install the gateway-matched version via the console-recommended
-#            command if the CLI is not already present (default)
+#            command if the CLI is not already present
 #   always - always install the gateway-matched version, even if one is present
+#            (default): guarantees the CLI matches the deployed gateway and
+#            never reuses a stale pre-installed binary
 #   never  - require a pre-installed CLI; do not install
-: "${E2E_OPENSHELL_INSTALL:=auto}"
+: "${E2E_OPENSHELL_INSTALL:=always}"
 # Override the CLI version to install instead of deriving it from
 # gateway_version. Accepts any GitHub release tag (e.g. v0.0.116, dev).
 : "${E2E_OPENSHELL_VERSION:=}"

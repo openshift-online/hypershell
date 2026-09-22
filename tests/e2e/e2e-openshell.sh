@@ -34,7 +34,7 @@
 #   DATABASE_PROVIDER      Database provider: deployment, cnpg, or external (default: external)
 #   E2E_CNPG_NAMESPACE     Namespace where the CNPG operator runs (default: cnpg-system)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
-#   E2E_OPENSHELL_INSTALL  auto, always, or never (default: auto; CI uses always)
+#   E2E_OPENSHELL_INSTALL  auto, always, or never (default: always)
 #   E2E_OPENSHELL_VERSION  Override CLI version/tag to install (e.g. v0.0.116, dev)
 #   E2E_OPENSHELL_CLI_IMAGE  Container image to extract the CLI from (skips GitHub download)
 #   E2E_GATEWAY_VERSION_TIMEOUT  Seconds to wait for the runtime version (default: 300)
