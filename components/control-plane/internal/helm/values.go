@@ -47,8 +47,13 @@ type ValuesBuilder struct {
 	HasCertManager bool
 	// IsOpenShift indicates whether the cluster is OpenShift
 	IsOpenShift bool
-	// HasGatewayAPI indicates whether Gateway API is available on the cluster
-	HasGatewayAPI bool
+	// UseOpenShiftRoute selects the OpenShift Route (HAProxy passthrough)
+	// exposure path instead of the default Kubernetes Gateway API path. It is
+	// derived from the resolved ingress mode (GATEWAY_INGRESS_MODE), NOT from raw
+	// Gateway API capability: IBM Cloud ROKS ships the Gateway API CRDs but runs
+	// no functional controller, so the emitted exposure resource must follow the
+	// operator-selected mode, not whichever CRDs happen to be installed.
+	UseOpenShiftRoute bool
 	// GatewayAPIGatewayName is the name of the shared Gateway resource
 	GatewayAPIGatewayName string
 	// GatewayAPIGatewayNamespace is the namespace of the shared Gateway resource
@@ -206,30 +211,38 @@ func (b *ValuesBuilder) buildIngressValues(values map[string]interface{}) error 
 		hostname = route.Host
 	}
 
-	if b.HasGatewayAPI {
-		// Gateway API mode: the reconciler creates GRPCRoute,
-		// BackendTLSPolicy, and the backend-ca ConfigMap after the helm
-		// release is installed, so the chart's own grpcRoute and
-		// backendTLSPolicy templates stay disabled (defaults from
-		// buildCoreValues). Only mTLS must be disabled because the
-		// Gateway proxy cannot present client certificates.
+	if !b.UseOpenShiftRoute {
+		// Default: Kubernetes Gateway API mode. The reconciler creates the
+		// GRPCRoute, BackendTLSPolicy, and backend-ca ConfigMap after the helm
+		// release is installed, so the chart's own grpcRoute and backendTLSPolicy
+		// templates stay disabled (defaults from buildCoreValues). Only mTLS must
+		// be disabled because the Gateway proxy cannot present client certificates.
 		setNestedValue(values, false, "server", "tls", "enableMtls")
-	} else {
-		// Route passthrough mode (OpenShift < 4.22): the chart owns the
-		// Route resource via openshiftRoute.enabled. The reconciler still
-		// handles publishRouteAddress and the router NetworkPolicy.
-		setNestedValue(values, true, "openshiftRoute", "enabled")
-		setNestedValue(values, hostname, "openshiftRoute", "host")
+		return nil
+	}
 
-		annotations := map[string]string{
-			"haproxy.router.openshift.io/timeout": "3600s",
-		}
-		setNestedValue(values, annotations, "openshiftRoute", "annotations")
+	// Route passthrough mode: opt-in via GATEWAY_INGRESS_MODE=route (e.g. IBM
+	// Cloud ROKS, whose Ingress Operator owns the Gateway API CRDs but runs no
+	// functional controller). The chart owns the Route resource via
+	// openshiftRoute.enabled; the reconciler still handles publishRouteAddress
+	// and the router NetworkPolicy.
+	setNestedValue(values, true, "openshiftRoute", "enabled")
+	setNestedValue(values, hostname, "openshiftRoute", "host")
 
-		// External CA issuer for Route passthrough mode
-		if b.ExternalCAIssuerName == "" {
-			return fmt.Errorf("EXTERNAL_CA_ISSUER_NAME is required for Route passthrough mode")
-		}
+	annotations := map[string]string{
+		"haproxy.router.openshift.io/timeout": "3600s",
+	}
+	setNestedValue(values, annotations, "openshiftRoute", "annotations")
+
+	// The external CA issuer is optional. When set, cert-manager issues the
+	// gateway server certificate from it, covering the Route host (the chart's
+	// route template validates that coverage). When unset, the gateway keeps its
+	// self-signed per-tenant CA (pkiInitJob), whose SANs already include the
+	// Route host (the reconciler injects it into ServerDnsNames before install);
+	// passthrough forwards the encrypted stream by SNI, so no router-trusted
+	// certificate is required. Only wire cert-manager when an issuer was actually
+	// provided, so the self-signed passthrough path is not forced to fail.
+	if b.ExternalCAIssuerName != "" {
 		setNestedValue(values, b.ExternalCAIssuerName, "certManager", "serverIssuerRef", "name")
 		setNestedValue(values, b.ExternalCAIssuerKind, "certManager", "serverIssuerRef", "kind")
 		setNestedValue(values, []string{hostname}, "certManager", "serverDnsNames")
