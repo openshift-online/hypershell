@@ -379,6 +379,7 @@ _driver_acquire_oidc_token() {
           -d "client_id=${E2E_OIDC_SA_CLIENT_ID}"
           -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"
           -d "subject_token=${subject_token}"
+          -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token"
         )
         # The CI admin identity is the hypershell-e2e service account, which
         # owns gateways it creates. Impersonating the seeded admin user

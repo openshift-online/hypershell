@@ -134,7 +134,7 @@ esac
 # (requested_subject). Keycloak 26 standard token-exchange rejects that param.
 E2E_OIDC_GRANT=client_credentials acquire_oidc_token developer developer openshell-gw-1 >/dev/null
 case "$(captured_curl_args)" in
-  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' requested_subject=developer '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
+  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' subject_token_type=urn:ietf:params:oauth:token-type:access_token '*' requested_subject=developer '*' audience=openshell-gw-1 '*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); printf 'FAIL: token-exchange developer args (got=%q)\n' "$(captured_curl_args)" ;;
 esac
 
@@ -143,7 +143,7 @@ esac
 # would mint a token for a principal that does not own the gateway the SA created.
 E2E_OIDC_GRANT=client_credentials acquire_oidc_token admin admin openshell-gw-1 >/dev/null
 case "$(captured_curl_args)" in
-  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' audience=openshell-gw-1 '*)
+  *'grant_type=urn:ietf:params:oauth:grant-type:token-exchange'*' subject_token=stub.jwt.token '*' subject_token_type=urn:ietf:params:oauth:token-type:access_token '*' audience=openshell-gw-1 '*)
     case "$(captured_curl_args)" in
       *' requested_subject='*) FAIL=$((FAIL + 1)); printf 'FAIL: admin gateway token-exchange must not impersonate (got=%q)\n' "$(captured_curl_args)" ;;
       *) PASS=$((PASS + 1)) ;;
