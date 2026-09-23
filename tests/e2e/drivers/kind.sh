@@ -50,8 +50,9 @@ except OSError:
 #     The only sudo-free way to strip ::1 is the container's own single-stack
 #     resolver (*.localhost -> 127.0.0.1 inside the netns); editing /etc/hosts
 #     would need sudo, which the e2e suite must never require.
-# scripts/kind/openshell-container.sh runs the Linux CLI in a container sharing a
-# socat forwarder's netns on the kind network (see that script's header).
+# scripts/kind/openshell-container.sh runs the Linux CLI in a container on the
+# kind network with --add-host entries pointing gateway/OIDC hostnames at the
+# cloud-provider-kind Envoy LB IP (see that script's header).
 #
 # IPv4-only Linux (CI) keeps the fast native-binary path: no ::1 in the answer,
 # nothing to strip. Any explicit OPENSHELL_BIN override is honored. Guarded to
