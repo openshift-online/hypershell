@@ -214,7 +214,7 @@ The host dashboard adapter SHALL map `GET /api/metrics/api-reliability` into thr
 
 | Metric ID | `value` | `unit` | Instant source | Trend source |
 | --- | --- | --- | --- | --- |
-| `api-request-rate` | Decimal string of `request_rate` | `"req/s"` | `request_rate` | `hourly_request_rate` → `hourlyTrend.points` |
+| `api-request-rate` | Decimal string of `request_rate` | `"requests/sec"` | `request_rate` | `hourly_request_rate` → `hourlyTrend.points` |
 | `api-error-rate` | Decimal string of `error_rate_percent` | `"%"` | `error_rate_percent` | `hourly_error_rate_percent` → `hourlyTrend.points` |
 | `api-latency` | Decimal string of `latency_p50_seconds` | `"sec"` | `latency_p50_seconds` | `hourly_latency_p50_seconds` → `hourlyTrend.points` |
 
@@ -229,8 +229,8 @@ Rounding:
 
 | Metric | Display rounding |
 | --- | --- |
-| `api-request-rate` | Two fractional digits |
-| `api-error-rate` | Two fractional digits |
+| `api-request-rate` | Three fractional digits |
+| `api-error-rate` | Three fractional digits |
 | `api-latency` | Three fractional digits |
 
 When a BFF historical field is absent, the adapter SHALL omit `hourlyTrend` for that metric only and SHALL still emit the metric with the instant `value`.
@@ -241,8 +241,8 @@ The three metrics SHALL load as one independent metric source (`api-reliability`
 
 - GIVEN the BFF returns the ARM-03 example JSON
 - WHEN the adapter builds reliability metrics
-- THEN `api-request-rate` SHALL have `value: "12.50"`, `unit: "req/s"`, and `hourlyTrend` populated
-- AND `api-error-rate` SHALL have `value: "1.25"`, `unit: "%"`
+- THEN `api-request-rate` SHALL have `value: "12.500"`, `unit: "requests/sec"`, and `hourlyTrend` populated
+- AND `api-error-rate` SHALL have `value: "1.250"`, `unit: "%"`
 - AND `api-latency` SHALL have `value: "0.084"`, `unit: "sec"`
 
 #### Scenario: Missing hourly latency omits only latency trend
@@ -279,7 +279,7 @@ Instant PromQL failure, timeout, empty result set, or non-finite values for requ
 
 The adapter SHALL treat a non-success BFF response as failure of the entire `api-reliability` source.
 
-The dashboard SHALL NOT display `0 req/s`, `0%`, or `0 sec` as a fallback when the source failed.
+The dashboard SHALL NOT display `0 requests/sec`, `0%`, or `0 sec` as a fallback when the source failed.
 
 #### Scenario: Prometheus timeout yields 502
 

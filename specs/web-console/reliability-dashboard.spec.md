@@ -1,16 +1,20 @@
 # Reliability Dashboard
 
 **Status:** Draft
+**Version:** 0.2.0
+**Created:** 2026-09-23
 **Applies to:** `packages/operational-dashboard-ui`, `components/web-console` SPA and BFF
-**Tracks:** [HYPERSHELL-285](https://redhat.atlassian.net/browse/HYPERSHELL-285)
+**Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286)
 
 ## Purpose
 
-Provide a **widgetized reliability dashboard** in the HyperShell web console where administrators can assess API reliability at a glance. Version 1 surfaces API request rate, 5xx error rate, and median latency with current values and 24-hour hourly trend sparklines.
+Provide a **widgetized reliability dashboard** in the HyperShell web console where administrators can assess API and control-plane reliability at a glance. This specification adds control-plane reconciliation health to the existing API reliability dashboard.
 
 The reliability dashboard lives in the same reusable package as the operational dashboard (`@openshift-online/hypershell-operational-dashboard-ui`) to share hexagonal ports, widgetized-dashboard infrastructure, localization patterns, and presentation helpers - while remaining a **separate route and layout** so reliability metrics do not clutter the operational overview.
 
-Metric collection, PromQL, and BFF contracts are defined in `platform/api-reliability-metrics.spec.md`. Cross-dashboard navigation uses PatternFly **secondary horizontal navigation** so each dashboard keeps a distinct URL ([PatternFly Navigation - secondary horizontal](https://www.patternfly.org/components/navigation/design-guidelines#secondary-horizontal-navigation)).
+Metric collection, PromQL, and BFF contracts are defined in `platform/api-reliability-metrics.spec.md` and `platform/control-plane-reconciliation-metrics.spec.md`. The browser SHALL obtain metrics only through same-origin BFF routes backed by Prometheus. The dashboard SHALL NOT read from or write to a database for metric collection or historical data.
+
+Historical reconciliation data SHALL cover the rolling previous **24 hours** and SHALL use hourly samples. Prometheus metric types SHALL match the measurement: reconciliation lag SHALL use a histogram, reconciliation failures and retries SHALL use counters, and stale resource status SHALL use a gauge.
 
 Authentication failure rate and login failure rate are out of scope for version 1.
 
@@ -69,7 +73,7 @@ The reliability dashboard SHALL follow the narrow hexagonal UI boundary defined 
 
 ### Requirement: REL-DASH-03 -- Host Composition
 
-The web console host SHALL extend dashboard composition so `ReliabilityDashboardPage` receives a control-plane adapter that implements `getReliabilityMetrics` by calling BFF `GET /api/metrics/api-reliability` (ARM-03 / ARM-04).
+The web console host SHALL extend dashboard composition so `ReliabilityDashboardPage` receives a control-plane adapter that implements `getReliabilityMetrics` by calling BFF `GET /api/metrics/api-reliability` and `GET /api/metrics/control-plane-reconciliation` (ARM-03 / ARM-04 and REL-DASH-12 / REL-DASH-13).
 
 #### Scenario: Production host uses the API adapter for reliability
 
@@ -181,20 +185,28 @@ Version 1 SHALL connect the following metrics from the `api-reliability` source 
 
 | Widget type | Metric ID | Presentation |
 | --- | --- | --- |
-| `reliability-summary` | `api-request-rate`, `api-error-rate`, `api-latency` | Summary card listing current values for all three. When a metric's `hourlyTrend` has at least two points and `getMetricTrendChange` reports a change of at least 5%, the row SHALL show the same up/down trend indicator used on the operational dashboard summary cards (OP-DASH-13) |
+| `reliability-summary` | API metrics plus `reconciliation-failures`, `reconciliation-retries`, `reconciliation-lag` | Two-column summary card listing all six current values. When a metric's `hourlyTrend` has at least two points and `getMetricTrendChange` reports a change of at least 5%, the row SHALL show the same up/down trend indicator used on the operational dashboard summary cards (OP-DASH-13) |
 | `api-request-rate` | `api-request-rate` | Current rate plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points |
 | `api-error-rate` | `api-error-rate` | Current 5xx error percent plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points |
 | `api-latency` | `api-latency` | Current median latency plus 24-hour hourly usage trend graph when `hourlyTrend` has at least two points |
 
+The `reliability-summary` widget SHALL also list `reconciliation-failures`,
+`reconciliation-retries`, and `reconciliation-lag` alongside the three API
+metrics. The summary SHALL use two columns on sufficiently wide layouts, with
+API metrics in the first column and reconciliation metrics in the second. The
+columns SHALL stack when the summary becomes narrow. Reconciliation count
+values SHALL display `failures` or `retries` as their unit labels, and lag
+values SHALL display `sec`.
+
 Widgets without a connected metric SHALL remain on the grid and render the localized metric-unavailable empty state (same pattern as OP-DASH unavailable widgets).
 
-Trend graphs SHALL reuse the shared sparkline presentation used by the operational dashboard where practical (`TrendSparklineChart` or equivalent). Units on tooltips and summary rows SHALL match ARM-04 (`req/s`, `%`, `sec`).
+Trend graphs SHALL reuse the shared sparkline presentation used by the operational dashboard where practical (`TrendSparklineChart` or equivalent). Units on tooltips and summary rows SHALL use `requests/sec`, `%`, and `sec`.
 
-#### Scenario: Summary lists all three current values
+#### Scenario: Summary lists all six current values
 
-- GIVEN `api-request-rate`, `api-error-rate`, and `api-latency` are present
+- GIVEN the three API metrics and the three reconciliation metrics are present
 - WHEN the `reliability-summary` widget renders
-- THEN it SHALL show the current request rate, error rate, and median latency with their units
+- THEN it SHALL show all six current values with their units
 
 #### Scenario: Summary shows trend arrows when hourly change meets threshold
 
@@ -231,8 +243,11 @@ The default layout SHALL include:
 | `api-request-rate` | Trend graph tile |
 | `api-error-rate` | Trend graph tile |
 | `api-latency` | Trend graph tile |
+| `reconciliation-failures` | Trend graph tile |
+| `reconciliation-retries` | Trend graph tile |
+| `reconciliation-lag` | Trend graph tile |
 
-Exact column coordinates MAY be chosen during implementation; the default SHALL place the summary above or beside the three trend widgets so all four are visible without opening the drawer.
+Exact column coordinates MAY be chosen during implementation; the default SHALL place the summary above or beside the six trend widgets so all seven are visible without opening the drawer.
 
 Users SHALL be able to add widgets from the drawer, drag to rearrange, remove widgets, and reset to the reliability default template. Layout persistence SHALL use a **separate** `localStorage` key from the operational dashboard (for example `hypershell.reliability-dashboard.layout.v1`) so customizing one dashboard does not rewrite the other.
 
@@ -257,7 +272,7 @@ The page header SHALL include last-refreshed timestamp, manual refresh, reset-to
 
 The reliability dashboard SHALL load metrics through TanStack Query with `reliabilityDashboardRefreshMilliseconds` equal to `operationalDashboardRefreshMilliseconds` (15 minutes).
 
-Manual refresh SHALL re-fetch the `api-reliability` source immediately. Refresh-in-flight, partial-failure, and total-failure presentation SHALL follow the operational dashboard patterns (OP-DASH-09): spinner on initial load only; warning alert on partial failure; danger empty state on total initial-load failure; keep last successful values for failed sources on refresh when applicable.
+Manual refresh SHALL re-fetch the `api-reliability` and `control-plane-reconciliation` sources immediately. Refresh-in-flight, partial-failure, and total-failure presentation SHALL follow the operational dashboard patterns (OP-DASH-09): spinner on initial load only; warning alert on partial failure; danger empty state on total initial-load failure; keep last successful values for failed sources on refresh when applicable.
 
 #### Scenario: Manual refresh re-queries Prometheus via BFF
 
@@ -295,11 +310,46 @@ BFF and SPA access-control tests SHALL cover `/dashboard/reliability` and `GET /
 
 #### Scenario: Storybook shows sparklines with mock hourly trends
 
-- GIVEN `mockReliabilityDashboardMetrics` includes `hourlyTrend` points on all three metrics
+- GIVEN `mockReliabilityDashboardMetrics` includes `hourlyTrend` points on the reliability metrics
 - WHEN the default reliability Storybook story renders
-- THEN the three trend widgets SHALL show sparklines
+- THEN the trend widgets with at least two points SHALL show sparklines
 
 ---
+
+### Requirement: REL-DASH-12 -- Control-Plane Reconciliation Data Flow
+
+The control-plane reconciliation metrics SHALL flow through the following boundary:
+
+`control-plane Prometheus metrics -> Prometheus query API -> web-console BFF -> dashboard adapter -> reliability dashboard`.
+
+The BFF SHALL be the only browser-facing integration point for reconciliation metrics. The dashboard SHALL NOT connect directly to Prometheus, the control plane, or a database.
+
+The BFF SHALL expose `GET /api/metrics/control-plane-reconciliation` and SHALL return current values plus independently optional 24-hour hourly trend arrays for failures, retries, lag, and stale resource status count.
+
+The BFF SHALL return HTTP `502` when a required current query fails. A failed historical query SHALL omit only that historical array while preserving successful current values and sibling historical arrays.
+
+### Requirement: REL-DASH-13 -- 24-Hour Historical Series
+
+The BFF SHALL query Prometheus over a rolling **24-hour** window ending at the current UTC time with a `3600s` step.
+
+Historical arrays SHALL be ordered oldest to newest, use UTC hour labels in `YYYY-MM-DDTHH:00` format, and contain no synthetic zero values for missing or invalid samples.
+
+The BFF SHALL derive the current failure and retry counts from counter increases over the previous 24 hours, derive hourly failure and retry counts from one-hour counter increases, derive reconciliation lag from the histogram, and SHALL query stale resource status count from the gauge series.
+
+### Requirement: REL-DASH-14 -- Reconciliation Metric Presentation
+
+The dashboard SHALL render these reconciliation metrics in the Reliability summary and dedicated widgets:
+
+| Metric | Prometheus type | Current value | Unit |
+| --- | --- | --- | --- |
+| Reconciliation failures | Counter | Previous 24-hour failure count | `count` |
+| Reconciliation retries | Counter | Previous 24-hour retry count | `count` |
+| Reconciliation lag | Histogram | P50 lag | `sec` |
+| Stale resource status count | Gauge | Current stale-resource count | `count` |
+
+The dashboard SHALL show a 24-hour hourly trend graph when the corresponding historical array contains at least two valid points. The dashboard SHALL omit the graph when the current value is unavailable or the historical array contains fewer than two points.
+
+The dashboard SHALL NOT display zero as a substitute for an unavailable current value. When current reconciliation lag is unavailable, the lag metric and its trend graph SHALL be omitted while the other reconciliation metrics remain visible.
 
 ## Non-Goals
 
@@ -309,3 +359,5 @@ BFF and SPA access-control tests SHALL cover `/dashboard/reliability` and `GET /
 - Changing the dashboard-host root (`/`) to the reliability page
 - Per-route latency or error drill-down pages
 - Using PatternFly Tabs as the cross-dashboard primary switcher
+- Reading or writing metric data directly from a database
+- Per-resource reconciliation drill-down or reconciliation-history export

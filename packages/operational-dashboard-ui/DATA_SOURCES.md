@@ -196,6 +196,19 @@ Reliability dashboard (`/dashboard/reliability`) loads through
 | Source ID         | BFF route                          | Metrics emitted                                     |
 | ----------------- | ---------------------------------- | --------------------------------------------------- |
 | `api-reliability` | `GET /api/metrics/api-reliability` | `api-request-rate`, `api-error-rate`, `api-latency` |
+| `control-plane-reconciliation` | `GET /api/metrics/control-plane-reconciliation` | `reconciliation-failures`, `reconciliation-retries`, `reconciliation-lag`, `stale-resource-status-count` |
+
+The reliability dashboard SHALL read metric data through the BFF routes above.
+The UI SHALL NOT read or write metric data directly to a database. Historical
+reconciliation data uses a rolling 7 x 24-hour Prometheus range query with
+hourly samples.
+
+| Metric ID | Prometheus type | Current value | Unit |
+| --- | --- | --- | --- |
+| `reconciliation-failures` | Counter | 5-minute rate | `failures/s` |
+| `reconciliation-retries` | Counter | 5-minute rate | `retries/s` |
+| `reconciliation-lag` | Histogram | P50 | `sec` |
+| `stale-resource-status-count` | Gauge | Current count | `count` |
 
 Fetch failures soft-return `failedSources: ["api-reliability"]` with an empty
 metrics list (abort still throws). `mergeReliabilityDashboardMetrics` then
