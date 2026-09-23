@@ -44,10 +44,15 @@ on:
         type: string
         default: 'false'
 
+# Intersection with the caller: origin Tests / E2E grants id-token: write so
+# Deploy OpenShift Environment and OpenShift can assume the CI IAM role.
+# Tests / E2E (fork) withholds it, so fork jobs still cannot OIDC to AWS
+# (ephemeral-ci-secrets.spec.md).
 permissions:
   contents: read
   checks: read
   pull-requests: write
+  id-token: write
 
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main

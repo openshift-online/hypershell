@@ -175,5 +175,22 @@ else
   echo 'FAIL: destroy/command jobs do not set id-token: write'
 fi
 
+# The reusable e2e.yml permissions block is the intersection ceiling for every
+# job inside it. Granting id-token only on the Tests.yml caller is not enough.
+e2e_perm="$(awk '/^permissions:/,/^env:/' "${REPO_ROOT}/.github/workflows/e2e.yml")"
+if printf '%s' "${e2e_perm}" | grep -q 'id-token: write'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: reusable e2e.yml permissions do not request id-token: write'
+fi
+tests_perm="$(awk '/^permissions:/,/^concurrency:/' "${REPO_ROOT}/.github/workflows/tests.yml")"
+if printf '%s' "${tests_perm}" | grep -q 'id-token: write'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Tests.yml workflow permissions ceiling does not include id-token: write'
+fi
+
 printf 'ephemeral-ci-secrets tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

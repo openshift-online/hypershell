@@ -143,7 +143,11 @@ fork deny.
 The workflow SHALL refuse to request an OIDC token and SHALL NOT assume the CI
 IAM role unless `github.event.pull_request.head.repo.full_name` equals
 `github.repository`. Fork jobs SHALL NOT set `id-token: write`. That job-level
-gate is the fork deny; it replaces Actions-secret withholding.
+gate is the fork deny; it replaces Actions-secret withholding. When the
+OpenShift jobs live in a reusable workflow, both the origin caller and that
+called workflow's `permissions` block SHALL include `id-token: write`. GitHub
+intersects those grants; omitting it from the called workflow strips the OIDC
+token even when the caller granted it.
 
 The IAM trust policy SHALL require audience `sts.amazonaws.com`, the origin
 repository, `job_workflow_ref` pinning this workflow file, and a `pull_request`
@@ -182,6 +186,13 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 - AND SHALL read `hysh-aws-01/ci/cluster-login`
 - AND SHALL mask the `server` and `token` values in the runner before `oc login`
 - AND it SHALL NOT read `hysh-aws-01/ci/github-oauth`
+
+#### Scenario: Reusable e2e workflow requests the OIDC token
+
+- GIVEN origin Tests / E2E calls `.github/workflows/e2e.yml` with `id-token: write`
+- WHEN Deploy OpenShift Environment or OpenShift runs `openshift-cluster-login`
+- THEN the reusable workflow's `permissions` SHALL also include `id-token: write`
+- AND the job SHALL receive a GitHub OIDC token it can exchange for the CI IAM role
 
 #### Scenario: CI IAM cannot read test-tier passwords
 

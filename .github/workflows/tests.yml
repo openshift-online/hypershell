@@ -52,12 +52,15 @@ on:
 
 # Union of the permissions the called workflows need. A reusable workflow can
 # never be granted more than its caller, so this ceiling must cover e2e's
-# `checks: read` (Konflux build waits) and `pull-requests: write` (access
-# comment) in addition to the shared `contents: read`.
+# `checks: read` (Konflux build waits), `pull-requests: write` (access
+# comment), and `id-token: write` (GitHub OIDC cluster login) in addition to
+# the shared `contents: read`. Origin `e2e` grants id-token; `e2e-fork` does
+# not, so the called workflow's intersection still withholds it from forks.
 permissions:
   contents: read
   checks: read
   pull-requests: write
+  id-token: write
 
 concurrency:
   group: tests-${{ github.event.pull_request.number || github.ref }}

@@ -1212,6 +1212,22 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: kind-up does not accept PULL_SECRET with KIND_PULL_SECRET alias'
 fi
+# Keycloak user seed must not run at Deployment Available: the HTTPS hostname
+# is not listening yet (E2E / Kind, PR 348).
+if awk '/Waiting for Keycloak/,/Gateway Trusted CA/' "${REPO_ROOT}/scripts/kind/up.sh" \
+  | grep -q 'reconcile_keycloak_seed_users'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: kind-up reconciles Keycloak users before the gateway hostname is reachable'
+else
+  PASS=$((PASS + 1))
+fi
+if awk '/DNS configured/,/HyperShell is running/' "${REPO_ROOT}/scripts/kind/up.sh" \
+  | grep -q 'reconcile_keycloak_seed_users'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: kind-up does not reconcile Keycloak users after DNS, before the banner'
+fi
 # Keycloak has no persistent storage (start-dev on in-memory H2), so a Keycloak
 # pod restart discards dev-gateway's OIDC client while its row survives in
 # PostgreSQL, permanently sticking it in "Keycloak client is missing" (the
