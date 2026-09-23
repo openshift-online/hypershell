@@ -24,10 +24,9 @@ type ManagedClusterService interface {
 	All(ctx context.Context) (ManagedClusterList, *errors.ServiceError)
 
 	FindByIDs(ctx context.Context, ids []string) (ManagedClusterList, *errors.ServiceError)
-	// Register upserts a ManagedCluster keyed on the OIDC subject when oidcSubject
-	// is non-empty (authentication enabled), or on name alone when oidcSubject is
-	// empty (authentication disabled, e.g. local development). Returns the cluster,
-	// whether it was newly created (true=201, false=200), and any error.
+	// Register upserts a ManagedCluster keyed on name (the sole upsert key).
+	// oidcSubject is stored as an audit field when present but is not the lookup key.
+	// Returns the cluster, whether it was newly created (true=201, false=200), and any error.
 	Register(ctx context.Context, name, description, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
@@ -159,37 +158,18 @@ func (s *sqlManagedClusterService) All(ctx context.Context) (ManagedClusterList,
 }
 
 func (s *sqlManagedClusterService) Register(ctx context.Context, name, description, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError) {
-	// The registration identity (and upsert key) is the OIDC subject when the API
-	// server has authentication enabled. When authentication is disabled the
-	// subject is empty and the record is keyed on name alone; the advisory lock
-	// keys on name in that case so concurrent first-time registrations for the same
-	// name serialize (an empty subject would otherwise collide across all
-	// unauthenticated clusters).
-	lockKey := oidcSubject
-	if lockKey == "" {
-		lockKey = "name:" + name
-	}
-	lockOwnerID, lockErr := s.lockFactory.NewAdvisoryLock(ctx, lockKey, managedClustersLockType)
+	lockOwnerID, lockErr := s.lockFactory.NewAdvisoryLock(ctx, name, managedClustersLockType)
 	if lockErr != nil {
 		return nil, false, errors.DatabaseAdvisoryLock(lockErr)
 	}
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
-	var existing *ManagedCluster
-	var err error
-	if oidcSubject != "" {
-		existing, err = s.managedClusterDao.FindByOIDCSubject(ctx, oidcSubject)
-	} else {
-		existing, err = s.managedClusterDao.FindByNameNoOIDCSubject(ctx, name)
-	}
+	existing, err := s.managedClusterDao.FindByName(ctx, name)
 	if err != nil && !stderrors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, false, errors.GeneralError("registration lookup failed: %s", err)
 	}
 
 	if existing != nil {
-		if existing.Name != name {
-			return nil, false, errors.Conflict("managed cluster already registered under a different name %q", existing.Name)
-		}
 		now := time.Now()
 		existing.LastSeenAt = &now
 		updated, replaceErr := s.managedClusterDao.Replace(ctx, existing)

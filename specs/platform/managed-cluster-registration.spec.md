@@ -19,11 +19,11 @@ The same endpoint serves as a health ping. The control plane calls it on a loop;
 
 ### POST /api/hypershell/v1/managed_clusters/registration
 
-Idempotent. Creates a `ManagedCluster` record on first call; returns the existing record on subsequent calls from the same OIDC identity. Updates `last_seen_at` on every call.
+Idempotent. Creates a `ManagedCluster` record on first call; returns the existing record on subsequent calls with the same name. Updates `last_seen_at` on every call.
 
 **Authentication:** When the API server has authentication enabled, the caller SHALL present an OIDC `client_credentials` JWT carrying the `managed-cluster-registrar` role in `realm_access.roles` (see `security/rbac-enforcement.spec.md`). When the API server runs with authentication disabled (local development), no token is required and the endpoint accepts the call unauthenticated.
 
-**Identity resolution:** When a validated JWT is present, the API server extracts its `sub` claim and uses it as `oidc_subject` on the `ManagedCluster` record. When no token is present (authentication disabled), `oidc_subject` is left empty and the record's identity is its `name`. The caller never supplies `oidc_subject` directly.
+**Identity resolution:** When a validated JWT is present, the API server extracts its `sub` claim and stores it as `oidc_subject` on the `ManagedCluster` record (audit trail only). When no token is present (authentication disabled), `oidc_subject` is left empty. The caller never supplies `oidc_subject` directly.
 
 **Request:**
 
@@ -42,7 +42,7 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
 }
 ```
 
-**Upsert key:** `(oidc_subject, name)`. Both must match for the call to be idempotent. If the same OIDC subject re-registers with a different `name`, the API returns 409 Conflict - a control plane may not change its registered name without admin intervention. When authentication is disabled, `oidc_subject` is empty and the upsert key is `name` alone.
+**Upsert key:** `name`. Name uniqueness across all registered control planes is a provisioning responsibility (GitOps or operator configuration). Any caller presenting the same name receives the same `cluster_id`; this intentionally allows a control plane to restart and re-register without special handling, and allows multiple control plane processes per physical node as long as each carries a distinct name.
 
 ---
 
@@ -52,7 +52,7 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `oidc_subject` | string | OIDC `sub` claim of the service account that registered this cluster, or empty when the API server runs with authentication disabled. Set server-side; not writable via PATCH. Unique index with `name`. |
+| `oidc_subject` | string | OIDC `sub` claim of the caller on the first registration call, or empty when the API server runs with authentication disabled. Stored for audit; not the upsert key. Set server-side; not writable via PATCH. |
 | `last_seen_at` | timestamp | Updated on every `/registration` call. Null until first registration. |
 
 `last_seen_at` enables passive fleet health without active probing. API-server-side consumers (dashboard, alerting) derive control plane health from staleness:
@@ -106,11 +106,10 @@ An administrator assigns `managed-cluster-registrar` to the control plane's OIDC
 
 ### Requirement: Idempotent Registration
 
-`POST /managed_clusters/registration` SHALL be idempotent on the `(oidc_subject, name)` key. When authentication is disabled, `oidc_subject` is empty and the key is `name` alone.
+`POST /managed_clusters/registration` SHALL be idempotent on `name`. `name` is the sole upsert key; `oidc_subject` is stored as an audit field and plays no part in record lookup.
 
 - On first call: create a `ManagedCluster` record with a new KSUID, set `oidc_subject` from the JWT `sub` claim (empty when authentication is disabled), set `last_seen_at` to now. Return 201 with `cluster_id`.
-- On subsequent calls with the same identity and name: update `last_seen_at` to now. Return 200 with the existing `cluster_id`.
-- If the same OIDC subject supplies a different `name` than the one already registered: return 409 Conflict.
+- On subsequent calls with the same name: update `last_seen_at` to now. Return 200 with the existing `cluster_id`.
 
 The upsert SHALL use database-level locking to handle concurrent first-time requests safely.
 
@@ -131,12 +130,13 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 - AND `last_seen_at` is updated to now
 - AND the response is 200 with `cluster_id: X`
 
-#### Scenario: Name conflict rejected
+#### Scenario: Two control planes sharing a name resolve to the same cluster_id
 
-- GIVEN a control plane already registered as `hyp0-mc1`
-- WHEN it calls `POST /managed_clusters/registration` with `name: hyp0-mc2`
-- THEN the response is 409 Conflict
-- AND no record is created or modified
+- GIVEN two separately-deployed control planes both configured with `name: hyp0-mc1`
+- WHEN each calls `POST /managed_clusters/registration`
+- THEN both receive the same `cluster_id` (the record created by whichever registered first)
+- AND both will reconcile gateways assigned to that cluster_id simultaneously
+- NOTE: the API permits this; preventing duplicate names is a provisioning responsibility
 
 #### Scenario: Local development without authentication
 
@@ -202,8 +202,7 @@ The only exception is a non-retryable response (403 Forbidden): if the API serve
 | Single `/registration` endpoint for both register and heartbeat | Eliminates a separate heartbeat endpoint. The idempotent registration call already has all the information needed to update `last_seen_at`. Fewer endpoints, simpler RBAC surface. |
 | Narrow response body (`{ "cluster_id" }` only, not full ManagedCluster) | The control plane needs exactly one thing from registration: its stable `cluster_id` to use as the `WatchGateways` filter. Returning the full ManagedCluster object would expose fields the control plane cannot and should not act on. The narrow shape is intentional and differs from the standard `GET /managed_clusters/{id}` response by design. |
 | 403 exits immediately; other failures retry with backoff | A 403 means the Keycloak role is absent -- retrying is pointless and delays operator awareness. Network or 5xx errors are transient; exponential backoff recovers automatically without operator intervention. |
-| `(oidc_subject, name)` upsert key | `oidc_subject` alone allows a control plane to change its human name between deployments. Requiring both prevents accidental name changes and makes conflicts explicit rather than silent. |
-| 409 on name mismatch | A control plane trying to re-register with a different name is likely a misconfiguration. Fail loudly rather than silently creating a second record. |
+| `name` as sole upsert key | Using `(oidc_subject, name)` ties uniqueness to the OIDC provider, creating a dependency on Keycloak for cluster identity and preventing multiple control planes per node. With `name` alone, uniqueness is a provisioning contract (GitOps assigns each CP a distinct name), the API server is OIDC-agnostic for identity purposes, and any process with the right name and `managed-cluster-registrar` role can recover or replace a failed control plane without admin intervention. |
 | `last_seen_at` as passive liveness, not a status field | Keeps the control plane's self-reported liveness separate from the reconciler's view of cluster state. The `status` field remains the reconciler's domain. |
 | No active health probing from the API server | Control planes call in; the API server does not need to reach out. Avoids reverse credential management and works across network topologies where the API server cannot initiate connections to control planes. |
 | Role assigned by admin, not auto-granted | The `managed-cluster-registrar` role is a privilege gate. A Keycloak admin must explicitly grant it before a control plane can self-register, providing a human control point for fleet membership. |

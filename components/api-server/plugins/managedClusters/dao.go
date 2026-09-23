@@ -17,8 +17,7 @@ type ManagedClusterDao interface {
 	Delete(ctx context.Context, id string) error
 	FindByIDs(ctx context.Context, ids []string) (ManagedClusterList, error)
 	All(ctx context.Context) (ManagedClusterList, error)
-	FindByOIDCSubject(ctx context.Context, subject string) (*ManagedCluster, error)
-	FindByNameNoOIDCSubject(ctx context.Context, name string) (*ManagedCluster, error)
+	FindByName(ctx context.Context, name string) (*ManagedCluster, error)
 	InventorySnapshot(ctx context.Context, evaluationTime time.Time) (*ClusterInventorySnapshot, error)
 }
 
@@ -86,23 +85,10 @@ func (d *sqlManagedClusterDao) All(ctx context.Context) (ManagedClusterList, err
 	return managedClusters, nil
 }
 
-func (d *sqlManagedClusterDao) FindByOIDCSubject(ctx context.Context, subject string) (*ManagedCluster, error) {
+func (d *sqlManagedClusterDao) FindByName(ctx context.Context, name string) (*ManagedCluster, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	var managedCluster ManagedCluster
-	if err := g2.Take(&managedCluster, "oidc_subject = ?", subject).Error; err != nil {
-		return nil, err
-	}
-	return &managedCluster, nil
-}
-
-// FindByNameNoOIDCSubject looks up the registration record keyed on name alone,
-// i.e. the record created when the API server runs with authentication disabled
-// (empty oidc_subject). It deliberately excludes records that carry an OIDC
-// subject so the authenticated and unauthenticated identity spaces stay separate.
-func (d *sqlManagedClusterDao) FindByNameNoOIDCSubject(ctx context.Context, name string) (*ManagedCluster, error) {
-	g2 := (*d.sessionFactory).New(ctx)
-	var managedCluster ManagedCluster
-	if err := g2.Take(&managedCluster, "name = ? AND (oidc_subject IS NULL OR oidc_subject = '')", name).Error; err != nil {
+	if err := g2.Take(&managedCluster, "name = ?", name).Error; err != nil {
 		return nil, err
 	}
 	return &managedCluster, nil

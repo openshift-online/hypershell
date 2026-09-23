@@ -275,7 +275,7 @@ All routes under `/api/hypershell/v1/`:
 | GET/PATCH/DELETE | `/gateway_releases/{id}` | Get/Update/Delete |
 | GET/POST | `/managed_clusters` | List/Create |
 | GET/PATCH/DELETE | `/managed_clusters/{id}` | Get/Update/Delete |
-| POST | `/managed_clusters/registration` | Self-register control plane; idempotent on (oidc_subject, name); updates last_seen_at on every call |
+| POST | `/managed_clusters/registration` | Self-register control plane; idempotent on name; uniqueness enforced at provisioning; updates last_seen_at on every call |
 | GET/POST | `/managed_databases` | List/Create |
 | GET/PATCH/DELETE | `/managed_databases/{id}` | Get/Update/Delete |
 

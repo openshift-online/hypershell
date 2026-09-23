@@ -19,19 +19,45 @@ func migrationAddRegistrationFields() *gormigrate.Migration {
 				return err
 			}
 			return tx.Exec(`
-				CREATE UNIQUE INDEX IF NOT EXISTS uix_managed_clusters_oidc_subject_name
-					ON managed_clusters (oidc_subject, name)
-					WHERE oidc_subject IS NOT NULL AND oidc_subject <> ''
+				CREATE UNIQUE INDEX IF NOT EXISTS uix_managed_clusters_name
+					ON managed_clusters (name)
+					WHERE deleted_at IS NULL
 			`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
-			if err := tx.Exec(`DROP INDEX IF EXISTS uix_managed_clusters_oidc_subject_name`).Error; err != nil {
+			if err := tx.Exec(`DROP INDEX IF EXISTS uix_managed_clusters_name`).Error; err != nil {
 				return err
 			}
 			return tx.Exec(`
 				ALTER TABLE managed_clusters
 					DROP COLUMN IF EXISTS oidc_subject,
 					DROP COLUMN IF EXISTS last_seen_at
+			`).Error
+		},
+	}
+}
+
+func migrationRegistrationKeyToNameOnly() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026092300000001",
+		Migrate: func(tx *gorm.DB) error {
+			if err := tx.Exec(`DROP INDEX IF EXISTS uix_managed_clusters_oidc_subject_name`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`
+				CREATE UNIQUE INDEX IF NOT EXISTS uix_managed_clusters_name
+					ON managed_clusters (name)
+					WHERE deleted_at IS NULL
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			if err := tx.Exec(`DROP INDEX IF EXISTS uix_managed_clusters_name`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`
+				CREATE UNIQUE INDEX IF NOT EXISTS uix_managed_clusters_oidc_subject_name
+					ON managed_clusters (oidc_subject, name)
+					WHERE oidc_subject IS NOT NULL AND oidc_subject <> ''
 			`).Error
 		},
 	}

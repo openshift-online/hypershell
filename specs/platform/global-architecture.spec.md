@@ -520,7 +520,7 @@ an idempotent registration endpoint. The registration SHALL return a stable
 
 ##### Scenario: Repeated registration is idempotent
 
-- GIVEN the control plane restarts or re-registers with the same `(oidc_subject, name)` pair (or `name` alone when authentication is disabled)
+- GIVEN the control plane restarts or re-registers with the same `name`
 - WHEN it calls the registration endpoint again
 - THEN the API server SHALL return the **same** `cluster_id` as the first call
 - AND no duplicate ManagedCluster record SHALL be created
@@ -538,8 +538,7 @@ an idempotent registration endpoint. The registration SHALL return a stable
 - AND the API server runs with authentication disabled
 - AND a control plane configured with `HYPERSHELL_MANAGED_CLUSTER_NAME=local`
 - WHEN the control plane starts and calls `/registration` with no token
-- THEN the API server SHALL create a ManagedCluster record named `local`,
-  keyed on the name with an empty `oidc_subject`
+- THEN the API server SHALL create a ManagedCluster record named `local` with an empty `oidc_subject`
 - AND return a `cluster_id` that the control plane uses to reconcile gateways
 - AND the startup path SHALL be identical to production apart from the absence
   of a token
