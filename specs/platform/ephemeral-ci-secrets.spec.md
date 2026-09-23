@@ -143,11 +143,16 @@ fork deny.
 The workflow SHALL refuse to request an OIDC token and SHALL NOT assume the CI
 IAM role unless `github.event.pull_request.head.repo.full_name` equals
 `github.repository`. Fork jobs SHALL NOT set `id-token: write`. That job-level
-gate is the fork deny; it replaces Actions-secret withholding. When the
-OpenShift jobs live in a reusable workflow, both the origin caller and that
-called workflow's `permissions` block SHALL include `id-token: write`. GitHub
-intersects those grants; omitting it from the called workflow strips the OIDC
-token even when the caller granted it.
+gate is the fork deny; it replaces Actions-secret withholding.
+
+When OpenShift jobs live in a reusable workflow, origin Tests / E2E SHALL grant
+`id-token: write` on the caller job and the called workflow SHALL inherit that
+grant. The called workflow SHALL NOT declare its own `permissions` block that
+lists `id-token: write`: GitHub validates every caller against that block at
+startup, and the fork caller (which withholds `id-token: write`) would fail
+the entire Tests workflow before any job runs. The called workflow SHALL also
+NOT declare a `permissions` block that omits `id-token`, because that sets the
+permission to none and strips the origin caller's OIDC token.
 
 The IAM trust policy SHALL require audience `sts.amazonaws.com`, the origin
 repository, `job_workflow_ref` pinning this workflow file, and a `pull_request`
@@ -187,12 +192,15 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 - AND SHALL mask the `server` and `token` values in the runner before `oc login`
 - AND it SHALL NOT read `hysh-aws-01/ci/github-oauth`
 
-#### Scenario: Reusable e2e workflow requests the OIDC token
+#### Scenario: Reusable e2e workflow inherits the caller's OIDC grant
 
 - GIVEN origin Tests / E2E calls `.github/workflows/e2e.yml` with `id-token: write`
-- WHEN Deploy OpenShift Environment or OpenShift runs `openshift-cluster-login`
-- THEN the reusable workflow's `permissions` SHALL also include `id-token: write`
-- AND the job SHALL receive a GitHub OIDC token it can exchange for the CI IAM role
+- AND fork Tests / E2E calls the same workflow without `id-token: write`
+- WHEN GitHub starts the Tests workflow
+- THEN the called workflow SHALL NOT declare a `permissions` key of its own
+- AND the origin OpenShift jobs SHALL receive a GitHub OIDC token
+- AND the Tests workflow SHALL start even though the fork caller withholds
+  `id-token: write`
 
 #### Scenario: CI IAM cannot read test-tier passwords
 
