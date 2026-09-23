@@ -50,9 +50,10 @@ const (
 )
 
 // requiredSSLMode is the only TLS mode the control plane accepts for the admin
-// connection and the only one it hands to gateways. Both ends verify the server
-// certificate chain against the mounted CA bundle and the hostname against the
-// certificate; there is no downgrade path.
+// connection. The admin connection verifies the server certificate chain against
+// the mounted CA bundle and the hostname against the certificate. The tenant
+// connection uses a separate mode (tenantSSLMode) because the upstream Helm
+// chart cannot mount a CA bundle into the gateway pod.
 const requiredSSLMode = "verify-full"
 
 // defaultAdminDBName is the maintenance database the admin connection opens
