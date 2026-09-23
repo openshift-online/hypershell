@@ -27,29 +27,60 @@ fi
 # to the openshell binary.
 export OPENSHELL_GATEWAY_INSECURE=true
 
-# macOS default: run the openshell CLI inside a container on the kind network.
-# The CLI is distributed only as a Linux binary, which cannot execute on macOS;
-# and even a native build could not reach the gateway, because cloud-provider-kind
-# publishes the gateway LoadBalancer on the kind container network whose IPs are
-# not routable from the macOS host. scripts/kind/openshell-container.sh runs the
-# Linux CLI in a container that shares a socat forwarder's netns on the kind
-# network, so it both executes and reaches the gateway (see that script's header).
+# _kind_host_is_dual_stack - true when ::1 is a usable local address, i.e. the
+# host has IPv6 loopback and *.gw.localhost will resolve dual-stack. Binding to
+# ::1 succeeds only when the kernel has the address configured; it fails on the
+# IPv4-only hosts CI runs on. Portable across macOS and Linux.
+_kind_host_is_dual_stack() {
+  python3 -c "import socket, sys
+try:
+    s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    s.bind(('::1', 0)); s.close(); sys.exit(0)
+except OSError:
+    sys.exit(1)" 2>/dev/null
+}
+
+# Run the openshell CLI inside a container on the kind network when the native
+# binary cannot work:
+#   - macOS: the CLI is a Linux binary that cannot execute on the host, and even
+#     a native build could not reach the gateway LB (cloud-provider-kind
+#     publishes it on the kind container network, not routable from macOS).
+#   - dual-stack Linux: the CLI (>=0.0.116) breaks on a dual-stack
+#     *.gw.localhost DNS answer (prefers ::1, does not fall back, can segfault).
+#     The only sudo-free way to strip ::1 is the container's own single-stack
+#     resolver (*.localhost -> 127.0.0.1 inside the netns); editing /etc/hosts
+#     would need sudo, which the e2e suite must never require.
+# scripts/kind/openshell-container.sh runs the Linux CLI in a container sharing a
+# socat forwarder's netns on the kind network (see that script's header).
 #
-# Linux is unaffected: the native binary runs directly and the host-published
-# ephemeral port is reachable, so this block is Darwin-only. Any explicit
-# OPENSHELL_BIN override (a value other than the "openshell" default) is honored.
-if [[ "$(uname -s)" == "Darwin" && ( -z "${OPENSHELL_BIN:-}" || "${OPENSHELL_BIN}" == "openshell" ) ]]; then
+# IPv4-only Linux (CI) keeps the fast native-binary path: no ::1 in the answer,
+# nothing to strip. Any explicit OPENSHELL_BIN override is honored. Guarded to
+# the kind driver: the OpenShift driver sources this file for its shared OIDC
+# helpers and manages its own CLI, so the wrapper must not hijack OPENSHELL_BIN
+# on a dual-stack OpenShift run.
+if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]] \
+   && [[ ( -z "${OPENSHELL_BIN:-}" || "${OPENSHELL_BIN}" == "openshell" ) ]] \
+   && { [[ "$(uname -s)" == "Darwin" ]] || _kind_host_is_dual_stack; }; then
   _E2E_OSH_WRAPPER="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/kind/openshell-container.sh"
-  if [[ -x "${_E2E_OSH_WRAPPER}" ]]; then
-    export OPENSHELL_BIN="${_E2E_OSH_WRAPPER}"
-    # The wrapper runs the Linux CLI straight from the container image, so there
-    # is nothing to download or extract onto the host.
-    export E2E_OPENSHELL_INSTALL=never
-    # The wrapper's in-container forwarder listens on loopback :443, so the CLI
-    # gateway endpoint must target :443 rather than the host-published ephemeral
-    # port that discover_gateway_endpoint would otherwise bake into metadata.json.
-    : "${_KINDCCM_GW_PORT:=443}"
+  if [[ ! -x "${_E2E_OSH_WRAPPER}" ]]; then
+    red "ERROR: openshell container wrapper not found or not executable: ${_E2E_OSH_WRAPPER}"
+    red "  The native CLI cannot be used here ($([[ "$(uname -s)" == "Darwin" ]] && echo macOS || echo 'dual-stack host')) without sudo /etc/hosts edits, which the e2e suite forbids."
+    exit 1
   fi
+  if [[ -z "${CONTAINER_ENGINE:-}" ]]; then
+    red "ERROR: no container engine (podman/docker) found for the openshell CLI wrapper."
+    red "  A dual-stack host must run the CLI in a container to avoid a sudo /etc/hosts edit."
+    red "  Install podman or docker, or run the suite on an IPv4-only host."
+    exit 1
+  fi
+  export OPENSHELL_BIN="${_E2E_OSH_WRAPPER}"
+  # The wrapper runs the Linux CLI straight from the container image, so there
+  # is nothing to download or extract onto the host.
+  export E2E_OPENSHELL_INSTALL=never
+  # The wrapper's in-container forwarder listens on loopback :443, so the CLI
+  # gateway endpoint must target :443 rather than the host-published ephemeral
+  # port that discover_gateway_endpoint would otherwise bake into metadata.json.
+  : "${_KINDCCM_GW_PORT:=443}"
 fi
 
 # Force IPv4 and remap *.hypershell.localhost:443 to the cloud-provider-kind
@@ -76,25 +107,30 @@ _kind_discover_port() {
     fi
   fi
 }
-# _kind_gw_port - return an IPv4-only port for the openshell CLI gateway endpoint.
-# The openshell CLI (Rust/hyper) prefers IPv6 for *.gw.localhost and does NOT
-# fall back after a TLS RST (Docker's IPv6 NAT is unreliable on some kernels).
-# We front the envoy port with a socat listener bound to 127.0.0.1 only: ::1
-# then gets ECONNREFUSED and hyper retries on 127.0.0.1. curl is unaffected
-# because it already uses --ipv4. Sets _KINDCCM_GW_PORT.
+# _kind_start_gw_socat - front the cloud-provider-kind envoy port with an
+# IPv4-only loopback listener for the openshell CLI gateway endpoint, giving the
+# endpoint a stable port instead of the ephemeral kindccm port.
+#
+# This runs only on the native-binary path, which the driver restricts to
+# IPv4-only hosts (see the wrapper-activation block above): a dual-stack host
+# routes the CLI through the container wrapper instead, because the CLI
+# (>=0.0.116) breaks on a dual-stack *.gw.localhost DNS answer and the only
+# sudo-free way to strip ::1 is the container's single-stack resolver. So here
+# there is no ::1 in the answer and the IPv4 listener is always the one hit.
+# curl is unaffected: it hits the raw envoy port with --ipv4. Sets
+# _KINDCCM_GW_PORT.
 _kind_start_gw_socat() {
   [[ -n "${_KINDCCM_GW_PORT}" ]] && return
   _kind_discover_port
   local raw_port="${_KINDCCM_PORT}"
-  # When sudo set up iptables (port 443 redirected), socat isn't needed:
-  # the openshell CLI can reach port 443 directly on IPv4 and IPv6 doesn't
-  # matter because port 443 is forwarded by the kernel.
+  # When sudo set up iptables (port 443 redirected) or the container wrapper
+  # handles forwarding, socat isn't needed: the CLI reaches port 443 directly.
   if [[ -z "${raw_port}" || "${raw_port}" == "443" ]]; then
     _KINDCCM_GW_PORT="${raw_port:-443}"
     return
   fi
   if ! command -v socat &>/dev/null; then
-    # socat unavailable; fall back to the raw port and accept that IPv6 may fail.
+    # socat unavailable; fall back to the raw ephemeral port.
     _KINDCCM_GW_PORT="${raw_port}"
     return
   fi
@@ -108,29 +144,6 @@ _kind_start_gw_socat() {
     TCP4:127.0.0.1:"${raw_port}" &>/dev/null &
   _KINDCCM_SOCAT_PID=$!
   _KINDCCM_GW_PORT="${socat_port}"
-}
-# _kind_pin_gw_host_ipv4 - force IPv4-only resolution for a gateway hostname.
-# The openshell CLI (>=0.0.116) prefers IPv6 for *.gw.localhost and neither
-# falls back to IPv4 nor tolerates a dual-stack DNS answer: it prints nothing
-# (and can segfault). On dual-stack hosts *.localhost resolves to both ::1 and
-# 127.0.0.1, so the IPv4-only socat forwarder is never reached. Pinning the host
-# to 127.0.0.1 in /etc/hosts removes ::1 from the answer. Idempotent and
-# best-effort (skipped without sudo); tagged for cleanup by _kind_unpin_gw_hosts.
-_KIND_GW_HOSTS_TAG="e2e-kind-gw-pin"
-_kind_pin_gw_host_ipv4() {
-  local host="${1:-}"
-  [[ -z "$host" ]] && return 0
-  if grep -q " ${host} " /etc/hosts 2>/dev/null; then return 0; fi
-  command -v sudo >/dev/null 2>&1 || return 0
-  echo "127.0.0.1 ${host} # ${_KIND_GW_HOSTS_TAG}" | sudo tee -a /etc/hosts >/dev/null 2>&1 || dim "  Could not pin ${host} to IPv4 in /etc/hosts (continuing)"
-}
-
-# _kind_unpin_gw_hosts - remove entries added by _kind_pin_gw_host_ipv4.
-_kind_unpin_gw_hosts() {
-  command -v sudo >/dev/null 2>&1 || return 0
-  local sed_i=(-i)
-  [[ "$(uname -s)" == "Darwin" ]] && sed_i=(-i '')
-  sudo sed "${sed_i[@]}" "/# ${_KIND_GW_HOSTS_TAG}/d" /etc/hosts 2>/dev/null || true
 }
 
 _driver_curl() {
@@ -245,7 +258,6 @@ discover_gateway_endpoint() {
         | grep -c 'Programmed=True' || true)
       if [[ "${gw_programmed:-0}" -ge 1 ]]; then
         _kind_start_gw_socat
-        _kind_pin_gw_host_ipv4 "$grpc_host"
         if [[ -n "${_KINDCCM_GW_PORT}" && "${_KINDCCM_GW_PORT}" != "443" ]]; then
           _DISCOVER_GW_ENDPOINT="https://${grpc_host}:${_KINDCCM_GW_PORT}"
         else

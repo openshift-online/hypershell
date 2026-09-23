@@ -141,13 +141,14 @@ cleanup() {
     acquire_oidc_token 2>/dev/null || true
     api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
   fi
+  # Stop the kind driver's loopback gateway forwarder, if one was started.
+  if [[ -n "${_KINDCCM_SOCAT_PID:-}" ]]; then
+    kill "${_KINDCCM_SOCAT_PID}" 2>/dev/null || true
+    wait "${_KINDCCM_SOCAT_PID}" 2>/dev/null || true
+  fi
   # Runs on every exit path -- a fatal exit 1 mid-run included -- so the
   # summary always prints, and print_results itself notes when E2E_COMPLETED
   # was never set (i.e. the run aborted before reaching the results section).
-  # Remove IPv4 gateway-host pins the kind driver added to /etc/hosts.
-  if declare -F _kind_unpin_gw_hosts >/dev/null 2>&1; then
-    _kind_unpin_gw_hosts || true
-  fi
   print_results
 }
 trap cleanup EXIT
