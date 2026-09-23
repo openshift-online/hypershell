@@ -523,6 +523,23 @@ e2e_auto_seed_enabled() {
   esac
 }
 
+# E2E_ALLOW_UNSEEDED lets the suite run against a platform that has no registered
+# managed cluster and no published gateway release. The gateway API does not
+# require either id: the control plane assigns database placement server-side and
+# resolves an empty release_id to the platform default gateway image
+# (GATEWAY_IMAGE), while an empty cluster_id disables the server-side cluster
+# filter so a single control plane still reconciles the gateway. This is the
+# behavior a default user gets, and it lets a post-rollout release check verify
+# an already-deployed environment without registering inventory or provisioning
+# anything. Default (unset/0) preserves the seed-required behavior: ids must be
+# discovered (and optionally auto-seeded) before a gateway is created.
+e2e_allow_unseeded() {
+  case "${E2E_ALLOW_UNSEEDED:-0}" in
+    1|true|TRUE|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 e2e_run_platform_seed() {
   local root
   root="$(cd "${_E2E_LIB_DIR}/../.." && pwd)"
@@ -596,9 +613,16 @@ e2e_seed_ids_ready() {
 }
 
 # Fill any missing seed ids from the API. Rediscover when cluster is set but
-# release is not (or the reverse).
+# release is not (or the reverse). When E2E_ALLOW_UNSEEDED is set, treat seed ids
+# as best-effort: use them if the platform already has inventory, but never
+# require them and never auto-seed. Any id left empty is sent as an empty string,
+# which the gateway API accepts (default image + default placement).
 e2e_ensure_seed_ids() {
   e2e_seed_ids_ready && return 0
+  if e2e_allow_unseeded; then
+    e2e_fetch_seed_ids || true
+    return 0
+  fi
   e2e_discover_seed_ids
 }
 
