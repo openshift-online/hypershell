@@ -1275,6 +1275,37 @@ describe("gateway shell pages", () => {
     );
   });
 
+  it("sorts the gateway list by active sandbox count", async () => {
+    const user = userEvent.setup();
+    const onCollectionStateChange = vi.fn();
+    const collectionState = {
+      page: 1,
+      search: "",
+      size: 20,
+      sortDirection: "asc" as const,
+      sortField: "name" as const,
+    };
+    renderPage(() => (
+      <GatewaysPage
+        collectionState={collectionState}
+        gateways={previewGateways}
+        onCollectionStateChange={onCollectionStateChange}
+      />
+    ));
+
+    await user.click(screen.getByRole("button", { name: "Active sandboxes" }));
+
+    expect(onCollectionStateChange).toHaveBeenCalledWith(
+      {
+        ...collectionState,
+        page: 1,
+        sortDirection: "asc",
+        sortField: "activeSandboxes",
+      },
+      "sort",
+    );
+  });
+
   it("renders Running with a semantic icon and no label chip", () => {
     renderPage(() => (
       <GatewaysPage gateways={[{ ...previewGateway, status: "Running" }]} />

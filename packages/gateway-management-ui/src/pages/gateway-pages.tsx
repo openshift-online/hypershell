@@ -83,9 +83,15 @@ export interface GatewaysPageProps {
 }
 
 function isGatewaySortField(value: string): value is GatewaySortField {
-  return ["cluster", "created", "endpoint", "name", "owner", "status"].includes(
-    value,
-  );
+  return [
+    "activeSandboxes",
+    "cluster",
+    "created",
+    "endpoint",
+    "name",
+    "owner",
+    "status",
+  ].includes(value);
 }
 
 function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
@@ -364,8 +370,8 @@ export function GatewaysPage({
       width: 20,
     },
     {
-      // active_sandbox_count is control-plane-owned and advisory; the API does
-      // not sort on it, so this column is not sortable. An unset value renders
+      // The API orders this column directly; an unset (never observed)
+      // count follows the database null-ordering convention and renders
       // the localized not-available fallback rather than a misleading zero.
       id: "activeSandboxes",
       label: intl.formatMessage(messages.activeSandboxes),
@@ -373,7 +379,6 @@ export function GatewaysPage({
         typeof activeSandboxCount === "number"
           ? String(activeSandboxCount)
           : intl.formatMessage(messages.notAvailable),
-      sortable: false,
       width: 10,
     },
     {
