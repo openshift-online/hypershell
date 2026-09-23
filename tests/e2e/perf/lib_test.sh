@@ -105,6 +105,52 @@ eval "$_orig_discover"
 unset _orig_discover
 E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
 
+# --- E2E_ALLOW_UNSEEDED ---
+
+if E2E_ALLOW_UNSEEDED=1 e2e_allow_unseeded && E2E_ALLOW_UNSEEDED=true e2e_allow_unseeded \
+  && ! e2e_allow_unseeded && ! E2E_ALLOW_UNSEEDED=0 e2e_allow_unseeded; then
+  pass_u "e2e_allow_unseeded honors truthy values and defaults off"
+else
+  fail_u "e2e_allow_unseeded gating is wrong"
+fi
+
+# When unseeded is allowed and the platform has no inventory, ensure must succeed
+# with empty ids instead of failing or auto-seeding.
+_orig_discover=$(declare -f e2e_discover_seed_ids)
+_orig_fetch=$(declare -f e2e_fetch_seed_ids)
+e2e_discover_seed_ids() { fail_u "discover must not run when unseeded is allowed"; return 1; }
+e2e_fetch_seed_ids() { E2E_CLUSTER_ID=""; E2E_RELEASE_ID=""; return 1; }
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids && [[ -z "$E2E_CLUSTER_ID" && -z "$E2E_RELEASE_ID" ]]; then
+  pass_u "ensure seed ids succeeds with empty ids when unseeded is allowed"
+else
+  fail_u "ensure seed ids should tolerate empty ids when unseeded: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+fi
+
+# Best-effort discovery still adopts ids when the platform does have inventory.
+e2e_fetch_seed_ids() { E2E_CLUSTER_ID="c-found"; E2E_RELEASE_ID="r-found"; return 0; }
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "c-found" && "$E2E_RELEASE_ID" == "r-found" ]]; then
+  pass_u "ensure seed ids adopts discovered ids when unseeded and inventory exists"
+else
+  fail_u "ensure seed ids should adopt discovered ids: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+fi
+eval "$_orig_discover"
+eval "$_orig_fetch"
+unset _orig_discover _orig_fetch
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+
+# The create body carries empty ids verbatim (API accepts them: default image +
+# server-side database placement).
+E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
+body=$(e2e_gateway_create_body gw-unseeded)
+if echo "$body" | grep -q '"cluster_id": ""' && echo "$body" | grep -q '"release_id": ""'; then
+  pass_u "gateway create body sends empty cluster_id/release_id when unseeded"
+else
+  fail_u "gateway create body should send empty ids: ${body:0:200}"
+fi
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+
 E2E_CLUSTER_ID=c1 E2E_RELEASE_ID=r1 E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
 body=$(e2e_gateway_create_body gw-test)
 if echo "$body" | grep -q '"cluster_id": "c1"' && ! echo "$body" | grep -q 'fleet_id' && ! echo "$body" | grep -q 'database_id'; then

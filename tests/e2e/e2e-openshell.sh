@@ -391,7 +391,11 @@ else
     fail_test "Could not discover seeded cluster/release ids"
     exit 1
   fi
-  dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; the gateway database is provisioned by the control plane"
+  if [[ -z "${E2E_CLUSTER_ID}" || -z "${E2E_RELEASE_ID}" ]]; then
+    dim "  Creating gateway without seeded ids (cluster_id='${E2E_CLUSTER_ID}' release_id='${E2E_RELEASE_ID}'); the control plane uses default placement and the platform default gateway image"
+  else
+    dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; the gateway database is provisioned by the control plane"
+  fi
 
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(e2e_gateway_create_body "$GW_NAME")
@@ -1933,7 +1937,7 @@ if [[ "$E2E_MODE" == "perf" ]]; then
   THROW_ID="${_GW_ID}"
   THROW_NS="${_GW_NAMESPACE}"
   if [[ -z "$THROW_ID" ]]; then
-    if ! e2e_seed_ids_ready; then
+    if ! e2e_seed_ids_ready && ! e2e_allow_unseeded; then
       fail_test "Cannot create throwaway gateway: seeded cluster/release ids are unknown"
     else
       THROW_BODY=$(e2e_gateway_create_body "$THROW_NAME")
