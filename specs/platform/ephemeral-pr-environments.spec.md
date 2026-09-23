@@ -889,12 +889,13 @@ The workflow SHALL run only on `pull_request` events from the origin repository
 secret SHALL NOT live as GitHub Actions secrets; they SHALL live in AWS Secrets
 Manager and SHALL be consumed as `ephemeral-ci-secrets.spec.md` defines (GitHub
 OIDC into IAM for runner-only cluster login, only after the job confirms the head
-repository is the origin; ESO for the in-cluster OAuth copy). The workflow SHALL
-NOT request an OIDC token and SHALL NOT set `id-token: write` unless
-`github.event.pull_request.head.repo.full_name` equals `github.repository`. It
-SHALL NOT use `pull_request_target`. Fork pull requests SHALL NOT receive the
-cluster login, the GitHub OAuth client secret, or any other secret this
-workflow needs, and SHALL NOT get an environment. The GitHub organization gate
+repository is the origin; ESO for the in-cluster OAuth copy). OpenShift cluster
+login and deploy SHALL refuse or skip when
+`github.event.pull_request.head.repo.full_name` is not `github.repository`. The
+workflow SHALL NOT use `pull_request_target`. Fork pull requests SHALL NOT receive
+the cluster login, the GitHub OAuth client secret, or any other secret this
+workflow needs, and SHALL NOT get an environment. Tests / E2E remains one job so
+Kind still runs on forks. The GitHub organization gate
 and allowlist (see GitHub-Brokered Keycloak Authentication) govern interactive
 login to an already-deployed origin-repo environment; they SHALL NOT be used as
 a reason to deploy untrusted pull-request trees with cluster credentials.
@@ -909,10 +910,9 @@ a reason to deploy untrusted pull-request trees with cluster credentials.
 #### Scenario: Fork pull request is not deployed
 
 - GIVEN a pull request whose head branch lives in a fork
-- WHEN GitHub evaluates this workflow
-- THEN the job SHALL NOT set `id-token: write`
-- AND it SHALL NOT request an OIDC token or assume the CI IAM role
-- AND it SHALL NOT receive cluster credentials
+- WHEN GitHub evaluates Deploy OpenShift Environment
+- THEN that job SHALL skip
+- AND cluster login SHALL NOT assume the CI IAM role
 - AND it SHALL NOT create or update a `hypershell-ci-pr-*` environment
 
 ### Requirement: GitHub-Brokered Keycloak Authentication
@@ -1304,6 +1304,8 @@ appear in logs, the pull-request comment, or public artifacts.
 - THEN `acquire_oidc_token` SHALL use the `hypershell-e2e` client-credentials
   grant, not a password grant
 - AND the token SHALL carry `platform:admin` and `gateway:creator`
+- AND the token's `preferred_username` SHALL be `service-account-hypershell-e2e`
+  (the profile username mapper), not a hardcoded `admin` claim
 - AND CI SHALL have read that client secret from the Keycloak namespace after
   `make openshift-up`
 

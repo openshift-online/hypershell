@@ -44,11 +44,9 @@ on:
         type: string
         default: 'false'
 
-# No workflow-level permissions key: inherit the caller job. Origin Tests / E2E
+# No workflow-level permissions key: inherit the caller job. Tests / E2E
 # grants id-token: write so Deploy OpenShift Environment can assume the CI IAM
-# role; Tests / E2E (fork) withholds it. Declaring id-token here would make
-# GitHub fail Tests at startup when the fork caller grants less
-# (ephemeral-ci-secrets.spec.md).
+# role. A permissions block here that omitted id-token would strip that grant.
 
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
@@ -742,8 +740,8 @@ jobs:
   # old cross-workflow poller. Same should_run gate as Kind. After the suite
   # (pass, fail, or cancel) tears the environment down unless retained.
   # Main never has pr-environment/pr-extended, so teardown always runs there.
-  # continue-on-error stays on the suite step only so a teardown failure
-  # still fails Tests / E2E / OpenShift.
+  # Destroy uses if: always() so an unretained env is torn down after a
+  # failed suite. The suite step itself fails the job.
   e2e-openshift:
     name: OpenShift
     needs: [plan-images, deploy]
@@ -791,12 +789,8 @@ jobs:
         with:
           role-arn: ${{ env.PR_ENV_AWS_ROLE_ARN }}
 
-      # FIXME: Enable gating on failure for OpenShift E2E tests again once we
-      # fix the insufficient resource issues for these tests. Destroy below
-      # must still fail the job when teardown cannot confirm deletion.
       - name: Run OpenShift e2e suite
         id: e2e-suite
-        continue-on-error: true
         env:
           E2E_INFRA_DRIVER: openshift
           TERM: dumb

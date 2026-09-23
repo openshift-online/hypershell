@@ -229,8 +229,12 @@ spec:
 # set e2e-client-enabled=true and a random secret via Secret hypershell-e2e-client.
 # The service account holds platform:admin + gateway:creator so
 # E2E_OIDC_GRANT=client_credentials can obtain admin tokens without a GitHub
-# login. Standard token exchange stays off; Area 4 uses FGAP v1 token-exchange
-# granted at gateway reconcile. Distinct from hypershell-provisioner
+# login. preferred_username MUST stay the service-account username
+# (profile scope); a hardcoded admin claim makes the API record the
+# gateway owner as admin while the per-gateway token is still minted for
+# the service account, so openshell-admin never appears. Standard token
+# exchange stays off; Area 4 uses FGAP v1 token-exchange granted at
+# gateway reconcile. Distinct from hypershell-provisioner
 # (manage-clients / manage-users / manage-authorization, the last needed to
 # manage the hypershell-e2e-token-exchange authorization policy on
 # realm-management; see keycloak/client.go EnsureE2ETokenExchange).
@@ -422,20 +426,6 @@ data:
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
-              }
-            },
-            {
-              "name": "preferred-username",
-              "protocol": "openid-connect",
-              "protocolMapper": "oidc-hardcoded-claim-mapper",
-              "consentRequired": false,
-              "config": {
-                "claim.name": "preferred_username",
-                "claim.value": "admin",
-                "jsonType.label": "String",
-                "id.token.claim": "true",
-                "access.token.claim": "true",
-                "userinfo.token.claim": "true"
               }
             }
           ]

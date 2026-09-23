@@ -836,12 +836,19 @@ if [[ "$E2E_GATEWAY_AUTH" == "service_account" ]]; then
   # helper stdout or put this machine token in the shell environment.
   OIDC_TOKEN=""
   pass "Gateway service-account token acquired (single gateway audience, openshell-admin + openshell-user)"
-elif acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
-  OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
-  pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
 else
-  fail_test "Failed to acquire per-gateway OIDC token with openshell-admin role"
-  exit 1
+  if [[ "${E2E_OIDC_GRANT:-password}" == "client_credentials" ]]; then
+    show_cmd "# token-exchange (hypershell-e2e) → ${E2E_OIDC_ISSUER} (audience: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
+  else
+    show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
+  fi
+  if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
+    OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
+    pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
+  else
+    fail_test "Failed to acquire per-gateway OIDC token with openshell-admin role"
+    exit 1
+  fi
 fi
 
 

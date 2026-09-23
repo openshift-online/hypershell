@@ -132,27 +132,27 @@ The OpenShift pull-request workflow SHALL assume an IAM role with GitHub's OIDC
 token (`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`). Static
 AWS access keys SHALL NOT be stored as Actions secrets for this purpose.
 
-Fork pull requests SHALL NOT receive cluster login. Standing secrets in AWS via
-OIDC are not GitHub Actions `secrets.*`, so GitHub's automatic withhold of
-repository secrets from fork jobs does not apply. GitHub's default OIDC subject
-for a `pull_request` job is `repo:<owner>/<repo>:pull_request` for every pull
-request against that repository; it does not encode whether the head branch lives
-in a fork. IAM conditions on that subject therefore SHALL NOT be treated as a
-fork deny.
+Fork pull requests SHALL NOT receive a PR environment. Tests / E2E is one
+caller job so Kind still runs on forks. OpenShift cluster login SHALL refuse a
+`pull_request` whose `head.repo.full_name` is not `github.repository` before
+assuming the CI IAM role. Deploy OpenShift Environment and OpenShift e2e
+already skip on that same check; command and destroy jobs have their own
+origin gates. Withholding `id-token: write` from a second E2E caller, and any
+maintainer-gated ok-to-test path that later lets forks have an environment, is
+a later trust-boundary change.
 
-The workflow SHALL refuse to request an OIDC token and SHALL NOT assume the CI
-IAM role unless `github.event.pull_request.head.repo.full_name` equals
-`github.repository`. Fork jobs SHALL NOT set `id-token: write`. That job-level
-gate is the fork deny; it replaces Actions-secret withholding.
+Standing secrets in AWS via OIDC are not GitHub Actions `secrets.*`, so
+GitHub's automatic withhold of repository secrets from fork jobs does not
+apply. GitHub's default OIDC subject for a `pull_request` job is
+`repo:<owner>/<repo>:pull_request` for every pull request against that
+repository; it does not encode whether the head branch lives in a fork. IAM
+conditions on that subject therefore SHALL NOT be treated as a fork deny.
 
-When OpenShift jobs live in a reusable workflow, origin Tests / E2E SHALL grant
-`id-token: write` on the caller job and the called workflow SHALL inherit that
-grant. The called workflow SHALL NOT declare its own `permissions` block that
-lists `id-token: write`: GitHub validates every caller against that block at
-startup, and the fork caller (which withholds `id-token: write`) would fail
-the entire Tests workflow before any job runs. The called workflow SHALL also
-NOT declare a `permissions` block that omits `id-token`, because that sets the
-permission to none and strips the origin caller's OIDC token.
+Tests / E2E SHALL set `id-token: write` on its one caller job so origin
+OpenShift cluster login can assume the CI IAM role. The reusable `e2e.yml`
+SHALL inherit that grant and SHALL NOT declare its own `permissions` block:
+an explicit block that omits `id-token` sets the permission to none and
+strips the caller's OIDC token.
 
 The IAM trust policy SHALL require audience `sts.amazonaws.com`, the origin
 repository, `job_workflow_ref` pinning this workflow file, and a `pull_request`
@@ -194,13 +194,10 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 
 #### Scenario: Reusable e2e workflow inherits the caller's OIDC grant
 
-- GIVEN origin Tests / E2E calls `.github/workflows/e2e.yml` with `id-token: write`
-- AND fork Tests / E2E calls the same workflow without `id-token: write`
-- WHEN GitHub starts the Tests workflow
+- GIVEN Tests / E2E calls `.github/workflows/e2e.yml` with `id-token: write`
+- WHEN Deploy OpenShift Environment runs `openshift-cluster-login`
 - THEN the called workflow SHALL NOT declare a `permissions` key of its own
-- AND the origin OpenShift jobs SHALL receive a GitHub OIDC token
-- AND the Tests workflow SHALL start even though the fork caller withholds
-  `id-token: write`
+- AND the job SHALL receive a GitHub OIDC token it can exchange for the CI IAM role
 
 #### Scenario: CI IAM cannot read test-tier passwords
 
@@ -218,14 +215,13 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 - AND Keycloak SHALL still receive that material from ESO as ESO Aligns
   In-Cluster Standing Secrets requires
 
-#### Scenario: Fork job never requests OIDC
+#### Scenario: Fork pull request does not get a PR environment
 
 - GIVEN a pull request whose head branch lives in a fork
-- WHEN GitHub evaluates this workflow
-- THEN the job SHALL NOT set `id-token: write`
-- AND it SHALL NOT request an OIDC token
-- AND it SHALL NOT assume the CI IAM role
-- AND it SHALL NOT receive cluster login or OAuth material
+- WHEN GitHub evaluates Deploy OpenShift Environment or OpenShift cluster login
+- THEN that job SHALL skip, or cluster login SHALL refuse before assuming the
+  CI IAM role
+- AND it SHALL NOT create or update a `hypershell-ci-pr-*` environment
 
 #### Scenario: No static AWS key in Actions
 
@@ -297,7 +293,7 @@ rotate the AWS secret and, if the IAM trust was wrong, correct the role.
 | Secondary spec, not a fold-in to test-tier credentials | Test-tier passwords, cluster kubeconfig, and the GitHub OAuth App are different credential classes with different consumers. One spec per class keeps rotation and IAM boundaries reviewable |
 | AWS Secrets Manager, not GitHub Actions secrets | Actions secrets do not rotate with the fleet, are a second copy of cluster and OAuth material, and cannot be the in-cluster source Keycloak needs. The cloud operator's store already backs ESO on this cluster |
 | GitHub OIDC into IAM, no static AWS keys in Actions | Same issuer already used from Actions in `hypershell-gitops`. Removing standing secrets from GitHub is wasted if the replacement is a long-lived AWS key stored as an Actions secret |
-| Fork deny is a job-level gate, not IAM `sub` | GitHub's default `pull_request` subject does not encode fork vs origin. The workflow checks `head.repo.full_name` and withholds `id-token: write` before OIDC; IAM pins repository and `job_workflow_ref` |
+| Fork deny is an origin-repo check on OpenShift jobs, not a second E2E caller | GitHub's default `pull_request` subject does not encode fork vs origin, so IAM `sub` is not a fork filter. One Tests / E2E job keeps Kind on forks. Cluster login and deploy skip or refuse when `head.repo.full_name` is not the origin. Withholding `id-token` via a duplicate caller is later ok-to-test work |
 | CI IAM reads only `hysh-aws-01/ci/cluster-login` | OAuth is ESO-only. Fetching the App secret onto the runner re-creates the Actions-secret blast radius this spec removes |
 | Runner-only vs in-cluster split | The cluster login must never land in a public-internet PR namespace. The OAuth App secret must land in Keycloak. ESO for the second, OIDC fetch for the first |
 | Cluster-login JSON is `server` plus `token` | One pinned shape so Terraform and the workflow cannot disagree. `oc login --server --token` is the OpenShift-native path; a kubeconfig blob is a second encoding of the same facts |

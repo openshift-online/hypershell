@@ -112,6 +112,18 @@ pr_e2e_user="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); 
 assert_eq 'true' "${pr_e2e_user}" "PR env enables service-account-hypershell-e2e"
 pr_e2e_mapping="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print("impersonation" in (realm.get("clientScopeMappings") or {}).get("hypershell-e2e", [{}])[0].get("roles", []))' "${WORKDIR}/pr.json")"
 assert_eq 'True' "${pr_e2e_mapping}" "PR env keeps hypershell-e2e impersonation clientScopeMappings"
+pr_e2e_pref="$(python3 -c '
+import json, sys
+realm = json.load(open(sys.argv[1]))
+client = next(c for c in realm["clients"] if c["clientId"] == "hypershell-e2e")
+hardcoded = [
+    m for m in (client.get("protocolMappers") or [])
+    if m.get("protocolMapper") == "oidc-hardcoded-claim-mapper"
+    and (m.get("config") or {}).get("claim.name") == "preferred_username"
+]
+print("hardcoded" if hardcoded else "profile")
+' "${WORKDIR}/pr.json")"
+assert_eq 'profile' "${pr_e2e_pref}" "hypershell-e2e must not hardcode preferred_username=admin"
 
 pr_humans="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(sorted(u.get("username") for u in realm["users"] if u.get("username") in {"admin","developer","platform-admin"}))' "${WORKDIR}/pr.json")"
 assert_eq '[]' "${pr_humans}" "PR env import strips human test-tier principals"

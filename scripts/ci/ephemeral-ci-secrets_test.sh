@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Unit tests for wait-for-secret-keys.sh and login-openshift-from-aws.sh.
-# Also locks the workflow contract: no standing Actions secrets, origin
-# id-token: write, fork withhold (ephemeral-ci-secrets.spec.md).
+# Also locks the workflow contract: no standing Actions secrets, Tests / E2E
+# grants id-token: write, reusable e2e.yml inherits it
+# (ephemeral-ci-secrets.spec.md).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -139,22 +140,23 @@ if grep -A20 'name: E2E$' "${REPO_ROOT}/.github/workflows/tests.yml" | grep -q '
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: origin Tests / E2E caller does not set id-token: write'
+  echo 'FAIL: Tests / E2E caller does not set id-token: write'
 fi
 
-if awk '/^  e2e-fork:/,/^  tests-gate:/' "${REPO_ROOT}/.github/workflows/tests.yml" | grep -q 'id-token: write'; then
+if grep -q '^  e2e-fork:' "${REPO_ROOT}/.github/workflows/tests.yml"; then
   FAIL=$((FAIL + 1))
-  echo 'FAIL: fork Tests / E2E caller sets id-token: write'
+  echo 'FAIL: Tests.yml still has a second E2E fork caller'
 else
   PASS=$((PASS + 1))
 fi
 
-if grep -q 'head.repo.full_name == github.repository' "${REPO_ROOT}/.github/workflows/tests.yml" \
-  && grep -q 'head.repo.full_name != github.repository' "${REPO_ROOT}/.github/workflows/tests.yml"; then
+if grep -A8 'Refuse fork pull requests' \
+  "${REPO_ROOT}/.github/actions/openshift-cluster-login/action.yml" \
+  | grep -q 'head.repo.full_name != github.repository'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: Tests workflow does not split origin vs fork E2E callers'
+  echo 'FAIL: cluster-login action does not refuse fork pull_request jobs'
 fi
 
 if grep -q 'role/hypershell-ci-hysh-aws-01-cluster-login' \
@@ -175,8 +177,8 @@ else
   echo 'FAIL: destroy/command jobs do not set id-token: write'
 fi
 
-# Declaring permissions on the reusable workflow either strips origin OIDC
-# (omit id-token) or fails Tests at startup when the fork caller withholds it.
+# Declaring a permissions block on reusable e2e.yml that omits id-token
+# strips the caller's OIDC grant (GitHub intersects to none).
 if grep -E '^permissions:' "${REPO_ROOT}/.github/workflows/e2e.yml"; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: reusable e2e.yml must inherit caller permissions, not declare its own'
