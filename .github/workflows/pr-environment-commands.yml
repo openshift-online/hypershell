@@ -32,6 +32,7 @@ permissions:
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
   BASELINE_REGISTRY: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
+  PR_ENV_AWS_ROLE_ARN: ${{ vars.PR_ENV_AWS_ROLE_ARN || 'arn:aws:iam::451971655738:role/hypershell-ci-hysh-aws-01-cluster-login' }}
 
 jobs:
   resolve:
@@ -148,7 +149,6 @@ jobs:
       PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
       PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
       PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
-      PR_ENV_AWS_ROLE_ARN: ${{ vars.PR_ENV_AWS_ROLE_ARN || 'arn:aws:iam::451971655738:role/hypershell-ci-hysh-aws-01-cluster-login' }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -191,7 +191,6 @@ jobs:
     env:
       OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.issue.number }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
-      PR_ENV_AWS_ROLE_ARN: ${{ vars.PR_ENV_AWS_ROLE_ARN || 'arn:aws:iam::451971655738:role/hypershell-ci-hysh-aws-01-cluster-login' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

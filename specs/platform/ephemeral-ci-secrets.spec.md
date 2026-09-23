@@ -150,9 +150,12 @@ conditions on that subject therefore SHALL NOT be treated as a fork deny.
 
 Tests / E2E SHALL set `id-token: write` on its one caller job so origin
 OpenShift cluster login can assume the CI IAM role. The reusable `e2e.yml`
-SHALL inherit that grant and SHALL NOT declare its own `permissions` block:
-an explicit block that omits `id-token` sets the permission to none and
-strips the caller's OIDC token.
+SHALL NOT declare a workflow-level `permissions` block: an explicit block that
+omits `id-token` sets the permission to none and strips the caller's OIDC
+token, and a block that includes it would grant a mintable token to Kind.
+Kind and plan-images SHALL declare job-level permissions that omit
+`id-token: write`. Deploy OpenShift Environment and OpenShift e2e SHALL
+declare `id-token: write` on those jobs only.
 
 The IAM trust policy SHALL require audience `sts.amazonaws.com`, the origin
 repository, `job_workflow_ref` pinning this workflow file, and a `pull_request`
@@ -196,8 +199,11 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 
 - GIVEN Tests / E2E calls `.github/workflows/e2e.yml` with `id-token: write`
 - WHEN Deploy OpenShift Environment runs `openshift-cluster-login`
-- THEN the called workflow SHALL NOT declare a `permissions` key of its own
-- AND the job SHALL receive a GitHub OIDC token it can exchange for the CI IAM role
+- THEN the called workflow SHALL NOT declare a workflow-level `permissions` key
+- AND that job SHALL declare `id-token: write`
+- AND Kind SHALL declare job permissions that omit `id-token: write`
+- AND the OpenShift job SHALL receive a GitHub OIDC token it can exchange for the
+  CI IAM role
 
 #### Scenario: CI IAM cannot read test-tier passwords
 

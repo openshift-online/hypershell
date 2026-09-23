@@ -55,8 +55,8 @@ on:
 # `checks: read` (Konflux build waits) and `pull-requests: write` (access
 # comment) in addition to the shared `contents: read`. Tests / E2E also
 # grants `id-token: write` on the caller job so OpenShift cluster login can
-# use GitHub OIDC. e2e.yml inherits that grant and does not declare its own
-# permissions block.
+# use GitHub OIDC. e2e.yml does not declare a workflow-level permissions
+# block; Kind omits id-token, and only deploy/OpenShift request it.
 permissions:
   contents: read
   checks: read

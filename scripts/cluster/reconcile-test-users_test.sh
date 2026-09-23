@@ -71,6 +71,21 @@ assert_ok "secret passwords load" load_test_user_passwords
 assert_eq "rot-admin" "${TEST_USER_PASSWORD_admin}" "secret admin password"
 assert_eq "rot-dev" "${TEST_USER_PASSWORD_developer}" "secret developer password"
 assert_eq "rot-pa" "${TEST_USER_PASSWORD_platform_admin}" "secret platform-admin password"
+mask_out="${WORKDIR}/mask.out"
+if GITHUB_ACTIONS=true load_test_user_passwords >"${mask_out}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: secret passwords load under GITHUB_ACTIONS'
+fi
+if grep -q '::add-mask::rot-admin' "${mask_out}" \
+  && grep -q '::add-mask::rot-dev' "${mask_out}" \
+  && grep -q '::add-mask::rot-pa' "${mask_out}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: secret password load did not mask values for GitHub Actions'
+fi
 
 cat >"${TEST_USER_OC}" <<'EOF'
 #!/usr/bin/env bash

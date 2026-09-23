@@ -90,6 +90,9 @@ load_test_user_passwords() {
           echo "Secret ${TEST_USER_SECRET_NAME} key ${username} equals the username; refusing guessable password" >&2
           return 1
         fi
+        if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+          echo "::add-mask::${password}"
+        fi
         printf -v "TEST_USER_PASSWORD_${username//-/_}" '%s' "${password}"
       done
       ;;
@@ -140,7 +143,7 @@ _assign_realm_role() {
 _create_or_reset_user() {
   local token="$1" username="$2" password="$3"
   local base="${KEYCLOAK_BASE_URL%/}"
-  local user_id first last email profile code
+  local user_id first last email profile rest code
   profile="$(_test_user_profile "${username}")"
   first="${profile%%$'\t'*}"
   rest="${profile#*$'\t'}"

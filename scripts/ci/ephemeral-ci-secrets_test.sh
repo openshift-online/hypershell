@@ -177,13 +177,45 @@ else
   echo 'FAIL: destroy/command jobs do not set id-token: write'
 fi
 
-# Declaring a permissions block on reusable e2e.yml that omits id-token
-# strips the caller's OIDC grant (GitHub intersects to none).
+# Declaring a workflow-level permissions block on reusable e2e.yml that
+# omits id-token strips the caller's OIDC grant; including it would mint a
+# token for Kind. Job-level grants keep OIDC on OpenShift jobs only.
 if grep -E '^permissions:' "${REPO_ROOT}/.github/workflows/e2e.yml"; then
   FAIL=$((FAIL + 1))
-  echo 'FAIL: reusable e2e.yml must inherit caller permissions, not declare its own'
+  echo 'FAIL: reusable e2e.yml must not declare workflow-level permissions'
 else
   PASS=$((PASS + 1))
+fi
+
+job_header() {
+  local job="$1"
+  awk -v job="${job}" '
+    $0 ~ "^  " job ":" { p=1; next }
+    p && /^    steps:/ { exit }
+    p { print }
+  ' "${REPO_ROOT}/.github/workflows/e2e.yml"
+}
+
+if job_header e2e-kind | grep -q 'id-token: write'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: Kind job must omit id-token: write'
+else
+  PASS=$((PASS + 1))
+fi
+
+if job_header plan-images | grep -q 'id-token: write'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: plan-images job must omit id-token: write'
+else
+  PASS=$((PASS + 1))
+fi
+
+if job_header deploy | grep -q 'id-token: write' \
+  && job_header e2e-openshift | grep -q 'id-token: write'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: deploy and OpenShift jobs must set id-token: write'
 fi
 
 printf 'ephemeral-ci-secrets tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"
