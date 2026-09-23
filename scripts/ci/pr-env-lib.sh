@@ -27,6 +27,10 @@ PR_ENV_MANAGED_VALUE="hypershell-lifecycle"
 PR_ENV_PART_OF_LABEL="app.kubernetes.io/part-of"
 PR_ENV_PART_OF_VALUE="hypershell"
 PR_ENV_EXPIRES_ANNOTATION="hypershell.redhat.io/expires-at"
+# Selects CI-owned Keycloak namespaces for ESO ClusterExternalSecret
+# projection of standing CI secrets (ephemeral-ci-secrets.spec.md).
+PR_ENV_CI_KEYCLOAK_LABEL="hypershell.redhat.io/ci-keycloak"
+PR_ENV_CI_KEYCLOAK_VALUE="true"
 # Control-plane stamps on gateway namespaces. Must match
 # components/control-plane/internal/gateway/namespace.go. Distinct from
 # PR_ENV_MANAGED_VALUE, which marks the platform/keycloak namespace group.

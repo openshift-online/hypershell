@@ -17,7 +17,8 @@
              `gateway:creator`;
              `ephemeral-test-credentials.spec.md` -- the three test-tier principals
              (`admin`, `developer`, `platform-admin`), their cloud-store passwords
-             aligned by External Secrets Operator, and their seeding/de-seeding
+             aligned by External Secrets Operator, and seeding for the environment
+             lifetime;
              lifecycle; this spec owns only who may impersonate them and what each
              tier can do;
              `ephemeral-ci-secrets.spec.md` -- standing OpenShift pull-request CI
@@ -1158,12 +1159,10 @@ target principal's password; `ephemeral-test-credentials.spec.md` owns where
 that password lives (the cluster's cloud secret store, aligned in-cluster by
 ESO) and it is never part of this flow.
 
-Those principals exist after CI seed and until that environment's next CI e2e
-de-seed (`ephemeral-test-credentials.spec.md`). After de-seed, impersonation
-SHALL fail until the next seed (a later deploying trigger or `make openshift-seed`).
-Self-service impersonation is therefore available in the window between seed and
-de-seed, not for the whole life of the environment. That is the intended
-trade-off: a public Route must not keep a test-tier password login after e2e.
+Those principals exist after CI seed and until the environment is destroyed
+(`ephemeral-test-credentials.spec.md`). E2e SHALL NOT de-seed them. `/pr-extend`
+and other automation against a live environment SHALL still be able to impersonate
+`developer` and `platform-admin` after e2e has finished.
 
 #### Scenario: GitHub user logs into the Keycloak admin console
 
@@ -1190,7 +1189,6 @@ trade-off: a public Route must not keep a test-tier password login after e2e.
 
 - GIVEN any GitHub user is logged in to a pull-request environment
 - AND the environment currently has the seeded `developer` test-tier principal
-  (after seed and before de-seed)
 - AND that principal holds `hypershell-users` and neither `platform:admin` nor
   `gateway:creator`
 - WHEN that user obtains developer-scoped tokens by impersonating that principal
@@ -1224,20 +1222,20 @@ trade-off: a public Route must not keep a test-tier password login after e2e.
 
 - GIVEN any GitHub user is logged in to a pull-request environment
 - AND the environment currently has the seeded `platform-admin` test-tier
-  principal (after seed and before de-seed)
+  principal
 - AND that principal holds `platform:admin` without `gateway:creator`
 - WHEN that user obtains platform-admin-scoped tokens by impersonating that
   principal
 - THEN viewing or deleting any gateway SHALL succeed
 - AND creating a gateway via the HyperShell API SHALL return `403 Forbidden`
 
-#### Scenario: Impersonation fails after de-seed until the next seed
+#### Scenario: Impersonation still works after e2e on a live environment
 
-- GIVEN a CI e2e run has de-seeded the three test-tier principals
+- GIVEN a CI e2e run has finished against a still-live PR environment
 - WHEN a GitHub-authenticated user requests an impersonated token for `developer`
   or `platform-admin`
-- THEN Keycloak SHALL NOT issue that token
-- AND a later seed SHALL restore the principals so impersonation works again
+- THEN Keycloak SHALL issue that token
+- AND `/pr-extend` SHALL NOT need to re-seed those principals
 
 ### Requirement: Automated E2E Authentication
 
@@ -1483,7 +1481,7 @@ exists).
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |
-| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub login with no password form, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works between seed and de-seed; after de-seed it waits for the next seed |
+| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub login with no password form, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works for the environment lifetime; e2e does not de-seed |
 | Area 9 grants `openshell-user` on the gateway client before token exchange | Kind already uses `assign_gateway_client_role` because there is no user-id discovery path to create a `gateway:viewer` RoleBinding for a non-owner. The OpenShift driver does the same so a brokered PR env has a specified path to an `openshell-user` token. That grant is not a Keycloak realm-role seed |
 | Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
 | Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |

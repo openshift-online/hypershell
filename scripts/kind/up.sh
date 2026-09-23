@@ -474,6 +474,7 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
   success "Keycloak ready"
 fi
+reconcile_keycloak_seed_users
 
 # --- Prometheus monitoring stack ---
 # Applied after the main components so the hypershell-system namespace and

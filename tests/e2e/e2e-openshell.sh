@@ -64,7 +64,7 @@ source "$DRIVER_FILE"
 source "${SCRIPT_DIR}/gateway_service_account.sh"
 e2e_validate_gateway_auth
 
-REQUIRED_FUNCTIONS=(discover_api_host discover_console_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl configure_namespace_gc_timing restore_namespace_gc_timing)
+REQUIRED_FUNCTIONS=(discover_api_host discover_console_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl configure_namespace_gc_timing restore_namespace_gc_timing de_seed_test_users)
 for fn in "${REQUIRED_FUNCTIONS[@]}"; do
   if ! declare -f "$fn" >/dev/null 2>&1; then
     red "ERROR: Driver '${E2E_INFRA_DRIVER}' does not implement required function: ${fn}"
@@ -155,6 +155,9 @@ cleanup() {
   if [[ -n "${_KINDCCM_SOCAT_PID:-}" ]]; then
     kill "${_KINDCCM_SOCAT_PID}" 2>/dev/null || true
     wait "${_KINDCCM_SOCAT_PID}" 2>/dev/null || true
+  fi
+  if declare -F de_seed_test_users >/dev/null 2>&1; then
+    de_seed_test_users || true
   fi
   # Runs on every exit path -- a fatal exit 1 mid-run included -- so the
   # summary always prints, and print_results itself notes when E2E_COMPLETED

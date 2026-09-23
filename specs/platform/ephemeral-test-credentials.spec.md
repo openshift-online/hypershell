@@ -84,9 +84,12 @@ static seeds itself. On CI-owned PR environments the cloud secret store holds an
 rotates high-entropy passwords for the three tiers; ESO keeps a stable Kubernetes
 Secret in each CI-owned Keycloak namespace (`hypershell-ci-pr-*-keycloak`), not in
 the PR app namespace that runs pull-request images; seed reconciles Keycloak to the
-Secret at bring-up; a later CI e2e run deletes the Keycloak accounts when that run
-ends. Local e2e does not de-seed. The password-login window on a public Route is
-therefore bring-up seed until de-seed or reaper, not only while e2e is running.
+Secret at bring-up; those Keycloak accounts remain until the environment is
+destroyed (in-run teardown, `/pr-destroy`, close, or reaper). E2e SHALL NOT
+de-seed them. `/pr-extend` and other automation against a live PR environment
+can keep using the same principals without waiting for another e2e run. Local
+e2e also does not de-seed. The password-login window on a public Route is
+therefore the environment's lifetime, not only while e2e is running.
 The Keycloak master-realm bootstrap admin
 (`KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD`) is Keycloak's own
 console login and is explicitly out of scope.
@@ -106,9 +109,9 @@ This spec covers:
   CI-owned Keycloak namespace through one in-cluster Secret shape (see Cloud Secret
   Store, ESO Alignment, and In-Cluster Secret Contract), without landing in the PR
   app namespace,
-- the de-seeding of those Keycloak accounts when a CI-owned OpenShift e2e run ends,
-  regardless of pass or fail, independent of the cloud store's rotation cadence, so
-  a public CI PR Route does not keep a live test-tier password login after the run,
+- keeping those Keycloak accounts for the whole CI-owned PR environment lifetime
+  so `/pr-extend`, impersonation, password-grant, and other automation (for
+  example an agent) can use them after e2e has finished,
 - static username-equals-password seeds for every locally run test, Kind or OpenShift,
   reconciled by `make kind-up` / local `make openshift-up`, with no change to local
   developer experience, unaffected by the cloud store or ESO,
@@ -121,8 +124,8 @@ This spec does not change the realm's service-account users, the `hypershell-e2e
 confidential client, or the GitHub-brokered authentication model - those remain
 defined in `ephemeral-pr-environments.spec.md` and `e2e-testing.spec.md`. It adds
 `de_seed_test_users` to the e2e driver contract (owned in `e2e-testing.spec.md`)
-and defines when that function deletes CI-owned accounts versus no-ops. It does
-not govern the Keycloak master-realm bootstrap admin.
+as a no-op on every driver so a test run cannot delete live environment users.
+It does not govern the Keycloak master-realm bootstrap admin.
 It does not prescribe Terraform resource names, IAM JSON, or ESO Helm values; GitOps
 owns those artifacts. It is a behavior contract for the cloud store, the ESO seam,
 and the Kubernetes Secret HyperShell consumes. An in-cluster Vault service SHALL NOT
@@ -492,74 +495,54 @@ Users for Identity Resolution).
 - THEN it SHALL use `admin`/`admin` and `developer`/`developer`
 - AND it SHALL NOT require Secret `hypershell-e2e-test-users`
 
-### Requirement: De-Seeding When a CI-Owned E2E Run Ends
+### Requirement: Test-Tier Principals Persist for Environment Lifetime
 
-Bring-up seed opens the password-login window a rotated Keycloak password represents
-on a public Route. Until de-seed or reaper, a high-entropy password login exists on
-the internet; after de-seed, that login is gone even though the cloud store and the
-ESO Secret still hold the value. The e2e suite SHALL delete the seeded CI-owned
-OpenShift test-tier Keycloak accounts when that run ends, and SHALL do so on every
-exit path - success, test failure, or early abort - through the suite's existing
-cleanup trap, by calling driver function `de_seed_test_users` as
-`e2e-testing.spec.md` defines. Deletion SHALL be idempotent: an account that is
-already gone SHALL be treated as success, not an error. De-seeding deletes the
-Keycloak account only; it SHALL NOT alter, rotate, or delete anything in AWS
-Secrets Manager or the ESO Secret - those persist and continue on the store's own
-rotation cadence independent of any single run's account lifecycle.
+Bring-up seed creates the three Keycloak accounts for the life of that
+environment. E2e SHALL NOT delete them. `/pr-extend`, impersonation, password-grant,
+and other automation against a live PR environment SHALL be able to use those
+principals after e2e has finished, without waiting for another deploying run or
+`make openshift-seed`. The accounts SHALL remain until the namespace group is
+destroyed (in-run teardown of an unretained env, `/pr-destroy`, pull-request
+close, or the reaper). Destroying the namespace group removes Keycloak; that is
+the only required cleanup of these accounts. E2e SHALL NOT alter, rotate, or
+delete anything in AWS Secrets Manager or the ESO Secret.
 
-If a deploying run seeds and then skips e2e, de-seed does not run. The three
-accounts SHALL remain until a later e2e cleanup, a later seed plus e2e, or the
-namespace reaper. That is the intended window, not a bug.
+The suite SHALL still call driver function `de_seed_test_users` from the cleanup
+trap as `e2e-testing.spec.md` defines. Every driver SHALL no-op that step so a
+test run cannot delete live environment users (Kind static seeds, local OpenShift
+static seeds, and CI-owned rotated seeds alike).
 
-De-seeding deletes the impersonation targets that Self-Service Role Assumption
-and `ephemeral-pr-environments.spec.md` use. That is intended. After de-seed,
-token-exchange impersonation SHALL fail until the next seed (a later deploying
-trigger or `make openshift-seed`). Self-service impersonation is available in
-the window between seed and that run's de-seed, not for the whole life of the
-environment. The public Route must not keep a test-tier password login after
-e2e; restoring impersonation is the next seed's job, not de-seed's.
-
-De-seeding SHALL follow the driver-override model the suite already uses for other
-teardown steps: the suite calls `de_seed_test_users`. Developer-owned environments
-SHALL no-op that step (Kind and local OpenShift users are static and MUST NOT be
-deleted by a test run). The OpenShift driver SHALL delete the `admin`, `developer`,
-and `platform-admin` Keycloak accounts only when the run is against a CI-owned PR
-environment.
-
-#### Scenario: Accounts are removed after a passing CI run
+#### Scenario: Accounts remain after a passing CI run
 
 - GIVEN a CI-owned PR environment e2e run seeded the three test-tier Keycloak accounts
 - WHEN the suite exits successfully
-- THEN the cleanup trap SHALL delete `admin`, `developer`, and `platform-admin` from
-  the realm
+- THEN `admin`, `developer`, and `platform-admin` SHALL still exist in the realm
+- AND their passwords SHALL still match Secret `hypershell-e2e-test-users`
 - AND the cloud-store and ESO Secret values SHALL be unaffected
 
-#### Scenario: Accounts are removed after a failing or aborted CI run
+#### Scenario: Accounts remain after a failing or aborted CI run
 
 - GIVEN a CI-owned PR environment e2e run seeded the three test-tier Keycloak accounts
 - WHEN the suite exits on a test failure or is aborted early
-- THEN the cleanup trap SHALL still delete the three Keycloak accounts
-- AND the exposure window SHALL be closed regardless of the run's outcome
+- THEN the three Keycloak accounts SHALL still exist
+- AND a later `/pr-extend` or other automation SHALL be able to use them
 
-#### Scenario: Skipped e2e leaves accounts until reaper or a later de-seed
+#### Scenario: Skipped e2e leaves accounts for the environment lifetime
 
 - GIVEN a CI-owned PR environment bring-up has seeded the three test-tier principals
 - AND that deploying run skips the e2e suite
 - WHEN bring-up finishes
 - THEN the three Keycloak accounts SHALL still exist with the Secret's current
   passwords
-- AND they SHALL remain until a later e2e cleanup trap, a later seed plus e2e, or
-  the namespace reaper
+- AND they SHALL remain until the namespace group is destroyed
 
-#### Scenario: Public CI Route has no test-tier password login after de-seed
+#### Scenario: Retained environment keeps accounts after e2e
 
-- GIVEN a CI-owned PR environment e2e run has finished and de-seeded
-- WHEN an unauthenticated caller attempts a password grant as `admin`, `developer`,
-  or `platform-admin` against that environment's public Keycloak Route
-- THEN the grant SHALL fail because those realm users are gone
-- AND a GitHub-brokered login SHALL still succeed for an allowlisted user
-- AND impersonation of `developer` or `platform-admin` SHALL fail until the next
-  seed restores those principals
+- GIVEN a CI-owned PR environment is retained with `/pr-extend`
+- AND e2e has already finished
+- WHEN an agent or other automation password-grants or impersonates `developer`
+- THEN that principal SHALL still exist
+- AND the grant or impersonation SHALL NOT require another e2e run to re-seed
 
 #### Scenario: Local e2e de-seeding is a no-op
 
@@ -567,7 +550,7 @@ environment.
 - WHEN the suite reaches its de-seed step
 - THEN de-seed SHALL do nothing
 - AND the static test users SHALL remain intact so a later local run can
-  authenticate as `admin`/`admin` and `developer`/`developer`
+  keep using them
 
 ### Requirement: Developer-Owned Environments Retain Static Credentials
 
@@ -706,8 +689,8 @@ own session already carries that tier). Interactive admin-console
 impersonation, and the rest of the authorization model for who may impersonate
 whom, is owned by `ephemeral-pr-environments.spec.md`; this spec owns only
 where the impersonated principals and their credentials come from. Those
-principals exist after CI seed and until that environment's next CI e2e
-de-seed; after de-seed, impersonation fails until the next seed.
+principals exist after CI seed and until the environment is destroyed. E2e
+SHALL NOT de-seed them.
 
 Because impersonation via Keycloak token exchange never sends a password, this
 generalization SHALL NOT require any GitHub-authenticated user to know or fetch a
@@ -740,13 +723,13 @@ test-tier principal's password from the cloud store or the ESO Secret.
 - THEN no AWS, Vault, or ESO credential SHALL be involved
 - AND their own GitHub-brokered session remains the only credential they hold
 
-#### Scenario: Impersonation fails after de-seed until the next seed
+#### Scenario: Impersonation still works after e2e on a live environment
 
-- GIVEN a CI e2e run has de-seeded the three test-tier principals
+- GIVEN a CI e2e run has finished against a still-live PR environment
 - WHEN a GitHub-authenticated user requests an impersonated token for `developer`
   or `platform-admin`
-- THEN Keycloak SHALL NOT issue that token
-- AND a later seed SHALL restore the principals so impersonation works again
+- THEN Keycloak SHALL issue that token
+- AND `/pr-extend` SHALL NOT need to re-seed those principals
 
 ## Design Decisions
 
@@ -763,8 +746,8 @@ test-tier principal's password from the cloud store or the ESO Secret.
 | Seed is the primary consumer of the durable passwords; password-grant is secondary | Seed must set a non-guessable password so impersonation targets exist without `admin`/`admin`. Canonical PR CI is brokered and never reads the Secret. Password-grant against a CI-owned `pr-*` env is a supported secondary path that reads the same Keycloak-namespace Secret |
 | CI-owned OpenShift password-grant does not fall back to username-equals-password | A missing Secret on a public PR environment must fail closed. Falling back to `admin`/`admin` would republish the exposure this spec exists to close. Developer-owned OpenShift keeps those seeds on purpose |
 | CI-owned seed failure is fail-closed | Brokered e2e and impersonation need the users to exist. Warning and continuing would post an access comment for an environment whose impersonation targets were never seeded. Same rule as missing OAuth material |
-| De-seed the Keycloak account on every CI-owned e2e exit path; never touch the cloud store | Seed at bring-up opens the password-login window; e2e cleanup or the reaper closes it. A skipped e2e leaves accounts until then. Impersonation targets go with the accounts and return on the next seed; that gap is accepted so de-seed stays absolute. The AWS secret and ESO Secret are longer-lived alignment copies |
-| Driver-override de-seed; developer-owned default is a no-op | Reuses the suite's established driver-override model (`de_seed_test_users` in `e2e-testing.spec.md`). Kind and local OpenShift static users must never be deleted by a test run; only CI-owned PR environments de-seed |
+| Seed accounts last for the environment lifetime; e2e does not de-seed | `/pr-extend` and other automation (agents, password-grant, impersonation) need the principals after e2e. Closing the password-login window at e2e exit made a retained environment unusable without another seed. Namespace destroy is the cleanup. The AWS secret and ESO Secret are longer-lived alignment copies |
+| Driver `de_seed_test_users` is a no-op on every target | Reuses the suite's established driver-override model (`de_seed_test_users` in `e2e-testing.spec.md`) so the cleanup trap stays one call site. Kind, local OpenShift, and CI-owned PR environments all keep their seeded users until the environment itself is gone |
 | Developer-owned environments keep static credentials, Kind or OpenShift | A human running e2e from a laptop - against Kind or after `make openshift-up` - needs `admin`/`admin` and `developer`/`developer`. Restricting those seeds to Kind would break manual OpenShift e2e. AWS and ESO on a laptop would add infrastructure for no local-dev benefit |
 | Developer-owned OpenShift may still publish guessable logins | Those namespaces are the developer's isolation boundary (`ephemeral-pr-environments.spec.md` already excludes them from the CI timebox and reaper) and SHALL NOT use `pr-*` / `hypershell-ci-pr-*` names. The guessable-login closure applies to CI-owned `pr-*` environments, not to a developer exercising the suite by hand |
 | Master bootstrap admin left out of scope | It is Keycloak's own console login, a different credential class from the realm test users |

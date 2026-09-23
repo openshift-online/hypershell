@@ -700,11 +700,7 @@ jobs:
       PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
       PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
       PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
-      OPENSHIFT_PR_ENV_SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
-      OPENSHIFT_PR_ENV_TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
-      PR_ENV_GITHUB_OAUTH_CLIENT_ID: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_ID }}
-      PR_ENV_GITHUB_OAUTH_CLIENT_SECRET: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_SECRET }}
-      PR_ENV_GITHUB_OAUTH_CALLBACK_URL: ${{ secrets.PR_ENV_GITHUB_OAUTH_CALLBACK_URL }}
+      PR_ENV_AWS_ROLE_ARN: ${{ vars.PR_ENV_AWS_ROLE_ARN || 'arn:aws:iam::451971655738:role/hypershell-ci-hysh-aws-01-cluster-login' }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -770,6 +766,7 @@ jobs:
       KUBECONFIG: ${{ github.workspace }}/.kube/config
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      PR_ENV_AWS_ROLE_ARN: ${{ vars.PR_ENV_AWS_ROLE_ARN || 'arn:aws:iam::451971655738:role/hypershell-ci-hysh-aws-01-cluster-login' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -789,16 +786,9 @@ jobs:
           openshell --version
 
       - name: Log in to the target cluster
-        env:
-          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
-          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
-        run: |
-          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
-            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
-            exit 1
-          fi
-          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
-          echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
+        uses: ./.github/actions/openshift-cluster-login
+        with:
+          role-arn: ${{ env.PR_ENV_AWS_ROLE_ARN }}
 
       # FIXME: Enable gating on failure for OpenShift E2E tests again once we
       # fix the insufficient resource issues for these tests. Destroy below

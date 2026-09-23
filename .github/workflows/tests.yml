@@ -118,13 +118,35 @@ jobs:
     # without this explicit override. Only an actual `unit` failure (not a
     # skip) should block e2e; detect-changes failing/cancelling still does,
     # since it never legitimately skips.
-    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result != 'failure' }}
+    #
+    # Origin (and push / merge_group) gets id-token: write so Deploy OpenShift
+    # Environment can assume the CI IAM role. Fork jobs are a separate caller
+    # that withholds id-token: write (ephemeral-ci-secrets.spec.md).
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result != 'failure' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     uses: ./.github/workflows/e2e.yml
     permissions:
       contents: read
       checks: read
       pull-requests: write
+      id-token: write
     secrets: inherit
+    with:
+      api_server: ${{ needs.detect-changes.outputs.api_server }}
+      control_plane: ${{ needs.detect-changes.outputs.control_plane }}
+      e2e: ${{ needs.detect-changes.outputs.e2e }}
+      pr_test: ${{ needs.detect-changes.outputs.pr_test }}
+
+  e2e-fork:
+    name: E2E
+    needs:
+      - detect-changes
+      - unit
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result != 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: write
     with:
       api_server: ${{ needs.detect-changes.outputs.api_server }}
       control_plane: ${{ needs.detect-changes.outputs.control_plane }}
@@ -142,6 +164,7 @@ jobs:
       - detect-changes
       - unit
       - e2e
+      - e2e-fork
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -150,6 +173,7 @@ jobs:
           DETECT_RESULT: ${{ needs.detect-changes.result }}
           UNIT_RESULT: ${{ needs.unit.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
+          E2E_FORK_RESULT: ${{ needs.e2e-fork.result }}
         run: |
           if [[ "${DETECT_RESULT}" != "success" ]]; then
             echo "detect-changes did not succeed (result: ${DETECT_RESULT})"
@@ -163,4 +187,8 @@ jobs:
             echo "E2E stage did not pass (result: ${E2E_RESULT})"
             exit 1
           fi
-          echo "Tests stages OK (unit: ${UNIT_RESULT}, e2e: ${E2E_RESULT})"
+          if [[ "${E2E_FORK_RESULT}" == "failure" || "${E2E_FORK_RESULT}" == "cancelled" ]]; then
+            echo "E2E fork stage did not pass (result: ${E2E_FORK_RESULT})"
+            exit 1
+          fi
+          echo "Tests stages OK (unit: ${UNIT_RESULT}, e2e: ${E2E_RESULT}, e2e-fork: ${E2E_FORK_RESULT})"
