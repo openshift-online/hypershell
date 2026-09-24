@@ -1219,7 +1219,11 @@ print_banner() {
     github_on=true
   fi
   if [[ "${github_on}" == true ]]; then
-    info "Interactive login is GitHub (openshift-online org or allowlisted user) or a seeded test-tier username and password"
+    if is_ci_owned_pr_environment; then
+      info "Interactive login is GitHub (openshift-online org or allowlisted user) or a seeded test-tier username and password"
+    else
+      info "Interactive login is GitHub (openshift-online org or allowlisted user)"
+    fi
     info "Keycloak admin: ${OPENSHIFT_KC_HOSTNAME}/admin/hypershell/console/"
   fi
   if is_ci_owned_pr_environment; then

@@ -245,12 +245,13 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: GitHub-brokered OpenShift banner does not point at the hypershell Keycloak admin console'
 fi
-if grep -A20 '^print_banner()' "${SCRIPT_DIR}/drivers/openshift.sh" \
-  | grep -q 'seeded test-tier username and password'; then
+if grep -A50 '^print_banner()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -B5 'seeded test-tier username and password' \
+  | grep -q 'is_ci_owned_pr_environment'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: GitHub-brokered OpenShift banner does not mention username/password login'
+  echo 'FAIL: GitHub-on banner claims seeded credentials even when seeding was skipped'
 fi
 if grep -A50 '^print_banner()' "${SCRIPT_DIR}/drivers/openshift.sh" \
   | grep -q 'github_on}" != true'; then
