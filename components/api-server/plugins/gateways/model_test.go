@@ -60,7 +60,7 @@ func TestDesiredStateChanged(t *testing.T) {
 	str := func(s string) *string { return &s }
 	base := func() *Gateway {
 		return &Gateway{
-			Name: "gw", Namespace: "openshell-gw", ClusterId: "c1", ReleaseId: "r1", DatabaseId: "d1",
+			Name: "gw", Namespace: "openshell-gw", ClusterId: "c1", ReleaseId: "r1",
 			Image: str("img:1"), Oidc: str(`{"issuer":"a"}`),
 		}
 	}

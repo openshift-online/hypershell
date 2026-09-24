@@ -1365,6 +1365,8 @@ func (r *GatewayReconciler) updateObservedGeneration(ctx context.Context, gatewa
 		ObservedGeneration: &generation,
 	})
 	if err != nil {
+		// Intentional soft failure: the gateway stays unconverged (observed_generation
+		// unchanged) and re-applies on the next watch event, so no work is lost.
 		log.Printf("WARN failed to update gateway %s observed_generation to %d: %v", gatewayID, generation, err)
 	}
 }
