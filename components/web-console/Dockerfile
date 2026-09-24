@@ -65,6 +65,7 @@ RUN pnpm install --frozen-lockfile --prod --filter @openshift-online/hypershell-
   && cp -R components/web-console/build/client /tmp/web-console/public
 
 FROM --platform=linux/amd64 registry.access.redhat.com/hi/nodejs:24.18.1@sha256:6725f3730de000b6255b97d31e2ef53916f35397b1fb779bdb8d4a3a1c84ad50 AS runtime-amd64
+FROM --platform=linux/arm64 registry.access.redhat.com/hi/nodejs:24.18.1@sha256:8b3a067f10336acb6798f4d8251882fed107c90116b69a469e02472ecc1c7648 AS runtime-arm64
 FROM --platform=linux/${TARGETARCH} runtime-${TARGETARCH}
 
 ARG GIT_VERSION

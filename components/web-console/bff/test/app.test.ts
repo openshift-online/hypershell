@@ -219,6 +219,33 @@ describe("web-console BFF", () => {
     );
   });
 
+  it("degrades to unknown when the API metadata endpoint is unreachable", async () => {
+    const config: ServerConfig = {
+      apiTimeoutMs: 100,
+      host: "127.0.0.1",
+      logLevel: "silent",
+      nodeEnv: "test",
+      port: 8080,
+      prometheusQueryTimeoutMs: 10_000,
+      prometheusUrl: "http://127.0.0.1:9090",
+      sessionTtlSeconds: 28_800,
+      staticRoot,
+      webVersion: "unknown",
+    };
+    const unreachableApp = await buildApp(config);
+    try {
+      const response = await unreachableApp.inject({
+        method: "GET",
+        url: "/",
+      });
+      expect(response.body).toContain(
+        "&quot;apiVersion&quot;:&quot;unknown&quot;",
+      );
+    } finally {
+      await unreachableApp.close();
+    }
+  });
+
   it("keeps assets immutable and does not fall back for unknown routes", async () => {
     const asset = await app.inject({
       method: "GET",
