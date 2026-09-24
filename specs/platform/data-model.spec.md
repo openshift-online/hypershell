@@ -57,6 +57,7 @@ erDiagram
         string release_id FK
         string namespace
         string image
+        string supervisor_image
         string[] server_dns_names
         jsonb oidc
         jsonb route
