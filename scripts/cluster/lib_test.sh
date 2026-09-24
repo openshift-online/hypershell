@@ -252,6 +252,20 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: GitHub-brokered OpenShift banner does not mention username/password login'
 fi
+if grep -A50 '^print_banner()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'github_on}" != true'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: GitHub-enabled banner can still print static admin/admin credentials'
+fi
+if grep -A30 '^reconcile_openshift_test_users()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'elif github_idp_enabled'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: GitHub-enabled developer-owned path still seeds static passwords'
+fi
 if grep 'keycloak_url=' "${REPO_ROOT}/.github/actions/deploy-pr-environment/action.yml" | grep -q 'keycloak_url=https://'; then
   PASS=$((PASS + 1))
 else

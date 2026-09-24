@@ -1168,6 +1168,10 @@ reconcile_openshift_test_users() {
       exit 1
     fi
     success "Test-tier principals reconciled from the ESO Secret"
+  elif github_idp_enabled; then
+    # Same predicate as the visible password form: a GitHub-enabled login page
+    # must not receive username-equals-password seeds.
+    warn "GitHub IdP is enabled on a developer-owned environment; not seeding username-equals-password"
   else
     TEST_USER_PASSWORD_SOURCE=static
     if ! keycloak_reconcile_test_users; then
@@ -1206,13 +1210,21 @@ print_banner() {
   info "Keycloak:      ${OPENSHIFT_KC_HOSTNAME}"
   info "OIDC Issuer:   ${OPENSHIFT_OIDC_ISSUER}"
   info "Login:         https://${OPENSHIFT_CONSOLE_HOST}/auth/login"
+  # One predicate for both "GitHub is on the login page" and "do not advertise
+  # guessable passwords". The theme shows the username/password form whenever
+  # GitHub is present, including a hand-crafted developer-owned env that has
+  # Secret hypershell-github-oauth.
+  local github_on=false
   if github_idp_enabled; then
+    github_on=true
+  fi
+  if [[ "${github_on}" == true ]]; then
     info "Interactive login is GitHub (openshift-online org or allowlisted user) or a seeded test-tier username and password"
     info "Keycloak admin: ${OPENSHIFT_KC_HOSTNAME}/admin/hypershell/console/"
   fi
   if is_ci_owned_pr_environment; then
     info "Test-tier principals are seeded from the cluster secret (passwords are not printed)"
-  else
+  elif [[ "${github_on}" != true ]]; then
     info "Test users:    admin/admin (admins + users), developer/developer (users only)"
   fi
   echo ""
