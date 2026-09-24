@@ -96,7 +96,11 @@ func TestIntegrationGatewayServiceAccountIsolation(t *testing.T) {
 				if err != nil {
 					t.Fatal("token request failed")
 				}
-				defer response.Body.Close()
+				defer func() {
+					if err := response.Body.Close(); err != nil {
+						t.Error("close token response body failed")
+					}
+				}()
 				if response.StatusCode != http.StatusOK {
 					return response.StatusCode, nil
 				}
