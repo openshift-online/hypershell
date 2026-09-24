@@ -1,0 +1,13 @@
+exclude:
+  code:
+    - "**/*.test.js*"
+    - "**/*.test.ts*"
+    - "**/*.test.mjs"
+    - "**/*.test.cjs"
+    - "**/*.spec.js*"
+    - "**/*.spec.ts*"
+    - "**/*.spec.mjs"
+    - "**/*.spec.cjs"
+    - "**/*_test.go"
+    - "**/*_test.sh"
+    - "tests/e2e/**/*.sh"
