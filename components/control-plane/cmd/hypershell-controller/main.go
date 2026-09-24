@@ -96,7 +96,7 @@ func main() {
 	databaseConfig := gateway.DatabaseConfig{AdminCredentialsDir: cfg.GatewayDatabaseAdminDir}
 
 	log.Printf("INFO hypershell-controller starting")
-	log.Printf("INFO grpc=%s api=%s namespace=%s database_provider=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace, cfg.DatabaseProvider)
+	log.Printf("INFO grpc=%s api=%s namespace=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace)
 	log.Printf("INFO self-registration name=%s (cluster_id resolved at registration)", cfg.ManagedClusterName)
 
 	// Verify helm binary is available

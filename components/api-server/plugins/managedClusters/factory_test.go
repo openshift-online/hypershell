@@ -12,7 +12,7 @@ func newManagedCluster(id string) (*managedClusters.ManagedCluster, error) {
 	managedClusterService := managedClusters.Service(&environments.Environment().Services)
 
 	managedCluster := &managedClusters.ManagedCluster{
-		Name:             "test-name",
+		Name:             id,
 		Provider:         "test-provider",
 		Region:           stringPtr("test-region"),
 		KubeconfigSecret: "test-kubeconfig_secret",

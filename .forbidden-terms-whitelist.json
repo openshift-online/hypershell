@@ -36,7 +36,7 @@
   },
   {
     "filename": "specs/platform/global-architecture.spec.md",
-    "line": 1526,
+    "line": 1525,
     "rationale": "Example directory names 'vteam-stage'/'vteam-uat' in a GitOps directory-tree illustration reference real external cluster environments; they are example paths, not the discouraged term."
   },
   {
