@@ -224,7 +224,6 @@ func (s *sqlGatewayService) SetGatewayVersion(ctx context.Context, id, version s
 func desiredStateChanged(current, next *Gateway) bool {
 	return current.ClusterId != next.ClusterId ||
 		current.ReleaseId != next.ReleaseId ||
-		current.DatabaseId != next.DatabaseId ||
 		!strEq(current.ExternalDns, next.ExternalDns) ||
 		!strEq(current.TlsMode, next.TlsMode) ||
 		!strEq(current.ServiceType, next.ServiceType) ||

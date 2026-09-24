@@ -163,9 +163,11 @@ type Gateway struct {
 	// out and observed healthy, distinct from the desired release_id. It is
 	// control-plane-owned and advanced only after a new revision passes its
 	// health gates. See gateway-release-rollout.spec.md.
-	ObservedReleaseId *string `protobuf:"bytes,25,opt,name=observed_release_id,json=observedReleaseId,proto3,oneof" json:"observed_release_id,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	ObservedReleaseId  *string `protobuf:"bytes,25,opt,name=observed_release_id,json=observedReleaseId,proto3,oneof" json:"observed_release_id,omitempty"`
+	Generation         int64   `protobuf:"varint,26,opt,name=generation,proto3" json:"generation,omitempty"`
+	ObservedGeneration *int64  `protobuf:"varint,27,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -350,6 +352,20 @@ func (x *Gateway) GetObservedReleaseId() string {
 		return *x.ObservedReleaseId
 	}
 	return ""
+}
+
+func (x *Gateway) GetGeneration() int64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *Gateway) GetObservedGeneration() int64 {
+	if x != nil && x.ObservedGeneration != nil {
+		return *x.ObservedGeneration
+	}
+	return 0
 }
 
 type CreateGatewayRequest struct {
@@ -660,9 +676,10 @@ type UpdateGatewayRequest struct {
 	// path with phase/status/route_address (the control plane advances it only
 	// after a new revision passes its health gates); it is readOnly to REST
 	// clients. See gateway-release-rollout.spec.md.
-	ObservedReleaseId *string `protobuf:"bytes,22,opt,name=observed_release_id,json=observedReleaseId,proto3,oneof" json:"observed_release_id,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	ObservedReleaseId  *string `protobuf:"bytes,22,opt,name=observed_release_id,json=observedReleaseId,proto3,oneof" json:"observed_release_id,omitempty"`
+	ObservedGeneration *int64  `protobuf:"varint,23,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -826,6 +843,13 @@ func (x *UpdateGatewayRequest) GetObservedReleaseId() string {
 		return *x.ObservedReleaseId
 	}
 	return ""
+}
+
+func (x *UpdateGatewayRequest) GetObservedGeneration() int64 {
+	if x != nil && x.ObservedGeneration != nil {
+		return *x.ObservedGeneration
+	}
+	return 0
 }
 
 type UpdateGatewayResponse struct {
@@ -1482,7 +1506,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15ProvisioningCondition\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12U\n" +
 	"\x10condition_status\x18\x02 \x01(\x0e2*.hypershell.v1.ProvisioningConditionStatusR\x0fconditionStatus\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xa3\t\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\x91\n" +
+	"\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1509,7 +1534,11 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x0fconsole_address\x18\x16 \x01(\tH\fR\x0econsoleAddress\x88\x01\x01\x12]\n" +
 	"\x17provisioning_conditions\x18\x17 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x12,\n" +
 	"\x0fgateway_version\x18\x18 \x01(\tH\rR\x0egatewayVersion\x88\x01\x01\x123\n" +
-	"\x13observed_release_id\x18\x19 \x01(\tH\x0eR\x11observedReleaseId\x88\x01\x01B\x0f\n" +
+	"\x13observed_release_id\x18\x19 \x01(\tH\x0eR\x11observedReleaseId\x88\x01\x01\x12\x1e\n" +
+	"\n" +
+	"generation\x18\x1a \x01(\x03R\n" +
+	"generation\x124\n" +
+	"\x13observed_generation\x18\x1b \x01(\x03H\x0fR\x12observedGeneration\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1524,7 +1553,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15_active_sandbox_countB\x12\n" +
 	"\x10_console_addressB\x12\n" +
 	"\x10_gateway_versionB\x16\n" +
-	"\x14_observed_release_idJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"\x9a\x05\n" +
+	"\x14_observed_release_idB\x16\n" +
+	"\x14_observed_generationJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"\x9a\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -1558,7 +1588,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\x8a\b\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xd8\b\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
@@ -1582,7 +1612,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11credential_driver\x18\x13 \x01(\tH\rR\x10credentialDriver\x88\x01\x01\x12,\n" +
 	"\x0fconsole_address\x18\x14 \x01(\tH\x0eR\x0econsoleAddress\x88\x01\x01\x12]\n" +
 	"\x17provisioning_conditions\x18\x15 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x123\n" +
-	"\x13observed_release_id\x18\x16 \x01(\tH\x0fR\x11observedReleaseId\x88\x01\x01B\a\n" +
+	"\x13observed_release_id\x18\x16 \x01(\tH\x0fR\x11observedReleaseId\x88\x01\x01\x124\n" +
+	"\x13observed_generation\x18\x17 \x01(\x03H\x10R\x12observedGeneration\x88\x01\x01B\a\n" +
 	"\x05_nameB\r\n" +
 	"\v_cluster_idB\r\n" +
 	"\v_release_idB\x0f\n" +
@@ -1598,7 +1629,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x12\n" +
 	"\x10_console_addressB\x16\n" +
-	"\x14_observed_release_idJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"I\n" +
+	"\x14_observed_release_idB\x16\n" +
+	"\x14_observed_generationJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +
