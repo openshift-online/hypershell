@@ -1442,5 +1442,13 @@
   "app.value.notAvailable": {
     "defaultMessage": "Not available",
     "description": "Shown when the API does not provide a value."
+  },
+  "app.version.api": {
+    "defaultMessage": "API build: {version}",
+    "description": "API server build version shown in the identity menu. The version is the source commit the API server image was built from."
+  },
+  "app.version.console": {
+    "defaultMessage": "Console build: {version}",
+    "description": "Web console build version shown in the identity menu. The version is the source commit the console image was built from."
   }
 }

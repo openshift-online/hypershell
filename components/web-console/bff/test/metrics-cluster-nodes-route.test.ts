@@ -151,6 +151,7 @@ describe("GET /api/metrics/cluster-nodes", () => {
       prometheusUrl: "http://127.0.0.1:9090",
       sessionTtlSeconds: 28_800,
       staticRoot,
+      webVersion: "unknown",
       ...overrides,
     };
     return buildApp(config);

@@ -23,6 +23,7 @@ import {
   browserRuntimeConfig,
   type BrowserRuntimeConfig,
   type ServerConfig,
+  shortSha,
 } from "./config.js";
 import { queryGatewayMetrics } from "./metrics-gateways.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
@@ -159,6 +160,33 @@ function injectRuntimeConfig(
   return `${meta}${document}`;
 }
 
+interface ApiMetadata {
+  version?: unknown;
+}
+
+/**
+ * Fetches the API server's build version from its public metadata endpoint
+ * (GET /api/hypershell) once at startup so it can be relayed to the browser
+ * through the runtime config. Version display must never gate BFF readiness,
+ * so any failure resolves to "unknown" (WEB-TRACE-06 best-effort precedent).
+ */
+async function fetchApiVersion(config: ServerConfig): Promise<string> {
+  try {
+    const response = await fetch(`${config.apiOrigin}/api/hypershell`, {
+      signal: AbortSignal.timeout(config.apiTimeoutMs),
+    });
+    if (!response.ok) {
+      return "unknown";
+    }
+    const metadata = (await response.json()) as ApiMetadata;
+    return typeof metadata.version === "string" && metadata.version.length > 0
+      ? shortSha(metadata.version)
+      : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 function inlineScriptHashes(document: string): string[] {
   return cspHashes(
     document,
@@ -204,9 +232,10 @@ export async function buildApp(
   tracing: BffTracing = disabledTracing,
 ): Promise<FastifyInstance> {
   const indexPath = path.join(config.staticRoot, "index.html");
+  const apiVersion = await fetchApiVersion(config);
   const indexDocument = injectRuntimeConfig(
     await readFile(indexPath, "utf8"),
-    browserRuntimeConfig(config),
+    browserRuntimeConfig(config, apiVersion),
   );
   const scriptHashes = inlineScriptHashes(indexDocument);
   const styleHashes = inlineStyleHashes(AUTH_DENIED_PAGE_HTML);
