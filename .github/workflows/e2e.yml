@@ -284,15 +284,15 @@ jobs:
             merge_group)
               # GitHub merge queue builds images through the dedicated Konflux
               # merge-queue pipelines (.tekton/*-merge-queue.yaml): a push to
-              # gh-readonly-queue/main/... runs
-              # hypershell-<component>-main-on-merge-queue and pushes an
-              # ephemeral on-merge-queue-<merge_sha>, distinct from the PR
+              # gh-readonly-queue/main/... runs every component's
+              # hypershell-<component>-main-on-merge-queue pipeline and pushes
+              # an ephemeral on-merge-queue-<merge_sha>, distinct from the PR
               # pipelines' on-pr-<head_sha> so a merge-queue image is never
               # confused with an already-tested PR image. The on-push pipelines
-              # require target_branch == "main" and never fire here, so mirror
-              # the pull_request path: use on-merge-queue-<merge_sha> for each
-              # component the merge queue rebuilt and the stable baseline image for the
-              # rest.
+              # require target_branch == "main" and never fire here. Kind must
+              # consume those merge-queue images for every component, not
+              # baseline :latest: the merge commit's tree can already contain a
+              # fix that :latest has not promoted yet.
               #
               # Same e2e-relevant skip as pull_request, against the merge batch
               # (detect-components and detect-konflux already diff
@@ -301,31 +301,26 @@ jobs:
               # not occupy three Kind runners or a shared-cluster namespace.
               # Tests CI Gate is the required check, so a skipped e2e job does
               # not leave the queue pending.
+              # should_run stays path-gated via detect-konflux. Merge-queue
+              # Konflux pipelines fire for every component (no pathChanged), so
+              # wait flags must not follow those detect flags: otherwise a
+              # docs-only batch would occupy runners, and an e2e-relevant batch
+              # would still fall back to :latest for unchanged components.
               if [[ "${detect_e2e_relevant}" != "true" && "${KONFLUX_WEB_CONSOLE}" != "true" ]]; then
                 echo "No e2e-relevant components changed in merge batch"
                 echo "should_run=false" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
               tag="on-merge-queue-${PUSH_SHA}"
-              api_img="${baseline_api}"
-              cp_img="${baseline_cp}"
-              wc_img="${baseline_wc}"
-              echo "wait_api_server=${KONFLUX_API_SERVER}" >> "${GITHUB_OUTPUT}"
-              echo "wait_control_plane=${KONFLUX_CONTROL_PLANE}" >> "${GITHUB_OUTPUT}"
-              echo "wait_web_console=${KONFLUX_WEB_CONSOLE}" >> "${GITHUB_OUTPUT}"
-
-              if [[ "${KONFLUX_API_SERVER}" == "true" ]]; then
-                api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
-                echo "  api-server -> ${api_img}"
-              fi
-              if [[ "${KONFLUX_CONTROL_PLANE}" == "true" ]]; then
-                cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
-                echo "  control-plane -> ${cp_img}"
-              fi
-              if [[ "${KONFLUX_WEB_CONSOLE}" == "true" ]]; then
-                wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
-                echo "  web-console -> ${wc_img}"
-              fi
+              echo "wait_api_server=true" >> "${GITHUB_OUTPUT}"
+              echo "wait_control_plane=true" >> "${GITHUB_OUTPUT}"
+              echo "wait_web_console=true" >> "${GITHUB_OUTPUT}"
+              api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
+              cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
+              wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
+              echo "  api-server -> ${api_img}"
+              echo "  control-plane -> ${cp_img}"
+              echo "  web-console -> ${wc_img}"
               echo "should_run=true" >> "${GITHUB_OUTPUT}"
               echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
               echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
@@ -456,7 +451,7 @@ jobs:
         continue-on-error: true
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}
           check-regexp: ${{ github.event_name == 'push' && 'hypershell-api-server-main-on-push$' || 'hypershell-api-server-main-on-(pull-request|merge-queue)$' }}
           repo-token: ${{ github.token }}
           wait-interval: 30
@@ -469,7 +464,7 @@ jobs:
         continue-on-error: true
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}
           check-regexp: ${{ github.event_name == 'push' && 'hypershell-control-plane-main-on-push$' || 'hypershell-control-plane-main-on-(pull-request|merge-queue)$' }}
           repo-token: ${{ github.token }}
           wait-interval: 30
@@ -482,7 +477,7 @@ jobs:
         continue-on-error: true
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}
           check-regexp: ${{ github.event_name == 'push' && 'hypershell-web-console-main-on-push$' || 'hypershell-web-console-main-on-(pull-request|merge-queue)$' }}
           repo-token: ${{ github.token }}
           wait-interval: 30
