@@ -61,7 +61,7 @@ describe("mergeReliabilityDashboardMetrics", () => {
   const previousReliability: OperationalDashboardMetrics = {
     lastSuccessfulRefresh: new Date("2026-09-15T10:00:00.000Z"),
     metrics: [
-      { id: "api-request-rate", unit: "req/s", value: "10.00" },
+      { id: "api-request-rate", unit: "requests/sec", value: "10.00" },
       { id: "api-error-rate", unit: "%", value: "1.00" },
       { id: "api-latency", unit: "sec", value: "0.080" },
     ],
@@ -87,8 +87,8 @@ describe("mergeReliabilityDashboardMetrics", () => {
     const next: OperationalDashboardMetrics = {
       lastSuccessfulRefresh: new Date("2026-09-15T11:00:00.000Z"),
       metrics: [
-        { id: "api-request-rate", unit: "req/s", value: "12.50" },
-        { id: "api-error-rate", unit: "%", value: "1.25" },
+        { id: "api-request-rate", unit: "requests/sec", value: "12.500" },
+        { id: "api-error-rate", unit: "%", value: "1.250" },
         { id: "api-latency", unit: "sec", value: "0.084" },
       ],
     };

@@ -578,6 +578,22 @@ interface ApiReliabilityResponse {
   request_rate: number;
 }
 
+interface ControlPlaneReconciliationPoint {
+  hour: string;
+  value: number;
+}
+
+interface ControlPlaneReconciliationResponse {
+  reconciliation_failures_count: number;
+  reconciliation_retries_count: number;
+  reconciliation_lag_p50_seconds?: number;
+  stale_resource_status_count: number;
+  hourly_reconciliation_failures_count?: ControlPlaneReconciliationPoint[];
+  hourly_reconciliation_retries_count?: ControlPlaneReconciliationPoint[];
+  hourly_reconciliation_lag_p50_seconds?: ControlPlaneReconciliationPoint[];
+  hourly_stale_resource_status_count?: ControlPlaneReconciliationPoint[];
+}
+
 function mapHourlyTrend(
   series: readonly ApiReliabilityHourlyPoint[] | undefined,
 ): OperationalMetric["hourlyTrend"] {
@@ -617,14 +633,14 @@ function mapApiReliabilityResponse(
   return [
     {
       id: "api-request-rate",
-      unit: "req/s",
-      value: body.request_rate.toFixed(2),
+      unit: "requests/sec",
+      value: body.request_rate.toFixed(3),
       ...(requestRateTrend ? { hourlyTrend: requestRateTrend } : {}),
     },
     {
       id: "api-error-rate",
       unit: "%",
-      value: body.error_rate_percent.toFixed(2),
+      value: body.error_rate_percent.toFixed(3),
       ...(errorRateTrend ? { hourlyTrend: errorRateTrend } : {}),
     },
     {
@@ -651,6 +667,76 @@ async function fetchApiReliabilityMetrics(
 
   const body = (await response.json()) as ApiReliabilityResponse;
   return mapApiReliabilityResponse(body);
+}
+
+export function mapControlPlaneReconciliationResponse(
+  body: ControlPlaneReconciliationResponse,
+): OperationalMetric[] {
+  const values = [
+    body.reconciliation_failures_count,
+    body.reconciliation_retries_count,
+    body.stale_resource_status_count,
+  ];
+  if (values.some((value) => !isFiniteNumber(value))) {
+    throw new Error(
+      "Control-plane reconciliation response is missing required fields",
+    );
+  }
+
+  const failuresTrend = mapHourlyTrend(
+    body.hourly_reconciliation_failures_count,
+  );
+  const retriesTrend = mapHourlyTrend(body.hourly_reconciliation_retries_count);
+  const lagTrend = mapHourlyTrend(body.hourly_reconciliation_lag_p50_seconds);
+  const staleTrend = mapHourlyTrend(body.hourly_stale_resource_status_count);
+  const metrics: OperationalMetric[] = [
+    {
+      id: "reconciliation-failures",
+      unit: "count",
+      value: body.reconciliation_failures_count.toFixed(0),
+      ...(failuresTrend ? { hourlyTrend: failuresTrend } : {}),
+    },
+    {
+      id: "reconciliation-retries",
+      unit: "count",
+      value: body.reconciliation_retries_count.toFixed(0),
+      ...(retriesTrend ? { hourlyTrend: retriesTrend } : {}),
+    },
+    ...(isFiniteNumber(body.reconciliation_lag_p50_seconds)
+      ? [
+          {
+            id: "reconciliation-lag",
+            unit: "sec",
+            value: body.reconciliation_lag_p50_seconds.toFixed(3),
+            ...(lagTrend ? { hourlyTrend: lagTrend } : {}),
+          },
+        ]
+      : []),
+    {
+      id: "stale-resource-status-count",
+      unit: "count",
+      value: String(Math.round(body.stale_resource_status_count)),
+      ...(staleTrend ? { hourlyTrend: staleTrend } : {}),
+    },
+  ];
+  return metrics;
+}
+
+async function fetchControlPlaneReconciliationMetrics(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/control-plane-reconciliation", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch control-plane reconciliation metrics: ${String(response.status)}`,
+    );
+  }
+  return mapControlPlaneReconciliationResponse(
+    (await response.json()) as ControlPlaneReconciliationResponse,
+  );
 }
 
 interface MetricSourceDefinition {
@@ -753,8 +839,25 @@ export function createDashboardControlPlaneAdapter(
       context.signal?.throwIfAborted();
 
       try {
-        const metrics = await fetchApiReliabilityMetrics(context);
+        const results = await Promise.allSettled([
+          fetchApiReliabilityMetrics(context),
+          fetchControlPlaneReconciliationMetrics(context),
+        ]);
+        const metrics: OperationalMetric[] = [];
+        const failedSources: (
+          "api-reliability" | "control-plane-reconciliation"
+        )[] = [];
+        for (const [index, result] of results.entries()) {
+          const source =
+            index === 0 ? "api-reliability" : "control-plane-reconciliation";
+          if (result.status === "fulfilled") metrics.push(...result.value);
+          else if (isAbortError(result.reason)) throw result.reason;
+          else failedSources.push(source);
+        }
+        if (metrics.length === 0)
+          throw new Error("All reliability dashboard metric sources failed");
         return {
+          ...(failedSources.length > 0 ? { failedSources } : {}),
           lastSuccessfulRefresh: new Date(),
           metrics,
         };
@@ -767,7 +870,7 @@ export function createDashboardControlPlaneAdapter(
         // mergeReliabilityDashboardMetrics can keep stale widgets on
         // refresh and the page can show the partial-load warning.
         return {
-          failedSources: ["api-reliability"],
+          failedSources: ["api-reliability", "control-plane-reconciliation"],
           lastSuccessfulRefresh: new Date(),
           metrics: [],
         };

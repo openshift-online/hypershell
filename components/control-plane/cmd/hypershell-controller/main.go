@@ -273,6 +273,7 @@ func main() {
 			cfg.ExternalCAIssuerName,
 			cfg.ExternalCAIssuerKind,
 			databaseConfig,
+			cfg.ClusterID,
 		)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)

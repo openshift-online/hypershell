@@ -193,22 +193,35 @@ Reliability dashboard (`/dashboard/reliability`) loads through
 `createDashboardControlPlaneAdapter.getReliabilityMetrics`. This source is
 **not** part of the operational `metricSources` list (ARM-05).
 
-| Source ID         | BFF route                          | Metrics emitted                                     |
-| ----------------- | ---------------------------------- | --------------------------------------------------- |
-| `api-reliability` | `GET /api/metrics/api-reliability` | `api-request-rate`, `api-error-rate`, `api-latency` |
+| Source ID                      | BFF route                                       | Metrics emitted                                                                                          |
+| ------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `api-reliability`              | `GET /api/metrics/api-reliability`              | `api-request-rate`, `api-error-rate`, `api-latency`                                                      |
 | `control-plane-reconciliation` | `GET /api/metrics/control-plane-reconciliation` | `reconciliation-failures`, `reconciliation-retries`, `reconciliation-lag`, `stale-resource-status-count` |
 
 The reliability dashboard SHALL read metric data through the BFF routes above.
 The UI SHALL NOT read or write metric data directly to a database. Historical
-reconciliation data uses a rolling 7 x 24-hour Prometheus range query with
+reconciliation data uses a rolling 24-hour Prometheus range query with
 hourly samples.
 
-| Metric ID | Prometheus type | Current value | Unit |
-| --- | --- | --- | --- |
-| `reconciliation-failures` | Counter | 5-minute rate | `failures/s` |
-| `reconciliation-retries` | Counter | 5-minute rate | `retries/s` |
-| `reconciliation-lag` | Histogram | P50 | `sec` |
-| `stale-resource-status-count` | Gauge | Current count | `count` |
+The Reliability summary lists all three API metrics and the three
+reconciliation metrics. On wide layouts, API metrics occupy the first column
+and reconciliation metrics occupy the second; the columns stack on narrow
+layouts. Dedicated reliability widgets expose the same values and historical
+trends. Current API metrics use a 5-minute lookback; reconciliation failure
+and retry counts use a rolling 24-hour lookback, with one-hour count samples
+for their 24-hour trends. Reconciliation lag is a 5-minute P50 when a usable
+histogram observation is available; otherwise the lag metric is omitted while
+the other metrics remain available.
+
+| Metric ID                     | Prometheus type | Current value                  | Unit    |
+| ----------------------------- | --------------- | ------------------------------ | ------- |
+| `reconciliation-failures`     | Counter         | Previous 24-hour failure count | `count` |
+| `reconciliation-retries`      | Counter         | Previous 24-hour retry count   | `count` |
+| `reconciliation-lag`          | Histogram       | P50                            | `sec`   |
+| `stale-resource-status-count` | Gauge           | Current count                  | `count` |
+
+Failure and retry counts are displayed as whole numbers; reconciliation lag
+is displayed to three fractional digits.
 
 Fetch failures soft-return `failedSources: ["api-reliability"]` with an empty
 metrics list (abort still throws). `mergeReliabilityDashboardMetrics` then
@@ -222,11 +235,11 @@ ServiceMonitor (`job="hypershell-api-server"`). The HTTP status label is
 `http_server_request_duration_seconds` is not required for this dashboard;
 Kind does not currently set API-server OTLP export.)
 
-| Instant field (BFF)   | Metric ID          | Unit    | Display rounding | Trend field (BFF)            |
-| --------------------- | ------------------ | ------- | ---------------- | ---------------------------- |
-| `request_rate`        | `api-request-rate` | `req/s` | 2 fractional     | `hourly_request_rate`        |
-| `error_rate_percent`  | `api-error-rate`   | `%`     | 2 fractional     | `hourly_error_rate_percent`  |
-| `latency_p50_seconds` | `api-latency`      | `sec`   | 3 fractional     | `hourly_latency_p50_seconds` |
+| Instant field (BFF)   | Metric ID          | Unit           | Display rounding | Trend field (BFF)            |
+| --------------------- | ------------------ | -------------- | ---------------- | ---------------------------- |
+| `request_rate`        | `api-request-rate` | `requests/sec` | 3 fractional     | `hourly_request_rate`        |
+| `error_rate_percent`  | `api-error-rate`   | `%`            | 3 fractional     | `hourly_error_rate_percent`  |
+| `latency_p50_seconds` | `api-latency`      | `sec`          | 3 fractional     | `hourly_latency_p50_seconds` |
 
 PromQL shapes (5-minute rate window; see
 `components/web-console/bff/src/metrics-api-reliability.ts`):

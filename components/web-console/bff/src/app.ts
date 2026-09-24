@@ -25,6 +25,7 @@ import {
   type ServerConfig,
 } from "./config.js";
 import { queryApiReliability } from "./metrics-api-reliability.js";
+import { queryControlPlaneReconciliation } from "./metrics-control-plane-reconciliation.js";
 import { queryGatewayMetrics } from "./metrics-gateways.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
 import { queryClusterMemory } from "./metrics-cluster-memory.js";
@@ -698,6 +699,26 @@ export async function buildApp(
         request.log.warn(
           { err: error },
           "API reliability metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/control-plane-reconciliation",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryControlPlaneReconciliation(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "control-plane reconciliation metrics query failed",
         );
         reply.code(502);
         return { error: "Metrics unavailable", statusCode: 502 };

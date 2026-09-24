@@ -28,6 +28,12 @@ export const RELIABILITY_METRIC_SOURCE_METRIC_IDS: Readonly<
   Record<ReliabilityMetricSourceId, readonly string[]>
 > = {
   "api-reliability": ["api-request-rate", "api-error-rate", "api-latency"],
+  "control-plane-reconciliation": [
+    "reconciliation-failures",
+    "reconciliation-retries",
+    "reconciliation-lag",
+    "stale-resource-status-count",
+  ],
 };
 
 function mergeDashboardMetricsBySourceMap(

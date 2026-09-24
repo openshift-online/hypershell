@@ -16,6 +16,12 @@ export const messages = defineMessages({
     defaultMessage: "API latency",
     description: "Title for the API median latency reliability widget.",
   },
+  apiReliabilityLast5Minutes: {
+    id: "app.dashboard.apiReliability.last5Minutes",
+    defaultMessage: "(last 5 minutes)",
+    description:
+      "Lookback period shown with the current API reliability metric value.",
+  },
   apiRequestRateWidget: {
     id: "app.dashboard.widget.apiRequestRate",
     defaultMessage: "API request rate",
@@ -413,6 +419,12 @@ export const messages = defineMessages({
     defaultMessage: "Gateway provision time",
     description: "Title for the gateway provision time dashboard widget.",
   },
+  reconciliationFailuresLast24Hours: {
+    id: "app.dashboard.reconciliationFailures.last24Hours",
+    defaultMessage: "(last 24 hours)",
+    description:
+      "Lookback period shown with the current reconciliation failure count.",
+  },
   refresh: {
     id: "app.dashboard.refresh",
     defaultMessage: "Refresh dashboard metrics",
@@ -535,10 +547,30 @@ export const messages = defineMessages({
     defaultMessage: "Median latency",
     description: "Summary row label for API median latency.",
   },
+  reliabilitySummaryReconciliationFailures: {
+    id: "app.dashboard.reliability.summary.reconciliationFailures",
+    defaultMessage: "Reconciliation failures",
+    description: "Summary row label for reconciliation failures.",
+  },
+  reliabilitySummaryReconciliationLag: {
+    id: "app.dashboard.reliability.summary.reconciliationLag",
+    defaultMessage: "Reconciliation lag",
+    description: "Summary row label for reconciliation lag.",
+  },
+  reliabilitySummaryReconciliationRetries: {
+    id: "app.dashboard.reliability.summary.reconciliationRetries",
+    defaultMessage: "Reconciliation retries",
+    description: "Summary row label for reconciliation retries.",
+  },
   reliabilitySummaryRequestRate: {
     id: "app.dashboard.reliability.summary.requestRate",
     defaultMessage: "Request rate",
     description: "Summary row label for API request rate.",
+  },
+  reliabilitySummaryStaleResourceStatus: {
+    id: "app.dashboard.reliability.summary.staleResourceStatus",
+    defaultMessage: "Stale resource status",
+    description: "Summary row label for resources with stale observed status.",
   },
   reliabilitySummaryWidget: {
     id: "app.dashboard.widget.reliabilitySummary",
@@ -779,10 +811,30 @@ export const messages = defineMessages({
     defaultMessage: "Pods",
     description: "Title for the pods utilization dashboard widget.",
   },
+  widgetReconciliationFailures: {
+    id: "app.dashboard.widget.reconciliationFailures",
+    defaultMessage: "Reconciliation failures",
+    description: "Title for the reconciliation failures dashboard widget.",
+  },
+  widgetReconciliationLag: {
+    id: "app.dashboard.widget.reconciliationLag",
+    defaultMessage: "Reconciliation lag",
+    description: "Title for the reconciliation lag dashboard widget.",
+  },
+  widgetReconciliationRetries: {
+    id: "app.dashboard.widget.reconciliationRetries",
+    defaultMessage: "Reconciliation retries",
+    description: "Title for the reconciliation retries dashboard widget.",
+  },
   widgetSandboxes: {
     id: "app.dashboard.summary.sandboxes",
     defaultMessage: "Sandboxes",
     description:
       "Label for provisioned sandboxes on the operational dashboard.",
+  },
+  widgetStaleResourceStatus: {
+    id: "app.dashboard.widget.staleResourceStatus",
+    defaultMessage: "Stale resource status",
+    description: "Title for the stale resource status dashboard widget.",
   },
 });

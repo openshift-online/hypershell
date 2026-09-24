@@ -12,6 +12,10 @@ const WIDGET_TITLE_MESSAGES = {
   "api-request-rate": messages.apiRequestRateWidget,
   "api-error-rate": messages.apiErrorRateWidget,
   "api-latency": messages.apiLatencyWidget,
+  "reconciliation-failures": messages.widgetReconciliationFailures,
+  "reconciliation-retries": messages.widgetReconciliationRetries,
+  "reconciliation-lag": messages.widgetReconciliationLag,
+  "stale-resource-status-count": messages.widgetStaleResourceStatus,
 } as const;
 
 type ReliabilityWidgetType = keyof typeof WIDGET_TITLE_MESSAGES;
@@ -53,6 +57,42 @@ const threeColumnLayout = [
     x: 2,
     y: RELIABILITY_SUMMARY_WIDGET_HEIGHT,
   },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "reconciliation-failures#1",
+    title: "Reconciliation failures",
+    w: 1,
+    widgetType: "reconciliation-failures",
+    x: 0,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "reconciliation-retries#1",
+    title: "Reconciliation retries",
+    w: 1,
+    widgetType: "reconciliation-retries",
+    x: 1,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "reconciliation-lag#1",
+    title: "Reconciliation lag",
+    w: 1,
+    widgetType: "reconciliation-lag",
+    x: 2,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "stale-resource-status-count#1",
+    title: "Stale resource status",
+    w: 1,
+    widgetType: "stale-resource-status-count",
+    x: 0,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 2,
+  },
 ] as const;
 
 const mobileLayout = [
@@ -91,6 +131,42 @@ const mobileLayout = [
     widgetType: "api-latency",
     x: 0,
     y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 2,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "reconciliation-failures#1",
+    title: "Reconciliation failures",
+    w: 1,
+    widgetType: "reconciliation-failures",
+    x: 0,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 3,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "reconciliation-retries#1",
+    title: "Reconciliation retries",
+    w: 1,
+    widgetType: "reconciliation-retries",
+    x: 0,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 4,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "reconciliation-lag#1",
+    title: "Reconciliation lag",
+    w: 1,
+    widgetType: "reconciliation-lag",
+    x: 0,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 5,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "stale-resource-status-count#1",
+    title: "Stale resource status",
+    w: 1,
+    widgetType: "stale-resource-status-count",
+    x: 0,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 6,
   },
 ] as const;
 

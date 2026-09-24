@@ -17,6 +17,7 @@ import {
   ChartLineIcon,
   ExclamationCircleIcon,
   OutlinedClockIcon,
+  SyncAltIcon,
   TachometerAltIcon,
 } from "@patternfly/react-icons";
 import {
@@ -61,7 +62,7 @@ import { useGetReliabilityMetricsData } from "./get-reliability-metrics-data";
 
 const baseTemplate = defaultReliabilityDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.reliability-dashboard.layout.v1";
+const LAYOUT_STORAGE_KEY = "hypershell.reliability-dashboard.layout.v2";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: RELIABILITY_DASHBOARD_COLUMN_COUNT,
   lg: RELIABILITY_DASHBOARD_COLUMN_COUNT,
@@ -205,6 +206,71 @@ function createWidgetMapping(
         title: intl.formatMessage(messages.apiLatencyWidget),
       },
       renderWidget: () => renderTrend("api-latency", messages.apiLatencyWidget),
+    },
+    "reconciliation-failures": {
+      defaults: {
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <ExclamationCircleIcon />,
+        title: intl.formatMessage(messages.widgetReconciliationFailures),
+      },
+      renderWidget: () =>
+        renderTrend(
+          "reconciliation-failures",
+          messages.widgetReconciliationFailures,
+        ),
+    },
+    "reconciliation-retries": {
+      defaults: {
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <SyncAltIcon />,
+        title: intl.formatMessage(messages.widgetReconciliationRetries),
+      },
+      renderWidget: () =>
+        renderTrend(
+          "reconciliation-retries",
+          messages.widgetReconciliationRetries,
+        ),
+    },
+    "reconciliation-lag": {
+      defaults: {
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <OutlinedClockIcon />,
+        title: intl.formatMessage(messages.widgetReconciliationLag),
+      },
+      renderWidget: () =>
+        renderTrend("reconciliation-lag", messages.widgetReconciliationLag),
+    },
+    "stale-resource-status-count": {
+      defaults: {
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <ExclamationCircleIcon />,
+        title: intl.formatMessage(messages.widgetStaleResourceStatus),
+      },
+      renderWidget: () =>
+        renderTrend(
+          "stale-resource-status-count",
+          messages.widgetStaleResourceStatus,
+        ),
     },
   };
 }

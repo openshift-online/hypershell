@@ -3,6 +3,7 @@ package otel
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -20,8 +21,14 @@ var (
 	gatewaySandboxExpiring     metric.Int64Gauge
 	gatewaySandboxIdle         metric.Int64Gauge
 	reconcileErrors            metric.Int64Counter
+	reconciliationFailures     metric.Int64Counter
+	reconciliationRetries      metric.Int64Counter
+	reconciliationLag          metric.Float64Histogram
+	staleResourceStatusCount   metric.Int64Gauge
 	watchReconnects            metric.Int64Counter
 )
+
+var staleResources sync.Map
 
 func registerMetrics() error {
 	meter := otel.Meter(TracerName)
@@ -35,7 +42,6 @@ func registerMetrics() error {
 	if err != nil {
 		return err
 	}
-
 	reconcileQueueDepth, err = meter.Int64ObservableGauge(
 		"reconcile.queue.depth",
 		metric.WithUnit("{item}"),
@@ -109,6 +115,48 @@ func registerMetrics() error {
 	if err != nil {
 		return err
 	}
+
+	reconciliationFailures, err = meter.Int64Counter(
+		"hypershell.reconciliation.failures",
+		metric.WithUnit("{failure}"),
+		metric.WithDescription("Count of failed control-plane reconciliation attempts"),
+	)
+	if err != nil {
+		return err
+	}
+	reconciliationFailures.Add(context.Background(), 0)
+
+	reconciliationRetries, err = meter.Int64Counter(
+		"hypershell.reconciliation.retries",
+		metric.WithUnit("{retry}"),
+		metric.WithDescription("Count of control-plane reconciliation retries"),
+	)
+	if err != nil {
+		return err
+	}
+	reconciliationRetries.Add(context.Background(), 0)
+
+	reconciliationLag, err = meter.Float64Histogram(
+		"hypershell.reconciliation.lag",
+		metric.WithUnit("s"),
+		metric.WithDescription("Time spent processing a control-plane reconciliation"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.01, 0.1, 1, 5, 10, 30, 60, 300),
+	)
+	if err != nil {
+		return err
+	}
+
+	staleResourceStatusCount, err = meter.Int64Gauge(
+		"hypershell.stale.resource.status.count",
+		metric.WithUnit("{resource}"),
+		metric.WithDescription("Resources whose observed status has not caught up with desired state"),
+	)
+	if err != nil {
+		return err
+	}
+	staleResourceStatusCount.Record(context.Background(), 0, metric.WithAttributes(
+		attribute.String("hypershell.cluster_id", DefaultAttentionClusterID),
+	))
 
 	watchReconnects, err = meter.Int64Counter(
 		"watch.reconnects",
@@ -220,6 +268,51 @@ func RecordReconcileError(ctx context.Context, kind string) {
 	}
 	reconcileErrors.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("resource.kind", kind),
+	))
+	if reconciliationFailures != nil {
+		reconciliationFailures.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("resource.kind", kind),
+		))
+	}
+}
+
+// RecordReconciliationRetry records a retry scheduled for a reconciliation.
+func RecordReconciliationRetry(ctx context.Context, kind string) {
+	if reconciliationRetries == nil {
+		return
+	}
+	reconciliationRetries.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("resource.kind", kind),
+	))
+}
+
+// RecordReconciliationLag records the elapsed reconciliation processing time.
+func RecordReconciliationLag(ctx context.Context, kind string, duration time.Duration) {
+	if reconciliationLag == nil || duration < 0 {
+		return
+	}
+	reconciliationLag.Record(ctx, duration.Seconds(), metric.WithAttributes(
+		attribute.String("resource.kind", kind),
+	))
+}
+
+// SetResourceStatusStale records whether a resource's observed status is
+// behind its desired state. Resource IDs remain in process memory only and are
+// never exported as metric labels.
+func SetResourceStatusStale(ctx context.Context, clusterID, kind, resourceID string, stale bool) {
+	if staleResourceStatusCount == nil || kind == "" || resourceID == "" {
+		return
+	}
+	key := kind + "\x00" + resourceID
+	if stale {
+		staleResources.Store(key, struct{}{})
+	} else {
+		staleResources.Delete(key)
+	}
+	count := int64(0)
+	staleResources.Range(func(_, _ any) bool { count++; return true })
+	staleResourceStatusCount.Record(ctx, count, metric.WithAttributes(
+		attribute.String("hypershell.cluster_id", AttentionClusterID(clusterID)),
 	))
 }
 
