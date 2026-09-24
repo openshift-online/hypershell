@@ -231,5 +231,13 @@ else
   echo 'FAIL: OpenShift e2e cleanup does not skip GC restore on failure'
 fi
 
+if grep -A25 '^cleanup() {' "${SCRIPT_DIR}/e2e-openshell.sh" \
+  | grep -q 'dump_provision_diagnostics'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: e2e cleanup does not dump controller/postgres logs before GC restore'
+fi
+
 printf 'OpenShift driver tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

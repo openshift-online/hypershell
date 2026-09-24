@@ -627,6 +627,10 @@ jobs:
           } | tee e2e-diagnostics/pod-logs.txt
           echo "::endgroup::"
 
+          echo "::group::Stand-in postgres logs"
+          kubectl logs --all-containers --prefix --tail=200 -l app=postgres -n external-cloud-db 2>&1 | tee e2e-diagnostics/postgres.txt || true
+          echo "::endgroup::"
+
           echo "::group::Keycloak logs"
           kubectl logs --all-containers --prefix --tail=100 -l app=keycloak -n keycloak 2>&1 | tee e2e-diagnostics/keycloak-logs.txt || true
           echo "::endgroup::"

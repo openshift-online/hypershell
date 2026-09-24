@@ -103,8 +103,23 @@ fi
 
 # --- Cleanup trap ---
 
+# dump_provision_diagnostics prints controller and stand-in postgres logs
+# before restore_namespace_gc_timing restarts the controller. Kind e2e
+# failures in DatabaseReady otherwise lose the SQL/TLS error: GC-timing
+# restore rolls a new ReplicaSet, and CI then collects the replacement pod.
+dump_provision_diagnostics() {
+  dim "  --- control-plane logs (before GC-timing restore) ---"
+  $CLI logs -n "${E2E_HS_NAMESPACE}" -l app=hypershell-controller --all-containers --tail=200 2>&1 | while IFS= read -r line; do dim "    $line"; done || true
+  dim "  --- stand-in postgres logs ---"
+  $CLI logs -n external-cloud-db -l app=postgres --tail=100 2>&1 | while IFS= read -r line; do dim "    $line"; done || true
+  $CLI logs -n "${E2E_HS_NAMESPACE}" -l app=hypershell-postgres --tail=100 2>&1 | while IFS= read -r line; do dim "    $line"; done || true
+}
+
 cleanup() {
   local exit_code=$?
+  if [[ "$exit_code" -ne 0 ]]; then
+    dump_provision_diagnostics || true
+  fi
   # A failed OpenShift run is about to tear the environment down (CI) or has
   # already left the controller in a bad state. Waiting on a restore rollout
   # (up to 300s) delays that teardown for no effect. Kind keeps the cluster,

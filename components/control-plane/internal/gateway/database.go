@@ -16,6 +16,8 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	// register postgres driver and use typed error codes for error classification
 	pq "github.com/lib/pq"
@@ -326,6 +328,134 @@ type databaseReconciler struct {
 	cfg DatabaseConfig
 }
 
+// gatewayDatabaseDDLMu serializes per-gateway CREATE/DROP DATABASE in this
+// process. PostgreSQL copies a template directory for CREATE DATABASE; running
+// two of those at once against template1 fails with SQLSTATE 55006 ("source
+// database is being accessed by other users") and Kind e2e hits that when the
+// seeded gateway and the suite gateway provision concurrently. template0 (see
+// createGatewayDatabaseSQL) is the durable fix; the mutex keeps same-process
+// workers from stampeding the server on top of that.
+var gatewayDatabaseDDLMu sync.Mutex
+
+// createGatewayDatabaseSQL copies template0, not the default template1.
+// template1 accepts connections (autovacuum, leftover backends, another
+// CREATE DATABASE), and any one of those fails provisioning. template0 has
+// datallowconn=false, which is the documented way to create databases
+// concurrently.
+func createGatewayDatabaseSQL(pgName string) string {
+	return fmt.Sprintf(
+		"CREATE DATABASE %s OWNER %s TEMPLATE template0",
+		pgQuoteIdent(pgName),
+		pgQuoteIdent(pgName),
+	)
+}
+
+func isDatabaseSourceBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "55006" { // object_in_use
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "being accessed by other users")
+}
+
+func execCreateGatewayDatabase(ctx context.Context, db *sql.DB, gatewayID, pgName string) error {
+	stmt := createGatewayDatabaseSQL(pgName)
+	var last error
+	for attempt := 0; attempt < 8; attempt++ {
+		if _, err := db.ExecContext(ctx, stmt); err == nil {
+			log.Printf("INFO created database %s for gateway %s", pgName, gatewayID)
+			return nil
+		} else {
+			last = err
+		}
+		if !isDatabaseSourceBusy(last) {
+			return fmt.Errorf("CREATE DATABASE for gateway %s: %w", gatewayID, last)
+		}
+		delay := time.Duration(attempt+1) * 200 * time.Millisecond
+		log.Printf("WARN CREATE DATABASE for gateway %s: source database busy, retrying in %s: %v", gatewayID, delay, last)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("CREATE DATABASE for gateway %s: %w", gatewayID, ctx.Err())
+		case <-time.After(delay):
+		}
+	}
+	return fmt.Errorf("CREATE DATABASE for gateway %s: %w", gatewayID, last)
+}
+
+func reconcileGatewayDatabaseDDL(ctx context.Context, db *sql.DB, adminUser, pgName, gatewayID, password string, freshPassword bool) error {
+	var roleExists bool
+	if err := db.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", pgName,
+	).Scan(&roleExists); err != nil {
+		return fmt.Errorf("check role existence for gateway %s: %w", gatewayID, err)
+	}
+	if !roleExists {
+		// lib/pq cannot parameterize CREATE ROLE / ALTER ROLE, so the password is
+		// interpolated into the statement text. On servers with log_statement=all
+		// it appears in the server log; operators should restrict log verbosity
+		// or use server-side redaction accordingly.
+		if _, err := db.ExecContext(ctx,
+			fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD '%s'", pgQuoteIdent(pgName), pgQuoteLiteral(password)),
+		); err != nil {
+			return fmt.Errorf("CREATE ROLE for gateway %s: DDL execution failed (credentials redacted)", gatewayID)
+		}
+		log.Printf("INFO created database role %s for gateway %s", pgName, gatewayID)
+	} else if freshPassword {
+		// Provisioning repair, not credential rotation: the role exists but its
+		// tenant Secret is gone, so the server-side password is re-synced to the
+		// Secret about to be written.
+		if _, err := db.ExecContext(ctx,
+			fmt.Sprintf("ALTER ROLE %s PASSWORD '%s'", pgQuoteIdent(pgName), pgQuoteLiteral(password)),
+		); err != nil {
+			return fmt.Errorf("ALTER ROLE password for gateway %s: DDL execution failed (credentials redacted)", gatewayID)
+		}
+		log.Printf("INFO repaired database role password for gateway %s (tenant Secret was absent)", gatewayID)
+	}
+	// Out-of-band password drift (tenant Secret present, server-side password
+	// changed externally) is not reconciled: detecting it would need a login round
+	// trip on every reconcile. Recover by deleting the tenant Secret, which makes
+	// the branch above re-apply a fresh password on the next reconcile.
+
+	// A non-superuser admin needs membership in the gateway role to create a
+	// database owned by it (PostgreSQL 16 and later do not grant SET ROLE on
+	// creation). GRANT is idempotent and harmless for a superuser admin.
+	if !strings.EqualFold(adminUser, pgName) {
+		if _, err := db.ExecContext(ctx,
+			fmt.Sprintf("GRANT %s TO %s", pgQuoteIdent(pgName), pgQuoteIdent(adminUser)),
+		); err != nil {
+			return fmt.Errorf("GRANT gateway role to admin for gateway %s: %w", gatewayID, err)
+		}
+	}
+
+	var dbExists bool
+	if err := db.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", pgName,
+	).Scan(&dbExists); err != nil {
+		return fmt.Errorf("check database existence for gateway %s: %w", gatewayID, err)
+	}
+	if !dbExists {
+		// CREATE DATABASE cannot run inside a transaction block and has no IF NOT EXISTS.
+		if err := execCreateGatewayDatabase(ctx, db, gatewayID, pgName); err != nil {
+			return err
+		}
+	}
+
+	if _, err := db.ExecContext(ctx,
+		fmt.Sprintf("REVOKE CONNECT ON DATABASE %s FROM PUBLIC", pgQuoteIdent(pgName)),
+	); err != nil {
+		return fmt.Errorf("REVOKE CONNECT for gateway %s: %w", gatewayID, err)
+	}
+	if _, err := db.ExecContext(ctx,
+		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s", pgQuoteIdent(pgName), pgQuoteIdent(pgName)),
+	); err != nil {
+		return fmt.Errorf("GRANT CONNECT for gateway %s: %w", gatewayID, err)
+	}
+	return nil
+}
+
 // Reconcile provisions the gateway's role and database and writes the tenant
 // credentials Secret. HyperShell does not rotate per-gateway database
 // credentials; see openshell-gateway-database.spec.md.
@@ -394,79 +524,12 @@ func ReconcileGatewayDatabase(
 	}
 	defer release()
 
-	// Role: create if absent; if present but the tenant Secret was missing, apply
-	// the freshly generated password so the Secret about to be written works.
-	var roleExists bool
-	if err := db.QueryRowContext(ctx,
-		"SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", pgName,
-	).Scan(&roleExists); err != nil {
-		return fmt.Errorf("check role existence for gateway %s: %w", gatewayID, err)
-	}
-	if !roleExists {
-		// lib/pq cannot parameterize CREATE ROLE / ALTER ROLE, so the password is
-		// interpolated into the statement text. On servers with log_statement=all
-		// it appears in the server log; operators should restrict log verbosity
-		// or use server-side redaction accordingly.
-		if _, err := db.ExecContext(ctx,
-			fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD '%s'", pgQuoteIdent(pgName), pgQuoteLiteral(password)),
-		); err != nil {
-			return fmt.Errorf("CREATE ROLE for gateway %s: DDL execution failed (credentials redacted)", gatewayID)
-		}
-		log.Printf("INFO created database role %s for gateway %s", pgName, gatewayID)
-	} else if freshPassword {
-		// Provisioning repair, not credential rotation: the role exists but its
-		// tenant Secret is gone, so the server-side password is re-synced to the
-		// Secret about to be written.
-		if _, err := db.ExecContext(ctx,
-			fmt.Sprintf("ALTER ROLE %s PASSWORD '%s'", pgQuoteIdent(pgName), pgQuoteLiteral(password)),
-		); err != nil {
-			return fmt.Errorf("ALTER ROLE password for gateway %s: DDL execution failed (credentials redacted)", gatewayID)
-		}
-		log.Printf("INFO repaired database role password for gateway %s (tenant Secret was absent)", gatewayID)
-	}
-	// Out-of-band password drift (tenant Secret present, server-side password
-	// changed externally) is not reconciled: detecting it would need a login round
-	// trip on every reconcile. Recover by deleting the tenant Secret, which makes
-	// the branch above re-apply a fresh password on the next reconcile.
-
-	// A non-superuser admin needs membership in the gateway role to create a
-	// database owned by it (PostgreSQL 16 and later do not grant SET ROLE on
-	// creation). GRANT is idempotent and harmless for a superuser admin.
-	if !strings.EqualFold(creds.user, pgName) {
-		if _, err := db.ExecContext(ctx,
-			fmt.Sprintf("GRANT %s TO %s", pgQuoteIdent(pgName), pgQuoteIdent(creds.user)),
-		); err != nil {
-			return fmt.Errorf("GRANT gateway role to admin for gateway %s: %w", gatewayID, err)
-		}
-	}
-
-	// Database: create if absent.
-	var dbExists bool
-	if err := db.QueryRowContext(ctx,
-		"SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", pgName,
-	).Scan(&dbExists); err != nil {
-		return fmt.Errorf("check database existence for gateway %s: %w", gatewayID, err)
-	}
-	if !dbExists {
-		// CREATE DATABASE cannot run inside a transaction block and has no IF NOT EXISTS.
-		if _, err := db.ExecContext(ctx,
-			fmt.Sprintf("CREATE DATABASE %s OWNER %s", pgQuoteIdent(pgName), pgQuoteIdent(pgName)),
-		); err != nil {
-			return fmt.Errorf("CREATE DATABASE for gateway %s: %w", gatewayID, err)
-		}
-		log.Printf("INFO created database %s for gateway %s", pgName, gatewayID)
-	}
-
-	// Isolation: revoke PUBLIC connect, grant only the gateway role.
-	if _, err := db.ExecContext(ctx,
-		fmt.Sprintf("REVOKE CONNECT ON DATABASE %s FROM PUBLIC", pgQuoteIdent(pgName)),
-	); err != nil {
-		return fmt.Errorf("REVOKE CONNECT for gateway %s: %w", gatewayID, err)
-	}
-	if _, err := db.ExecContext(ctx,
-		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s", pgQuoteIdent(pgName), pgQuoteIdent(pgName)),
-	); err != nil {
-		return fmt.Errorf("GRANT CONNECT for gateway %s: %w", gatewayID, err)
+	if err := func() error {
+		gatewayDatabaseDDLMu.Lock()
+		defer gatewayDatabaseDDLMu.Unlock()
+		return reconcileGatewayDatabaseDDL(ctx, db, creds.user, pgName, gatewayID, password, freshPassword)
+	}(); err != nil {
+		return err
 	}
 
 	// Write or refresh the tenant credentials Secret. Refreshing also propagates a
@@ -533,6 +596,8 @@ func DeleteGatewayDatabase(ctx context.Context, cfg DatabaseConfig, gatewayID st
 	}
 	defer release()
 
+	gatewayDatabaseDDLMu.Lock()
+	defer gatewayDatabaseDDLMu.Unlock()
 	return dropGatewayDatabase(ctx, db, gatewayID)
 }
 

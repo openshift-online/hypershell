@@ -249,6 +249,31 @@ func TestTenantSecretDataUsesRequireNotVerifyFull(t *testing.T) {
 	}
 }
 
+func TestCreateGatewayDatabaseSQLUsesTemplate0(t *testing.T) {
+	got := createGatewayDatabaseSQL("gw_abc")
+	if !strings.Contains(got, "TEMPLATE template0") {
+		t.Fatalf("CREATE DATABASE must copy template0, got %s", got)
+	}
+	if strings.Contains(got, "template1") {
+		t.Fatalf("CREATE DATABASE must not copy template1, got %s", got)
+	}
+}
+
+func TestIsDatabaseSourceBusy(t *testing.T) {
+	if !isDatabaseSourceBusy(&pq.Error{Code: "55006", Message: "source database \"template1\" is being accessed by other users"}) {
+		t.Fatal("SQLSTATE 55006 must be classified busy")
+	}
+	if !isDatabaseSourceBusy(errors.New(`pq: source database "template1" is being accessed by other users`)) {
+		t.Fatal("occupancy text must be classified busy")
+	}
+	if isDatabaseSourceBusy(errors.New("permission denied to create database")) {
+		t.Fatal("privilege errors must not be retried as occupancy")
+	}
+	if isDatabaseSourceBusy(nil) {
+		t.Fatal("nil is not busy")
+	}
+}
+
 func TestConnErrorCategory(t *testing.T) {
 	for _, tc := range []struct {
 		name string

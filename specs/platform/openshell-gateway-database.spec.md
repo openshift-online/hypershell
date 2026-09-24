@@ -284,9 +284,14 @@ For each gateway, the reconciler SHALL:
      grant is what lets `CREATEDB` + `CREATEROLE` suffice without superuser. It is
      idempotent (re-granting an existing membership is a no-op notice).
    - **Database:** if `gw_<gatewayID>` is absent (`SELECT 1 FROM pg_database ...`),
-     create it with `OWNER gw_<gatewayID>`. (`CREATE DATABASE` cannot run inside a
-     transaction block and has no `IF NOT EXISTS`; the reconciler SHALL guard it with
-     an existence check rather than relying on catching an error.)
+     create it with `OWNER gw_<gatewayID> TEMPLATE template0`. Copying `template0`
+     (not the default `template1`) means concurrent `CREATE DATABASE` from other
+     gateways, autovacuum, and leftover sessions on `template1` cannot fail
+     provisioning with SQLSTATE 55006 ("source database is being accessed by
+     other users"). (`CREATE DATABASE` cannot run inside a transaction block and
+     has no `IF NOT EXISTS`; the reconciler SHALL guard it with an existence
+     check rather than relying on catching an error.) If a source-busy error
+     still occurs, the reconciler SHALL retry the statement.
    - **Isolation:** `REVOKE CONNECT ON DATABASE gw_<gatewayID> FROM PUBLIC` and
      `GRANT CONNECT ON DATABASE gw_<gatewayID> TO gw_<gatewayID>`, so no other
      gateway's role can connect.
@@ -340,8 +345,16 @@ and return the error to the reconcile queue.
 
 - GIVEN an admin role that has `CREATEDB` and `CREATEROLE` but is not a superuser
 - WHEN the GatewayReconciler provisions a new gateway
-- THEN `CREATE DATABASE gw_<gatewayID> OWNER gw_<gatewayID>` SHALL succeed because
+- THEN `CREATE DATABASE gw_<gatewayID> OWNER gw_<gatewayID> TEMPLATE template0` SHALL succeed because
   the admin was granted membership in `gw_<gatewayID>` first
+
+#### Scenario: Template1 is occupied during CREATE DATABASE
+
+- GIVEN a session is connected to `template1` (another gateway's `CREATE DATABASE`,
+  autovacuum, or a leftover backend)
+- WHEN the GatewayReconciler provisions a new gateway
+- THEN `CREATE DATABASE ... TEMPLATE template0` SHALL succeed
+- AND provisioning SHALL NOT fail with SQLSTATE 55006
 
 #### Scenario: Server unreachable during gateway provisioning
 
@@ -754,7 +767,7 @@ CREATE ROLE gw_2j5k7m9pqrstvwxyz LOGIN PASSWORD '<32-byte-hex-random>';
 -- let a non-superuser admin create a database owned by the role
 GRANT gw_2j5k7m9pqrstvwxyz TO hypershell_admin;
 -- database owned by the role
-CREATE DATABASE gw_2j5k7m9pqrstvwxyz OWNER gw_2j5k7m9pqrstvwxyz;
+CREATE DATABASE gw_2j5k7m9pqrstvwxyz OWNER gw_2j5k7m9pqrstvwxyz TEMPLATE template0;
 -- isolation
 REVOKE CONNECT ON DATABASE gw_2j5k7m9pqrstvwxyz FROM PUBLIC;
 GRANT  CONNECT ON DATABASE gw_2j5k7m9pqrstvwxyz TO gw_2j5k7m9pqrstvwxyz;
