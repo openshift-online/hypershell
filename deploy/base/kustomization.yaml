@@ -1,11 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# Compatibility composition for existing Kind/OpenShift/IBM consumers.
 resources:
-  - namespace.yaml
-  - api-server.yaml
-  - controller.yaml
-  - controller-rbac.yaml
-  - web-console.yaml
-  - prometheus/
-  - certificates/
-  - networkpolicies.yaml
+  - platform-resources
+  - applications

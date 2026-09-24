@@ -57,6 +57,9 @@ stamp_namespace() {
 
 stamp_namespace "${platform_ns}"
 stamp_namespace "${keycloak_ns}"
+"${KUBECTL}" label namespace "${keycloak_ns}" \
+  "${PR_ENV_CI_KEYCLOAK_LABEL}=${PR_ENV_CI_KEYCLOAK_VALUE}" \
+  --overwrite
 
 # Publish the resolved facts for later workflow steps (comment, summary).
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

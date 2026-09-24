@@ -107,7 +107,8 @@
       ".github/workflows/pr-environment.yml",
       ".github/workflows/pr-environment-destroy.yml",
       ".github/workflows/pr-environment-commands.yml",
-      ".github/actions/deploy-pr-environment/**"
+      ".github/actions/deploy-pr-environment/**",
+      ".github/actions/openshift-cluster-login/**"
     ]
   },
   "pr_test": {

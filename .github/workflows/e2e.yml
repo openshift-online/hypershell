@@ -44,20 +44,24 @@ on:
         type: string
         default: 'false'
 
-permissions:
-  contents: read
-  checks: read
-  pull-requests: write
+# No workflow-level permissions key: a block here would apply the same grant
+# to every job, including Kind. Tests / E2E still grants id-token: write on
+# the caller so OpenShift jobs can request it. Kind and plan-images declare
+# job permissions that omit id-token, so fork code in Kind cannot mint an
+# OIDC token (ephemeral-ci-secrets.spec.md).
 
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
   BASELINE_REGISTRY: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
+  PR_ENV_AWS_ROLE_ARN: ${{ vars.PR_ENV_AWS_ROLE_ARN || 'arn:aws:iam::451971655738:role/hypershell-ci-hysh-aws-01-cluster-login' }}
 
 jobs:
   plan-images:
     name: Plan component images
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       should_run: ${{ steps.plan.outputs.should_run }}
       api_server_image: ${{ steps.plan.outputs.api_server_image }}
@@ -401,6 +405,9 @@ jobs:
     # combined budget with headroom; 25 min was the ceiling before the wait
     # moved in, so a tighter value (e.g. 30) risks tripping on a slow build.
     timeout-minutes: 45
+    permissions:
+      contents: read
+      checks: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -691,6 +698,11 @@ jobs:
       )
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: write
+      id-token: write
     concurrency:
       group: pr-env-${{ github.event.pull_request.number || 'main' }}
       cancel-in-progress: true
@@ -700,11 +712,6 @@ jobs:
       PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
       PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
       PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
-      OPENSHIFT_PR_ENV_SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
-      OPENSHIFT_PR_ENV_TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
-      PR_ENV_GITHUB_OAUTH_CLIENT_ID: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_ID }}
-      PR_ENV_GITHUB_OAUTH_CLIENT_SECRET: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_SECRET }}
-      PR_ENV_GITHUB_OAUTH_CALLBACK_URL: ${{ secrets.PR_ENV_GITHUB_OAUTH_CALLBACK_URL }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -745,8 +752,8 @@ jobs:
   # old cross-workflow poller. Same should_run gate as Kind. After the suite
   # (pass, fail, or cancel) tears the environment down unless retained.
   # Main never has pr-environment/pr-extended, so teardown always runs there.
-  # continue-on-error stays on the suite step only so a teardown failure
-  # still fails Tests / E2E / OpenShift.
+  # Destroy uses if: always() so an unretained env is torn down after a
+  # failed suite. The suite step itself fails the job.
   e2e-openshift:
     name: OpenShift
     needs: [plan-images, deploy]
@@ -762,6 +769,10 @@ jobs:
       )
     runs-on: ubuntu-24.04
     timeout-minutes: 70
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     concurrency:
       group: pr-env-${{ github.event.pull_request.number || 'main' }}
       cancel-in-progress: true
@@ -789,23 +800,12 @@ jobs:
           openshell --version
 
       - name: Log in to the target cluster
-        env:
-          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
-          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
-        run: |
-          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
-            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
-            exit 1
-          fi
-          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
-          echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
+        uses: ./.github/actions/openshift-cluster-login
+        with:
+          role-arn: ${{ env.PR_ENV_AWS_ROLE_ARN }}
 
-      # FIXME: Enable gating on failure for OpenShift E2E tests again once we
-      # fix the insufficient resource issues for these tests. Destroy below
-      # must still fail the job when teardown cannot confirm deletion.
       - name: Run OpenShift e2e suite
         id: e2e-suite
-        continue-on-error: true
         env:
           E2E_INFRA_DRIVER: openshift
           TERM: dumb

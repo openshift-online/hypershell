@@ -19,6 +19,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PR_ENV_AWS_ROLE_ARN: ${{ vars.PR_ENV_AWS_ROLE_ARN || 'arn:aws:iam::451971655738:role/hypershell-ci-hysh-aws-01-cluster-login' }}
+
 concurrency:
   group: pr-env-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -29,6 +32,9 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
     env:
       OPENSHIFT_NAMESPACE: hypershell-ci-pr-${{ github.event.pull_request.number }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
@@ -46,15 +52,9 @@ jobs:
           oc version --client
 
       - name: Log in to the target cluster
-        env:
-          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
-          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
-        run: |
-          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
-            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
-            exit 1
-          fi
-          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
+        uses: ./.github/actions/openshift-cluster-login
+        with:
+          role-arn: ${{ env.PR_ENV_AWS_ROLE_ARN }}
 
       # Primary destroy path. The out-of-band reaper is the backstop when this
       # event does not fire. If teardown cannot confirm the destroy, fail so an

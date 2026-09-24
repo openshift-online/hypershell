@@ -474,6 +474,9 @@ if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
   kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
   success "Keycloak ready"
 fi
+# Test-tier users are reconciled after DNS/port-forward, not here. The
+# Deployment being Available does not mean https://keycloak.hypershell.localhost
+# answers yet (seed.sh documents the same gateway-route race).
 
 # --- Prometheus monitoring stack ---
 # Applied after the main components so the hypershell-system namespace and
@@ -876,6 +879,12 @@ header "DNS"
 start_dns
 setup_resolver
 success "DNS configured - *.hypershell.localhost resolves to 127.0.0.1"
+echo ""
+
+# Seed users after the hostname resolves and the gateway is listening. seed.sh
+# also reconciles (idempotent) so SKIP_SEED=false still resets passwords before
+# it password-grants. SKIP_SEED=true CI still gets users before the banner.
+reconcile_keycloak_seed_users
 echo ""
 
 # --- Summary banner ---

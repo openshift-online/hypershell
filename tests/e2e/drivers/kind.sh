@@ -404,6 +404,12 @@ acquire_oidc_token() {
   _driver_acquire_oidc_token "$@"
 }
 
+# Kind and CI-owned OpenShift users must not be deleted by a test run
+# (ephemeral-test-credentials.spec.md). They last until the environment does.
+de_seed_test_users() {
+  return 0
+}
+
 : "${E2E_GATEWAY_NAMESPACE_GC_INTERVAL:=30s}"
 : "${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD:=30s}"
 _GC_TIMING_PATCHED=""

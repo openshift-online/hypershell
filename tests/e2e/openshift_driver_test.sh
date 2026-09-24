@@ -167,6 +167,62 @@ else
   PASS=$((PASS + 1))
 fi
 
+# Developer-owned and CI-owned namespaces must not de-seed Keycloak users.
+# They last for the environment lifetime (ephemeral-test-credentials.spec.md).
+if de_seed_test_users; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: de_seed_test_users is not a no-op on a developer-owned namespace'
+fi
+OPENSHIFT_NAMESPACE=hypershell-ci-pr-1
+if de_seed_test_users; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: de_seed_test_users is not a no-op on a CI-owned namespace'
+fi
+OPENSHIFT_NAMESPACE=test-team
+
+# CI-owned password grant reads Secret hypershell-e2e-test-users and fails closed
+# when it is missing (ephemeral-test-credentials.spec.md).
+OPENSHIFT_NAMESPACE=hypershell-ci-pr-1
+E2E_OPENSHIFT_KEYCLOAK_NAMESPACE=hypershell-ci-pr-1-keycloak
+unset _OPENSHIFT_CI_PASSWORDS_LOADED E2E_KEYCLOAK_NAMESPACE
+oc() {
+  local args="$*"
+  case "$args" in
+    *"get route keycloak -n hypershell-ci-pr-1-keycloak"*) printf '%s' 'sso-ci.apps.example.com' ;;
+    *"get secret hypershell-e2e-test-users -n hypershell-ci-pr-1-keycloak -o jsonpath={.data.admin}"*)
+      printf '%s' 'cm90LWFkbWlu' ;;
+    *"get secret hypershell-e2e-test-users -n hypershell-ci-pr-1-keycloak -o jsonpath={.data.developer}"*)
+      printf '%s' 'cm90LWRldg==' ;;
+    *"get secret hypershell-e2e-test-users -n hypershell-ci-pr-1-keycloak -o jsonpath={.data.platform-admin}"*)
+      printf '%s' 'cm90LXBh' ;;
+    *) return 1 ;;
+  esac
+}
+E2E_OIDC_GRANT=password E2E_OIDC_PASSWORD=admin acquire_oidc_token >/dev/null
+case "$(captured_curl_args)" in
+  *' grant_type=password '*' password=rot-admin '*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); printf 'FAIL: CI password grant args (got=%q)\n' "$(captured_curl_args)" ;;
+esac
+
+unset _OPENSHIFT_CI_PASSWORDS_LOADED
+oc() { return 1; }
+if (E2E_OIDC_GRANT=password acquire_oidc_token >/dev/null 2>&1); then
+  FAIL=$((FAIL + 1)); echo 'FAIL: CI password grant without Secret was accepted'
+else
+  PASS=$((PASS + 1))
+fi
+
+if awk '/^cleanup\(\) \{/,/^}/' "${SCRIPT_DIR}/e2e-openshell.sh" | grep -q 'de_seed_test_users'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: e2e cleanup trap does not call de_seed_test_users'
+fi
+
 if grep -A20 '^cleanup() {' "${SCRIPT_DIR}/e2e-openshell.sh" \
   | grep -q 'Skipping namespace GC timing restore; moving to teardown'; then
   PASS=$((PASS + 1))

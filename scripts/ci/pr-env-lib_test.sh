@@ -47,7 +47,8 @@ assert_not_reapable() {
 unset GITHUB_RUN_ID GITHUB_REPOSITORY GITHUB_SERVER_URL KEYCLOAK_URL
 
 # --- Namespace + identity derivation ---
-assert_eq 'hypershell-ci-pr-232' "$(pr_env_namespace 232)" 'platform namespace from PR number'
+assert_eq 'hypershell.redhat.io/ci-keycloak' "${PR_ENV_CI_KEYCLOAK_LABEL}" 'CI Keycloak ESO selector label'
+assert_eq 'true' "${PR_ENV_CI_KEYCLOAK_VALUE}" 'CI Keycloak ESO selector value'
 assert_eq 'hypershell-ci-pr-232-keycloak' "$(pr_env_keycloak_namespace "$(pr_env_namespace 232)")" 'keycloak namespace derivation'
 assert_eq 'pr-232' "$(pr_env_environment_id 232)" 'environment id from PR number'
 assert_eq 'hypershell-ci-main-abcdef1' "$(pr_env_main_namespace 'abcdef1234567890')" 'main namespace from short SHA'
