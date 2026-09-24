@@ -704,6 +704,32 @@ e2e_wait_gateway_running() {
   return 1
 }
 
+# Extract only the CLI. OpenShift release-check pods have oc but no container
+# runtime; oc verifies registry TLS and image digests without running the image.
+# Stage in an empty directory so failure cannot replace an installed CLI.
+e2e_extract_cli_image() (
+  local image="$1" install_dir="$2" engine="$3"
+  local work ctr_name="e2e-cli-extract-$$"
+  work=$(mktemp -d) || return 1
+  trap 'rm -rf "$work"' EXIT
+  if [[ -n "$engine" ]]; then
+    show_cmd "${engine} create ${image}"
+    "$engine" create --name "$ctr_name" "$image" true >/dev/null 2>&1 || return 1
+    if ! "$engine" cp "${ctr_name}:/usr/local/bin/openshell" "${work}/openshell"; then
+      "$engine" rm "$ctr_name" >/dev/null 2>&1 || true
+      return 1
+    fi
+    "$engine" rm "$ctr_name" >/dev/null 2>&1 || return 1
+  else
+    command -v oc >/dev/null 2>&1 || return 1
+    show_cmd "oc image extract ${image} --only-files --path=/usr/local/bin/openshell:${work}"
+    oc image extract "$image" --only-files --path="/usr/local/bin/openshell:${work}" || return 1
+  fi
+  [[ -s "${work}/openshell" && -f "${work}/openshell" && ! -L "${work}/openshell" ]] || return 1
+  chmod 755 "${work}/openshell" || return 1
+  mv -f "${work}/openshell" "${install_dir}/openshell"
+)
+
 # Parse a gateway create/get JSON. Sets _CREATE_KIND (OK|ERROR|PARSE), _CREATE_ID,
 # _CREATE_NAMESPACE (or error code/reason in the ERROR case).
 e2e_parse_gateway_response() {

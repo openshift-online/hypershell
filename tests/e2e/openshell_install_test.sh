@@ -45,4 +45,60 @@ for timeout in 0 -1 invalid; do
     exit 1
   fi
 done
+# Exercise extraction without a container daemon, including failure atomicity.
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/bin" "$work/install" "$work/tmp"
+export TMPDIR="$work/tmp"
+export EXTRACT_TEST_LOG="$work/commands"
+export EXTRACT_TEST_MODE=success
+cat > "$work/bin/oc" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$EXTRACT_TEST_LOG"
+[[ "$1" == image && "$2" == extract && "$3" == example.invalid/cli:v1 && "$4" == --only-files ]]
+[[ "$5" == --path=/usr/local/bin/openshell:* ]]
+destination="${5#--path=/usr/local/bin/openshell:}"
+case "$EXTRACT_TEST_MODE" in
+  success) printf '#!/bin/sh\necho openshell-test\n' > "$destination/openshell" ;;
+  failure) printf partial > "$destination/openshell"; exit 1 ;;
+  missing) ;;
+  symlink) ln -s /bin/sh "$destination/openshell" ;;
+esac
+SH
+cat > "$work/bin/engine" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$EXTRACT_TEST_LOG"
+case "$1" in
+  create|rm) ;;
+  cp) [[ "$EXTRACT_TEST_MODE" != failure ]] || exit 1
+      printf '#!/bin/sh\necho openshell-test\n' > "$3" ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$work/bin/oc" "$work/bin/engine"
+export PATH="$work/bin:$PATH"
+e2e_extract_cli_image example.invalid/cli:v1 "$work/install" ''
+[[ "$("$work/install/openshell")" == openshell-test ]]
+for EXTRACT_TEST_MODE in failure missing symlink; do
+  if e2e_extract_cli_image example.invalid/cli:v1 "$work/install" ''; then
+    echo "Accepted invalid oc extraction: $EXTRACT_TEST_MODE"; exit 1
+  fi
+  [[ "$("$work/install/openshell")" == openshell-test ]]
+done
+EXTRACT_TEST_MODE=success
+: > "$EXTRACT_TEST_LOG"
+e2e_extract_cli_image example.invalid/cli:v1 "$work/install" "$work/bin/engine"
+grep -q '^create ' "$EXTRACT_TEST_LOG"
+grep -q '^cp ' "$EXTRACT_TEST_LOG"
+grep -q '^rm ' "$EXTRACT_TEST_LOG"
+EXTRACT_TEST_MODE=failure
+: > "$EXTRACT_TEST_LOG"
+if e2e_extract_cli_image example.invalid/cli:v1 "$work/install" "$work/bin/engine"; then
+  echo 'Accepted failed runtime extraction'; exit 1
+fi
+grep -q '^rm ' "$EXTRACT_TEST_LOG"
+[[ "$("$work/install/openshell")" == openshell-test ]]
+[[ -z "$(ls -A "$TMPDIR")" ]]
 echo 'OpenShell installation tests passed'

@@ -965,21 +965,12 @@ _extract_openshell_cli_from_image() {
   dim "  Extracting CLI from container image: ${image}"
   local install_dir="${HOME}/.local/bin"
   mkdir -p "${install_dir}"
-  local ctr_name="e2e-cli-extract-$$"
   local ctr_engine
-  ctr_engine="${CONTAINER_ENGINE:-$(command -v podman 2>/dev/null || echo docker)}"
-  show_cmd "${ctr_engine} create ${image}"
-  if ! ${ctr_engine} create --name "${ctr_name}" "${image}" true >/dev/null 2>&1; then
-    fail_test "Failed to create container from ${image}"
-    exit 1
-  fi
-  if ! ${ctr_engine} cp "${ctr_name}:/usr/local/bin/openshell" "${install_dir}/openshell" 2>/dev/null; then
-    ${ctr_engine} rm "${ctr_name}" >/dev/null 2>&1 || true
+  ctr_engine="${CONTAINER_ENGINE:-$(command -v podman 2>/dev/null || command -v docker 2>/dev/null || true)}"
+  if ! e2e_extract_cli_image "${image}" "${install_dir}" "${ctr_engine}"; then
     fail_test "Failed to extract openshell binary from ${image}"
     exit 1
   fi
-  ${ctr_engine} rm "${ctr_name}" >/dev/null 2>&1 || true
-  chmod 755 "${install_dir}/openshell"
   export PATH="${install_dir}:${PATH}"
   hash -r 2>/dev/null || true
 }
