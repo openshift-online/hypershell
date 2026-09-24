@@ -350,6 +350,10 @@ case "${body}" in
   *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing GitHub web-console login' ;;
 esac
 case "${body}" in
+  *'seeded test-tier username and password'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing username/password login' ;;
+esac
+case "${body}" in
   *'impersonate that user'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing Keycloak impersonation guidance' ;;
 esac

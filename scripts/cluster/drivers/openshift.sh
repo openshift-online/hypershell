@@ -22,11 +22,11 @@ oc_cli() {
   oc "$@"
 }
 
-# Whether this environment brokers interactive login to GitHub instead of the
-# realm's seeded admin/developer passwords
+# Whether this environment brokers interactive login to GitHub in addition to
+# the realm's seeded username/password form
 # (ephemeral-pr-environments.spec.md: GitHub-Brokered Keycloak Authentication).
-# Brokered environments have no password grant, so seeding and the banner
-# must use the hypershell-e2e service account instead of admin/admin.
+# Brokered e2e has no password grant, so seeding and the banner must use the
+# hypershell-e2e service account instead of admin/admin.
 # GitHub IdP is enabled when ESO has delivered a client_id into
 # hypershell-github-oauth (ephemeral-ci-secrets.spec.md).
 github_idp_enabled() {
@@ -1207,9 +1207,10 @@ print_banner() {
   info "OIDC Issuer:   ${OPENSHIFT_OIDC_ISSUER}"
   info "Login:         https://${OPENSHIFT_CONSOLE_HOST}/auth/login"
   if github_idp_enabled; then
-    info "Interactive login is GitHub-brokered (openshift-online org, or allowlisted user)"
-    info "Keycloak admin: ${OPENSHIFT_KC_HOSTNAME}/admin/hypershell/console/ (sign in with GitHub, then impersonate developer or platform-admin)"
-  elif is_ci_owned_pr_environment; then
+    info "Interactive login is GitHub (openshift-online org or allowlisted user) or a seeded test-tier username and password"
+    info "Keycloak admin: ${OPENSHIFT_KC_HOSTNAME}/admin/hypershell/console/"
+  fi
+  if is_ci_owned_pr_environment; then
     info "Test-tier principals are seeded from the cluster secret (passwords are not printed)"
   else
     info "Test users:    admin/admin (admins + users), developer/developer (users only)"

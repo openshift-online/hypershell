@@ -816,8 +816,10 @@ public artifact.
   URL, API Route URL, web-console Route URL, and Keycloak hypershell-realm
   admin console URL, rather than posting a second comment
 - AND the comment SHALL present the same login details `make openshift-up` prints
-- AND the comment SHALL tell the developer to sign in with GitHub at that
-  Keycloak admin console to impersonate `developer` or `platform-admin`
+- AND the comment SHALL tell the developer they can sign in with GitHub or
+  with a seeded test-tier username and password
+- AND the comment SHALL tell the developer they can impersonate `developer`
+  or `platform-admin` from the Keycloak admin console
 - AND the comment SHALL NOT link master-realm `/admin/` as the GitHub login
 - AND the comment SHALL NOT contain a credential
 
@@ -1108,12 +1110,14 @@ assigns that principal `platform:admin` and `gateway:creator`), so a GitHub
 session already starts at that tier.
 
 Interactive login to the hypershell realm, including the Keycloak admin
-console at `/admin/hypershell/console/`, SHALL authenticate through the GitHub
-identity provider. The hypershell-realm login page SHALL present GitHub and
-SHALL NOT present a username/password form when that provider is enabled, so
-a human cannot fall back to a test-tier principal password. Master-realm
-`/admin/` is Keycloak's bootstrap-admin console and is not the GitHub
-impersonation path. On first broker login the realm SHALL also grant the
+console at `/admin/hypershell/console/` and the web-console OIDC login, SHALL
+present GitHub when that identity provider is enabled and SHALL also present
+a username/password form. Test-tier principal passwords on CI-owned PR
+environments are non-guessable (`ephemeral-test-credentials.spec.md`), so
+showing the form does not republish a guessable login. A human MAY
+authenticate with GitHub or with a seeded test-tier username and password.
+Master-realm `/admin/` is Keycloak's bootstrap-admin console and is not this
+path. On first broker login the realm SHALL also grant the
 `realm-management` client roles `view-users`, `query-users`, and
 `impersonation`, so the GitHub user can open that admin console and
 impersonate `developer` and `platform-admin` without a second account.
@@ -1169,11 +1173,25 @@ and other automation against a live environment SHALL still be able to impersona
 - GIVEN a pull-request environment whose Keycloak brokers to GitHub
 - WHEN a GitHub user opens `https://<keycloak-route>/admin/hypershell/console/`
 - THEN they SHALL authenticate with GitHub
-- AND they SHALL NOT be offered a username/password form on that login page
+- AND they SHALL also be offered a username/password form on that login page
 - AND they SHALL reach the hypershell-realm admin console
 - AND they SHALL be able to impersonate `developer` and `platform-admin`
 - AND they SHALL NOT have used master-realm `/admin/` or the bootstrap admin
   password
+
+#### Scenario: Login page keeps username/password alongside GitHub
+
+- GIVEN a pull-request environment whose Keycloak brokers to GitHub
+- AND the environment has seeded the test-tier principals from Secret
+  `hypershell-e2e-test-users`
+- WHEN a human opens the web console login or
+  `https://<keycloak-route>/admin/hypershell/console/`
+- THEN the hypershell-realm login page SHALL present GitHub
+- AND it SHALL present a username/password form
+- AND signing in as `admin`, `developer`, or `platform-admin` with that
+  principal's Secret password SHALL succeed
+- AND signing in as `admin`/`admin`, `developer`/`developer`, or
+  `platform-admin`/`platform-admin` SHALL fail
 
 #### Scenario: Authenticated GitHub user can fully drive the environment
 
@@ -1483,7 +1501,7 @@ exists).
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |
-| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub login with no password form, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works for the environment lifetime; e2e does not de-seed |
+| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub or a seeded username/password, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works for the environment lifetime; e2e does not de-seed |
 | Area 9 grants `openshell-user` on the gateway client before token exchange | Kind already uses `assign_gateway_client_role` because there is no user-id discovery path to create a `gateway:viewer` RoleBinding for a non-owner. The OpenShift driver does the same so a brokered PR env has a specified path to an `openshell-user` token. That grant is not a Keycloak realm-role seed |
 | Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
 | Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |

@@ -56,17 +56,18 @@ so a human can run the e2e suite locally. A CI-owned PR environment that inherit
 the base publishes them on the public internet.
 
 These seeded realm users - the test-tier principals - exist so the e2e suite can
-authenticate, and so a GitHub-authenticated human on a CI-owned PR environment can
-self-service impersonate a lower-privilege tier. On those PR environments no human
-logs in directly as one of them: interactive access is always GitHub-brokered (see
-`ephemeral-pr-environments.spec.md`); a human reaches these tiers only by
-impersonating into them from an already-authenticated GitHub session. On a
+authenticate, so a human can password-login as a test-tier principal, and so a
+GitHub-authenticated human on a CI-owned PR environment can self-service
+impersonate a lower-privilege tier. On those PR environments interactive access
+is GitHub-brokered or a username/password form against the seeded principals
+(see `ephemeral-pr-environments.spec.md`); impersonation remains available from
+an already-authenticated GitHub session without knowing a password. On a
 developer-owned environment a human MAY password-grant as `admin`/`admin` or
 `developer`/`developer` - that is how local e2e and manual OpenShift testing work.
 The password value has named consumers, split by who owns the environment. Seed on a
 CI-owned PR environment is the primary consumer of the durable cloud-store passwords:
 it reads Secret `hypershell-e2e-test-users` so the three Keycloak accounts exist with
-non-guessable passwords (needed for username-based impersonation, not for a human
+non-guessable passwords (needed for username-based impersonation and for a human
 password login). Password-grant e2e against a CI-owned PR environment is the
 secondary consumer of that same Secret. The canonical origin pull-request workflow
 is GitHub-brokered (`E2E_OIDC_GRANT=client_credentials` in
@@ -188,7 +189,9 @@ are Keycloak client service accounts with no password and are not human logins.
 - WHEN an unauthenticated caller hits that environment's public Keycloak Route
 - THEN password grant as `admin`/`admin`, `developer`/`developer`, or
   `platform-admin`/`platform-admin` SHALL fail
-- AND the only interactive login on that Route SHALL be the GitHub-brokered path
+- AND the hypershell-realm login page SHALL present a username/password form
+  alongside GitHub
+- AND that form SHALL NOT accept a password equal to its username
 
 #### Scenario: Service accounts are retained
 
@@ -659,10 +662,11 @@ Brokered Environments Seed Users for Identity Resolution).
 In GitHub-brokered per-PR environments the e2e suite authenticates through
 client-credentials for the admin path and Keycloak token exchange for the developer
 and platform-admin paths, and never sends a test-user password. Those environments
-SHALL still seed the three test users, purely so that authentication by username -
-token-exchange impersonation and role lookup - resolves; the seeded passwords SHALL
-NOT be used for a password login there. Because bring-up seeds these users, a brokered
-e2e job SHALL NOT need any password wiring to run.
+SHALL still seed the three test users so that authentication by username -
+token-exchange impersonation, role lookup, and an interactive username/password
+login - resolves. Canonical PR CI SHALL NOT send a test-user password
+(`E2E_OIDC_GRANT=client_credentials`). Because bring-up seeds these users, a
+brokered e2e job SHALL NOT need any password wiring to run.
 
 #### Scenario: Brokered run needs the users but not their passwords
 
@@ -751,8 +755,8 @@ test-tier principal's password from the cloud store or the ESO Secret.
 | Developer-owned environments keep static credentials, Kind or OpenShift | A human running e2e from a laptop - against Kind or after `make openshift-up` - needs `admin`/`admin` and `developer`/`developer`. Restricting those seeds to Kind would break manual OpenShift e2e. AWS and ESO on a laptop would add infrastructure for no local-dev benefit |
 | Developer-owned OpenShift may still publish guessable logins | Those namespaces are the developer's isolation boundary (`ephemeral-pr-environments.spec.md` already excludes them from the CI timebox and reaper) and SHALL NOT use `pr-*` / `hypershell-ci-pr-*` names. The guessable-login closure applies to CI-owned `pr-*` environments, not to a developer exercising the suite by hand |
 | Master bootstrap admin left out of scope | It is Keycloak's own console login, a different credential class from the realm test users |
-| Passwords are never printed in CI; humans on PR envs use GitHub-brokered login | Nobody needs to type `admin`/`admin` against a public CI PR Route. Impersonation never sends a password. Local bring-up still prints the static seeds |
+| Passwords are never printed in CI; the login page still shows username/password | Rotated Secret passwords are non-guessable, so showing the form does not republish `admin`/`admin`. Nobody types those guessable values against a public CI PR Route. Impersonation never sends a password. Local bring-up still prints the static seeds |
 | Password-grant jobs use cluster login plus the ESO Secret, not a static AWS key | A long-lived cloud credential in a GitHub Actions secret is the same class of standing exposure this spec removes from Keycloak. Canonical PR CI is brokered and does not fetch these passwords. Cluster login is `ephemeral-ci-secrets.spec.md`; a password-grant job only reads the in-cluster password Secret after that login |
-| Brokered PR environments seed users but never password-login | Client-credentials and token exchange resolve users by username. The users must exist for impersonation; their passwords are never sent on the public internet during that path |
+| Brokered PR environments seed users; canonical CI never password-logins | Client-credentials and token exchange resolve users by username. The users must exist for impersonation and for a human username/password login; canonical PR CI never sends those passwords on the public internet |
 | The three test-tier principals double as shared impersonation targets, generalized to any authenticated user | Reusing the seeded principals avoids a second account concept. A GitHub session already carries the `admin` tier's HyperShell API capability (`platform:admin` plus `gateway:creator`), so impersonation exists to reach `developer` and `platform-admin` without a password. Token-exchange impersonation SHALL NOT include other GitHub-brokered users. Interactive admin-console impersonation is owned by `ephemeral-pr-environments.spec.md` |
 | Seed assigns Keycloak realm roles only | `gateway:viewer` is a per-gateway DB binding. A Keycloak seed step cannot grant it. Area 9's `openshell-user` path is a per-gateway client-role grant owned by `ephemeral-pr-environments.spec.md` |
