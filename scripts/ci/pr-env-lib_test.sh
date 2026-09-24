@@ -519,7 +519,7 @@ PR_NUMBER=232 GITHUB_ENV="${resolve_env}" bash "${SCRIPT_DIR}/resolve-openshift-
 assert_eq 'OPENSHIFT_NAMESPACE=hypershell-ci-pr-232' "$(cat "${resolve_env}")" 'resolve script writes PR namespace'
 rm -f "${resolve_env}"
 resolve_env="$(mktemp)"
-PR_NUMBER= GITHUB_SHA='abcdef1234567890deadbeef' GITHUB_ENV="${resolve_env}" \
+PR_NUMBER= GITHUB_EVENT_NAME=push GITHUB_SHA='abcdef1234567890deadbeef' GITHUB_ENV="${resolve_env}" \
   bash "${SCRIPT_DIR}/resolve-openshift-namespace.sh" >/dev/null
 assert_eq 'OPENSHIFT_NAMESPACE=hypershell-ci-main-abcdef1' "$(cat "${resolve_env}")" 'resolve script writes per-commit main namespace'
 rm -f "${resolve_env}"
