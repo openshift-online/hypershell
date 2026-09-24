@@ -31,6 +31,8 @@
 #   E2E_GC_TIMEOUT         Seconds to wait for namespace GC after delete (default: 300)
 #   E2E_ORPHAN_GC_TIMEOUT  Seconds to wait for periodic orphan namespace GC (default: 300)
 #   E2E_SKIP_CLEANUP       Set to 1 to keep test resources after run (default: 0)
+#   E2E_GATEWAY_AUTH       identity (default) or service_account (short mode:
+#                          create a gateway credential through the public API)
 #   OPENSHELL_BIN          Path to the openshell CLI binary (default: openshell)
 #   E2E_OPENSHELL_INSTALL  auto, always, or never (default: always)
 #   E2E_OPENSHELL_VERSION  Override CLI version/tag to install (e.g. v0.0.116, dev)
@@ -58,6 +60,9 @@ fi
 
 # shellcheck source=drivers/kind.sh
 source "$DRIVER_FILE"
+# shellcheck source=gateway_service_account.sh
+source "${SCRIPT_DIR}/gateway_service_account.sh"
+e2e_validate_gateway_auth
 
 REQUIRED_FUNCTIONS=(discover_api_host discover_console_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl configure_namespace_gc_timing restore_namespace_gc_timing)
 for fn in "${REQUIRED_FUNCTIONS[@]}"; do
@@ -124,6 +129,18 @@ cleanup() {
     kill "$E2E_GW_PF_PID" 2>/dev/null || true
     wait "$E2E_GW_PF_PID" 2>/dev/null || true
   fi
+  if [[ -n "$GATEWAY_SA_DIR" ]]; then
+    if [[ -f "${GATEWAY_SA_DIR}/credential.json" ]]; then
+      if ! acquire_oidc_token || ! gateway_service_account delete; then
+        fail_test "Could not clean up the gateway service account"
+        exit_code=1
+      fi
+    fi
+    rm -rf "$GATEWAY_SA_DIR"
+    if [[ -n "${GW_CONFIG_DIR:-}" ]]; then
+      rm -f "${GW_CONFIG_DIR}/oidc_token.json"
+    fi
+  fi
   # perf mode never deletes the supplied/reused canary gateway: checkpoints and
   # canary runs must leave it standing. E2E_SKIP_CLEANUP also preserves it.
   if [[ "$E2E_MODE" != "perf" && "$E2E_SKIP_CLEANUP" != "1" && -n "$GW_ID" ]]; then
@@ -143,6 +160,9 @@ cleanup() {
   # summary always prints, and print_results itself notes when E2E_COMPLETED
   # was never set (i.e. the run aborted before reaching the results section).
   print_results
+  if [[ "$exit_code" -ne 0 ]]; then
+    exit "$exit_code"
+  fi
 }
 trap cleanup EXIT
 
@@ -741,10 +761,9 @@ echo ""
 e2e_area "4. OIDC Token Acquisition + CA Certificate Setup"
 echo ""
 
-# The client the admin's gateway/CLI tokens are minted against. The
-# reconciler forces a per-gateway audience on every infra target, so we
-# always use the per-gateway client and wait for the async owner-binding ->
-# openshell-admin role to land in the token.
+# The identity flow uses the per-gateway client. Machine mode below replaces
+# the requesting client with an API-created service account; its token still
+# has the same per-gateway audience and the gateway's assigned roles.
 OIDC_CLIENT_ID_EFFECTIVE="${GW_KC_CLIENT_ID}"
 
 if [[ "${E2E_INFRA_DRIVER}" == "kind" ]] && e2e_step long; then
@@ -802,8 +821,17 @@ if [[ "${E2E_INFRA_DRIVER}" == "kind" ]] && e2e_step long; then
   fi
 fi
 
-show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
-if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
+if [[ "$E2E_GATEWAY_AUTH" == "service_account" ]]; then
+  show_cmd "# create a gateway-scoped service account through the HyperShell API"
+  GATEWAY_SA_DIR=$(mktemp -d)
+  if ! acquire_oidc_token || ! gateway_service_account create; then
+    fail_test "Failed to create a gateway-scoped service account"
+    exit 1
+  fi
+  OIDC_CLIENT_ID_EFFECTIVE=$(gateway_service_account client-id)
+  OIDC_TOKEN=$(gateway_service_account token)
+  pass "Gateway service-account token acquired (single gateway audience, openshell-admin + openshell-user)"
+elif acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
   OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
   pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
 else
@@ -1171,6 +1199,9 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
 
 if [[ -f "${GW_CONFIG_DIR}/metadata.json" && -f "${GW_CONFIG_DIR}/oidc_token.json" ]]; then
   pass "openshell CLI registered (OIDC mode)"
+  if [[ -n "$GATEWAY_SA_DIR" ]]; then
+    install_gateway_service_account_cli
+  fi
 else
   fail_test "Failed to write gateway config"
 fi
@@ -1925,6 +1956,15 @@ sep
 echo ""
 e2e_area "11. Gateway Deletion + Namespace Garbage Collection"
 echo ""
+
+if [[ -n "$GATEWAY_SA_DIR" ]]; then
+  if acquire_oidc_token && gateway_service_account revoke; then
+    pass "Gateway service account revoked, token issuance rejected, and credential deleted"
+  else
+    fail_test "Gateway service-account revocation or deletion failed"
+    exit 1
+  fi
+fi
 
 if [[ "$E2E_MODE" == "perf" ]]; then
   # perf mode must not tear down the supplied/reused canary gateway. Exercise
