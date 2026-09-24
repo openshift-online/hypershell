@@ -21,6 +21,7 @@ assert_eq() {
 }
 
 OPENSHIFT_NAMESPACE=test-team
+assert_eq unset "${OPENSHELL_GATEWAY_INSECURE-unset}" 'OpenShift CLI verifies TLS after importing Kind helpers'
 
 oc() {
   local args="$*"

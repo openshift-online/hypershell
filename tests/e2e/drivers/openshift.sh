@@ -9,6 +9,9 @@
 # infrastructure operation and the TLS policy are overridden below.
 # shellcheck source=kind.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kind.sh"
+# The shared Kind helpers enable insecure CLI TLS for their local CA. OpenShift
+# uses trusted routes (or E2E_OPENSHIFT_CA_SECRET), so never inherit that bypass.
+unset OPENSHELL_GATEWAY_INSECURE
 
 : "${E2E_OPENSHIFT_KEYCLOAK_ROUTE:=keycloak}"
 # Namespace holding the Keycloak Route. Defaults to the "<platform>-keycloak"
