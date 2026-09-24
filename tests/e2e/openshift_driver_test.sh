@@ -216,7 +216,7 @@ else
   PASS=$((PASS + 1))
 fi
 
-if grep -A50 '^cleanup() {' "${SCRIPT_DIR}/e2e-openshell.sh" | grep -q 'de_seed_test_users'; then
+if awk '/^cleanup\(\) \{/,/^}/' "${SCRIPT_DIR}/e2e-openshell.sh" | grep -q 'de_seed_test_users'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
