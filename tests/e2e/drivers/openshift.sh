@@ -197,11 +197,67 @@ wait_for_gateway_route() {
   return 1
 }
 
+_openshift_is_ci_owned() {
+  [[ "${OPENSHIFT_NAMESPACE:-}" == hypershell-ci-pr-* ]]
+}
+
+_openshift_load_ci_passwords() {
+  _openshift_is_ci_owned || return 0
+  [[ "${E2E_OIDC_GRANT:-password}" == "password" ]] || return 0
+  [[ -z "${_OPENSHIFT_CI_PASSWORDS_LOADED:-}" ]] || return 0
+  local ns="${E2E_KEYCLOAK_NAMESPACE}"
+  local admin_pw dev_pw pa_pw
+  admin_pw="$(oc get secret hypershell-e2e-test-users -n "${ns}" \
+    -o jsonpath='{.data.admin}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  dev_pw="$(oc get secret hypershell-e2e-test-users -n "${ns}" \
+    -o jsonpath='{.data.developer}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  pa_pw="$(oc get secret hypershell-e2e-test-users -n "${ns}" \
+    -o jsonpath='{.data.platform-admin}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  if [[ -z "${admin_pw}" || -z "${dev_pw}" || -z "${pa_pw}" ]]; then
+    red "  Secret hypershell-e2e-test-users is missing in ${ns}"
+    red "  Password-grant e2e against a CI-owned PR environment cannot fall back to username-equals-password"
+    return 1
+  fi
+  E2E_OIDC_PASSWORD="${admin_pw}"
+  E2E_DEV_PASSWORD="${dev_pw}"
+  E2E_PLATFORM_ADMIN_PASSWORD="${pa_pw}"
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    echo "::add-mask::${admin_pw}"
+    echo "::add-mask::${dev_pw}"
+    echo "::add-mask::${pa_pw}"
+  fi
+  _OPENSHIFT_CI_PASSWORDS_LOADED=1
+}
+
+_openshift_password_for() {
+  local username="$1"
+  local fallback="$2"
+  case "${username}" in
+    admin) printf '%s' "${E2E_OIDC_PASSWORD}" ;;
+    developer) printf '%s' "${E2E_DEV_PASSWORD}" ;;
+    platform-admin) printf '%s' "${E2E_PLATFORM_ADMIN_PASSWORD}" ;;
+    *) printf '%s' "${fallback}" ;;
+  esac
+}
+
 # Ensure direct callers (including unit tests) get the cluster-derived issuer.
 acquire_oidc_token() {
+  local username="${1:-${E2E_OIDC_USERNAME}}"
+  local password="${2:-${E2E_OIDC_PASSWORD}}"
+  local client_id="${3:-${E2E_OIDC_CLIENT_ID}}"
   _openshift_configure_oidc || return 1
   _openshift_configure_tls || return 1
-  _driver_acquire_oidc_token "$@"
+  _openshift_load_ci_passwords || return 1
+  if _openshift_is_ci_owned && [[ "${E2E_OIDC_GRANT:-password}" == "password" ]]; then
+    password="$(_openshift_password_for "${username}" "${password}")"
+  fi
+  _driver_acquire_oidc_token "${username}" "${password}" "${client_id}"
+}
+
+de_seed_test_users() {
+  # Test-tier principals stay for the whole environment lifetime
+  # (ephemeral-test-credentials.spec.md). Namespace destroy removes them.
+  return 0
 }
 
 # configure_namespace_gc_timing / restore_namespace_gc_timing - resolve the

@@ -1,13 +1,11 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# App-only OpenShift base for the GitOps fleet hub (bootstrap-hyperfleet).
-#
-# This inherits the core base and applies OpenShift-specific configurations
-# (routes, SCCs, network policies) but intentionally omits the bundled Keycloak
-# and any database manifests: production uses externally provisioned PostgreSQL
-# servers, injected per-environment by GitOps.
+# Compatibility composition for existing GitOps fleet hub consumers.
+# Includes both platform and application resources, but not bundled Keycloak or
+# databases. Production injects externally provisioned PostgreSQL per environment.
+# New two-instance Argo CD consumers use deploy/gitops/{platform,applications}
+# separately at the same source commit. See ../gitops/README.md.
 resources:
-  - ../base
-  - route.yaml
-  - scc.yaml
+  - ../gitops/platform
+  - ../gitops/applications

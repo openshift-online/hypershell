@@ -87,52 +87,34 @@ runs:
         openshell --version
 
     - name: Log in to the target cluster
+      uses: ./.github/actions/openshift-cluster-login
+      with:
+        role-arn: ${{ env.PR_ENV_AWS_ROLE_ARN }}
+
+    - name: Install cluster pull secret
       shell: bash
       run: |
-        if [[ -z "${OPENSHIFT_PR_ENV_SERVER_URL}" || -z "${OPENSHIFT_PR_ENV_TOKEN}" ]]; then
-          echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
-          exit 1
-        fi
-        oc login --server="${OPENSHIFT_PR_ENV_SERVER_URL}" --token="${OPENSHIFT_PR_ENV_TOKEN}" >/dev/null
-        echo "Logged in as $(oc whoami) at $(oc whoami --show-server)"
         mkdir -p "${HOME}/.docker"
         oc get secret pull-secret -n openshift-config \
           -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > "${HOME}/.docker/config.json"
         echo "Installed cluster pull secret for registry inspect"
 
-    - name: Provision GitHub OAuth secret (fail closed)
+    - name: Wait for ESO secrets and ensure e2e client
       if: inputs.pr_number != ''
       shell: bash
+      env:
+        PR_NUMBER: ${{ inputs.pr_number }}
       run: |
-        missing=()
-        [[ -n "${PR_ENV_GITHUB_OAUTH_CLIENT_ID}" ]] || missing+=("PR_ENV_GITHUB_OAUTH_CLIENT_ID")
-        [[ -n "${PR_ENV_GITHUB_OAUTH_CLIENT_SECRET}" ]] || missing+=("PR_ENV_GITHUB_OAUTH_CLIENT_SECRET")
-        [[ -n "${PR_ENV_GITHUB_OAUTH_CALLBACK_URL}" ]] || missing+=("PR_ENV_GITHUB_OAUTH_CALLBACK_URL")
-        if (( ${#missing[@]} > 0 )); then
-          echo "::error::GitHub OAuth configuration is incomplete: ${missing[*]}"
-          exit 1
-        fi
         kc_ns="${OPENSHIFT_NAMESPACE}-keycloak"
         oc create namespace "${kc_ns}" --dry-run=client -o yaml | oc apply -f - >/dev/null
-        existing="$(oc get secret hypershell-github-oauth -n "${kc_ns}" \
-          -o jsonpath='{.data.e2e-client-secret}' 2>/dev/null || true)"
-        if [[ -n "${existing}" ]]; then
-          e2e_secret="$(printf '%s' "${existing}" | base64 -d)"
-        else
-          e2e_secret="$(openssl rand -hex 24)"
-        fi
-        echo "::add-mask::${e2e_secret}"
-        oc create secret generic hypershell-github-oauth -n "${kc_ns}" \
-          --from-literal=idp-enabled=true \
-          --from-literal=client-id="${PR_ENV_GITHUB_OAUTH_CLIENT_ID}" \
-          --from-literal=client-secret="${PR_ENV_GITHUB_OAUTH_CLIENT_SECRET}" \
-          --from-literal=callback-url="${PR_ENV_GITHUB_OAUTH_CALLBACK_URL}" \
-          --from-literal=org="${PR_ENV_GITHUB_ORG}" \
-          --from-literal=allowlist="${PR_ENV_GITHUB_ALLOWLIST}" \
-          --from-literal=e2e-client-enabled=true \
-          --from-literal=e2e-client-secret="${e2e_secret}" \
-          --dry-run=client -o yaml | oc apply -f - >/dev/null
-        echo "Provisioned hypershell-github-oauth in ${kc_ns} (GitHub IdP enabled)"
+        oc label namespace "${kc_ns}" \
+          hypershell.redhat.io/ci-keycloak=true \
+          --overwrite
+        bash scripts/ci/wait-for-secret-keys.sh "${kc_ns}" hypershell-github-oauth \
+          client_id client_secret callback_url
+        bash scripts/ci/wait-for-secret-keys.sh "${kc_ns}" hypershell-e2e-test-users \
+          admin developer platform-admin
+        bash scripts/ci/ensure-e2e-client-secret.sh
 
     - name: Deploy / reconcile environment (make openshift-up)
       shell: bash
@@ -146,7 +128,7 @@ runs:
       run: |
         kc_ns="${OPENSHIFT_NAMESPACE}-keycloak"
         hash="$(oc get secret hypershell-github-oauth -n "${kc_ns}" \
-          -o jsonpath='{.data.idp-enabled}{.data.client-id}{.data.e2e-client-enabled}' \
+          -o jsonpath='{.data.client_id}{.data.client_secret}{.data.callback_url}' \
           | sha256sum | awk '{print $1}')"
         current="$(oc get deploy/keycloak -n "${kc_ns}" \
           -o jsonpath='{.spec.template.metadata.annotations.hypershell\.redhat\.io/oauth-secret}' || true)"
