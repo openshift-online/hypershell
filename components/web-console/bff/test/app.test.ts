@@ -221,6 +221,7 @@ describe("web-console BFF", () => {
 
   it("degrades to unknown when the API metadata endpoint is unreachable", async () => {
     const config: ServerConfig = {
+      apiOrigin: "http://127.0.0.1:1",
       apiTimeoutMs: 100,
       host: "127.0.0.1",
       logLevel: "silent",
