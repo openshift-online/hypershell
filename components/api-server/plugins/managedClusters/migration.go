@@ -1,6 +1,9 @@
 package managedClusters
 
 import (
+	"fmt"
+	"strings"
+
 	"gorm.io/gorm"
 
 	"github.com/go-gormigrate/gormigrate/v2"
@@ -33,6 +36,52 @@ func migrationAddRegistrationFields() *gormigrate.Migration {
 					DROP COLUMN IF EXISTS oidc_subject,
 					DROP COLUMN IF EXISTS last_seen_at
 			`).Error
+		},
+	}
+}
+
+// migrationUniqueName makes managed_clusters.name unique across all live
+// records, registered or not, so discovery by name (seed scripts, e2e,
+// operators) is unambiguous and a registration can never create a second
+// record with a taken name (managed-cluster-registration.spec.md). Soft-deleted
+// rows are excluded so an operator deleting a colliding record frees the name.
+//
+// Pre-existing duplicates are never deleted or renamed here: the migration
+// fails with a message listing them, and an operator resolves them first.
+func migrationUniqueName() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026092400000001",
+		Migrate: func(tx *gorm.DB) error {
+			type duplicate struct {
+				Name string
+				IDs  string
+			}
+			var dups []duplicate
+			if err := tx.Raw(`
+				SELECT name, string_agg(id, ', ' ORDER BY created_at) AS ids
+				FROM managed_clusters
+				WHERE deleted_at IS NULL
+				GROUP BY name
+				HAVING count(*) > 1
+				ORDER BY name
+			`).Scan(&dups).Error; err != nil {
+				return fmt.Errorf("check managed_clusters for duplicate names: %w", err)
+			}
+			if len(dups) > 0 {
+				parts := make([]string, 0, len(dups))
+				for _, d := range dups {
+					parts = append(parts, fmt.Sprintf("%q (ids: %s)", d.Name, d.IDs))
+				}
+				return fmt.Errorf("cannot add unique index on managed_clusters.name: duplicate live names %s; delete or rename the extra records (and re-point gateways that reference them) and restart", strings.Join(parts, "; "))
+			}
+			return tx.Exec(`
+				CREATE UNIQUE INDEX IF NOT EXISTS uix_managed_clusters_name
+					ON managed_clusters (name)
+					WHERE deleted_at IS NULL
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`DROP INDEX IF EXISTS uix_managed_clusters_name`).Error
 		},
 	}
 }

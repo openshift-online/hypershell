@@ -77,6 +77,13 @@ assert_eq "2FhMpQzXBzABC" "$(printf '%s' "${_api_list}" | json_named_id dev-gate
 assert_eq "" "$(printf '%s' "${_api_list}" | json_named_id missing-gateway)" \
   "json_named_id is empty when the name is absent"
 
+_mc_list='{"kind":"ManagedClusterList","items":[{"id":"2manual","name":"local-kind","oidc_subject":""}]}'
+assert_eq "" "$(printf '%s' "${_mc_list}" | json_registered_cluster_id local-kind)" \
+  "json_registered_cluster_id ignores an unregistered (manually created) record"
+_mc_list='{"kind":"ManagedClusterList","items":[{"id":"2reg","name":"local-kind","oidc_subject":"sub-a"}]}'
+assert_eq "2reg" "$(printf '%s' "${_mc_list}" | json_registered_cluster_id local-kind)" \
+  "json_registered_cluster_id returns the control plane's registered record"
+
 echo "Kind swap ledger tests: ${PASS} passed, ${FAIL} failed"
 if ((FAIL > 0)); then
   exit 1

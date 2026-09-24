@@ -32,6 +32,18 @@ spec:
               drop: ["ALL"]
             seccompProfile:
               type: RuntimeDefault
+          # Required per overlay, intentionally not set here:
+          #   HYPERSHELL_MANAGED_CLUSTER_NAME  the name this control plane
+          #     registers under (unique per control plane, e.g. local-kind,
+          #     local-openshift, hub, hyp0-mc1);
+          #   OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET  its own OIDC
+          #     client, holding the managed-cluster-registrar realm role.
+          # Every control plane registers with the hub and scopes its watches to
+          # the returned cluster_id; without these it exits at startup naming the
+          # missing variable (control-plane.spec.md, Mandatory Cluster Identity).
+          # HYPERSHELL_GRPC_SERVER_ADDR selects the gRPC transport: in-cluster
+          # names (no dot, *.svc, *.svc.*, localhost) dial plaintext, anything
+          # else dials TLS with the system trust store.
           env:
             - name: HYPERSHELL_GRPC_SERVER_ADDR
               value: "hypershell-api-server:9000"

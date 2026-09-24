@@ -58,7 +58,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/Gateway'
         '400':
-          description: Validation errors occurred
+          description: |
+            Validation errors occurred, including a cluster_id that is empty or does not
+            reference a ManagedCluster with a registered control plane (non-empty
+            oidc_subject). On update, cluster_id is validated only when it changes.
           content:
             application/json:
               schema:
@@ -146,7 +149,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/Gateway'
         '400':
-          description: Validation errors occurred
+          description: |
+            Validation errors occurred, including a cluster_id that is empty or does not
+            reference a ManagedCluster with a registered control plane (non-empty
+            oidc_subject). On update, cluster_id is validated only when it changes.
           content:
             application/json:
               schema:

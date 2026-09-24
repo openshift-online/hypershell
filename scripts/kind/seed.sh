@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Seed the platform's baseline resources (ManagedCluster, GatewayRelease,
-# Gateway) into a running Kind cluster via the REST API. Gateway databases need
+# Seed the platform's baseline resources (GatewayRelease, Gateway) into a
+# running Kind cluster via the REST API. The ManagedCluster is NOT seeded: the
+# control plane registers itself as local-kind (HYPERSHELL_MANAGED_CLUSTER_NAME
+# in deploy/kind) and this script waits for that record and uses its id. A
+# record created here would make the control plane's registration a 409
+# (specs/platform/managed-cluster-registration.spec.md). Gateway databases need
 # no seeding: the control plane provisions them on the server named by the
 # hypershell-gateway-database-admin Secret that up.sh creates.
 #
@@ -19,6 +23,8 @@
 #                       the job at the seed step with the real HTTP error, rather
 #                       than surfacing later as a confusing discovery failure.
 #                       KIND_SEED_STRICT remains an alias.
+#   SEED_CLUSTER_WAIT_SECONDS  how long to wait for the control plane to register
+#                       the local-kind ManagedCluster (default 240).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -102,7 +108,7 @@ info "Obtaining API token from Keycloak..."
 # HTTP authz middleware (unlike the gRPC interceptor) has no service-account
 # bypass -- every write requires the caller's JWT to carry the `gateway:creator`
 # realm role. The `hypershell-control-plane` client holds no such role, so its
-# token 403s on `POST /managed_clusters` onward and (because seeding is non-fatal) would
+# token 403s on `POST /gateway_releases` onward and (because seeding is non-fatal) would
 # leave the cluster with no seeded resources behind a scroll-past warning. The
 # `admin` user has `gateway:creator`, and `hypershell-frontend` permits the
 # password grant (publicClient + directAccessGrantsEnabled), so this token is
@@ -175,33 +181,42 @@ CLUSTER_ID=""
 RELEASE_ID=""
 
 if [[ -z "${seed_failed}" ]]; then
-  # Check for existing ManagedCluster
-  info "Checking for existing local-kind ManagedCluster..."
-  EXISTING_MC_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_clusters")
-  EXISTING_MC_HTTP=$(echo "${EXISTING_MC_RAW}" | tail -1)
-  EXISTING_MC_RESP=$(echo "${EXISTING_MC_RAW}" | sed '$d')
-
-  if [[ "${EXISTING_MC_HTTP}" == "200" ]]; then
-    CLUSTER_ID=$(printf '%s' "${EXISTING_MC_RESP}" | json_named_id local-kind)
-    if [[ -n "${CLUSTER_ID}" ]]; then
-      success "local-kind ManagedCluster already exists: ${CLUSTER_ID}"
-    fi
-  fi
-
-  if [[ -z "${CLUSTER_ID}" ]]; then
-    info "Creating ManagedCluster..."
-    _mc_body="{\"name\":\"local-kind\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\",\"region\":\"kind-local\"}"
-    MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" "${_mc_body}")
+  # The control plane registers local-kind itself; wait for that record (bounded)
+  # rather than creating one. Never POST /managed_clusters here.
+  SEED_CLUSTER_NAME="local-kind"
+  _cluster_wait="${SEED_CLUSTER_WAIT_SECONDS:-240}"
+  info "Waiting up to ${_cluster_wait}s for the control plane to register the ${SEED_CLUSTER_NAME} ManagedCluster..."
+  _cluster_deadline=$(( $(date +%s) + _cluster_wait ))
+  MC_HTTP=""
+  MC_RESP=""
+  while :; do
+    MC_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_clusters")
     MC_HTTP=$(echo "${MC_RAW}" | tail -1)
     MC_RESP=$(echo "${MC_RAW}" | sed '$d')
-    CLUSTER_ID=$(extract_id "${MC_RESP}")
-
-    if [[ -z "${CLUSTER_ID}" ]]; then
-      warn "ManagedCluster creation failed (HTTP ${MC_HTTP}): ${MC_RESP:-no response}"
-      seed_failed=true
-    else
-      success "ManagedCluster created: ${CLUSTER_ID}"
+    if [[ "${MC_HTTP}" == "200" ]]; then
+      CLUSTER_ID=$(printf '%s' "${MC_RESP}" | json_registered_cluster_id "${SEED_CLUSTER_NAME}")
+      if [[ -n "${CLUSTER_ID}" ]]; then
+        break
+      fi
     fi
+    if (( $(date +%s) >= _cluster_deadline )); then
+      break
+    fi
+    sleep 5
+  done
+
+  if [[ -n "${CLUSTER_ID}" ]]; then
+    success "${SEED_CLUSTER_NAME} ManagedCluster registered by the control plane: ${CLUSTER_ID}"
+  else
+    _placeholder_id=$(printf '%s' "${MC_RESP}" | json_named_id "${SEED_CLUSTER_NAME}")
+    if [[ -n "${_placeholder_id}" ]]; then
+      warn "ManagedCluster ${_placeholder_id} is named ${SEED_CLUSTER_NAME} but was not registered by a control plane (empty oidc_subject), so the control plane's registration is rejected with 409."
+      warn "Delete it (DELETE /api/hypershell/v1/managed_clusters/${_placeholder_id}) and restart the controller: kubectl -n ${KIND_NAMESPACE} rollout restart deploy/hypershell-controller"
+    else
+      warn "Timed out after ${_cluster_wait}s waiting for the control plane to register ${SEED_CLUSTER_NAME} (last GET /managed_clusters HTTP ${MC_HTTP:-none}): ${MC_RESP:0:200}"
+      warn "Check the controller log: kubectl -n ${KIND_NAMESPACE} logs deploy/hypershell-controller"
+    fi
+    seed_failed=true
   fi
 fi
 

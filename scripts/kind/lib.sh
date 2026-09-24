@@ -86,6 +86,32 @@ for it in items:
 ' "$1"
 }
 
+# Id of the named ManagedCluster only when a control plane registered it
+# (non-empty oidc_subject). Every control plane self-registers under its
+# HYPERSHELL_MANAGED_CLUSTER_NAME, so seeding waits for that record instead of
+# creating one: a record created with POST /managed_clusters is an inert
+# placeholder (empty oidc_subject) that turns the control plane's registration
+# into a 409. Empty on missing name, unregistered record, or bad JSON.
+json_registered_cluster_id() {
+  python3 -c 'import json,sys
+name=sys.argv[1]
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if isinstance(data, dict):
+    items=data.get("items") or []
+elif isinstance(data, list):
+    items=data
+else:
+    items=[]
+for it in items:
+    if isinstance(it, dict) and it.get("name") == name and (it.get("oidc_subject") or ""):
+        print(it.get("id") or "")
+        break
+' "$1"
+}
+
 # --- Cluster helpers ---
 
 cluster_exists() {

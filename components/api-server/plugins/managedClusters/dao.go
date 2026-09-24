@@ -18,6 +18,7 @@ type ManagedClusterDao interface {
 	FindByIDs(ctx context.Context, ids []string) (ManagedClusterList, error)
 	All(ctx context.Context) (ManagedClusterList, error)
 	FindByOIDCSubject(ctx context.Context, subject string) (*ManagedCluster, error)
+	FindByName(ctx context.Context, name string) (*ManagedCluster, error)
 	InventorySnapshot(ctx context.Context, evaluationTime time.Time) (*ClusterInventorySnapshot, error)
 }
 
@@ -89,6 +90,15 @@ func (d *sqlManagedClusterDao) FindByOIDCSubject(ctx context.Context, subject st
 	g2 := (*d.sessionFactory).New(ctx)
 	var managedCluster ManagedCluster
 	if err := g2.Take(&managedCluster, "oidc_subject = ?", subject).Error; err != nil {
+		return nil, err
+	}
+	return &managedCluster, nil
+}
+
+func (d *sqlManagedClusterDao) FindByName(ctx context.Context, name string) (*ManagedCluster, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var managedCluster ManagedCluster
+	if err := g2.Take(&managedCluster, "name = ?", name).Error; err != nil {
 		return nil, err
 	}
 	return &managedCluster, nil

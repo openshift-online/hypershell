@@ -8,11 +8,13 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/environments"
 )
 
-func newManagedCluster(id string) (*managedClusters.ManagedCluster, error) {
+// newManagedCluster creates a manual (unregistered) record named name. Names are
+// unique across all live records, so every call needs a distinct name.
+func newManagedCluster(name string) (*managedClusters.ManagedCluster, error) {
 	managedClusterService := managedClusters.Service(&environments.Environment().Services)
 
 	managedCluster := &managedClusters.ManagedCluster{
-		Name:             "test-name",
+		Name:             name,
 		Provider:         "test-provider",
 		Region:           stringPtr("test-region"),
 		KubeconfigSecret: "test-kubeconfig_secret",

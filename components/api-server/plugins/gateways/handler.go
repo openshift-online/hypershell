@@ -39,6 +39,7 @@ type gatewayHandler struct {
 	ownerBinding     OwnerBindingCreator
 	visibilityFilter GatewayVisibilityFilter
 	ownerLookup      GatewayOwnerLookup
+	clusters         RegisteredClusterLookup
 }
 
 // validateGatewayPhaseValue rejects a phase outside the canonical vocabulary. An
@@ -53,13 +54,14 @@ func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
 	return nil
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup) *gatewayHandler {
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, clusters RegisteredClusterLookup) *gatewayHandler {
 	return &gatewayHandler{
 		gateway:          gateway,
 		generic:          generic,
 		ownerBinding:     ownerBinding,
 		visibilityFilter: visibilityFilter,
 		ownerLookup:      ownerLookup,
+		clusters:         clusters,
 	}
 }
 
@@ -73,6 +75,9 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 			gatewayModel := ConvertGateway(gateway)
 			if phaseErr := validateGatewayPhaseValue(gatewayModel.Phase); phaseErr != nil {
 				return nil, phaseErr
+			}
+			if clusterErr := validateClusterReference(ctx, h.clusters, gatewayModel.ClusterId); clusterErr != nil {
+				return nil, clusterErr
 			}
 			gatewayModel, err := h.gateway.Create(ctx, gatewayModel)
 			if err != nil {
@@ -111,7 +116,13 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.Name != nil {
 				found.Name = *patch.Name
 			}
-			if patch.ClusterId != nil {
+			// Only a PATCH that changes cluster_id is validated: re-sending the
+			// stored value is not a reassignment, so an edit of another field on
+			// a legacy gateway is not rejected for a reference it did not touch.
+			if patch.ClusterId != nil && *patch.ClusterId != found.ClusterId {
+				if clusterErr := validateClusterReference(ctx, h.clusters, *patch.ClusterId); clusterErr != nil {
+					return nil, clusterErr
+				}
 				found.ClusterId = *patch.ClusterId
 			}
 			if patch.ReleaseId != nil {

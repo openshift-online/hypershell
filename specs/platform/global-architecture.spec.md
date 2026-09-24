@@ -257,7 +257,7 @@ sequenceDiagram
 - PostgreSQL on the Cloud Hub (the HyperShell API server's database) is the source of truth for the **desired state** of HyperShell-managed resources - Gateway, ManagedCluster, and related records. It is not a source of truth for every datum in the system.
 - Runtime state owned by each OpenShell Gateway (active Sandboxes, provider credentials, live sessions) lives in that gateway's own database on its ManagedCluster, not in the Cloud Hub PostgreSQL. Where a fact could live in either store, this document names which one owns it.
 - Control Plane watches API server via gRPC streams
-- Control Plane reconciles *tenant* resources into ManagedClusters via kubeconfig secrets (runtime push; distinct from the platform GitOps pull below)
+- One control plane runs in every ManagedCluster (including the Cloud Hub's own cluster), registers itself with the Cloud Hub API server, and reconciles the *tenant* resources assigned to its `cluster_id` into its own cluster with in-cluster credentials. No hub holds a spoke kubeconfig (`platform/control-plane.spec.md`, `platform/managed-cluster-registration.spec.md`). This runtime tenant plane is distinct from the platform GitOps pull below.
 - Gateway databases live on a cloud-managed PostgreSQL server whose admin credentials are mounted into the control plane - one database and login role per gateway (`gw_<gateway-id>`) - not in any cluster; only the DB credentials Secret is written into the gateway namespace
 
 ### Platform GitOps Pull Flow

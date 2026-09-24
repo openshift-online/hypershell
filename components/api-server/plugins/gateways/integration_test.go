@@ -52,7 +52,7 @@ func TestGatewayPost(t *testing.T) {
 
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:        "test-name",
-		ClusterId:   "test-cluster_id",
+		ClusterId:   registerTestCluster(t),
 		ReleaseId:   "test-release_id",
 		ExternalDns: openapi.PtrString("test-external_dns"),
 		TlsMode:     openapi.PtrString("test-tls_mode"),
@@ -80,23 +80,116 @@ func TestGatewayPost(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
-func TestGatewayPostAllowsEmptyClusterAndReleaseIDs(t *testing.T) {
+func TestGatewayPostAllowsEmptyReleaseID(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
+	clusterID := registerTestCluster(t)
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "local-gateway",
-		ClusterId: "",
+		ClusterId: clusterID,
 		ReleaseId: "",
 	}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
-	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with empty cluster_id and release_id: %v", err)
+	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with empty release_id: %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-	Expect(gatewayOutput.ClusterId).To(BeEmpty())
+	Expect(gatewayOutput.ClusterId).To(Equal(clusterID))
 	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
+}
+
+// Gateways Reference a Registered Cluster: an empty cluster_id is a 400 naming
+// cluster_id, and no gateway is created.
+func TestGatewayPostRejectsEmptyClusterID(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
+		Name:      "no-cluster",
+		ClusterId: "",
+	}).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	Expect(openapiErrorReason(h, err)).To(ContainSubstring("cluster_id"))
+	expectNoGatewayNamed(ctx, client, "no-cluster")
+}
+
+// Gateways Reference a Registered Cluster: a cluster_id naming a manually
+// created ManagedCluster (empty oidc_subject) or no ManagedCluster at all is a
+// 400 stating the cluster has no registered control plane.
+func TestGatewayPostRejectsUnregisteredCluster(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	for _, clusterID := range []string{createManualCluster(t), "2doesnotexist000000000000000"} {
+		_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
+			Name:      "unregistered-cluster",
+			ClusterId: clusterID,
+		}).Execute()
+		Expect(err).To(HaveOccurred(), "cluster_id %s must be rejected", clusterID)
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		Expect(openapiErrorReason(h, err)).To(ContainSubstring("registered control plane"))
+	}
+	expectNoGatewayNamed(ctx, client, "unregistered-cluster")
+}
+
+// A PATCH that moves a gateway to an unregistered cluster is rejected; one that
+// re-sends the stored cluster_id is not a reassignment and is accepted.
+func TestGatewayPatchValidatesClusterReassignment(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	clusterID := registerTestCluster(t)
+	created, _, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
+		Name:      "patch-cluster",
+		ClusterId: clusterID,
+	}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+
+	_, resp, err := client.DefaultAPI.UpdateGateway(ctx, *created.Id).GatewayPatchRequest(openapi.GatewayPatchRequest{
+		ClusterId: openapi.PtrString(createManualCluster(t)),
+	}).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+	_, resp, err = client.DefaultAPI.UpdateGateway(ctx, *created.Id).GatewayPatchRequest(openapi.GatewayPatchRequest{
+		ClusterId: openapi.PtrString(""),
+	}).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+	other := registerTestCluster(t)
+	patched, resp, err := client.DefaultAPI.UpdateGateway(ctx, *created.Id).GatewayPatchRequest(openapi.GatewayPatchRequest{
+		ClusterId: openapi.PtrString(other),
+	}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(patched.ClusterId).To(Equal(other))
+
+	// A legacy gateway (service-created with an unregistered cluster_id) can still
+	// have other fields edited when the PATCH re-sends its stored cluster_id.
+	legacy, err := newGateway(h.NewID())
+	Expect(err).NotTo(HaveOccurred())
+	_, resp, err = client.DefaultAPI.UpdateGateway(ctx, legacy.ID).GatewayPatchRequest(openapi.GatewayPatchRequest{
+		ClusterId: openapi.PtrString(legacy.ClusterId),
+		TlsMode:   openapi.PtrString("updated"),
+	}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+}
+
+func expectNoGatewayNamed(ctx context.Context, client *openapi.APIClient, name string) {
+	list, _, err := client.DefaultAPI.ListGateways(ctx).Search(fmt.Sprintf("name = '%s'", name)).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(list.Items).To(BeEmpty(), "no gateway named %s may be created", name)
 }
 
 func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
@@ -107,7 +200,7 @@ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
 
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "route-default-test",
-		ClusterId: "",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "",
 	}
 
@@ -126,7 +219,7 @@ func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
 	customRoute := `{"enabled":true,"host":"custom.example.com"}`
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "route-explicit-test",
-		ClusterId: "",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "",
 		Route:     openapi.PtrString(customRoute),
 	}
@@ -246,7 +339,7 @@ func TestGatewayPostWithCredentialDriver(t *testing.T) {
 	credDriver := `{"type":"kubernetes-secrets","kubernetes_secrets":{"namespace":"creds-ns"}}`
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:             "test-cred-driver",
-		ClusterId:        "test-cluster_id",
+		ClusterId:        registerTestCluster(t),
 		ReleaseId:        "test-release_id",
 		CredentialDriver: openapi.PtrString(credDriver),
 	}

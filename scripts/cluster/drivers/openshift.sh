@@ -1036,27 +1036,43 @@ seed_via_api() {
   local seed_failed="" CLUSTER_ID="" RELEASE_ID="" GATEWAY_ID=""
   local raw http body
 
-  raw="$(api_exec GET /api/hypershell/v1/managed_clusters)"
-  http="$(printf '%s' "${raw}" | tail -1)"
-  body="$(printf '%s' "${raw}" | sed '$d')"
-  if [[ "${http}" == "200" ]]; then
-    CLUSTER_ID="$(printf '%s' "${body}" | json_named_id local-openshift)"
-  fi
-  if [[ -z "${CLUSTER_ID}" ]]; then
-    info "Creating ManagedCluster..."
-    raw="$(api_exec POST /api/hypershell/v1/managed_clusters \
-      "{\"name\":\"local-openshift\",\"provider\":\"openshift\",\"kubeconfig_secret\":\"openshift-kubeconfig\"}")"
+  # The control plane registers local-openshift itself
+  # (HYPERSHELL_MANAGED_CLUSTER_NAME in deploy/openshift); wait for that record
+  # (bounded) and use its id. Never POST /managed_clusters: a manually created
+  # record would make the control plane's registration a 409
+  # (specs/platform/managed-cluster-registration.spec.md).
+  local cluster_name="local-openshift"
+  local cluster_wait="${SEED_CLUSTER_WAIT_SECONDS:-240}"
+  local cluster_deadline placeholder_id
+  cluster_deadline=$(( $(date +%s) + cluster_wait ))
+  info "Waiting up to ${cluster_wait}s for the control plane to register the ${cluster_name} ManagedCluster..."
+  while :; do
+    raw="$(api_exec GET /api/hypershell/v1/managed_clusters)"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
-    CLUSTER_ID="$(extract_id "${body}")"
-    if [[ -z "${CLUSTER_ID}" ]]; then
-      warn "ManagedCluster creation failed (HTTP ${http}): ${body:-no response}"
-      seed_failed=true
-    else
-      success "ManagedCluster created: ${CLUSTER_ID}"
+    if [[ "${http}" == "200" ]]; then
+      CLUSTER_ID="$(printf '%s' "${body}" | json_registered_cluster_id "${cluster_name}")"
+      if [[ -n "${CLUSTER_ID}" ]]; then
+        break
+      fi
     fi
+    if (( $(date +%s) >= cluster_deadline )); then
+      break
+    fi
+    sleep 5
+  done
+  if [[ -n "${CLUSTER_ID}" ]]; then
+    success "${cluster_name} ManagedCluster registered by the control plane: ${CLUSTER_ID}"
   else
-    success "local-openshift ManagedCluster already exists: ${CLUSTER_ID}"
+    placeholder_id="$(printf '%s' "${body}" | json_named_id "${cluster_name}")"
+    if [[ -n "${placeholder_id}" ]]; then
+      warn "ManagedCluster ${placeholder_id} is named ${cluster_name} but was not registered by a control plane (empty oidc_subject), so the control plane's registration is rejected with 409."
+      warn "Delete it (DELETE /api/hypershell/v1/managed_clusters/${placeholder_id}) and restart the controller: oc -n ${OPENSHIFT_NAMESPACE} rollout restart deploy/hypershell-controller"
+    else
+      warn "Timed out after ${cluster_wait}s waiting for the control plane to register ${cluster_name} (last GET /managed_clusters HTTP ${http:-none}): ${body:0:200}"
+      warn "Check the controller log: oc -n ${OPENSHIFT_NAMESPACE} logs deploy/hypershell-controller"
+    fi
+    seed_failed=true
   fi
 
   if [[ -z "${seed_failed}" ]]; then

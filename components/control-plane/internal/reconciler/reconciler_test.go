@@ -721,7 +721,7 @@ func TestWatchGateways_KeycloakRetryPreservesGatedPayload(t *testing.T) {
 	defer gatewayQueue.Stop()
 	watchErr := make(chan error, 1)
 	go func() {
-		watchErr <- watcher.WatchGateways(ctx, grpcConn, gatewayQueue, "")
+		watchErr <- watcher.WatchGateways(ctx, grpcConn, gatewayQueue, "mc1")
 	}()
 
 	deadline := time.NewTimer(8 * time.Second)

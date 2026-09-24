@@ -44,7 +44,7 @@ func nsWithLabels(name string, labels, annotations map[string]string) *corev1.Na
 // live" - past-grace orphans are reaped - and overridden by the tests that
 // exercise the stale-liveness protection.
 func newTestGC(client kubernetes.Interface, now time.Time) *NamespaceGCReconciler {
-	r := NewNamespaceGCReconciler(client, nil, time.Minute, 10*time.Minute, "hypershell")
+	r := NewNamespaceGCReconciler(client, nil, time.Minute, 10*time.Minute, "hypershell", "mc1")
 	r.now = func() time.Time { return now }
 	r.liveNamespaces = func(context.Context) (map[string]struct{}, error) {
 		return map[string]struct{}{}, nil
@@ -129,7 +129,7 @@ func TestRecordGCEvent_InvolvedObjectNamespaceMatchesEventNamespace(t *testing.T
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	client := fake.NewSimpleClientset()
-	r := NewNamespaceGCReconciler(client, nil, time.Minute, 10*time.Minute, "hypershell-stage")
+	r := NewNamespaceGCReconciler(client, nil, time.Minute, 10*time.Minute, "hypershell-stage", "mc1")
 	r.now = func() time.Time { return now }
 
 	if err := r.recordGCEvent(ctx, "openshell-gw", "test message"); err != nil {

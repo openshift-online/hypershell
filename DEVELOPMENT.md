@@ -93,7 +93,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-down` | Remove the `hypershell-system` namespace and its resources. Leaves the Kind cluster running. |
 | `make kind-teardown` | Destroy the Kind cluster and stop cloud-provider-kind. |
 | `make kind-status` | Show cluster info, pods, services, and which components are swapped. |
-| `make kind-seed` | Re-run ManagedCluster, GatewayRelease, and Gateway seeding. Reuses existing named seed resources (`local-kind`, `dev-release`, `dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
+| `make kind-seed` | Re-run GatewayRelease and Gateway seeding. The `local-kind` ManagedCluster is not seeded: the control plane registers it itself, and seeding waits for that record (`SEED_CLUSTER_WAIT_SECONDS`, default 240) and uses its id. Reuses existing named seed resources (`dev-release`, `dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
 | `make kind-prereqs` | Build the pinned `cloud-provider-kind` binary into `bin/`. `kind-up` runs this; use it alone when the binary is missing. |
 | `make kind-env` | Print `export` statements for the current Kind make variables. |
 | `make kind-fix-ports` | Re-establish host port 443 forwarding to the Gateway's ephemeral port. |
@@ -394,7 +394,7 @@ command stops with an error.
 | `make openshift-down` | Delete the platform and Keycloak projects, then delete gateway namespaces labeled `hypershell.redhat.io/instance=<platform ns>`. If project deletion is forbidden, strip HyperShell resources and leave the projects. Without ownership labels the command refuses; `FORCE=true make openshift-down` overrides that check. Reserved names (`default`, `kube-*`, `openshift-*`) stay refused. |
 | `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
 | `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |
-| `make openshift-seed` | Re-run ManagedCluster, GatewayRelease, and Gateway seeding via API and Keycloak Routes from this machine. Reuses existing named seed resources (`local-openshift`, `dev-release`, `dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
+| `make openshift-seed` | Re-run GatewayRelease and Gateway seeding via API and Keycloak Routes from this machine, against the `local-openshift` ManagedCluster the control plane registered itself (seeding waits for it and never creates it). Reuses existing named seed resources (`dev-release`, `dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
 | `make openshift-api-server-up` | Build, push an immutable image to `SWAP_REGISTRY`, and point the API server Deployment at that ref. Requires `SWAP_REGISTRY`. |
 | `make openshift-api-server-down` | Revert the API server to the baseline registry image. |
 | `make openshift-control-plane-up` | Build, push, and swap the control plane. |

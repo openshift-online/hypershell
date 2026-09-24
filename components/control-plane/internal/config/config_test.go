@@ -2,15 +2,73 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
+
+// setRequiredEnv sets the configuration every control plane must have to start:
+// a managed-cluster name and OIDC client credentials (Mandatory Cluster Identity).
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000")
+	t.Setenv("HYPERSHELL_MANAGED_CLUSTER_NAME", "local-kind")
+	t.Setenv("OIDC_ISSUER", "http://keycloak.example/realms/hypershell")
+	t.Setenv("OIDC_CLIENT_ID", "hypershell-control-plane")
+	t.Setenv("OIDC_CLIENT_SECRET", "secret")
+}
+
+// TestLoadRequiresClusterIdentity covers "Missing cluster name refuses to start"
+// and "Missing OIDC credentials refuse to start": each required variable, when
+// unset or blank, fails Load with an error naming that variable.
+func TestLoadRequiresClusterIdentity(t *testing.T) {
+	for _, name := range []string{
+		"HYPERSHELL_MANAGED_CLUSTER_NAME",
+		"OIDC_ISSUER",
+		"OIDC_CLIENT_ID",
+		"OIDC_CLIENT_SECRET",
+	} {
+		for _, mode := range []string{"unset", "blank"} {
+			t.Run(name+"/"+mode, func(t *testing.T) {
+				setRequiredEnv(t)
+				if mode == "unset" {
+					if err := os.Unsetenv(name); err != nil {
+						t.Fatalf("unset %s: %v", name, err)
+					}
+				} else {
+					t.Setenv(name, "   ")
+				}
+				cfg, err := Load()
+				if err == nil {
+					t.Fatalf("Load() with %s %s: want error, got config %+v", name, mode, cfg)
+				}
+				if !strings.Contains(err.Error(), name) {
+					t.Fatalf("Load() error %q does not name %s", err, name)
+				}
+			})
+		}
+	}
+}
+
+// TestLoadIgnoresClusterIDEnv: the cluster id is resolved by registration only;
+// a stale HYPERSHELL_CLUSTER_ID in the environment is never consulted.
+func TestLoadIgnoresClusterIDEnv(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("HYPERSHELL_CLUSTER_ID", "2stalecluster")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	if cfg.ManagedClusterName != "local-kind" || cfg.OIDCClientID != "hypershell-control-plane" {
+		t.Fatalf("unexpected identity config: %+v", cfg)
+	}
+}
 
 // TestLoadGatewayReconcileWorkers covers the GATEWAY_RECONCILE_WORKERS contract:
 // unset uses the bounded default; a valid positive integer is honored; and an
 // invalid or non-positive value warns and falls back to the default rather than
 // disabling the pool. The resolved count is always >= 1.
 func TestLoadGatewayReconcileWorkers(t *testing.T) {
-	t.Setenv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000")
+	setRequiredEnv(t)
 
 	cases := []struct {
 		name     string

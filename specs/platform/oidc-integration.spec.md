@@ -87,14 +87,12 @@ The environment SHALL be activated via `API_ENV=development_oidc`. The `environm
 
 ### gRPC Bypass
 
-When JWT is enabled, trusted in-cluster services (e.g., the control plane) SHALL be exempt from JWT validation on their gRPC watch streams. The `--auth-bypass-methods` flag SHALL include:
+When JWT is enabled, only the framework's health and reflection services SHALL be exempt from JWT validation. The `--auth-bypass-methods` flag SHALL include exactly:
 
 - `/grpc.health.v1.Health/`
 - `/grpc.reflection.v1alpha.ServerReflection/`
-- `/hypershell.v1.GatewayService/WatchGateways`
-- `/hypershell.v1.GatewayReleaseService/WatchGatewayReleases`
-- `/hypershell.v1.ManagedClusterService/WatchManagedClusters`
-- `/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks`
+
+The control plane's gRPC watch streams (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`) SHALL NOT be exempt: the control plane authenticates them with its OIDC `client_credentials` bearer token, and the API server binds `WatchGateways` to the caller's registered cluster (`managed-cluster-registration.spec.md`, "Requirement: Watch Stream Caller Binding"; `hub-grpc-tls.spec.md`, "Requirement: Authenticated Watch Streams Before Exposure").
 
 Health and OpenAPI HTTP paths SHALL also bypass JWT: `/healthcheck`, `/metrics`, `/api/hypershell/v1/openapi`, `/openapi`.
 

@@ -147,7 +147,7 @@ func TestSeedGateways_ForcesActivePhasesOnly(t *testing.T) {
 	}}
 
 	sink := newRecordingSink(nil)
-	err := seedGateways(context.Background(), lister, sink, "")
+	err := seedGateways(context.Background(), lister, sink, testClusterID)
 	if err != nil {
 		t.Fatalf("seedGateways: %v", err)
 	}
@@ -182,8 +182,11 @@ func TestSeedGateways_ForcesActivePhasesOnly(t *testing.T) {
 
 // seedGateways must thread the control-plane's cluster identity into the
 // ListGateways request so the server-side filter scopes the seed to this
-// managed cluster (the pull-model boundary); an empty identity must leave the
-// request's cluster_id unset so the single-cluster default seeds every gateway.
+// managed cluster (the pull-model boundary). There is no unfiltered mode: an
+// empty identity must be refused before any ListGateways call.
+// testClusterID is the registered cluster id the seed tests list under.
+const testClusterID = "mc1"
+
 func TestSeedGateways_ThreadsClusterID(t *testing.T) {
 	t.Run("scoped", func(t *testing.T) {
 		lister := &fakeGatewayLister{items: []*pb.Gateway{gw("a", "Running")}}
@@ -194,13 +197,14 @@ func TestSeedGateways_ThreadsClusterID(t *testing.T) {
 			t.Fatalf("ListGateways cluster_id = %v, want %q", lister.gotClusterID, "2abc")
 		}
 	})
-	t.Run("unscoped", func(t *testing.T) {
+	t.Run("empty identity is refused", func(t *testing.T) {
 		lister := &fakeGatewayLister{items: []*pb.Gateway{gw("a", "Running")}}
-		if err := seedGateways(context.Background(), lister, newRecordingSink(nil), ""); err != nil {
-			t.Fatalf("seedGateways: %v", err)
+		err := seedGateways(context.Background(), lister, newRecordingSink(nil), "")
+		if !errors.Is(err, ErrMissingClusterID) {
+			t.Fatalf("seedGateways with empty cluster id: err = %v, want ErrMissingClusterID", err)
 		}
 		if lister.gotClusterID != nil {
-			t.Fatalf("ListGateways cluster_id = %q, want unset", *lister.gotClusterID)
+			t.Fatalf("ListGateways was called with cluster_id %q; an empty identity must never list", *lister.gotClusterID)
 		}
 	})
 }
@@ -214,7 +218,7 @@ func TestSeedGateways_Paginates(t *testing.T) {
 	lister := &fakeGatewayLister{items: items, pageSize: gatewaySeedPageSize}
 
 	sink := newRecordingSink(nil)
-	if err := seedGateways(context.Background(), lister, sink, ""); err != nil {
+	if err := seedGateways(context.Background(), lister, sink, testClusterID); err != nil {
 		t.Fatalf("seedGateways: %v", err)
 	}
 	if count := len(sink.enqueued); count != len(items) {
@@ -264,7 +268,7 @@ func TestSeedGateways_RepeatsUntilInventoryStable(t *testing.T) {
 	}}
 
 	sink := newRecordingSink(nil)
-	if err := seedGateways(context.Background(), lister, sink, ""); err != nil {
+	if err := seedGateways(context.Background(), lister, sink, testClusterID); err != nil {
 		t.Fatalf("seedGateways: %v", err)
 	}
 
@@ -292,7 +296,7 @@ func TestSeedGateways_ErrorsWhenInventoryNeverStabilizes(t *testing.T) {
 	}}
 
 	sink := newRecordingSink(nil)
-	if err := seedGateways(context.Background(), lister, sink, ""); err == nil {
+	if err := seedGateways(context.Background(), lister, sink, testClusterID); err == nil {
 		t.Fatal("seedGateways must error when the inventory never stabilizes, so watchLoop retries")
 	}
 }
@@ -307,7 +311,7 @@ func TestSeedGateways_ListErrorPropagates(t *testing.T) {
 	sink := newRecordingSink(map[string]Event[*pb.Gateway]{
 		"gw-1": {Type: EventUpdated, ResourceID: "gw-1", Resource: gw("gw-1", "Provisioning")},
 	})
-	err := seedGateways(context.Background(), lister, sink, "")
+	err := seedGateways(context.Background(), lister, sink, testClusterID)
 	if err == nil {
 		t.Fatal("want an error when ListGateways fails")
 	}
@@ -333,7 +337,7 @@ func TestSeedGateways_PrunesAbsentTrackedGateways(t *testing.T) {
 		"deleting":      {Type: EventDeleted, ResourceID: "deleting", Resource: gw("deleting", "Running")},
 	})
 
-	if err := seedGateways(context.Background(), lister, sink, ""); err != nil {
+	if err := seedGateways(context.Background(), lister, sink, testClusterID); err != nil {
 		t.Fatalf("seedGateways: %v", err)
 	}
 
@@ -370,7 +374,7 @@ func TestSeedGateways_KeepsListOmittedButLiveGateway(t *testing.T) {
 		"shifted": {Type: EventUpdated, ResourceID: "shifted", Resource: gw("shifted", "Provisioning")},
 	})
 
-	if err := seedGateways(context.Background(), lister, sink, ""); err != nil {
+	if err := seedGateways(context.Background(), lister, sink, testClusterID); err != nil {
 		t.Fatalf("seedGateways: %v", err)
 	}
 
@@ -407,7 +411,7 @@ func TestSeedGateways_KeepsAbsentWhenConfirmFails(t *testing.T) {
 		"maybe":   {Type: EventUpdated, ResourceID: "maybe", Resource: gw("maybe", "Provisioning")},
 	})
 
-	if err := seedGateways(context.Background(), lister, sink, ""); err != nil {
+	if err := seedGateways(context.Background(), lister, sink, testClusterID); err != nil {
 		t.Fatalf("seedGateways: %v", err)
 	}
 

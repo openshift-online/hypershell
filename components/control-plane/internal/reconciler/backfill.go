@@ -45,12 +45,11 @@ func BackfillInstanceLabels(ctx context.Context, client kubernetes.Interface, gw
 	if instance == "" {
 		return 0, fmt.Errorf("refusing to backfill instance labels without a control-plane instance identity")
 	}
-	// Scope the listing to this cluster's gateways (clusterID from
-	// HYPERSHELL_CLUSTER_ID; empty in single-cluster mode lists all). Unlike the
-	// namespace reaper -- which lists unfiltered because a superset only ever
-	// protects namespaces -- backfill WRITES this instance's label, so on a
-	// co-located cluster an unscoped list could stamp another instance's
-	// not-yet-labeled namespace. Filtering keeps a spoke to its own gateways.
+	// Scope the listing to this cluster's gateways (clusterID is the control
+	// plane's registered cluster id, resolved at startup). Backfill WRITES this
+	// instance's label, so an unscoped list could stamp another instance's
+	// not-yet-labeled namespace. Filtering keeps a control plane to its own
+	// gateways.
 	gateways, err := listAllGateways(ctx, gwClient, clusterID)
 	if err != nil {
 		// A partial inventory would silently skip namespaces that need the label,

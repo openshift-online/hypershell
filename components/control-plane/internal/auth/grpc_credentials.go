@@ -33,8 +33,10 @@ func (c *GRPCCredentials) GetRequestMetadata(_ context.Context, _ ...string) (ma
 	}, nil
 }
 
-// RequireTransportSecurity returns false because the control plane connects
-// in-cluster without TLS (TLS terminates at the gateway level).
+// RequireTransportSecurity returns false because development environments dial
+// an in-cluster api-server address in plaintext (the hop never leaves the
+// cluster). External addresses are dialed with TLS; the transport is selected
+// from the dial address by the grpctransport package.
 func (c *GRPCCredentials) RequireTransportSecurity() bool {
 	return false
 }

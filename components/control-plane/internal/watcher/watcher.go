@@ -125,16 +125,22 @@ func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
-// OptionalClusterID maps a control-plane cluster identity to the proto optional
-// cluster_id field: an empty identity becomes nil (no server-side filter, the
-// single-cluster default), a non-empty one is sent so the api-server scopes the
-// list/watch to that cluster. Exported and shared: the reconciler's list helper
-// uses it too, so the mapping stays single-sourced.
-func OptionalClusterID(clusterID string) *string {
-	if clusterID == "" {
-		return nil
+// ErrMissingClusterID is returned by every gateway-scoped list/watch when it is
+// asked to run without this control plane's registered cluster id. Every control
+// plane is registered (specs/platform/control-plane.spec.md, "Mandatory Cluster
+// Identity"), so an empty id is a programming error, never an "unfiltered" mode.
+var ErrMissingClusterID = errors.New("refusing a gateway list/watch without this control plane's registered cluster_id")
+
+// ClusterFilter maps this control plane's registered cluster id to the proto
+// cluster_id filter the api-server scopes gateway lists and watches by. The
+// filter is mandatory: an empty id is rejected with ErrMissingClusterID rather
+// than sent as "no filter". Exported and shared with the reconciler's list
+// helper so the mapping stays single-sourced.
+func ClusterFilter(clusterID string) (*string, error) {
+	if strings.TrimSpace(clusterID) == "" {
+		return nil, ErrMissingClusterID
 	}
-	return &clusterID
+	return &clusterID, nil
 }
 
 // gatewayWorkerCount clamps a configured gateway reconcile worker count to a
@@ -183,13 +189,17 @@ func (g *GatewayReconcileQueue) EnqueueForced(ev Event[*pb.Gateway]) { g.q.enque
 func (g *GatewayReconcileQueue) Stop() { g.q.stop() }
 
 // WatchGateways streams gateway events and drives them through the caller-owned
-// per-resource reconcile queue. When clusterID is non-empty the watch and its
-// seed lists are scoped server-side to gateways with that cluster_id, so a
-// managed-cluster spoke only ever reconciles its own gateways (the pull model);
-// empty watches every gateway. The queue is owned and stopped by the caller
+// per-resource reconcile queue. The watch and its seed lists are scoped
+// server-side to gateways with this control plane's registered cluster_id, so it
+// only ever reconciles its own gateways (the pull model); an empty clusterID is
+// rejected. The queue is owned and stopped by the caller
 // (main) and shared with out-of-band enqueuers such as the GatewayRelease
 // reconciler, so it is neither created nor stopped here.
 func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayReconcileQueue, clusterID string) error {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return err
+	}
 	client := pb.NewGatewayServiceClient(conn)
 	// Gateway reconciliation is driven through a per-resource reconcile queue rather
 	// than invoked inline: the watch stream does not replay state on reconnect, so a
@@ -208,7 +218,7 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 		runCtx, runCancel := context.WithCancel(ctx)
 		defer runCancel()
 
-		stream, err := client.WatchGateways(runCtx, &pb.WatchGatewaysRequest{ClusterId: OptionalClusterID(clusterID)})
+		stream, err := client.WatchGateways(runCtx, &pb.WatchGatewaysRequest{ClusterId: clusterFilter})
 		if err != nil {
 			return fmt.Errorf("starting gateway watch: %w", err)
 		}
@@ -518,9 +528,13 @@ func listGatewaysStable(ctx context.Context, client pb.GatewayServiceClient, clu
 // returning it keyed by ID (which also dedupes an item a concurrent create caused
 // to appear on two pages).
 func listGatewaysOnce(ctx context.Context, client pb.GatewayServiceClient, clusterID string) (map[string]*pb.Gateway, error) {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return nil, err
+	}
 	inventory := make(map[string]*pb.Gateway)
 	for page := int32(1); ; page++ {
-		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{Page: page, Size: gatewaySeedPageSize, ClusterId: OptionalClusterID(clusterID)})
+		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{Page: page, Size: gatewaySeedPageSize, ClusterId: clusterFilter})
 		if err != nil {
 			return nil, fmt.Errorf("listing gateways to seed reconcile queue: %w", err)
 		}
