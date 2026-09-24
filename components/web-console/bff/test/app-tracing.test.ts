@@ -63,6 +63,13 @@ describe("web-console BFF tracing wiring", () => {
     apiServer = createServer((request, response) => {
       request.on("data", () => undefined);
       request.on("end", () => {
+        // The BFF probes the API metadata endpoint once at startup for the
+        // version relay; it is not part of the request contract under test.
+        if (request.url === "/api/hypershell") {
+          response.setHeader("content-type", "application/json");
+          response.end('{"id":"hypershell","kind":"API","version":"test-sha"}');
+          return;
+        }
         received.push({ headers: request.headers });
         response.statusCode = upstreamStatus;
         response.setHeader("content-type", "application/json");
@@ -95,6 +102,7 @@ describe("web-console BFF tracing wiring", () => {
       prometheusUrl: "http://127.0.0.1:9090",
       sessionTtlSeconds: 28_800,
       staticRoot,
+      webVersion: "unknown",
     };
     trace = stubTracing();
     app = await buildApp(config, trace.tracing);
