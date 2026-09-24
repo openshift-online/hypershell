@@ -181,9 +181,11 @@ def main():
         remove(path, verify_revocation=action == "revoke")
     elif action == "run":
         return run(path, args)
-    elif action in ("client-id", "token"):
+    elif action == "install-token":
         account = json.loads(path.read_text())
-        print(account["client_id"] if action == "client-id" else account["token"]["access_token"])
+        write_private(Path(os.environ["GW_CONFIG_DIR"]) / "oidc_token.json", account["token"])
+    elif action == "client-id":
+        print(json.loads(path.read_text())["client_id"])
     else:
         raise ValueError("unknown gateway credential operation")
     return 0

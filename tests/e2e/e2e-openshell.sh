@@ -829,7 +829,9 @@ if [[ "$E2E_GATEWAY_AUTH" == "service_account" ]]; then
     exit 1
   fi
   OIDC_CLIENT_ID_EFFECTIVE=$(gateway_service_account client-id)
-  OIDC_TOKEN=$(gateway_service_account token)
+  # Copy the private token file during CLI registration; never emit it through
+  # helper stdout or put this machine token in the shell environment.
+  OIDC_TOKEN=""
   pass "Gateway service-account token acquired (single gateway audience, openshell-admin + openshell-user)"
 elif acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
   OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
@@ -1200,6 +1202,7 @@ os.chmod(os.path.join(config_dir, 'oidc_token.json'), 0o600)
 if [[ -f "${GW_CONFIG_DIR}/metadata.json" && -f "${GW_CONFIG_DIR}/oidc_token.json" ]]; then
   pass "openshell CLI registered (OIDC mode)"
   if [[ -n "$GATEWAY_SA_DIR" ]]; then
+    gateway_service_account install-token
     install_gateway_service_account_cli
   fi
 else
