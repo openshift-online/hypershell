@@ -22,6 +22,15 @@ spec:
       serviceAccountName: hypershell-controller
       securityContext:
         runAsNonRoot: true
+      # Kind CoreDNS uses ndots:5 by default, so the four-dot admin host
+      # postgres.external-cloud-db.svc.cluster.local is searched as a relative
+      # name first. That burns connect_timeout on NXDOMAIN suffixes and can
+      # mis-resolve. ndots:2 keeps in-namespace short names searching and treats
+      # the FQDN host as absolute.
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
       containers:
         - name: controller
           image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main:latest

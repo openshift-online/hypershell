@@ -349,6 +349,7 @@ func TestConnErrorCategory(t *testing.T) {
 		{"typed net error", &net.OpError{Op: "dial", Err: errors.New("refused")}, connErrorUnreachable},
 		{"connection refused", errors.New("dial tcp: connection refused"), connErrorUnreachable},
 		{"tls handshake", errors.New("tls: failed to verify certificate: x509: certificate signed by unknown authority"), connErrorTLSFailed},
+		{"tls wrapped in net error", &net.OpError{Op: "read", Err: errors.New("tls: handshake failure")}, connErrorTLSFailed},
 		{"pq invalid password", &pq.Error{Code: "28P01", Message: "password authentication failed"}, connErrorAuthFailed},
 		{"pq auth spec with ssl in message", &pq.Error{Code: "28000", Message: "no pg_hba.conf entry for host, SSL on"}, connErrorAuthFailed},
 		{"plain password failure", errors.New("pq: password authentication failed for user \"x\""), connErrorAuthFailed},
@@ -359,6 +360,22 @@ func TestConnErrorCategory(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRedactDriverError(t *testing.T) {
+	got := redactDriverError(errors.New(`pq: failed to connect to postgres://postgres:s3cret@db.example:5432/postgres?sslmode=verify-full password=s3cret extra`))
+	if strings.Contains(got, "s3cret") {
+		t.Fatalf("password leaked: %q", got)
+	}
+	if strings.Contains(got, "postgres://postgres:") {
+		t.Fatalf("dsn leaked: %q", got)
+	}
+	if !strings.Contains(got, "postgres://redacted") {
+		t.Fatalf("expected redacted url, got %q", got)
+	}
+	if wrap := wrapAdminConnError(errors.New("tls: handshake failure")); !strings.Contains(wrap.Error(), "tls_failed") || !strings.Contains(wrap.Error(), "tls: handshake failure") {
+		t.Fatalf("wrap = %v", wrap)
 	}
 }
 

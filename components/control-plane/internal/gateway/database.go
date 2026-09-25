@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -230,29 +231,29 @@ func openAdminConn(ctx context.Context, creds *adminCredentials) (*sql.DB, func(
 }
 
 // Connection error categories. They label a failed admin connection in logs
-// and errors without repeating the driver's message, which can embed the DSN.
+// and errors. The raw driver string is returned only after redactDriverError
+// strips credentials and DSNs (openshell-gateway-database.spec.md).
 const (
 	connErrorUnreachable = "unreachable"
 	connErrorTLSFailed   = "tls_failed"
 	connErrorAuthFailed  = "auth_failed"
 )
 
+var (
+	redactPostgresURL = regexp.MustCompile(`(?i)postgres(?:ql)?://\S+`)
+	redactPasswordKV  = regexp.MustCompile(`(?i)(password=)[^&;\s]+`)
+)
+
 // connErrorCategory maps a raw connection error to one of the categories above.
-// The raw error is never returned. It is a label only; no control flow depends
-// on it, so a misclassification has low impact.
+// It is a label only; no control flow depends on it, so a misclassification has
+// low impact. TLS is classified from the error text before net.Error so a
+// handshake failure wrapped in *net.OpError is not reported as unreachable.
 func connErrorCategory(err error) string {
+	if err == nil {
+		return connErrorUnreachable
+	}
 	lower := strings.ToLower(err.Error())
 
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return connErrorUnreachable
-	}
-	if strings.Contains(lower, "connection refused") ||
-		strings.Contains(lower, "no such host") ||
-		strings.Contains(lower, "i/o timeout") ||
-		strings.Contains(lower, "network") {
-		return connErrorUnreachable
-	}
 	// Typed SQLSTATE check runs before TLS string matching so an auth rejection
 	// whose message mentions SSL is still classified as auth_failed.
 	var pqErr *pq.Error
@@ -273,7 +274,38 @@ func connErrorCategory(err error) string {
 		strings.Contains(lower, "28000") {
 		return connErrorAuthFailed
 	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return connErrorUnreachable
+	}
+	if strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "no such host") ||
+		strings.Contains(lower, "i/o timeout") ||
+		strings.Contains(lower, "network") {
+		return connErrorUnreachable
+	}
 	return connErrorUnreachable
+}
+
+// redactDriverError returns a log-safe fragment of a driver error: passwords
+// and postgres URLs are stripped, and the remainder is length-bounded.
+func redactDriverError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	msg = redactPostgresURL.ReplaceAllString(msg, "postgres://redacted")
+	msg = redactPasswordKV.ReplaceAllString(msg, "${1}redacted")
+	const max = 240
+	if len(msg) > max {
+		return msg[:max] + "..."
+	}
+	return msg
+}
+
+func wrapAdminConnError(err error) error {
+	return fmt.Errorf("connect to gateway database server: %s (%s)", connErrorCategory(err), redactDriverError(err))
 }
 
 // gatewayDBName returns the PostgreSQL role and database name for a gateway.
@@ -631,7 +663,7 @@ func ReconcileGatewayDatabase(
 
 	db, release, err := openAdminConn(ctx, creds)
 	if err != nil {
-		return fmt.Errorf("connect to gateway database server: %s (driver error redacted)", connErrorCategory(err))
+		return wrapAdminConnError(err)
 	}
 	defer release()
 
@@ -718,7 +750,7 @@ func DeleteGatewayDatabase(ctx context.Context, cfg DatabaseConfig, gatewayID st
 
 	db, release, err := openAdminConn(ctx, creds)
 	if err != nil {
-		return fmt.Errorf("connect to gateway database server: %s (driver error redacted)", connErrorCategory(err))
+		return wrapAdminConnError(err)
 	}
 	defer release()
 
