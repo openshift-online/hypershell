@@ -252,8 +252,10 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
   await expect(page).toHaveURL(/\/gateways\/new$/);
+  // The picker offers registered clusters only; the single registered
+  // cluster is preselected.
   await expect(page.getByRole("combobox", { name: "Cluster" })).toHaveValue(
-    "Hub cluster (default)",
+    "Cluster East",
   );
   await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
 });
@@ -492,7 +494,9 @@ test("provisions a gateway on an existing managed cluster", async ({
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
   ).toBeFocused();
   const clusterInput = page.getByRole("combobox", { name: "Cluster" });
-  await expect(clusterInput).toHaveValue("Hub cluster (default)");
+  // A single registered cluster is preselected; clearing and re-selecting it
+  // exercises the search flow.
+  await expect(clusterInput).toHaveValue("Cluster East");
   await page.getByRole("button", { name: "Clear cluster search" }).click();
   await clusterInput.fill("East");
   await page.getByText("Cluster East", { exact: true }).click();

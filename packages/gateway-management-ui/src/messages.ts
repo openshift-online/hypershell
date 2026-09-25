@@ -530,7 +530,7 @@ export const messages = defineMessages({
   registeredClustersOnly: {
     id: "app.gateway.cluster.registeredOnly",
     defaultMessage:
-      "Only clusters with a registered control plane can host a gateway.",
+      "Only clusters with a connected control plane can host a gateway.",
     description:
       "Helper text under the cluster selector explaining which clusters are offered.",
   },

@@ -100,7 +100,7 @@ describe("GatewayCreatePage", () => {
     });
     expect(
       screen.getByText(
-        "Only clusters with a registered control plane can host a gateway.",
+        "Only clusters with a connected control plane can host a gateway.",
       ),
     ).toBeTruthy();
     expect(screen.queryByLabelText("Namespace")).toBeNull();

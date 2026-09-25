@@ -3,9 +3,10 @@ package managedClusters
 import (
 	"context"
 	stderrors "errors"
-	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -283,6 +284,19 @@ func nameCollisionConflict(holder *ManagedCluster) *errors.ServiceError {
 	)
 }
 
+// isUniqueViolation reports whether err is PostgreSQL SQLSTATE 23505
+// (unique_violation). The GORM session uses pgx in production and lib/pq in the
+// test session, so both driver error types are checked; the message text is
+// never inspected.
 func isUniqueViolation(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "violates unique constraint")
+	const uniqueViolation = "23505"
+	var pgErr *pgconn.PgError
+	if stderrors.As(err, &pgErr) {
+		return pgErr.Code == uniqueViolation
+	}
+	var pqErr *pq.Error
+	if stderrors.As(err, &pqErr) {
+		return string(pqErr.Code) == uniqueViolation
+	}
+	return false
 }
