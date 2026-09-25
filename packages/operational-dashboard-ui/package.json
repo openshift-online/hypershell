@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./fixtures": "./src/fixtures/mock-operational-dashboard-metrics.ts"
+    "./fixtures": "./src/fixtures/index.ts"
   },
   "scripts": {
     "build": "tsc --project tsconfig.app.json --noEmit",

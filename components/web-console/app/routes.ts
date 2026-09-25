@@ -12,6 +12,10 @@ export default [
   layout("./routes/application.tsx", [
     index("./routes/home.tsx"),
     route(routeContract.dashboard, "./routes/dashboard.tsx"),
+    route(
+      routeContract.dashboardReliability,
+      "./routes/dashboard-reliability.tsx",
+    ),
     route(routeContract.gatewayNew, "./routes/gateway-new.tsx"),
     route(routeContract.gatewayDetail, "./routes/gateway.tsx"),
     route(routeContract.metrics, "./routes/metrics.tsx"),

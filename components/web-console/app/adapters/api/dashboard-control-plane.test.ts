@@ -1490,4 +1490,172 @@ describe("createDashboardControlPlaneAdapter", () => {
       value: "450",
     });
   });
+
+  describe("getReliabilityMetrics", () => {
+    const hourlyRequestRate = [
+      { hour: "2026-09-15T12:00", value: 10.2 },
+      { hour: "2026-09-15T13:00", value: 11.1 },
+    ];
+    const hourlyErrorRate = [
+      { hour: "2026-09-15T12:00", value: 0.5 },
+      { hour: "2026-09-15T13:00", value: 0.8 },
+    ];
+    const hourlyLatency = [
+      { hour: "2026-09-15T12:00", value: 0.09 },
+      { hour: "2026-09-15T13:00", value: 0.085 },
+    ];
+
+    it("maps a full API reliability payload into three metrics with hourly trends", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            error_rate_percent: 1.25,
+            hourly_error_rate_percent: hourlyErrorRate,
+            hourly_latency_p50_seconds: hourlyLatency,
+            hourly_request_rate: hourlyRequestRate,
+            latency_p50_seconds: 0.084,
+            request_rate: 12.5,
+          }),
+      });
+
+      const metrics = await adapter.getReliabilityMetrics(context);
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/metrics/api-reliability", {
+        credentials: "same-origin",
+        signal: undefined,
+      });
+      expect(metrics.metrics).toEqual([
+        {
+          hourlyTrend: {
+            points: [
+              { label: "2026-09-15T12:00", value: 10.2 },
+              { label: "2026-09-15T13:00", value: 11.1 },
+            ],
+          },
+          id: "api-request-rate",
+          unit: "req/s",
+          value: "12.50",
+        },
+        {
+          hourlyTrend: {
+            points: [
+              { label: "2026-09-15T12:00", value: 0.5 },
+              { label: "2026-09-15T13:00", value: 0.8 },
+            ],
+          },
+          id: "api-error-rate",
+          unit: "%",
+          value: "1.25",
+        },
+        {
+          hourlyTrend: {
+            points: [
+              { label: "2026-09-15T12:00", value: 0.09 },
+              { label: "2026-09-15T13:00", value: 0.085 },
+            ],
+          },
+          id: "api-latency",
+          unit: "sec",
+          value: "0.084",
+        },
+      ]);
+    });
+
+    it("omits only the missing hourly trend when a historical series is absent", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            error_rate_percent: 1.25,
+            hourly_error_rate_percent: hourlyErrorRate,
+            hourly_request_rate: hourlyRequestRate,
+            latency_p50_seconds: 0.084,
+            request_rate: 12.5,
+          }),
+      });
+
+      const metrics = await adapter.getReliabilityMetrics(context);
+      const latencyMetric = metrics.metrics.find(
+        (metric) => metric.id === "api-latency",
+      );
+      const requestRateMetric = metrics.metrics.find(
+        (metric) => metric.id === "api-request-rate",
+      );
+
+      expect(latencyMetric).toEqual({
+        id: "api-latency",
+        unit: "sec",
+        value: "0.084",
+      });
+      expect(requestRateMetric?.hourlyTrend).toEqual({
+        points: [
+          { label: "2026-09-15T12:00", value: 10.2 },
+          { label: "2026-09-15T13:00", value: 11.1 },
+        ],
+      });
+    });
+
+    it("returns failedSources when the BFF response is not ok", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 502,
+      });
+
+      const metrics = await adapter.getReliabilityMetrics(context);
+
+      expect(metrics.failedSources).toEqual(["api-reliability"]);
+      expect(metrics.metrics).toEqual([]);
+      expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);
+    });
+
+    it("returns failedSources when required instant fields are missing", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            error_rate_percent: 1.25,
+            request_rate: 12.5,
+          }),
+      });
+
+      const metrics = await adapter.getReliabilityMetrics(context);
+
+      expect(metrics.failedSources).toEqual(["api-reliability"]);
+      expect(metrics.metrics).toEqual([]);
+      expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);
+    });
+
+    it("rethrows abort errors instead of soft-failing", async () => {
+      const abortError = new DOMException("Aborted", "AbortError");
+      fetchMock.mockRejectedValue(abortError);
+
+      await expect(adapter.getReliabilityMetrics(context)).rejects.toBe(
+        abortError,
+      );
+    });
+
+    it("forwards abort signals to the api-reliability route", async () => {
+      const controller = new AbortController();
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            error_rate_percent: 0,
+            latency_p50_seconds: 0.01,
+            request_rate: 1,
+          }),
+      });
+
+      await adapter.getReliabilityMetrics({
+        ...context,
+        signal: controller.signal,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/metrics/api-reliability", {
+        credentials: "same-origin",
+        signal: controller.signal,
+      });
+    });
+  });
 });

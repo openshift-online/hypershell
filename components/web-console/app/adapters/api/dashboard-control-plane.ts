@@ -564,6 +564,95 @@ async function fetchPlatformInventoryMetrics(
   return platformInventoryMetricsResponseToMetrics(body);
 }
 
+interface ApiReliabilityHourlyPoint {
+  hour: string;
+  value: number;
+}
+
+interface ApiReliabilityResponse {
+  error_rate_percent: number;
+  hourly_error_rate_percent?: ApiReliabilityHourlyPoint[];
+  hourly_latency_p50_seconds?: ApiReliabilityHourlyPoint[];
+  hourly_request_rate?: ApiReliabilityHourlyPoint[];
+  latency_p50_seconds: number;
+  request_rate: number;
+}
+
+function mapHourlyTrend(
+  series: readonly ApiReliabilityHourlyPoint[] | undefined,
+): OperationalMetric["hourlyTrend"] {
+  if (series === undefined) {
+    return undefined;
+  }
+
+  return {
+    points: series.map((point) => ({
+      label: point.hour,
+      value: point.value,
+    })),
+  };
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function mapApiReliabilityResponse(
+  body: ApiReliabilityResponse,
+): OperationalMetric[] {
+  if (
+    !isFiniteNumber(body.request_rate) ||
+    !isFiniteNumber(body.error_rate_percent) ||
+    !isFiniteNumber(body.latency_p50_seconds)
+  ) {
+    throw new Error(
+      "API reliability metrics response is missing required fields",
+    );
+  }
+
+  const requestRateTrend = mapHourlyTrend(body.hourly_request_rate);
+  const errorRateTrend = mapHourlyTrend(body.hourly_error_rate_percent);
+  const latencyTrend = mapHourlyTrend(body.hourly_latency_p50_seconds);
+
+  return [
+    {
+      id: "api-request-rate",
+      unit: "req/s",
+      value: body.request_rate.toFixed(2),
+      ...(requestRateTrend ? { hourlyTrend: requestRateTrend } : {}),
+    },
+    {
+      id: "api-error-rate",
+      unit: "%",
+      value: body.error_rate_percent.toFixed(2),
+      ...(errorRateTrend ? { hourlyTrend: errorRateTrend } : {}),
+    },
+    {
+      id: "api-latency",
+      unit: "sec",
+      value: body.latency_p50_seconds.toFixed(3),
+      ...(latencyTrend ? { hourlyTrend: latencyTrend } : {}),
+    },
+  ];
+}
+
+async function fetchApiReliabilityMetrics(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/api-reliability", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch API reliability metrics: ${String(response.status)}`,
+    );
+  }
+
+  const body = (await response.json()) as ApiReliabilityResponse;
+  return mapApiReliabilityResponse(body);
+}
+
 interface MetricSourceDefinition {
   fetch: (
     context: DashboardInvocationContext,
@@ -656,6 +745,33 @@ export function createDashboardControlPlaneAdapter(
         lastSuccessfulRefresh: new Date(),
         metrics,
       };
+    },
+
+    async getReliabilityMetrics(
+      context: DashboardInvocationContext,
+    ): Promise<OperationalDashboardMetrics> {
+      context.signal?.throwIfAborted();
+
+      try {
+        const metrics = await fetchApiReliabilityMetrics(context);
+        return {
+          lastSuccessfulRefresh: new Date(),
+          metrics,
+        };
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
+
+        // Soft-fail like getOperationalMetrics partial sources so
+        // mergeReliabilityDashboardMetrics can keep stale widgets on
+        // refresh and the page can show the partial-load warning.
+        return {
+          failedSources: ["api-reliability"],
+          lastSuccessfulRefresh: new Date(),
+          metrics: [],
+        };
+      }
     },
   };
 }

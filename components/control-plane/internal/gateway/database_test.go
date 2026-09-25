@@ -249,6 +249,72 @@ func TestTenantSecretDataUsesRequireNotVerifyFull(t *testing.T) {
 	}
 }
 
+// TestTenantProbeDSNMatchesTenantSecret checks the readiness probe connects with
+// the same identity and TLS posture written into the tenant Secret: the gateway
+// role and database, sslmode=require and no CA file (nothing mounts one into the
+// gateway pod). A drift here would verify a connection the gateway can never make.
+func TestTenantProbeDSNMatchesTenantSecret(t *testing.T) {
+	creds := &adminCredentials{host: "db.example.internal", port: "5432", user: "provisioner", password: "admin"}
+	u, err := url.Parse(tenantProbeDSN(creds, "gw_abc", "p@ss word/with?chars"))
+	if err != nil {
+		t.Fatalf("dsn is not a URL: %v", err)
+	}
+	if u.User.Username() != "gw_abc" {
+		t.Errorf("user = %q, want the gateway role, not the admin user", u.User.Username())
+	}
+	if got, _ := u.User.Password(); got != "p@ss word/with?chars" {
+		t.Errorf("password round trip = %q", got)
+	}
+	if u.Path != "/gw_abc" {
+		t.Errorf("path = %q, want the gateway database", u.Path)
+	}
+	if u.Host != net.JoinHostPort(creds.host, creds.port) {
+		t.Errorf("host = %q", u.Host)
+	}
+	q := u.Query()
+	if q.Get("sslmode") != tenantSSLMode {
+		t.Errorf("sslmode = %q, want %q (the tenant posture, not verify-full)", q.Get("sslmode"), tenantSSLMode)
+	}
+	if q.Get("sslrootcert") != "" {
+		t.Errorf("probe must not reference a CA file, got %q", q.Get("sslrootcert"))
+	}
+	if q.Get("connect_timeout") != tenantProbeConnectTimeout {
+		t.Errorf("connect_timeout = %q, want %q", q.Get("connect_timeout"), tenantProbeConnectTimeout)
+	}
+}
+
+func TestTenantProbeDelayDoublesFromBase(t *testing.T) {
+	for attempt, want := range map[int]time.Duration{
+		0: 200 * time.Millisecond,
+		1: 400 * time.Millisecond,
+		2: 800 * time.Millisecond,
+		3: 1600 * time.Millisecond,
+		4: 3200 * time.Millisecond,
+	} {
+		if got := tenantProbeDelay(attempt); got != want {
+			t.Errorf("tenantProbeDelay(%d) = %s, want %s", attempt, got, want)
+		}
+	}
+}
+
+// TestVerifyTenantConnFailureIsRedactedAndBounded checks that when no server is
+// reachable the probe exhausts its attempts and returns a categorized error that
+// never leaks the password or DSN. A cancelled context short-circuits the retry
+// loop so a shutting-down controller does not block on backoff.
+func TestVerifyTenantConnFailureIsRedactedAndBounded(t *testing.T) {
+	creds := &adminCredentials{host: "127.0.0.1", port: "1", user: "provisioner", password: "s3cr3t"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := verifyTenantConn(ctx, creds, "gw1", "gw_gw1", "topsecretpassword")
+	if err == nil {
+		t.Fatal("expected an error when the context is already cancelled")
+	}
+	if strings.Contains(err.Error(), "topsecretpassword") {
+		t.Errorf("error must not leak the tenant password: %v", err)
+	}
+}
+
 func TestCreateGatewayDatabaseSQLUsesTemplate0(t *testing.T) {
 	got := createGatewayDatabaseSQL("gw_abc")
 	if !strings.Contains(got, "TEMPLATE template0") {

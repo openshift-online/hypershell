@@ -5,6 +5,11 @@ data. Widgets without a connected source still appear on the dashboard; they
 render the localized "Metric unavailable" empty state from
 `operational-dashboard-page.tsx`.
 
+Reliability dashboard sources are documented in
+[API reliability](#api-reliability) below. They load through a separate
+control-plane method and must not be added to the operational `metricSources`
+list.
+
 ## Data flow
 
 ```
@@ -180,6 +185,51 @@ When the range query fails but instant queries succeed, the BFF returns HTTP `20
 | System summary Success rate row | Trend arrow on success rate | When `provision-reliability.successRateTrend` change is at least 5%             |
 
 Other metric cards do not load historical series unless listed above.
+
+## API reliability
+
+Reliability dashboard (`/dashboard/reliability`) loads through
+`useGetReliabilityMetricsData` → `dashboard.getReliabilityMetrics` →
+`createDashboardControlPlaneAdapter.getReliabilityMetrics`. This source is
+**not** part of the operational `metricSources` list (ARM-05).
+
+| Source ID         | BFF route                          | Metrics emitted                                     |
+| ----------------- | ---------------------------------- | --------------------------------------------------- |
+| `api-reliability` | `GET /api/metrics/api-reliability` | `api-request-rate`, `api-error-rate`, `api-latency` |
+
+Fetch failures soft-return `failedSources: ["api-reliability"]` with an empty
+metrics list (abort still throws). `mergeReliabilityDashboardMetrics` then
+preserves stale widgets on refresh; an empty merge after first load is treated
+as total failure.
+
+Instant fields come from the API server framework Prometheus histogram
+`api_inbound_request_duration_*` scraped via the `hypershell-api-server`
+ServiceMonitor (`job="hypershell-api-server"`). The HTTP status label is
+`code`. (OTel `http.server.request.duration` /
+`http_server_request_duration_seconds` is not required for this dashboard;
+Kind does not currently set API-server OTLP export.)
+
+| Instant field (BFF)   | Metric ID          | Unit    | Display rounding | Trend field (BFF)            |
+| --------------------- | ------------------ | ------- | ---------------- | ---------------------------- |
+| `request_rate`        | `api-request-rate` | `req/s` | 2 fractional     | `hourly_request_rate`        |
+| `error_rate_percent`  | `api-error-rate`   | `%`     | 2 fractional     | `hourly_error_rate_percent`  |
+| `latency_p50_seconds` | `api-latency`      | `sec`   | 3 fractional     | `hourly_latency_p50_seconds` |
+
+PromQL shapes (5-minute rate window; see
+`components/web-console/bff/src/metrics-api-reliability.ts`):
+
+- Request rate: `sum(rate(api_inbound_request_duration_count{job="hypershell-api-server"}[5m]))`
+- Error rate (5xx only): `100 * (sum(rate(...{code=~"5.."}[5m])) or vector(0)) / clamp_min(sum(rate(...[5m])), 1e-12)` (idle fleets with zero request rate evaluate to `0%`)
+- Latency P50: `histogram_quantile(0.50, sum(rate(..._bucket[5m])) by (le))`, with cumulative histogram fallback when the rate-based quantile is non-finite (instant and hourly)
+
+Hourly trends use Prometheus `query_range` over the last 24 hours with step
+`3600s`. Missing historical arrays omit `hourlyTrend` for that metric only;
+instant-query failure is a total source failure (HTTP `502`). Specs:
+`platform/api-reliability-metrics.spec.md`,
+`web-console/reliability-dashboard.spec.md`.
+
+Refresh uses `reliabilityDashboardRefreshMilliseconds` (same 15-minute
+interval as the operational dashboard).
 
 ## Adding a new source
 

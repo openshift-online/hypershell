@@ -2,16 +2,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   createDashboardOperations,
   DashboardUiProvider,
-  OperationalDashboardPage,
+  ReliabilityDashboardPage,
   type DashboardControlPlane,
   type DashboardOperations,
   type DashboardUiNavigation,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
-import {
-  mockOperationalDashboardMetrics,
-  mockOperationalDashboardMetricsAttentionUnavailable,
-  mockOperationalDashboardMetricsZeroAttention,
-} from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
+import { mockReliabilityDashboardMetrics } from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { expect, userEvent, within } from "storybook/test";
@@ -25,22 +21,22 @@ const stubNavigation: DashboardUiNavigation = {
   navigate: () => undefined,
 };
 
-const stubReliabilityMetrics = {
-  lastSuccessfulRefresh: new Date(),
-  metrics: [],
+const stubReliabilityControlPlane: DashboardControlPlane = {
+  getOperationalMetrics: (context) => {
+    context.signal?.throwIfAborted();
+    return Promise.resolve({
+      lastSuccessfulRefresh: new Date(),
+      metrics: [],
+    });
+  },
+  getReliabilityMetrics: (context) => {
+    context.signal?.throwIfAborted();
+    return Promise.resolve(mockReliabilityDashboardMetrics);
+  },
 };
 
 const stubDashboard = createDashboardOperations({
-  controlPlane: {
-    getOperationalMetrics: (context) => {
-      context.signal?.throwIfAborted();
-      return Promise.resolve(mockOperationalDashboardMetrics);
-    },
-    getReliabilityMetrics: (context) => {
-      context.signal?.throwIfAborted();
-      return Promise.resolve(stubReliabilityMetrics);
-    },
-  },
+  controlPlane: stubReliabilityControlPlane,
 });
 
 const mockDashboard = createDashboardOperations({
@@ -51,13 +47,36 @@ const initialLoadFailedDashboard = createDashboardOperations({
   controlPlane: {
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
-      return Promise.reject(
-        new Error("Unable to reach the operational metrics service."),
-      );
+      return Promise.resolve({
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
     },
     getReliabilityMetrics: (context) => {
       context.signal?.throwIfAborted();
-      return Promise.resolve(stubReliabilityMetrics);
+      return Promise.resolve({
+        failedSources: ["api-reliability"],
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
+    },
+  },
+});
+
+const loadingDashboard = createDashboardOperations({
+  controlPlane: {
+    getOperationalMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve({
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
+    },
+    getReliabilityMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return new Promise(() => {
+        // Never resolves so Storybook can show the initial loading spinner.
+      });
     },
   },
 });
@@ -67,26 +86,19 @@ const partialLoadDashboard = createDashboardOperations({
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
-        failedSources: [
-          "cluster-memory",
-          "cluster-cpu",
-          "cluster-pods",
-          "cluster-nodes",
-        ],
         lastSuccessfulRefresh: new Date(),
-        metrics: mockOperationalDashboardMetrics.metrics.filter((metric) =>
-          [
-            "provisioned-gateways",
-            "provisioned-sandboxes",
-            "registered-users",
-            "provision-time",
-          ].includes(metric.id),
-        ),
+        metrics: [],
       });
     },
     getReliabilityMetrics: (context) => {
       context.signal?.throwIfAborted();
-      return Promise.resolve(stubReliabilityMetrics);
+      return Promise.resolve({
+        failedSources: ["api-reliability"],
+        lastSuccessfulRefresh: new Date(),
+        metrics: mockReliabilityDashboardMetrics.metrics.filter(
+          (metric) => metric.id === "api-request-rate",
+        ),
+      });
     },
   },
 });
@@ -97,22 +109,27 @@ function createRefreshFailedDashboard(): DashboardOperations {
   const controlPlane: DashboardControlPlane = {
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
+      return Promise.resolve({
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
+    },
+    getReliabilityMetrics: (context) => {
+      context.signal?.throwIfAborted();
       callCount += 1;
 
       if (callCount === 1) {
         return Promise.resolve({
-          ...mockOperationalDashboardMetrics,
+          ...mockReliabilityDashboardMetrics,
           lastSuccessfulRefresh: new Date(),
         });
       }
 
-      return Promise.reject(
-        new Error("Unable to refresh operational dashboard metrics."),
-      );
-    },
-    getReliabilityMetrics: (context) => {
-      context.signal?.throwIfAborted();
-      return Promise.resolve(stubReliabilityMetrics);
+      return Promise.resolve({
+        failedSources: ["api-reliability"],
+        lastSuccessfulRefresh: new Date(),
+        metrics: [],
+      });
     },
   };
 
@@ -123,7 +140,7 @@ function DashboardPreview({
   metrics,
   dashboard,
 }: Readonly<{
-  metrics?: typeof mockOperationalDashboardMetrics;
+  metrics?: typeof mockReliabilityDashboardMetrics;
   dashboard?: DashboardOperations;
 }>) {
   return (
@@ -133,21 +150,21 @@ function DashboardPreview({
       }
       navigation={stubNavigation}
     >
-      <OperationalDashboardPage metrics={metrics} />
+      <ReliabilityDashboardPage metrics={metrics} />
     </DashboardUiProvider>
   );
 }
 
 function ShellDashboardPreview() {
   return (
-    <MemoryRouter initialEntries={["/"]}>
+    <MemoryRouter initialEntries={["/dashboard/reliability"]}>
       <Routes>
         <Route element={<ApplicationShell />}>
           <Route
-            path="/"
+            path="/dashboard/reliability"
             element={
-              <OperationalDashboardPage
-                metrics={mockOperationalDashboardMetrics}
+              <ReliabilityDashboardPage
+                metrics={mockReliabilityDashboardMetrics}
               />
             }
           />
@@ -165,84 +182,66 @@ const pseudoMessages = Object.fromEntries(
 );
 
 const meta = {
-  title: "HyperShell/Operational dashboard",
-  component: OperationalDashboardPage,
+  title: "HyperShell/Reliability dashboard",
+  component: ReliabilityDashboardPage,
   parameters: {
     layout: "fullscreen",
   },
-  render: () => <DashboardPreview metrics={mockOperationalDashboardMetrics} />,
-} satisfies Meta<typeof OperationalDashboardPage>;
+  render: () => <DashboardPreview metrics={mockReliabilityDashboardMetrics} />,
+} satisfies Meta<typeof ReliabilityDashboardPage>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const MockedMetrics: Story = {};
-
-export const SandboxAttentionZeroCounts: Story = {
-  render: () => (
-    <DashboardPreview metrics={mockOperationalDashboardMetricsZeroAttention} />
-  ),
+export const MockedMetrics: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await canvas.findByText("Sandbox status");
-    await expect(canvas.queryByText("Attention required")).toBeNull();
-    await expect(canvas.queryByText(/Orphaned/)).toBeNull();
-  },
-};
+    await canvas.findByText("Reliability summary");
 
-export const SandboxAttentionUnavailable: Story = {
-  render: () => (
-    <DashboardPreview
-      metrics={mockOperationalDashboardMetricsAttentionUnavailable}
-    />
-  ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    for (const title of ["API request rate", "API error rate", "API latency"]) {
+      const widgetTitle = canvas
+        .getAllByText(title)
+        .find((node) =>
+          node.classList.contains("pf-v6-widget-grid-tile__title"),
+        );
+      await expect(widgetTitle).toBeDefined();
+      await expect(widgetTitle).toBeVisible();
+    }
 
-    await canvas.findByText("Attention counts unavailable");
-    await expect(canvas.getByText("Attention required")).toBeVisible();
-  },
-};
-
-export const InventorySummary: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await canvas.findByText("Platform inventory");
-    await expect(canvas.getByText("Inventory summary")).toBeVisible();
-    await expect(canvas.getByText("Cluster providers")).toBeVisible();
-    await expect(canvas.getByText("Cluster regions")).toBeVisible();
-    await expect(canvas.getByText("Clusters")).toBeVisible();
-  },
-};
-
-export const HubUtilizationTrendSparklines: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await canvas.findByText("Memory");
-    await canvas.findByText("CPU");
-    await canvas.findByText("Pods");
-    const sparklineCaptions = canvas.getAllByText("Last 7 days");
+    const sparklineCaptions = canvas.getAllByText("Last 24 hours");
     await expect(sparklineCaptions.length).toBeGreaterThanOrEqual(3);
-  },
-};
-
-export const SystemSummaryTrendArrows: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await canvas.findByText("System summary");
-    const trendButtons = canvas.getAllByRole("button", {
-      name: /increase|decrease/i,
-    });
-    await expect(trendButtons.length).toBeGreaterThanOrEqual(4);
+    await expect(
+      canvas.getByRole("button", {
+        name: /\d+% increase in Request rate/u,
+      }),
+    ).toBeVisible();
+    await expect(
+      canvas.getByRole("button", {
+        name: /\d+% increase in Error rate/u,
+      }),
+    ).toBeVisible();
+    await expect(
+      canvas.getByRole("button", {
+        name: /\d+% increase in Median latency/u,
+      }),
+    ).toBeVisible();
   },
 };
 
 export const WithRefresh: Story = {
   render: () => <DashboardPreview />,
+};
+
+export const Loading: Story = {
+  render: () => <DashboardPreview dashboard={loadingDashboard} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(
+      canvas.getByLabelText("Loading reliability dashboard metrics"),
+    ).toBeVisible();
+  },
 };
 
 export const InitialLoadFailed: Story = {
@@ -255,7 +254,7 @@ export const PartialLoadWarning: Story = {
     const canvas = within(canvasElement);
 
     await canvas.findByText("Some dashboard metrics are unavailable");
-    await expect(canvas.getByText("Usage summary")).toBeVisible();
+    await expect(canvas.getByText("Reliability summary")).toBeVisible();
   },
 };
 
@@ -264,12 +263,12 @@ export const RefreshFailed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await canvas.findByText("Usage summary");
+    await canvas.findByText("Reliability summary");
     await userEvent.click(
       canvas.getByRole("button", { name: "Refresh dashboard metrics" }),
     );
     await expect(
-      canvas.getByText("Could not refresh dashboard metrics"),
+      canvas.getByText("Some dashboard metrics are unavailable"),
     ).toBeVisible();
   },
 };

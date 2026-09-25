@@ -4,30 +4,20 @@ import {
   Bullseye,
   Button,
   Content,
-  EmptyState,
-  EmptyStateBody,
-  EmptyStateVariant,
+  Flex,
+  FlexItem,
   PageSection,
   PageSectionTypes,
   Spinner,
-  Flex,
-  FlexItem,
   Timestamp,
   TimestampFormat,
   Title,
 } from "@patternfly/react-core";
 import {
-  CheckCircleIcon,
-  ClusterIcon,
-  CodeBranchIcon,
-  ContainerNodeIcon,
-  CubesIcon,
-  DatabaseIcon,
-  HourglassHalfIcon,
-  UsersIcon,
-  MicrochipIcon,
-  MemoryIcon,
-  ServerIcon,
+  ChartLineIcon,
+  ExclamationCircleIcon,
+  OutlinedClockIcon,
+  TachometerAltIcon,
 } from "@patternfly/react-icons";
 import {
   AddWidgetsButton,
@@ -44,66 +34,42 @@ import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 import type { OperationalDashboardMetrics } from "../application/dashboard-types";
 import type { DashboardProbe } from "../application/dashboard-probes";
 import { noopDashboardProbePublisher } from "../application/dashboard-probes";
-import {
-  ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
-  ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
-  ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
-  defaultDashboardLayoutTemplate,
-  DASHBOARD_COLUMN_COUNT,
-  INVENTORY_SUMMARY_WIDGET_HEIGHT,
-  localizeDashboardLayoutTemplate,
-  NODE_STATUS_WIDGET_HEIGHT,
-  POD_CAPACITY_WIDGET_HEIGHT,
-  PROVISION_RELIABILITY_WIDGET_HEIGHT,
-  PROVISION_TIME_WIDGET_HEIGHT,
-  REGISTERED_USERS_WIDGET_HEIGHT,
-  SECTION_TITLE_WIDGET_TYPE,
-  SYSTEM_SUMMARY_WIDGET_HEIGHT,
-  TITLE_WIDGET_HEIGHT,
-  USAGE_SUMMARY_WIDGET_HEIGHT,
-  UTILIZATION_WIDGET_HEIGHT,
-} from "../dashboard/dashboard-layout-template";
+import { DashboardSecondaryNav } from "../dashboard/dashboard-secondary-nav";
 import {
   getActiveWidgetTypes,
   isValidSavedTemplate,
   sanitizeDashboardTemplate,
   stripRemovedWidgetTypes,
 } from "../dashboard/dashboard-layout-persistence";
+import {
+  defaultReliabilityDashboardLayoutTemplate,
+  localizeReliabilityDashboardLayoutTemplate,
+  RELIABILITY_DASHBOARD_COLUMN_COUNT,
+  RELIABILITY_SUMMARY_WIDGET_HEIGHT,
+  RELIABILITY_TREND_WIDGET_HEIGHT,
+} from "../dashboard/reliability-dashboard-layout-template";
+import {
+  ApiReliabilityTrendCard,
+  ReliabilitySummaryCard,
+} from "../dashboard/reliability-dashboard-widgets";
 import { useDashboardUi } from "../dashboard-ui-provider";
 import { messages } from "../messages";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
-import { DashboardSecondaryNav } from "../dashboard/dashboard-secondary-nav";
 import { dashboardResizeWidgetConfig } from "./dashboard-resize-handle";
 import "./dashboard-widget.css";
-import {
-  GatewayReleasesCard,
-  GatewayStatusCard,
-  SandboxStatusCard,
-  InventorySummaryCard,
-  ManagedClusterProvidersCard,
-  ManagedClusterRegionsCard,
-  MetricCard,
-  NodeStatusCard,
-  PodCapacityCard,
-  ProvisionReliabilityCard,
-  ProvisionTimeCard,
-  SystemSummaryCard,
-  SectionTitleCard,
-  UsageSummaryCard,
-  UsersCard,
-  UtilizationCard,
-} from "./dashboard-widget";
-import { useGetMetricsData } from "./get-metrics-data";
+import { useGetReliabilityMetricsData } from "./get-reliability-metrics-data";
 
-const baseTemplate = defaultDashboardLayoutTemplate;
+const baseTemplate = defaultReliabilityDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v43";
+const LAYOUT_STORAGE_KEY = "hypershell.reliability-dashboard.layout.v1";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
-  xl: 4,
-  lg: 4,
-  md: 4,
+  xl: RELIABILITY_DASHBOARD_COLUMN_COUNT,
+  lg: RELIABILITY_DASHBOARD_COLUMN_COUNT,
+  md: RELIABILITY_DASHBOARD_COLUMN_COUNT,
   sm: 1,
 };
+
+const METRIC_WIDGET_DEFAULTS = { h: 3, maxH: 5, minH: 2, w: 1 };
 
 function getAddedWidgetTypes(
   currentTemplate: ExtendedTemplateConfig,
@@ -137,7 +103,7 @@ function readSavedTemplate(
 
     return {
       invalid: false,
-      template: localizeDashboardLayoutTemplate(
+      template: localizeReliabilityDashboardLayoutTemplate(
         stripRemovedWidgetTypes(parsed),
         intl,
       ),
@@ -164,406 +130,98 @@ function layoutProbe(
   });
 }
 
-const METRIC_WIDGET_DEFAULTS = { h: 3, maxH: 5, minH: 2, w: 1 };
-
-function findLayoutItemTitle(
-  template: ExtendedTemplateConfig,
-  widgetId: string,
-): string {
-  for (const variant of Object.keys(template) as Variants[]) {
-    const item = template[variant].find((entry) => entry.i === widgetId);
-    if (item) {
-      return item.title;
-    }
-  }
-
-  return "";
-}
-
 function createWidgetMapping(
   metrics: OperationalDashboardMetrics,
   intl: IntlShape,
-  template: ExtendedTemplateConfig,
 ): WidgetMapping {
   const metricById = new Map(
     metrics.metrics.map((metric) => [metric.id, metric]),
   );
 
-  const renderMetric = (
+  const renderTrend = (
     metricId: string,
-    subtitle: string,
     titleMessage: (typeof messages)[keyof typeof messages],
-    metricType:
-      | "metric"
-      | "users"
-      | "gateway-status"
-      | "sandbox-status"
-      | "gateway-releases"
-      | "node-status"
-      | "pod-capacity"
-      | "provision-time"
-      | "provision-reliability"
-      | "inventory-providers"
-      | "inventory-regions"
-      | "utilization",
   ) => {
-    const metric = metricById.get(metricId);
     const title = intl.formatMessage(titleMessage);
-
-    if (!metric) {
-      return (
-        <Bullseye>
-          <EmptyState headingLevel="h3" variant={EmptyStateVariant.sm}>
-            <Title headingLevel="h3">
-              <FormattedMessage {...messages.metricUnavailableTitle} />
-            </Title>
-            <EmptyStateBody>
-              <FormattedMessage {...messages.metricUnavailableBody} />
-            </EmptyStateBody>
-          </EmptyState>
-        </Bullseye>
-      );
-    }
-
-    if (metricType === "users") {
-      return <UsersCard metric={metric} />;
-    }
-
-    if (metricType === "metric") {
-      return <MetricCard metric={metric} subtitle={subtitle} title={title} />;
-    }
-
-    if (metricType === "gateway-status") {
-      return <GatewayStatusCard metric={metric} />;
-    }
-
-    if (metricType === "sandbox-status") {
-      return <SandboxStatusCard metric={metric} />;
-    }
-
-    if (metricType === "gateway-releases") {
-      return <GatewayReleasesCard metric={metric} />;
-    }
-
-    if (metricType === "node-status") {
-      return <NodeStatusCard metric={metric} />;
-    }
-
-    if (metricType === "pod-capacity") {
-      return <PodCapacityCard metric={metric} />;
-    }
-
-    if (metricType === "provision-time") {
-      return <ProvisionTimeCard metric={metric} />;
-    }
-
-    if (metricType === "provision-reliability") {
-      return <ProvisionReliabilityCard metric={metric} />;
-    }
-
-    if (metricType === "inventory-providers") {
-      return <ManagedClusterProvidersCard metric={metric} />;
-    }
-
-    if (metricType === "inventory-regions") {
-      return <ManagedClusterRegionsCard metric={metric} />;
-    }
-
-    return <UtilizationCard metric={metric} />;
+    return (
+      <ApiReliabilityTrendCard
+        metric={metricById.get(metricId)}
+        title={title}
+      />
+    );
   };
 
   return {
-    [SECTION_TITLE_WIDGET_TYPE]: {
+    "reliability-summary": {
       defaults: {
-        h: TITLE_WIDGET_HEIGHT,
-        maxH: TITLE_WIDGET_HEIGHT,
-        minH: TITLE_WIDGET_HEIGHT,
-        w: DASHBOARD_COLUMN_COUNT,
+        h: RELIABILITY_SUMMARY_WIDGET_HEIGHT,
+        maxH: RELIABILITY_SUMMARY_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: RELIABILITY_DASHBOARD_COLUMN_COUNT,
       },
       config: {
-        title: intl.formatMessage(messages.sectionTitleDefault),
-        wrapperProps: {
-          className: "hypershell-dashboard-title-widget",
-        },
-        cardBodyProps: {
-          className: "hypershell-dashboard-title-widget__body",
-        },
+        icon: <TachometerAltIcon />,
+        title: intl.formatMessage(messages.reliabilitySummaryWidget),
       },
-      renderWidget: (widgetId) => {
-        const resolvedTitle = findLayoutItemTitle(template, widgetId);
-
-        return (
-          <SectionTitleCard
-            title={
-              resolvedTitle || intl.formatMessage(messages.sectionTitleDefault)
-            }
-          />
-        );
-      },
+      renderWidget: () => <ReliabilitySummaryCard metrics={metrics.metrics} />,
     },
-    "usage-summary": {
+    "api-request-rate": {
       defaults: {
-        h: USAGE_SUMMARY_WIDGET_HEIGHT,
-        maxH: USAGE_SUMMARY_WIDGET_HEIGHT + 2,
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
       config: {
-        icon: <UsersIcon />,
-        title: intl.formatMessage(messages.usageSummaryWidget),
-      },
-      renderWidget: () => <UsageSummaryCard metrics={metrics.metrics} />,
-    },
-    "system-summary": {
-      defaults: {
-        h: SYSTEM_SUMMARY_WIDGET_HEIGHT,
-        maxH: SYSTEM_SUMMARY_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <MemoryIcon />,
-        title: intl.formatMessage(messages.systemSummaryWidget),
-      },
-      renderWidget: () => <SystemSummaryCard metrics={metrics.metrics} />,
-    },
-    "registered-users": {
-      defaults: {
-        h: REGISTERED_USERS_WIDGET_HEIGHT,
-        maxH: REGISTERED_USERS_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 2,
-      },
-      config: {
-        icon: <UsersIcon />,
-        title: intl.formatMessage(messages.registeredUsers),
-      },
-      renderWidget: () => (
-        <UsersCard
-          metric={metrics.metrics.find(
-            (metric) => metric.id === "registered-users",
-          )}
-        />
-      ),
-    },
-    "gateway-status": {
-      defaults: {
-        h: ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
-        maxH: REGISTERED_USERS_WIDGET_HEIGHT,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.gatewayStatusWidget),
+        icon: <ChartLineIcon />,
+        title: intl.formatMessage(messages.apiRequestRateWidget),
       },
       renderWidget: () =>
-        renderMetric(
-          "provisioned-gateways",
-          "",
-          messages.gatewayStatusWidget,
-          "gateway-status",
-        ),
+        renderTrend("api-request-rate", messages.apiRequestRateWidget),
     },
-    "sandbox-status": {
+    "api-error-rate": {
       defaults: {
-        h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
-        maxH: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 2,
-      },
-      config: {
-        icon: <ContainerNodeIcon />,
-        title: intl.formatMessage(messages.sandboxStatusWidget),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "provisioned-sandboxes",
-          "",
-          messages.sandboxStatusWidget,
-          "sandbox-status",
-        ),
-    },
-    "gateway-releases": {
-      defaults: {
-        h: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
-        maxH: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT + 2,
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
       config: {
-        icon: <CodeBranchIcon />,
-        title: intl.formatMessage(messages.gatewayReleasesWidget),
+        icon: <ExclamationCircleIcon />,
+        title: intl.formatMessage(messages.apiErrorRateWidget),
       },
       renderWidget: () =>
-        renderMetric(
-          "gateway-releases",
-          "",
-          messages.gatewayReleasesWidget,
-          "gateway-releases",
-        ),
+        renderTrend("api-error-rate", messages.apiErrorRateWidget),
     },
-    "provision-time": {
+    "api-latency": {
       defaults: {
-        h: PROVISION_TIME_WIDGET_HEIGHT,
-        maxH: PROVISION_TIME_WIDGET_HEIGHT + 2,
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
       config: {
-        icon: <HourglassHalfIcon />,
-        title: intl.formatMessage(messages.provisionTimeWidget),
+        icon: <OutlinedClockIcon />,
+        title: intl.formatMessage(messages.apiLatencyWidget),
       },
-      renderWidget: () =>
-        renderMetric(
-          "provision-time",
-          "",
-          messages.provisionTimeWidget,
-          "provision-time",
-        ),
-    },
-    "provision-reliability": {
-      defaults: {
-        h: PROVISION_RELIABILITY_WIDGET_HEIGHT,
-        maxH: PROVISION_RELIABILITY_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <CheckCircleIcon />,
-        title: intl.formatMessage(messages.provisionReliabilityWidget),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "provision-reliability",
-          "",
-          messages.provisionReliabilityWidget,
-          "provision-reliability",
-        ),
-    },
-    cpu: {
-      defaults: {
-        h: UTILIZATION_WIDGET_HEIGHT,
-        maxH: UTILIZATION_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <MicrochipIcon />,
-        title: intl.formatMessage(messages.widgetCpu),
-      },
-      renderWidget: () =>
-        renderMetric("cpu", "", messages.widgetCpu, "utilization"),
-    },
-    memory: {
-      defaults: {
-        h: UTILIZATION_WIDGET_HEIGHT,
-        maxH: UTILIZATION_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <MemoryIcon />,
-        title: intl.formatMessage(messages.widgetMemory),
-      },
-      renderWidget: () =>
-        renderMetric("memory", "", messages.widgetMemory, "utilization"),
-    },
-    pods: {
-      defaults: {
-        h: POD_CAPACITY_WIDGET_HEIGHT,
-        maxH: POD_CAPACITY_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <CubesIcon />,
-        title: intl.formatMessage(messages.widgetPods),
-      },
-      renderWidget: () =>
-        renderMetric("pods", "", messages.widgetPods, "pod-capacity"),
-    },
-    nodes: {
-      defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <ServerIcon />,
-        title: intl.formatMessage(messages.nodes),
-      },
-      renderWidget: () =>
-        renderMetric("nodes", "", messages.nodes, "node-status"),
-    },
-    "inventory-summary": {
-      defaults: {
-        h: INVENTORY_SUMMARY_WIDGET_HEIGHT,
-        maxH: INVENTORY_SUMMARY_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <DatabaseIcon />,
-        title: intl.formatMessage(messages.inventorySummaryWidget),
-      },
-      renderWidget: () => <InventorySummaryCard metrics={metrics.metrics} />,
-    },
-    "managed-cluster-providers": {
-      defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.widgetManagedClusterProviders),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-clusters",
-          "",
-          messages.widgetManagedClusterProviders,
-          "inventory-providers",
-        ),
-    },
-    "managed-cluster-regions": {
-      defaults: {
-        h: NODE_STATUS_WIDGET_HEIGHT,
-        maxH: NODE_STATUS_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 2,
-      },
-      config: {
-        icon: <ClusterIcon />,
-        title: intl.formatMessage(messages.widgetManagedClusterRegions),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "managed-clusters",
-          "",
-          messages.widgetManagedClusterRegions,
-          "inventory-regions",
-        ),
+      renderWidget: () => renderTrend("api-latency", messages.apiLatencyWidget),
     },
   };
 }
 
-export interface OperationalDashboardPageProps {
+export interface ReliabilityDashboardPageProps {
   metrics?: OperationalDashboardMetrics;
   title?: string;
 }
 
-export function OperationalDashboardPage({
+export function ReliabilityDashboardPage({
   metrics,
   title,
-}: Readonly<OperationalDashboardPageProps>) {
+}: Readonly<ReliabilityDashboardPageProps>) {
   const intl = useIntl();
   const { probes = noopDashboardProbePublisher } = useDashboardUi();
-  const pageTitle = title ?? intl.formatMessage(messages.title);
-  const metricsQuery = useGetMetricsData({
+  const pageTitle = title ?? intl.formatMessage(messages.reliabilityTitle);
+  const metricsQuery = useGetReliabilityMetricsData({
     enabled: metrics === undefined,
   });
   const dashboardMetrics = metrics ?? metricsQuery.data;
@@ -577,7 +235,7 @@ export function OperationalDashboardPage({
     Boolean(metricsQuery.data) &&
     !metricsQuery.isFetching;
   const localizedBaseTemplate = useMemo(
-    () => localizeDashboardLayoutTemplate(baseTemplate, intl),
+    () => localizeReliabilityDashboardLayoutTemplate(baseTemplate, intl),
     [intl],
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -614,7 +272,7 @@ export function OperationalDashboardPage({
   const [dashboardTemplate, setDashboardTemplate] =
     useState<ExtendedTemplateConfig>(savedTemplateResult.template);
   const displayTemplate = useMemo(
-    () => localizeDashboardLayoutTemplate(dashboardTemplate, intl),
+    () => localizeReliabilityDashboardLayoutTemplate(dashboardTemplate, intl),
     [dashboardTemplate, intl],
   );
   const activeWidgetTypes = useMemo(
@@ -624,9 +282,9 @@ export function OperationalDashboardPage({
   const widgetMapping = useMemo(
     () =>
       dashboardMetrics
-        ? createWidgetMapping(dashboardMetrics, intl, displayTemplate)
+        ? createWidgetMapping(dashboardMetrics, intl)
         : undefined,
-    [dashboardMetrics, displayTemplate, intl],
+    [dashboardMetrics, intl],
   );
 
   const hasWidgetsToAdd = useMemo(() => {
@@ -691,7 +349,10 @@ export function OperationalDashboardPage({
   };
 
   const handleResetToDefault = () => {
-    const defaultTemplate = localizeDashboardLayoutTemplate(baseTemplate, intl);
+    const defaultTemplate = localizeReliabilityDashboardLayoutTemplate(
+      baseTemplate,
+      intl,
+    );
     const correlationId = crypto.randomUUID();
 
     setDashboardTemplate(defaultTemplate);
@@ -721,7 +382,7 @@ export function OperationalDashboardPage({
   return (
     <Fragment>
       <PageSection type={PageSectionTypes.subNav}>
-        <DashboardSecondaryNav active="operational" />
+        <DashboardSecondaryNav active="reliability" />
       </PageSection>
       <PageSection isFilled padding={{ default: "padding" }}>
         <Flex
@@ -732,7 +393,7 @@ export function OperationalDashboardPage({
             <Content>
               <Title headingLevel="h1">{pageTitle}</Title>
               <p>
-                <FormattedMessage {...messages.description} />
+                <FormattedMessage {...messages.reliabilityDescription} />
               </p>
             </Content>
           </FlexItem>
@@ -806,15 +467,17 @@ export function OperationalDashboardPage({
         </Flex>
         {metricsQuery.isPending && metrics === undefined ? (
           <Bullseye>
-            <Spinner aria-label={intl.formatMessage(messages.loading)} />
+            <Spinner
+              aria-label={intl.formatMessage(messages.reliabilityLoading)}
+            />
           </Bullseye>
         ) : null}
         {showTotalInitialLoadError ? (
           <Alert
-            title={intl.formatMessage(messages.loadErrorTitle)}
+            title={intl.formatMessage(messages.reliabilityLoadErrorTitle)}
             variant="danger"
           >
-            <FormattedMessage {...messages.loadErrorBody} />
+            <FormattedMessage {...messages.reliabilityLoadErrorBody} />
           </Alert>
         ) : null}
         {showPartialLoadWarning ? (
