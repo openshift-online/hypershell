@@ -337,7 +337,7 @@ func tenantProbeDSN(creds *adminCredentials, pgName, password string) string {
 	}
 	q := url.Values{
 		"sslmode":         {tenantSSLMode},
-		"connect_timeout": {"10"},
+		"connect_timeout": {tenantProbeConnectTimeout},
 	}
 	u.RawQuery = q.Encode()
 	return u.String()
@@ -345,13 +345,21 @@ func tenantProbeDSN(creds *adminCredentials, pgName, password string) string {
 
 // tenantProbeMaxAttempts and tenantProbeBaseDelay bound the readiness probe's
 // exponential backoff. The delay doubles from the base, so six attempts wait
-// 200ms, 400ms, 800ms, 1.6s and 3.2s between tries (~6.2s total) before the
-// probe gives up. That absorbs the brief window right after CREATE DATABASE
-// where the new role or database is not yet connectable, without pinning the
-// reconcile worker for long.
+// 200ms, 400ms, 800ms, 1.6s and 3.2s between tries (~6.2s of backoff). That
+// absorbs the brief window right after CREATE DATABASE where the new role or
+// database is not yet connectable.
+//
+// Backoff is not the only time cost: each attempt also spends up to
+// tenantProbeConnectTimeout establishing the connection, which against a
+// black-holed host (packets dropped rather than refused) is the full timeout.
+// tenantProbeMaxWait caps the whole loop so a probe can never pin the reconcile
+// worker for more than that regardless of per-attempt connect stalls; the loop
+// derives a child context with this deadline (never extending the caller's).
 const (
-	tenantProbeMaxAttempts = 6
-	tenantProbeBaseDelay   = 200 * time.Millisecond
+	tenantProbeMaxAttempts    = 6
+	tenantProbeBaseDelay      = 200 * time.Millisecond
+	tenantProbeConnectTimeout = "5" // seconds, lib/pq connect_timeout
+	tenantProbeMaxWait        = 30 * time.Second
 )
 
 // tenantProbeDelay is the backoff before the (attempt+1)th probe try. attempt is
@@ -368,7 +376,12 @@ func tenantProbeDelay(attempt int) time.Duration {
 // login. It retries with exponential backoff so a transient failure right after
 // CREATE DATABASE does not fail provisioning, and returns a categorized error
 // (never the raw driver error, which can embed the DSN) once attempts run out.
+// The whole loop is bounded by tenantProbeMaxWait so a stalled connect can never
+// pin the reconcile worker.
 func verifyTenantConn(ctx context.Context, creds *adminCredentials, gatewayID, pgName, password string) error {
+	ctx, cancel := context.WithTimeout(ctx, tenantProbeMaxWait)
+	defer cancel()
+
 	dsn := tenantProbeDSN(creds, pgName, password)
 	var last error
 	for attempt := 0; attempt < tenantProbeMaxAttempts; attempt++ {

@@ -278,8 +278,8 @@ func TestTenantProbeDSNMatchesTenantSecret(t *testing.T) {
 	if q.Get("sslrootcert") != "" {
 		t.Errorf("probe must not reference a CA file, got %q", q.Get("sslrootcert"))
 	}
-	if q.Get("connect_timeout") != "10" {
-		t.Errorf("connect_timeout = %q", q.Get("connect_timeout"))
+	if q.Get("connect_timeout") != tenantProbeConnectTimeout {
+		t.Errorf("connect_timeout = %q, want %q", q.Get("connect_timeout"), tenantProbeConnectTimeout)
 	}
 }
 

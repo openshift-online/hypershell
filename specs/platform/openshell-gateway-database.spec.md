@@ -302,8 +302,10 @@ For each gateway, the reconciler SHALL:
    pinging it. DDL returning no error does not prove the role can log in: a wrong
    password, a missing `CONNECT` grant, or a database not yet accepting connections
    surface only on a real login. The probe SHALL retry with exponential backoff to
-   absorb the brief window right after `CREATE DATABASE` before failing. A probe that
-   never succeeds is a retryable provisioning failure handled like any connection
+   absorb the brief window right after `CREATE DATABASE` before failing, and the whole
+   probe (all attempts plus per-attempt connect timeouts) SHALL be bounded by a total
+   wall-clock cap so a black-holed database host cannot pin the reconcile worker. A
+   probe that never succeeds is a retryable provisioning failure handled like any connection
    failure below; the probe error SHALL be categorized (`unreachable` / `tls_failed`
    / `auth_failed`) and SHALL NOT contain the password or DSN. A steady-state
    reconcile that changes nothing SHALL NOT perform this login, so an
