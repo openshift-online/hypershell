@@ -17,9 +17,10 @@ import {
   Tooltip,
   Card,
   CardBody,
+  Divider,
 } from "@patternfly/react-core";
 import { TrendDownIcon, TrendUpIcon } from "@patternfly/react-icons";
-import type { PropsWithChildren } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
 import type { OperationalMetric } from "../application/dashboard-types";
@@ -35,11 +36,20 @@ import { TrendSparklineChart } from "./trend-sparkline-chart";
 import { messages } from "../messages";
 import "../pages/dashboard-widget.css";
 
-function WidgetContent({ children }: Readonly<PropsWithChildren>) {
+function WidgetContent({
+  children,
+  helpText,
+}: Readonly<PropsWithChildren<{ helpText?: ReactNode }>>) {
   return (
     <Card isPlain isFullHeight>
       <CardBody className="hypershell-dashboard-widget-card">
         {children}
+        {helpText ? (
+          <>
+            <Divider />
+            <p className="hypershell-dashboard-widget-help-text">{helpText}</p>
+          </>
+        ) : null}
       </CardBody>
     </Card>
   );
@@ -227,9 +237,19 @@ export function ApiReliabilityTrendCard({
         value: displayValue,
       })
     : displayValue;
+  const helpMessage = {
+    "api-request-rate": messages.dashboardHelpApiRequestRate,
+    "api-error-rate": messages.dashboardHelpApiErrorRate,
+    "api-latency": messages.dashboardHelpApiLatency,
+    "reconciliation-failures": messages.dashboardHelpReconciliationFailures,
+    "reconciliation-retries": messages.dashboardHelpReconciliationRetries,
+    "reconciliation-lag": messages.dashboardHelpReconciliationLag,
+  }[metric.id];
 
   return (
-    <WidgetContent>
+    <WidgetContent
+      helpText={helpMessage ? <FormattedMessage {...helpMessage} /> : undefined}
+    >
       <Content className="hypershell-dashboard-metric-card">
         <Stack hasGutter>
           <StackItem>

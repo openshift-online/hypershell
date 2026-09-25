@@ -26,6 +26,48 @@ export const messages = defineMessages({
     defaultMessage: "CPUs",
     description: "Summary label for provisioned CPU capacity.",
   },
+  dashboardHelpApiErrorRate: {
+    id: "app.dashboard.help.apiErrorRate",
+    defaultMessage:
+      "The current API error rate is the percentage of API requests that returned an HTTP 5xx response over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is the 5xx error rate calculated from the 5 minutes immediately before that sample's timestamp.\nHTTP 4xx responses, such as 401 or 403 responses, aren't included in the error rate.",
+    description: "Help text for the API error rate widget.",
+  },
+  dashboardHelpApiLatency: {
+    id: "app.dashboard.help.apiLatency",
+    defaultMessage:
+      "The current API latency is the median response time for API requests over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is the median latency calculated from the 5 minutes immediately before that sample's timestamp.\nLatency is shown in seconds. The median means that half of the requests were completed in less time and half took longer.",
+    description: "Help text for the API latency widget.",
+  },
+  dashboardHelpApiRequestRate: {
+    id: "app.dashboard.help.apiRequestRate",
+    defaultMessage:
+      "The current API request rate is the average number of requests per second over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is calculated from the 5 minutes immediately before that sample's timestamp.\nThe API request rate includes inbound requests to the HyperShell API endpoints.",
+    description: "Help text for the API request rate widget.",
+  },
+  dashboardHelpReconciliationFailures: {
+    id: "app.dashboard.help.reconciliationFailures",
+    defaultMessage:
+      "The current value is the number of failed reconciliation attempts during the last 24 hours. Each trend point shows the number of failures recorded during a one-hour period across the previous 24 hours.",
+    description: "Help text for the reconciliation failures widget.",
+  },
+  dashboardHelpReconciliationLag: {
+    id: "app.dashboard.help.reconciliationLag",
+    defaultMessage:
+      "The current reconciliation lag is the median time, in seconds, from when a reconciliation becomes eligible to when it completes, measured over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is the median lag calculated from the observations available at that sample's timestamp.",
+    description: "Help text for the reconciliation lag widget.",
+  },
+  dashboardHelpReconciliationRetries: {
+    id: "app.dashboard.help.reconciliationRetries",
+    defaultMessage:
+      "The current value is the number of reconciliation retries during the last 24 hours. Each trend point shows the number of retries recorded during a one-hour period across the previous 24 hours.",
+    description: "Help text for the reconciliation retries widget.",
+  },
+  dashboardHelpUsers: {
+    id: "app.dashboard.help.users",
+    defaultMessage:
+      "The current Users value is the total number of registered users in HyperShell. It isn't a count of users who are online right now.\nThe trend shows the number of distinct registered users who used the API on each UTC calendar day during the last 30 days. A user is counted once per day even if they made multiple API requests.",
+    description: "Help text for the Users widget.",
+  },
   description: {
     id: "app.dashboard.description",
     defaultMessage:

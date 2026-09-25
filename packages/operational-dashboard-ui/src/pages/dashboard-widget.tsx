@@ -69,7 +69,10 @@ import { messages } from "../messages";
 function WidgetContent({
   bodyClassName,
   children,
-}: Readonly<PropsWithChildren<{ bodyClassName?: string }>>) {
+  helpText,
+}: Readonly<
+  PropsWithChildren<{ bodyClassName?: string; helpText?: ReactNode }>
+>) {
   return (
     <Card isPlain isFullHeight>
       <CardBody
@@ -80,6 +83,12 @@ function WidgetContent({
         }
       >
         {children}
+        {helpText ? (
+          <>
+            <Divider />
+            <p className="hypershell-dashboard-widget-help-text">{helpText}</p>
+          </>
+        ) : null}
       </CardBody>
     </Card>
   );
@@ -88,6 +97,7 @@ function WidgetContent({
 export function MetricCard({
   metric,
   showTrend = true,
+  helpText,
   subtitle,
   title,
 }: Readonly<{
@@ -95,6 +105,7 @@ export function MetricCard({
   showTrend?: boolean;
   subtitle: string;
   title: string;
+  helpText?: ReactNode;
 }>) {
   const intl = useIntl();
   const displayValue = formatOperationalMetricDisplayValue(metric.value, intl);
@@ -104,9 +115,22 @@ export function MetricCard({
         value: displayValue,
       })
     : displayValue;
+  const helpMessage = {
+    "api-request-rate": messages.dashboardHelpApiRequestRate,
+    "api-error-rate": messages.dashboardHelpApiErrorRate,
+    "api-latency": messages.dashboardHelpApiLatency,
+    "reconciliation-failures": messages.dashboardHelpReconciliationFailures,
+    "reconciliation-retries": messages.dashboardHelpReconciliationRetries,
+    "reconciliation-lag": messages.dashboardHelpReconciliationLag,
+  }[metric.id];
 
   return (
-    <WidgetContent>
+    <WidgetContent
+      helpText={
+        helpText ??
+        (helpMessage ? <FormattedMessage {...helpMessage} /> : undefined)
+      }
+    >
       <Content className="hypershell-dashboard-metric-card">
         <Stack hasGutter>
           <StackItem>
@@ -246,7 +270,9 @@ export function UsersCard({
   );
 
   return (
-    <WidgetContent>
+    <WidgetContent
+      helpText={<FormattedMessage {...messages.dashboardHelpUsers} />}
+    >
       <Content className="hypershell-dashboard-users-card">
         <Stack hasGutter>
           <StackItem>
