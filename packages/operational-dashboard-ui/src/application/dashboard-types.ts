@@ -82,6 +82,15 @@ export type DashboardMetricSourceId =
 export type ReliabilityMetricSourceId =
   "api-reliability" | "control-plane-reconciliation";
 
+export type ReliabilityMetricId =
+  | "api-request-rate"
+  | "api-error-rate"
+  | "api-latency"
+  | "reconciliation-failures"
+  | "reconciliation-retries"
+  | "reconciliation-lag"
+  | "stale-resource-status-count";
+
 export type DashboardFailedSourceId =
   DashboardMetricSourceId | ReliabilityMetricSourceId;
 

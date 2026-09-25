@@ -163,6 +163,21 @@ describe("ApiReliabilityTrendCard", () => {
     expect(screen.getByText("Last 24 hours")).toBeTruthy();
   });
 
+  it("renders help text for stale resource status", () => {
+    renderWithIntl(
+      <ApiReliabilityTrendCard
+        metric={staleResourceStatusMetric}
+        title={messages.widgetStaleResourceStatus.defaultMessage}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        /A resource is stale when its observed release is different from the release currently desired by the control plane/u,
+      ),
+    ).toBeTruthy();
+  });
+
   it("omits the sparkline when hourly trend is absent", () => {
     renderWithIntl(
       <ApiReliabilityTrendCard

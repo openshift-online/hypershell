@@ -17,12 +17,16 @@ import {
   Tooltip,
   Card,
   CardBody,
+  Divider,
 } from "@patternfly/react-core";
 import { TrendDownIcon, TrendUpIcon } from "@patternfly/react-icons";
-import type { PropsWithChildren } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
-import type { OperationalMetric } from "../application/dashboard-types";
+import type {
+  OperationalMetric,
+  ReliabilityMetricId,
+} from "../application/dashboard-types";
 import {
   getMetricTrendChange,
   type MetricTrendChange,
@@ -32,14 +36,23 @@ import {
   isDisplayableOperationalMetricValue,
 } from "./operational-metric-display";
 import { TrendSparklineChart } from "./trend-sparkline-chart";
-import { messages } from "../messages";
+import { getDashboardHelpMessage, messages } from "../messages";
 import "../pages/dashboard-widget.css";
 
-function WidgetContent({ children }: Readonly<PropsWithChildren>) {
+function WidgetContent({
+  children,
+  helpText,
+}: Readonly<PropsWithChildren<{ helpText?: ReactNode }>>) {
   return (
     <Card isPlain isFullHeight>
       <CardBody className="hypershell-dashboard-widget-card">
         {children}
+        {helpText ? (
+          <>
+            <Divider />
+            <p className="hypershell-dashboard-widget-help-text">{helpText}</p>
+          </>
+        ) : null}
       </CardBody>
     </Card>
   );
@@ -93,7 +106,7 @@ const RELIABILITY_SUMMARY_METRIC_IDS = [
   "reconciliation-retries",
   "reconciliation-lag",
   "stale-resource-status-count",
-] as const;
+] as const satisfies readonly ReliabilityMetricId[];
 
 type ReliabilitySummaryMetricId =
   (typeof RELIABILITY_SUMMARY_METRIC_IDS)[number];
@@ -256,9 +269,16 @@ export function ApiReliabilityTrendCard({
     metric.id === "reconciliation-failures" ||
     metric.id === "reconciliation-retries";
   const displayValue = formatMetricWithUnit(metric, intl);
+  const helpMessage = getDashboardHelpMessage(metric.id);
 
   return (
-    <WidgetContent>
+    <WidgetContent
+      helpText={
+        helpMessage ? (
+          <FormattedMessage {...helpMessage} values={{ br: () => <br /> }} />
+        ) : undefined
+      }
+    >
       <Content className="hypershell-dashboard-metric-card">
         <Stack hasGutter>
           <StackItem>
