@@ -21,7 +21,11 @@ from typing import Any
 
 def render_realm(realm: dict[str, Any], environ: dict[str, str] | None = None) -> dict[str, Any]:
     env = os.environ if environ is None else environ
-    idp_enabled = env.get("PR_ENV_GITHUB_IDP_ENABLED", "false").strip().lower() == "true"
+    github_client_id = env.get("PR_ENV_GITHUB_CLIENT_ID", "").strip()
+    idp_enabled = (
+        env.get("PR_ENV_GITHUB_IDP_ENABLED", "false").strip().lower() == "true"
+        or bool(github_client_id)
+    )
     e2e_enabled = env.get("HYPERSHELL_E2E_CLIENT_ENABLED", "false").strip().lower() == "true"
     console_host = env.get("HYPERSHELL_CONSOLE_HOST", "").strip()
 
@@ -34,7 +38,7 @@ def render_realm(realm: dict[str, Any], environ: dict[str, str] | None = None) -
             continue
         idp["enabled"] = idp_enabled
         config = idp.setdefault("config", {})
-        config["clientId"] = env.get("PR_ENV_GITHUB_CLIENT_ID", "")
+        config["clientId"] = github_client_id
         config["clientSecret"] = env.get("PR_ENV_GITHUB_CLIENT_SECRET", "")
 
     # Keycloak admin-console impersonation is a PR-environment concern.
@@ -73,10 +77,16 @@ def render_realm(realm: dict[str, Any], environ: dict[str, str] | None = None) -
     realm["clients"] = clients
 
     e2e_user = "service-account-hypershell-e2e"
+    seeded_humans = {"admin", "developer", "platform-admin"}
     users: list[dict[str, Any]] = []
     for user in realm.get("users") or []:
+        username = user.get("username")
+        # Lifecycle seed owns these principals. The shared realm import must
+        # never ship a human password login (ephemeral-test-credentials.spec.md).
+        if username in seeded_humans:
+            continue
         is_e2e_sa = (
-            user.get("username") == e2e_user
+            username == e2e_user
             or user.get("serviceAccountClientId") == "hypershell-e2e"
         )
         if is_e2e_sa and not e2e_enabled:

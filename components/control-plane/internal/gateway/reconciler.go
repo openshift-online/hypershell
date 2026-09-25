@@ -85,6 +85,7 @@ func ReconcileGateway(
 		return fmt.Errorf("database reconciler for gateway in namespace %s: %w", nsConfig.Name, err)
 	}
 	if err := dbReconciler.Reconcile(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID); err != nil {
+		log.Printf("ERROR gateway database provisioning in %s: %v", nsConfig.Name, err)
 		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to provision the gateway database")
 		return err
 	}

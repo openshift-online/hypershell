@@ -284,16 +284,38 @@ For each gateway, the reconciler SHALL:
      grant is what lets `CREATEDB` + `CREATEROLE` suffice without superuser. It is
      idempotent (re-granting an existing membership is a no-op notice).
    - **Database:** if `gw_<gatewayID>` is absent (`SELECT 1 FROM pg_database ...`),
-     create it with `OWNER gw_<gatewayID>`. (`CREATE DATABASE` cannot run inside a
-     transaction block and has no `IF NOT EXISTS`; the reconciler SHALL guard it with
-     an existence check rather than relying on catching an error.)
+     create it with `OWNER gw_<gatewayID> TEMPLATE template0`. Copying `template0`
+     (not the default `template1`) means concurrent `CREATE DATABASE` from other
+     gateways, autovacuum, and leftover sessions on `template1` cannot fail
+     provisioning with SQLSTATE 55006 ("source database is being accessed by
+     other users"). (`CREATE DATABASE` cannot run inside a transaction block and
+     has no `IF NOT EXISTS`; the reconciler SHALL guard it with an existence
+     check rather than relying on catching an error.) If a source-busy error
+     still occurs, the reconciler SHALL retry the statement.
    - **Isolation:** `REVOKE CONNECT ON DATABASE gw_<gatewayID> FROM PUBLIC` and
      `GRANT CONNECT ON DATABASE gw_<gatewayID> TO gw_<gatewayID>`, so no other
      gateway's role can connect.
-4. Write/refresh the tenant-namespace Secret `openshell-gateway-db-credentials` (see
-   Requirement: Gateway Credentials Secret).
-5. Proceed to deploy the gateway workload only after DDL and the credentials Secret
-   succeed.
+4. When this pass established new credentials or a new database (the role was
+   created, its password was re-synced, or the database was created), verify them by
+   opening a short-lived connection **as the gateway role to the gateway database**
+   with the same TLS posture the gateway workload uses (`sslmode=require`) and
+   pinging it. DDL returning no error does not prove the role can log in: a wrong
+   password, a missing `CONNECT` grant, or a database not yet accepting connections
+   surface only on a real login. The probe SHALL retry with exponential backoff to
+   absorb the brief window right after `CREATE DATABASE` before failing, and the whole
+   probe (all attempts plus per-attempt connect timeouts) SHALL be bounded by a total
+   wall-clock cap so a black-holed database host cannot pin the reconcile worker. A
+   probe that never succeeds is a retryable provisioning failure handled like any connection
+   failure below; the probe error SHALL be categorized (`unreachable` / `tls_failed`
+   / `auth_failed`) and SHALL NOT contain the password or DSN. A steady-state
+   reconcile that changes nothing SHALL NOT perform this login, so an
+   already-provisioned gateway is not re-verified on every reconcile.
+5. Write/refresh the tenant-namespace Secret `openshell-gateway-db-credentials` (see
+   Requirement: Gateway Credentials Secret). The reconciler SHALL verify (step 4)
+   before writing the Secret so `DatabaseReady` is never reported for credentials
+   that cannot connect.
+6. Proceed to deploy the gateway workload only after DDL, the connection probe and
+   the credentials Secret succeed.
 
 All DDL SHALL be idempotent: re-running against an already-provisioned gateway SHALL
 make no destructive change and SHALL NOT regenerate the password. Every non-benign SQL
@@ -316,6 +338,7 @@ and return the error to the reconcile queue.
 - THEN it SHALL create role and database `gw_<gatewayID>` on the server if absent
 - AND grant `gw_<gatewayID>` to the admin user before creating the database
 - AND revoke `CONNECT` from `PUBLIC` on that database and grant it to `gw_<gatewayID>`
+- AND verify the gateway role can connect to the gateway database before writing the Secret
 - AND write `openshell-gateway-db-credentials` into the tenant namespace
 - AND proceed to deploy the gateway workload
 
@@ -340,8 +363,16 @@ and return the error to the reconcile queue.
 
 - GIVEN an admin role that has `CREATEDB` and `CREATEROLE` but is not a superuser
 - WHEN the GatewayReconciler provisions a new gateway
-- THEN `CREATE DATABASE gw_<gatewayID> OWNER gw_<gatewayID>` SHALL succeed because
+- THEN `CREATE DATABASE gw_<gatewayID> OWNER gw_<gatewayID> TEMPLATE template0` SHALL succeed because
   the admin was granted membership in `gw_<gatewayID>` first
+
+#### Scenario: Template1 is occupied during CREATE DATABASE
+
+- GIVEN a session is connected to `template1` (another gateway's `CREATE DATABASE`,
+  autovacuum, or a leftover backend)
+- WHEN the GatewayReconciler provisions a new gateway
+- THEN `CREATE DATABASE ... TEMPLATE template0` SHALL succeed
+- AND provisioning SHALL NOT fail with SQLSTATE 55006
 
 #### Scenario: Server unreachable during gateway provisioning
 
@@ -754,7 +785,7 @@ CREATE ROLE gw_2j5k7m9pqrstvwxyz LOGIN PASSWORD '<32-byte-hex-random>';
 -- let a non-superuser admin create a database owned by the role
 GRANT gw_2j5k7m9pqrstvwxyz TO hypershell_admin;
 -- database owned by the role
-CREATE DATABASE gw_2j5k7m9pqrstvwxyz OWNER gw_2j5k7m9pqrstvwxyz;
+CREATE DATABASE gw_2j5k7m9pqrstvwxyz OWNER gw_2j5k7m9pqrstvwxyz TEMPLATE template0;
 -- isolation
 REVOKE CONNECT ON DATABASE gw_2j5k7m9pqrstvwxyz FROM PUBLIC;
 GRANT  CONNECT ON DATABASE gw_2j5k7m9pqrstvwxyz TO gw_2j5k7m9pqrstvwxyz;

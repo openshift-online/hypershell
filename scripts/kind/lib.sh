@@ -27,6 +27,8 @@ error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
 : "${KIND_NAMESPACE:=hypershell-system}"
 : "${CONTAINER_ENGINE:=$(command -v podman 2>/dev/null || echo docker)}"
 REPO_ROOT="$(cd "${SCRIPT_DIR:-$(dirname "${BASH_SOURCE[0]:-$0}")}/../.." && pwd)"
+# shellcheck source=../cluster/reconcile-test-users.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../cluster/reconcile-test-users.sh"
 
 # Prefer locally-built binaries from make kind-prereqs
 if [[ -d "${REPO_ROOT}/bin" ]]; then
@@ -517,94 +519,24 @@ stop_port_forward() {
 
 # --- Keycloak seed-user reconciliation ---
 
-_keycloak_admin_api_token() {
-  local token_url token_resp
-  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
-    token_url="${KIND_KEYCLOAK_URL%/}/realms/master/protocol/openid-connect/token"
-  else
-    token_url="https://${KEYCLOAK_HOSTNAME}/realms/master/protocol/openid-connect/token"
-  fi
-
-  token_resp=$(curl -sSk -m 10 -X POST "${token_url}" \
-    -d "grant_type=password" \
-    -d "client_id=admin-cli" \
-    -d "username=admin" \
-    -d "password=admin" 2>&1 || true)
-  echo "${token_resp}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true
-}
-
-_keycloak_assign_realm_role() {
-  local admin_token="$1"
-  local username="$2"
-  local role="$3"
-  local base user_uuid role_json role_id role_name code
-
-  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
-    base="${KIND_KEYCLOAK_URL%/}"
-  else
-    base="https://${KEYCLOAK_HOSTNAME}"
-  fi
-
-  user_uuid=$(curl -sSk -m 10 -H "Authorization: Bearer ${admin_token}" \
-    "${base}/admin/realms/hypershell/users?username=${username}&exact=true" 2>/dev/null \
-    | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
-  if [[ -z "${user_uuid}" ]]; then
-    warn "Keycloak user not found while reconciling roles: ${username}"
-    return 1
-  fi
-
-  role_json=$(curl -sSk -m 10 -H "Authorization: Bearer ${admin_token}" \
-    "${base}/admin/realms/hypershell/roles/$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${role}")" 2>/dev/null || true)
-  role_id=$(echo "${role_json}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-  role_name=$(echo "${role_json}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || true)
-  if [[ -z "${role_id}" || -z "${role_name}" ]]; then
-    warn "Keycloak realm role not found while reconciling roles: ${role}"
-    return 1
-  fi
-
-  code=$(curl -sSk -m 10 -o /dev/null -w '%{http_code}' -X POST \
-    -H "Authorization: Bearer ${admin_token}" \
-    -H "Content-Type: application/json" \
-    "${base}/admin/realms/hypershell/users/${user_uuid}/role-mappings/realm" \
-    -d "[{\"id\":\"${role_id}\",\"name\":\"${role_name}\"}]" 2>/dev/null || true)
-  if [[ "${code}" != "204" && "${code}" != "200" ]]; then
-    warn "Failed to assign Keycloak realm role ${role} to ${username} (HTTP ${code})"
-    return 1
-  fi
-  return 0
-}
-
-# Aligns live Keycloak users with deploy/base/keycloak/keycloak.yaml. Idempotent.
+# Aligns live Keycloak users with the static developer-owned seeds
+# (ephemeral-test-credentials.spec.md). Idempotent.
 reconcile_keycloak_seed_users() {
-  local admin_token=""
-  local -a required_roles=("platform:admin" "gateway:creator" "hypershell-admins" "hypershell-users")
-
+  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
+    KEYCLOAK_BASE_URL="${KIND_KEYCLOAK_URL%/}"
+  else
+    KEYCLOAK_BASE_URL="https://${KEYCLOAK_HOSTNAME}"
+  fi
+  KEYCLOAK_CURL_INSECURE=true
+  TEST_USER_PASSWORD_SOURCE=static
   if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
     info "Reconciling Keycloak seed users via ${KIND_KEYCLOAK_URL}..."
   else
     info "Reconciling Keycloak seed users at https://${KEYCLOAK_HOSTNAME}..."
   fi
-
-  for _ in $(seq 1 30); do
-    admin_token="$(_keycloak_admin_api_token)"
-    if [[ -n "${admin_token}" ]]; then
-      break
-    fi
-    sleep 2
-  done
-  if [[ -z "${admin_token}" ]]; then
-    warn "Could not obtain Keycloak admin API token; skipping seed-user role reconciliation"
-    return 0
+  if ! keycloak_reconcile_test_users; then
+    error "Failed to reconcile static Keycloak test-tier principals"
+    return 1
   fi
-
-  local role failed=""
-  for role in "${required_roles[@]}"; do
-    if ! _keycloak_assign_realm_role "${admin_token}" "admin" "${role}"; then
-      failed=true
-    fi
-  done
-
-  if [[ -z "${failed}" ]]; then
-    success "Keycloak admin user reconciled (dashboard requires platform:admin)"
-  fi
+  success "Keycloak test-tier principals reconciled (admin/admin, developer/developer, platform-admin/platform-admin)"
 }

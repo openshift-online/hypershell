@@ -62,8 +62,15 @@ kind_e2e="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); pri
 assert_eq 'False' "${kind_e2e}" "Kind omits hypershell-e2e from the imported realm"
 kind_e2e_user="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(any(u.get("serviceAccountClientId")=="hypershell-e2e" or u.get("username")=="service-account-hypershell-e2e" for u in realm["users"]))' "${WORKDIR}/kind.json")"
 assert_eq 'False' "${kind_e2e_user}" "Kind omits service-account-hypershell-e2e from the imported realm"
-kind_e2e_mapping="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print("hypershell-e2e" in (realm.get("clientScopeMappings") or {}))' "${WORKDIR}/kind.json")"
-assert_eq 'False' "${kind_e2e_mapping}" "Kind omits hypershell-e2e impersonation clientScopeMappings"
+kind_humans="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(sorted(u.get("username") for u in realm["users"] if u.get("username") in {"admin","developer","platform-admin"}))' "${WORKDIR}/kind.json")"
+assert_eq '[]' "${kind_humans}" "Kind import strips human test-tier principals"
+
+# --- GitHub IdP enables from client_id alone (no PR_ENV_GITHUB_IDP_ENABLED) ---
+env -i PATH="${PATH}" HOME="${HOME}" \
+  PR_ENV_GITHUB_CLIENT_ID='Iv1.from-eso' \
+  python3 "${RENDER}" "${WORKDIR}/hypershell-realm.json" "${WORKDIR}/eso.json"
+eso_idp="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); idp=next(i for i in realm["identityProviders"] if i["alias"]=="github"); print(json.dumps({"enabled": idp["enabled"], "clientId": idp["config"]["clientId"]}))' "${WORKDIR}/eso.json")"
+assert_eq '{"enabled": true, "clientId": "Iv1.from-eso"}' "${eso_idp}" "GitHub IdP enables when ESO client_id is set"
 
 # --- OpenShift console host: exact callback URIs, no localhost wildcards ---
 env -i PATH="${PATH}" HOME="${HOME}" \
@@ -105,6 +112,21 @@ pr_e2e_user="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); 
 assert_eq 'true' "${pr_e2e_user}" "PR env enables service-account-hypershell-e2e"
 pr_e2e_mapping="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print("impersonation" in (realm.get("clientScopeMappings") or {}).get("hypershell-e2e", [{}])[0].get("roles", []))' "${WORKDIR}/pr.json")"
 assert_eq 'True' "${pr_e2e_mapping}" "PR env keeps hypershell-e2e impersonation clientScopeMappings"
+pr_e2e_pref="$(python3 -c '
+import json, sys
+realm = json.load(open(sys.argv[1]))
+client = next(c for c in realm["clients"] if c["clientId"] == "hypershell-e2e")
+hardcoded = [
+    m for m in (client.get("protocolMappers") or [])
+    if m.get("protocolMapper") == "oidc-hardcoded-claim-mapper"
+    and (m.get("config") or {}).get("claim.name") == "preferred_username"
+]
+print("hardcoded" if hardcoded else "profile")
+' "${WORKDIR}/pr.json")"
+assert_eq 'profile' "${pr_e2e_pref}" "hypershell-e2e must not hardcode preferred_username=admin"
+
+pr_humans="$(python3 -c 'import json,sys; realm=json.load(open(sys.argv[1])); print(sorted(u.get("username") for u in realm["users"] if u.get("username") in {"admin","developer","platform-admin"}))' "${WORKDIR}/pr.json")"
+assert_eq '[]' "${pr_humans}" "PR env import strips human test-tier principals"
 
 if grep -q 'value: "token-exchange,admin-fine-grained-authz:v1"' "${REALM_YAML}"; then
   PASS=$((PASS + 1))

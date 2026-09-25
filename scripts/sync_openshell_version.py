@@ -17,7 +17,7 @@ VERSION_FILE = REPO_ROOT / "OPENSHELL_VERSION"
 # env-var names whose image tags must match OPENSHELL_TAG.
 MANAGED_FILES: list[tuple[Path, list[str]]] = [
     (
-        REPO_ROOT / "deploy" / "base" / "controller.yaml",
+        REPO_ROOT / "deploy" / "base" / "platform-resources" / "controller.yaml",
         ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE"],
     ),
     (

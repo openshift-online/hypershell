@@ -217,11 +217,27 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: PR env workflow recycles Keycloak even when the oauth-secret hash is unchanged'
 fi
-if grep 'Keycloak:' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'admin/admin'; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: Keycloak banner still prints admin/admin outside the test-user branch'
-else
+if grep -A30 '^print_banner()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'passwords are not printed'; then
   PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: CI-owned banner does not omit rotated test-tier passwords'
+fi
+if grep -q 'is_ci_owned_pr_environment' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'wait_for_ci_standing_secrets' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'hypershell.redhat.io/ci-keycloak=true' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift driver does not wait on ESO secrets for CI-owned PR envs'
+fi
+if grep -q 'TEST_USER_PASSWORD_SOURCE=secret' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'TEST_USER_PASSWORD_SOURCE=static' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: OpenShift driver does not split secret vs static test-user seeds'
 fi
 if grep 'Keycloak admin:' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q '/admin/hypershell/console/'; then
   PASS=$((PASS + 1))
@@ -398,7 +414,7 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: leftover ClusterRoleBinding roleRef is not replaced before fallback bind'
 fi
-if grep -A20 '^cluster_up()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'skip_seed'; then
+if awk '/^cluster_up\(\)/,/^}/' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'skip_seed'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
@@ -506,7 +522,7 @@ if grep -qE 'wait_for_oidc_token|wait_for_api_openapi|wait_for_api_healthcheck' 
 else
   PASS=$((PASS + 1))
 fi
-if grep -A20 'containerPort: 9443' "${SCRIPT_DIR}/../../deploy/base/controller.yaml" | grep -q 'readinessProbe'; then
+if grep -A20 'containerPort: 9443' "${SCRIPT_DIR}/../../deploy/base/platform-resources/controller.yaml" | grep -q 'readinessProbe'; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
@@ -1195,6 +1211,22 @@ if grep -q 'PULL_SECRET:-${KIND_PULL_SECRET' "${REPO_ROOT}/scripts/kind/up.sh"; 
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: kind-up does not accept PULL_SECRET with KIND_PULL_SECRET alias'
+fi
+# Keycloak user seed must not run at Deployment Available: the HTTPS hostname
+# is not listening yet (E2E / Kind, PR 348).
+if awk '/Waiting for Keycloak/,/Gateway Trusted CA/' "${REPO_ROOT}/scripts/kind/up.sh" \
+  | grep -q 'reconcile_keycloak_seed_users'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: kind-up reconciles Keycloak users before the gateway hostname is reachable'
+else
+  PASS=$((PASS + 1))
+fi
+if awk '/DNS configured/,/HyperShell is running/' "${REPO_ROOT}/scripts/kind/up.sh" \
+  | grep -q 'reconcile_keycloak_seed_users'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: kind-up does not reconcile Keycloak users after DNS, before the banner'
 fi
 # Keycloak has no persistent storage (start-dev on in-memory H2), so a Keycloak
 # pod restart discards dev-gateway's OIDC client while its row survives in

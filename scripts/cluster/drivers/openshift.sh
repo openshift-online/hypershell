@@ -27,16 +27,22 @@ oc_cli() {
 # (ephemeral-pr-environments.spec.md: GitHub-Brokered Keycloak Authentication).
 # Brokered environments have no password grant, so seeding and the banner
 # must use the hypershell-e2e service account instead of admin/admin.
+# GitHub IdP is enabled when ESO has delivered a client_id into
+# hypershell-github-oauth (ephemeral-ci-secrets.spec.md).
 github_idp_enabled() {
-  local enabled
-  enabled="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
-    -o jsonpath='{.data.idp-enabled}' 2>/dev/null | base64 -d 2>/dev/null || true)"
-  [[ "${enabled}" == "true" ]]
+  local client_id
+  client_id="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    -o jsonpath='{.data.client_id}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  [[ -n "${client_id}" ]]
 }
 
 hypershell_e2e_client_secret() {
-  oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+  oc_cli get secret hypershell-e2e-client -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
     -o jsonpath='{.data.e2e-client-secret}' 2>/dev/null | base64 -d 2>/dev/null || true
+}
+
+is_ci_owned_pr_environment() {
+  [[ "${OPENSHIFT_NAMESPACE:-}" == hypershell-ci-pr-* ]]
 }
 
 require_openshift_cluster() {
@@ -236,6 +242,13 @@ ensure_namespace_group() {
   OPENSHIFT_ENVIRONMENT_ID="${env_id}"
   ensure_project "${OPENSHIFT_NAMESPACE}" "${env_id}"
   ensure_project "${OPENSHIFT_KEYCLOAK_NAMESPACE}" "${env_id}"
+  if is_ci_owned_pr_environment; then
+    if ! oc_cli label namespace "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+      "hypershell.redhat.io/ci-keycloak=true" --overwrite >/dev/null; then
+      error "Failed to label ${OPENSHIFT_KEYCLOAK_NAMESPACE} for ESO projection"
+      exit 1
+    fi
+  fi
   ensure_gateway_database_admin_secret
   use_project "${OPENSHIFT_NAMESPACE}"
   success "Namespace group ${OPENSHIFT_NAMESPACE} + ${OPENSHIFT_KEYCLOAK_NAMESPACE} (environment ${env_id})"
@@ -854,9 +867,9 @@ configure_oidc_from_routes() {
 
   if github_idp_enabled; then
     local github_org github_allowlist
-    github_org="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    github_org="$(oc_cli get secret hypershell-e2e-client -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
       -o jsonpath='{.data.org}' 2>/dev/null | base64 -d 2>/dev/null || true)"
-    github_allowlist="$(oc_cli get secret hypershell-github-oauth -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    github_allowlist="$(oc_cli get secret hypershell-e2e-client -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
       -o jsonpath='{.data.allowlist}' 2>/dev/null | base64 -d 2>/dev/null || true)"
     info "Configuring web console GitHub org gate (${github_org:-openshift-online})"
     oc_cli set env deployment/hypershell-web-console -n "${OPENSHIFT_NAMESPACE}" -c web-console \
@@ -968,7 +981,7 @@ seed_via_api() {
     local e2e_secret
     e2e_secret="$(hypershell_e2e_client_secret)"
     if [[ -z "${e2e_secret}" ]]; then
-      warn "GitHub IDP is enabled but hypershell-github-oauth has no e2e-client-secret; skip automatic seeding"
+      warn "GitHub IDP is enabled but hypershell-e2e-client has no e2e-client-secret; skip automatic seeding"
       if seed_strict; then
         error "Platform seeding failed and SEED_STRICT=true - failing"
         return 1
@@ -1123,6 +1136,67 @@ seed_via_api() {
   fi
 }
 
+wait_for_ci_standing_secrets() {
+  header "CI standing secrets"
+  info "Waiting for ESO to project OAuth and test-tier secrets into ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+  if ! bash "${CLUSTER_SCRIPT_DIR}/../ci/wait-for-secret-keys.sh" \
+    "${OPENSHIFT_KEYCLOAK_NAMESPACE}" hypershell-github-oauth \
+    client_id client_secret callback_url; then
+    error "GitHub OAuth Secret hypershell-github-oauth is missing or not Ready in ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+    error "Bring-up cannot continue: nobody would be able to log in."
+    exit 1
+  fi
+  if ! bash "${CLUSTER_SCRIPT_DIR}/../ci/wait-for-secret-keys.sh" \
+    "${OPENSHIFT_KEYCLOAK_NAMESPACE}" hypershell-e2e-test-users \
+    admin developer platform-admin; then
+    error "Test-tier Secret hypershell-e2e-test-users is missing or not Ready in ${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+    error "CI-owned bring-up cannot fall back to username-equals-password."
+    exit 1
+  fi
+}
+
+reconcile_openshift_test_users() {
+  header "Test-tier principals"
+  KEYCLOAK_BASE_URL="${OPENSHIFT_KC_HOSTNAME}"
+  KEYCLOAK_CURL_INSECURE=true
+  if is_ci_owned_pr_environment; then
+    TEST_USER_PASSWORD_SOURCE=secret
+    TEST_USER_SECRET_NAMESPACE="${OPENSHIFT_KEYCLOAK_NAMESPACE}"
+    TEST_USER_OC=oc
+    if ! keycloak_reconcile_test_users; then
+      error "Failed to seed test-tier principals from Secret hypershell-e2e-test-users"
+      exit 1
+    fi
+    success "Test-tier principals reconciled from the ESO Secret"
+  else
+    TEST_USER_PASSWORD_SOURCE=static
+    if ! keycloak_reconcile_test_users; then
+      error "Failed to seed static test-tier principals"
+      exit 1
+    fi
+    success "Static test-tier principals reconciled"
+  fi
+}
+
+ensure_ci_e2e_client_secret() {
+  is_ci_owned_pr_environment || return 0
+  local existing e2e_secret
+  existing="$(oc_cli get secret hypershell-e2e-client -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    -o jsonpath='{.data.e2e-client-secret}' 2>/dev/null || true)"
+  if [[ -n "${existing}" ]]; then
+    e2e_secret="$(printf '%s' "${existing}" | base64 -d)"
+  else
+    e2e_secret="$(openssl rand -hex 24)"
+  fi
+  oc_cli create secret generic hypershell-e2e-client -n "${OPENSHIFT_KEYCLOAK_NAMESPACE}" \
+    --from-literal=e2e-client-enabled=true \
+    --from-literal=e2e-client-secret="${e2e_secret}" \
+    --from-literal=org="${PR_ENV_GITHUB_ORG:-openshift-online}" \
+    --from-literal=allowlist="${PR_ENV_GITHUB_ALLOWLIST:-}" \
+    --dry-run=client -o yaml | oc_cli apply -f - >/dev/null
+  unset e2e_secret existing
+}
+
 print_banner() {
   header "HyperShell is running on OpenShift"
   echo ""
@@ -1135,6 +1209,8 @@ print_banner() {
   if github_idp_enabled; then
     info "Interactive login is GitHub-brokered (openshift-online org, or allowlisted user)"
     info "Keycloak admin: ${OPENSHIFT_KC_HOSTNAME}/admin/hypershell/console/ (sign in with GitHub, then impersonate developer or platform-admin)"
+  elif is_ci_owned_pr_environment; then
+    info "Test-tier principals are seeded from the cluster secret (passwords are not printed)"
   else
     info "Test users:    admin/admin (admins + users), developer/developer (users only)"
   fi
@@ -1159,6 +1235,10 @@ cluster_up() {
   validate_namespace_group
   check_infrastructure
   ensure_namespace_group
+  if is_ci_owned_pr_environment; then
+    wait_for_ci_standing_secrets
+    ensure_ci_e2e_client_secret
+  fi
   create_bootstrap_secrets
   apply_cluster_rbac
   apply_overlay
@@ -1166,6 +1246,7 @@ cluster_up() {
   configure_oidc_from_routes
   wait_for_deployments
   add_keycloak_redirect_uri || true
+  reconcile_openshift_test_users
   if skip_seed; then
     info "SKIP_SEED=true - skipping platform seeding"
   else
@@ -1184,6 +1265,10 @@ cluster_seed() {
   trap 'if [[ -n "${OPENSHIFT_ENTRY_PROJECT:-}" ]]; then oc_cli project "${OPENSHIFT_ENTRY_PROJECT}" >/dev/null 2>&1 || true; fi' EXIT
   validate_namespace_group
   configure_oidc_from_routes
+  if is_ci_owned_pr_environment; then
+    wait_for_ci_standing_secrets
+  fi
+  reconcile_openshift_test_users
   seed_via_api
 }
 

@@ -32,6 +32,7 @@ permissions:
 env:
   KONFLUX_REGISTRY: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main
   BASELINE_REGISTRY: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
+  PR_ENV_AWS_ROLE_ARN: ${{ vars.PR_ENV_AWS_ROLE_ARN || 'arn:aws:iam::451971655738:role/hypershell-ci-hysh-aws-01-cluster-login' }}
 
 jobs:
   resolve:
@@ -133,6 +134,11 @@ jobs:
       needs.resolve.outputs.action == 'extend'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: write
+      id-token: write
     concurrency:
       group: pr-env-${{ github.event.issue.number }}
       cancel-in-progress: false
@@ -143,11 +149,6 @@ jobs:
       PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
       PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
       PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
-      OPENSHIFT_PR_ENV_SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
-      OPENSHIFT_PR_ENV_TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
-      PR_ENV_GITHUB_OAUTH_CLIENT_ID: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_ID }}
-      PR_ENV_GITHUB_OAUTH_CLIENT_SECRET: ${{ secrets.PR_ENV_GITHUB_OAUTH_CLIENT_SECRET }}
-      PR_ENV_GITHUB_OAUTH_CALLBACK_URL: ${{ secrets.PR_ENV_GITHUB_OAUTH_CALLBACK_URL }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -180,6 +181,10 @@ jobs:
       needs.resolve.outputs.action == 'destroy'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
     concurrency:
       group: pr-env-${{ github.event.issue.number }}
       cancel-in-progress: true
@@ -200,15 +205,9 @@ jobs:
           oc version --client
 
       - name: Log in to the target cluster
-        env:
-          SERVER_URL: ${{ secrets.OPENSHIFT_PR_ENV_SERVER_URL }}
-          TOKEN: ${{ secrets.OPENSHIFT_PR_ENV_TOKEN }}
-        run: |
-          if [[ -z "${SERVER_URL}" || -z "${TOKEN}" ]]; then
-            echo "::error::OPENSHIFT_PR_ENV_SERVER_URL / OPENSHIFT_PR_ENV_TOKEN are not set"
-            exit 1
-          fi
-          oc login --server="${SERVER_URL}" --token="${TOKEN}" >/dev/null
+        uses: ./.github/actions/openshift-cluster-login
+        with:
+          role-arn: ${{ env.PR_ENV_AWS_ROLE_ARN }}
 
       # No-op success when nothing is up: make openshift-down is idempotent.
       - name: Remove environment (make openshift-down)

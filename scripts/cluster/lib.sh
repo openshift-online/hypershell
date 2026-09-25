@@ -24,6 +24,8 @@ error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
 
 CLUSTER_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${CLUSTER_SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=reconcile-test-users.sh
+source "${CLUSTER_SCRIPT_DIR}/reconcile-test-users.sh"
 
 : "${CONTAINER_ENGINE:=$(command -v podman 2>/dev/null || echo docker)}"
 : "${IMAGE_REGISTRY:=quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main}"

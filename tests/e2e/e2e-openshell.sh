@@ -64,7 +64,7 @@ source "$DRIVER_FILE"
 source "${SCRIPT_DIR}/gateway_service_account.sh"
 e2e_validate_gateway_auth
 
-REQUIRED_FUNCTIONS=(discover_api_host discover_console_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl configure_namespace_gc_timing restore_namespace_gc_timing)
+REQUIRED_FUNCTIONS=(discover_api_host discover_console_host discover_gateway_endpoint get_cluster_domain get_cli_binary wait_for_gateway_route acquire_oidc_token api_curl configure_namespace_gc_timing restore_namespace_gc_timing de_seed_test_users)
 for fn in "${REQUIRED_FUNCTIONS[@]}"; do
   if ! declare -f "$fn" >/dev/null 2>&1; then
     red "ERROR: Driver '${E2E_INFRA_DRIVER}' does not implement required function: ${fn}"
@@ -103,8 +103,23 @@ fi
 
 # --- Cleanup trap ---
 
+# dump_provision_diagnostics prints controller and stand-in postgres logs
+# before restore_namespace_gc_timing restarts the controller. Kind e2e
+# failures in DatabaseReady otherwise lose the SQL/TLS error: GC-timing
+# restore rolls a new ReplicaSet, and CI then collects the replacement pod.
+dump_provision_diagnostics() {
+  dim "  --- control-plane logs (before GC-timing restore) ---"
+  $CLI logs -n "${E2E_HS_NAMESPACE}" -l app=hypershell-controller --all-containers --tail=200 2>&1 | while IFS= read -r line; do dim "    $line"; done || true
+  dim "  --- stand-in postgres logs ---"
+  $CLI logs -n external-cloud-db -l app=postgres --tail=100 2>&1 | while IFS= read -r line; do dim "    $line"; done || true
+  $CLI logs -n "${E2E_HS_NAMESPACE}" -l app=hypershell-postgres --tail=100 2>&1 | while IFS= read -r line; do dim "    $line"; done || true
+}
+
 cleanup() {
   local exit_code=$?
+  if [[ "$exit_code" -ne 0 ]]; then
+    dump_provision_diagnostics || true
+  fi
   # A failed OpenShift run is about to tear the environment down (CI) or has
   # already left the controller in a bad state. Waiting on a restore rollout
   # (up to 300s) delays that teardown for no effect. Kind keeps the cluster,
@@ -155,6 +170,9 @@ cleanup() {
   if [[ -n "${_KINDCCM_SOCAT_PID:-}" ]]; then
     kill "${_KINDCCM_SOCAT_PID}" 2>/dev/null || true
     wait "${_KINDCCM_SOCAT_PID}" 2>/dev/null || true
+  fi
+  if declare -F de_seed_test_users >/dev/null 2>&1; then
+    de_seed_test_users || true
   fi
   # Runs on every exit path -- a fatal exit 1 mid-run included -- so the
   # summary always prints, and print_results itself notes when E2E_COMPLETED
@@ -833,12 +851,19 @@ if [[ "$E2E_GATEWAY_AUTH" == "service_account" ]]; then
   # helper stdout or put this machine token in the shell environment.
   OIDC_TOKEN=""
   pass "Gateway service-account token acquired (single gateway audience, openshell-admin + openshell-user)"
-elif acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
-  OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
-  pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
 else
-  fail_test "Failed to acquire per-gateway OIDC token with openshell-admin role"
-  exit 1
+  if [[ "${E2E_OIDC_GRANT:-password}" == "client_credentials" ]]; then
+    show_cmd "# token-exchange (hypershell-e2e) → ${E2E_OIDC_ISSUER} (audience: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
+  else
+    show_cmd "# resource-owner password grant → ${E2E_OIDC_ISSUER} (client: ${GW_KC_CLIENT_ID}, await role: openshell-admin)"
+  fi
+  if acquire_gateway_token_with_role "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" "$GW_KC_CLIENT_ID" openshell-admin; then
+    OIDC_TOKEN="${_OIDC_ACCESS_TOKEN}"
+    pass "OIDC token acquired with openshell-admin (user: ${E2E_OIDC_USERNAME}, client: ${GW_KC_CLIENT_ID})"
+  else
+    fail_test "Failed to acquire per-gateway OIDC token with openshell-admin role"
+    exit 1
+  fi
 fi
 
 

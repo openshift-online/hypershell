@@ -38,46 +38,49 @@ spec:
               cpu: 200m
               memory: 128Mi
           env:
-            - name: PR_ENV_GITHUB_IDP_ENABLED
-              valueFrom:
-                secretKeyRef:
-                  name: hypershell-github-oauth
-                  key: idp-enabled
-                  optional: true
+            # ESO copies hysh-aws-01/ci/github-oauth into this Secret
+            # (client_id, client_secret, callback_url). Presence of client_id
+            # enables the GitHub IdP (ephemeral-ci-secrets.spec.md).
             - name: PR_ENV_GITHUB_CLIENT_ID
               valueFrom:
                 secretKeyRef:
                   name: hypershell-github-oauth
-                  key: client-id
+                  key: client_id
                   optional: true
             - name: PR_ENV_GITHUB_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: hypershell-github-oauth
-                  key: client-secret
+                  key: client_secret
+                  optional: true
+            - name: PR_ENV_GITHUB_CALLBACK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hypershell-github-oauth
+                  key: callback_url
                   optional: true
             - name: PR_ENV_GITHUB_ORG
               valueFrom:
                 secretKeyRef:
-                  name: hypershell-github-oauth
+                  name: hypershell-e2e-client
                   key: org
                   optional: true
             - name: PR_ENV_GITHUB_ALLOWLIST
               valueFrom:
                 secretKeyRef:
-                  name: hypershell-github-oauth
+                  name: hypershell-e2e-client
                   key: allowlist
                   optional: true
             - name: HYPERSHELL_E2E_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: hypershell-github-oauth
+                  name: hypershell-e2e-client
                   key: e2e-client-secret
                   optional: true
             - name: HYPERSHELL_E2E_CLIENT_ENABLED
               valueFrom:
                 secretKeyRef:
-                  name: hypershell-github-oauth
+                  name: hypershell-e2e-client
                   key: e2e-client-enabled
                   optional: true
             # Set by make openshift-up on this init container from the
@@ -223,11 +226,15 @@ spec:
 # and hub imported realms do not contain the privileged identity. A disabled
 # leftover in an already-imported realm is still skipped by
 # EnsureE2ETokenExchange (enabled==true, not mere presence). PR environments
-# set e2e-client-enabled=true and a random secret via hypershell-github-oauth.
+# set e2e-client-enabled=true and a random secret via Secret hypershell-e2e-client.
 # The service account holds platform:admin + gateway:creator so
 # E2E_OIDC_GRANT=client_credentials can obtain admin tokens without a GitHub
-# login. Standard token exchange stays off; Area 4 uses FGAP v1 token-exchange
-# granted at gateway reconcile. Distinct from hypershell-provisioner
+# login. preferred_username MUST stay the service-account username
+# (profile scope); a hardcoded admin claim makes the API record the
+# gateway owner as admin while the per-gateway token is still minted for
+# the service account, so openshell-admin never appears. Standard token
+# exchange stays off; Area 4 uses FGAP v1 token-exchange granted at
+# gateway reconcile. Distinct from hypershell-provisioner
 # (manage-clients / manage-users / manage-authorization, the last needed to
 # manage the hypershell-e2e-token-exchange authorization policy on
 # realm-management; see keycloak/client.go EnsureE2ETokenExchange).
@@ -419,20 +426,6 @@ data:
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
-              }
-            },
-            {
-              "name": "preferred-username",
-              "protocol": "openid-connect",
-              "protocolMapper": "oidc-hardcoded-claim-mapper",
-              "consentRequired": false,
-              "config": {
-                "claim.name": "preferred_username",
-                "claim.value": "admin",
-                "jsonType.label": "String",
-                "id.token.claim": "true",
-                "access.token.claim": "true",
-                "userinfo.token.claim": "true"
               }
             }
           ]
@@ -703,36 +696,6 @@ data:
         ]
       },
       "users": [
-        {
-          "username": "admin",
-          "firstName": "Admin",
-          "lastName": "User",
-          "email": "admin@hypershell.local",
-          "emailVerified": true,
-          "enabled": true,
-          "credentials": [{ "type": "password", "value": "admin", "temporary": false }],
-          "realmRoles": ["hypershell-admins", "hypershell-users", "gateway:creator", "platform:admin"]
-        },
-        {
-          "username": "developer",
-          "firstName": "Developer",
-          "lastName": "User",
-          "email": "developer@hypershell.local",
-          "emailVerified": true,
-          "enabled": true,
-          "credentials": [{ "type": "password", "value": "developer", "temporary": false }],
-          "realmRoles": ["hypershell-users"]
-        },
-        {
-          "username": "platform-admin",
-          "firstName": "Platform",
-          "lastName": "Administrator",
-          "email": "platform-admin@hypershell.local",
-          "emailVerified": true,
-          "enabled": true,
-          "credentials": [{ "type": "password", "value": "platform-admin", "temporary": false }],
-          "realmRoles": ["hypershell-users", "platform:admin"]
-        },
         {
           "username": "service-account-hypershell-provisioner",
           "enabled": true,
