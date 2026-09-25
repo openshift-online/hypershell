@@ -29,6 +29,7 @@ var (
 )
 
 var staleResources sync.Map
+var staleResourcesMu sync.Mutex
 
 func registerMetrics() error {
 	meter := otel.Meter(TracerName)
@@ -303,6 +304,8 @@ func SetResourceStatusStale(ctx context.Context, clusterID, kind, resourceID str
 	if staleResourceStatusCount == nil || kind == "" || resourceID == "" {
 		return
 	}
+	staleResourcesMu.Lock()
+	defer staleResourcesMu.Unlock()
 	key := kind + "\x00" + resourceID
 	if stale {
 		staleResources.Store(key, struct{}{})
