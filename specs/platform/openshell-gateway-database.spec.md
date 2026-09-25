@@ -295,16 +295,19 @@ For each gateway, the reconciler SHALL:
    - **Isolation:** `REVOKE CONNECT ON DATABASE gw_<gatewayID> FROM PUBLIC` and
      `GRANT CONNECT ON DATABASE gw_<gatewayID> TO gw_<gatewayID>`, so no other
      gateway's role can connect.
-4. Verify the provisioned credentials by opening a short-lived connection **as the
-   gateway role to the gateway database** with the same TLS posture the gateway
-   workload uses (`sslmode=require`) and pinging it. DDL returning no error does not
-   prove the role can log in: a wrong password, a missing `CONNECT` grant, or a
-   database not yet accepting connections surface only on a real login. The probe
-   SHALL retry with exponential backoff to absorb the brief window right after
-   `CREATE DATABASE` before failing. A probe that never succeeds is a retryable
-   provisioning failure handled like any connection failure below; the probe error
-   SHALL be categorized (`unreachable` / `tls_failed` / `auth_failed`) and SHALL NOT
-   contain the password or DSN.
+4. When this pass established new credentials or a new database (the role was
+   created, its password was re-synced, or the database was created), verify them by
+   opening a short-lived connection **as the gateway role to the gateway database**
+   with the same TLS posture the gateway workload uses (`sslmode=require`) and
+   pinging it. DDL returning no error does not prove the role can log in: a wrong
+   password, a missing `CONNECT` grant, or a database not yet accepting connections
+   surface only on a real login. The probe SHALL retry with exponential backoff to
+   absorb the brief window right after `CREATE DATABASE` before failing. A probe that
+   never succeeds is a retryable provisioning failure handled like any connection
+   failure below; the probe error SHALL be categorized (`unreachable` / `tls_failed`
+   / `auth_failed`) and SHALL NOT contain the password or DSN. A steady-state
+   reconcile that changes nothing SHALL NOT perform this login, so an
+   already-provisioned gateway is not re-verified on every reconcile.
 5. Write/refresh the tenant-namespace Secret `openshell-gateway-db-credentials` (see
    Requirement: Gateway Credentials Secret). The reconciler SHALL verify (step 4)
    before writing the Secret so `DatabaseReady` is never reported for credentials
