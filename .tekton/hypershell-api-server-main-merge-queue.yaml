@@ -8,8 +8,6 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch.startsWith("gh-readonly-queue/main/")
-      && ( "components/api-server/***".pathChanged() || ".tekton/hypershell-api-server-main-merge-queue.yaml".pathChanged()
-      )
   labels:
     appstudio.openshift.io/application: hypershell-main
     appstudio.openshift.io/component: hypershell-api-server-main

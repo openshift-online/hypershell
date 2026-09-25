@@ -345,6 +345,7 @@ spec:
               -c ssl=on
               -c ssl_cert_file=/tls/tls.crt
               -c ssl_key_file=/tmp/server.key
+              -c log_connections=on
           env:
             - name: POSTGRES_PASSWORD
               value: hypershell-kind-admin-password
@@ -380,7 +381,13 @@ spec:
 EXTERNAL_PG_EOF
 info "Waiting for the stand-in PostgreSQL to be ready..."
 kube rollout status deployment/postgres -n "${EXTERNAL_PG_NS}" --timeout=120s
-success "Stand-in PostgreSQL ready (TLS on)"
+_pg_ssl="$(kube exec -n "${EXTERNAL_PG_NS}" deploy/postgres -- psql -U postgres -tAc 'SHOW ssl' | tr -d '[:space:]')"
+if [[ "${_pg_ssl}" != "on" ]]; then
+  error "Stand-in PostgreSQL has ssl=${_pg_ssl:-<empty>}; expected on. pg_isready succeeds without TLS, so rollout is not enough."
+  kube logs -n "${EXTERNAL_PG_NS}" -l app=postgres --tail=50 || true
+  exit 1
+fi
+success "Stand-in PostgreSQL ready (ssl=on)"
 
 # The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
 # mounted from its own namespace at /etc/hypershell/gateway-database
@@ -409,6 +416,69 @@ kube create secret generic "${GATEWAY_DB_ADMIN_SECRET}" \
   --dry-run=client -o yaml | kube apply -f -
 rm -f "${_pg_ca_file}"
 success "Admin Secret '${GATEWAY_DB_ADMIN_SECRET}' created"
+
+# pg_isready (the readiness probe) does not speak TLS. Fail here with the
+# client error rather than five minutes later as DatabaseReady=unreachable.
+info "Probing ${EXTERNAL_PG_HOST} with sslmode=verify-full..."
+kube delete pod postgres-tls-probe -n "${KIND_NAMESPACE}" --ignore-not-found --wait=true >/dev/null 2>&1 || true
+kube apply -f - <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: postgres-tls-probe
+  namespace: ${KIND_NAMESPACE}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: probe
+      image: postgres:15
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${GATEWAY_DB_ADMIN_SECRET}
+              key: password
+      command: ["sh", "-c"]
+      args:
+        - |
+          set -eu
+          host=\$(tr -d '[:space:]' < /creds/host)
+          port=\$(tr -d '[:space:]' < /creds/port)
+          user=\$(tr -d '[:space:]' < /creds/user)
+          dbname=\$(tr -d '[:space:]' < /creds/dbname)
+          exec psql "host=\${host} port=\${port} user=\${user} dbname=\${dbname} sslmode=verify-full sslrootcert=/creds/sslrootcert" -c 'SELECT 1'
+      volumeMounts:
+        - name: creds
+          mountPath: /creds
+          readOnly: true
+  volumes:
+    - name: creds
+      secret:
+        secretName: ${GATEWAY_DB_ADMIN_SECRET}
+EOF
+_probe_ok=""
+_probe_phase=""
+_probe_deadline=$((SECONDS + 60))
+while (( SECONDS < _probe_deadline )); do
+  _probe_phase="$(kube get pod postgres-tls-probe -n "${KIND_NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+  if [[ "${_probe_phase}" == "Succeeded" ]]; then
+    _probe_ok=1
+    break
+  fi
+  if [[ "${_probe_phase}" == "Failed" ]]; then
+    break
+  fi
+  sleep 2
+done
+if [[ -z "${_probe_ok}" ]]; then
+  error "verify-full probe against ${EXTERNAL_PG_HOST} failed (phase=${_probe_phase:-unknown})"
+  kube logs -n "${KIND_NAMESPACE}" postgres-tls-probe || true
+  kube delete pod postgres-tls-probe -n "${KIND_NAMESPACE}" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  exit 1
+fi
+kube delete pod postgres-tls-probe -n "${KIND_NAMESPACE}" --ignore-not-found --wait=true >/dev/null 2>&1 || true
+success "Stand-in PostgreSQL accepts sslmode=verify-full"
 echo ""
 
 # --- Deploy all components via kustomize ---
@@ -466,6 +536,13 @@ fi
 # scripts/cluster/drivers/openshift.sh), so `kind-up` and `openshift-up`
 # preserve swap state the same way.
 restore_swaps_after_reconcile
+
+# After the overlay apply so hostAliases is not wiped. CI image swap is
+# kubectl set image and keeps this pin. The TLS probe above already proved
+# the server; this pin is for the controller's later per-reconcile lookups,
+# which CI lost to CoreDNS i/o timeouts after the *.hypershell.localhost
+# CoreDNS restart.
+pin_controller_gateway_db_hosts "${EXTERNAL_PG_NS}" "${EXTERNAL_PG_HOST}"
 
 # The stand-in PostgreSQL server was provisioned and waited on above.
 
