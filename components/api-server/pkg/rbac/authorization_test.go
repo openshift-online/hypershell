@@ -417,7 +417,7 @@ func TestExtractResourceInfoRecognizesNestedServiceAccountRoutes(t *testing.T) {
 }
 
 func TestServiceAccountAuthorizationConcealsDeniedMutations(t *testing.T) {
-	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true}, nil)
+	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true}, nil, nil)
 	for _, test := range []struct {
 		method string
 		path   string
@@ -460,7 +460,7 @@ func TestServiceAccountAuthorizationConcealsDeniedMutations(t *testing.T) {
 // request reaches the handler.
 func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
 
 	router := mux.NewRouter()
 	reached := false
@@ -485,7 +485,7 @@ func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 }
 
 func TestAuthorizeApiAllowsUserWithNoBindingsToListGateways(t *testing.T) {
-	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true}, nil)
+	middleware := NewRBACAuthzMiddleware(authorizationLookup{}, AuthzConfig{EnforceRBAC: true}, nil, nil)
 
 	reached := false
 	router := mux.NewRouter()
@@ -511,7 +511,7 @@ func TestAuthorizeApiAllowsUserWithNoBindingsToListGateways(t *testing.T) {
 
 func TestAuthorizeApiDeniesGatewayCreatorOnUsersList(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
 
 	router := mux.NewRouter()
 	router.Handle("/api/hypershell/v1/users", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -557,7 +557,7 @@ func TestIsAuthorized_RegistrationOnlyForPost(t *testing.T) {
 
 func TestAuthorizeApi_RegistrationBypasesUserIDGate(t *testing.T) {
 	lookup := authorizationLookup{bindings: nil}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
 
 	router := mux.NewRouter()
 	reached := false
@@ -586,7 +586,7 @@ func TestAuthorizeApi_RegistrationBypasesUserIDGate(t *testing.T) {
 
 func TestAuthorizeApi_RegistrationDeniedWithoutRole(t *testing.T) {
 	lookup := authorizationLookup{bindings: nil}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
 
 	router := mux.NewRouter()
 	router.Handle("/api/hypershell/v1/managed_clusters/registration", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -612,7 +612,7 @@ func TestAuthorizeApi_RegistrationDeniedWithoutRole(t *testing.T) {
 
 func TestAuthorizeApiConcealsDeniedUsersGet(t *testing.T) {
 	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
-	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil)
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
 
 	router := mux.NewRouter()
 	router.Handle("/api/hypershell/v1/users/{id}", middleware.AuthorizeApi(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

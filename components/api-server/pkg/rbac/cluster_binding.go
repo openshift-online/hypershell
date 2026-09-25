@@ -144,9 +144,12 @@ func checkRequestCluster(req interface{}, clusterID string) error {
 // gRPC auth interceptor, which runs before the post-auth interceptors, verifies
 // the bearer token's signature but stores only the username in the context, so
 // the claim is re-read here from the same authorization metadata without
-// re-verifying. That is safe: this function only ever narrows access (a subject
-// that resolves to a registered cluster restricts the caller to that cluster's
-// id), it never grants any.
+// re-verifying. For the caller binding that is safe on its own: there the
+// subject only ever narrows access (a subject that resolves to a registered
+// cluster restricts the caller to that cluster's id). The control-plane
+// identity exemption (control_plane_identity.go) does grant on it, so it reads
+// the subject only for a caller the auth interceptor authenticated (non-empty
+// username), which parsed this same authorization metadata value.
 func subjectFromGRPCContext(ctx context.Context) string {
 	if token, err := auth.TokenFromContext(ctx); err == nil && token != nil {
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {

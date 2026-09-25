@@ -178,6 +178,9 @@ patches:
   # gRPC provisioning path never syncs JWT roles
   # (pkg/rbac/grpc_interceptor.go), so the SA can never earn a gateway:creator
   # binding. The bypass is the supported mechanism for trusted service accounts.
+  # It is only the bootstrap fallback: a control plane that has registered is a
+  # control-plane identity by its JWT sub (managed-cluster-registration.spec.md,
+  # "Control-Plane Identity"), so additional control planes need no entry here.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment

@@ -391,6 +391,14 @@ and evaluate permissions using the same role-based logic as the HTTP middleware.
 The middleware SHALL provision users and sync JWT roles on gRPC requests identically
 to HTTP requests.
 
+Control-plane identities are exempt from gRPC role-binding authorization: a username on
+the `RBAC_SERVICE_ACCOUNTS` allowlist (the bootstrap fallback), or a caller whose JWT
+`sub` is the `oidc_subject` of a registered ManagedCluster
+(`platform/managed-cluster-registration.spec.md`, "Control-Plane Identity"). When the
+allowlist is set, the control-plane-only methods (`AdjustActiveSandboxCount`,
+`SetActiveSandboxCount`, `SetGatewayVersion`) are denied to every other caller whatever
+its role bindings.
+
 #### Scenario: Platform admin watches gateways via gRPC
 
 - GIVEN user A has `platform:admin` (from Keycloak)
@@ -577,8 +585,11 @@ JWT claim.
 
 **Isolation guarantee:** In production (`RBAC_DEFAULT_ROLES=`, `RBAC_ENFORCE=true`),
 a spoke service account holding only `managed-cluster-registrar` has no gateway
-permissions. No role is auto-assigned; the spoke's access is exactly what Keycloak
-grants. This is the required production configuration.
+permissions through the HTTP API. No role is auto-assigned; the spoke's HTTP access is
+exactly what Keycloak grants. This is the required production configuration. Once the
+spoke registers, its JWT `sub` is a control-plane identity on the gRPC API: the gRPC
+interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry (see
+`platform/managed-cluster-registration.spec.md`, "Control-Plane Identity").
 
 #### Scenario: Spoke with role can self-register
 
@@ -601,7 +612,7 @@ grants. This is the required production configuration.
 - AND a spoke service account has only `managed-cluster-registrar` assigned in Keycloak
 - WHEN it calls `GET /api/hypershell/v1/gateways`
 - THEN the response is 200 with an empty items array
-- AND the spoke cannot create, modify, or delete any gateway
+- AND the spoke cannot create, modify, or delete any gateway through the HTTP API
 
 ### Requirement: Integration Test Coverage
 

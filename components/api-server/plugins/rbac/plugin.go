@@ -35,7 +35,10 @@ func init() {
 				EnforceRBAC:     enforceRBAC,
 				ServiceAccounts: rbac.ServiceAccountsFromEnv(),
 			}
-			rbacMiddleware := rbac.NewRBACAuthzMiddleware(rbService, authzConfig, activityRecorder)
+			// nil when the managedClusters plugin is absent: registered-cluster
+			// callers are then not recognised as control planes.
+			controlPlanes := newControlPlaneResolver(envServices)
+			rbacMiddleware := rbac.NewRBACAuthzMiddleware(rbService, authzConfig, activityRecorder, controlPlanes)
 			apiV1Router.Use(rbacMiddleware.AuthorizeApi)
 		}
 	})

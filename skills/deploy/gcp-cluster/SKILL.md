@@ -582,7 +582,10 @@ the API server pod doesn't have TLS certs; the OpenShift Route handles TLS.
 (`gateway:creator/owner/viewer`). `RBAC_SERVICE_ACCOUNTS` must include the
 controller's service account name (`service-account-hypershell-control-plane`)
 so its gRPC `UpdateGateway` calls bypass the RBAC interceptor; the
-controller's `client_credentials` token doesn't carry gateway roles.
+controller's `client_credentials` token doesn't carry gateway roles. This is
+the bootstrap fallback: once a control plane has registered its managed
+cluster, its JWT `sub` alone makes it a control-plane identity, so other
+(spoke) control planes need no entry.
 
 ### gRPC auth chain
 

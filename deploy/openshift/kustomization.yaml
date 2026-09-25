@@ -79,7 +79,10 @@ patches:
   # bypasses the gRPC RBAC interceptor for the control plane's service account,
   # whose UpdateGateway writes require a JWT like every hypershell RPC
   # (--auth-bypass-methods exempts only health and reflection) and whose gRPC
-  # path never syncs JWT roles (pkg/rbac/grpc_interceptor.go).
+  # path never syncs JWT roles (pkg/rbac/grpc_interceptor.go). The allowlist is
+  # only the bootstrap fallback: a registered control plane is a control-plane
+  # identity by its JWT sub (managed-cluster-registration.spec.md, "Control-Plane
+  # Identity"), so spokes need no entry here.
   #
   # BREAKING CHANGE for existing clusters: once applied, every gateway operation
   # requires the caller's token to carry gateway:creator (create) or a matching

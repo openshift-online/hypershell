@@ -201,9 +201,11 @@ DNS label. The reconciler
 SHALL accept a valid version from the healthy HTTP 200 response or the unhealthy
 HTTP 503 response because the gateway includes its runtime version in both.
 
-The API SHALL restrict the `SetGatewayVersion` RPC to the configured control-plane
-service-account allowlist when that allowlist is set. Gateway owner and creator
-roles SHALL NOT grant access to this RPC in that configuration.
+The API SHALL restrict the `SetGatewayVersion` RPC to control-plane identities
+when the `RBAC_SERVICE_ACCOUNTS` allowlist is set: an allowlisted account, or a
+registered managed cluster (`managed-cluster-registration.spec.md`,
+"Control-Plane Identity"). Gateway owner and creator roles SHALL NOT grant access
+to this RPC in that configuration.
 
 The API SHALL provide a dedicated atomic write for `gateway_version`. A general
 Gateway replacement SHALL NOT write this field. Thus, an unrelated Gateway
