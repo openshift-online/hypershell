@@ -241,7 +241,9 @@ const (
 
 var (
 	redactPostgresURL = regexp.MustCompile(`(?i)postgres(?:ql)?://\S+`)
-	redactPasswordKV  = regexp.MustCompile(`(?i)(password=)[^&;\s]+`)
+	// Quoted values (password='a b' / password="a b") are matched before the
+	// unquoted token so a space inside quotes cannot leak the remainder.
+	redactPasswordKV = regexp.MustCompile(`(?i)(password=)(?:'[^']*'|"[^"]*"|[^&;\s]+)`)
 )
 
 // connErrorCategory maps a raw connection error to one of the categories above.

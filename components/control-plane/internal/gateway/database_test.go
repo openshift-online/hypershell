@@ -377,6 +377,24 @@ func TestRedactDriverError(t *testing.T) {
 	if wrap := wrapAdminConnError(errors.New("tls: handshake failure")); !strings.Contains(wrap.Error(), "tls_failed") || !strings.Contains(wrap.Error(), "tls: handshake failure") {
 		t.Fatalf("wrap = %v", wrap)
 	}
+
+	for _, tc := range []struct {
+		name, in, leak string
+	}{
+		{"unquoted", "password=s3cret extra", "s3cret"},
+		{"single-quoted with space", "password='a b' extra", "a b"},
+		{"double-quoted with space", `password="a b" extra`, "a b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := redactDriverError(errors.New(tc.in))
+			if strings.Contains(got, tc.leak) {
+				t.Fatalf("password leaked: %q", got)
+			}
+			if !strings.Contains(got, "password=redacted") {
+				t.Fatalf("expected redacted kv, got %q", got)
+			}
+		})
+	}
 }
 
 func TestGatewayDBName(t *testing.T) {

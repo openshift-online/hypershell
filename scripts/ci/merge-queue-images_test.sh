@@ -33,44 +33,60 @@ assert_fail() {
 
 E2E_YML="${REPO_ROOT}/.github/workflows/e2e.yml"
 
-assert_ok "merge_group skips docs-only batches via detect-konflux, not wait flags" \
-  grep -q 'should_run stays path-gated via detect-konflux' "${E2E_YML}"
-
-# plan-images' merge_group case is the second `merge_group)` in the file
-# (the first is Compute changed files). Wait flags there are literals, not
-# detect-konflux outputs, so unchanged components still get on-merge-queue
-# images.
-mq_plan_wait_api() {
+# plan-images' merge_group case is the second standalone `merge_group)` in the
+# file (the first is Compute changed files). The one-line
+# `merge_group) konflux_ref=...` assignment is not standalone.
+mq_plan_awk() {
   awk '
-    /^            merge_group)/ { n++ }
-    n == 2 && /echo "wait_api_server=true"/ { found = 1 }
+    /^            merge_group)$/ { n++ }
+    n == 2 { print }
     n == 2 && /^            push)/ { exit }
-    END { exit found ? 0 : 1 }
   ' "${E2E_YML}"
+}
+
+mq_skip_uses_detect() {
+  mq_plan_awk | awk '
+    /detect_e2e_relevant/ { detect = 1 }
+    /KONFLUX_WEB_CONSOLE/ { wc = 1 }
+    /echo "should_run=false"/ { skip = 1 }
+    /echo "wait_api_server=\$\{KONFLUX_API_SERVER\}"/ { gated = 1 }
+    END { exit (detect && wc && skip && !gated) ? 0 : 1 }
+  '
+}
+
+mq_tag_uses_konflux_ref() {
+  mq_plan_awk | grep -q 'tag="on-merge-queue-${konflux_ref}"'
+}
+
+mq_tag_not_push_sha() {
+  ! { mq_plan_awk | grep -q 'tag="on-merge-queue-${PUSH_SHA}"'; }
+}
+
+mq_plan_wait_api() {
+  mq_plan_awk | grep -q 'echo "wait_api_server=true"'
 }
 mq_plan_wait_cp() {
-  awk '
-    /^            merge_group)/ { n++ }
-    n == 2 && /echo "wait_control_plane=true"/ { found = 1 }
-    n == 2 && /^            push)/ { exit }
-    END { exit found ? 0 : 1 }
-  ' "${E2E_YML}"
+  mq_plan_awk | grep -q 'echo "wait_control_plane=true"'
 }
 mq_plan_wait_wc() {
-  awk '
-    /^            merge_group)/ { n++ }
-    n == 2 && /echo "wait_web_console=true"/ { found = 1 }
-    n == 2 && /^            push)/ { exit }
-    END { exit found ? 0 : 1 }
-  ' "${E2E_YML}"
+  mq_plan_awk | grep -q 'echo "wait_web_console=true"'
 }
+
+assert_ok "merge_group skips docs-only batches via detect_e2e_relevant, not wait flags" \
+  mq_skip_uses_detect
 
 assert_ok "merge_group wait_api_server is unconditional" mq_plan_wait_api
 assert_ok "merge_group wait_control_plane is unconditional" mq_plan_wait_cp
 assert_ok "merge_group wait_web_console is unconditional" mq_plan_wait_wc
 
-assert_ok "Kind waits on merge_group.head_sha" \
-  grep -q 'github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha' "${E2E_YML}"
+assert_ok "plan-images exports konflux_ref" \
+  grep -q 'konflux_ref: ${{ steps.plan.outputs.konflux_ref }}' "${E2E_YML}"
+assert_ok "merge_group image tag uses konflux_ref" mq_tag_uses_konflux_ref
+assert_ok "merge_group image tag does not use PUSH_SHA" mq_tag_not_push_sha
+assert_ok "Kind wait-on-check uses plan-images konflux_ref" \
+  grep -q 'ref: ${{ needs.plan-images.outputs.konflux_ref }}' "${E2E_YML}"
+assert_ok "OpenShift wait uses plan-images konflux_ref" \
+  grep -q 'head_sha: ${{ needs.plan-images.outputs.konflux_ref }}' "${E2E_YML}"
 
 for pipeline in \
   hypershell-api-server-main-merge-queue.yaml \

@@ -169,6 +169,12 @@ The effective TLS mode of the admin connection SHALL always be `verify-full`: th
 server certificate SHALL be verified against `sslrootcert` and its hostname SHALL be
 verified against `host`. There is no configuration that lowers it.
 
+The shipped controller Deployment SHALL set `dnsConfig.options` `ndots=2` so the
+admin `host` FQDN is resolved as an absolute name. Kubernetes defaults `ndots:5`,
+which searches a four-dot hostname as a relative name first. This applies in every
+environment, not only Kind: production RDS and IBM Cloud endpoints are also FQDNs,
+and in-namespace short names still search under `ndots:2`.
+
 The control plane SHALL re-read the mounted files for **every** database operation
 (provisioning and cleanup) rather than caching their contents. The kubelet refreshes
 mounted Secrets in place, so an admin password change takes effect on the next

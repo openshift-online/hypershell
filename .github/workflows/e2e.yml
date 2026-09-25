@@ -73,6 +73,11 @@ jobs:
       wait_api_server: ${{ steps.plan.outputs.wait_api_server }}
       wait_control_plane: ${{ steps.plan.outputs.wait_control_plane }}
       wait_web_console: ${{ steps.plan.outputs.wait_web_console }}
+      # Single SHA for image tags and wait-on-check. On merge_group this is
+      # merge_group.head_sha (Konflux PAC {{revision}} for the gh-readonly-queue
+      # push); github.sha is documented as the same merge-group commit, but the
+      # tag and the wait ref must not source different fields.
+      konflux_ref: ${{ steps.plan.outputs.konflux_ref }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,6 +100,7 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
           PUSH_SHA: ${{ github.sha }}
         run: |
@@ -108,7 +114,8 @@ jobs:
               pipeline_suffix="pull-request"
               ;;
             merge_group)
-              changed_files="$(git diff --name-only "${MERGE_GROUP_BASE_SHA}...${PUSH_SHA}")"
+              mq_head="${MERGE_GROUP_HEAD_SHA:-${PUSH_SHA}}"
+              changed_files="$(git diff --name-only "${MERGE_GROUP_BASE_SHA}...${mq_head}")"
               pipeline_suffix="merge-queue"
               ;;
             push)
@@ -148,6 +155,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           PUSH_SHA: ${{ github.sha }}
           DETECT_API_SERVER: ${{ inputs.api_server }}
           DETECT_CONTROL_PLANE: ${{ inputs.control_plane }}
@@ -167,6 +175,17 @@ jobs:
           echo "wait_api_server=false"    >> "${GITHUB_OUTPUT}"
           echo "wait_control_plane=false" >> "${GITHUB_OUTPUT}"
           echo "wait_web_console=false"   >> "${GITHUB_OUTPUT}"
+
+          # One SHA for image tags and wait-on-check. merge_group.head_sha is
+          # the merge-group commit Konflux PAC tags as {{revision}}; github.sha
+          # is documented as the same value, but using one output means the
+          # consumed tag and the check ref cannot drift.
+          case "${EVENT_NAME}" in
+            merge_group) konflux_ref="${MERGE_GROUP_HEAD_SHA:-${PUSH_SHA}}" ;;
+            pull_request) konflux_ref="${PR_HEAD_SHA}" ;;
+            *) konflux_ref="${PUSH_SHA}" ;;
+          esac
+          echo "konflux_ref=${konflux_ref}" >> "${GITHUB_OUTPUT}"
 
           # Shared e2e-relevant gate for pull_request and merge_group. detect-
           # components tracks api_server, control_plane, e2e, and pr_test
@@ -254,7 +273,7 @@ jobs:
               # (on-pr-<head_sha>); e2e-kind waits for the matching Konflux build
               # in parallel with kind-up, then swaps the image in.
               # Components that did not change keep the stable baseline image.
-              tag="on-pr-${PR_HEAD_SHA}"
+              tag="on-pr-${konflux_ref}"
               api_img="${baseline_api}"
               cp_img="${baseline_cp}"
               wc_img="${baseline_wc}"
@@ -296,22 +315,23 @@ jobs:
               #
               # Same e2e-relevant skip as pull_request, against the merge batch
               # (detect-components and detect-konflux already diff
-              # merge_group.base_sha...github.sha). Kind and OpenShift remain the
+              # merge_group.base_sha...merge_group.head_sha). Kind and OpenShift remain the
               # merge-queue gate when those paths change; a docs-only batch must
               # not occupy three Kind runners or a shared-cluster namespace.
               # Tests CI Gate is the required check, so a skipped e2e job does
               # not leave the queue pending.
-              # should_run stays path-gated via detect-konflux. Merge-queue
-              # Konflux pipelines fire for every component (no pathChanged), so
-              # wait flags must not follow those detect flags: otherwise a
-              # docs-only batch would occupy runners, and an e2e-relevant batch
-              # would still fall back to :latest for unchanged components.
+              # should_run is path-gated by detect_e2e_relevant /
+              # KONFLUX_WEB_CONSOLE. Merge-queue Konflux pipelines fire for
+              # every component (no pathChanged), so wait flags must not follow
+              # those detect flags: otherwise a docs-only batch would occupy
+              # runners, and an e2e-relevant batch would still fall back to
+              # :latest for unchanged components.
               if [[ "${detect_e2e_relevant}" != "true" && "${KONFLUX_WEB_CONSOLE}" != "true" ]]; then
                 echo "No e2e-relevant components changed in merge batch"
                 echo "should_run=false" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
-              tag="on-merge-queue-${PUSH_SHA}"
+              tag="on-merge-queue-${konflux_ref}"
               echo "wait_api_server=true" >> "${GITHUB_OUTPUT}"
               echo "wait_control_plane=true" >> "${GITHUB_OUTPUT}"
               echo "wait_web_console=true" >> "${GITHUB_OUTPUT}"
@@ -333,7 +353,7 @@ jobs:
               # pipelines were triggered, and make e2e-kind wait for those checks.
               # Falling back to baseline for a changed component would run new tests
               # against old code and can report misleading product failures.
-              tag="${PUSH_SHA}"
+              tag="${konflux_ref}"
               api_img="${baseline_api}"
               cp_img="${baseline_cp}"
               wc_img="${baseline_wc}"
@@ -364,7 +384,7 @@ jobs:
               # workflow_dispatch does not trigger Konflux builds. Reuse a full
               # commit-tagged image set when one already exists; otherwise use the
               # stable baseline set rather than mixing component revisions.
-              tag="${PUSH_SHA}"
+              tag="${konflux_ref}"
               konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
               konflux_cp="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
               konflux_wc="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
@@ -451,7 +471,7 @@ jobs:
         continue-on-error: true
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
-          ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ needs.plan-images.outputs.konflux_ref }}
           check-regexp: ${{ github.event_name == 'push' && 'hypershell-api-server-main-on-push$' || 'hypershell-api-server-main-on-(pull-request|merge-queue)$' }}
           repo-token: ${{ github.token }}
           wait-interval: 30
@@ -464,7 +484,7 @@ jobs:
         continue-on-error: true
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
-          ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ needs.plan-images.outputs.konflux_ref }}
           check-regexp: ${{ github.event_name == 'push' && 'hypershell-control-plane-main-on-push$' || 'hypershell-control-plane-main-on-(pull-request|merge-queue)$' }}
           repo-token: ${{ github.token }}
           wait-interval: 30
@@ -477,7 +497,7 @@ jobs:
         continue-on-error: true
         uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
         with:
-          ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ needs.plan-images.outputs.konflux_ref }}
           check-regexp: ${{ github.event_name == 'push' && 'hypershell-web-console-main-on-push$' || 'hypershell-web-console-main-on-(pull-request|merge-queue)$' }}
           repo-token: ${{ github.token }}
           wait-interval: 30
@@ -739,7 +759,7 @@ jobs:
         uses: ./.github/actions/deploy-pr-environment
         with:
           pr_number: ${{ github.event.pull_request.number }}
-          head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          head_sha: ${{ needs.plan-images.outputs.konflux_ref }}
           updated: ${{ github.event.action == 'synchronize' && 'true' || 'false' }}
           retained: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'pr-environment/pr-extended') && 'true' || 'false' }}
           wait_api_server: ${{ needs.plan-images.outputs.wait_api_server }}

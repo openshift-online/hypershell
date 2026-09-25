@@ -774,7 +774,8 @@ The system SHALL provide a reusable GitHub Actions workflow at `.github/workflow
 - THEN `plan-images` SHALL set `should_run=true`
 - AND it SHALL run the Kind e2e job against the speculative merge commit
 - AND it SHALL run the `Deploy OpenShift Environment` and `OpenShift` jobs against `hypershell-ci-mq-<short-sha>`
-- AND it SHALL wait for every component's dedicated merge-queue Konflux build, keyed on the merge-commit SHA (`github.sha`), including components whose source the merge batch did not change
+- AND it SHALL wait for every component's dedicated merge-queue Konflux build, keyed on the merge-group commit (`merge_group.head_sha`; GitHub documents `github.sha` as the same value), including components whose source the merge batch did not change
+- AND the consumed `on-merge-queue-<merge_sha>` image tag and the Konflux wait-on-check ref SHALL be the same SHA (`plan-images` `konflux_ref`)
 - AND it SHALL swap those `on-merge-queue-<merge_sha>` images into Kind and OpenShift rather than baseline `:latest`
 - AND the browser distributed-trace verification SHALL NOT run on `merge_group` (it is covered at pull-request time and re-verified on push to `main`)
 
