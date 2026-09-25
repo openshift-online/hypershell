@@ -46,6 +46,27 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 	}
 }
 
+// The roleBindings plugin resolves a binding's gateway to its cluster through
+// this locator (it cannot import this package, which imports roleBindings).
+var _ roleBindings.GatewayClusterLookupSource = ServiceLocator{}
+
+// GatewayClusterLookup returns the managed cluster a gateway is assigned to,
+// including soft-deleted gateways, so the RoleBinding watch and list can scope
+// bindings to a cluster by their gateway (managed-cluster-registration.spec.md,
+// "Watch Stream Caller Binding").
+func (l ServiceLocator) GatewayClusterLookup() roleBindings.GatewayClusterLookup {
+	return func(ctx context.Context, gatewayID string) (string, bool, *errors.ServiceError) {
+		gateway, svcErr := l.gateway().GetUnscoped(ctx, gatewayID)
+		if svcErr != nil {
+			if svcErr.Is404() {
+				return "", false, nil
+			}
+			return "", false, svcErr
+		}
+		return gateway.ClusterId, true, nil
+	}
+}
+
 func Service(s *environments.Services) GatewayService {
 	if s == nil {
 		return nil

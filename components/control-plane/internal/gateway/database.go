@@ -203,6 +203,28 @@ func (c *adminCredentials) dsn() string {
 	return u.String()
 }
 
+// enableCreateRoleSelfGrant makes PostgreSQL grant every role this session
+// creates back to the admin with SET and INHERIT. PostgreSQL 16 and later
+// withhold SET on roles a non-superuser CREATEROLE admin creates, and
+// CREATE DATABASE ... OWNER needs it; an explicit GRANT issued afterwards is
+// not accepted on managed servers whose admin role is itself a member of a
+// provider role (IBM Cloud Databases records the provider role as grantor and
+// the ownership check still fails). createrole_self_grant is a session
+// parameter any role may set, so the admin role needs no server-side ALTER
+// ROLE, which a managed server may not allow. The pool is pinned to one
+// connection (openAdminConn), so the setting covers the statements that
+// follow. Servers before 16 do not know the parameter and do not need it.
+func enableCreateRoleSelfGrant(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, "SET createrole_self_grant = 'set, inherit'"); err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "42704" { // undefined_object: pre-16 server
+			return nil
+		}
+		return fmt.Errorf("set createrole_self_grant: %w", err)
+	}
+	return nil
+}
+
 // openAdminConn opens a short-lived PostgreSQL admin connection. The returned
 // release func closes the connection; callers must always defer it. It is
 // non-nil on every return path. PingContext errors are returned unwrapped so
@@ -523,6 +545,10 @@ func ReconcileGatewayDatabase(
 		return fmt.Errorf("connect to gateway database server: %s (driver error redacted)", connErrorCategory(err))
 	}
 	defer release()
+
+	if err := enableCreateRoleSelfGrant(ctx, db); err != nil {
+		return fmt.Errorf("prepare admin session for gateway %s: %w", gatewayID, err)
+	}
 
 	if err := func() error {
 		gatewayDatabaseDDLMu.Lock()

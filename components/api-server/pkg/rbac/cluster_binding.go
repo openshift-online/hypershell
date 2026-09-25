@@ -14,15 +14,20 @@ import (
 )
 
 // Watch Stream Caller Binding (managed-cluster-registration.spec.md): a caller
-// whose JWT subject is a registered ManagedCluster may list or watch gateways
-// only for its own cluster. Every control plane is registered, so this turns
-// the cluster_id filter on WatchGateways/ListGateways from cooperative scoping
-// into an enforced boundary. Callers whose subject is not a registered cluster
-// (users, hsctl) are unaffected and continue through role-binding authorization.
+// whose JWT subject is a registered ManagedCluster may list or watch gateways,
+// and the role bindings of gateways, only for its own cluster. Every control
+// plane is registered, so this turns the cluster_id filter on
+// WatchGateways/ListGateways and WatchRoleBindings/ListRoleBindings from
+// cooperative scoping into an enforced boundary (role bindings are scoped by
+// their gateway's cluster_id). Callers whose subject is not a registered
+// cluster (users, hsctl) are unaffected and continue through role-binding
+// authorization.
 
 const (
-	watchGatewaysMethod = "/hypershell.v1.GatewayService/WatchGateways"
-	listGatewaysMethod  = "/hypershell.v1.GatewayService/ListGateways"
+	watchGatewaysMethod     = "/hypershell.v1.GatewayService/WatchGateways"
+	listGatewaysMethod      = "/hypershell.v1.GatewayService/ListGateways"
+	watchRoleBindingsMethod = "/hypershell.v1.RoleBindingService/WatchRoleBindings"
+	listRoleBindingsMethod  = "/hypershell.v1.RoleBindingService/ListRoleBindings"
 )
 
 // RegisteredClusterResolver maps an OIDC subject to the id of the ManagedCluster
@@ -32,18 +37,23 @@ type RegisteredClusterResolver interface {
 	RegisteredClusterIDForSubject(ctx context.Context, subject string) (clusterID string, found bool, err error)
 }
 
-// clusterScopedRequest is implemented by the generated WatchGatewaysRequest and
-// ListGatewaysRequest messages.
+// clusterScopedRequest is implemented by the generated WatchGatewaysRequest,
+// ListGatewaysRequest, WatchRoleBindingsRequest and ListRoleBindingsRequest
+// messages.
 type clusterScopedRequest interface {
 	GetClusterId() string
 }
 
 func isClusterBoundMethod(fullMethod string) bool {
-	return fullMethod == watchGatewaysMethod || fullMethod == listGatewaysMethod
+	switch fullMethod {
+	case watchGatewaysMethod, listGatewaysMethod, watchRoleBindingsMethod, listRoleBindingsMethod:
+		return true
+	}
+	return false
 }
 
 // CheckClusterCallerBindingUnary enforces the binding on a unary call
-// (ListGateways). It runs before role-binding authorization and regardless of
+// (ListGateways, ListRoleBindings). It runs before role-binding authorization and regardless of
 // the RBAC_SERVICE_ACCOUNTS allowlist.
 func CheckClusterCallerBindingUnary(ctx context.Context, resolver RegisteredClusterResolver, fullMethod string, req interface{}) error {
 	if !isClusterBoundMethod(fullMethod) {
@@ -57,10 +67,10 @@ func CheckClusterCallerBindingUnary(ctx context.Context, resolver RegisteredClus
 }
 
 // BindClusterCallerStream enforces the binding on a server-streaming call
-// (WatchGateways). The request message is only available once the handler reads
+// (WatchGateways, WatchRoleBindings). The request message is only available once the handler reads
 // it, so for a caller that is a registered cluster the returned stream checks
 // the first received message: the generated handler receives the request before
-// it calls WatchGateways, so a rejection is returned from RecvMsg before the
+// it calls the handler, so a rejection is returned from RecvMsg before the
 // handler subscribes to the event broker. For any other method or caller the
 // original stream is returned unchanged.
 func BindClusterCallerStream(ss grpc.ServerStream, fullMethod string, resolver RegisteredClusterResolver) (grpc.ServerStream, error) {

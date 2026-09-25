@@ -10,6 +10,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 )
 
 type fakeResolver struct {
@@ -43,27 +45,49 @@ func bearerContext(t *testing.T, sub string) context.Context {
 
 func TestCheckClusterCallerBindingUnary(t *testing.T) {
 	resolver := &fakeResolver{clusters: map[string]string{"cp-sub": "cluster-x"}}
-	cases := []struct {
-		name     string
-		ctx      context.Context
-		method   string
-		req      interface{}
-		wantCode codes.Code
-	}{
-		{name: "own cluster allowed", ctx: bearerContext(t, "cp-sub"), method: listGatewaysMethod, req: &fakeScopedRequest{"cluster-x"}, wantCode: codes.OK},
-		{name: "foreign cluster denied", ctx: bearerContext(t, "cp-sub"), method: listGatewaysMethod, req: &fakeScopedRequest{"cluster-y"}, wantCode: codes.PermissionDenied},
-		{name: "missing cluster invalid", ctx: bearerContext(t, "cp-sub"), method: listGatewaysMethod, req: &fakeScopedRequest{""}, wantCode: codes.InvalidArgument},
-		{name: "user caller unaffected", ctx: bearerContext(t, "user-sub"), method: listGatewaysMethod, req: &fakeScopedRequest{""}, wantCode: codes.OK},
-		{name: "anonymous caller unaffected", ctx: context.Background(), method: listGatewaysMethod, req: &fakeScopedRequest{""}, wantCode: codes.OK},
-		{name: "other method unaffected", ctx: bearerContext(t, "cp-sub"), method: "/hypershell.v1.GatewayService/GetGateway", req: &fakeScopedRequest{""}, wantCode: codes.OK},
+	for _, method := range []string{listGatewaysMethod, listRoleBindingsMethod} {
+		cases := []struct {
+			name     string
+			ctx      context.Context
+			method   string
+			req      interface{}
+			wantCode codes.Code
+		}{
+			{name: "own cluster allowed", ctx: bearerContext(t, "cp-sub"), method: method, req: &fakeScopedRequest{"cluster-x"}, wantCode: codes.OK},
+			{name: "foreign cluster denied", ctx: bearerContext(t, "cp-sub"), method: method, req: &fakeScopedRequest{"cluster-y"}, wantCode: codes.PermissionDenied},
+			{name: "missing cluster invalid", ctx: bearerContext(t, "cp-sub"), method: method, req: &fakeScopedRequest{""}, wantCode: codes.InvalidArgument},
+			{name: "user caller unaffected", ctx: bearerContext(t, "user-sub"), method: method, req: &fakeScopedRequest{""}, wantCode: codes.OK},
+			{name: "anonymous caller unaffected", ctx: context.Background(), method: method, req: &fakeScopedRequest{""}, wantCode: codes.OK},
+			{name: "other method unaffected", ctx: bearerContext(t, "cp-sub"), method: "/hypershell.v1.GatewayService/GetGateway", req: &fakeScopedRequest{""}, wantCode: codes.OK},
+		}
+		for _, tc := range cases {
+			t.Run(method+"/"+tc.name, func(t *testing.T) {
+				err := CheckClusterCallerBindingUnary(tc.ctx, resolver, tc.method, tc.req)
+				if got := status.Code(err); got != tc.wantCode {
+					t.Fatalf("code = %s (%v), want %s", got, err, tc.wantCode)
+				}
+			})
+		}
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := CheckClusterCallerBindingUnary(tc.ctx, resolver, tc.method, tc.req)
-			if got := status.Code(err); got != tc.wantCode {
-				t.Fatalf("code = %s (%v), want %s", got, err, tc.wantCode)
-			}
-		})
+}
+
+// The request messages the bound methods receive must expose GetClusterId, or
+// checkRequestCluster rejects every registered caller with Internal.
+func TestClusterBoundRequestsCarryClusterID(t *testing.T) {
+	for name, req := range map[string]interface{}{
+		"WatchGatewaysRequest":     &pb.WatchGatewaysRequest{},
+		"ListGatewaysRequest":      &pb.ListGatewaysRequest{},
+		"WatchRoleBindingsRequest": &pb.WatchRoleBindingsRequest{},
+		"ListRoleBindingsRequest":  &pb.ListRoleBindingsRequest{},
+	} {
+		if _, ok := req.(clusterScopedRequest); !ok {
+			t.Errorf("%s does not implement GetClusterId", name)
+		}
+	}
+	for _, method := range []string{watchGatewaysMethod, listGatewaysMethod, watchRoleBindingsMethod, listRoleBindingsMethod} {
+		if !isClusterBoundMethod(method) {
+			t.Errorf("%s is not cluster bound", method)
+		}
 	}
 }
 
@@ -107,27 +131,29 @@ func TestBindClusterCallerStream(t *testing.T) {
 		{name: "missing cluster invalid", sub: "cp-sub", cluster: "", wantCode: codes.InvalidArgument, wrapped: true},
 		{name: "user caller passes through", sub: "user-sub", cluster: "", wantCode: codes.OK, wrapped: false},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			base := &fakeServerStream{ctx: bearerContext(t, tc.sub), msg: &fakeScopedRequest{tc.cluster}}
-			ss, err := BindClusterCallerStream(base, watchGatewaysMethod, resolver)
-			if err != nil {
-				t.Fatalf("BindClusterCallerStream: %v", err)
-			}
-			if _, isWrapped := ss.(*clusterBoundServerStream); isWrapped != tc.wrapped {
-				t.Fatalf("wrapped = %v, want %v", isWrapped, tc.wrapped)
-			}
-			err = ss.RecvMsg(&fakeScopedRequest{})
-			if got := status.Code(err); got != tc.wantCode {
-				t.Fatalf("RecvMsg code = %s (%v), want %s", got, err, tc.wantCode)
-			}
-			// Only the first message (the request) is checked.
-			if tc.wantCode == codes.OK {
-				if err := ss.RecvMsg(&fakeScopedRequest{}); err != nil {
-					t.Fatalf("second RecvMsg: %v", err)
+	for _, method := range []string{watchGatewaysMethod, watchRoleBindingsMethod} {
+		for _, tc := range cases {
+			t.Run(method+"/"+tc.name, func(t *testing.T) {
+				base := &fakeServerStream{ctx: bearerContext(t, tc.sub), msg: &fakeScopedRequest{tc.cluster}}
+				ss, err := BindClusterCallerStream(base, method, resolver)
+				if err != nil {
+					t.Fatalf("BindClusterCallerStream: %v", err)
 				}
-			}
-		})
+				if _, isWrapped := ss.(*clusterBoundServerStream); isWrapped != tc.wrapped {
+					t.Fatalf("wrapped = %v, want %v", isWrapped, tc.wrapped)
+				}
+				err = ss.RecvMsg(&fakeScopedRequest{})
+				if got := status.Code(err); got != tc.wantCode {
+					t.Fatalf("RecvMsg code = %s (%v), want %s", got, err, tc.wantCode)
+				}
+				// Only the first message (the request) is checked.
+				if tc.wantCode == codes.OK {
+					if err := ss.RecvMsg(&fakeScopedRequest{}); err != nil {
+						t.Fatalf("second RecvMsg: %v", err)
+					}
+				}
+			})
+		}
 	}
 
 	// Non-bound methods are never wrapped and never resolve the caller.

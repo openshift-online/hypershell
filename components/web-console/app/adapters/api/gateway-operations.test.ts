@@ -206,7 +206,7 @@ describe("gateway API operations adapter", () => {
       {
         orderBy: "name asc",
         page: 1,
-        search: "name ilike '%team''s east%'",
+        search: "oidc_subject <> '' and name ilike '%team''s east%'",
         size: 20,
       },
       { signal: abortController.signal },
@@ -419,6 +419,10 @@ describe("gateway API operations adapter", () => {
       controlPlane.findGatewayPlacements("", context),
     ).resolves.toMatchObject({ hasMore: true });
     expect(managedClusterApi.list).toHaveBeenCalledOnce();
+    expect(managedClusterApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "oidc_subject <> ''" }),
+      expect.anything(),
+    );
   });
 
   it("treats ILIKE wildcard and escape characters as search literals", async () => {
@@ -437,7 +441,8 @@ describe("gateway API operations adapter", () => {
 
     expect(managedClusterApi.list).toHaveBeenCalledWith(
       expect.objectContaining({
-        search: "name ilike '%my\\_cluster\\%\\\\west''s%'",
+        search:
+          "oidc_subject <> '' and name ilike '%my\\_cluster\\%\\\\west''s%'",
       }),
       { signal: undefined },
     );

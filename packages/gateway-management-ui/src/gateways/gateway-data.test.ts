@@ -58,13 +58,8 @@ describe("gateway presentation data", () => {
   });
 
   it("maps gateway values into the connection view", () => {
-    expect(
-      toGatewayConnection(
-        gateway({ phase: "Running" }),
-        "Localized hub cluster",
-      ),
-    ).toMatchObject({
-      clusterName: "Localized hub cluster",
+    expect(toGatewayConnection(gateway({ phase: "Running" }))).toMatchObject({
+      clusterName: "",
       createdAt: "2026-08-10T14:30:00Z",
       endpoint: "https://gateway.example.com:443",
       gatewayVersion: "0.0.109",
@@ -76,9 +71,7 @@ describe("gateway presentation data", () => {
   });
 
   it("omits phase when the gateway has not reported one", () => {
-    expect(
-      toGatewayConnection(gateway({ phase: "" }), "Hub cluster").phase,
-    ).toBe(undefined);
+    expect(toGatewayConnection(gateway({ phase: "" })).phase).toBe(undefined);
   });
 
   it("polls transitional gateway lifecycle states at a bounded interval", () => {
@@ -325,28 +318,19 @@ describe("gateway presentation data", () => {
       "Provisioning",
     );
     expect(
-      toGatewayConnection(
-        gateway({ phase: "Provisioning", status: "Ready" }),
-        "Hub cluster",
-      ).status,
+      toGatewayConnection(gateway({ phase: "Provisioning", status: "Ready" }))
+        .status,
     ).toBe("Provisioning");
     expect(
-      toGatewayConnection(
-        gateway({ phase: "Failed", status: "Ready" }),
-        "Hub cluster",
-      ).status,
+      toGatewayConnection(gateway({ phase: "Failed", status: "Ready" })).status,
     ).toBe("Failed");
     expect(
-      toGatewayConnection(
-        gateway({ phase: "Running", status: "Degraded" }),
-        "Hub cluster",
-      ).status,
+      toGatewayConnection(gateway({ phase: "Running", status: "Degraded" }))
+        .status,
     ).toBe("Degraded");
     expect(
-      toGatewayConnection(
-        gateway({ phase: "Running", status: "Healthy" }),
-        "Hub cluster",
-      ).status,
+      toGatewayConnection(gateway({ phase: "Running", status: "Healthy" }))
+        .status,
     ).toBe("Healthy");
   });
 
@@ -387,10 +371,7 @@ describe("gateway presentation data", () => {
 
   it("keeps a returned cluster identifier for name resolution only", () => {
     expect(
-      toGatewayConnection(
-        gateway({ clusterId: "  cluster-east  " }),
-        "Hub cluster",
-      ),
+      toGatewayConnection(gateway({ clusterId: "  cluster-east  " })),
     ).toMatchObject({
       clusterId: "cluster-east",
       clusterName: "",
@@ -404,7 +385,6 @@ describe("gateway presentation data", () => {
         gatewayVersion: undefined,
         status: undefined,
       }),
-      "Hub cluster",
     );
 
     expect(connection.endpoint).toBeUndefined();

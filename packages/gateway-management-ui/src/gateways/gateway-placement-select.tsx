@@ -17,7 +17,7 @@ import {
 } from "@patternfly/react-core";
 import RhMicronsCloseIcon from "@patternfly/react-icons/dist/esm/icons/rh-microns-close-icon";
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useIntl } from "react-intl";
 
 import type { GatewayPlacement } from "../application/gateway-types";
@@ -77,14 +77,19 @@ export function GatewayPlacementSelect({
 }: GatewayPlacementSelectProps) {
   const intl = useIntl();
   const { gateways } = useGatewayUi();
-  const hubLabel = intl.formatMessage(messages.hubClusterDefault);
   const [isOpen, setIsOpen] = useState(false);
-  const [inputValue, setInputValue] = useState(hubLabel);
+  const [inputValue, setInputValue] = useState("");
   const [searchValue, setSearchValue] = useState("");
   const [focusedItemIndex, setFocusedItemIndex] = useState<number | null>(null);
   const [activeItemId, setActiveItemId] = useState<string>();
   const inputRef = useRef<HTMLInputElement>(null);
-  const lastAcceptedSelectionRef = useRef({ label: hubLabel, value: "" });
+  const lastAcceptedSelectionRef = useRef<{
+    label: string;
+    value: string | null;
+  }>({ label: "", value: null });
+  // Once the user touches the field, the single-cluster preselection below must
+  // never override what they did (clearing, typing, choosing).
+  const [userInteracted, setUserInteracted] = useState(false);
   const normalizedSearch = searchValue.trim();
   const debouncedSearch = useDebouncedValue(
     normalizedSearch,
@@ -97,13 +102,7 @@ export function GatewayPlacementSelect({
     queryKey: gatewayPlacementQueryKey(debouncedSearch),
     staleTime: gatewayPlacementStaleMilliseconds,
   });
-  const hubMatches = hubLabel
-    .toLocaleLowerCase(intl.locale)
-    .includes(normalizedSearch.toLocaleLowerCase(intl.locale));
   const options: PlacementOption[] = [
-    ...(hubMatches
-      ? [{ key: "hub", label: hubLabel, value: "" } satisfies PlacementOption]
-      : []),
     ...(!isSearchPending
       ? (placementQuery.data?.items.map((placement) => ({
           description: placementDescription(placement, intl.formatMessage),
@@ -130,6 +129,40 @@ export function GatewayPlacementSelect({
     });
   }
 
+  // Only registered clusters are offered (the adapter filters them), and a
+  // gateway must name one. When exactly one exists and the user has not
+  // touched the field, preselect it so the common single-cluster case needs
+  // no extra click; with several clusters the choice stays explicit.
+  const unfilteredResult =
+    normalizedSearch === "" && !isSearchPending
+      ? placementQuery.data
+      : undefined;
+  const autoSelection =
+    value === null &&
+    !userInteracted &&
+    unfilteredResult &&
+    !unfilteredResult.hasMore &&
+    unfilteredResult.items.length === 1
+      ? unfilteredResult.items[0]
+      : undefined;
+  useEffect(() => {
+    if (!autoSelection) {
+      return;
+    }
+    lastAcceptedSelectionRef.current = {
+      label: autoSelection.name,
+      value: autoSelection.id,
+    };
+    onChange(autoSelection.id);
+  }, [autoSelection, onChange]);
+  // The text box shows what the user typed or chose; when nothing was typed
+  // and a cluster is selected (the preselection case), it shows that
+  // cluster's name, resolved from the same unfiltered result.
+  const displayedInputValue =
+    inputValue === "" && normalizedSearch === "" && value !== null
+      ? (unfilteredResult?.items.find(({ id }) => id === value)?.name ?? "")
+      : inputValue;
+
   const resetFocus = () => {
     setFocusedItemIndex(null);
     setActiveItemId(undefined);
@@ -142,6 +175,7 @@ export function GatewayPlacementSelect({
     if (typeof option.value !== "string" || option.isDisabled) {
       return;
     }
+    setUserInteracted(true);
     lastAcceptedSelectionRef.current = {
       label: option.label,
       value: option.value,
@@ -203,6 +237,7 @@ export function GatewayPlacementSelect({
           }}
           isExpanded={isOpen}
           onChange={(_event, nextValue) => {
+            setUserInteracted(true);
             setInputValue(nextValue);
             setSearchValue(nextValue);
             onChange(null);
@@ -238,15 +273,16 @@ export function GatewayPlacementSelect({
           }}
           placeholder={intl.formatMessage(messages.selectCluster)}
           role="combobox"
-          value={inputValue}
+          value={displayedInputValue}
         />
         <TextInputGroupUtilities
-          {...(!inputValue ? { style: { display: "none" } } : {})}
+          {...(!displayedInputValue ? { style: { display: "none" } } : {})}
         >
           <Button
             aria-label={intl.formatMessage(messages.clearClusterSearch)}
             icon={<RhMicronsCloseIcon />}
             onClick={() => {
+              setUserInteracted(true);
               setInputValue("");
               setSearchValue("");
               onChange(null);
@@ -316,7 +352,15 @@ export function GatewayPlacementSelect({
             </HelperTextItem>
           </HelperText>
         </FormHelperText>
-      ) : null}
+      ) : (
+        <FormHelperText>
+          <HelperText>
+            <HelperTextItem>
+              {intl.formatMessage(messages.registeredClustersOnly)}
+            </HelperTextItem>
+          </HelperText>
+        </FormHelperText>
+      )}
       {placementQuery.data?.hasMore &&
       !isSearchPending &&
       !placementQuery.isFetching ? (

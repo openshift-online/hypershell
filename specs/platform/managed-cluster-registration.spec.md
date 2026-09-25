@@ -221,9 +221,11 @@ Every successful call to `/registration` SHALL update `last_seen_at` on the matc
 
 ### Requirement: Watch Stream Caller Binding
 
-The four gRPC watch RPCs (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
+The five gRPC watch RPCs (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`, `WatchRoleBindings`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
 
-For `WatchGateways` and `ListGateways`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the gRPC RBAC interceptor before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
+For `WatchGateways`, `ListGateways`, `WatchRoleBindings`, and `ListRoleBindings`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the gRPC RBAC interceptor before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
+
+For `WatchRoleBindings` and `ListRoleBindings` the scoping key is the `cluster_id` of the binding's gateway: under a `cluster_id` filter the api-server SHALL deliver (in the watch replay, in live watch events, and in list results) only bindings whose gateway is assigned to that cluster, and SHALL NOT deliver global bindings (no `gateway_id`). A binding delete is attributed through its gateway even when that gateway is already soft-deleted, so the delete still reaches the owning cluster; a binding whose gateway cannot be found at all is not delivered to any filtered stream.
 
 #### Scenario: Registered control plane watches its own cluster
 
@@ -231,6 +233,15 @@ For `WatchGateways` and `ListGateways`, when the caller's JWT `sub` matches the 
 - WHEN it opens `WatchGateways` with its bearer token and `cluster_id: X`
 - THEN the stream is accepted
 - AND only events for gateways with `cluster_id: X` are delivered
+
+#### Scenario: Registered control plane watches role bindings
+
+- GIVEN a control plane registered as `cluster_id: X`
+- AND gateways assigned to `X` and to `Y`, each with a RoleBinding, and a global RoleBinding
+- WHEN it opens `WatchRoleBindings` with its bearer token and `cluster_id: X`
+- THEN the stream is accepted
+- AND only bindings for gateways assigned to `X` are delivered, in the replay and as live events
+- AND bindings for gateways assigned to `Y` and global bindings are not delivered
 
 #### Scenario: Registered control plane asks for another cluster
 

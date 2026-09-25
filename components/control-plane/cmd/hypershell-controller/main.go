@@ -237,16 +237,19 @@ func main() {
 		}
 	}
 
+	// The RoleBinding reconciler needs the registered cluster id, which is only
+	// known after registration below; the Keycloak client is built here and the
+	// reconciler once the id is in hand.
+	var kcClient *keycloak.Client
 	var roleBindingReconciler watcher.Handler[*pb.RoleBinding]
 	var serviceAccountProvider *serviceaccountkeycloak.Client
 	if keycloakConfig != nil {
-		kcClient := keycloak.NewClient(
+		kcClient = keycloak.NewClient(
 			keycloakConfig.ServerURL,
 			keycloakConfig.Realm,
 			keycloakConfig.ClientID,
 			keycloakConfig.ClientSecret,
 		)
-		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn)
 		serviceAccountProvider = serviceaccountkeycloak.NewClient(
 			keycloakConfig.ServerURL,
 			keycloakConfig.Realm,
@@ -290,8 +293,8 @@ func main() {
 	defer gatewayQueue.Stop()
 
 	watchCount := 4 // managed clusters, gateway releases, gateways, networks
-	if roleBindingReconciler != nil {
-		watchCount++
+	if kcClient != nil {
+		watchCount++ // role bindings
 	}
 
 	// Each background component below runs under supervisor.Run on its own
@@ -371,6 +374,9 @@ func main() {
 	}()
 
 	releaseReconciler := reconciler.NewGatewayReleaseReconciler(conn, gatewayQueue, clusterID)
+	if kcClient != nil {
+		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn, clusterID)
+	}
 
 	supervise("ManagedCluster watch", func(ctx context.Context) error {
 		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler)
@@ -386,7 +392,7 @@ func main() {
 	})
 	if roleBindingReconciler != nil {
 		supervise("RoleBinding watch", func(ctx context.Context) error {
-			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler)
+			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler, clusterID)
 		})
 	}
 
@@ -414,7 +420,7 @@ func main() {
 
 		if dynamicClient != nil {
 			sandboxAttentionReconciler := reconciler.NewSandboxAttentionReconciler(
-				clientset, dynamicClient, conn, 0, cfg.ClusterID, cfg.Namespace,
+				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace,
 			)
 			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
 			log.Printf("INFO sandbox attention reconciler launched")

@@ -1,0 +1,22 @@
+# Serving certificate for the api-server's gRPC listener, issued by the same
+# self-signed CA that signs every other Kind certificate. The control plane
+# trusts that CA through SSL_CERT_FILE (gateway-trusted-ca ConfigMap), which is
+# the Kind stand-in for the publicly trusted letsencrypt-dns01 certificate a
+# production hub serves.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hypershell-api-grpc-tls
+  namespace: hypershell-system
+spec:
+  secretName: hypershell-api-grpc-tls
+  issuerRef:
+    name: hypershell-ca-issuer
+    kind: Issuer
+  dnsNames:
+    # The name the Kind control plane dials: namespace-qualified without the
+    # .svc suffix, so the transport classifier selects TLS.
+    - hypershell-api-server.hypershell-system
+    - hypershell-api-server.hypershell-system.svc
+    - hypershell-api-server.hypershell-system.svc.cluster.local
+    - hypershell-api-server

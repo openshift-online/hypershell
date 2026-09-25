@@ -125,14 +125,16 @@ func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
-// ErrMissingClusterID is returned by every gateway-scoped list/watch when it is
-// asked to run without this control plane's registered cluster id. Every control
+// ErrMissingClusterID is returned by every cluster-scoped list/watch (gateways
+// and role bindings) when it is asked to run without this control plane's
+// registered cluster id. Every control
 // plane is registered (specs/platform/control-plane.spec.md, "Mandatory Cluster
 // Identity"), so an empty id is a programming error, never an "unfiltered" mode.
-var ErrMissingClusterID = errors.New("refusing a gateway list/watch without this control plane's registered cluster_id")
+var ErrMissingClusterID = errors.New("refusing a cluster-scoped list/watch without this control plane's registered cluster_id")
 
 // ClusterFilter maps this control plane's registered cluster id to the proto
-// cluster_id filter the api-server scopes gateway lists and watches by. The
+// cluster_id filter the api-server scopes gateway and role binding lists and
+// watches by. The
 // filter is mandatory: an empty id is rejected with ErrMissingClusterID rather
 // than sent as "no filter". Exported and shared with the reconciler's list
 // helper so the mapping stays single-sourced.
@@ -609,7 +611,16 @@ func WatchGatewayNetworks(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
-func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.RoleBinding]) error {
+// WatchRoleBindings streams the role bindings of this control plane's gateways.
+// clusterID scopes the stream server-side: the api-server delivers only bindings
+// whose gateway is assigned to that cluster (and no global bindings), and
+// requires a registered caller to pass its own id. Like WatchGateways, the filter
+// is mandatory; an empty id is rejected with ErrMissingClusterID.
+func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.RoleBinding], clusterID string) error {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return err
+	}
 	client := pb.NewRoleBindingServiceClient(conn)
 	// Retry assignment until it succeeds. The RoleBinding event often arrives
 	// before the Keycloak client (or its roles) exist; a half-provisioned client
@@ -620,7 +631,7 @@ func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handl
 		withRetryIf[*pb.RoleBinding](isRoleBindingRetryable))
 	defer rq.stop()
 	return watchLoop(ctx, "RoleBinding", func(ctx context.Context) error {
-		stream, err := client.WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{})
+		stream, err := client.WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{ClusterId: clusterFilter})
 		if err != nil {
 			return fmt.Errorf("starting role binding watch: %w", err)
 		}

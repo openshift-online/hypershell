@@ -21,15 +21,19 @@ This spec defines what a hub SHALL expose so that any control plane, remote or
 co-located with the hub, dials one TLS endpoint at one public hostname, and what the
 hub SHALL enforce before that endpoint is exposed.
 
-The api-server binary's TLS support already exists in the rh-trex-ai framework
-(`--grpc-enable-tls`, `--grpc-tls-cert-file`, `--grpc-tls-key-file`; see
-`pkg/config/grpc.go`). The framework runs **one** gRPC listener
-(`--grpc-server-bindaddress`); enabling TLS makes that listener TLS-only. There is no
-plaintext gRPC port on a TLS-enabled hub, so the hub's own co-located control plane
-dials the same external hostname a remote spoke does. Environments that leave TLS off
-(Kind, `make openshift-up` development namespaces) keep dialing the in-cluster
-Service in plaintext; the control plane selects the transport from the address it is
-given (`control-plane.spec.md`, "Requirement: gRPC Transport Security").
+The rh-trex-ai framework registers `--grpc-enable-tls`, `--grpc-tls-cert-file` and
+`--grpc-tls-key-file` (`pkg/config/grpc.go`) but only acts on them when its shared TLS
+configuration fails to build; with the shared `--enable-tls` left off, which it must
+be because that flag also serves the REST listener over HTTPS, the gRPC flags are
+inert. HyperShell therefore owns its `serve` command and terminates TLS on the gRPC
+listener itself (`components/api-server/pkg/grpctls`), driven by those same flags.
+The framework runs **one** gRPC listener (`--grpc-server-bindaddress`); with TLS on,
+that listener is TLS-only. There is no plaintext gRPC port on a TLS-enabled hub, so
+the hub's own co-located control plane dials the same external hostname a remote
+spoke does. Environments that leave TLS off (`make openshift-up` development
+namespaces, and Kind by default) keep dialing the in-cluster Service in plaintext; the
+control plane selects the transport from the address it is given
+(`control-plane.spec.md`, "Requirement: gRPC Transport Security").
 
 ---
 
@@ -52,12 +56,13 @@ different Route termination modes (edge vs. passthrough), so they require separa
 `Certificate` and `Route` objects even though both terminate at the same api-server
 pod.
 
-The api-server loads the certificate files once at startup and does not reload them.
-The hub SHALL therefore roll the api-server pods after every cert-manager renewal so
-that new connections present the renewed certificate before the previous one
-expires. The mechanism (a checksum annotation on the Deployment, a Secret-watching
-reloader, or an equivalent) is a gitops concern; the observable contract is the
-scenario below.
+The api-server SHALL read the certificate and key once at startup, refusing to start
+when either file is missing or malformed, and SHALL re-read them at handshake time
+whenever either file changes on disk, so a cert-manager renewal written to the
+mounted Secret is served on new connections without a pod restart. A renewal that
+cannot be loaded SHALL be logged and SHALL NOT interrupt serving the previous key
+pair. The listener SHALL offer only HTTP/2 over ALPN and SHALL require TLS 1.2 or
+newer.
 
 #### Scenario: gRPC listener presents a valid certificate
 
@@ -74,14 +79,20 @@ scenario below.
 - THEN the connection SHALL fail the TLS handshake
 - AND no gRPC request SHALL be served on that connection
 
-#### Scenario: Certificate renewal is served without operator intervention
+#### Scenario: Certificate renewal is served without a restart
 
 - GIVEN the mounted certificate is renewed by cert-manager via `letsencrypt-dns01`
 - WHEN the renewal is written to the mounted Secret
-- THEN the api-server pods SHALL be rolled without a manual step
-- AND connections opened after the roll SHALL present the renewed certificate
-- AND connected control planes SHALL reconnect through their normal watch-stream
-  backoff (`control-plane.spec.md`, "TLS handshake failure retries, does not exit")
+- THEN the next TLS handshake SHALL present the renewed certificate
+- AND the api-server pod SHALL NOT restart
+- AND already-open watch streams SHALL be unaffected
+
+#### Scenario: Unreadable renewal keeps the previous certificate
+
+- GIVEN the api-server is serving a valid certificate
+- WHEN the mounted certificate file changes to content that cannot be parsed
+- THEN the api-server SHALL log the reload failure
+- AND new handshakes SHALL continue to present the previous certificate
 
 ### Requirement: Passthrough Route Per Hub
 
@@ -116,6 +127,36 @@ re-encrypted backend.
 - THEN the connection SHALL traverse the cluster's router (hairpin) and succeed
 - AND the watch stream SHALL behave identically to a remote spoke's
 
+### Requirement: Kind Smoke Test
+
+The repository SHALL provide `make kind-grpc-tls-smoke`, which exercises the TLS
+dial path end to end on a running Kind cluster without any public certificate: it
+issues a serving certificate for the api-server from the cluster's cert-manager CA
+(`deploy/kind/grpc-tls`), enables `--grpc-enable-tls` on the api-server, points the
+control plane at `hypershell-api-server.hypershell-system:9000` (a name the
+transport classifier treats as external) with the cluster CA as its system trust
+store (`SSL_CERT_FILE`), and verifies the result. It SHALL restore the plaintext
+configuration afterwards unless asked to keep TLS on.
+
+#### Scenario: Smoke test passes on a healthy cluster
+
+- GIVEN a Kind cluster brought up by `make kind-up`
+- WHEN the developer runs `make kind-grpc-tls-smoke`
+- THEN the api-server's port `9000` SHALL present a certificate that chains to the
+  cluster CA for `hypershell-api-server.hypershell-system` and negotiate `h2`
+- AND a plaintext dial to that port SHALL be refused
+- AND the controller log SHALL show `transport=tls`, its registration, and the
+  gateway watch seeded on (re)connect
+- AND the cluster SHALL be back on plaintext gRPC when the command exits
+
+#### Scenario: Smoke test leaves TLS enabled on request
+
+- GIVEN the same cluster
+- WHEN the developer runs `KEEP=true make kind-grpc-tls-smoke`
+- THEN the checks above SHALL run
+- AND the api-server SHALL keep serving gRPC over TLS until
+  `make kind-grpc-tls-smoke ARGS=revert` restores plaintext
+
 ### Requirement: DNS for the gRPC Hostname
 
 `grpc.hyp{N}.infra.hypershell.app` SHALL resolve (via a CNAME record) to the
@@ -129,8 +170,8 @@ plane's hairpin dial reaches the same router.
 A hub SHALL NOT expose its gRPC port outside the cluster while any
 `/hypershell.v1.*/Watch*` method is listed in `--auth-bypass-methods`. On every hub,
 and in every environment that runs the control plane with OIDC credentials, the
-api-server SHALL require a valid JWT on the four watch RPCs and SHALL bind
-`WatchGateways` to the caller's registered cluster as defined in
+api-server SHALL require a valid JWT on the five watch RPCs and SHALL bind
+`WatchGateways` and `WatchRoleBindings` to the caller's registered cluster as defined in
 `managed-cluster-registration.spec.md` ("Requirement: Watch Stream Caller Binding").
 Only `/grpc.health.v1.Health/` and `/grpc.reflection.v1alpha.ServerReflection/`
 remain exempt. This supersedes the "gRPC Bypass" list in `oidc-integration.spec.md`.
@@ -156,9 +197,9 @@ remain exempt. This supersedes the "gRPC Bypass" list in `oidc-integration.spec.
   the hub's certificate). Control-plane identity is established at the application
   layer via the OIDC `client_credentials` bearer token, not via a client certificate.
   Revisit if the bearer-token model proves insufficient.
-- **Framework changes.** `--grpc-enable-tls` and friends already exist in rh-trex-ai.
-  In particular this spec does NOT add a second, plaintext gRPC listener to the
-  framework; see Design Decisions.
+- **Framework changes.** Nothing in rh-trex-ai changes: HyperShell's own `serve`
+  command wraps the listener the framework hands it. In particular this spec does
+  NOT add a second, plaintext gRPC listener; see Design Decisions.
 - **Service-account provisioner reachability.** The api-server reaches the
   control-plane's internal service-account provisioner at one in-cluster address
   (`HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_ADDR`, see
@@ -179,18 +220,22 @@ remain exempt. This supersedes the "gRPC Bypass" list in `oidc-integration.spec.
 | Rejected: unsecured Route with `haproxy.router.openshift.io/h2c-enable` on the plaintext port | Tried as a stopgap ahead of this spec: an unsecured Route with the h2c-enable annotation lets a client complete an HTTP/2 cleartext handshake through the router, but the resulting long-lived gRPC streams disconnected unpredictably (`error reading server preface: EOF`, intermittent `RST_STREAM`) even though a direct in-cluster connection to the identical backend was reliable. Real TLS passthrough avoids the router parsing HTTP/2 at all. |
 | Separate hostname (`grpc.hyp{N}`) rather than reusing `api.hyp{N}` | `api.hyp{N}` is edge-terminated (HTTP redirect to HTTPS) on the REST port `8000`; a single Route can have only one termination mode and one target port. Reusing the hostname would require SNI-based multiplexing between two termination modes for no real benefit over a second DNS record. |
 | Hub-managed certificate via `letsencrypt-dns01`, not a self-signed/internal CA | The control plane dials with the system trust store (`credentials.NewTLS()` with default verification, per `control-plane.spec.md`) rather than a pinned custom CA, so the certificate must chain to a publicly trusted root. This also matches the existing `api.hyp{N}` and `keycloak.hyp{N}` certificates on the same hub. |
-| Roll the api-server after renewal rather than hot-reloading the certificate | The framework loads the certificate once at startup. Hot reload would be a framework change; a rollout after renewal is already how cert-manager-backed workloads on the hub are refreshed, and the control plane's retry rule makes the roll invisible to spokes. |
+| HyperShell owns the `serve` command and wraps the gRPC listener itself | The framework's `--grpc-enable-tls` is dead code unless its shared `--enable-tls` is on, and that would make the REST listener HTTPS too, breaking the edge-terminated `api.hyp{N}` Route and every in-cluster HTTP client. The framework exposes `Listen()` and `Serve(listener)` separately, so wrapping the listener in `tls.NewListener` needs no framework change and keeps REST untouched. The cost is a copy of the framework's ~60-line serve wiring that must track upstream. |
+| Hot-reload the certificate at handshake time rather than rolling the api-server | Because HyperShell owns the listener, reloading from the mounted files when they change is a few lines, and it keeps open watch streams alive across a renewal. A rollout would disconnect every spoke's streams on each renewal for no benefit. A reload failure keeps the previous key pair so a half-written Secret cannot take the hub down. |
+| Kind smoke test dials `hypershell-api-server.hypershell-system` with the cluster CA as system trust store | It is the smallest arrangement that makes the real classifier choose TLS and the real Go trust store verify the chain, with no DNS or public-certificate dependency. Go honours `SSL_CERT_FILE`, so the control plane runs exactly the production code path. |
 
 ---
 
 ## Scope
 
 - **hypershell repo:** control-plane transport selection and mandatory identity
-  (`control-plane.spec.md`); api-server watch JWT enforcement and caller binding
-  (`managed-cluster-registration.spec.md`); removal of `Watch*` from every
-  `--auth-bypass-methods` value in `deploy/` and from the `development_oidc`
-  environment defaults; Kind and OpenShift development overlays giving the control
-  plane a cluster name and the `managed-cluster-registrar` role.
+  (`control-plane.spec.md`); api-server gRPC TLS termination with hot reload
+  (`components/api-server/pkg/grpctls`, the `serve` command); api-server watch JWT
+  enforcement and caller binding (`managed-cluster-registration.spec.md`); removal
+  of `Watch*` from every `--auth-bypass-methods` value in `deploy/` and from the
+  `development_oidc` environment defaults; Kind and OpenShift development overlays
+  giving the control plane a cluster name and the `managed-cluster-registrar` role;
+  the Kind smoke test (`deploy/kind/grpc-tls`, `make kind-grpc-tls-smoke`).
 - **hypershell-gitops repo:** `grpc-tls` kustomize component (per-hub `Certificate`
   + passthrough `Route` + api-server rollout on renewal), and every control plane's
   `HYPERSHELL_GRPC_SERVER_ADDR` set to the hub's external hostname, including the

@@ -1,0 +1,27 @@
+# Dial the api-server by a name the transport classifier treats as external
+# (it has a dot and no .svc component), which forces TLS with hostname
+# verification against the certificate above. Go reads SSL_CERT_FILE as the
+# system trust store, so the cluster CA published by `make kind-up` is enough.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-controller
+  namespace: hypershell-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: controller
+          env:
+            - name: HYPERSHELL_GRPC_SERVER_ADDR
+              value: "hypershell-api-server.hypershell-system:9000"
+            - name: SSL_CERT_FILE
+              value: /etc/hypershell/trusted-ca/ca-bundle.crt
+          volumeMounts:
+            - name: trusted-ca
+              mountPath: /etc/hypershell/trusted-ca
+              readOnly: true
+      volumes:
+        - name: trusted-ca
+          configMap:
+            name: gateway-trusted-ca

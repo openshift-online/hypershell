@@ -23,8 +23,10 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"k8s.io/apimachinery/pkg/runtime"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
@@ -313,6 +315,15 @@ func (s *recordingGatewayServer) WatchGateways(_ *pb.WatchGatewaysRequest, strea
 	}
 	<-stream.Context().Done()
 	return stream.Context().Err()
+}
+
+func (s *recordingGatewayServer) GetGateway(_ context.Context, req *pb.GetGatewayRequest) (*pb.GetGatewayResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.gateway == nil || s.gateway.GetMetadata().GetId() != req.GetId() {
+		return nil, status.Errorf(codes.NotFound, "gateway %s not found", req.GetId())
+	}
+	return &pb.GetGatewayResponse{Gateway: s.gateway}, nil
 }
 
 func (s *recordingGatewayServer) setGateway(gw *pb.Gateway) {

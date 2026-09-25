@@ -141,6 +141,56 @@ func TestGRPCClusterCallerBinding(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred(), "a user's unfiltered list must not be bound")
 }
 
+// The same caller binding covers the RoleBinding watch and list, which are
+// scoped by the binding's gateway's cluster_id.
+func TestGRPCClusterCallerBindingRoleBindings(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	ownID, subject := registerTestClusterWithSubject(t)
+	foreignID := registerTestCluster(t)
+
+	cpAccount := h.NewAccount("service-account-cp-"+subject, "cp", "")
+	cpToken := h.CreateJWTStringWithClaims(cpAccount, test.ControlPlaneClaims(subject))
+	cp := pb.NewRoleBindingServiceClient(dialGRPC(t, h, cpToken))
+	userID := "rb-binding-user"
+
+	_, err := cp.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{UserId: strPtr(userID), ClusterId: strPtr(ownID)})
+	Expect(err).NotTo(HaveOccurred(), "own cluster list must be accepted")
+	_, err = cp.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{UserId: strPtr(userID), ClusterId: strPtr(foreignID)})
+	Expect(status.Code(err)).To(Equal(codes.PermissionDenied), "foreign cluster list: %v", err)
+	_, err = cp.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{UserId: strPtr(userID)})
+	Expect(status.Code(err)).To(Equal(codes.InvalidArgument), "unfiltered list: %v", err)
+
+	for _, tc := range []struct {
+		clusterID *string
+		want      codes.Code
+	}{
+		{clusterID: strPtr(foreignID), want: codes.PermissionDenied},
+		{clusterID: nil, want: codes.InvalidArgument},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stream, err := cp.WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{ClusterId: tc.clusterID})
+		if err == nil {
+			_, err = stream.Recv()
+		}
+		cancel()
+		Expect(status.Code(err)).To(Equal(tc.want), "watch with cluster_id %v: %v", tc.clusterID, err)
+	}
+
+	watchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	stream, err := cp.WatchRoleBindings(watchCtx, &pb.WatchRoleBindingsRequest{ClusterId: strPtr(ownID)})
+	Expect(err).NotTo(HaveOccurred())
+	_, err = stream.Header()
+	Expect(err).NotTo(HaveOccurred(), "own cluster watch must be accepted")
+
+	// Callers that are not a registered cluster are unaffected.
+	user := pb.NewRoleBindingServiceClient(dialGRPC(t, h, h.CreateJWTString(h.NewRandAccount())))
+	_, err = user.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{UserId: strPtr(userID)})
+	Expect(err).NotTo(HaveOccurred(), "a user's unfiltered list must not be bound")
+}
+
 // Anonymous watch rejected: every Watch* RPC requires a JWT; none is exempted by
 // --auth-bypass-methods.
 func TestGRPCWatchRPCsRejectAnonymous(t *testing.T) {
@@ -181,6 +231,13 @@ func TestGRPCWatchRPCsRejectAnonymous(t *testing.T) {
 		},
 		"WatchGatewayNetworks": func(ctx context.Context) (func() error, error) {
 			s, err := pb.NewGatewayNetworkServiceClient(conn).WatchGatewayNetworks(ctx, &pb.WatchGatewayNetworksRequest{})
+			if err != nil {
+				return nil, err
+			}
+			return func() error { _, e := s.Recv(); return e }, nil
+		},
+		"WatchRoleBindings": func(ctx context.Context) (func() error, error) {
+			s, err := pb.NewRoleBindingServiceClient(conn).WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{})
 			if err != nil {
 				return nil, err
 			}

@@ -13,7 +13,8 @@ import {
 } from "./gateway-connections";
 
 const readyGateway: GatewayConnection = {
-  clusterName: "Hub cluster",
+  clusterId: "cluster-east",
+  clusterName: "local-kind",
   consoleUrl: "https://console.example.test",
   endpoint: "https://gateway.example.test:443",
   gatewayVersion: "0.0.109",

@@ -88,9 +88,16 @@ The registration endpoint is idempotent; the returned `cluster_id` is stable acr
 restarts. The control plane SHALL use this `cluster_id` as the cluster filter for
 every gateway-scoped operation for the lifetime of the process: the `WatchGateways`
 stream, the initial `ListGateways` seed, the health reconciler, the sandbox-count
-reconciler, the instance-label backfill, and the GatewayRelease change fan-out
-(`gateway-release-reconciliation.spec.md`). None of these SHALL ever run without the
-filter.
+reconciler, the instance-label backfill, the orphaned-namespace garbage collector
+(`openshell-gateway-namespace-gc.spec.md`), the GatewayRelease change fan-out
+(`gateway-release-reconciliation.spec.md`), and the RoleBinding-to-Keycloak role sync.
+None of these SHALL ever run without the filter. The control plane SHALL open the
+`WatchRoleBindings` stream, and SHALL call `ListRoleBindings`, with its `cluster_id`;
+the api-server delivers only bindings whose gateway is assigned to that cluster, and
+no global bindings (`managed-cluster-registration.spec.md`, "Watch Stream Caller
+Binding"). As defense in depth, the control plane SHALL additionally resolve each
+binding's gateway and verify it is assigned to its own `cluster_id` before touching
+Keycloak, since only that control plane owns the gateway's Keycloak client.
 
 After startup, the control plane SHALL call `/registration` on a regular interval
 (default: 60 seconds) to update `last_seen_at` on the hub. These subsequent calls are
@@ -141,6 +148,15 @@ no-ops for registration data and return the same `cluster_id`. See
 - THEN it SHALL NOT retry and SHALL NOT open `WatchGateways`
 - AND it SHALL log a clear error quoting the API's conflict message and exit
 
+#### Scenario: RoleBinding for another cluster's gateway is ignored
+
+- GIVEN control planes registered as `cluster_id: X` and `cluster_id: Y`
+- AND a gateway assigned to `Y`
+- WHEN a RoleBinding for that gateway is created
+- THEN only the control plane registered as `Y` SHALL assign the Keycloak client roles
+- AND the api-server SHALL NOT deliver the event on the `WatchRoleBindings` stream of the control plane registered as `X`
+- AND should such an event reach `X` anyway, `X` SHALL skip it without error
+
 #### Scenario: Re-registration after restart returns same cluster_id
 
 - GIVEN a control plane that previously registered and received `cluster_id: X`
@@ -190,8 +206,8 @@ convenience for environments whose api-server runs with gRPC TLS disabled (Kind,
 A TLS handshake failure (invalid or expired certificate, hostname mismatch) SHALL be treated
 like any other watch-stream connection failure: logged and retried with exponential backoff,
 not fatal. It is not fail-closed the way missing `managed-cluster-registrar` is (see
-`managed-cluster-registration.spec.md`), since a certificate renewal that rolls the hub
-api-server should not require an operator to restart the control plane.
+`managed-cluster-registration.spec.md`), since a certificate renewal on the hub should not
+require an operator to restart the control plane.
 
 #### Scenario: In-cluster address dials plaintext
 

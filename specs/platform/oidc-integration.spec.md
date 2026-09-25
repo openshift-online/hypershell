@@ -92,7 +92,7 @@ When JWT is enabled, only the framework's health and reflection services SHALL b
 - `/grpc.health.v1.Health/`
 - `/grpc.reflection.v1alpha.ServerReflection/`
 
-The control plane's gRPC watch streams (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`) SHALL NOT be exempt: the control plane authenticates them with its OIDC `client_credentials` bearer token, and the API server binds `WatchGateways` to the caller's registered cluster (`managed-cluster-registration.spec.md`, "Requirement: Watch Stream Caller Binding"; `hub-grpc-tls.spec.md`, "Requirement: Authenticated Watch Streams Before Exposure").
+The control plane's gRPC watch streams (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`, `WatchRoleBindings`) SHALL NOT be exempt: the control plane authenticates them with its OIDC `client_credentials` bearer token, and the API server binds `WatchGateways` and `WatchRoleBindings` to the caller's registered cluster (`managed-cluster-registration.spec.md`, "Requirement: Watch Stream Caller Binding"; `hub-grpc-tls.spec.md`, "Requirement: Authenticated Watch Streams Before Exposure").
 
 Health and OpenAPI HTTP paths SHALL also bypass JWT: `/healthcheck`, `/metrics`, `/api/hypershell/v1/openapi`, `/openapi`.
 

@@ -28,13 +28,21 @@ type RoleBindingReconciler struct {
 	active         map[string]struct{}
 	keycloakClient *keycloak.Client
 	grpcConn       *grpc.ClientConn
+	// clusterID is this control plane's registered cluster. The RoleBinding
+	// watch and list are cluster-filtered server-side by the binding's
+	// gateway's cluster, so the api-server should only ever deliver bindings
+	// for this cluster's gateways. Handle still re-checks the gateway's
+	// cluster before touching Keycloak (defense in depth): only the control
+	// plane whose cluster hosts the gateway owns its Keycloak client.
+	clusterID string
 }
 
-func NewRoleBindingReconciler(keycloakClient *keycloak.Client, grpcConn *grpc.ClientConn) *RoleBindingReconciler {
+func NewRoleBindingReconciler(keycloakClient *keycloak.Client, grpcConn *grpc.ClientConn, clusterID string) *RoleBindingReconciler {
 	return &RoleBindingReconciler{
 		active:         make(map[string]struct{}),
 		keycloakClient: keycloakClient,
 		grpcConn:       grpcConn,
+		clusterID:      clusterID,
 	}
 }
 
@@ -88,10 +96,14 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		return reconcileErr
 	}
 
-	kcClientID, err := r.resolveKeycloakClientID(ctx, *rb.GatewayId)
+	kcClientID, gatewayClusterID, err := r.resolveKeycloakClientID(ctx, *rb.GatewayId)
 	if err != nil {
 		reconcileErr = fmt.Errorf("resolve keycloak client id for role binding %s: %w", event.ResourceID, err)
 		return reconcileErr
+	}
+	if gatewayClusterID != r.clusterID {
+		log.Printf("DEBUG role binding %s: gateway %s belongs to cluster %s, not this cluster (%s); skipping keycloak sync", event.ResourceID, *rb.GatewayId, gatewayClusterID, r.clusterID)
+		return nil
 	}
 
 	switch event.Type {
@@ -143,10 +155,18 @@ func (r *RoleBindingReconciler) stillDesiredKcRoles(ctx context.Context, deleted
 		return desired, nil
 	}
 
+	// The api-server requires a registered control plane to scope the list to
+	// its own cluster; the binding's gateway is on this cluster (Handle checked),
+	// so the filter never hides a binding that matters here.
+	clusterFilter, err := watcher.ClusterFilter(r.clusterID)
+	if err != nil {
+		return nil, err
+	}
 	client := pb.NewRoleBindingServiceClient(r.grpcConn)
 	resp, err := client.ListRoleBindings(ctx, &pb.ListRoleBindingsRequest{
 		UserId:    deleted.UserId,
 		GatewayId: deleted.GatewayId,
+		ClusterId: clusterFilter,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list role bindings for user %s on gateway %s: %w", deleted.GetUserId(), *deleted.GatewayId, err)
@@ -171,12 +191,14 @@ func unionKcRoles(items []*pb.RoleBinding, excludeID string) map[string]bool {
 }
 
 // resolveKeycloakClientID looks up the gateway by ID and returns the Keycloak
-// client ID in the {name}-{id} format specified by the Keycloak provisioning spec.
-func (r *RoleBindingReconciler) resolveKeycloakClientID(ctx context.Context, gatewayID string) (string, error) {
+// client ID in the {name}-{id} format specified by the Keycloak provisioning
+// spec, plus the cluster the gateway is assigned to so the caller can tell
+// whether this control plane owns it.
+func (r *RoleBindingReconciler) resolveKeycloakClientID(ctx context.Context, gatewayID string) (string, string, error) {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	resp, err := client.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
 	if err != nil {
-		return "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
+		return "", "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
 	}
-	return fmt.Sprintf("%s-%s", resp.GetGateway().GetName(), gatewayID), nil
+	return fmt.Sprintf("%s-%s", resp.GetGateway().GetName(), gatewayID), resp.GetGateway().GetClusterId(), nil
 }
