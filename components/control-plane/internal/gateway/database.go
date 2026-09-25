@@ -322,6 +322,94 @@ func tenantSecretData(creds *adminCredentials, pgName, password string) map[stri
 	}
 }
 
+// tenantProbeDSN builds the connection string the readiness probe uses to
+// confirm the freshly provisioned gateway credentials work. It mirrors the
+// credentials written into the tenant Secret (tenantSecretData): the gateway
+// role, its database and sslmode=require. require encrypts but does not verify
+// the server certificate, so no CA file is referenced - the same TLS posture the
+// gateway workload connects with (see tenantGatewayDBSecretName).
+func tenantProbeDSN(creds *adminCredentials, pgName, password string) string {
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(pgName, password),
+		Host:   net.JoinHostPort(creds.host, creds.port),
+		Path:   "/" + pgName,
+	}
+	q := url.Values{
+		"sslmode":         {tenantSSLMode},
+		"connect_timeout": {"10"},
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// tenantProbeMaxAttempts and tenantProbeBaseDelay bound the readiness probe's
+// exponential backoff. The delay doubles from the base, so six attempts wait
+// 200ms, 400ms, 800ms, 1.6s and 3.2s between tries (~6.2s total) before the
+// probe gives up. That absorbs the brief window right after CREATE DATABASE
+// where the new role or database is not yet connectable, without pinning the
+// reconcile worker for long.
+const (
+	tenantProbeMaxAttempts = 6
+	tenantProbeBaseDelay   = 200 * time.Millisecond
+)
+
+// tenantProbeDelay is the backoff before the (attempt+1)th probe try. attempt is
+// zero-based, so attempt 0 is the first retry after the initial failure.
+func tenantProbeDelay(attempt int) time.Duration {
+	return tenantProbeBaseDelay << attempt
+}
+
+// verifyTenantConn confirms the provisioned gateway credentials actually work by
+// connecting as the gateway role to its own database with the TLS posture the
+// gateway workload uses (sslmode=require) and pinging it. DDL success alone does
+// not prove the role can log in and connect: a wrong password, a missing CONNECT
+// grant or a database not yet accepting connections all surface only on a real
+// login. It retries with exponential backoff so a transient failure right after
+// CREATE DATABASE does not fail provisioning, and returns a categorized error
+// (never the raw driver error, which can embed the DSN) once attempts run out.
+func verifyTenantConn(ctx context.Context, creds *adminCredentials, gatewayID, pgName, password string) error {
+	dsn := tenantProbeDSN(creds, pgName, password)
+	var last error
+	for attempt := 0; attempt < tenantProbeMaxAttempts; attempt++ {
+		if attempt > 0 {
+			delay := tenantProbeDelay(attempt - 1)
+			log.Printf("WARN tenant database probe for gateway %s: %s, retrying in %s", gatewayID, connErrorCategory(last), delay)
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("verify tenant connection for gateway %s: %w", gatewayID, ctx.Err())
+			case <-time.After(delay):
+			}
+		}
+		last = pingTenant(ctx, dsn)
+		if last == nil {
+			log.Printf("INFO verified tenant database connection for gateway %s", gatewayID)
+			return nil
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("verify tenant connection for gateway %s: %w", gatewayID, ctx.Err())
+		}
+	}
+	return fmt.Errorf("verify tenant connection for gateway %s: %s (driver error redacted, %d attempts)", gatewayID, connErrorCategory(last), tenantProbeMaxAttempts)
+}
+
+// pingTenant opens a short-lived tenant connection and pings it, always closing
+// the connection before returning. The ping error is returned unwrapped so
+// verifyTenantConn can classify it with connErrorCategory.
+func pingTenant(ctx context.Context, dsn string) error {
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return fmt.Errorf("open tenant connection: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			log.Printf("WARN tenant database probe: close connection: %v", cerr)
+		}
+	}()
+	return db.PingContext(ctx)
+}
+
 // databaseReconciler is the DatabaseReconciler for the mounted admin
 // credentials. See db_reconciler.go for the interface contract.
 type databaseReconciler struct {
@@ -529,6 +617,13 @@ func ReconcileGatewayDatabase(
 		defer gatewayDatabaseDDLMu.Unlock()
 		return reconcileGatewayDatabaseDDL(ctx, db, creds.user, pgName, gatewayID, password, freshPassword)
 	}(); err != nil {
+		return err
+	}
+
+	// Verify the provisioned credentials actually connect before writing the
+	// tenant Secret, so DatabaseReady is never reported on credentials that
+	// cannot log in. Retries with backoff absorb the brief post-CREATE window.
+	if err := verifyTenantConn(ctx, creds, gatewayID, pgName, password); err != nil {
 		return err
 	}
 
