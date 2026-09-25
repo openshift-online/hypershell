@@ -316,6 +316,37 @@
   );
 }
 
+.hypershell-dashboard-reliability-summary {
+  display: grid;
+  gap: var(--pf-t--global--spacer--lg);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.hypershell-dashboard-reliability-summary .pf-v6-c-description-list {
+  display: block;
+}
+
+.hypershell-dashboard-reliability-summary .pf-v6-c-description-list__group {
+  display: flex;
+  align-items: baseline;
+}
+
+.hypershell-dashboard-reliability-summary__term {
+  flex: 0 0 14rem;
+}
+
+.hypershell-dashboard-reliability-summary
+  .pf-v6-c-description-list__description {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .hypershell-dashboard-reliability-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
 .hypershell-dashboard-provision-reliability__donut--danger {
   --pf-v6-chart-donut--label--title--Fill: var(
     --pf-t--global--icon--color--status--danger--default

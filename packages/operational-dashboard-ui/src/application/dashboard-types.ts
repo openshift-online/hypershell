@@ -79,7 +79,8 @@ export type DashboardMetricSourceId =
   | "registered-users";
 
 /** Metric source id used only on reliability-dashboard payloads (REL-DASH / ARM). */
-export type ReliabilityMetricSourceId = "api-reliability";
+export type ReliabilityMetricSourceId =
+  "api-reliability" | "control-plane-reconciliation";
 
 export type DashboardFailedSourceId =
   DashboardMetricSourceId | ReliabilityMetricSourceId;

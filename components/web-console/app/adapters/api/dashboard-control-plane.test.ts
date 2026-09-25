@@ -1,7 +1,10 @@
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createDashboardControlPlaneAdapter } from "./dashboard-control-plane";
+import {
+  createDashboardControlPlaneAdapter,
+  mapControlPlaneReconciliationResponse,
+} from "./dashboard-control-plane";
 import type { PlatformInventoryMetricsResponse } from "./platform-inventory-aggregation";
 
 const fetchMock = vi.fn();
@@ -23,6 +26,32 @@ const adapter = createDashboardControlPlaneAdapter(apiFactory);
 const context = {
   correlationId: "11111111-1111-4111-8111-111111111111",
 };
+
+describe("mapControlPlaneReconciliationResponse", () => {
+  it("maps values and hourly trends", () => {
+    expect(
+      mapControlPlaneReconciliationResponse({
+        reconciliation_failures_count: 2,
+        reconciliation_retries_count: 3,
+        reconciliation_lag_p50_seconds: 0.125,
+        stale_resource_status_count: 1,
+        hourly_reconciliation_failures_count: [
+          { hour: "2026-01-01T00:00", value: 2 },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: "reconciliation-failures",
+        unit: "count",
+        value: "2",
+        hourlyTrend: { points: [{ label: "2026-01-01T00:00", value: 2 }] },
+      },
+      { id: "reconciliation-retries", unit: "count", value: "3" },
+      { id: "reconciliation-lag", unit: "sec", value: "0.125" },
+      { id: "stale-resource-status-count", unit: "count", value: "1" },
+    ]);
+  });
+});
 
 const mockClusterPodsResponse = {
   available_pods: 1452,
@@ -1534,8 +1563,8 @@ describe("createDashboardControlPlaneAdapter", () => {
             ],
           },
           id: "api-request-rate",
-          unit: "req/s",
-          value: "12.50",
+          unit: "requests/sec",
+          value: "12.500",
         },
         {
           hourlyTrend: {
@@ -1546,7 +1575,7 @@ describe("createDashboardControlPlaneAdapter", () => {
           },
           id: "api-error-rate",
           unit: "%",
-          value: "1.25",
+          value: "1.250",
         },
         {
           hourlyTrend: {
@@ -1604,7 +1633,10 @@ describe("createDashboardControlPlaneAdapter", () => {
 
       const metrics = await adapter.getReliabilityMetrics(context);
 
-      expect(metrics.failedSources).toEqual(["api-reliability"]);
+      expect(metrics.failedSources).toEqual([
+        "api-reliability",
+        "control-plane-reconciliation",
+      ]);
       expect(metrics.metrics).toEqual([]);
       expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);
     });
@@ -1621,7 +1653,10 @@ describe("createDashboardControlPlaneAdapter", () => {
 
       const metrics = await adapter.getReliabilityMetrics(context);
 
-      expect(metrics.failedSources).toEqual(["api-reliability"]);
+      expect(metrics.failedSources).toEqual([
+        "api-reliability",
+        "control-plane-reconciliation",
+      ]);
       expect(metrics.metrics).toEqual([]);
       expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);
     });

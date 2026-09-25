@@ -31,6 +31,10 @@
     "defaultMessage": "Add widgets",
     "description": "Label for the button that opens the widget drawer."
   },
+  "app.dashboard.apiReliability.last5Minutes": {
+    "defaultMessage": "(last 5 minutes)",
+    "description": "Lookback period shown with the current API reliability metric value."
+  },
   "app.dashboard.description": {
     "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     "description": "Supporting text on the operational dashboard page."
@@ -255,6 +259,10 @@
     "defaultMessage": "Gateway provision duration statistics",
     "description": "Accessible label for the provision time statistics description list."
   },
+  "app.dashboard.reconciliationFailures.last24Hours": {
+    "defaultMessage": "(last 24 hours)",
+    "description": "Lookback period shown with the current reconciliation failure count."
+  },
   "app.dashboard.refresh": {
     "defaultMessage": "Refresh dashboard metrics",
     "description": "Accessible label for refreshing operational dashboard metrics."
@@ -319,9 +327,25 @@
     "defaultMessage": "Median latency",
     "description": "Summary row label for API median latency."
   },
+  "app.dashboard.reliability.summary.reconciliationFailures": {
+    "defaultMessage": "Reconciliation failures",
+    "description": "Summary row label for reconciliation failures."
+  },
+  "app.dashboard.reliability.summary.reconciliationLag": {
+    "defaultMessage": "Reconciliation lag",
+    "description": "Summary row label for reconciliation lag."
+  },
+  "app.dashboard.reliability.summary.reconciliationRetries": {
+    "defaultMessage": "Reconciliation retries",
+    "description": "Summary row label for reconciliation retries."
+  },
   "app.dashboard.reliability.summary.requestRate": {
     "defaultMessage": "Request rate",
     "description": "Summary row label for API request rate."
+  },
+  "app.dashboard.reliability.summary.staleResourceStatus": {
+    "defaultMessage": "Stale resource status",
+    "description": "Summary row label for resources with stale observed status."
   },
   "app.dashboard.reliability.summaryAriaLabel": {
     "defaultMessage": "API reliability summary",
@@ -579,6 +603,18 @@
     "defaultMessage": "Provisioned gateways",
     "description": "Title for the provisioned gateways dashboard widget."
   },
+  "app.dashboard.widget.reconciliationFailures": {
+    "defaultMessage": "Reconciliation failures",
+    "description": "Title for the reconciliation failures dashboard widget."
+  },
+  "app.dashboard.widget.reconciliationLag": {
+    "defaultMessage": "Reconciliation lag",
+    "description": "Title for the reconciliation lag dashboard widget."
+  },
+  "app.dashboard.widget.reconciliationRetries": {
+    "defaultMessage": "Reconciliation retries",
+    "description": "Title for the reconciliation retries dashboard widget."
+  },
   "app.dashboard.widget.registeredUsers": {
     "defaultMessage": "Users",
     "description": "Title for the registered users dashboard widget."
@@ -594,6 +630,10 @@
   "app.dashboard.widget.sectionTitle": {
     "defaultMessage": "Section title",
     "description": "Default label for a section title widget in the add-widgets drawer."
+  },
+  "app.dashboard.widget.staleResourceStatus": {
+    "defaultMessage": "Stale resource status",
+    "description": "Title for the stale resource status dashboard widget."
   },
   "app.dashboard.widget.summary": {
     "defaultMessage": "Summary",

@@ -24,6 +24,10 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousGatewaySandboxExpiring := gatewaySandboxExpiring
 	previousGatewaySandboxIdle := gatewaySandboxIdle
 	previousReconcileErrors := reconcileErrors
+	previousReconciliationFailures := reconciliationFailures
+	previousReconciliationRetries := reconciliationRetries
+	previousReconciliationLag := reconciliationLag
+	previousStaleResourceStatusCount := staleResourceStatusCount
 	previousWatchReconnects := watchReconnects
 
 	reader := sdkmetric.NewManualReader()
@@ -38,6 +42,10 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	gatewaySandboxExpiring = nil
 	gatewaySandboxIdle = nil
 	reconcileErrors = nil
+	reconciliationFailures = nil
+	reconciliationRetries = nil
+	reconciliationLag = nil
+	staleResourceStatusCount = nil
 	watchReconnects = nil
 	t.Cleanup(func() {
 		otel.SetMeterProvider(previousProvider)
@@ -50,6 +58,10 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		gatewaySandboxExpiring = previousGatewaySandboxExpiring
 		gatewaySandboxIdle = previousGatewaySandboxIdle
 		reconcileErrors = previousReconcileErrors
+		reconciliationFailures = previousReconciliationFailures
+		reconciliationRetries = previousReconciliationRetries
+		reconciliationLag = previousReconciliationLag
+		staleResourceStatusCount = previousStaleResourceStatusCount
 		watchReconnects = previousWatchReconnects
 		_ = provider.Shutdown(context.Background())
 	})
@@ -58,6 +70,57 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		t.Fatalf("registerMetrics() returned an error: %v", err)
 	}
 	return reader
+}
+
+func TestReconciliationMetrics(t *testing.T) {
+	reader := testMetricsReader(t)
+	RecordReconcileError(context.Background(), "Gateway")
+	RecordReconciliationRetry(context.Background(), "Gateway")
+	RecordReconciliationLag(context.Background(), "Gateway", 2*time.Second)
+	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", true)
+	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", true)
+	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "two", true)
+	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", false)
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect() returned an error: %v", err)
+	}
+	for _, scope := range collected.ScopeMetrics {
+		for _, got := range scope.Metrics {
+			switch got.Name {
+			case "hypershell.reconciliation.failures":
+				if _, ok := got.Data.(metricdata.Sum[int64]); !ok {
+					t.Fatalf("failures type = %T", got.Data)
+				}
+			case "hypershell.reconciliation.retries":
+				if _, ok := got.Data.(metricdata.Sum[int64]); !ok {
+					t.Fatalf("retries type = %T", got.Data)
+				}
+			case "hypershell.reconciliation.lag":
+				h := got.Data.(metricdata.Histogram[float64])
+				want := []float64{0.001, 0.01, 0.1, 1, 5, 10, 30, 60, 300}
+				if !reflect.DeepEqual(h.DataPoints[0].Bounds, want) {
+					t.Fatalf("lag bounds = %v", h.DataPoints[0].Bounds)
+				}
+			case "hypershell.stale.resource.status.count":
+				g := got.Data.(metricdata.Gauge[int64])
+				found := false
+				for _, point := range g.DataPoints {
+					v, ok := point.Attributes.Value(attribute.Key("hypershell.cluster_id"))
+					if ok && v.AsString() == "cluster-a" {
+						found = true
+						if point.Value != 1 {
+							t.Fatalf("stale gauge = %d, want 1", point.Value)
+						}
+					}
+				}
+				if !found {
+					t.Fatal("stale cluster label was not exported")
+				}
+			}
+		}
+	}
 }
 
 func TestRecordGatewayProvisionDuration(t *testing.T) {

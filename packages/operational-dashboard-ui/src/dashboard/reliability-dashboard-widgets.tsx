@@ -65,16 +65,22 @@ function formatMetricWithUnit(
   intl: ReturnType<typeof useIntl>,
 ): string {
   const displayValue = formatOperationalMetricDisplayValue(metric.value, intl);
+  const unit =
+    metric.id === "reconciliation-failures"
+      ? "failures"
+      : metric.id === "reconciliation-retries"
+        ? "retries"
+        : metric.unit;
   if (
     !isDisplayableOperationalMetricValue(metric.value) ||
-    metric.unit === undefined ||
-    metric.unit === ""
+    unit === undefined ||
+    unit === ""
   ) {
     return displayValue;
   }
 
   return intl.formatMessage(messages.utilizationLabel, {
-    unit: metric.unit,
+    unit,
     value: displayValue,
   });
 }
@@ -83,6 +89,10 @@ const RELIABILITY_SUMMARY_METRIC_IDS = [
   "api-request-rate",
   "api-error-rate",
   "api-latency",
+  "reconciliation-failures",
+  "reconciliation-retries",
+  "reconciliation-lag",
+  "stale-resource-status-count",
 ] as const;
 
 type ReliabilitySummaryMetricId =
@@ -92,7 +102,18 @@ const RELIABILITY_SUMMARY_LABELS = {
   "api-request-rate": messages.reliabilitySummaryRequestRate,
   "api-error-rate": messages.reliabilitySummaryErrorRate,
   "api-latency": messages.reliabilitySummaryLatency,
+  "reconciliation-failures": messages.reliabilitySummaryReconciliationFailures,
+  "reconciliation-retries": messages.reliabilitySummaryReconciliationRetries,
+  "reconciliation-lag": messages.reliabilitySummaryReconciliationLag,
+  "stale-resource-status-count": messages.reliabilitySummaryStaleResourceStatus,
 } as const;
+
+const API_RELIABILITY_SUMMARY_METRIC_IDS = RELIABILITY_SUMMARY_METRIC_IDS.slice(
+  0,
+  3,
+);
+const RECONCILIATION_SUMMARY_METRIC_IDS =
+  RELIABILITY_SUMMARY_METRIC_IDS.slice(3);
 
 function reliabilitySummaryTrendSubject(
   metricId: ReliabilitySummaryMetricId,
@@ -169,36 +190,47 @@ export function ReliabilitySummaryCard({
 }: Readonly<{ metrics: readonly OperationalMetric[] }>) {
   const intl = useIntl();
 
+  const renderSummaryColumn = (
+    metricIds: readonly ReliabilitySummaryMetricId[],
+  ) => (
+    <DescriptionList isHorizontal>
+      {metricIds.map((metricId) => {
+        const metric = metrics.find((entry) => entry.id === metricId);
+
+        return (
+          <DescriptionListGroup key={metricId}>
+            <DescriptionListTerm className="hypershell-dashboard-reliability-summary__term">
+              <FormattedMessage {...RELIABILITY_SUMMARY_LABELS[metricId]} />
+            </DescriptionListTerm>
+            <DescriptionListDescription>
+              {metric ? (
+                <ReliabilitySummaryValue metric={metric} metricId={metricId} />
+              ) : (
+                <span className="hypershell-dashboard-summary-unavailable">
+                  <FormattedMessage {...messages.metricUnavailableTitle} />
+                </span>
+              )}
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+        );
+      })}
+    </DescriptionList>
+  );
+
   return (
     <WidgetContent>
-      <DescriptionList
-        isHorizontal
+      <div
+        className="hypershell-dashboard-reliability-summary"
+        role="group"
         aria-label={intl.formatMessage(messages.reliabilitySummaryAriaLabel)}
       >
-        {RELIABILITY_SUMMARY_METRIC_IDS.map((metricId) => {
-          const metric = metrics.find((entry) => entry.id === metricId);
-
-          return (
-            <DescriptionListGroup key={metricId}>
-              <DescriptionListTerm>
-                <FormattedMessage {...RELIABILITY_SUMMARY_LABELS[metricId]} />
-              </DescriptionListTerm>
-              <DescriptionListDescription>
-                {metric ? (
-                  <ReliabilitySummaryValue
-                    metric={metric}
-                    metricId={metricId}
-                  />
-                ) : (
-                  <span className="hypershell-dashboard-summary-unavailable">
-                    <FormattedMessage {...messages.metricUnavailableTitle} />
-                  </span>
-                )}
-              </DescriptionListDescription>
-            </DescriptionListGroup>
-          );
-        })}
-      </DescriptionList>
+        <div className="hypershell-dashboard-reliability-summary__column">
+          {renderSummaryColumn(API_RELIABILITY_SUMMARY_METRIC_IDS)}
+        </div>
+        <div className="hypershell-dashboard-reliability-summary__column">
+          {renderSummaryColumn(RECONCILIATION_SUMMARY_METRIC_IDS)}
+        </div>
+      </div>
     </WidgetContent>
   );
 }
@@ -220,13 +252,10 @@ export function ApiReliabilityTrendCard({
     );
   }
 
+  const isCount =
+    metric.id === "reconciliation-failures" ||
+    metric.id === "reconciliation-retries";
   const displayValue = formatMetricWithUnit(metric, intl);
-  const heading = isDisplayableOperationalMetricValue(metric.value)
-    ? intl.formatMessage(messages.metricValue, {
-        label: title,
-        value: displayValue,
-      })
-    : displayValue;
 
   return (
     <WidgetContent>
@@ -236,7 +265,17 @@ export function ApiReliabilityTrendCard({
             <Flex justifyContent={{ default: "justifyContentCenter" }}>
               <FlexItem>
                 <Title headingLevel="h3" size="lg">
-                  {heading}
+                  <>
+                    {displayValue}
+                    <br />
+                    <small>
+                      {intl.formatMessage(
+                        isCount
+                          ? messages.reconciliationFailuresLast24Hours
+                          : messages.apiReliabilityLast5Minutes,
+                      )}
+                    </small>
+                  </>
                 </Title>
               </FlexItem>
             </Flex>
@@ -247,6 +286,7 @@ export function ApiReliabilityTrendCard({
                 caption={intl.formatMessage(messages.trendLast24Hours)}
                 title={title}
                 trend={metric.hourlyTrend}
+                valueFormatter={(value) => value.toFixed(3)}
               />
             </StackItem>
           ) : null}

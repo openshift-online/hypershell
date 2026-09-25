@@ -343,7 +343,8 @@ type GatewayReconciler struct {
 	ingressBaseDomain     string
 	// database locates the mounted admin credentials every gateway database is
 	// provisioned with; validated once at controller startup.
-	database gateway.DatabaseConfig
+	database  gateway.DatabaseConfig
+	clusterID string
 }
 
 func NewGatewayReconciler(
@@ -357,6 +358,7 @@ func NewGatewayReconciler(
 	externalCAIssuerName string,
 	externalCAIssuerKind string,
 	database gateway.DatabaseConfig,
+	clusterID string,
 ) (*GatewayReconciler, error) {
 	if database.AdminCredentialsDir == "" {
 		return nil, fmt.Errorf("gateway database admin credentials directory is required")
@@ -411,6 +413,7 @@ func NewGatewayReconciler(
 		externalCAIssuerKind:  externalCAIssuerKind,
 		ingressBaseDomain:     ingressBaseDomain,
 		database:              database,
+		clusterID:             clusterID,
 	}, nil
 }
 
@@ -438,8 +441,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		previousPhase = event.PhaseBeforeRetry
 	}
 	suppressGatewayProvisionObservation(event.ResourceID, previousPhase)
-
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String(), gw.GetMetadata().GetTraceparent())
+	cpotel.SetResourceStatusStale(ctx, r.clusterID, "Gateway", event.ResourceID,
+		event.Type != watcher.EventDeleted && gw.GetReleaseId() != gw.GetObservedReleaseId())
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
 	var reconcileErr error

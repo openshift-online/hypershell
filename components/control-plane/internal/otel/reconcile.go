@@ -54,6 +54,7 @@ func StartReconcileSpan(ctx context.Context, kind, eventType, traceparent string
 			span.SetStatus(codes.Ok, "")
 		}
 		RecordReconcileDuration(ctx, kind, eventType, start)
+		RecordReconciliationLag(ctx, kind, time.Since(start))
 		span.End()
 	}
 }
