@@ -77,6 +77,9 @@ assert_eq "2FhMpQzXBzABC" "$(printf '%s' "${_api_list}" | json_named_id dev-gate
 assert_eq "" "$(printf '%s' "${_api_list}" | json_named_id missing-gateway)" \
   "json_named_id is empty when the name is absent"
 
+pin_fn_defined() { declare -F pin_controller_gateway_db_hosts >/dev/null; }
+assert_ok "pin_controller_gateway_db_hosts is defined" pin_fn_defined
+
 echo "Kind swap ledger tests: ${PASS} passed, ${FAIL} failed"
 if ((FAIL > 0)); then
   exit 1

@@ -537,6 +537,13 @@ fi
 # preserve swap state the same way.
 restore_swaps_after_reconcile
 
+# After the overlay apply so hostAliases is not wiped. CI image swap is
+# kubectl set image and keeps this pin. The TLS probe above already proved
+# the server; this pin is for the controller's later per-reconcile lookups,
+# which CI lost to CoreDNS i/o timeouts after the *.hypershell.localhost
+# CoreDNS restart.
+pin_controller_gateway_db_hosts "${EXTERNAL_PG_NS}" "${EXTERNAL_PG_HOST}"
+
 # The stand-in PostgreSQL server was provisioned and waited on above.
 
 if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then

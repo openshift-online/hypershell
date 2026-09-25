@@ -1230,6 +1230,13 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: controller pod does not set dnsConfig ndots for the gateway database FQDN'
 fi
+if grep -q 'pin_controller_gateway_db_hosts' "${REPO_ROOT}/scripts/kind/up.sh" \
+  && grep -q 'hostAliases' "${REPO_ROOT}/scripts/kind/lib.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: kind-up does not pin the gateway database FQDN in controller hostAliases'
+fi
 # Keycloak user seed must not run at Deployment Available: the HTTPS hostname
 # is not listening yet (E2E / Kind, PR 348).
 if awk '/Waiting for Keycloak/,/Gateway Trusted CA/' "${REPO_ROOT}/scripts/kind/up.sh" \

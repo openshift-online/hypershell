@@ -356,6 +356,40 @@ ${existing}"
   success "Cluster CoreDNS patched"
 }
 
+# Pin the gateway-database admin FQDN into the controller's /etc/hosts.
+# Kind CoreDNS is a single busy replica and is restarted mid-kind-up to add
+# *.hypershell.localhost hosts. The Go resolver then times out on
+# postgres.external-cloud-db.svc.cluster.local (CI: "dial tcp: lookup ...:
+# i/o timeout") even with ndots:2, while the same name still matches the
+# verify-full certificate SAN. hostAliases keeps that SAN and skips kube-dns.
+# kubectl set image (CI swap) preserves hostAliases; a later kustomize apply
+# of the controller overlay would wipe them, so callers must run this after
+# the last apply of that Deployment.
+pin_controller_gateway_db_hosts() {
+  local ns="${1:-external-cloud-db}"
+  local host="${2:-postgres.external-cloud-db.svc.cluster.local}"
+  local ip
+  ip="$(kube get svc postgres -n "${ns}" -o jsonpath='{.spec.clusterIP}')"
+  if [[ -z "${ip}" || "${ip}" == "None" ]]; then
+    error "stand-in postgres Service in ${ns} has no ClusterIP"
+    return 1
+  fi
+  info "Pinning controller /etc/hosts ${host} -> ${ip} (bypass Kind CoreDNS)"
+  kube patch deployment hypershell-controller -n "${KIND_NAMESPACE}" --type merge \
+    --patch "$(cat <<EOF
+spec:
+  template:
+    spec:
+      hostAliases:
+        - ip: "${ip}"
+          hostnames:
+            - "${host}"
+            - postgres.external-cloud-db.svc
+            - postgres
+EOF
+)"
+}
+
 # --- cloud-provider-kind SHA tracking ---
 
 # The expected commit is written to bin/.cloud-provider-kind.sha by
