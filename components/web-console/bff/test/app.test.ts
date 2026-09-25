@@ -25,6 +25,15 @@ describe("web-console BFF", () => {
       const chunks: Buffer[] = [];
       request.on("data", (chunk: Buffer) => chunks.push(chunk));
       request.on("end", () => {
+        // The BFF probes the API metadata endpoint once at startup for the
+        // version relay; it is not part of the request contract under test.
+        if (request.url === "/api/hypershell") {
+          response.setHeader("content-type", "application/json");
+          response.end(
+            '{"id":"hypershell","kind":"API","version":"test-sha","build_time":"2026-01-01T00:00:00Z"}',
+          );
+          return;
+        }
         requests.push({
           body: Buffer.concat(chunks).toString("utf8"),
           headers: request.headers,
@@ -92,6 +101,7 @@ describe("web-console BFF", () => {
       prometheusUrl: "http://127.0.0.1:9090",
       sessionTtlSeconds: 28_800,
       staticRoot,
+      webVersion: "unknown",
     };
     app = await buildApp(config);
   });
@@ -176,6 +186,7 @@ describe("web-console BFF", () => {
       prometheusUrl: "http://127.0.0.1:9090",
       sessionTtlSeconds: 28_800,
       staticRoot,
+      webVersion: "unknown",
       tracing: {
         collectorEndpoint: "http://collector.invalid:4318",
         sampleRatio: 0.5,
@@ -192,6 +203,47 @@ describe("web-console BFF", () => {
       expect(response.body).not.toContain("collector.invalid");
     } finally {
       await tracedApp.close();
+    }
+  });
+
+  it("relays the API and console build versions into the runtime config", async () => {
+    const response = await app.inject({ method: "GET", url: "/" });
+
+    // The upstream stub serves version "test-sha" on /api/hypershell; the
+    // console version is unset in this environment and degrades to unknown.
+    expect(response.body).toContain(
+      "&quot;apiVersion&quot;:&quot;test-sha&quot;",
+    );
+    expect(response.body).toContain(
+      "&quot;webVersion&quot;:&quot;unknown&quot;",
+    );
+  });
+
+  it("degrades to unknown when the API metadata endpoint is unreachable", async () => {
+    const config: ServerConfig = {
+      apiOrigin: "http://127.0.0.1:1",
+      apiTimeoutMs: 100,
+      host: "127.0.0.1",
+      logLevel: "silent",
+      nodeEnv: "test",
+      port: 8080,
+      prometheusQueryTimeoutMs: 10_000,
+      prometheusUrl: "http://127.0.0.1:9090",
+      sessionTtlSeconds: 28_800,
+      staticRoot,
+      webVersion: "unknown",
+    };
+    const unreachableApp = await buildApp(config);
+    try {
+      const response = await unreachableApp.inject({
+        method: "GET",
+        url: "/",
+      });
+      expect(response.body).toContain(
+        "&quot;apiVersion&quot;:&quot;unknown&quot;",
+      );
+    } finally {
+      await unreachableApp.close();
     }
   });
 

@@ -6,6 +6,7 @@ import compress from "@fastify/compress";
 import helmet from "@fastify/helmet";
 import fastifyStatic from "@fastify/static";
 import Fastify, {
+  type FastifyBaseLogger,
   type FastifyInstance,
   type FastifyReply,
   type FastifyRequest,
@@ -23,6 +24,7 @@ import {
   browserRuntimeConfig,
   type BrowserRuntimeConfig,
   type ServerConfig,
+  shortSha,
 } from "./config.js";
 import { queryApiReliability } from "./metrics-api-reliability.js";
 import { queryGatewayMetrics } from "./metrics-gateways.js";
@@ -162,6 +164,48 @@ function injectRuntimeConfig(
   return `${meta}${document}`;
 }
 
+interface ApiMetadata {
+  version?: unknown;
+}
+
+/**
+ * Fetches the API server's build version from its public metadata endpoint
+ * (GET /api/hypershell) once at startup so it can be relayed to the browser
+ * through the runtime config. Version display must never gate BFF readiness,
+ * so any failure resolves to "unknown" (WEB-TRACE-06 best-effort precedent).
+ */
+async function fetchApiVersion(
+  config: ServerConfig,
+  log: FastifyBaseLogger,
+): Promise<string> {
+  try {
+    const response = await fetch(`${config.apiOrigin}/api/hypershell`, {
+      signal: AbortSignal.timeout(config.apiTimeoutMs),
+    });
+    if (!response.ok) {
+      log.warn(
+        { apiOrigin: config.apiOrigin, statusCode: response.status },
+        "API metadata endpoint returned a non-OK status; reporting version as unknown",
+      );
+      return "unknown";
+    }
+    const metadata = (await response.json()) as ApiMetadata;
+    if (typeof metadata.version !== "string" || metadata.version.length === 0) {
+      log.warn(
+        "API metadata response has no version field; reporting version as unknown",
+      );
+      return "unknown";
+    }
+    return shortSha(metadata.version);
+  } catch (error) {
+    log.warn(
+      { apiOrigin: config.apiOrigin, err: error },
+      "API metadata endpoint unreachable; reporting version as unknown",
+    );
+    return "unknown";
+  }
+}
+
 function inlineScriptHashes(document: string): string[] {
   return cspHashes(
     document,
@@ -207,12 +251,6 @@ export async function buildApp(
   tracing: BffTracing = disabledTracing,
 ): Promise<FastifyInstance> {
   const indexPath = path.join(config.staticRoot, "index.html");
-  const indexDocument = injectRuntimeConfig(
-    await readFile(indexPath, "utf8"),
-    browserRuntimeConfig(config),
-  );
-  const scriptHashes = inlineScriptHashes(indexDocument);
-  const styleHashes = inlineStyleHashes(AUTH_DENIED_PAGE_HTML);
 
   const app = Fastify({
     bodyLimit: 1_048_576,
@@ -233,6 +271,14 @@ export async function buildApp(
     requestTimeout: 30_000,
     trustProxy: config.nodeEnv !== "development" || !!config.oidcIssuer,
   });
+
+  const apiVersion = await fetchApiVersion(config, app.log);
+  const indexDocument = injectRuntimeConfig(
+    await readFile(indexPath, "utf8"),
+    browserRuntimeConfig(config, apiVersion),
+  );
+  const scriptHashes = inlineScriptHashes(indexDocument);
+  const styleHashes = inlineStyleHashes(AUTH_DENIED_PAGE_HTML);
 
   app.decorateRequest("correlationId", "");
 

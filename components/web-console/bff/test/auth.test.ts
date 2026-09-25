@@ -279,6 +279,15 @@ describe("web-console BFF with OIDC enabled", () => {
         const chunks: Buffer[] = [];
         request.on("data", (chunk: Buffer) => chunks.push(chunk));
         request.on("end", () => {
+          // The BFF probes the API metadata endpoint once at startup for the
+          // version relay; it is not part of the request contract under test.
+          if (request.url === "/api/hypershell") {
+            response.setHeader("content-type", "application/json");
+            response.end(
+              '{"id":"hypershell","kind":"API","version":"test-sha","build_time":"2026-01-01T00:00:00Z"}',
+            );
+            return;
+          }
           apiRequests.push({
             body: Buffer.concat(chunks).toString("utf8"),
             headers: request.headers,
@@ -346,6 +355,7 @@ describe("web-console BFF with OIDC enabled", () => {
       sessionSecret: Buffer.from(testSessionSecret, "hex"),
       sessionTtlSeconds: 28_800,
       staticRoot,
+      webVersion: "unknown",
     };
     app = await buildApp(config);
   });
@@ -1117,6 +1127,7 @@ describe("web-console BFF with OIDC enabled", () => {
         sessionSecret: Buffer.from(testSessionSecret, "hex"),
         sessionTtlSeconds: 28_800,
         staticRoot,
+        webVersion: "unknown",
         ...overrides,
       };
     }
