@@ -1,23 +1,79 @@
 ---
 name: update-openshell
 description: >
-  Update HyperShell to a target upstream OpenShell release (github.com/NVIDIA/OpenShell).
-  Bumps the pinned gateway/supervisor image versions across the repo, triages the
-  release notes for contract-affecting changes, verifies the rendered gateway config
-  still matches upstream, and folds every mistake or lesson back into this skill and
-  the specs. Use when a new OpenShell version ships upstream, when asked to "update
-  OpenShell", "bump the gateway version", "pull the latest openshell", or to sync
-  HyperShell with an upstream release. Releases are frequent (roughly daily), so this
-  is a regular operation.
+  Update HyperShell to a target OpenShell gateway/supervisor image version.
+  Two image sources exist: (1) stable midstream releases from github.com/opendatahub-io/openshell
+  (rhaiv.N tags, published to quay.io/opendatahub/odh-openshell-*); (2) custom builds from
+  a specific github.com/NVIDIA/OpenShell upstream branch or commit via the HyperShell build
+  agent (for unmerged bug fixes or pre-release validation). Bumps the pinned image versions
+  across the repo, triages release notes for contract-affecting changes, verifies the rendered
+  gateway config still matches upstream, and folds every lesson back into this skill and the
+  specs. Use when a new OpenShell version ships, when asked to "update OpenShell", "bump the
+  gateway version", "pull the latest openshell", or to test an unmerged upstream fix.
 ---
 
 # Update OpenShell
 
-Sync HyperShell to a target upstream OpenShell release. OpenShell ships very
-frequently (roughly one release per day), so treat this as routine maintenance,
-not a one-off. The mechanical part is a version-pin sweep; the part that needs
-judgment is deciding whether a new upstream feature changes HyperShell's own
-approach.
+Sync HyperShell to a target OpenShell gateway/supervisor image. The mechanical
+part is a version-pin sweep; the part that needs judgment is deciding whether a
+new upstream feature changes HyperShell's own approach.
+
+**This skill is self-reinforcing.** Every run that surfaces a mistake, a missed
+file, a schema drift, or a judgment call MUST be folded back into this skill and
+into the affected spec, in the same PR. The next run should never re-learn what
+this run learned.
+
+## Image sources
+
+Two tracks produce compatible `odh-openshell-gateway` / `odh-openshell-supervisor`
+images. The compiled bits are equivalent - the midstream is a release-gated build
+of the upstream source.
+
+| Track | When to use | Source repo | Image registry |
+|-------|-------------|-------------|----------------|
+| **Stable midstream** | Routine updates, production upgrades | `github.com/opendatahub-io/openshell` tags (`v0.0.NNN-rhaiv.M`) | `quay.io/opendatahub/odh-openshell-gateway:<tag>` |
+| **Agent build** | Unmerged upstream fix, pre-release validation, branch testing | `github.com/NVIDIA/OpenShell` branch or commit | Built and pushed by the HyperShell build agent; image ref returned by the agent |
+
+Use the stable midstream track unless you have a specific reason to test an
+unmerged upstream commit. The midstream `rhaiv.M` patch series applies Red Hat
+fixes on top of the upstream base version, so `v0.0.116-rhaiv.15` contains
+everything in NVIDIA's `v0.0.116` plus additional patches.
+
+## Resolving versions
+
+**Stable midstream track:** the authoritative tag list is `opendatahub-io/openshell`.
+Skip the `vm-runtime` float tag; use only versioned tags:
+
+```bash
+# Latest stable release
+gh api repos/opendatahub-io/openshell/tags \
+  --jq '[.[] | select(.name | test("^v[0-9]"))] | .[0].name'
+
+# All available tags (newest first)
+gh api repos/opendatahub-io/openshell/tags \
+  --jq '[.[] | select(.name | test("^v[0-9]"))] | .[].name'
+```
+
+The tag IS the image tag: `v0.0.116-rhaiv.15` -> image
+`quay.io/opendatahub/odh-openshell-gateway:v0.0.116-rhaiv.15`.
+No version-string transformation needed (unlike the old NVIDIA path which required
+stripping the leading `v`).
+
+**Upstream NVIDIA releases** (for triage only, not the image source):
+
+```bash
+# Latest NVIDIA upstream releases - use to read release notes
+gh api repos/NVIDIA/OpenShell/releases --jq '.[0:5] | .[] | .tag_name'
+```
+
+NVIDIA release notes describe the features and contract changes that eventually
+appear in the midstream `rhaiv` series. Cross-reference them when triaging.
+
+**Agent build track:** invoke the HyperShell build agent with the upstream branch
+or commit SHA. The agent checks out `github.com/NVIDIA/OpenShell`, builds the
+gateway and supervisor images, pushes them, and returns the full image reference
+including digest. Use that reference as the pin value (treat it like a midstream
+tag but with a digest instead of a named tag).
 
 **This skill is self-reinforcing.** Every run that surfaces a mistake, a missed
 file, a schema drift, or a judgment call MUST be folded back into this skill
@@ -28,8 +84,9 @@ The next run should never re-learn what this run learned.
 ## Usage
 
 ```text
-/update-openshell            # update to the latest upstream release
-/update-openshell v0.0.106   # update to a specific tag
+/update-openshell                        # update to the latest stable midstream release
+/update-openshell v0.0.116-rhaiv.15      # update to a specific midstream tag
+/update-openshell NVIDIA/OpenShell@<sha> # build and pin an unmerged upstream commit via the build agent
 ```
 
 ## User Input
@@ -40,22 +97,25 @@ $ARGUMENTS
 
 ## Source of truth
 
-The **authoritative** current version pins live in the control-plane deployment
-manifest `deploy/base/controller.yaml` as environment
-variables:
+The **authoritative** current version pins live in two control-plane deployment
+manifests (both must agree):
+
+- `deploy/base/control-plane/deployment.yaml` (lines with `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`)
+- `deploy/base/platform-resources/controller.yaml` (same env vars)
 
 ```yaml
 - name: GATEWAY_IMAGE
-  value: quay.io/opendatahub/odh-openshell-gateway:<VERSION>@sha256:<DIGEST>
+  value: quay.io/opendatahub/odh-openshell-gateway:<TAG>
 - name: GATEWAY_SUPERVISOR_IMAGE
-  value: quay.io/opendatahub/odh-openshell-supervisor:<VERSION>@sha256:<DIGEST>
+  value: quay.io/opendatahub/odh-openshell-supervisor:<TAG>
 ```
 
-`config.go` reads these at runtime via `os.Getenv("GATEWAY_IMAGE")` /
-`os.Getenv("GATEWAY_SUPERVISOR_IMAGE")` - there are no hardcoded fallback
-constants. A control-plane deployed without these env vars will fail to
-provision gateways. Every other occurrence of the version in the repo is a copy
-of these and MUST agree with them after a run.
+Where `<TAG>` is either a midstream tag (`v0.0.116-rhaiv.15`) or a digest
+reference (`sha256:...`) for an agent-built image. `config.go` reads these at
+runtime via `os.Getenv("GATEWAY_IMAGE")` / `os.Getenv("GATEWAY_SUPERVISOR_IMAGE")` -
+there are no hardcoded fallback constants. A control-plane deployed without these
+env vars will fail to provision gateways. Every other occurrence of the version
+in the repo is a copy of these and MUST agree with them after a run.
 
 ## Version footprint
 
@@ -70,7 +130,8 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 
 | File | What to change | Notes |
 |------|----------------|-------|
-| `deploy/base/controller.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE` env vars | **Source of truth** - change here first |
+| `deploy/base/control-plane/deployment.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE` env vars | **Source of truth** - change here first |
+| `deploy/base/platform-resources/controller.yaml` | same env vars | Must match the deployment above |
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
 | `specs/platform/openshell-gateway-credentials.spec.md` | example manifests | Spec citation |
@@ -87,10 +148,7 @@ facts rather than the active pin:
   image-reference regex, not the deployed version);
 - the sentence in `specs/platform/openshell-gateway-credentials.spec.md` that says
   "Upstream OpenShell **v0.0.101 introduced** pluggable credential storage
-  drivers" - this records *which* release added a feature and must not be bumped
-  (note it is written `v0.0.101` with the `v` prefix; the pins are
-  `gateway:0.0.101` without it, so a `gateway:<ver>`-anchored substitution
-  naturally skips it).
+  drivers" - this records *which* release added a feature and must not be bumped.
 
 If unsure whether an occurrence is a pin or a fixture, treat it as a pin and note
 the ambiguity in the [Learnings log](#learnings-log).
@@ -113,20 +171,43 @@ to the footprint table.
 
 ## Workflow
 
-1. **Resolve versions.** Read the current version from `config.go`. Resolve the
-   target: for `latest`, `gh api repos/NVIDIA/OpenShell/releases --jq '.[0].tag_name'`
-   (skip the `dev` tag); for an explicit tag, verify it exists with
-   `gh api repos/NVIDIA/OpenShell/releases/tags/<tag>`. Strip the leading `v` for
-   the image tag (`v0.0.106` -> `0.0.106`).
+1. **Resolve versions and obtain the image reference.**
 
-2. **Triage the release range.** For every release between current and target
-   (exclusive of current, inclusive of target), read the body and the Full
-   Changelog:
+   **Stable midstream track:**
 
    ```bash
-   for t in <ranged tags>; do
-     gh api repos/NVIDIA/OpenShell/releases/tags/$t --jq '.name, .body'
-   done
+   # Current pin (read from source-of-truth file)
+   grep "GATEWAY_IMAGE" deploy/base/control-plane/deployment.yaml
+
+   # Latest available midstream tag
+   gh api repos/opendatahub-io/openshell/tags \
+     --jq '[.[] | select(.name | test("^v[0-9]"))] | .[0].name'
+
+   # Verify a specific tag exists
+   gh api repos/opendatahub-io/openshell/git/ref/tags/<tag>
+   ```
+
+   The tag IS the image tag - no transformation needed. Target image:
+   `quay.io/opendatahub/odh-openshell-gateway:<tag>`
+
+   **Agent build track (unmerged upstream branch/commit):**
+
+   Invoke the HyperShell build agent, specifying the NVIDIA/OpenShell branch or
+   commit SHA. The agent returns a full image reference (with digest). Use that
+   reference verbatim as the pin - it acts like a midstream tag for all subsequent
+   steps in this workflow.
+
+2. **Triage the release range.** For every midstream tag between current and
+   target (exclusive of current, inclusive of target), check the corresponding
+   upstream NVIDIA release notes. The midstream `rhaiv.M` tags map to a NVIDIA
+   base version; the rhaiv patch increments are Red Hat fixes on top:
+
+   ```bash
+   # Extract the NVIDIA base version from a rhaiv tag (e.g. v0.0.116-rhaiv.15 -> v0.0.116)
+   BASE=$(echo "<TAG>" | sed 's/-rhaiv\..*//')
+
+   # Read NVIDIA release notes for the base and any versions in the range
+   gh api repos/NVIDIA/OpenShell/releases/tags/$BASE --jq '.name, .body'
    ```
 
    Classify each change against the [Contract surfaces](#contract-surfaces-to-triage).
@@ -135,8 +216,16 @@ to the footprint table.
    feature that overlaps something HyperShell hand-rolls). Surface every
    `needs-decision` item to the user before finalizing - do not silently absorb it.
 
-3. **Bump the pins.** Edit `deploy/base/controller.yaml` first, then sweep the rest of the
-   [Version footprint](#version-footprint). Per the repo convention *"Image
+   For agent-built commits, triage the diff between the current pin and the target
+   commit instead of release notes:
+   ```bash
+   gh api repos/NVIDIA/OpenShell/compare/<current-base-sha>...<target-sha> \
+     --jq '.files[].filename'
+   ```
+
+3. **Bump the pins.** Edit `deploy/base/control-plane/deployment.yaml` first,
+   then `deploy/base/platform-resources/controller.yaml`, then sweep the rest of
+   the [Version footprint](#version-footprint). Per the repo convention *"Image
    references must match across the stack"*, grep all overlays and manifests too:
 
    ```bash
@@ -232,6 +321,19 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **Skill correction (2026-09-25, HYPERSHELL-301):** Skill had two structural
+  errors discovered during build-agent work:
+  - Wrong source repo: skill pointed to `NVIDIA/OpenShell` for tag discovery, but
+    the deployed images (`quay.io/opendatahub/odh-openshell-*`) come from the
+    `opendatahub-io/openshell` midstream with `v0.0.NNN-rhaiv.M` tag format. The
+    NVIDIA repo is still needed for release-note triage but is NOT the image source.
+    Correct command: `gh api repos/opendatahub-io/openshell/tags --jq '[.[] | select(.name | test("^v[0-9]"))] | .[0].name'`
+  - Wrong source-of-truth file path: skill said `deploy/base/controller.yaml`
+    (does not exist). Correct paths: `deploy/base/control-plane/deployment.yaml`
+    and `deploy/base/platform-resources/controller.yaml` (both must agree).
+  - Added build-agent track for testing unmerged upstream branches/commits.
+  - Current pin at time of correction: `v0.0.116-rhaiv.6`; latest midstream: `v0.0.116-rhaiv.15`.
 
 - **v0.0.109 (2026-08-19, second run, 0.0.106 -> 0.0.109; validated on ROKS):**
   Unlike 106, this bump was NOT config-schema-neutral - three regressions only
