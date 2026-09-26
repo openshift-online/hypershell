@@ -416,8 +416,8 @@ EOF
 # wording, "false" for the initial comment. <retained> is "true" when the
 # pull request carries pr-environment/pr-extended.
 # KEYCLOAK_URL (optional env) is the Keycloak Route origin; when set, the
-# table includes the hypershell-realm admin console (GitHub login +
-# impersonation), not master-realm /admin/.
+# table includes the hypershell-realm admin console (GitHub or seeded
+# username/password, then impersonation), not master-realm /admin/.
 pr_env_comment_body() {
   local pr_number="$1" head_sha="$2" platform_ns="$3" keycloak_ns="$4"
   local console_url="$5" api_url="$6" web_url="$7" cluster_api_url="$8" updated="$9"
@@ -452,7 +452,7 @@ ${lifetime}
 | Web console | ${web_url} |
 ${kc_admin_row}
 
-Log in through the web console with your GitHub account (you must be a member of the configured organization or on its allowlist). To test as \`developer\` or \`platform-admin\`, open the Keycloak admin console, sign in with GitHub, and impersonate that user.
+Log in through the web console with your GitHub account (you must be a member of the configured organization or on its allowlist) or with a seeded test-tier username and password. To test as \`developer\` or \`platform-admin\`, sign in as that user, or open the Keycloak admin console, sign in with GitHub, and impersonate that user.
 
 <details><summary>CLI access</summary>
 

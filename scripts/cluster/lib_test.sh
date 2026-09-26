@@ -245,6 +245,28 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: GitHub-brokered OpenShift banner does not point at the hypershell Keycloak admin console'
 fi
+if grep -A50 '^print_banner()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -B5 'seeded test-tier username and password' \
+  | grep -q 'is_ci_owned_pr_environment'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: GitHub-on banner claims seeded credentials even when seeding was skipped'
+fi
+if grep -A50 '^print_banner()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'github_on}" != true'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: GitHub-enabled banner can still print static admin/admin credentials'
+fi
+if grep -A30 '^reconcile_openshift_test_users()' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  | grep -q 'elif github_idp_enabled'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: GitHub-enabled developer-owned path still seeds static passwords'
+fi
 if grep 'keycloak_url=' "${REPO_ROOT}/.github/actions/deploy-pr-environment/action.yml" | grep -q 'keycloak_url=https://'; then
   PASS=$((PASS + 1))
 else
@@ -259,10 +281,10 @@ else
 fi
 THEME_CSS="${REPO_ROOT}/deploy/base/keycloak/theme/login.css"
 if grep -q 'body:has(#kc-social-providers) #kc-form' "${THEME_CSS}"; then
-  PASS=$((PASS + 1))
-else
   FAIL=$((FAIL + 1))
-  echo 'FAIL: Keycloak login theme does not hide the password form when GitHub is present'
+  echo 'FAIL: Keycloak login theme hides the password form when GitHub is present'
+else
+  PASS=$((PASS + 1))
 fi
 if grep -A3 '^cluster_teardown()' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'cluster_down'; then
   PASS=$((PASS + 1))

@@ -378,23 +378,6 @@ h1.pf-v5-c-title.pf-m-3xl,
 }
 
 /*
- * When a brokered identity provider is on the login page (PR-environment
- * GitHub), hide the username/password form so interactive login cannot fall
- * back to the seeded test-tier principals. Kind and local OpenShift have no
- * social providers, so their password form is unchanged. First-broker-login
- * pages that still need a form (link-existing-account) do not render
- * #kc-social-providers. Master-realm /admin/ uses the default theme, not this
- * one.
- *
- * #kc-social-providers is a sibling of #kc-form in keycloak.v2, not a child,
- * so hiding #kc-form leaves the GitHub button visible.
- */
-body:has(#kc-social-providers) #kc-form,
-body:has(#kc-social-providers) .kc-login-divider {
-  display: none !important;
-}
-
-/*
  * PatternFly's Login component draws a border-top on .pf-v5-c-login__main-
  * footer-band by default, used here to separate the "No account? Register"
  * link from whatever sits above it (the Sign In button when no social/IDP
