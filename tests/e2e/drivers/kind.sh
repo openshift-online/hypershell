@@ -696,6 +696,23 @@ api_curl() {
   _driver_curl -H "Authorization: Bearer ${_OIDC_ACCESS_TOKEN}" "$@"
 }
 
+# get_browser_ca_bundle - print a PEM file path the headless browser should
+# trust, or nothing when the CA cannot be extracted. Optional driver hook used by
+# e2e-console.sh (e2e-console-browser-testing.spec.md). Kind: the cert-manager CA
+# from hypershell-ca-secret, which signs both *.hypershell.localhost
+# (hypershell-https-tls) and *.gw.localhost (hypershell-gw-tls).
+get_browser_ca_bundle() {
+  local ca_file
+  ca_file="$(mktemp "${TMPDIR:-/tmp}/hypershell-e2e-browser-ca.XXXXXX")"
+  if kubectl get secret hypershell-ca-secret -n "${E2E_HS_NAMESPACE:-hypershell-system}" \
+      -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > "$ca_file" 2>/dev/null \
+      && [[ -s "$ca_file" ]]; then
+    printf '%s\n' "$ca_file"
+    return 0
+  fi
+  rm -f "$ca_file"
+}
+
 # get_cluster_domain - return the base domain for gateway DNS names.
 get_cluster_domain() {
   echo "gw.localhost"

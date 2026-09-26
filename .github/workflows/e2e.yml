@@ -30,7 +30,11 @@ name: E2E
 # serialize. Neither main nor a merge queue entry ever carries the
 # retainment label, so teardown always runs for them. Fork PRs skip deploy
 # and OpenShift (no per-PR environment; a fork PR cannot enter the merge
-# queue either).
+# queue either). The Kind job runs the bash suite (tests/e2e/e2e-openshell.sh)
+# and, outside merge_group, the Playwright trace verification and the
+# agent-browser console suite (tests/e2e/e2e-console.sh). The OpenShift job
+# runs only the bash suite: its GitHub-brokered login cannot be completed by
+# a headless browser.
 on:
   workflow_call:
     inputs:
@@ -419,10 +423,12 @@ jobs:
     # wait-on-check-action steps then block for whatever build time is left (up
     # to the 900s discovery ceiling plus the build itself), and only then does
     # the bash e2e suite run followed by the browser trace verification (Node
-    # install, Chromium download, Playwright run). 45 minutes covers that
-    # combined budget with headroom; 25 min was the ceiling before the wait
-    # moved in, so a tighter value (e.g. 30) risks tripping on a slow build.
-    timeout-minutes: 45
+    # install, Chromium download, Playwright run) and the console browser suite
+    # (a second gateway provision, console readiness, and delete-driven GC,
+    # about 10 minutes). 60 minutes covers that combined budget with headroom;
+    # 45 min was the ceiling before the console suite, and 25 min before the
+    # Konflux wait moved in.
+    timeout-minutes: 60
     permissions:
       contents: read
       checks: read
@@ -624,6 +630,40 @@ jobs:
         if: github.event_name != 'merge_group'
         run: pnpm --filter @openshift-online/hypershell-web-console test:e2e:live
 
+      # Browser e2e of the web console and the per-gateway OpenShell console
+      # through agent-browser (e2e-console-browser-testing.spec.md). Same
+      # pull_request/push-only gate and rationale as the trace verification
+      # above: browser coverage is proven at PR time against the PR image and
+      # re-verified on push to main. Reuses the Node toolchain and the Chromium
+      # the Playwright step cached, so there is no second browser download; the
+      # agent-browser version is the one pinned in dependency-age-tools.json.
+      - name: Install agent-browser
+        if: github.event_name != 'merge_group'
+        run: |
+          version="$(python3 -c 'import json; print(next(t["version"] for t in json.load(open("dependency-age-tools.json")) if t["kind"] == "npm" and t["name"] == "agent-browser"))')"
+          npm install -g "agent-browser@${version}"
+          agent-browser --version
+      - name: Resolve Playwright Chromium for agent-browser
+        id: chromium-path
+        if: github.event_name != 'merge_group'
+        run: echo "path=$(find ~/.cache/ms-playwright -type f -name chrome -path '*/chromium-*' 2>/dev/null | head -1)" >> "$GITHUB_OUTPUT"
+      - name: Run console browser e2e
+        id: e2e-console
+        if: github.event_name != 'merge_group'
+        env:
+          E2E_INFRA_DRIVER: kind
+          E2E_MODE: short
+          E2E_PROVISION_TIMEOUT: "300"
+          E2E_CONSOLE_READY_TIMEOUT: "300"
+          E2E_PAUSE: "0"
+          E2E_CONSOLE_ARTIFACT_DIR: ${{ github.workspace }}/e2e-console-artifacts
+          # Empty when the Playwright cache has no Chromium; the suite then runs
+          # `agent-browser install` itself.
+          AGENT_BROWSER_EXECUTABLE_PATH: ${{ steps.chromium-path.outputs.path }}
+          TERM: dumb
+          NO_COLOR: "1"
+        run: bash tests/e2e/e2e-console.sh
+
       - name: Collect diagnostics
         if: failure()
         run: |
@@ -688,6 +728,25 @@ jobs:
           } | tee e2e-diagnostics/gateway-api.txt
           echo "::endgroup::"
 
+          echo "::group::OpenShell console (gateway namespaces)"
+          {
+            for ns in $(kubectl get ns -l hypershell.redhat.io/managed=true -o name 2>/dev/null); do
+              ns_name="${ns##*/}"
+              echo "--- deployment/openshell-console ($ns_name) ---"
+              kubectl get deployment openshell-console -n "${ns_name}" -o wide 2>&1 || true
+              kubectl get deployment openshell-console -n "${ns_name}" -o jsonpath='{.status.conditions}' 2>&1 || true
+              echo ""
+              echo "--- httproute/openshell-console status ($ns_name) ---"
+              kubectl get httproute openshell-console -n "${ns_name}" -o jsonpath='{.spec.hostnames}{"\n"}{.status.parents}' 2>&1 || true
+              echo ""
+              for container in oauth2-proxy dashboard; do
+                echo "--- logs openshell-console/${container} ($ns_name) ---"
+                kubectl logs deployment/openshell-console -c "${container}" --tail=150 -n "${ns_name}" 2>&1 || true
+              done
+            done
+          } | tee e2e-diagnostics/openshell-console.txt
+          echo "::endgroup::"
+
       - name: Upload diagnostics
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -695,6 +754,17 @@ jobs:
           name: e2e-diagnostics
           path: e2e-diagnostics/
           retention-days: 7
+
+      # Screenshots, URL, accessibility snapshot, and console/page errors the
+      # console browser suite captured for each failed step (CON-E2E-11).
+      - name: Upload console browser artifacts
+        if: failure() && steps.e2e-console.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-console-artifacts-${{ matrix.database-provider }}
+          path: e2e-console-artifacts/
+          retention-days: 7
+          if-no-files-found: ignore
 
   # Origin-PR deploy of hypershell-ci-pr-<n>, hypershell-ci-main-<short-sha> on
   # push to main, or hypershell-ci-mq-<short-sha> for a merge queue entry

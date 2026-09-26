@@ -136,6 +136,7 @@ help:
 	@echo "    unit-test-all            Run all unit test suites (Go, frontend, shell)"
 	@echo "    ci-test                  Run all *_test.sh shell unit tests (auto-discovered)"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
+	@echo "    e2e-console              Run browser E2E of the web console and OpenShell console (agent-browser)"
 	@echo "    e2e-performance          Run the performance harness (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
 	@echo "    e2e-performance-report   Tabulate recent local performance runs"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
@@ -584,6 +585,19 @@ e2e:
 	@E2E_PROVISION_TIMEOUT=300 \
 		E2E_SANDBOX_TIMEOUT=180 \
 		bash tests/e2e/e2e-openshell.sh
+
+# Browser-driven e2e of the HyperShell web console and the per-gateway OpenShell
+# console (agent-browser headless Chromium). Requires port 443 forwarding from
+# `make kind-up` (not KIND_NO_SUDO) and the agent-browser version pinned in
+# dependency-age-tools.json. See specs/platform/e2e-console-browser-testing.spec.md.
+.PHONY: e2e-console
+e2e-console:
+	@echo ""
+	@echo "==> Running browser E2E (web console + OpenShell console)"
+	@echo ""
+	@E2E_PROVISION_TIMEOUT=300 \
+		E2E_SANDBOX_TIMEOUT=180 \
+		bash tests/e2e/e2e-console.sh
 
 .PHONY: e2e-performance
 e2e-performance:

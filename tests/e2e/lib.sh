@@ -474,7 +474,7 @@ e2e_lookup_gateway_by_name() {
   _GW_NAMESPACE=""
   _GW_PHASE=""
   local resp
-  resp=$(api_curl "${API_HOST}/api/hypershell/v1/gateways?search=name%3D${name}" 2>/dev/null || true)
+  resp=$(api_curl "${API_HOST}/api/hypershell/v1/gateways?search=name%3D%27${name}%27" 2>/dev/null || true)
   IFS=$'\t' read -r _GW_ID _GW_NAMESPACE _GW_PHASE <<< "$(echo "$resp" | WANT_NAME="$name" python3 -c "
 import json, sys, os
 name = os.environ['WANT_NAME']
