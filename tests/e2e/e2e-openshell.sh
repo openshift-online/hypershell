@@ -429,8 +429,8 @@ else
     fail_test "Could not discover seeded cluster/release ids"
     exit 1
   fi
-  if [[ -z "${E2E_CLUSTER_ID}" || -z "${E2E_RELEASE_ID}" ]]; then
-    dim "  Creating gateway without seeded ids (cluster_id='${E2E_CLUSTER_ID}' release_id='${E2E_RELEASE_ID}'); the control plane uses default placement and the platform default gateway image"
+  if [[ -z "${E2E_RELEASE_ID}" ]]; then
+    dim "  Creating gateway on registered cluster_id=${E2E_CLUSTER_ID} without a seeded release (release_id=''); the platform default gateway image is used"
   else
     dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; the gateway database is provisioned by the control plane"
   fi
@@ -1731,11 +1731,11 @@ except Exception:
   # a Gateway).
   DEV_GW_CREATE_NAME="e2e-dev-gw-$(date +%s | tail -c5)"
   DEV_GW_BODY=$(GW_NAME="$DEV_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
-    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
+    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': 'e2e-cluster',
+    'cluster_id': os.environ['E2E_CLUSTER_ID'],
     'release_id': 'e2e-release',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
@@ -1903,11 +1903,11 @@ print('true' if has_owner else 'false')
   # OpenShift leaves that env empty, so this POST MUST be 403.
   PADMIN_GW_CREATE_NAME="e2e-padmin-gw-$(date +%s | tail -c5)"
   PADMIN_GW_BODY=$(GW_NAME="$PADMIN_GW_CREATE_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
-    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
+    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': 'e2e-cluster',
+    'cluster_id': os.environ['E2E_CLUSTER_ID'],
     'release_id': 'e2e-release',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
@@ -1996,8 +1996,8 @@ if [[ "$E2E_MODE" == "perf" ]]; then
   THROW_ID="${_GW_ID}"
   THROW_NS="${_GW_NAMESPACE}"
   if [[ -z "$THROW_ID" ]]; then
-    if ! e2e_seed_ids_ready && ! e2e_allow_unseeded; then
-      fail_test "Cannot create throwaway gateway: seeded cluster/release ids are unknown"
+    if [[ -z "${E2E_CLUSTER_ID:-}" ]] || { ! e2e_seed_ids_ready && ! e2e_allow_unseeded; }; then
+      fail_test "Cannot create throwaway gateway: registered cluster / seeded release ids are unknown"
     else
       THROW_BODY=$(e2e_gateway_create_body "$THROW_NAME")
       THROW_RESP=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \

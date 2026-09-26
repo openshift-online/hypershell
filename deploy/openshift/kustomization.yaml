@@ -47,6 +47,12 @@ patches:
                   # NoMatchingParent on this cluster.
                   - name: GATEWAY_API_HTTP_LISTENER_NAME
                     value: grpc
+                  # Every control plane is a registered spoke: it registers this
+                  # name at startup and scopes all gateway watches to the
+                  # returned cluster_id. openshift-seed waits for this record
+                  # instead of creating it (managed-cluster-registration.spec.md).
+                  - name: HYPERSHELL_MANAGED_CLUSTER_NAME
+                    value: "local-openshift"
                   - name: OIDC_ISSUER
                     valueFrom:
                       secretKeyRef:
@@ -71,8 +77,12 @@ patches:
   # (gateway:creator/owner/viewer); it is the sole gate for that model
   # (plugins/rbac/plugin.go), independent of --enable-authz. RBAC_SERVICE_ACCOUNTS
   # bypasses the gRPC RBAC interceptor for the control plane's service account,
-  # whose UpdateGateway writes are not covered by --auth-bypass-methods and whose
-  # gRPC path never syncs JWT roles (pkg/rbac/grpc_interceptor.go).
+  # whose UpdateGateway writes require a JWT like every hypershell RPC
+  # (--auth-bypass-methods exempts only health and reflection) and whose gRPC
+  # path never syncs JWT roles (pkg/rbac/grpc_interceptor.go). The allowlist is
+  # only the bootstrap fallback: a registered control plane is a control-plane
+  # identity by its JWT sub (managed-cluster-registration.spec.md, "Control-Plane
+  # Identity"), so spokes need no entry here.
   #
   # BREAKING CHANGE for existing clusters: once applied, every gateway operation
   # requires the caller's token to carry gateway:creator (create) or a matching
@@ -148,7 +158,7 @@ patches:
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"
       - op: add
         path: /spec/template/spec/containers/0/command/-
-        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
+        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/"
   # Shared-cluster e2e cannot spare surge pods. A 1-replica RollingUpdate is
   # maxUnavailable:0 / maxSurge:1, so a digest swap needs two pods and the
   # new one sits Pending. Recreate kills the old replica first. Production

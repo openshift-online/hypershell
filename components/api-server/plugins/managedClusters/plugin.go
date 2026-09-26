@@ -100,4 +100,5 @@ func init() {
 	db.RegisterMigration(migrationDropFleetId())
 	db.RegisterMigration(migrationAddTraceContext())
 	db.RegisterMigration(migrationAddRegistrationFields())
+	db.RegisterMigration(migrationUniqueName())
 }

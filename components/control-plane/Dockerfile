@@ -13,7 +13,17 @@ WORKDIR /workspace
 
 # Install Helm via Go toolchain (avoids OS package dependencies).
 # CGO_ENABLED=0 produces a static binary that runs on the distroless runtime.
+# Two copies: a native one to package the chart in this stage, and one built
+# for TARGETARCH that ships in the runtime image, so a cross-platform build
+# (for example arm64 host, amd64 image) does not copy a foreign-arch helm.
 RUN CGO_ENABLED=0 GOBIN=/usr/local/bin go install helm.sh/helm/v3/cmd/helm@v3.14.0
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go install helm.sh/helm/v3/cmd/helm@v3.14.0 && \
+    if [ -x "$(go env GOPATH)/bin/linux_${TARGETARCH}/helm" ]; then \
+      cp "$(go env GOPATH)/bin/linux_${TARGETARCH}/helm" /workspace/helm-runtime; \
+    else \
+      cp "$(go env GOPATH)/bin/helm" /workspace/helm-runtime; \
+    fi
 
 COPY components/api-server/go.mod components/api-server/go.sum components/api-server/
 COPY components/control-plane/go.mod components/control-plane/go.sum components/control-plane/
@@ -46,7 +56,7 @@ FROM static-${TARGETARCH}
 
 COPY --from=builder --chown=1001:0 /workspace/hypershell-controller /usr/local/bin/
 COPY --from=builder --chown=1001:0 /workspace/charts/ /charts/
-COPY --from=builder --chown=1001:0 /usr/local/bin/helm /usr/local/bin/helm
+COPY --from=builder --chown=1001:0 /workspace/helm-runtime /usr/local/bin/helm
 
 ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 

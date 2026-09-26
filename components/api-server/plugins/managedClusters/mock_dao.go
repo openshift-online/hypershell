@@ -64,6 +64,15 @@ func (d *managedClusterDaoMock) FindByOIDCSubject(ctx context.Context, subject s
 	return nil, gorm.ErrRecordNotFound
 }
 
+func (d *managedClusterDaoMock) FindByName(ctx context.Context, name string) (*ManagedCluster, error) {
+	for _, mc := range d.managedClusters {
+		if mc.Name == name {
+			return mc, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 func (d *managedClusterDaoMock) InventorySnapshot(ctx context.Context, evaluationTime time.Time) (*ClusterInventorySnapshot, error) {
 	return buildClusterInventorySnapshot(d.managedClusters, evaluationTime), nil
 }

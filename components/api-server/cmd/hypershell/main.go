@@ -39,7 +39,7 @@ func main() {
 	}
 	rootCmd.AddCommand(
 		pkgcmd.NewMigrateCommand("hypershell"),
-		pkgcmd.NewServeCommand(localapi.GetOpenAPISpec),
+		newServeCommand(localapi.GetOpenAPISpec),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

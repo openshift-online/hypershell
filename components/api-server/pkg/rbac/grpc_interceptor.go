@@ -13,13 +13,17 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
 
-func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, config AuthzConfig) grpc.UnaryServerInterceptor {
+// RBACUnaryInterceptor authorizes a unary call. clusters resolves the caller's
+// JWT subject to a registered ManagedCluster; a registered caller is a
+// control-plane identity (see control_plane_identity.go). A nil clusters
+// disables that exemption, leaving RBAC_SERVICE_ACCOUNTS as the only one.
+func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver, config AuthzConfig) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		ctx = provisionUserForGRPC(ctx, provisioner, syncer)
 
 		username := auth.GetUsernameFromContext(ctx)
 		if !config.EnforceRBAC {
-			recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, activityRecorder)
+			recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, clusters, activityRecorder)
 			return handler(ctx, req)
 		}
 
@@ -27,9 +31,20 @@ func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner,
 			return handler(ctx, req)
 		}
 
+		// A registered managed cluster is a control-plane identity, exempt like
+		// an allowlisted account (control_plane_identity.go). A failed lookup is
+		// Unavailable: never a grant, never a fatal PermissionDenied.
+		registered, err := isRegisteredClusterCallerGRPC(ctx, username, clusters)
+		if err != nil {
+			return nil, err
+		}
+		if registered {
+			return handler(ctx, req)
+		}
+
 		// Control-plane-only mutations (the sandbox-count and runtime-version writes) are restricted to
-		// the service-account allowlist when one is configured. Any principal that
-		// reaches here is not an allowlisted SA, so deny outright rather than fall
+		// control-plane identities when an allowlist is configured. Any principal that
+		// reaches here is neither an allowlisted SA nor a registered cluster, so deny outright rather than fall
 		// through to the coarse role check, which grants gateway:creator/owner every
 		// non-read method in any namespace. With no allowlist configured, fall
 		// through as a documented fallback to the standard role check.
@@ -54,27 +69,36 @@ func RBACUnaryInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner,
 			return nil, status.Errorf(codes.PermissionDenied, "forbidden")
 		}
 
-		recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, activityRecorder)
+		// nil resolver: this caller is already known not to be a registered cluster.
+		recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, nil, activityRecorder)
 		return handler(ctx, req)
 	}
 }
 
-func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, config AuthzConfig) grpc.StreamServerInterceptor {
+// RBACStreamInterceptor is the streaming counterpart of RBACUnaryInterceptor.
+func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner, syncer JWTRoleSyncer, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver, config AuthzConfig) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := provisionUserForGRPC(ss.Context(), provisioner, syncer)
 		wrapped := &wrappedServerStream{ServerStream: ss, ctx: ctx}
 
 		username := auth.GetUsernameFromContext(ctx)
 		if !config.EnforceRBAC {
-			recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, activityRecorder)
+			recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, clusters, activityRecorder)
 			return handler(srv, wrapped)
 		}
 		if isServiceAccount(username, config.ServiceAccounts) {
 			return handler(srv, wrapped)
 		}
+		registered, err := isRegisteredClusterCallerGRPC(ctx, username, clusters)
+		if err != nil {
+			return err
+		}
+		if registered {
+			return handler(srv, wrapped)
+		}
 
-		// See the unary interceptor: control-plane-only mutations are SA-only when an
-		// allowlist is configured. These methods are unary today; guarding the stream
+		// See the unary interceptor: control-plane-only mutations are restricted to
+		// control-plane identities when an allowlist is configured. These methods are unary today; guarding the stream
 		// path too keeps the two interceptors symmetric if that ever changes.
 		if len(config.ServiceAccounts) > 0 && isServiceAccountOnlyMethod(info.FullMethod) {
 			return status.Errorf(codes.PermissionDenied, "forbidden")
@@ -97,7 +121,8 @@ func RBACStreamInterceptor(lookup RoleBindingLookup, provisioner UserProvisioner
 			return status.Errorf(codes.PermissionDenied, "forbidden")
 		}
 
-		recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, activityRecorder)
+		// nil resolver: this caller is already known not to be a registered cluster.
+		recordAuthorizedDailyActivityGRPC(ctx, username, config.ServiceAccounts, nil, activityRecorder)
 		return handler(srv, wrapped)
 	}
 }
@@ -143,7 +168,8 @@ func isGRPCAuthorized(fullMethod string, bindings []BindingSummary) bool {
 // the observed runtime version. Only the control plane may write these fields.
 // Without this guard, isGRPCAuthorized would grant them to any gateway:creator /
 // gateway:owner in any namespace. The restriction applies only when a
-// service-account allowlist is configured (see the interceptors).
+// service-account allowlist is configured (see the interceptors); an allowlisted
+// account or a registered managed cluster passes it (control_plane_identity.go).
 func isServiceAccountOnlyMethod(fullMethod string) bool {
 	parts := strings.Split(fullMethod, "/")
 	if len(parts) < 3 {
@@ -196,13 +222,21 @@ func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, sync
 	return ctx
 }
 
-func recordAuthorizedDailyActivityGRPC(ctx context.Context, username string, serviceAccounts []string, activityRecorder DailyActivityRecorder) {
+// recordAuthorizedDailyActivityGRPC records the caller as a daily-active user
+// unless it is a control-plane identity: an allowlisted account, or a
+// registered managed cluster per clusters. A cluster lookup failure skips the
+// record rather than counting a possible control plane as a user; it never
+// fails the call.
+func recordAuthorizedDailyActivityGRPC(ctx context.Context, username string, serviceAccounts []string, clusters RegisteredClusterResolver, activityRecorder DailyActivityRecorder) {
 	if activityRecorder == nil || isServiceAccount(username, serviceAccounts) {
 		return
 	}
 
 	userID := GetUserIDFromContext(ctx)
 	if userID == "" {
+		return
+	}
+	if registered, err := isRegisteredClusterCallerGRPC(ctx, username, clusters); err != nil || registered {
 		return
 	}
 

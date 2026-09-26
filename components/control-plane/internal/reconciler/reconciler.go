@@ -103,10 +103,10 @@ type GatewayReleaseReconciler struct {
 	releases pb.GatewayReleaseServiceClient
 	gwQueue  gatewayEnqueuer
 	// clusterID scopes the release fan-out's gateway listing to this control
-	// plane's own cluster. On a managed-cluster spoke (non-empty) the GatewayRelease
-	// watch runs on every control plane, so an unscoped list would match and force
-	// foreign gateways into the local reconcile queue, breaking pull-model
-	// isolation; empty means single-cluster (no server-side filter).
+	// plane's own registered cluster. The GatewayRelease watch runs on every
+	// control plane, so an unscoped list would match and force foreign gateways
+	// into the local reconcile queue, breaking pull-model isolation. It is
+	// always set; the listing refuses to run without it.
 	clusterID string
 }
 
@@ -115,9 +115,9 @@ type GatewayReleaseReconciler struct {
 // gateways; gwQueue is the shared gateway reconcile queue used to propagate image
 // changes. Either dependency may be nil (e.g. when the controller runs without a
 // Kubernetes client), in which case propagation is skipped but validation and
-// status write-back still run. clusterID is this control plane's managed-cluster
-// identity (empty in single-cluster mode); it scopes the fan-out's gateway
-// listing so a spoke never force-reconciles another cluster's gateways.
+// status write-back still run. clusterID is this control plane's registered
+// managed-cluster identity; it scopes the fan-out's gateway listing so a control
+// plane never force-reconciles another cluster's gateways.
 func NewGatewayReleaseReconciler(conn *grpc.ClientConn, gwQueue gatewayEnqueuer, clusterID string) *GatewayReleaseReconciler {
 	r := &GatewayReleaseReconciler{
 		lastImage: make(map[string]string),
@@ -241,8 +241,7 @@ func (r *GatewayReleaseReconciler) propagateToGateways(ctx context.Context, rele
 
 // listGatewaysForRelease returns every gateway whose release_id references the
 // given release. It reuses listAllGateways so the listing is scoped to this
-// control plane's cluster (via r.clusterID): on a managed-cluster spoke this
-// prevents matching and force-enqueuing gateways owned by other clusters, which
+// control plane's cluster (via r.clusterID): this prevents matching and force-enqueuing gateways owned by other clusters, which
 // would violate pull-model isolation. Filtering by release_id is done
 // client-side; a server-side filter is a scale follow-up.
 func (r *GatewayReleaseReconciler) listGatewaysForRelease(ctx context.Context, releaseID string) ([]*pb.Gateway, error) {
@@ -1148,17 +1147,24 @@ func gatewayNamespace(gw *pb.Gateway) (string, error) {
 // page size so the common (small-fleet) case completes in a single request.
 const gatewayListPageSize = 500
 
-// listAllGateways pages through the gRPC gateway inventory and returns every
-// gateway. The list endpoint is server-side paginated (default page size 20),
-// so callers that must reason about the whole fleet (the namespace reaper and
-// the health reconciler) cannot rely on a single unpaged request.
+// listAllGateways pages through the gRPC gateway inventory of this control
+// plane's registered cluster and returns every gateway in it. The list endpoint
+// is server-side paginated (default page size 20), so callers that must reason
+// about the whole set (the namespace reaper and the health reconciler) cannot
+// rely on a single unpaged request. The cluster filter is mandatory: an empty
+// clusterID fails with watcher.ErrMissingClusterID, and the api-server rejects an
+// unfiltered list from a registered control plane.
 func listAllGateways(ctx context.Context, client pb.GatewayServiceClient, clusterID string) ([]*pb.Gateway, error) {
+	clusterFilter, err := watcher.ClusterFilter(clusterID)
+	if err != nil {
+		return nil, err
+	}
 	var all []*pb.Gateway
 	for page := int32(1); ; page++ {
 		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{
 			Page:      page,
 			Size:      gatewayListPageSize,
-			ClusterId: watcher.OptionalClusterID(clusterID),
+			ClusterId: clusterFilter,
 		})
 		if err != nil {
 			return nil, err

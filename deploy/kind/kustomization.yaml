@@ -52,6 +52,13 @@ patches:
                   # with no overlay override or pre-load needed. Override
                   # HYPERSHELL_CONSOLE_IMAGE / HYPERSHELL_OAUTH2_PROXY_IMAGE only
                   # to test a different build.
+                  # Every control plane is a registered spoke: it registers this
+                  # name with its OIDC client credentials at startup and scopes
+                  # all gateway watches to the returned cluster_id. Seeding
+                  # (scripts/kind/seed.sh) waits for this record instead of
+                  # creating it (managed-cluster-registration.spec.md).
+                  - name: HYPERSHELL_MANAGED_CLUSTER_NAME
+                    value: "local-kind"
                   - name: OIDC_ISSUER
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
                   - name: OIDC_CLIENT_ID
@@ -150,7 +157,7 @@ patches:
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"
       - op: add
         path: /spec/template/spec/containers/0/command/-
-        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks"
+        value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/"
   # --- API server: select the development_oidc environment + enforce RBAC ---
   # The binary's default `development` environment force-disables JWT in its
   # OverrideConfig, which overrides the --enable-jwt=true flag above. The
@@ -166,10 +173,14 @@ patches:
   #
   # RBAC_SERVICE_ACCOUNTS bypasses the gRPC RBAC interceptor for the control
   # plane's service account. The control plane writes gateway status via the
-  # gRPC UpdateGateway method (not bypassed by --auth-bypass-methods, which only
-  # covers Watch*), but the gRPC provisioning path never syncs JWT roles
+  # gRPC UpdateGateway method (every gRPC method but health and reflection
+  # requires a JWT; --auth-bypass-methods exempts no hypershell RPC), but the
+  # gRPC provisioning path never syncs JWT roles
   # (pkg/rbac/grpc_interceptor.go), so the SA can never earn a gateway:creator
   # binding. The bypass is the supported mechanism for trusted service accounts.
+  # It is only the bootstrap fallback: a control plane that has registered is a
+  # control-plane identity by its JWT sub (managed-cluster-registration.spec.md,
+  # "Control-Plane Identity"), so additional control planes need no entry here.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment

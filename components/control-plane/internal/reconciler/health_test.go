@@ -2,6 +2,8 @@ package reconciler
 
 import (
 	"context"
+	"errors"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -823,7 +825,7 @@ func TestListAllGateways_Pagination(t *testing.T) {
 		},
 	}
 
-	got, err := listAllGateways(context.Background(), client, "")
+	got, err := listAllGateways(context.Background(), client, "mc1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -869,7 +871,7 @@ func TestListAllGateways_SinglePage(t *testing.T) {
 		},
 	}
 
-	got, err := listAllGateways(context.Background(), client, "")
+	got, err := listAllGateways(context.Background(), client, "mc1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -882,38 +884,40 @@ func TestListAllGateways_SinglePage(t *testing.T) {
 }
 
 func TestListAllGateways_ClusterIDFilter(t *testing.T) {
-	// A non-empty clusterID must be sent as the request's optional cluster_id so
-	// the api-server scopes the listing server-side (the pull-model boundary); an
-	// empty clusterID must send nil so the single-cluster default lists all.
-	tests := []struct {
-		name      string
-		clusterID string
-		wantSet   bool
-	}{
-		{name: "scoped", clusterID: "2abc", wantSet: true},
-		{name: "unscoped", clusterID: "", wantSet: false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var gotClusterID *string
-			client := &fakeGatewayClient{
-				listFn: func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
-					gotClusterID = in.ClusterId
-					return &pb.ListGatewaysResponse{Metadata: &pb.ListMeta{Total: 0}}, nil
-				},
-			}
-			if _, err := listAllGateways(context.Background(), client, tc.clusterID); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if tc.wantSet {
-				if gotClusterID == nil || *gotClusterID != tc.clusterID {
-					t.Fatalf("cluster_id = %v, want %q", gotClusterID, tc.clusterID)
-				}
-			} else if gotClusterID != nil {
-				t.Fatalf("cluster_id = %q, want unset", *gotClusterID)
-			}
-		})
-	}
+	// The clusterID must be sent as the request's cluster_id so the api-server
+	// scopes the listing server-side (the pull-model boundary). There is no
+	// unfiltered mode: an empty clusterID is refused before any RPC.
+	t.Run("scoped", func(t *testing.T) {
+		var gotClusterID *string
+		client := &fakeGatewayClient{
+			listFn: func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+				gotClusterID = in.ClusterId
+				return &pb.ListGatewaysResponse{Metadata: &pb.ListMeta{Total: 0}}, nil
+			},
+		}
+		if _, err := listAllGateways(context.Background(), client, "2abc"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotClusterID == nil || *gotClusterID != "2abc" {
+			t.Fatalf("cluster_id = %v, want %q", gotClusterID, "2abc")
+		}
+	})
+	t.Run("empty is refused", func(t *testing.T) {
+		called := false
+		client := &fakeGatewayClient{
+			listFn: func(ctx context.Context, in *pb.ListGatewaysRequest, opts ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+				called = true
+				return &pb.ListGatewaysResponse{Metadata: &pb.ListMeta{Total: 0}}, nil
+			},
+		}
+		_, err := listAllGateways(context.Background(), client, "")
+		if !errors.Is(err, watcher.ErrMissingClusterID) {
+			t.Fatalf("err = %v, want ErrMissingClusterID", err)
+		}
+		if called {
+			t.Fatal("ListGateways must not be called without a cluster id")
+		}
+	})
 }
 
 func TestListAllGateways_Empty(t *testing.T) {
@@ -928,7 +932,7 @@ func TestListAllGateways_Empty(t *testing.T) {
 		},
 	}
 
-	got, err := listAllGateways(context.Background(), client, "")
+	got, err := listAllGateways(context.Background(), client, "mc1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

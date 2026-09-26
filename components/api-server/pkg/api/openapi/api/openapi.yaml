@@ -144,7 +144,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-          description: ManagedCluster already exists
+          description: A ManagedCluster with this name already exists (names are unique
+            across all records)
         "500":
           content:
             application/json:
@@ -160,7 +161,9 @@ paths:
         Idempotent. Creates a ManagedCluster record on first call; returns the existing
         cluster_id on subsequent calls from the same OIDC identity. Updates last_seen_at
         on every call, making this endpoint double as a heartbeat. Requires the
-        managed-cluster-registrar Keycloak realm role.
+        managed-cluster-registrar Keycloak realm role. Registration never adopts an
+        existing record: a name held by a record with a different or empty
+        oidc_subject is a 409 Conflict.
       operationId: registerManagedCluster
       requestBody:
         content:
@@ -205,7 +208,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-          description: Same OIDC subject already registered under a different name
+          description: |
+            The same OIDC subject is already registered under a different name, or the
+            requested name is held by a record with a different or empty oidc_subject
+            (another control plane, or a record created with POST /managed_clusters).
+            The error reason names the existing record's id; an operator must delete it
+            (and re-point any gateways that reference it) before this control plane can
+            register under that name.
         "500":
           content:
             application/json:
@@ -214,7 +223,7 @@ paths:
           description: Unexpected error
       security:
       - Bearer: []
-      summary: Self-register a spoke control-plane as a managed cluster
+      summary: Self-register a control plane as a managed cluster
   /api/hypershell/v1/managed_clusters/{id}:
     delete:
       operationId: deleteManagedCluster
@@ -741,7 +750,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-          description: Validation errors occurred
+          description: |
+            Validation errors occurred, including a cluster_id that is empty or does not
+            reference a ManagedCluster with a registered control plane (non-empty
+            oidc_subject). On update, cluster_id is validated only when it changes.
         "401":
           content:
             application/json:
@@ -886,7 +898,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-          description: Validation errors occurred
+          description: |
+            Validation errors occurred, including a cluster_id that is empty or does not
+            reference a ManagedCluster with a registered control plane (non-empty
+            oidc_subject). On update, cluster_id is validated only when it changes.
         "401":
           content:
             application/json:

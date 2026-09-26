@@ -109,7 +109,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:creator` | global | Keycloak JWT | Can create gateways; auto-becomes `gateway:owner` on creation |
 | `gateway:owner` | per gateway | DB (app logic) | Full CRUD on one gateway; can grant `gateway:owner` and `gateway:viewer` to others |
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway |
-| `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a spoke control-plane service account to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
+| `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 
 ### Permission Matrix
 
@@ -391,6 +391,14 @@ and evaluate permissions using the same role-based logic as the HTTP middleware.
 The middleware SHALL provision users and sync JWT roles on gRPC requests identically
 to HTTP requests.
 
+Control-plane identities are exempt from gRPC role-binding authorization: a username on
+the `RBAC_SERVICE_ACCOUNTS` allowlist (the bootstrap fallback), or a caller whose JWT
+`sub` is the `oidc_subject` of a registered ManagedCluster
+(`platform/managed-cluster-registration.spec.md`, "Control-Plane Identity"). When the
+allowlist is set, the control-plane-only methods (`AdjustActiveSandboxCount`,
+`SetActiveSandboxCount`, `SetGatewayVersion`) are denied to every other caller whatever
+its role bindings.
+
 #### Scenario: Platform admin watches gateways via gRPC
 
 - GIVEN user A has `platform:admin` (from Keycloak)
@@ -540,7 +548,7 @@ Applying this to a cluster requires that Keycloak realm roles are configured fir
 1. Define `gateway:creator`, `platform:admin`, and `managed-cluster-registrar` realm roles in Keycloak.
 2. Assign `gateway:creator` to users and service accounts that need to create gateways.
 3. Assign `platform:admin` to operators who need global view/delete access.
-4. Assign `managed-cluster-registrar` to each spoke control-plane service account.
+4. Assign `managed-cluster-registrar` to every control-plane service account, including the control plane co-located with the hub (every control plane registers; see `platform/control-plane.spec.md`).
 5. Ensure Keycloak emits these roles in the `realm_access.roles` claim.
 
 With `RBAC_DEFAULT_ROLES=` set, no authenticated principal receives any role
@@ -569,15 +577,19 @@ allow any user to call the endpoint.
 it. The role is seeded as a built-in role record (for discoverability via `GET /roles`)
 but has no DB binding lifecycle.
 
-Assigning `managed-cluster-registrar` to a spoke service account is a Keycloak admin
-function performed out-of-band before the spoke is deployed. Keycloak is the trusted
+Assigning `managed-cluster-registrar` to a control-plane service account is a Keycloak
+admin function performed out-of-band before that control plane is deployed; the
+development realms ship it pre-assigned to the `hypershell-control-plane` client. Keycloak is the trusted
 source of truth; the API server does not re-verify role assignment beyond reading the
 JWT claim.
 
 **Isolation guarantee:** In production (`RBAC_DEFAULT_ROLES=`, `RBAC_ENFORCE=true`),
 a spoke service account holding only `managed-cluster-registrar` has no gateway
-permissions. No role is auto-assigned; the spoke's access is exactly what Keycloak
-grants. This is the required production configuration.
+permissions through the HTTP API. No role is auto-assigned; the spoke's HTTP access is
+exactly what Keycloak grants. This is the required production configuration. Once the
+spoke registers, its JWT `sub` is a control-plane identity on the gRPC API: the gRPC
+interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry (see
+`platform/managed-cluster-registration.spec.md`, "Control-Plane Identity").
 
 #### Scenario: Spoke with role can self-register
 
@@ -600,7 +612,7 @@ grants. This is the required production configuration.
 - AND a spoke service account has only `managed-cluster-registrar` assigned in Keycloak
 - WHEN it calls `GET /api/hypershell/v1/gateways`
 - THEN the response is 200 with an empty items array
-- AND the spoke cannot create, modify, or delete any gateway
+- AND the spoke cannot create, modify, or delete any gateway through the HTTP API
 
 ### Requirement: Integration Test Coverage
 

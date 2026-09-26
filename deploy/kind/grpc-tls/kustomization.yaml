@@ -1,0 +1,19 @@
+# Kind-only gRPC TLS component (specs/platform/hub-grpc-tls.spec.md, "Kind
+# Smoke Test"). It turns the api-server's gRPC listener TLS-only with a
+# certificate from the cluster's own cert-manager CA and points the control
+# plane at it through a name the transport classifier treats as external, so
+# the TLS dial path a production spoke uses runs end to end on a laptop.
+# `make kind-grpc-tls-smoke` applies these same files to a running cluster with
+# kubectl; include the component in an overlay to bake TLS in from the start.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - certificate.yaml
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: hypershell-api-server
+    path: api-server.patch.json
+  - path: controller.patch.yaml

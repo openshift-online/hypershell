@@ -9,6 +9,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
@@ -16,6 +17,7 @@ import (
 	"github.com/openshift-online/rh-trex-ai/pkg/controllers"
 	"github.com/openshift-online/rh-trex-ai/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/pkg/services"
@@ -44,6 +46,27 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 	}
 }
 
+// The roleBindings plugin resolves a binding's gateway to its cluster through
+// this locator (it cannot import this package, which imports roleBindings).
+var _ roleBindings.GatewayClusterLookupSource = ServiceLocator{}
+
+// GatewayClusterLookup returns the managed cluster a gateway is assigned to,
+// including soft-deleted gateways, so the RoleBinding watch and list can scope
+// bindings to a cluster by their gateway (managed-cluster-registration.spec.md,
+// "Watch Stream Caller Binding").
+func (l ServiceLocator) GatewayClusterLookup() roleBindings.GatewayClusterLookup {
+	return func(ctx context.Context, gatewayID string) (string, bool, *errors.ServiceError) {
+		gateway, svcErr := l.gateway().GetUnscoped(ctx, gatewayID)
+		if svcErr != nil {
+			if svcErr.Is404() {
+				return "", false, nil
+			}
+			return "", false, svcErr
+		}
+		return gateway.ClusterId, true, nil
+	}
+}
+
 func Service(s *environments.Services) GatewayService {
 	if s == nil {
 		return nil
@@ -64,6 +87,27 @@ func listService(s *environments.Services) services.GenericService {
 		return locator.list
 	}
 	return nil
+}
+
+// registeredClusterLookup resolves cluster_id references through the
+// managedClusters plugin's service, looked up per call so it follows the
+// environment's service registry. It returns nil when the plugin is absent, which
+// validateClusterReference treats as fail-closed.
+func registeredClusterLookup(s *environments.Services) RegisteredClusterLookup {
+	if s == nil || s.GetService("ManagedClusters") == nil {
+		return nil
+	}
+	return func(ctx context.Context, id string) (bool, *errors.ServiceError) {
+		svc := managedClusters.Service(s)
+		if svc == nil {
+			return false, errors.GeneralError("managed cluster service is not available")
+		}
+		cluster, svcErr := svc.GetRegistered(ctx, id)
+		if svcErr != nil {
+			return false, svcErr
+		}
+		return cluster != nil, nil
+	}
 }
 
 func init() {
@@ -88,7 +132,7 @@ func init() {
 			})
 			ownerLookup = rbService
 		}
-		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup)
+		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, registeredClusterLookup(envServices))
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)
@@ -128,7 +172,7 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterGatewayServiceServer(grpcServer, NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc))
+		pb.RegisterGatewayServiceServer(grpcServer, NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices)))
 	})
 
 	presenters.RegisterPath(Gateway{}, "gateways")

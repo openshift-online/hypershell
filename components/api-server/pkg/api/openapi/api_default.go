@@ -4398,12 +4398,14 @@ func (r ApiRegisterManagedClusterRequest) Execute() (*ManagedClusterRegistration
 }
 
 /*
-RegisterManagedCluster Self-register a spoke control-plane as a managed cluster
+RegisterManagedCluster Self-register a control plane as a managed cluster
 
 Idempotent. Creates a ManagedCluster record on first call; returns the existing
 cluster_id on subsequent calls from the same OIDC identity. Updates last_seen_at
 on every call, making this endpoint double as a heartbeat. Requires the
-managed-cluster-registrar Keycloak realm role.
+managed-cluster-registrar Keycloak realm role. Registration never adopts an
+existing record: a name held by a record with a different or empty
+oidc_subject is a 409 Conflict.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiRegisterManagedClusterRequest

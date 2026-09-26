@@ -16,7 +16,16 @@ message RoleBinding {
   string username = 7;
 }
 
-message WatchRoleBindingsRequest {}
+message WatchRoleBindingsRequest {
+  // cluster_id, when set, restricts the stream to bindings whose gateway is
+  // assigned to that managed cluster (scoping is by the binding's gateway's
+  // cluster_id). Global bindings (no gateway_id) are not delivered under the
+  // filter. Because the event broker fans every binding out to every
+  // subscriber, this filter is the security boundary that keeps a spoke's
+  // stream scoped to its own cluster; a registered caller must set it to its
+  // own cluster id (see WatchGatewaysRequest.cluster_id).
+  optional string cluster_id = 1;
+}
 
 message WatchRoleBindingsResponse {
   EventType type = 1;
@@ -30,6 +39,11 @@ message ListRoleBindingsRequest {
   optional string user_id = 1;
   // Optional additional filter to a single gateway.
   optional string gateway_id = 2;
+  // cluster_id, when set, excludes bindings whose gateway is not assigned to
+  // that managed cluster, and excludes global bindings (no gateway_id). Same
+  // semantics as WatchRoleBindingsRequest.cluster_id; a registered caller must
+  // set it to its own cluster id.
+  optional string cluster_id = 3;
 }
 
 message ListRoleBindingsResponse {

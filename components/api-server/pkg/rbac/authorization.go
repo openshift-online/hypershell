@@ -47,22 +47,29 @@ type rbacAuthzMiddleware struct {
 	lookup           RoleBindingLookup
 	config           AuthzConfig
 	activityRecorder DailyActivityRecorder
+	clusters         RegisteredClusterResolver
 }
 
 var _ auth.AuthorizationMiddleware = &rbacAuthzMiddleware{}
 
-func NewRBACAuthzMiddleware(lookup RoleBindingLookup, config AuthzConfig, activityRecorder DailyActivityRecorder) auth.AuthorizationMiddleware {
+// NewRBACAuthzMiddleware builds the REST authorization middleware. clusters
+// resolves the caller's JWT subject to a registered ManagedCluster so that a
+// control plane is treated like an RBAC_SERVICE_ACCOUNTS entry: it is never
+// recorded as a daily-active user. As for allowlisted accounts, it gets no REST
+// role-binding bypass (control_plane_identity.go). clusters may be nil.
+func NewRBACAuthzMiddleware(lookup RoleBindingLookup, config AuthzConfig, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver) auth.AuthorizationMiddleware {
 	return &rbacAuthzMiddleware{
 		lookup:           lookup,
 		config:           config,
 		activityRecorder: activityRecorder,
+		clusters:         clusters,
 	}
 }
 
 func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !m.config.EnforceRBAC {
-			recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.activityRecorder)
+			recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.clusters, m.activityRecorder)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -125,12 +132,16 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 			return
 		}
 
-		recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.activityRecorder)
+		recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.clusters, m.activityRecorder)
 		next.ServeHTTP(w, r)
 	})
 }
 
-func recordAuthorizedDailyActivity(ctx context.Context, r *http.Request, serviceAccounts []string, activityRecorder DailyActivityRecorder) {
+// recordAuthorizedDailyActivity records the caller as a daily-active user
+// unless it is a control-plane identity: an allowlisted account, or a
+// registered managed cluster per clusters. A cluster lookup failure skips the
+// record; it never fails the request.
+func recordAuthorizedDailyActivity(ctx context.Context, r *http.Request, serviceAccounts []string, clusters RegisteredClusterResolver, activityRecorder DailyActivityRecorder) {
 	if activityRecorder == nil || isExemptEndpoint(r) {
 		return
 	}
@@ -145,6 +156,9 @@ func recordAuthorizedDailyActivity(ctx context.Context, r *http.Request, service
 
 	userID := GetUserIDFromContext(ctx)
 	if userID == "" {
+		return
+	}
+	if registered, err := registeredClusterCaller(ctx, clusters, subjectFromVerifiedToken(ctx)); err != nil || registered {
 		return
 	}
 

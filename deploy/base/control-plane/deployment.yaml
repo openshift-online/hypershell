@@ -19,6 +19,10 @@ spec:
       containers:
         - name: control-plane
           image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main:latest
+          # HYPERSHELL_MANAGED_CLUSTER_NAME and OIDC_ISSUER / OIDC_CLIENT_ID /
+          # OIDC_CLIENT_SECRET are required and must be supplied by the
+          # consuming overlay; the control plane exits at startup without them
+          # (see deploy/base/controller.yaml and control-plane.spec.md).
           env:
             - name: HYPERSHELL_GRPC_SERVER_ADDR
               value: "hypershell-api-server:9000"

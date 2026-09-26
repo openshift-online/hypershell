@@ -42,7 +42,7 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 	badPhase := "Booting"
 	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "reject-create",
-		ClusterId: "test-cluster_id",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release_id",
 		Phase:     &badPhase,
 	})
@@ -53,7 +53,7 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 	goodPhase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "accept-create",
-		ClusterId: "test-cluster_id",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release_id",
 		Phase:     &goodPhase,
 	})
@@ -83,7 +83,7 @@ func TestGRPCGatewayRejectsUnknownPhase(t *testing.T) {
 	// An absent phase is accepted so the field stays optional.
 	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "accept-absent-phase",
-		ClusterId: "test-cluster_id",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release_id",
 	})
 	Expect(err).NotTo(HaveOccurred(), "create without a phase must be accepted")
@@ -125,7 +125,7 @@ func TestRESTGatewayRejectsUnknownPhase(t *testing.T) {
 
 	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
 		Name:      "reject-rest-create",
-		ClusterId: "test-cluster_id",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release_id",
 		Phase:     openapi.PtrString("Booting"),
 	}).Execute()

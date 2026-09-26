@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -62,6 +63,7 @@ func newTestReleaseReconciler(gw pb.GatewayServiceClient, rel pb.GatewayReleaseS
 		gateways:  gw,
 		releases:  rel,
 		gwQueue:   q,
+		clusterID: "mc1",
 	}
 }
 
@@ -203,7 +205,7 @@ func TestGatewayRelease_ImageChangeFansOutToReferencingGatewaysOnly(t *testing.T
 	}
 }
 
-// On a managed-cluster spoke (clusterID set) the release fan-out MUST scope its
+// The release fan-out MUST scope its
 // gateway listing server-side to its own cluster; otherwise it would match and
 // force-enqueue gateways owned by other clusters, breaking pull-model isolation.
 func TestGatewayRelease_FanOutIsClusterScoped(t *testing.T) {
@@ -234,28 +236,24 @@ func TestGatewayRelease_FanOutIsClusterScoped(t *testing.T) {
 	}
 }
 
-// In single-cluster mode (empty clusterID) the fan-out list carries no ClusterId
-// filter, so every gateway in the fleet is a candidate.
-func TestGatewayRelease_FanOutSingleClusterHasNoFilter(t *testing.T) {
+// There is no single-cluster mode: a release reconciler without a registered
+// cluster id must refuse the fan-out listing rather than list the whole fleet.
+func TestGatewayRelease_FanOutWithoutClusterIDIsRefused(t *testing.T) {
 	rel := &fakeReleaseClient{}
 	gw := &fakeReleaseGatewayClient{gateways: []*pb.Gateway{gatewayWithRelease("g1", "r1")}}
 	q := &recordingEnqueuer{}
 	r := newTestReleaseReconciler(gw, rel, q)
+	r.clusterID = ""
 
 	if err := r.Handle(context.Background(), releaseEvent(watcher.EventCreated, "r1", "registry.redhat.io/openshell/gateway:v1", releaseStatusAvailable)); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if err := r.Handle(context.Background(), releaseEvent(watcher.EventUpdated, "r1", "registry.redhat.io/openshell/gateway:v2", releaseStatusAvailable)); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	err := r.Handle(context.Background(), releaseEvent(watcher.EventUpdated, "r1", "registry.redhat.io/openshell/gateway:v2", releaseStatusAvailable))
+	if !errors.Is(err, watcher.ErrMissingClusterID) {
+		t.Fatalf("fan-out without a cluster id: err = %v, want ErrMissingClusterID", err)
 	}
-
-	if len(gw.gotClusterIDs) == 0 {
-		t.Fatalf("expected at least one ListGateways call")
-	}
-	for i, got := range gw.gotClusterIDs {
-		if got != nil {
-			t.Fatalf("ListGateways call %d carried ClusterId=%q, want nil (single-cluster)", i, *got)
-		}
+	if len(gw.gotClusterIDs) != 0 {
+		t.Fatalf("ListGateways was called %d time(s) without a cluster id", len(gw.gotClusterIDs))
 	}
 }
 

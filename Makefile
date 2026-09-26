@@ -504,6 +504,13 @@ kind-gateway-trust:
 kind-openshell:
 	@scripts/kind/openshell.sh $(ARGS)
 
+# Turn on gRPC TLS on the Kind api-server, verify the control plane's TLS dial
+# end to end, then restore plaintext (KEEP=true keeps it on; ARGS=revert
+# restores it). See specs/platform/hub-grpc-tls.spec.md.
+.PHONY: kind-grpc-tls-smoke
+kind-grpc-tls-smoke:
+	@scripts/kind/grpc-tls-smoke.sh $(ARGS)
+
 # ============================================================================
 # OpenShift cluster lifecycle - shell logic lives in scripts/cluster/
 # ============================================================================

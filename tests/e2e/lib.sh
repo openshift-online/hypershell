@@ -371,6 +371,36 @@ for it in items:
 "
 }
 
+# Id of a ManagedCluster registered by a control plane (non-empty oidc_subject)
+# from a HyperShell list JSON body on stdin. When a name is given, only that
+# record qualifies; otherwise the first registered record. Manually created
+# records (empty oidc_subject) are never selected: the gateway API rejects them
+# as cluster_id because no control plane serves them.
+e2e_json_registered_cluster_id() {
+  WANT_NAME="${1:-}" python3 -c "
+import json, sys, os
+name = os.environ.get('WANT_NAME', '')
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if isinstance(data, dict):
+    if data.get('kind') == 'Error':
+        sys.exit(0)
+    items = data.get('items') or []
+elif isinstance(data, list):
+    items = data
+else:
+    items = []
+for it in items:
+    if not isinstance(it, dict) or not (it.get('oidc_subject') or ''):
+        continue
+    if not name or it.get('name', '') == name:
+        print(it.get('id', '') or '')
+        break
+"
+}
+
 # One-line summary of a HyperShell list (or error) JSON body on stdin.
 # Distinguishes empty lists from 401/403 Error payloads and unparseable bodies
 # so seed-discovery failures are not just "id=<empty>".
@@ -491,29 +521,34 @@ else:
 " 2>/dev/null)" || true
 }
 
-# Discover the seeded cluster and release ids via the API.
+# Discover the cluster and release ids via the API.
 # Sets E2E_CLUSTER_ID, E2E_RELEASE_ID. Gateway databases are provisioned by the
 # control plane from its mounted admin Secret and need no seed id.
 # Requires API_HOST and api_curl. Never hardcodes ids.
 #
-# Name pins (optional): E2E_SEED_CLUSTER_NAME, E2E_SEED_RELEASE_NAME.
-# On kind these default to the make kind-up seeds (local-kind, dev-release).
-# On openshift they default to the make openshift-seed names (local-openshift,
-# dev-release). When a name is unset, the first list item is used - that matches
-# single-seed CI/dev; multi-seed clusters should set the name pins instead
-# of relying on API order.
+# The cluster is the ManagedCluster the environment's control plane registered
+# itself (non-empty oidc_subject); seeding never creates it, and the gateway API
+# rejects a cluster_id that is empty or not registered.
 #
-# When both cluster and release lists are empty collections (not an API Error),
-# and E2E_AUTO_SEED is not 0, discovery runs `SEED_STRICT=true make <driver>-seed`
+# Name pins (optional): E2E_SEED_CLUSTER_NAME, E2E_SEED_RELEASE_NAME.
+# On kind these default to the control plane's registered name and the
+# make kind-up release (local-kind, dev-release). On openshift they default to
+# local-openshift, dev-release. When a name is unset, the first registered
+# cluster / first release is used - that matches single-control-plane CI/dev;
+# multi-cluster environments should set the name pins instead of relying on API
+# order.
+#
+# When the release list is an empty collection (not an API Error) and
+# E2E_AUTO_SEED is not 0, discovery runs `SEED_STRICT=true make <driver>-seed`
 # once and retries. That recovers a PR env whose last openshift-up wiped the
-# database and failed before the seed step.
+# database and failed before the seed step. (The cluster list is never empty on
+# a running environment: the control plane re-registers every minute.)
 e2e_summary_is_empty_list() {
   [[ "${1:-}" == kind=*List* && "${1:-}" == *"items=0"* ]]
 }
 
 e2e_inventory_unseeded() {
-  e2e_summary_is_empty_list "${_E2E_CLUSTER_LIST_SUMMARY:-}" \
-    && e2e_summary_is_empty_list "${_E2E_RELEASE_LIST_SUMMARY:-}"
+  e2e_summary_is_empty_list "${_E2E_RELEASE_LIST_SUMMARY:-}"
 }
 
 e2e_auto_seed_enabled() {
@@ -523,16 +558,18 @@ e2e_auto_seed_enabled() {
   esac
 }
 
-# E2E_ALLOW_UNSEEDED lets the suite run against a platform that has no registered
-# managed cluster and no published gateway release. The gateway API does not
-# require either id: the control plane assigns database placement server-side and
-# resolves an empty release_id to the platform default gateway image
-# (GATEWAY_IMAGE), while an empty cluster_id disables the server-side cluster
-# filter so a single control plane still reconciles the gateway. This is the
-# behavior a default user gets, and it lets a post-rollout release check verify
-# an already-deployed environment without registering inventory or provisioning
-# anything. Default (unset/0) preserves the seed-required behavior: ids must be
-# discovered (and optionally auto-seeded) before a gateway is created.
+# E2E_ALLOW_UNSEEDED lets the suite run against a platform that has no seeded
+# gateway release. The gateway API resolves an empty release_id to the platform
+# default gateway image (GATEWAY_IMAGE), and the control plane assigns database
+# placement server-side. cluster_id is NOT optional: every control plane
+# registers its own ManagedCluster and reconciles only gateways assigned to it,
+# and the API rejects an empty or unregistered cluster_id. In unseeded mode the
+# cluster is therefore still discovered - by E2E_SEED_CLUSTER_NAME, or the first
+# record with a non-empty oidc_subject - and its absence is an error. This lets
+# a post-rollout release check verify an already-deployed environment without
+# seeding or provisioning anything. Default (unset/0) preserves the
+# seed-required behavior: both ids must be discovered (and optionally
+# auto-seeded) before a gateway is created.
 e2e_allow_unseeded() {
   case "${E2E_ALLOW_UNSEEDED:-0}" in
     1|true|TRUE|yes|YES) return 0 ;;
@@ -581,7 +618,7 @@ e2e_fetch_seed_ids() {
   clusters=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters" 2>/dev/null || true)
   releases=$(api_curl "${API_HOST}/api/hypershell/v1/gateway_releases" 2>/dev/null || true)
 
-  E2E_CLUSTER_ID=$(echo "$clusters" | e2e_json_first_id "${E2E_SEED_CLUSTER_NAME}")
+  E2E_CLUSTER_ID=$(echo "$clusters" | e2e_json_registered_cluster_id "${E2E_SEED_CLUSTER_NAME}")
   E2E_RELEASE_ID=$(echo "$releases" | e2e_json_first_id "${E2E_SEED_RELEASE_NAME}")
   _E2E_CLUSTER_LIST_SUMMARY=$(echo "$clusters" | e2e_json_list_summary)
   _E2E_RELEASE_LIST_SUMMARY=$(echo "$releases" | e2e_json_list_summary)
@@ -613,14 +650,19 @@ e2e_seed_ids_ready() {
 }
 
 # Fill any missing seed ids from the API. Rediscover when cluster is set but
-# release is not (or the reverse). When E2E_ALLOW_UNSEEDED is set, treat seed ids
-# as best-effort: use them if the platform already has inventory, but never
-# require them and never auto-seed. Any id left empty is sent as an empty string,
-# which the gateway API accepts (default image + default placement).
+# release is not (or the reverse). When E2E_ALLOW_UNSEEDED is set, the release id
+# is best-effort (never required, never auto-seeded; an empty release_id means
+# the platform default image), but the registered cluster id is still required.
 e2e_ensure_seed_ids() {
   e2e_seed_ids_ready && return 0
   if e2e_allow_unseeded; then
     e2e_fetch_seed_ids || true
+    if [[ -z "${E2E_CLUSTER_ID:-}" ]]; then
+      red "ERROR: no registered ManagedCluster found (E2E_ALLOW_UNSEEDED does not make cluster_id optional)"
+      dim "  cluster=${E2E_SEED_CLUSTER_NAME:-<first registered>} (${_E2E_CLUSTER_LIST_SUMMARY:-unknown})"
+      dim "  Every control plane registers itself; check the controller log for its registration"
+      return 1
+    fi
     return 0
   fi
   e2e_discover_seed_ids

@@ -5,6 +5,8 @@ import (
 	stderrors "errors"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/api"
@@ -25,8 +27,19 @@ type ManagedClusterService interface {
 
 	FindByIDs(ctx context.Context, ids []string) (ManagedClusterList, *errors.ServiceError)
 	// Register upserts a ManagedCluster by (oidcSubject, name). Returns the cluster,
-	// whether it was newly created (true=201, false=200), and any error.
+	// whether it was newly created (true=201, false=200), and any error. A name
+	// held by a record with a different or empty oidc_subject, or a subject
+	// already registered under another name, is a 409 Conflict: registration
+	// never creates a duplicate name and never adopts an existing record.
 	Register(ctx context.Context, name, description, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError)
+	// FindRegisteredBySubject returns the ManagedCluster a control plane
+	// registered under the given OIDC subject, or (nil, nil) when the subject
+	// has not registered. An empty subject never matches.
+	FindRegisteredBySubject(ctx context.Context, oidcSubject string) (*ManagedCluster, *errors.ServiceError)
+	// GetRegistered returns the ManagedCluster with the given id only when a
+	// control plane registered it (non-empty oidc_subject). It returns (nil, nil)
+	// when no such record exists or the record was created manually.
+	GetRegistered(ctx context.Context, id string) (*ManagedCluster, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
 	OnDelete(ctx context.Context, id string) error
@@ -170,7 +183,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 
 	if existing != nil {
 		if existing.Name != name {
-			return nil, false, errors.Conflict("managed cluster already registered under a different name %q", existing.Name)
+			return nil, false, errors.Conflict("managed cluster already registered under a different name %q (record %s); a control plane may not change its registered name without an operator deleting that record", existing.Name, existing.ID)
 		}
 		now := time.Now()
 		existing.LastSeenAt = &now
@@ -179,6 +192,19 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 			return nil, false, services.HandleUpdateError("ManagedCluster", replaceErr)
 		}
 		return updated, false, nil
+	}
+
+	// Name Collision Is a Conflict: a record with this name that this subject
+	// does not own (another control plane's, or a manual POST /managed_clusters
+	// placeholder with an empty oidc_subject) is never adopted, because gateways
+	// may already reference its id. The unique index on name backs this check
+	// against a concurrent registration by a different subject.
+	holder, nameErr := s.managedClusterDao.FindByName(ctx, name)
+	if nameErr != nil && !stderrors.Is(nameErr, gorm.ErrRecordNotFound) {
+		return nil, false, errors.GeneralError("registration lookup failed: %s", nameErr)
+	}
+	if holder != nil {
+		return nil, false, nameCollisionConflict(holder)
 	}
 
 	now := time.Now()
@@ -190,6 +216,14 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 	cluster.CaptureTraceContext(ctx)
 	created, createErr := s.managedClusterDao.Create(ctx, cluster)
 	if createErr != nil {
+		// A concurrent registration by another subject can win the name between
+		// the lookup above and this insert; the unique index turns that race
+		// into a conflict, reported with the winner's id when it can be read.
+		if isUniqueViolation(createErr) {
+			if winner, err := s.managedClusterDao.FindByName(ctx, name); err == nil && winner != nil {
+				return nil, false, nameCollisionConflict(winner)
+			}
+		}
 		return nil, false, services.HandleCreateError("ManagedCluster", createErr)
 	}
 
@@ -203,4 +237,66 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 	}
 
 	return created, true, nil
+}
+
+func (s *sqlManagedClusterService) FindRegisteredBySubject(ctx context.Context, oidcSubject string) (*ManagedCluster, *errors.ServiceError) {
+	if oidcSubject == "" {
+		return nil, nil
+	}
+	cluster, err := s.managedClusterDao.FindByOIDCSubject(ctx, oidcSubject)
+	if err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, errors.GeneralError("managed cluster lookup by subject failed: %s", err)
+	}
+	return cluster, nil
+}
+
+func (s *sqlManagedClusterService) GetRegistered(ctx context.Context, id string) (*ManagedCluster, *errors.ServiceError) {
+	if id == "" {
+		return nil, nil
+	}
+	cluster, err := s.managedClusterDao.Get(ctx, id)
+	if err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, errors.GeneralError("managed cluster lookup failed: %s", err)
+	}
+	if cluster.OIDCSubject == "" {
+		return nil, nil
+	}
+	return cluster, nil
+}
+
+// nameCollisionConflict is the 409 for a registration whose name is held by a
+// record this OIDC subject does not own. The message names the record and the
+// operator action required, per managed-cluster-registration.spec.md.
+func nameCollisionConflict(holder *ManagedCluster) *errors.ServiceError {
+	owner := "was created manually (empty oidc_subject)"
+	if holder.OIDCSubject != "" {
+		owner = "is registered by another control plane"
+	}
+	return errors.Conflict(
+		"managed cluster name %q is held by record %s, which %s; an operator must delete that record (and re-point any gateways that reference it) before this control plane can register under that name",
+		holder.Name, holder.ID, owner,
+	)
+}
+
+// isUniqueViolation reports whether err is PostgreSQL SQLSTATE 23505
+// (unique_violation). The GORM session uses pgx in production and lib/pq in the
+// test session, so both driver error types are checked; the message text is
+// never inspected.
+func isUniqueViolation(err error) bool {
+	const uniqueViolation = "23505"
+	var pgErr *pgconn.PgError
+	if stderrors.As(err, &pgErr) {
+		return pgErr.Code == uniqueViolation
+	}
+	var pqErr *pq.Error
+	if stderrors.As(err, &pqErr) {
+		return string(pqErr.Code) == uniqueViolation
+	}
+	return false
 }

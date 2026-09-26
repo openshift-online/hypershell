@@ -55,9 +55,10 @@ type GatewayHealthReconciler struct {
 	clientset     kubernetes.Interface
 	dynamicClient dynamic.Interface
 	grpcConn      *grpc.ClientConn
-	// clusterID scopes the health sweep to this managed cluster's gateways. When
-	// non-empty the fleet list is filtered server-side so a spoke never stamps
-	// (Degraded/Running) a gateway owned by another cluster. Empty sweeps all.
+	// clusterID scopes the health sweep to this managed cluster's gateways. The
+	// list is filtered server-side so a control plane never stamps
+	// (Degraded/Running) a gateway owned by another cluster. Always set: it is
+	// the control plane's registered cluster id.
 	clusterID             string
 	interval              time.Duration
 	exposure              exposure.Port

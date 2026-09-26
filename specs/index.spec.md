@@ -59,7 +59,8 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `standards/platform/cross-cutting.spec.md` | standards | - | ALL | - |
 | `standards/platform/naming-multitenancy.spec.md` | standards | - | ALL | cross-cutting, global-architecture |
 | `standards/control-plane/conventions.spec.md` | standards | - | CP | - |
-| `platform/managed-cluster-registration.spec.md` | platform | ManagedCluster self-registration, oidc_subject upsert, last_seen_at heartbeat loop | API, CP | data-model, rbac-enforcement, control-plane |
+| `platform/managed-cluster-registration.spec.md` | platform | ManagedCluster self-registration for every control plane, name-collision 409, gateway cluster_id validation, watch-stream caller binding, last_seen_at heartbeat loop | API, CP | data-model, rbac-enforcement, control-plane, hub-grpc-tls |
+| `platform/hub-grpc-tls.spec.md` | platform | Hub gRPC TLS-only listener, passthrough Route, DNS, authenticated watch streams before exposure (HYPERSHELL-333) | API, CP, GITOPS | control-plane, managed-cluster-registration, oidc-integration |
 | `security/rbac-enforcement.spec.md` | security | User, Role, RoleBinding, RBAC middleware | API | data-model |
 | `standards/security/security.spec.md` | standards | - | ALL | - |
 | `platform/local-development.spec.md` | platform | Kind cluster, images, Make targets | ALL | cross-cutting, security |

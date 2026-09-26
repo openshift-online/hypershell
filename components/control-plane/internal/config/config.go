@@ -28,20 +28,24 @@ type Config struct {
 	Namespace      string
 	LogLevel       string
 
-	// ClusterID is this control-plane's managed-cluster identity (a Gateway
-	// cluster_id / KSUID). When set, the control-plane restricts the gateways it
-	// watches, seeds, and health-checks to those whose cluster_id matches, so a
-	// managed-cluster spoke only ever provisions its own gateways (the pull
-	// model). Empty preserves the single-cluster behaviour of handling every
-	// gateway. Sourced from HYPERSHELL_CLUSTER_ID; in production, resolved at
-	// runtime via spoke self-registration and should NOT be set in gitops.
-	ClusterID string
-
-	// ManagedClusterName is the human-readable name of this spoke cluster, unique
-	// per fleet (e.g. hyp0-mc1). When set together with OIDC credentials, the
-	// control plane self-registers on startup, resolving ClusterID dynamically.
-	// Sourced from HYPERSHELL_MANAGED_CLUSTER_NAME.
+	// ManagedClusterName is the human-readable name this control plane
+	// registers under (e.g. hyp0-mc1, or local-kind in the Kind overlay), unique
+	// per control plane. It is REQUIRED: every control plane is a registered
+	// spoke, and its cluster_id is resolved at startup by calling
+	// POST /managed_clusters/registration with this name. There is no
+	// unregistered (unfiltered) mode, and a cluster id is never read from
+	// configuration. Sourced from HYPERSHELL_MANAGED_CLUSTER_NAME.
+	// See specs/platform/control-plane.spec.md ("Mandatory Cluster Identity").
 	ManagedClusterName string
+
+	// OIDC client credentials used both for registration and as per-RPC bearer
+	// credentials on every gRPC call (including the watch streams). All three
+	// are REQUIRED. OIDCTokenEndpoint optionally overrides the token endpoint
+	// discovered from the issuer.
+	OIDCIssuer        string
+	OIDCClientID      string
+	OIDCClientSecret  string
+	OIDCTokenEndpoint string
 
 	// ServiceAccountProvisionerAddress is the in-cluster bind address for the
 	// internal service-account provisioner gRPC server. A NetworkPolicy restricts
@@ -88,8 +92,11 @@ func Load() (*Config, error) {
 		APIServerURL:                     getEnv("HYPERSHELL_API_SERVER_URL", "http://localhost:8000"),
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
 		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
-		ClusterID:                        getEnv("HYPERSHELL_CLUSTER_ID", ""),
 		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
+		OIDCIssuer:                       getEnv("OIDC_ISSUER", ""),
+		OIDCClientID:                     getEnv("OIDC_CLIENT_ID", ""),
+		OIDCClientSecret:                 getEnv("OIDC_CLIENT_SECRET", ""),
+		OIDCTokenEndpoint:                getEnv("OIDC_TOKEN_ENDPOINT", ""),
 		ServiceAccountProvisionerAddress: getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS", ""),
 
 		NamespaceGCEnabled:     getEnvBool("GATEWAY_NAMESPACE_GC_ENABLED", true),
@@ -110,6 +117,22 @@ func Load() (*Config, error) {
 
 	if cfg.GRPCServerAddr == "" {
 		return nil, fmt.Errorf("HYPERSHELL_GRPC_SERVER_ADDR is required")
+	}
+
+	// Every control plane is a registered spoke: without a cluster name and OIDC
+	// client credentials it cannot register, so it cannot scope its watches, and
+	// it must not start at all. Check in a fixed order so the error always names
+	// the first missing variable.
+	required := []struct{ name, value string }{
+		{"HYPERSHELL_MANAGED_CLUSTER_NAME", cfg.ManagedClusterName},
+		{"OIDC_ISSUER", cfg.OIDCIssuer},
+		{"OIDC_CLIENT_ID", cfg.OIDCClientID},
+		{"OIDC_CLIENT_SECRET", cfg.OIDCClientSecret},
+	}
+	for _, r := range required {
+		if strings.TrimSpace(r.value) == "" {
+			return nil, fmt.Errorf("%s is required: every control plane registers with the hub as a managed cluster (specs/platform/control-plane.spec.md, Mandatory Cluster Identity)", r.name)
+		}
 	}
 
 	// Validate Helm configuration

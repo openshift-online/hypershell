@@ -241,7 +241,7 @@ oc -n hypershell patch deploy hypershell-api-server --type=json -p "[
     \"--db-password-file=/secrets/db.password\", \"--db-sslmode=disable\",
     \"--jwk-cert-url=https://keycloak-keycloak.$BASE_DOMAIN/realms/hypershell/protocol/openid-connect/certs\",
     \"--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi\",
-    \"--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/,/hypershell.v1.GatewayService/WatchGateways,/hypershell.v1.GatewayReleaseService/WatchGatewayReleases,/hypershell.v1.ManagedClusterService/WatchManagedClusters,/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks\"
+    \"--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/\"
   ]}
 ]"
 
@@ -257,6 +257,7 @@ oc -n hypershell create secret generic hypershell-keycloak-admin \
   --from-literal=server-url=http://keycloak-service.keycloak.svc.cluster.local:8080
 
 oc -n hypershell set env deploy/hypershell-controller \
+  HYPERSHELL_MANAGED_CLUSTER_NAME="gcp-local" \
   OIDC_ISSUER="https://keycloak-keycloak.$BASE_DOMAIN/realms/hypershell" \
   OIDC_CLIENT_ID="hypershell-control-plane" \
   OIDC_CLIENT_SECRET="control-plane-secret" \
@@ -392,11 +393,11 @@ AUTH="-H 'Authorization: Bearer $TOKEN'"
 ### 8.1: Create API resources
 
 ```bash
-# ManagedCluster
-CLUSTER=$(curl -sk -X POST "$API/managed_clusters" -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $TOKEN" \
-  -d "{\"name\":\"gcp-local\",\"provider\":\"gcp\",\"region\":\"us-central1\",\"kubeconfig_secret\":\"gcp-local-kubeconfig\"}")
-CLUSTER_ID=$(echo "$CLUSTER" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+# ManagedCluster: do NOT POST it. The controller registers itself as
+# HYPERSHELL_MANAGED_CLUSTER_NAME (gcp-local) at startup; a manually created
+# record with that name would make its registration a 409 conflict.
+CLUSTER_ID=$(curl -sk "$API/managed_clusters" -H "Authorization: Bearer $TOKEN" \
+  | python3 -c "import json,sys; print(next(c['id'] for c in json.load(sys.stdin)['items'] if c['name']=='gcp-local' and c.get('oidc_subject')))")
 
 # GatewayRelease
 RELEASE=$(curl -sk -X POST "$API/gateway_releases" -H 'Content-Type: application/json' \
@@ -545,7 +546,8 @@ If a custom domain with wildcard DNS is configured later:
 |---------|-------|-----|
 | API returns 200 (no auth) on unauthenticated requests | `API_ENV=development` forcibly disables JWT in `OverrideConfig` | Set `API_ENV=development_oidc` |
 | API server crashes with `ReadFiles` / missing secret files | `API_ENV=production` requires secret files on disk | Use `development_oidc` + `--enable-mock=true` instead |
-| Controller logs `OIDC authentication disabled for gRPC` | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, or `OIDC_CLIENT_SECRET` env vars missing | Set all three OIDC env vars on the controller deployment |
+| Controller exits with `... is required: every control plane registers with the hub` | `HYPERSHELL_MANAGED_CLUSTER_NAME`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, or `OIDC_CLIENT_SECRET` env var missing | Set the cluster name and all three OIDC env vars on the controller deployment |
+| Controller exits with `managed-cluster registration failed: ... registration conflict` | A ManagedCluster with the controller's name already exists and was not registered by it (e.g. created with `POST /managed_clusters`) | Delete that record (re-point its gateways) and restart the controller |
 | Controller gets `Unauthenticated: missing authorization token` on gRPC | Controller image lacks OIDC token provider (old pinned digest) | Upgrade controller to `:latest` image |
 | API server `relation "users" does not exist` or `column "X" missing` | Init container (migration) uses old image with older schema | Update init container image to `:latest` to match the main container |
 | Controller crash-loops with `gateway database admin credentials` in the log | `hypershell-gateway-database-admin` is missing, lacks a required key (`host`/`port`/`user`/`password`/`sslrootcert`), or sets `sslmode` to anything but `verify-full` | Create or fix the Secret (Step 6.2) and restart the controller |
@@ -580,7 +582,10 @@ the API server pod doesn't have TLS certs; the OpenShift Route handles TLS.
 (`gateway:creator/owner/viewer`). `RBAC_SERVICE_ACCOUNTS` must include the
 controller's service account name (`service-account-hypershell-control-plane`)
 so its gRPC `UpdateGateway` calls bypass the RBAC interceptor; the
-controller's `client_credentials` token doesn't carry gateway roles.
+controller's `client_credentials` token doesn't carry gateway roles. This is
+the bootstrap fallback: once a control plane has registered its managed
+cluster, its JWT `sub` alone makes it a control-plane identity, so other
+(spoke) control planes need no entry.
 
 ### gRPC auth chain
 
@@ -591,9 +596,12 @@ The rh-trex-ai framework runs two interceptors in series:
 2. **JWT interceptor** - validates JWK signature, **hardcoded bypass** only for
    health + reflection methods
 
-The controller authenticates via OIDC `client_credentials` grant (Keycloak
-`hypershell-control-plane` service account). Watch methods are bypassed in the
-bearer interceptor via `--auth-bypass-methods`.
+The controller authenticates every RPC, including the watch streams, via its
+OIDC `client_credentials` grant (Keycloak `hypershell-control-plane` service
+account). `--auth-bypass-methods` lists only health and reflection; the watch
+RPCs are never exempt, and `WatchGateways`/`ListGateways` from a registered
+control plane must carry its own `cluster_id`
+(`specs/platform/managed-cluster-registration.spec.md`).
 
 ### Controller OIDC token endpoint
 

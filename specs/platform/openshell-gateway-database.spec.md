@@ -285,10 +285,21 @@ For each gateway, the reconciler SHALL:
      the Secret it is about to write. Writing a freshly generated password into the
      tenant Secret without applying it to an existing role produces a gateway that can
      never authenticate and that re-reconciliation would not repair.
+   - **Self-grant on the admin session:** before creating any role, the reconciler
+     SHALL run `SET createrole_self_grant = 'set, inherit'` on the admin connection
+     (a session parameter any role may set; the pool is pinned to one connection).
+     PostgreSQL 16 and later withhold `SET` on roles a non-superuser `CREATEROLE`
+     admin creates, and `CREATE DATABASE ... OWNER` requires it. On managed servers
+     whose admin role is itself a member of a provider role (IBM Cloud Databases)
+     an explicit `GRANT` issued after creation does not satisfy that check, and the
+     admin may not `ALTER ROLE` itself, so the session setting is the only path that
+     needs no server-side preparation. A server that does not know the parameter
+     (before 16) SHALL NOT be treated as an error.
    - **Ownership grant:** `GRANT gw_<gatewayID> TO <admin user>`. A non-superuser
      admin can only create a database owned by a role it is a member of, so this
-     grant is what lets `CREATEDB` + `CREATEROLE` suffice without superuser. It is
-     idempotent (re-granting an existing membership is a no-op notice).
+     grant is what lets `CREATEDB` + `CREATEROLE` suffice without superuser on
+     servers where the self-grant above did not apply (roles created before it).
+     It is idempotent (re-granting an existing membership is a no-op notice).
    - **Database:** if `gw_<gatewayID>` is absent (`SELECT 1 FROM pg_database ...`),
      create it with `OWNER gw_<gatewayID> TEMPLATE template0`. Copying `template0`
      (not the default `template1`) means concurrent `CREATE DATABASE` from other

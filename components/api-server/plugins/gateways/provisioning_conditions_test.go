@@ -38,7 +38,7 @@ func TestGRPCProvisioningConditionsRoundTrip(t *testing.T) {
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-roundtrip",
-		ClusterId: "test-cluster",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
@@ -122,7 +122,7 @@ func TestGRPCProvisioningConditionsProgressionToComplete(t *testing.T) {
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-progression",
-		ClusterId: "test-cluster",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
@@ -188,7 +188,7 @@ func TestGRPCProvisioningConditionsWithIdP(t *testing.T) {
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-with-idp",
-		ClusterId: "test-cluster",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
@@ -239,7 +239,7 @@ func TestGRPCProvisioningConditionsFailedWithMessage(t *testing.T) {
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-failed-msg",
-		ClusterId: "test-cluster",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
@@ -297,7 +297,7 @@ func TestRESTGatewayReturnsProvisioningConditions(t *testing.T) {
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-rest-get",
-		ClusterId: "test-cluster",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
@@ -359,7 +359,7 @@ func TestRESTGatewayListIncludesProvisioningConditions(t *testing.T) {
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-rest-list",
-		ClusterId: "test-cluster",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release",
 		Phase:     &phase,
 	})
@@ -439,7 +439,7 @@ func TestGRPCProvisioningConditionsPreservedOnUnrelatedUpdate(t *testing.T) {
 	phase := "Provisioning"
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:      "conditions-preserve",
-		ClusterId: "test-cluster",
+		ClusterId: registerTestCluster(t),
 		ReleaseId: "test-release",
 		Phase:     &phase,
 	})

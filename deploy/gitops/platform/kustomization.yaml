@@ -7,3 +7,25 @@ kind: Kustomization
 resources:
   - ../../base/platform-resources
   - scc.yaml
+patches:
+  # Every control plane, including the one co-located with the hub, is a
+  # registered spoke (control-plane.spec.md, Mandatory Cluster Identity). Hubs
+  # are separate fleets with separate databases, so one name serves every hub;
+  # GitOps may override it per hub (e.g. hyp0-hub). GitOps also supplies the
+  # controller's OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET, and on a hub
+  # whose gRPC listener is TLS-only, HYPERSHELL_GRPC_SERVER_ADDR set to the
+  # hub's passthrough Route (hub-grpc-tls.spec.md).
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-controller
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: controller
+                env:
+                  - name: HYPERSHELL_MANAGED_CLUSTER_NAME
+                    value: "hub"

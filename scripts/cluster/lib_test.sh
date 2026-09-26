@@ -427,7 +427,8 @@ if grep -q 'extract_named_id' "${SCRIPT_DIR}/drivers/openshift.sh" \
 else
   PASS=$((PASS + 1))
 fi
-if grep -q 'json_named_id local-openshift' "${SCRIPT_DIR}/drivers/openshift.sh" \
+if grep -q 'json_registered_cluster_id "${cluster_name}"' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && grep -q 'cluster_name="local-openshift"' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && grep -q 'json_named_id dev-release' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && grep -q 'json_named_id dev-gateway' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   PASS=$((PASS + 1))
@@ -441,12 +442,50 @@ if grep -Fq '[^}]*"id"' "${REPO_ROOT}/scripts/kind/seed.sh"; then
 else
   PASS=$((PASS + 1))
 fi
-if grep -q 'json_named_id local-kind' "${REPO_ROOT}/scripts/kind/seed.sh" \
+if grep -q 'json_registered_cluster_id "${SEED_CLUSTER_NAME}"' "${REPO_ROOT}/scripts/kind/seed.sh" \
+  && grep -q 'SEED_CLUSTER_NAME="local-kind"' "${REPO_ROOT}/scripts/kind/seed.sh" \
   && grep -q 'json_named_id dev-gateway' "${REPO_ROOT}/scripts/kind/seed.sh"; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: Kind seed does not look up existing resources with json_named_id'
+fi
+# Every control plane self-registers its ManagedCluster; seeding waits for the
+# registered record and never creates one (a manual record would 409 the
+# control plane's registration; managed-cluster-registration.spec.md).
+if grep -q 'POST /api/hypershell/v1/managed_clusters\|POST.*managed_clusters"' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  || grep -q 'api_post "${API_URL}/api/hypershell/v1/managed_clusters"' "${REPO_ROOT}/scripts/kind/seed.sh"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: a seed script still POSTs /managed_clusters instead of waiting for the control plane to register'
+else
+  PASS=$((PASS + 1))
+fi
+_mc_list='{"kind":"ManagedClusterList","items":[{"id":"2manual","name":"local-kind","oidc_subject":""},{"id":"2other","name":"other","oidc_subject":"sub-b"}]}'
+assert_eq "" "$(printf '%s' "${_mc_list}" | json_registered_cluster_id local-kind)" \
+  "json_registered_cluster_id ignores a manually created record (empty oidc_subject)"
+assert_eq "2manual" "$(printf '%s' "${_mc_list}" | json_named_id local-kind)" \
+  "json_named_id still finds the manual placeholder for the 409 hint"
+_mc_list='{"kind":"ManagedClusterList","items":[{"oidc_subject":"sub-a","id":"2reg","name":"local-kind"}]}'
+assert_eq "2reg" "$(printf '%s' "${_mc_list}" | json_registered_cluster_id local-kind)" \
+  "json_registered_cluster_id returns the registered record id"
+assert_eq "" "$(printf '%s' "${_mc_list}" | json_registered_cluster_id local-openshift)" \
+  "json_registered_cluster_id is empty when the name is absent"
+assert_eq "" "$(printf '%s' 'not-json' | json_registered_cluster_id local-kind)" \
+  "json_registered_cluster_id is empty on invalid JSON"
+if grep -q 'name: HYPERSHELL_MANAGED_CLUSTER_NAME' "${REPO_ROOT}/deploy/kind/kustomization.yaml" \
+  && grep -A1 'name: HYPERSHELL_MANAGED_CLUSTER_NAME' "${REPO_ROOT}/deploy/kind/kustomization.yaml" | grep -q '"local-kind"' \
+  && grep -A1 'name: HYPERSHELL_MANAGED_CLUSTER_NAME' "${REPO_ROOT}/deploy/openshift/kustomization.yaml" | grep -q '"local-openshift"'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: dev overlays must name the control plane local-kind / local-openshift, matching the seed scripts'
+fi
+if grep -rq 'WatchGateways\|WatchGatewayReleases\|WatchManagedClusters\|WatchGatewayNetworks' --include='*.yaml' "${REPO_ROOT}/deploy" \
+  && grep -rn 'auth-bypass-methods' "${REPO_ROOT}/deploy" | grep -q 'Watch'; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: a deploy overlay still exempts a Watch* RPC from JWT via --auth-bypass-methods'
+else
+  PASS=$((PASS + 1))
 fi
 # Gateway databases are provisioned from ONE admin credential Secret mounted
 # into the controller (hypershell-gateway-database-admin); there is no

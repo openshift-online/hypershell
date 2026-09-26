@@ -114,17 +114,27 @@ else
   fail_u "e2e_allow_unseeded gating is wrong"
 fi
 
-# When unseeded is allowed and the platform has no inventory, ensure must succeed
-# with empty ids instead of failing or auto-seeding.
+# When unseeded is allowed, the release is optional (empty means the platform
+# default image) but the control plane's registered cluster is not: ensure must
+# succeed with a discovered cluster and no release, and must fail without a
+# registered cluster. It never auto-seeds.
 _orig_discover=$(declare -f e2e_discover_seed_ids)
 _orig_fetch=$(declare -f e2e_fetch_seed_ids)
 e2e_discover_seed_ids() { fail_u "discover must not run when unseeded is allowed"; return 1; }
+e2e_fetch_seed_ids() { E2E_CLUSTER_ID="c-registered"; E2E_RELEASE_ID=""; return 1; }
+E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "c-registered" && -z "$E2E_RELEASE_ID" ]]; then
+  pass_u "ensure seed ids succeeds with a registered cluster and no release when unseeded is allowed"
+else
+  fail_u "ensure seed ids should accept an empty release when unseeded: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+fi
+
 e2e_fetch_seed_ids() { E2E_CLUSTER_ID=""; E2E_RELEASE_ID=""; return 1; }
 E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
-if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids && [[ -z "$E2E_CLUSTER_ID" && -z "$E2E_RELEASE_ID" ]]; then
-  pass_u "ensure seed ids succeeds with empty ids when unseeded is allowed"
+if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids >/dev/null 2>&1; then
+  fail_u "ensure seed ids must fail without a registered cluster even when unseeded is allowed"
 else
-  fail_u "ensure seed ids should tolerate empty ids when unseeded: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+  pass_u "ensure seed ids requires a registered cluster even when unseeded is allowed"
 fi
 
 # Best-effort discovery still adopts ids when the platform does have inventory.
@@ -140,14 +150,14 @@ eval "$_orig_fetch"
 unset _orig_discover _orig_fetch
 E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
 
-# The create body carries empty ids verbatim (API accepts them: default image +
-# server-side database placement).
-E2E_CLUSTER_ID="" E2E_RELEASE_ID="" E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
+# Unseeded: the create body carries the registered cluster id and an empty
+# release_id verbatim (the API resolves it to the platform default image).
+E2E_CLUSTER_ID="c-registered" E2E_RELEASE_ID="" E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
 body=$(e2e_gateway_create_body gw-unseeded)
-if echo "$body" | grep -q '"cluster_id": ""' && echo "$body" | grep -q '"release_id": ""'; then
-  pass_u "gateway create body sends empty cluster_id/release_id when unseeded"
+if echo "$body" | grep -q '"cluster_id": "c-registered"' && echo "$body" | grep -q '"release_id": ""'; then
+  pass_u "gateway create body sends the registered cluster_id and an empty release_id when unseeded"
 else
-  fail_u "gateway create body should send empty ids: ${body:0:200}"
+  fail_u "gateway create body should send the cluster id and an empty release id: ${body:0:200}"
 fi
 E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
 
@@ -193,6 +203,16 @@ else
   fail_u "e2e_json_first_id should ignore Error ids, got ${err_id}"
 fi
 
+reg_list='{"items":[{"id":"c-manual","name":"local-kind","oidc_subject":""},{"id":"c-other","name":"other","oidc_subject":"s2"},{"id":"c-kind","name":"local-kind","oidc_subject":"s1"}]}'
+reg_named=$(echo "$reg_list" | e2e_json_registered_cluster_id local-kind)
+reg_first=$(echo "$reg_list" | e2e_json_registered_cluster_id)
+reg_none=$(echo '{"items":[{"id":"c-manual","name":"local-kind","oidc_subject":""}]}' | e2e_json_registered_cluster_id)
+if [[ "$reg_named" == "c-kind" && "$reg_first" == "c-other" && -z "$reg_none" ]]; then
+  pass_u "e2e_json_registered_cluster_id selects only registered clusters, by name or first"
+else
+  fail_u "e2e_json_registered_cluster_id unexpected: named=${reg_named} first=${reg_first} none=${reg_none}"
+fi
+
 sum_ok=$(echo '{"kind":"ManagedClusterList","total":1,"items":[{"id":"c1","name":"local-openshift"}]}' | e2e_json_list_summary)
 sum_empty=$(echo '{"kind":"ManagedClusterList","total":0,"items":[]}' | e2e_json_list_summary)
 sum_err=$(echo '{"kind":"Error","code":"403","reason":"Forbidden"}' | e2e_json_list_summary)
@@ -209,7 +229,7 @@ fi
 _orig_api_curl=$(declare -f api_curl || true)
 api_curl() {
   case "$1" in
-    *managed_clusters) printf '%s' '{"kind":"ManagedClusterList","total":1,"items":[{"id":"c-os","name":"local-openshift"}]}' ;;
+    *managed_clusters) printf '%s' '{"kind":"ManagedClusterList","total":2,"items":[{"id":"c-manual","name":"local-openshift","oidc_subject":""},{"id":"c-os","name":"local-openshift","oidc_subject":"cp-sub"}]}' ;;
     *gateway_releases) printf '%s' '{"kind":"GatewayReleaseList","total":1,"items":[{"id":"r-os","name":"dev-release"}]}' ;;
     *) printf '%s' '{"kind":"Error","reason":"unexpected url"}' ;;
   esac

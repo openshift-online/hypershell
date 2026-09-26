@@ -33,7 +33,7 @@ Method | HTTP request | Description
 [**ListRoleBindings**](DefaultAPI.md#ListRoleBindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 [**ListRoles**](DefaultAPI.md#ListRoles) | **Get** /api/hypershell/v1/roles | List all roles
 [**ListUsers**](DefaultAPI.md#ListUsers) | **Get** /api/hypershell/v1/users | List registered users
-[**RegisterManagedCluster**](DefaultAPI.md#RegisterManagedCluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a spoke control-plane as a managed cluster
+[**RegisterManagedCluster**](DefaultAPI.md#RegisterManagedCluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a control plane as a managed cluster
 [**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateGatewayNetwork**](DefaultAPI.md#UpdateGatewayNetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
@@ -2027,7 +2027,7 @@ Name | Type | Description  | Notes
 
 > ManagedClusterRegistrationResponse RegisterManagedCluster(ctx).ManagedClusterRegistrationRequest(managedClusterRegistrationRequest).Execute()
 
-Self-register a spoke control-plane as a managed cluster
+Self-register a control plane as a managed cluster
 
 
 
