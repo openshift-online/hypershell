@@ -111,6 +111,7 @@ cd components/control-plane && go test ./...   # Unit tests
 # All Components
 make ci-test                                   # Run all *_test.sh shell unit tests
 make unit-test-all                             # Run Go, frontend, and shell unit tests
+make e2e-console                               # Browser e2e of web console + OpenShell console (agent-browser; needs port 443 from make kind-up)
 make build-all                                 # Build all container images
 pnpm --filter @openshift-online/hypershell-gateway-management-ui check  # Verify reusable gateway UI
 pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check  # Verify operational dashboard UI

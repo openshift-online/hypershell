@@ -64,3 +64,4 @@ loop.txt
 
 # JetBrains IDE project files
 .idea/
+/e2e-console-artifacts

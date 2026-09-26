@@ -40,7 +40,15 @@ tests/e2e/e2e-openshell.sh (infra-agnostic test logic)
         │
         ├── tests/e2e/drivers/kind.sh         (this spec)
         └── tests/e2e/drivers/openshift.sh    (this spec)
+
+tests/e2e/e2e-console.sh (browser suite: web console + OpenShell console)
+    │
+    ├── sources tests/e2e/lib.sh and tests/e2e/browser-lib.sh (agent-browser helpers)
+    │
+    └── same driver selection; uses the optional get_browser_ca_bundle hook
 ```
+
+`e2e-console.sh` is specified in [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md).
 
 The driver model separates test logic from infrastructure mechanics. The main test script calls a fixed set of driver functions; each driver implements those functions for its target infrastructure. Adding a new infrastructure target requires only a new driver file.
 
@@ -661,6 +669,8 @@ The system SHALL provide a reusable GitHub Actions workflow at `.github/workflow
 
 `e2e.yml` SHALL run a job named `Deploy OpenShift Environment` (check: Tests / E2E / Deploy OpenShift Environment) and a job named `OpenShift` (check: Tests / E2E / OpenShift) on origin `pull_request` events, on every merge-queue entry (`merge_group`), and on push to `main`. Both SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR or merge-queue entry skips deploy and the OpenShift suite as well as Kind. Push to `main` always sets `should_run=true`. OpenShift SHALL declare `needs: [plan-images, deploy]` and SHALL start only after that deploy job succeeds. After the suite, including on failure or cancel, OpenShift SHALL destroy the unretained environment as `ephemeral-pr-environments.spec.md` defines; a teardown failure SHALL fail the OpenShift check. The only skip for that teardown is a retained pull request (`pr-environment/pr-extended`). Origin pull requests SHALL deploy `hypershell-ci-pr-<n>` with GitHub-brokered OAuth and the access comment. Push to `main` SHALL deploy `hypershell-ci-main-<short-sha>`, and a merge-queue entry SHALL deploy `hypershell-ci-mq-<short-sha>` (first 7 characters of the commit SHA), neither with OAuth or a pull-request comment; neither ever carries the retainment label, so teardown always runs for them. The per-commit namespace SHALL keep a cancelled older run's `openshift-down` from deleting a newer deploy's namespace. Concurrency SHALL key on the PR number, `main`, or the merge-queue commit SHA (`pr-env-mq-<sha>`) with `cancel-in-progress`, so rapid pushes to the same target still serialize while two merge-queue entries validated concurrently never cancel each other's deploy. There SHALL NOT be a separate OpenShift-on-main or OpenShift-on-merge-queue workflow: the same two Tests / E2E jobs cover all three events, so pull requests do not list a skipped dedicated check for either. Fork PRs SHALL skip those jobs (no per-PR environment; a fork PR cannot enter the merge queue either).
 
+Outside `merge_group`, the Kind job SHALL also run the console browser suite after the trace verification, as [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md) (CON-E2E-12) specifies. The OpenShift job SHALL NOT run it.
+
 #### Scenario: PR Triggers Workflow
 
 - GIVEN a pull request is opened or updated
@@ -1007,6 +1017,22 @@ deploy/
 | `SSL_CERT_FILE` | (set by the suite) | Path to the extracted cluster CA so the openshell CLI trusts the gateway's TLS cert (replaces the removed `OPENSHELL_GATEWAY_INSECURE` bypass) |
 | `E2E_CONSOLE_URL` | `https://console.hypershell.localhost` | Base URL of the deployed web console for the browser trace verification |
 | `E2E_JAEGER_URL` | `https://jaeger.hypershell.localhost` | Base URL of the Jaeger query API queried by the trace verification |
+
+The console browser suite (`tests/e2e/e2e-console.sh`) adds the following; see
+[e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md#environment-variables).
+Its `E2E_CONSOLE_URL` overrides the same web console origin.
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `AGENT_BROWSER_BIN` | `agent-browser` | agent-browser CLI (version pinned in `dependency-age-tools.json`) |
+| `AGENT_BROWSER_EXECUTABLE_PATH` | unset | Chromium to launch instead of the one `agent-browser doctor` reports |
+| `E2E_BROWSER_TIMEOUT_MS` | `30000` | Per-action browser timeout |
+| `E2E_BROWSER_PAGE_TIMEOUT_MS` | `90000` | Page-load and post-login timeout |
+| `E2E_CONSOLE_READY_TIMEOUT` | `300` | Seconds to wait for the gateway `console_address` |
+| `E2E_CONSOLE_ARTIFACT_DIR` | `./e2e-console-artifacts` | Screenshots, failure evidence, accessibility report |
+| `E2E_BROWSER_INSECURE` | `0` | `1` = `--ignore-https-errors` instead of CA-verified certificate pins (warned) |
+| `E2E_BROWSER_HEADED` | `0` | `1` = show the browser window |
+| `E2E_BROWSER_NO_SANDBOX` | `1` on Linux CI, else `0` | Launch Chromium with `--no-sandbox` |
 
 ### Requirement: OIDC Authentication in E2E Tests
 
