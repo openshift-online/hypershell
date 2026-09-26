@@ -311,41 +311,46 @@ spec:
       labels:
         app: postgres
     spec:
-      # runAsNonRoot: false and no capabilities.drop are intentional here.
       # This stand-in Deployment simulates a cloud-managed external server
-      # (AWS RDS / IBM Cloud DB) for CI/dev purposes only. The postgres:15
-      # entrypoint requires CHOWN/SETUID/SETGID to initialise the data
-      # directory as root before switching to the postgres user (uid 999);
-      # dropping ALL capabilities causes a CrashLoopBackOff. The real external
+      # (AWS RDS / IBM Cloud DB) for CI/dev purposes only; the real external
       # server runs outside the cluster and is never managed by HyperShell.
-      # seccompProfile: RuntimeDefault is applied to restrict syscalls within
-      # the permitted capability set.
+      # Same hardened image and SecurityContext as deploy/base/postgres.yaml
+      # (the OpenShift dev/e2e stand-in): the RH image supports the
+      # docker-library entrypoint contract as an arbitrary non-root user, so
+      # it needs no root init step and no capabilities.
       securityContext:
-        runAsNonRoot: false
-        seccompProfile:
-          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
       containers:
         - name: postgres
-          image: postgres:15
+          # registry.access.redhat.com/hi/postgresql:18.4, multi-arch
+          # (amd64 + arm64) manifest list digest.
+          image: registry.access.redhat.com/hi/postgresql@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09
           securityContext:
             allowPrivilegeEscalation: false
-          # PostgreSQL refuses a private key that is group/world readable
-          # unless it is owned by root with mode 0640. Secret volume files are
-          # root-owned 0644 by default, so copy the key out, hand it to the
-          # postgres user (the entrypoint still runs as root at this point and
-          # drops to uid 999 afterwards) and lock it down before exec'ing the
-          # stock entrypoint with SSL enabled.
-          command: ["sh", "-c"]
+            capabilities:
+              drop: ["ALL"]
+          # log_connections/log_disconnections/log_line_prefix are TEMPORARY,
+          # for the PR #354 CI-flake investigation: they make every accepted
+          # connection (and its origin) visible in `kubectl logs`, so the
+          # diagnostics dump can show whether a "connect ... unreachable"
+          # controller error ever reached the server at all. Revert once the
+          # flake is root-caused.
           args:
-            - >-
-              cp /tls/tls.key /tmp/server.key &&
-              chown postgres:postgres /tmp/server.key &&
-              chmod 600 /tmp/server.key &&
-              exec docker-entrypoint.sh postgres
-              -c ssl=on
-              -c ssl_cert_file=/tls/tls.crt
-              -c ssl_key_file=/tmp/server.key
-              -c log_connections=on
+            - postgres
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/tls/tls.crt
+            - -c
+            - ssl_key_file=/tls/tls.key
+            - -c
+            - log_connections=on
+            - -c
+            - log_disconnections=on
+            - -c
+            - log_line_prefix=%m [%p] %q%u@%d%r
           env:
             - name: POSTGRES_PASSWORD
               value: hypershell-kind-admin-password
@@ -362,10 +367,35 @@ spec:
             - name: tls
               mountPath: /tls
               readOnly: true
+        # TEMPORARY, for the PR #354 CI-flake investigation: polls
+        # pg_stat_activity every 5s so the diagnostics dump shows a timeline
+        # of who was actually connected/waiting at the server, independent of
+        # the controller's own (redacted) error logs. Revert once the flake
+        # is root-caused; `kubectl logs <postgres-pod> -c pg-monitor`.
+        - name: pg-monitor
+          image: registry.access.redhat.com/hi/postgresql@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PGPASSWORD
+              value: hypershell-kind-admin-password
+          command: ["sh", "-c"]
+          args:
+            - >-
+              while true; do
+                echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) pg_stat_activity ===";
+                psql -h 127.0.0.1 -U postgres -c
+                "SELECT pid, usename, client_addr, state, backend_start, state_change, wait_event_type, wait_event, left(query, 80) AS query FROM pg_stat_activity;" 2>&1 || true;
+                sleep 5;
+              done
       volumes:
         - name: tls
           secret:
             secretName: postgres-tls
+            # 0640: PostgreSQL refuses a private key readable by others.
+            defaultMode: 416
 ---
 apiVersion: v1
 kind: Service

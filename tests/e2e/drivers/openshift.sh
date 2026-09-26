@@ -169,6 +169,30 @@ get_cli_binary() {
   echo "oc"
 }
 
+# get_browser_ca_bundle - print a PEM file path the headless browser should
+# trust, or nothing when Route certificates are publicly trusted or no CA can be
+# read. Prefers the private CA from E2E_OPENSHIFT_CA_SECRET (the same one curl
+# trusts), then the default router CA (openshift-ingress-operator/router-ca,
+# readable by cluster admins only).
+get_browser_ca_bundle() {
+  _openshift_require_config >/dev/null || return 0
+  if [[ -n "${E2E_OPENSHIFT_CA_SECRET}" ]]; then
+    _openshift_configure_tls >/dev/null || return 0
+    [[ -n "${SSL_CERT_FILE:-}" && -s "${SSL_CERT_FILE}" ]] && printf '%s\n' "$SSL_CERT_FILE"
+    return 0
+  fi
+  local encoded ca_file
+  encoded=$(oc get secret router-ca -n openshift-ingress-operator \
+    -o jsonpath='{.data.tls\.crt}' 2>/dev/null || true)
+  [[ -n "$encoded" ]] || return 0
+  ca_file="$(mktemp "${TMPDIR:-/tmp}/hypershell-e2e-browser-ca.XXXXXX")"
+  if printf '%s' "$encoded" | openssl base64 -d -A > "$ca_file" 2>/dev/null && [[ -s "$ca_file" ]]; then
+    printf '%s\n' "$ca_file"
+    return 0
+  fi
+  rm -f "$ca_file"
+}
+
 wait_for_gateway_route() {
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"

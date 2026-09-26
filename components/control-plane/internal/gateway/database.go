@@ -211,7 +211,7 @@ func (c *adminCredentials) dsn() string {
 func openAdminConn(ctx context.Context, creds *adminCredentials) (*sql.DB, func(), error) {
 	noop := func() {}
 
-	db, err := sql.Open("postgres", creds.dsn())
+	db, err := debugOpenPQ(creds.dsn(), "admin") // TEMPORARY, see database_debug_probe.go
 	if err != nil {
 		return nil, noop, fmt.Errorf("open admin connection: %w", err)
 	}
@@ -225,6 +225,7 @@ func openAdminConn(ctx context.Context, creds *adminCredentials) (*sql.DB, func(
 
 	if err := db.PingContext(ctx); err != nil {
 		release()
+		debugLogRawError("admin", err) // TEMPORARY, see database_debug_probe.go
 		return nil, noop, err
 	}
 	return db, release, nil
@@ -444,7 +445,7 @@ func verifyTenantConn(ctx context.Context, creds *adminCredentials, gatewayID, p
 // the connection before returning. The ping error is returned unwrapped so
 // verifyTenantConn can classify it with connErrorCategory.
 func pingTenant(ctx context.Context, dsn string) error {
-	db, err := sql.Open("postgres", dsn)
+	db, err := debugOpenPQ(dsn, "tenant") // TEMPORARY, see database_debug_probe.go
 	if err != nil {
 		return fmt.Errorf("open tenant connection: %w", err)
 	}
@@ -454,7 +455,11 @@ func pingTenant(ctx context.Context, dsn string) error {
 			log.Printf("WARN tenant database probe: close connection: %v", cerr)
 		}
 	}()
-	return db.PingContext(ctx)
+	err = db.PingContext(ctx)
+	if err != nil {
+		debugLogRawError("tenant", err) // TEMPORARY, see database_debug_probe.go
+	}
+	return err
 }
 
 // databaseReconciler is the DatabaseReconciler for the mounted admin

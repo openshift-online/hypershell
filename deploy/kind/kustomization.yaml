@@ -84,6 +84,47 @@ patches:
                     value: "http://hypershell-api-server.hypershell-system.svc.cluster.local:8000"
                   - name: OTEL_EXPORTER_OTLP_ENDPOINT
                     value: "http://otel-collector.hypershell-system.svc.cluster.local:4317"
+                  # TEMPORARY, for the PR #354 CI-flake investigation: wraps
+                  # the admin/tenant connections' real dial call with logging
+                  # (no new connections) in
+                  # components/control-plane/internal/gateway/database_debug_probe.go.
+                  # Remove this env var and that file once the flake is
+                  # root-caused.
+                  - name: HYPERSHELL_DB_DEBUG_DIAL_LOG
+                    value: "1"
+              # TEMPORARY, for the PR #354 CI-flake investigation ("connect to
+              # gateway database server: unreachable"). A prior version of
+              # this instrumentation had the controller actively open its own
+              # extra DNS/TCP/connection probes on failure; that risked being
+              # the fix rather than the diagnostic (a fresh network path can
+              # need only one packet to "unstick"), so this container is
+              # purely passive: it shares the pod's network namespace and
+              # polls /proc/net/tcp, which reflects sockets the controller
+              # process itself already opened. It never sends a packet of its
+              # own. State 02 = SYN_SENT (sent, no response - the "black
+              # holed" pattern already suspected in verifyTenantConn's
+              # comment); 01 = ESTABLISHED. Port 5432 is 1538 hex. Remove this
+              # container once the flake is root-caused.
+              - name: net-monitor
+                image: registry.access.redhat.com/hi/postgresql@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  # The pod-level runAsNonRoot: true (deploy/base/controller.yaml)
+                  # applies to every container; this image's default user is the
+                  # named "postgres" account, not a numeric UID, so kubelet can't
+                  # verify it's non-root without an explicit runAsUser (matches
+                  # the postgres pod's own uid in scripts/kind/up.sh).
+                  runAsUser: 999
+                  capabilities:
+                    drop: ["ALL"]
+                command: ["sh", "-c"]
+                args:
+                  - >-
+                    while true; do
+                      echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) controller /proc/net/tcp (postgres port 5432 = 1538 hex) ===";
+                      { head -1 /proc/net/tcp; grep -i ':1538 ' /proc/net/tcp; } 2>&1 || true;
+                      sleep 2;
+                    done
             dnsConfig:
               options:
                 - name: use-vc

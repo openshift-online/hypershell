@@ -392,8 +392,8 @@ if ! acquire_oidc_token; then
   exit 1
 fi
 
-show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}"
-EXISTING_GW=$(api_curl "${API_HOST}/api/hypershell/v1/gateways?search=name%3D${GW_NAME}" 2>/dev/null || true)
+show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways?search=name%3D%27${GW_NAME}%27"
+EXISTING_GW=$(api_curl "${API_HOST}/api/hypershell/v1/gateways?search=name%3D%27${GW_NAME}%27" 2>/dev/null || true)
 EXISTING_ID=$(echo "$EXISTING_GW" | GW_NAME="$GW_NAME" python3 -c "
 import json, sys, os
 data = json.load(sys.stdin)
