@@ -22,6 +22,17 @@ spec:
       serviceAccountName: hypershell-controller
       securityContext:
         runAsNonRoot: true
+      # The admin host is always an FQDN (Kind in-cluster Service, RDS, IBM
+      # Cloud). Kubernetes defaults ndots:5, so a four-dot name is searched as
+      # a relative name first and burns connect_timeout on NXDOMAIN suffixes.
+      # ndots:2 is set in this base overlay for every environment, not Kind
+      # only: in-namespace short names still search, and the FQDN is treated
+      # as absolute. Kind CoreDNS is the motivating flake; production
+      # controllers benefit the same way.
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
       containers:
         - name: controller
           image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main:latest

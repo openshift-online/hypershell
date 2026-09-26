@@ -1251,6 +1251,31 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: kind-up does not accept PULL_SECRET with KIND_PULL_SECRET alias'
 fi
+# pg_isready does not speak TLS; kind-up must prove ssl=on and verify-full
+# against the admin Secret before deploying the controller.
+if grep -q "SHOW ssl" "${REPO_ROOT}/scripts/kind/up.sh" \
+  && grep -q 'postgres-tls-probe' "${REPO_ROOT}/scripts/kind/up.sh" \
+  && grep -q 'sslmode=verify-full sslrootcert=/creds/sslrootcert' "${REPO_ROOT}/scripts/kind/up.sh" \
+  && grep -q 'log_connections=on' "${REPO_ROOT}/scripts/kind/up.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: kind-up does not probe stand-in PostgreSQL with sslmode=verify-full'
+fi
+if awk '/dnsConfig:/,/containers:/' "${REPO_ROOT}/deploy/base/platform-resources/controller.yaml" \
+  | grep -q 'name: ndots'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: controller pod does not set dnsConfig ndots for the gateway database FQDN'
+fi
+if grep -q 'pin_controller_gateway_db_hosts' "${REPO_ROOT}/scripts/kind/up.sh" \
+  && grep -q 'hostAliases' "${REPO_ROOT}/scripts/kind/lib.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: kind-up does not pin the gateway database FQDN in controller hostAliases'
+fi
 # Keycloak user seed must not run at Deployment Available: the HTTPS hostname
 # is not listening yet (E2E / Kind, PR 348).
 if awk '/Waiting for Keycloak/,/Gateway Trusted CA/' "${REPO_ROOT}/scripts/kind/up.sh" \

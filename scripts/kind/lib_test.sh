@@ -83,6 +83,8 @@ assert_eq "" "$(printf '%s' "${_mc_list}" | json_registered_cluster_id local-kin
 _mc_list='{"kind":"ManagedClusterList","items":[{"id":"2reg","name":"local-kind","oidc_subject":"sub-a"}]}'
 assert_eq "2reg" "$(printf '%s' "${_mc_list}" | json_registered_cluster_id local-kind)" \
   "json_registered_cluster_id returns the control plane's registered record"
+pin_fn_defined() { declare -F pin_controller_gateway_db_hosts >/dev/null; }
+assert_ok "pin_controller_gateway_db_hosts is defined" pin_fn_defined
 
 echo "Kind swap ledger tests: ${PASS} passed, ${FAIL} failed"
 if ((FAIL > 0)); then

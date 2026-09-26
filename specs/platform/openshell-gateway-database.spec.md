@@ -169,6 +169,12 @@ The effective TLS mode of the admin connection SHALL always be `verify-full`: th
 server certificate SHALL be verified against `sslrootcert` and its hostname SHALL be
 verified against `host`. There is no configuration that lowers it.
 
+The shipped controller Deployment SHALL set `dnsConfig.options` `ndots=2` so the
+admin `host` FQDN is resolved as an absolute name. Kubernetes defaults `ndots:5`,
+which searches a four-dot hostname as a relative name first. This applies in every
+environment, not only Kind: production RDS and IBM Cloud endpoints are also FQDNs,
+and in-namespace short names still search under `ndots:2`.
+
 The control plane SHALL re-read the mounted files for **every** database operation
 (provisioning and cleanup) rather than caching their contents. The kubelet refreshes
 mounted Secrets in place, so an admin password change takes effect on the next
@@ -648,7 +654,10 @@ operation (see Requirement: Admin Credential Mount).
 - Passwords SHALL NEVER appear in log messages, error strings, telemetry, Kubernetes
   Events, or API responses. PostgreSQL driver errors routinely embed the host, the
   user and sometimes the full DSN; the control plane SHALL wrap driver errors so that
-  connection strings and passwords do not reach logs, conditions or Events.
+  connection strings and passwords do not reach logs, conditions or Events. The
+  wrapped error SHALL include a connection-failure category (`unreachable`,
+  `tls_failed`, or `auth_failed`) and a credential-stripped copy of the driver
+  message so operators can tell a TLS hostname mismatch from a TCP timeout.
 - Both the admin connection and the gateway connection SHALL use `sslmode=verify-full`
   with the CA bundle from the admin Secret. `require`, `prefer`, `verify-ca` and
   `disable` are not accepted anywhere: the control plane refuses to start on a
@@ -663,6 +672,8 @@ operation (see Requirement: Admin Credential Mount).
 - WHEN the control plane logs the failure and sets the `DatabaseReady` condition
 - THEN the log line and the condition message SHALL NOT contain the password or the
   connection string
+- AND the log line SHALL include a failure category and a credential-stripped driver
+  message
 - AND the condition message SHALL be the user-facing summary defined in
   [`gateway-provisioning-progress.spec.md`](./gateway-provisioning-progress.spec.md)
 
