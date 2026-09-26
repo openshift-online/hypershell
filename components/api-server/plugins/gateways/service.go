@@ -129,6 +129,46 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
 	gateway.CaptureTraceContext(ctx)
+
+	// generation is API-server-owned: increment it iff a desired-spec field
+	// changed, and never trust a client-supplied value. observed_generation is a
+	// monotonic convergence latch written only by the control plane. See
+	// data-model.spec.md § Gateway Generation Tracking.
+	current, getErr := s.gatewayDao.Get(ctx, gateway.ID)
+	if getErr != nil {
+		return nil, services.HandleGetError("Gateway", "id", gateway.ID, getErr)
+	}
+	newGeneration := current.Generation
+	if desiredStateChanged(current, gateway) {
+		newGeneration = current.Generation + 1
+		// A new desired generation restarts provisioning: drop the prior
+		// generation's progress so the control plane repopulates it from the
+		// beginning. Clearing (rather than merging) is what lets a step legitimately
+		// return to Pending/InProgress when the workload is genuinely re-provisioned.
+		gateway.ProvisioningConditions = nil
+	} else {
+		// Same generation: provisioning conditions only move forward. Redundant
+		// control-plane reconcile passes -- a watch re-seed on reconnect, or two
+		// controller pods overlapping during a rollout (neither serialized end to
+		// end) -- replay earlier-stage conditions, and last-writer-wins would let a
+		// completed step flip back to InProgress. Merging under this row's advisory
+		// lock keeps a Running gateway from ever reporting an unfinished step. See
+		// specs/platform/openshell-gateway-health.spec.md.
+		merged, mergeErr := mergeMonotonicProvisioningConditions(current.ProvisioningConditions, gateway.ProvisioningConditions)
+		if mergeErr != nil {
+			return nil, errors.GeneralError("merge provisioning conditions for gateway %s: %s", gateway.ID, mergeErr)
+		}
+		gateway.ProvisioningConditions = merged
+	}
+	gateway.Generation = newGeneration
+	if gateway.ObservedGeneration != current.ObservedGeneration {
+		if gateway.ObservedGeneration < current.ObservedGeneration || gateway.ObservedGeneration > newGeneration {
+			return nil, errors.BadRequest(
+				"observed_generation %d out of range [%d, %d]",
+				gateway.ObservedGeneration, current.ObservedGeneration, newGeneration)
+		}
+	}
+
 	gateway, err = s.gatewayDao.Replace(ctx, gateway)
 	if err != nil {
 		return nil, services.HandleUpdateError("Gateway", err)
@@ -174,6 +214,32 @@ func (s *sqlGatewayService) SetGatewayVersion(ctx context.Context, id, version s
 		return "", services.HandleUpdateError("Gateway", err)
 	}
 	return resulting, nil
+}
+
+// desiredStateChanged reports whether any workload-altering (desired-spec) field
+// differs between the persisted Gateway and the incoming update. Observed fields
+// (status, phase, route_address, generation, observed_generation) and identity
+// fields (name, namespace) are excluded: they do not alter the live
+// workload and must not advance generation. See data-model.spec.md.
+func desiredStateChanged(current, next *Gateway) bool {
+	return current.ClusterId != next.ClusterId ||
+		current.ReleaseId != next.ReleaseId ||
+		!strEq(current.ExternalDns, next.ExternalDns) ||
+		!strEq(current.TlsMode, next.TlsMode) ||
+		!strEq(current.ServiceType, next.ServiceType) ||
+		!strEq(current.Image, next.Image) ||
+		!strEq(current.SupervisorImage, next.SupervisorImage) ||
+		!strEq(current.ServerDnsNames, next.ServerDnsNames) ||
+		!strEq(current.Oidc, next.Oidc) ||
+		!strEq(current.Route, next.Route) ||
+		!strEq(current.CredentialDriver, next.CredentialDriver)
+}
+
+func strEq(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {

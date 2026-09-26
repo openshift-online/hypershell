@@ -223,6 +223,27 @@ func migrationAddObservedReleaseId() *gormigrate.Migration {
 	}
 }
 
+func migrationAddGenerationTracking() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026081912000006",
+		Migrate: func(tx *gorm.DB) error {
+			// Backfill existing rows to generation=1/observed_generation=1 (converged)
+			// so the convergence gate does not re-provision already-running gateways
+			// when this migration first runs.
+			if err := tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1").Error; err != nil {
+				return err
+			}
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS observed_generation BIGINT NOT NULL DEFAULT 1").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			if err := tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS generation").Error; err != nil {
+				return err
+			}
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS observed_generation").Error
+		},
+	}
+}
+
 // migrationDropDatabaseId removes the Gateway.database_id placement column.
 // Gateway databases are provisioned by the control plane from admin
 // credentials mounted into the controller pod, so the API server no longer

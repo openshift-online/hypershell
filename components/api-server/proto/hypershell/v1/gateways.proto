@@ -51,6 +51,8 @@ message Gateway {
   // control-plane-owned and advanced only after a new revision passes its
   // health gates. See gateway-release-rollout.spec.md.
   optional string observed_release_id = 25;
+  int64 generation = 26;
+  optional int64 observed_generation = 27;
 }
 
 message CreateGatewayRequest {
@@ -118,6 +120,7 @@ message UpdateGatewayRequest {
   // after a new revision passes its health gates); it is readOnly to REST
   // clients. See gateway-release-rollout.spec.md.
   optional string observed_release_id = 22;
+  optional int64 observed_generation = 23;
 }
 
 message UpdateGatewayResponse {

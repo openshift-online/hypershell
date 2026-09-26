@@ -316,6 +316,16 @@ components:
               type: string
               readOnly: true
               description: Username of the user who provisioned this gateway, resolved from RBAC role bindings
+            generation:
+              type: integer
+              format: int64
+              readOnly: true
+              description: Monotonic desired-state revision, incremented by the API server on any desired-spec change
+            observed_generation:
+              type: integer
+              format: int64
+              readOnly: true
+              description: Generation the control plane last successfully applied; converged when equal to generation
     GatewayCreateRequest:
       type: object
       required:

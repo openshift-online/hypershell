@@ -393,6 +393,57 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 	})
 }
 
+func cond(status pb.ProvisioningConditionStatus) *pb.ProvisioningCondition {
+	return &pb.ProvisioningCondition{Type: "x", ConditionStatus: status}
+}
+
+func TestAllConditionsComplete(t *testing.T) {
+	complete := pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE
+	inProgress := pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_IN_PROGRESS
+	tests := []struct {
+		name  string
+		conds []*pb.ProvisioningCondition
+		want  bool
+	}{
+		{"empty is not complete", nil, false},
+		{"all complete", []*pb.ProvisioningCondition{cond(complete), cond(complete)}, true},
+		{"one unfinished", []*pb.ProvisioningCondition{cond(complete), cond(inProgress)}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := allConditionsComplete(tc.conds); got != tc.want {
+				t.Errorf("allConditionsComplete = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCompletedConditions_PreservesSetAndMarksComplete(t *testing.T) {
+	in := []*pb.ProvisioningCondition{
+		{Type: gateway.ConditionEnvironmentReady, ConditionStatus: pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE},
+		{Type: gateway.ConditionGatewayDeployed, ConditionStatus: pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_IN_PROGRESS, Message: "applying"},
+		{Type: gateway.ConditionGatewayHealthy, ConditionStatus: pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_PENDING},
+	}
+	out := completedConditions(in)
+	if len(out) != len(in) {
+		t.Fatalf("len = %d, want %d (condition set must be preserved)", len(out), len(in))
+	}
+	for i, c := range out {
+		if c.GetType() != in[i].GetType() {
+			t.Errorf("condition[%d] type = %q, want %q (order/set preserved)", i, c.GetType(), in[i].GetType())
+		}
+		if c.GetConditionStatus() != pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE {
+			t.Errorf("condition[%d] status = %v, want Complete", i, c.GetConditionStatus())
+		}
+		if c.GetMessage() != "" {
+			t.Errorf("condition[%d] message = %q, want cleared", i, c.GetMessage())
+		}
+	}
+	if !allConditionsComplete(out) {
+		t.Error("completedConditions output must satisfy allConditionsComplete")
+	}
+}
+
 func TestEvaluateRouteReadiness_ReadyBecomesRunning(t *testing.T) {
 	h := newHealthRec(fakeExposure{readiness: exposure.Readiness{Ready: true}}, fixedClock(time.Unix(0, 0)), 10*time.Minute)
 	for _, phase := range []string{"Provisioning", "Degraded"} {
