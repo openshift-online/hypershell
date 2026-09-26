@@ -331,12 +331,6 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-          # log_connections/log_disconnections/log_line_prefix are TEMPORARY,
-          # for the PR #354 CI-flake investigation: they make every accepted
-          # connection (and its origin) visible in `kubectl logs`, so the
-          # diagnostics dump can show whether a "connect ... unreachable"
-          # controller error ever reached the server at all. Revert once the
-          # flake is root-caused.
           args:
             - postgres
             - -c
@@ -347,10 +341,6 @@ spec:
             - ssl_key_file=/tls/tls.key
             - -c
             - log_connections=on
-            - -c
-            - log_disconnections=on
-            - -c
-            - log_line_prefix=%m [%p] %q%u@%d%r
           env:
             - name: POSTGRES_PASSWORD
               value: hypershell-kind-admin-password
@@ -367,29 +357,6 @@ spec:
             - name: tls
               mountPath: /tls
               readOnly: true
-        # TEMPORARY, for the PR #354 CI-flake investigation: polls
-        # pg_stat_activity every 5s so the diagnostics dump shows a timeline
-        # of who was actually connected/waiting at the server, independent of
-        # the controller's own (redacted) error logs. Revert once the flake
-        # is root-caused; `kubectl logs <postgres-pod> -c pg-monitor`.
-        - name: pg-monitor
-          image: registry.access.redhat.com/hi/postgresql@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          env:
-            - name: PGPASSWORD
-              value: hypershell-kind-admin-password
-          command: ["sh", "-c"]
-          args:
-            - >-
-              while true; do
-                echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) pg_stat_activity ===";
-                psql -h 127.0.0.1 -U postgres -c
-                "SELECT pid, usename, client_addr, state, backend_start, state_change, wait_event_type, wait_event, left(query, 80) AS query FROM pg_stat_activity;" 2>&1 || true;
-                sleep 5;
-              done
       volumes:
         - name: tls
           secret:
