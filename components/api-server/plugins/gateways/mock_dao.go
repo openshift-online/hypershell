@@ -44,6 +44,15 @@ func (d *gatewayDaoMock) Delete(ctx context.Context, id string) error {
 	return errors.NotImplemented("Gateway").AsError()
 }
 
+func (d *gatewayDaoMock) ClusterIDByNamespace(ctx context.Context, namespace string) (string, error) {
+	for _, gateway := range d.gateways {
+		if gateway.Namespace == namespace {
+			return gateway.ClusterId, nil
+		}
+	}
+	return "", gorm.ErrRecordNotFound
+}
+
 func (d *gatewayDaoMock) FindByIDs(ctx context.Context, ids []string) (GatewayList, error) {
 	return nil, errors.NotImplemented("Gateway").AsError()
 }

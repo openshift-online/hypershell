@@ -208,6 +208,36 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 	}
 
 	now := time.Now()
+
+	// Restore, don't recreate: a record this subject registered under this name
+	// and that was since deleted comes back with its original id. Gateways keep
+	// referencing that id, so the control plane resumes serving them. A new id
+	// would make the control plane restart under it, see none of its gateways as
+	// live, and let its namespace GC reap every gateway namespace it runs.
+	deleted, delErr := s.managedClusterDao.FindDeletedBySubjectAndName(ctx, oidcSubject, name)
+	if delErr != nil && !stderrors.Is(delErr, gorm.ErrRecordNotFound) {
+		return nil, false, errors.GeneralError("registration lookup failed: %s", delErr)
+	}
+	if deleted != nil {
+		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, now)
+		if restoreErr != nil {
+			if isUniqueViolation(restoreErr) {
+				if winner, err := s.managedClusterDao.FindByName(ctx, name); err == nil && winner != nil {
+					return nil, false, nameCollisionConflict(winner)
+				}
+			}
+			return nil, false, services.HandleUpdateError("ManagedCluster", restoreErr)
+		}
+		if _, evErr := s.events.Create(ctx, &api.Event{
+			Source:    "ManagedClusters",
+			SourceID:  restored.ID,
+			EventType: api.CreateEventType,
+		}); evErr != nil {
+			return nil, false, services.HandleUpdateError("ManagedCluster", evErr)
+		}
+		return restored, true, nil
+	}
+
 	cluster := &ManagedCluster{
 		Name:        name,
 		OIDCSubject: oidcSubject,

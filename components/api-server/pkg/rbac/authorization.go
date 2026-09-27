@@ -123,6 +123,22 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 		gatewayID := extractGatewayID(r, resource)
 		jwtRoles := GetJWTRolesFromContext(r.Context())
 
+		// Self-deregistration: a control plane may delete the ManagedCluster
+		// record registered under its own JWT subject (bin/teardown-cluster in
+		// hypershell-gitops deregisters a spoke this way). Any other record
+		// needs platform:admin (isAuthorized).
+		if resource == "managed_clusters" && r.Method == http.MethodDelete && resourceID != "" {
+			own, err := m.isOwnManagedCluster(r.Context(), resourceID)
+			if err != nil {
+				http.Error(w, "Service Unavailable: managed cluster lookup failed", http.StatusServiceUnavailable)
+				return
+			}
+			if own {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
 		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles) {
 			if resource == "service_accounts" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
@@ -135,6 +151,23 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 		recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.clusters, m.activityRecorder)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isOwnManagedCluster reports whether clusterID is the ManagedCluster the
+// caller registered under its verified JWT subject.
+func (m *rbacAuthzMiddleware) isOwnManagedCluster(ctx context.Context, clusterID string) (bool, error) {
+	if m.clusters == nil {
+		return false, nil
+	}
+	subject := subjectFromVerifiedToken(ctx)
+	if subject == "" {
+		return false, nil
+	}
+	registeredID, found, err := m.clusters.RegisteredClusterIDForSubject(ctx, subject)
+	if err != nil {
+		return false, err
+	}
+	return found && registeredID == clusterID, nil
 }
 
 // recordAuthorizedDailyActivity records the caller as a daily-active user
@@ -336,9 +369,17 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		return hasUsersInventoryAccess(bindings, jwtRoles)
 	}
 
-	if resource == "managed_clusters" &&
-		method == http.MethodGet && resourceID == "" {
-		return hasDashboardInventoryAccess(bindings, jwtRoles)
+	if resource == "managed_clusters" {
+		// Reads back gateway placement (the console's cluster picker) and the
+		// dashboard inventory. Writes are operator functions: a placeholder
+		// squats a name so the control plane that registers under it gets a
+		// permanent 409, a rename breaks its control plane's re-registration,
+		// and a delete detaches every gateway on the cluster. A control plane
+		// deregistering itself is decided in AuthorizeApi before this.
+		if method == http.MethodGet {
+			return hasDashboardInventoryAccess(bindings, jwtRoles)
+		}
+		return hasPlatformAdmin(bindings)
 	}
 
 	if resource == "gateways" && method == http.MethodPost && resourceID == "" {

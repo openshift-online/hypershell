@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
 
@@ -25,7 +26,6 @@ const (
 	spokeSub      = "spoke3-sub"
 	spokeUsername = "service-account-hypershell-hyp201-spoke3"
 	hubSA         = "service-account-hypershell-control-plane"
-	createMethod  = "/hypershell.v1.GatewayService/CreateGateway"
 	watchReleases = "/hypershell.v1.GatewayReleaseService/WatchGatewayReleases"
 )
 
@@ -45,6 +45,36 @@ func registeredSpokes() *fakeResolver {
 	return &fakeResolver{clusters: map[string]string{spokeSub: "cluster-spoke3"}}
 }
 
+// fakeGateways places gw-own (namespace ns-own) on the spoke's cluster and
+// gw-foreign (ns-foreign) on another.
+type fakeGateways struct{ err error }
+
+func (f fakeGateways) GatewayClusterID(_ context.Context, id string) (string, bool, error) {
+	if f.err != nil {
+		return "", false, f.err
+	}
+	switch id {
+	case "gw-own":
+		return "cluster-spoke3", true, nil
+	case "gw-foreign":
+		return "cluster-other", true, nil
+	}
+	return "", false, nil
+}
+
+func (f fakeGateways) NamespaceClusterID(_ context.Context, ns string) (string, bool, error) {
+	if f.err != nil {
+		return "", false, f.err
+	}
+	switch ns {
+	case "ns-own":
+		return "cluster-spoke3", true, nil
+	case "ns-foreign":
+		return "cluster-other", true, nil
+	}
+	return "", false, nil
+}
+
 // grpcCallerContext is an authenticated gRPC caller: the framework auth
 // interceptor has set the username, and the bearer token carries sub.
 func grpcCallerContext(t *testing.T, username, sub string) context.Context {
@@ -52,11 +82,11 @@ func grpcCallerContext(t *testing.T, username, sub string) context.Context {
 	return auth.SetUsernameContext(bearerContext(t, sub), username)
 }
 
-func runUnary(t *testing.T, resolver RegisteredClusterResolver, lookup RoleBindingLookup, recorder DailyActivityRecorder, config AuthzConfig, ctx context.Context, method string) (bool, error) {
+func runUnary(t *testing.T, resolver RegisteredClusterResolver, lookup RoleBindingLookup, recorder DailyActivityRecorder, config AuthzConfig, ctx context.Context, method string, req interface{}) (bool, error) {
 	t.Helper()
-	interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, recorder, resolver, config)
+	interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, recorder, resolver, fakeGateways{}, config)
 	called := false
-	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: method}, func(context.Context, interface{}) (interface{}, error) {
+	_, err := interceptor(ctx, req, &grpc.UnaryServerInfo{FullMethod: method}, func(context.Context, interface{}) (interface{}, error) {
 		called = true
 		return "ok", nil
 	})
@@ -65,7 +95,7 @@ func runUnary(t *testing.T, resolver RegisteredClusterResolver, lookup RoleBindi
 
 func runStream(t *testing.T, resolver RegisteredClusterResolver, lookup RoleBindingLookup, config AuthzConfig, ctx context.Context, method string) (bool, error) {
 	t.Helper()
-	interceptor := RBACStreamInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, nil, resolver, config)
+	interceptor := RBACStreamInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, nil, resolver, fakeGateways{}, config)
 	called := false
 	err := interceptor(nil, &fakeServerStream{ctx: ctx}, &grpc.StreamServerInfo{FullMethod: method}, func(interface{}, grpc.ServerStream) error {
 		called = true
@@ -76,61 +106,93 @@ func runStream(t *testing.T, resolver RegisteredClusterResolver, lookup RoleBind
 
 var enforcedWithAllowlist = AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{hubSA}}
 
-func TestRegisteredClusterBypassesBindingsOnNormalMethod(t *testing.T) {
-	noBindings := fakeLookup{}
+// A registered control plane needs no role bindings, but only for its own
+// cluster's gateways, fleet-wide reads, status writes, and its own record.
+func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 	ctx := grpcCallerContext(t, spokeUsername, spokeSub)
-
-	called, err := runUnary(t, registeredSpokes(), noBindings, nil, enforcedWithAllowlist, ctx, createMethod)
-	if err != nil || !called {
-		t.Fatalf("unary: registered cluster without bindings: handler=%v err=%v", called, err)
+	status2 := "Active"
+	tests := []struct {
+		name   string
+		method string
+		req    interface{}
+		want   codes.Code
+	}{
+		{"get own gateway", gatewaySvc("GetGateway"), &pb.GetGatewayRequest{Id: "gw-own"}, codes.OK},
+		{"get foreign gateway", gatewaySvc("GetGateway"), &pb.GetGatewayRequest{Id: "gw-foreign"}, codes.NotFound},
+		{"get unknown gateway", gatewaySvc("GetGateway"), &pb.GetGatewayRequest{Id: "gw-missing"}, codes.NotFound},
+		{"update own gateway", gatewaySvc("UpdateGateway"), &pb.UpdateGatewayRequest{Id: "gw-own"}, codes.OK},
+		{"update own gateway keeping its cluster", gatewaySvc("UpdateGateway"), &pb.UpdateGatewayRequest{Id: "gw-own", ClusterId: strPtr("cluster-spoke3")}, codes.OK},
+		{"move own gateway to another cluster", gatewaySvc("UpdateGateway"), &pb.UpdateGatewayRequest{Id: "gw-own", ClusterId: strPtr("cluster-other")}, codes.PermissionDenied},
+		{"update foreign gateway", gatewaySvc("UpdateGateway"), &pb.UpdateGatewayRequest{Id: "gw-foreign"}, codes.PermissionDenied},
+		{"pull foreign gateway onto own cluster", gatewaySvc("UpdateGateway"), &pb.UpdateGatewayRequest{Id: "gw-foreign", ClusterId: strPtr("cluster-spoke3")}, codes.PermissionDenied},
+		{"version of own gateway", gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-own"}, codes.OK},
+		{"version of foreign gateway", gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-foreign"}, codes.PermissionDenied},
+		{"adjust own namespace", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-own"}, codes.OK},
+		{"adjust foreign namespace", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-foreign"}, codes.PermissionDenied},
+		{"set foreign namespace", gatewaySvc("SetActiveSandboxCount"), &pb.SetActiveSandboxCountRequest{Namespace: "ns-foreign"}, codes.PermissionDenied},
+		{"adjust namespace without a live gateway (service no-op)", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-gone"}, codes.OK},
+		{"create gateway", gatewaySvc("CreateGateway"), &pb.CreateGatewayRequest{}, codes.PermissionDenied},
+		{"delete gateway", gatewaySvc("DeleteGateway"), &pb.DeleteGatewayRequest{Id: "gw-own"}, codes.PermissionDenied},
+		{"list gateways", gatewaySvc("ListGateways"), &pb.ListGatewaysRequest{}, codes.OK},
+		{"delete own cluster record", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "cluster-spoke3"}, codes.OK},
+		{"delete another cluster record", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "cluster-other"}, codes.PermissionDenied},
+		{"rename own cluster record", "/hypershell.v1.ManagedClusterService/UpdateManagedCluster", &pb.UpdateManagedClusterRequest{Id: "cluster-spoke3"}, codes.PermissionDenied},
+		{"release status write", "/hypershell.v1.GatewayReleaseService/UpdateGatewayRelease", &pb.UpdateGatewayReleaseRequest{Id: "r", Status: &status2}, codes.OK},
+		{"release image write", "/hypershell.v1.GatewayReleaseService/UpdateGatewayRelease", &pb.UpdateGatewayReleaseRequest{Id: "r", Status: &status2, Image: strPtr("evil")}, codes.PermissionDenied},
+		{"release create", "/hypershell.v1.GatewayReleaseService/CreateGatewayRelease", &pb.CreateGatewayReleaseRequest{}, codes.PermissionDenied},
+		{"network status write", "/hypershell.v1.GatewayNetworkService/UpdateGatewayNetwork", &pb.UpdateGatewayNetworkRequest{Id: "n", Status: &status2}, codes.OK},
+		{"network topology write", "/hypershell.v1.GatewayNetworkService/UpdateGatewayNetwork", &pb.UpdateGatewayNetworkRequest{Id: "n", Topology: strPtr("mesh")}, codes.PermissionDenied},
+		{"list role bindings", "/hypershell.v1.RoleBindingService/ListRoleBindings", &pb.ListRoleBindingsRequest{}, codes.OK},
+		{"unknown service", "/hypershell.v1.SomethingNew/DoIt", nil, codes.PermissionDenied},
 	}
-	called, err = runStream(t, registeredSpokes(), noBindings, enforcedWithAllowlist, ctx, watchReleases)
-	if err != nil || !called {
-		t.Fatalf("stream: registered cluster without bindings: handler=%v err=%v", called, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called, err := runUnary(t, registeredSpokes(), fakeLookup{}, nil, enforcedWithAllowlist, ctx, tt.method, tt.req)
+			if got := status.Code(err); got != tt.want || called != (tt.want == codes.OK) {
+				t.Fatalf("handler=%v code=%s, want %s", called, got, tt.want)
+			}
+		})
 	}
 
-	// The same caller, unregistered, has no bindings and is denied.
-	ctx = grpcCallerContext(t, spokeUsername, "unregistered-sub")
-	if called, err := runUnary(t, registeredSpokes(), noBindings, nil, enforcedWithAllowlist, ctx, createMethod); called || status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("unary: unregistered caller without bindings: handler=%v code=%s", called, status.Code(err))
+	for _, method := range []string{watchReleases, gatewaySvc("WatchGateways"), "/hypershell.v1.ManagedClusterService/WatchManagedClusters"} {
+		if called, err := runStream(t, registeredSpokes(), fakeLookup{}, enforcedWithAllowlist, ctx, method); err != nil || !called {
+			t.Fatalf("stream %s: handler=%v err=%v", method, called, err)
+		}
 	}
 }
 
-func TestRegisteredClusterAllowedOnControlPlaneOnlyMethods(t *testing.T) {
-	ctx := grpcCallerContext(t, spokeUsername, spokeSub)
-	for _, method := range controlPlaneOnlyMethods {
-		t.Run(method, func(t *testing.T) {
-			called, err := runUnary(t, registeredSpokes(), fakeLookup{}, nil, enforcedWithAllowlist, ctx, method)
-			if err != nil || !called {
-				t.Fatalf("unary: handler=%v err=%v", called, err)
-			}
-			called, err = runStream(t, registeredSpokes(), fakeLookup{}, enforcedWithAllowlist, ctx, method)
-			if err != nil || !called {
-				t.Fatalf("stream: handler=%v err=%v", called, err)
-			}
-		})
+// The allowlist no longer outranks registration: an allowlisted account that
+// registered is scoped like any control plane.
+func TestAllowlistedAndRegisteredIsScoped(t *testing.T) {
+	resolver := &fakeResolver{clusters: map[string]string{"hub-sub": "cluster-spoke3"}}
+	ctx := grpcCallerContext(t, hubSA, "hub-sub")
+	if called, err := runUnary(t, resolver, fakeLookup{}, nil, enforcedWithAllowlist, ctx, gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-foreign"}); called || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("registered allowlisted account on a foreign gateway: handler=%v code=%s", called, status.Code(err))
+	}
+	if called, err := runUnary(t, resolver, fakeLookup{}, nil, enforcedWithAllowlist, ctx, gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-own"}); err != nil || !called {
+		t.Fatalf("registered allowlisted account on its own gateway: handler=%v err=%v", called, err)
 	}
 }
 
 func TestUnregisteredCallerStillDeniedControlPlaneOnlyMethods(t *testing.T) {
-	// An owner binding would pass isGRPCAuthorized for every non-read method.
-	owner := fakeLookup{bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")}}}
+	owner := fakeLookup{bindings: []BindingSummary{ownerOf("gw-own"), creatorBinding}}
 	cases := map[string]context.Context{
 		"unregistered sub": grpcCallerContext(t, "human-owner", "human-sub"),
 		// The token names a registered subject but the auth interceptor set no
 		// username: never a control-plane identity.
 		"unauthenticated": bearerContext(t, spokeSub),
 	}
+	reqs := map[string]interface{}{
+		controlPlaneOnlyMethods[0]: &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-own"},
+		controlPlaneOnlyMethods[1]: &pb.SetActiveSandboxCountRequest{Namespace: "ns-own"},
+		controlPlaneOnlyMethods[2]: &pb.SetGatewayVersionRequest{Id: "gw-own"},
+	}
 	for name, ctx := range cases {
 		for _, method := range controlPlaneOnlyMethods {
 			t.Run(name+method, func(t *testing.T) {
-				called, err := runUnary(t, registeredSpokes(), owner, nil, enforcedWithAllowlist, ctx, method)
+				called, err := runUnary(t, registeredSpokes(), owner, nil, enforcedWithAllowlist, ctx, method, reqs[method])
 				if called || status.Code(err) != codes.PermissionDenied {
 					t.Fatalf("unary: handler=%v code=%s, want PermissionDenied", called, status.Code(err))
-				}
-				called, err = runStream(t, registeredSpokes(), owner, enforcedWithAllowlist, ctx, method)
-				if called || status.Code(err) != codes.PermissionDenied {
-					t.Fatalf("stream: handler=%v code=%s, want PermissionDenied", called, status.Code(err))
 				}
 			})
 		}
@@ -140,58 +202,58 @@ func TestUnregisteredCallerStillDeniedControlPlaneOnlyMethods(t *testing.T) {
 func TestRegisteredClusterLookupErrorIsUnavailable(t *testing.T) {
 	failing := &fakeResolver{err: errors.New("db down")}
 	ctx := grpcCallerContext(t, spokeUsername, spokeSub)
-	for _, method := range append([]string{createMethod}, controlPlaneOnlyMethods...) {
-		t.Run(method, func(t *testing.T) {
-			called, err := runUnary(t, failing, fakeLookup{}, nil, enforcedWithAllowlist, ctx, method)
-			if called || status.Code(err) != codes.Unavailable {
-				t.Fatalf("unary: handler=%v code=%s, want Unavailable", called, status.Code(err))
-			}
-			called, err = runStream(t, failing, fakeLookup{}, enforcedWithAllowlist, ctx, method)
-			if called || status.Code(err) != codes.Unavailable {
-				t.Fatalf("stream: handler=%v code=%s, want Unavailable", called, status.Code(err))
-			}
-		})
+	called, err := runUnary(t, failing, fakeLookup{}, nil, enforcedWithAllowlist, ctx, gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-own"})
+	if called || status.Code(err) != codes.Unavailable {
+		t.Fatalf("unary: handler=%v code=%s, want Unavailable", called, status.Code(err))
+	}
+	called, err = runStream(t, failing, fakeLookup{}, enforcedWithAllowlist, ctx, watchReleases)
+	if called || status.Code(err) != codes.Unavailable {
+		t.Fatalf("stream: handler=%v code=%s, want Unavailable", called, status.Code(err))
 	}
 
-	// The allowlisted bootstrap account never consults the resolver.
-	failing.calls = 0
+	// An allowlisted account is resolved too (it may be registered, and then it
+	// is scoped), so it also sees Unavailable, which a control plane retries.
 	ctx = grpcCallerContext(t, hubSA, "hub-sub")
-	if called, err := runUnary(t, failing, fakeLookup{}, nil, enforcedWithAllowlist, ctx, controlPlaneOnlyMethods[0]); err != nil || !called {
-		t.Fatalf("allowlisted account: handler=%v err=%v", called, err)
+	if called, err := runUnary(t, failing, fakeLookup{}, nil, enforcedWithAllowlist, ctx, controlPlaneOnlyMethods[0], &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-own"}); called || status.Code(err) != codes.Unavailable {
+		t.Fatalf("allowlisted account: handler=%v code=%s, want Unavailable", called, status.Code(err))
 	}
-	if failing.calls != 0 {
-		t.Fatalf("resolver consulted %d times for an allowlisted account", failing.calls)
+
+	// A failing gateway lookup is Unavailable as well, never a grant.
+	interceptor := RBACUnaryInterceptor(fakeLookup{}, fakeProvisioner{userID: "user-1"}, nil, nil, registeredSpokes(), fakeGateways{err: errors.New("db down")}, enforcedWithAllowlist)
+	_, err = interceptor(grpcCallerContext(t, spokeUsername, spokeSub), &pb.SetGatewayVersionRequest{Id: "gw-own"}, &grpc.UnaryServerInfo{FullMethod: gatewaySvc("SetGatewayVersion")},
+		func(context.Context, interface{}) (interface{}, error) { return nil, nil })
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("gateway lookup failure: %v, want Unavailable", err)
 	}
 }
 
 func TestNilResolverPreservesAllowlistOnlyBehaviour(t *testing.T) {
 	ctx := grpcCallerContext(t, spokeUsername, spokeSub)
-	for _, method := range controlPlaneOnlyMethods {
-		if called, err := runUnary(t, nil, fakeLookup{}, nil, enforcedWithAllowlist, ctx, method); called || status.Code(err) != codes.PermissionDenied {
-			t.Fatalf("%s: handler=%v code=%s, want PermissionDenied", method, called, status.Code(err))
-		}
+	if called, err := runUnary(t, nil, fakeLookup{}, nil, enforcedWithAllowlist, ctx, controlPlaneOnlyMethods[0], &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-own"}); called || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("handler=%v code=%s, want PermissionDenied", called, status.Code(err))
 	}
 	if called, err := runStream(t, nil, fakeLookup{}, enforcedWithAllowlist, ctx, watchReleases); called || status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("stream without bindings: handler=%v code=%s, want PermissionDenied", called, status.Code(err))
 	}
 	// The allowlist still works on its own.
 	ctx = grpcCallerContext(t, hubSA, "hub-sub")
-	if called, err := runUnary(t, nil, fakeLookup{}, nil, enforcedWithAllowlist, ctx, controlPlaneOnlyMethods[0]); err != nil || !called {
+	if called, err := runUnary(t, nil, fakeLookup{}, nil, enforcedWithAllowlist, ctx, controlPlaneOnlyMethods[0], &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-own"}); err != nil || !called {
 		t.Fatalf("allowlisted account: handler=%v err=%v", called, err)
 	}
 }
 
 func TestRegisteredClusterNotRecordedAsDailyActiveGRPC(t *testing.T) {
-	creator := fakeLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
+	const listClusters = "/hypershell.v1.ManagedClusterService/ListManagedClusters"
+	creator := fakeLookup{bindings: []BindingSummary{creatorBinding}}
 	for _, config := range []AuthzConfig{enforcedWithAllowlist, {EnforceRBAC: false}} {
 		recorder := &fakeActivityRecorder{}
-		if _, err := runUnary(t, registeredSpokes(), creator, recorder, config, grpcCallerContext(t, spokeUsername, spokeSub), createMethod); err != nil {
+		if _, err := runUnary(t, registeredSpokes(), creator, recorder, config, grpcCallerContext(t, spokeUsername, spokeSub), listClusters, &pb.ListManagedClustersRequest{}); err != nil {
 			t.Fatalf("enforce=%v: registered call failed: %v", config.EnforceRBAC, err)
 		}
 		if len(recorder.users) != 0 {
 			t.Fatalf("enforce=%v: registered cluster recorded as daily active: %v", config.EnforceRBAC, recorder.users)
 		}
-		if _, err := runUnary(t, registeredSpokes(), creator, recorder, config, grpcCallerContext(t, "human", "human-sub"), createMethod); err != nil {
+		if _, err := runUnary(t, registeredSpokes(), creator, recorder, config, grpcCallerContext(t, "human", "human-sub"), listClusters, &pb.ListManagedClustersRequest{}); err != nil {
 			t.Fatalf("enforce=%v: user call failed: %v", config.EnforceRBAC, err)
 		}
 		if len(recorder.users) != 1 {
@@ -202,7 +264,7 @@ func TestRegisteredClusterNotRecordedAsDailyActiveGRPC(t *testing.T) {
 	// With RBAC not enforced a lookup failure must not fail the call; it only
 	// suppresses the record.
 	recorder := &fakeActivityRecorder{}
-	called, err := runUnary(t, &fakeResolver{err: errors.New("db down")}, creator, recorder, AuthzConfig{}, grpcCallerContext(t, spokeUsername, spokeSub), createMethod)
+	called, err := runUnary(t, &fakeResolver{err: errors.New("db down")}, creator, recorder, AuthzConfig{}, grpcCallerContext(t, spokeUsername, spokeSub), listClusters, &pb.ListManagedClustersRequest{})
 	if err != nil || !called || len(recorder.users) != 0 {
 		t.Fatalf("unenforced lookup failure: handler=%v err=%v recorded=%v", called, err, recorder.users)
 	}
@@ -285,5 +347,69 @@ func TestAuthorizeApiRegisteredClusterGetsNoRESTBypass(t *testing.T) {
 	}
 	if resolver.calls != 0 {
 		t.Fatalf("registration consulted the resolver %d times", resolver.calls)
+	}
+}
+
+// REST self-deregistration: a registered control plane may delete its own
+// ManagedCluster record and no other; other records need platform:admin, and
+// gateway:creator (every signed-in user on the GitOps hubs) is not enough.
+func TestAuthorizeApiManagedClusterDelete(t *testing.T) {
+	const route = "/api/hypershell/v1/managed_clusters/{id}"
+	config := AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{hubSA}}
+	creator := authorizationLookup{bindings: []BindingSummary{creatorBinding}}
+	admin := authorizationLookup{bindings: []BindingSummary{adminBinding}}
+	human := jwt.MapClaims{"preferred_username": "human", "sub": "human-sub"}
+
+	tests := []struct {
+		name     string
+		resolver RegisteredClusterResolver
+		lookup   RoleBindingLookup
+		claims   jwt.MapClaims
+		id       string
+		want     int
+	}{
+		{"spoke deletes its own record", registeredSpokes(), creator, spokeClaims(), "cluster-spoke3", http.StatusOK},
+		{"spoke without bindings deletes its own record", registeredSpokes(), authorizationLookup{}, spokeClaims(), "cluster-spoke3", http.StatusOK},
+		{"spoke deletes another record", registeredSpokes(), creator, spokeClaims(), "cluster-other", http.StatusForbidden},
+		{"creator deletes a record", registeredSpokes(), creator, human, "cluster-spoke3", http.StatusForbidden},
+		{"platform:admin deletes a record", registeredSpokes(), admin, human, "cluster-spoke3", http.StatusOK},
+		{"lookup failure", &fakeResolver{err: errors.New("db down")}, creator, spokeClaims(), "cluster-spoke3", http.StatusServiceUnavailable},
+		{"no resolver: admin only", nil, creator, spokeClaims(), "cluster-spoke3", http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reached, code := serveREST(t, tt.resolver, tt.lookup, nil, config, http.MethodDelete, route, "/api/hypershell/v1/managed_clusters/"+tt.id, tt.claims)
+			if code != tt.want || reached != (tt.want == http.StatusOK) {
+				t.Fatalf("reached=%v status=%d, want %d", reached, code, tt.want)
+			}
+		})
+	}
+}
+
+func TestAuthorizeApiManagedClusterWrites(t *testing.T) {
+	config := AuthzConfig{EnforceRBAC: true}
+	creator := authorizationLookup{bindings: []BindingSummary{creatorBinding}}
+	admin := authorizationLookup{bindings: []BindingSummary{adminBinding}}
+	human := jwt.MapClaims{"preferred_username": "human", "sub": "human-sub"}
+
+	for _, tc := range []struct {
+		method, route, path string
+	}{
+		{http.MethodPost, "/api/hypershell/v1/managed_clusters", "/api/hypershell/v1/managed_clusters"},
+		{http.MethodPatch, "/api/hypershell/v1/managed_clusters/{id}", "/api/hypershell/v1/managed_clusters/c1"},
+	} {
+		if reached, code := serveREST(t, registeredSpokes(), creator, nil, config, tc.method, tc.route, tc.path, human); reached || code != http.StatusForbidden {
+			t.Fatalf("creator %s %s: reached=%v status=%d, want 403", tc.method, tc.path, reached, code)
+		}
+		if reached, code := serveREST(t, registeredSpokes(), creator, nil, config, tc.method, tc.route, tc.path, spokeClaims()); reached || code != http.StatusForbidden {
+			t.Fatalf("spoke %s %s: reached=%v status=%d, want 403", tc.method, tc.path, reached, code)
+		}
+		if reached, code := serveREST(t, registeredSpokes(), admin, nil, config, tc.method, tc.route, tc.path, human); !reached || code != http.StatusOK {
+			t.Fatalf("admin %s %s: reached=%v status=%d, want 200", tc.method, tc.path, reached, code)
+		}
+	}
+	// Reads stay open to gateway:creator.
+	if reached, code := serveREST(t, registeredSpokes(), creator, nil, config, http.MethodGet, "/api/hypershell/v1/managed_clusters/{id}", "/api/hypershell/v1/managed_clusters/c1", human); !reached || code != http.StatusOK {
+		t.Fatalf("creator GET: reached=%v status=%d", reached, code)
 	}
 }

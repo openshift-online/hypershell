@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/golang-jwt/jwt/v4"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
@@ -103,15 +104,45 @@ func extractJWTRoles(r *http.Request) []string {
 }
 
 func extractJWTRolesFromContext(ctx context.Context) []string {
-	token, err := auth.TokenFromContext(ctx)
-	if err != nil {
+	if token, err := auth.TokenFromContext(ctx); err == nil && token != nil {
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			return extractRealmRolesFromClaims(claims)
+		}
 		return nil
 	}
+	// gRPC: the framework's auth interceptor verifies the bearer token but
+	// stores only the username, so without this fallback role sync saw no
+	// realm roles on gRPC and revoked a caller's platform:admin binding on every
+	// gRPC call. The claims are read from the exact metadata value the
+	// interceptor verified (the first authorization value, "Bearer " trimmed);
+	// callers reach here only after it set a username (provisionUserForGRPC).
+	if claims := verifiedGRPCBearerClaims(ctx); claims != nil {
+		return extractRealmRolesFromClaims(claims)
+	}
+	return nil
+}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
+// verifiedGRPCBearerClaims returns the claims of the bearer token in the gRPC
+// authorization metadata, parsed the way the framework's
+// authenticateGRPCRequest parses it. It does not verify the signature: it is
+// only meaningful after that interceptor accepted the call.
+func verifiedGRPCBearerClaims(ctx context.Context) jwt.MapClaims {
+	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil
 	}
-
-	return extractRealmRolesFromClaims(claims)
+	values := md.Get("authorization")
+	if len(values) == 0 {
+		return nil
+	}
+	tokenStr := strings.TrimPrefix(strings.TrimPrefix(values[0], "Bearer "), "bearer ")
+	if tokenStr == "" {
+		return nil
+	}
+	parsed, _, err := jwt.NewParser().ParseUnverified(tokenStr, jwt.MapClaims{})
+	if err != nil {
+		return nil
+	}
+	claims, _ := parsed.Claims.(jwt.MapClaims)
+	return claims
 }

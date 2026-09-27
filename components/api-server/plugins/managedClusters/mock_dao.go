@@ -73,6 +73,14 @@ func (d *managedClusterDaoMock) FindByName(ctx context.Context, name string) (*M
 	return nil, gorm.ErrRecordNotFound
 }
 
+func (d *managedClusterDaoMock) FindDeletedBySubjectAndName(ctx context.Context, subject, name string) (*ManagedCluster, error) {
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (d *managedClusterDaoMock) Restore(ctx context.Context, id string, lastSeenAt time.Time) (*ManagedCluster, error) {
+	return nil, errors.NotImplemented("ManagedCluster").AsError()
+}
+
 func (d *managedClusterDaoMock) InventorySnapshot(ctx context.Context, evaluationTime time.Time) (*ClusterInventorySnapshot, error) {
 	return buildClusterInventorySnapshot(d.managedClusters, evaluationTime), nil
 }

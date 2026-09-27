@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 
 	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
@@ -31,6 +32,10 @@ type lazyRBACInterceptor struct {
 	// the managedClusters plugin is not registered, so that exemption is simply
 	// off (RBAC_SERVICE_ACCOUNTS alone applies) instead of every call failing.
 	controlPlanes pkgrbac.RegisteredClusterResolver
+	// gateways resolves a gateway to its cluster, so a control plane may write
+	// only its own cluster's gateways. nil (gateways plugin absent) makes those
+	// writes fail with Unavailable.
+	gateways pkgrbac.GatewayClusterResolver
 }
 
 // managedClusterResolver adapts the managedClusters service to the caller
@@ -63,6 +68,46 @@ func (r managedClusterResolver) RegisteredClusterIDForSubject(ctx context.Contex
 	return cluster.ID, true, nil
 }
 
+// gatewayClusterResolver adapts the gateways service to the lookups that hold a
+// control plane to its own cluster's gateways.
+type gatewayClusterResolver struct {
+	envServices *environments.Services
+}
+
+func newGatewayClusterResolver(envServices *environments.Services) pkgrbac.GatewayClusterResolver {
+	if gateways.Service(envServices) == nil {
+		return nil
+	}
+	return gatewayClusterResolver{envServices: envServices}
+}
+
+func (r gatewayClusterResolver) GatewayClusterID(ctx context.Context, gatewayID string) (string, bool, error) {
+	svc := gateways.Service(r.envServices)
+	if svc == nil {
+		return "", false, fmt.Errorf("gateway service is not available")
+	}
+	gateway, svcErr := svc.GetUnscoped(ctx, gatewayID)
+	if svcErr != nil {
+		if svcErr.Is404() {
+			return "", false, nil
+		}
+		return "", false, svcErr
+	}
+	return gateway.ClusterId, true, nil
+}
+
+func (r gatewayClusterResolver) NamespaceClusterID(ctx context.Context, namespace string) (string, bool, error) {
+	svc := gateways.Service(r.envServices)
+	if svc == nil {
+		return "", false, fmt.Errorf("gateway service is not available")
+	}
+	clusterID, found, svcErr := svc.ClusterIDByNamespace(ctx, namespace)
+	if svcErr != nil {
+		return "", false, svcErr
+	}
+	return clusterID, found, nil
+}
+
 func (l *lazyRBACInterceptor) init(ctx context.Context) {
 	l.once.Do(func() {
 		env := environments.Environment()
@@ -84,6 +129,7 @@ func (l *lazyRBACInterceptor) init(ctx context.Context) {
 		l.activityRecorder = users.ActivityRecorder(envServices)
 		l.clusters = managedClusterResolver{envServices: envServices}
 		l.controlPlanes = newControlPlaneResolver(envServices)
+		l.gateways = newGatewayClusterResolver(envServices)
 		if l.controlPlanes == nil {
 			glog.Warning("managedClusters service not registered: registered-cluster control-plane identity is disabled; only RBAC_SERVICE_ACCOUNTS is exempt from gRPC role bindings")
 		}
@@ -102,9 +148,10 @@ func init() {
 	// authorization and regardless of the RBAC_SERVICE_ACCOUNTS allowlist and
 	// RBAC_ENFORCE: a registered control plane may list or watch only its own
 	// cluster's gateways (managed-cluster-registration.spec.md, "Watch Stream
-	// Caller Binding"). Role-binding authorization then treats a registered
-	// cluster as a control-plane identity, like an RBAC_SERVICE_ACCOUNTS entry
-	// ("Control-Plane Identity"), so a new spoke needs no hub-side config.
+	// Caller Binding"). Authorization then decides every hypershell.v1 method
+	// per caller kind (pkg/rbac/grpc_authorization.go): a registered cluster is a
+	// control plane scoped to its own cluster ("Control-Plane Identity"), so a
+	// new spoke needs no hub-side config; everyone else gets the HTTP rules.
 	pkgserver.RegisterPostAuthGRPCUnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		lazy.init(ctx)
 		if err := pkgrbac.CheckClusterCallerBindingUnary(ctx, lazy.clusters, info.FullMethod, req); err != nil {
@@ -113,7 +160,7 @@ func init() {
 		if lazy.lookup == nil {
 			return handler(ctx, req)
 		}
-		interceptor := pkgrbac.RBACUnaryInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.config)
+		interceptor := pkgrbac.RBACUnaryInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.gateways, lazy.config)
 		return interceptor(ctx, req, info, handler)
 	})
 
@@ -126,7 +173,7 @@ func init() {
 		if lazy.lookup == nil {
 			return handler(srv, ss)
 		}
-		interceptor := pkgrbac.RBACStreamInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.config)
+		interceptor := pkgrbac.RBACStreamInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.gateways, lazy.config)
 		return interceptor(srv, ss, info, handler)
 	})
 }

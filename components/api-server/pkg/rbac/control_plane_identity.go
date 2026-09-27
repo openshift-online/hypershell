@@ -11,30 +11,22 @@ import (
 )
 
 // Control-Plane Identity (managed-cluster-registration.spec.md): a caller whose
-// JWT subject is the oidc_subject of a registered ManagedCluster is a control
-// plane, and is treated like an account on the RBAC_SERVICE_ACCOUNTS allowlist:
-// on gRPC it bypasses role-binding authorization, including the
-// control-plane-only methods (see isServiceAccountOnlyMethod), and on either
-// transport it is never recorded as a daily-active user. Registration itself
-// stays gated by the managed-cluster-registrar JWT role, so a control plane
-// becomes a control-plane identity by registering, with no hub-side
-// configuration. RBAC_SERVICE_ACCOUNTS remains the bootstrap allowlist for
-// callers that have not registered (or that run without the managedClusters
-// plugin).
+// JWT subject is the oidc_subject of a registered ManagedCluster is the control
+// plane of that cluster. On gRPC it is authorized by authorizeControlPlaneGRPC
+// (grpc_authorization.go), not by role bindings: it may read the fleet-wide
+// records it reconciles from, write only gateways assigned to its own cluster
+// (including the control-plane-only sandbox-count and runtime-version writes),
+// write only the status of releases and networks, and delete only its own
+// ManagedCluster record. On either transport it is never recorded as a
+// daily-active user. Registration itself stays gated by the
+// managed-cluster-registrar JWT role, so a control plane becomes a
+// control-plane identity by registering, with no hub-side configuration.
+// RBAC_SERVICE_ACCOUNTS remains the bootstrap allowlist for callers that have
+// not registered; it does not cover ManagedCluster record writes.
 //
 // On the REST path neither an allowlisted account nor a registered cluster
-// bypasses role bindings: the only REST call a control plane makes is
-// registration, and the HTTP isolation guarantee in rbac-enforcement.spec.md
-// (a spoke credential holds no REST gateway or user-inventory access unless
-// Keycloak grants it) must keep holding after the spoke registers.
-//
-// TODO(cluster-scoped control-plane writes): AdjustActiveSandboxCount and
-// SetActiveSandboxCount identify the gateway by namespace, SetGatewayVersion by
-// gateway id; neither carries cluster_id. Scoping them to the caller's own
-// cluster needs a gateway -> cluster_id lookup, which the rbac package has no
-// dependency on today (only the subject -> cluster resolver). Until that lookup
-// is added, a registered control plane may call these methods for any gateway,
-// exactly as an allowlisted account can.
+// bypasses role bindings. The one REST exception is self-deregistration: a
+// registered caller may DELETE its own ManagedCluster record (authorization.go).
 
 // registeredClusterCaller reports whether subject is the OIDC subject of a
 // registered ManagedCluster. A nil resolver or an empty subject reports false
@@ -71,6 +63,27 @@ func isRegisteredClusterCallerGRPC(ctx context.Context, username string, resolve
 		return false, status.Error(codes.Unavailable, "managed cluster lookup failed; cannot verify control-plane identity")
 	}
 	return registered, nil
+}
+
+// registeredClusterIDGRPC returns the id of the ManagedCluster the
+// authenticated gRPC caller registered, under the same conditions as
+// isRegisteredClusterCallerGRPC.
+func registeredClusterIDGRPC(ctx context.Context, username string, resolver RegisteredClusterResolver) (string, bool, error) {
+	if username == "" || resolver == nil {
+		return "", false, nil
+	}
+	subject := subjectFromGRPCContext(ctx)
+	if subject == "" {
+		return "", false, nil
+	}
+	clusterID, found, err := resolver.RegisteredClusterIDForSubject(ctx, subject)
+	if err != nil {
+		return "", false, status.Error(codes.Unavailable, "managed cluster lookup failed; cannot verify control-plane identity")
+	}
+	if !found || clusterID == "" {
+		return "", false, nil
+	}
+	return clusterID, true, nil
 }
 
 // subjectFromVerifiedToken returns the "sub" claim of the JWT the framework's

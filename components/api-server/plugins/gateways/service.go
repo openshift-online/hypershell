@@ -40,6 +40,10 @@ type GatewayService interface {
 
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
+	// ClusterIDByNamespace returns the cluster the live gateway backing
+	// namespace is assigned to; found is false when no live gateway backs it.
+	ClusterIDByNamespace(ctx context.Context, namespace string) (clusterID string, found bool, svcErr *errors.ServiceError)
+
 	// CountByPhase returns the number of gateways in each phase.
 	CountByPhase(ctx context.Context) (map[string]int64, *errors.ServiceError)
 
@@ -209,6 +213,17 @@ func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.Servi
 	}
 
 	return nil
+}
+
+func (s *sqlGatewayService) ClusterIDByNamespace(ctx context.Context, namespace string) (string, bool, *errors.ServiceError) {
+	clusterID, err := s.gatewayDao.ClusterIDByNamespace(ctx, namespace)
+	if err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return "", false, nil
+		}
+		return "", false, errors.GeneralError("Unable to look up the gateway in namespace %s: %s", namespace, err)
+	}
+	return clusterID, true, nil
 }
 
 func (s *sqlGatewayService) FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError) {

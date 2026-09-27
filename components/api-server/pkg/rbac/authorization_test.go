@@ -387,8 +387,26 @@ func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *
 		t.Error("platform:admin should list managed_clusters")
 	}
 
-	if isAuthorized(http.MethodGet, "managed_clusters", "cluster-1", "cluster-1", platformAdmin, nil) {
-		t.Error("platform:admin without gateway:creator must not get managed cluster by id")
+	// A read by id follows the list rule: the list already returns every record.
+	if !isAuthorized(http.MethodGet, "managed_clusters", "cluster-1", "", platformAdmin, nil) {
+		t.Error("platform:admin should get a managed cluster by id")
+	}
+	if isAuthorized(http.MethodGet, "managed_clusters", "cluster-1", "", ownerOnly, nil) {
+		t.Error("gateway:owner must not get a managed cluster by id")
+	}
+
+	// Record writes are platform:admin only; gateway:creator is not enough.
+	for _, method := range []string{http.MethodPost, http.MethodPatch, http.MethodDelete} {
+		id := "cluster-1"
+		if method == http.MethodPost {
+			id = ""
+		}
+		if isAuthorized(method, "managed_clusters", id, "", creatorOnly, nil) {
+			t.Errorf("gateway:creator must not %s managed_clusters", method)
+		}
+		if !isAuthorized(method, "managed_clusters", id, "", platformAdmin, nil) {
+			t.Errorf("platform:admin should %s managed_clusters", method)
+		}
 	}
 }
 

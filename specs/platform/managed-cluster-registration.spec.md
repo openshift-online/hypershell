@@ -96,7 +96,7 @@ Gitops configuration required for every control plane, the hub's co-located one 
 
 `HYPERSHELL_CLUSTER_ID` is resolved at runtime and SHALL NOT appear in gitops.
 
-Adding a control plane SHALL NOT require configuration on the hub api-server. Once a control plane has registered, its JWT `sub` is a control-plane identity (see "Requirement: Control-Plane Identity"): the gRPC RBAC interceptor exempts it from role-binding authorization, including the control-plane-only writes (sandbox counts, gateway version), exactly as it exempts an `RBAC_SERVICE_ACCOUNTS` entry. `RBAC_SERVICE_ACCOUNTS` is only the bootstrap fallback, for a control plane that must act before or without a registered ManagedCluster; the hub overlays keep `service-account-hypershell-control-plane` (the co-located control plane) on it. It need not list any other control plane.
+Adding a control plane SHALL NOT require configuration on the hub api-server. Once a control plane has registered, its JWT `sub` is a control-plane identity (see "Requirement: Control-Plane Identity"): the gRPC RBAC interceptor authorizes it without role bindings, but only for its own cluster's gateways, fleet-wide reads, status writes, and its own record. `RBAC_SERVICE_ACCOUNTS` is only the bootstrap fallback, for a control plane that must act before or without a registered ManagedCluster; the hub overlays keep `service-account-hypershell-control-plane` (the co-located control plane) on it. It need not list any other control plane.
 
 ---
 
@@ -108,7 +108,7 @@ The `managed-cluster-registrar` role is required on both the initial registratio
 
 An administrator assigns `managed-cluster-registrar` to each control plane's OIDC client in Keycloak before that control plane is deployed. In production this is an explicit, out-of-band admin step. The development realms (`deploy/base/keycloak`, the Kind and OpenShift overlays) SHALL ship the role already assigned to the `hypershell-control-plane` client, so `make kind-up` and `make openshift-up` produce a control plane that registers without manual steps. Keycloak is the trusted source of truth; the API server does not re-verify role assignment beyond reading the JWT claim.
 
-**Isolation guarantee:** In production (`RBAC_DEFAULT_ROLES=`, `RBAC_ENFORCE=true`), a control plane holding only `managed-cluster-registrar` has no gateway permissions through the HTTP API. All HTTP permissions flow exclusively from Keycloak. A control plane gains HTTP gateway access only if an administrator also explicitly grants `gateway:creator` or a gateway-scoped binding in Keycloak. Registration does not change this: the control-plane identity it establishes applies to the gRPC API only (see "Requirement: Control-Plane Identity").
+**Isolation guarantee:** In production (`RBAC_DEFAULT_ROLES=`, `RBAC_ENFORCE=true`), a control plane holding only `managed-cluster-registrar` has no gateway permissions through the HTTP API. All HTTP permissions flow exclusively from Keycloak. A control plane gains HTTP gateway access only if an administrator also explicitly grants `gateway:creator` or a gateway-scoped binding in Keycloak. Registration does not change this: the control-plane identity it establishes applies to the gRPC API, plus deleting its own record over HTTP (see "Requirement: Control-Plane Identity" and "Requirement: Record Writes and Deregistration").
 
 ---
 
@@ -121,6 +121,7 @@ An administrator assigns `managed-cluster-registrar` to each control plane's OID
 - On first call: create a `ManagedCluster` record with a new KSUID, set `oidc_subject` from the JWT `sub` claim, set `last_seen_at` to now. Return 201 with `cluster_id`.
 - On subsequent calls with the same subject and name: update `last_seen_at` to now. Return 200 with the existing `cluster_id`.
 - If the same OIDC subject supplies a different `name` than the one already registered: return 409 Conflict.
+- If the only record for this subject and name was deleted: restore that record, keeping its `cluster_id`, set `last_seen_at` to now, and return 201. The record SHALL NOT be recreated under a new id. Gateways reference the old id, so a new id would restart the control plane under an identity that owns none of its gateways, and its namespace garbage collector (`openshell-gateway-namespace-gc.spec.md`) would reap every gateway namespace on the cluster. If another record now holds the name, the Name Collision rule applies (409).
 
 The upsert SHALL use database-level locking to handle concurrent first-time requests safely.
 
@@ -140,6 +141,14 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 - THEN no new record is created
 - AND `last_seen_at` is updated to now
 - AND the response is 200 with `cluster_id: X`
+
+#### Scenario: Re-registration after deletion restores the record
+
+- GIVEN a control plane registered as `cluster_id: X` whose record was deleted
+- WHEN it calls `POST /managed_clusters/registration` with the same `name`
+- THEN the record `X` is restored with `last_seen_at` set to now
+- AND the response is 201 with `cluster_id: X`
+- AND gateways assigned to `X` are served by that control plane again
 
 #### Scenario: Name change rejected
 
@@ -174,6 +183,33 @@ This is deliberate: registration never silently takes over a record, because gat
 - WHEN an operator deletes the manually created `local-openshift` record
 - AND the control plane retries registration
 - THEN the response is 201 with a new `cluster_id`
+
+### Requirement: Record Writes and Deregistration
+
+Creating, updating, and deleting `ManagedCluster` records (`POST`, `PATCH`, and `DELETE` on `/managed_clusters`, and `CreateManagedCluster`, `UpdateManagedCluster`, `DeleteManagedCluster` on gRPC) SHALL require `platform:admin`, with one exception: a registered control plane MAY delete the record whose `oidc_subject` is its own JWT `sub` (self-deregistration). `gateway:creator`, a gateway binding, and the `RBAC_SERVICE_ACCOUNTS` allowlist SHALL NOT authorize any record write. Reads (`GET` on the collection and by id, `List`/`Get`/`Watch` on gRPC) remain available to `gateway:creator` and `platform:admin`, which gateway placement and the dashboard inventory need.
+
+The reasons are concrete. A placeholder created with a control plane's name makes that control plane's registration a permanent 409. A rename makes its next registration a 409 as well. A delete detaches every gateway on the cluster until the control plane registers again.
+
+Deleting the record of a running control plane is undone by its next registration (at most one heartbeat interval later), which restores the same record. To decommission a control plane, stop it or revoke its OIDC client first, then delete the record. `bin/teardown-cluster` in hypershell-gitops follows that order and deregisters each spoke with the spoke's own client.
+
+#### Scenario: Control plane deregisters itself
+
+- GIVEN a control plane registered as `cluster_id: X`
+- WHEN it calls `DELETE /managed_clusters/X` with its own token
+- THEN the record is deleted
+
+#### Scenario: Deleting another cluster's record is refused
+
+- GIVEN control planes registered as `X` and `Y`, and a user holding only `gateway:creator`
+- WHEN the user, or the control plane registered as `Y`, calls `DELETE /managed_clusters/X` or gRPC `DeleteManagedCluster` for `X`
+- THEN the api-server returns 403 (HTTP) or `PERMISSION_DENIED` (gRPC)
+- AND the record is unchanged
+
+#### Scenario: Operator deletes a record
+
+- GIVEN a user with `platform:admin`
+- WHEN they delete any `ManagedCluster` record
+- THEN the record is deleted
 
 ### Requirement: Role Enforcement
 
@@ -263,36 +299,53 @@ For `WatchRoleBindings` and `ListRoleBindings` the scoping key is the `cluster_i
 
 ### Requirement: Control-Plane Identity
 
-A caller whose JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster` SHALL be treated as a control-plane identity, equivalent to an entry on the hub's `RBAC_SERVICE_ACCOUNTS` allowlist:
+A caller whose JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster` SHALL be treated as the control plane of that cluster. On the gRPC API it is authorized without role bindings, but only within its own cluster:
 
-- On the gRPC API the RBAC interceptors SHALL skip role-binding authorization for it, and SHALL allow it the control-plane-only methods (`AdjustActiveSandboxCount`, `SetActiveSandboxCount`, `SetGatewayVersion`) that are otherwise restricted to allowlisted accounts. The Watch Stream Caller Binding still applies first, so its list and watch streams remain scoped to its own cluster.
+- It MAY read every fleet-wide record it reconciles from: `Get`/`List`/`Watch` on releases, networks, and managed clusters. Gateway and role-binding lists and watches remain scoped by the Watch Stream Caller Binding.
+- It MAY call `GetGateway`, `UpdateGateway`, `SetGatewayVersion`, `AdjustActiveSandboxCount`, and `SetActiveSandboxCount` only for a gateway whose `cluster_id` is its own. `GetGateway` for another cluster's gateway SHALL return `NOT_FOUND`; the writes SHALL return `PERMISSION_DENIED`. `UpdateGateway` SHALL NOT change `cluster_id` to any other cluster. A sandbox-count write for a namespace no live gateway backs is a no-op and is let through.
+- It MAY update only the `status` of a `GatewayRelease` or `GatewayNetwork`. Changing a release's image, rollout, or name, a network's topology, or creating or deleting either SHALL be refused: those records are fleet-wide, and a control plane only reports on them.
+- It MAY delete only its own `ManagedCluster` record, and SHALL NOT create or update any.
+- Any other `hypershell.v1` method (for example `CreateGateway`, `DeleteGateway`) SHALL be refused.
 - On both the gRPC and HTTP APIs it SHALL NOT be recorded as a daily-active user.
-- On the HTTP API it SHALL NOT bypass role-binding authorization. Allowlisted accounts do not bypass it either; the only HTTP call a control plane makes is `/registration`, which stays gated by the `managed-cluster-registrar` JWT role because an unregistered caller has no record to resolve.
+- On the HTTP API it SHALL NOT bypass role-binding authorization, except to delete its own record (see "Requirement: Record Writes and Deregistration").
 
-The exemption SHALL apply only to a caller the gRPC auth interceptor authenticated. If the subject lookup fails, the call SHALL fail with `UNAVAILABLE`, never be granted and never be answered with `PERMISSION_DENIED`, so a control plane retries a transient database error instead of treating it as fatal. When the api-server runs without the ManagedCluster service, the exemption is off and `RBAC_SERVICE_ACCOUNTS` is the only control-plane identity.
+A caller that is both on `RBAC_SERVICE_ACCOUNTS` and registered SHALL be treated as a registered control plane, so the hub's co-located control plane is scoped like every other. An allowlisted account that has not registered keeps the bootstrap exemption from role bindings, except for `ManagedCluster` record writes.
 
-`RBAC_SERVICE_ACCOUNTS` remains the bootstrap allowlist and keeps its current meaning.
+The identity SHALL apply only to a caller the gRPC auth interceptor authenticated. If the subject lookup, or the lookup of a gateway's cluster, fails, the call SHALL fail with `UNAVAILABLE`, never be granted and never be answered with `PERMISSION_DENIED`, so a control plane retries a transient database error instead of treating it as fatal. When the api-server runs without the ManagedCluster service, the identity is off and `RBAC_SERVICE_ACCOUNTS` is the only control-plane identity.
 
-**Known limitation:** the control-plane-only methods identify a gateway by namespace or id, not by `cluster_id`, so they are not yet scoped to the caller's own cluster: a registered control plane may call them for any gateway, as an allowlisted account can. Scoping them needs a gateway-to-cluster lookup in the RBAC interceptor.
+The hub exposes its gRPC API through a public Route (`hub-grpc-tls.spec.md`), so these rules, not network placement, keep a compromised or misbehaving control plane inside its own cluster.
 
 #### Scenario: New spoke reports sandbox counts with no hub change
 
 - GIVEN a spoke control plane whose OIDC client is not on `RBAC_SERVICE_ACCOUNTS`
 - AND it has registered, so its `sub` is the `oidc_subject` of cluster `X`
-- WHEN it calls `SetActiveSandboxCount`
+- WHEN it calls `SetActiveSandboxCount` for the namespace of a gateway assigned to `X`
 - THEN the call is authorized without any role binding
+
+#### Scenario: Control plane writes another cluster's gateway
+
+- GIVEN control planes registered as `X` and `Y`, and a gateway assigned to `X`
+- WHEN `Y` calls `UpdateGateway`, `SetGatewayVersion`, or `AdjustActiveSandboxCount` for that gateway, or `UpdateGateway` on its own gateway with `cluster_id: X`
+- THEN the api-server returns `PERMISSION_DENIED`
+- AND `GetGateway` for that gateway returns `NOT_FOUND`
+
+#### Scenario: Control plane rewrites a release
+
+- GIVEN a registered control plane
+- WHEN it calls `UpdateGatewayRelease` setting `image`
+- THEN the api-server returns `PERMISSION_DENIED`
+- AND a call setting only `status` is authorized
 
 #### Scenario: Unregistered caller cannot use control-plane-only writes
 
 - GIVEN a caller that is neither on `RBAC_SERVICE_ACCOUNTS` nor registered, holding `gateway:owner`
-- AND `RBAC_SERVICE_ACCOUNTS` is set
 - WHEN it calls `AdjustActiveSandboxCount`
 - THEN the api-server returns `PERMISSION_DENIED`
 
 #### Scenario: Registry lookup fails
 
 - GIVEN the ManagedCluster lookup for the caller's `sub` returns a database error
-- WHEN a caller not on `RBAC_SERVICE_ACCOUNTS` calls any gRPC method under `RBAC_ENFORCE=true`
+- WHEN a caller calls any gRPC method under `RBAC_ENFORCE=true`
 - THEN the api-server returns `UNAVAILABLE`
 - AND the control plane retries
 
@@ -336,6 +389,9 @@ The exceptions are the non-retryable responses. On 403 Forbidden the control pla
 | Gateways must reference a registered cluster | With every control plane filtering, an unassigned gateway is orphaned forever. Rejecting it at create time turns a silent no-op into an immediate, actionable error. |
 | Watch-stream binding checks the caller's registered cluster, not a role | The identity that matters is "which cluster is this", and registration already established it. A role would only prove the caller is some control plane. |
 | A registered cluster is a control-plane identity; `RBAC_SERVICE_ACCOUNTS` is only the bootstrap fallback | Adding a spoke must not require a hub-side configuration change. Registration is already gated by a Keycloak role and records the caller's `sub`, so the registry is the list of control planes. The allowlist remains for a control plane that must act before it has registered. |
+| A control plane is scoped to its own cluster, not exempt | Every spoke holds credentials on a cluster the hub operator may not control, and the hub's gRPC API is public. An unscoped exemption let any spoke rewrite another cluster's gateways, move them onto itself, change a fleet-wide release image, or delete other clusters' records. |
+| Re-registration restores a deleted record instead of creating one | The soft-deleted row keeps its `(oidc_subject, name)` index entry, so a fresh insert failed with a permanent 409; a new id instead would orphan every gateway on the cluster and let the namespace GC reap them. Restoring keeps gateways attached, makes an accidental delete self-healing, and leaves decommissioning to revoking the client. |
+| Record writes need `platform:admin`; a control plane may delete only its own | Records gate placement and registration for a whole cluster. `gateway:creator` is held by every signed-in user on the GitOps hubs, so it cannot authorize them; self-deregistration keeps the teardown path working without an admin token. |
 | Single `/registration` endpoint for both register and heartbeat | Eliminates a separate heartbeat endpoint. The idempotent registration call already has all the information needed to update `last_seen_at`. Fewer endpoints, simpler RBAC surface. |
 | Narrow response body (`{ "cluster_id" }` only, not full ManagedCluster) | The control plane needs exactly one thing from registration: its stable `cluster_id` to use as the `WatchGateways` filter. Returning the full ManagedCluster object would expose fields the control plane cannot and should not act on. The narrow shape is intentional and differs from the standard `GET /managed_clusters/{id}` response by design. |
 | 403 and 409 exit immediately; other failures retry with backoff | A 403 means the Keycloak role is absent and a 409 means an operator must remove a record; retrying either is pointless and delays operator awareness. Network or 5xx errors are transient; exponential backoff recovers automatically without operator intervention. |

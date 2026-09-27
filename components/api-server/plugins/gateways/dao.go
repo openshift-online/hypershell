@@ -18,6 +18,9 @@ type GatewayDao interface {
 	Delete(ctx context.Context, id string) error
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, error)
 	All(ctx context.Context) (GatewayList, error)
+	// ClusterIDByNamespace returns the cluster_id of the live gateway in
+	// namespace, or gorm.ErrRecordNotFound when no live gateway backs it.
+	ClusterIDByNamespace(ctx context.Context, namespace string) (string, error)
 
 	// AdjustActiveSandboxCount atomically applies delta to the
 	// active_sandbox_count of the live gateway in the given namespace, flooring
@@ -74,6 +77,15 @@ func (d *sqlGatewayDao) Get(ctx context.Context, id string) (*Gateway, error) {
 		return nil, err
 	}
 	return &gateway, nil
+}
+
+func (d *sqlGatewayDao) ClusterIDByNamespace(ctx context.Context, namespace string) (string, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var gateway Gateway
+	if err := g2.Select("id", "cluster_id").Take(&gateway, "namespace = ?", namespace).Error; err != nil {
+		return "", err
+	}
+	return gateway.ClusterId, nil
 }
 
 func (d *sqlGatewayDao) GetUnscoped(ctx context.Context, id string) (*Gateway, error) {

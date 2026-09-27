@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/rh-trex-ai/pkg/auth"
 )
 
@@ -28,86 +29,76 @@ func (f fakeProvisioner) UpsertFromJWT(_ context.Context, _ *auth.Payload) (stri
 	return f.userID, nil
 }
 
-func TestGrpcMethodIsRead(t *testing.T) {
-	tests := []struct {
-		method string
-		want   bool
-	}{
-		{"/hypershell.v1.GatewayReleaseService/GetGatewayRelease", true},
-		{"/hypershell.v1.GatewayReleaseService/ListGatewayReleases", true},
-		{"/hypershell.v1.GatewayReleaseService/WatchGatewayReleases", true},
-		{"/hypershell.v1.GatewayReleaseService/CreateGatewayRelease", false},
-		{"/hypershell.v1.GatewayReleaseService/UpdateGatewayRelease", false},
-		{"/hypershell.v1.GatewayReleaseService/DeleteGatewayRelease", false},
-		{"/hypershell.v1.GatewayService/GetGateway", true},
-		{"/hypershell.v1.GatewayService/CreateGateway", false},
-	}
+var (
+	creatorBinding = BindingSummary{RoleName: "gateway:creator", Scope: "global"}
+	adminBinding   = BindingSummary{RoleName: "platform:admin", Scope: "global"}
+)
 
+func ownerOf(gatewayID string) BindingSummary {
+	return BindingSummary{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr(gatewayID)}
+}
+
+func viewerOf(gatewayID string) BindingSummary {
+	return BindingSummary{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: strPtr(gatewayID)}
+}
+
+func gatewaySvc(method string) string { return "/hypershell.v1.GatewayService/" + method }
+
+// TestAuthorizeUserGRPC pins the HTTP rules on gRPC (rbac-enforcement.spec.md,
+// "gRPC Authorization"): a global gateway:creator binding no longer authorizes
+// every method, per-gateway methods need a binding on that gateway, and the
+// unfiltered list/watch and the control-plane-only writes are not user methods.
+func TestAuthorizeUserGRPC(t *testing.T) {
+	get := &pb.GetGatewayRequest{Id: "gw-1"}
+	update := &pb.UpdateGatewayRequest{Id: "gw-1"}
+	del := &pb.DeleteGatewayRequest{Id: "gw-1"}
+
+	tests := []struct {
+		name     string
+		method   string
+		req      interface{}
+		bindings []BindingSummary
+		want     codes.Code
+	}{
+		{"creator creates", gatewaySvc("CreateGateway"), &pb.CreateGatewayRequest{}, []BindingSummary{creatorBinding}, codes.OK},
+		{"admin alone cannot create", gatewaySvc("CreateGateway"), &pb.CreateGatewayRequest{}, []BindingSummary{adminBinding}, codes.PermissionDenied},
+		{"creator cannot read another's gateway", gatewaySvc("GetGateway"), get, []BindingSummary{creatorBinding}, codes.NotFound},
+		{"creator cannot update another's gateway", gatewaySvc("UpdateGateway"), update, []BindingSummary{creatorBinding}, codes.PermissionDenied},
+		{"creator cannot delete another's gateway", gatewaySvc("DeleteGateway"), del, []BindingSummary{creatorBinding}, codes.PermissionDenied},
+		{"owner reads", gatewaySvc("GetGateway"), get, []BindingSummary{ownerOf("gw-1")}, codes.OK},
+		{"owner updates", gatewaySvc("UpdateGateway"), update, []BindingSummary{ownerOf("gw-1")}, codes.OK},
+		{"owner deletes", gatewaySvc("DeleteGateway"), del, []BindingSummary{ownerOf("gw-1")}, codes.OK},
+		{"owner of another gateway is denied", gatewaySvc("UpdateGateway"), update, []BindingSummary{ownerOf("gw-2")}, codes.PermissionDenied},
+		{"viewer reads", gatewaySvc("GetGateway"), get, []BindingSummary{viewerOf("gw-1")}, codes.OK},
+		{"viewer cannot update", gatewaySvc("UpdateGateway"), update, []BindingSummary{viewerOf("gw-1")}, codes.PermissionDenied},
+		{"admin reads any", gatewaySvc("GetGateway"), get, []BindingSummary{adminBinding}, codes.OK},
+		{"admin deletes any", gatewaySvc("DeleteGateway"), del, []BindingSummary{adminBinding}, codes.OK},
+		{"admin cannot update without ownership", gatewaySvc("UpdateGateway"), update, []BindingSummary{adminBinding}, codes.PermissionDenied},
+		{"admin lists", gatewaySvc("ListGateways"), &pb.ListGatewaysRequest{}, []BindingSummary{adminBinding}, codes.OK},
+		{"admin watches", gatewaySvc("WatchGateways"), nil, []BindingSummary{adminBinding}, codes.OK},
+		{"creator cannot list every gateway", gatewaySvc("ListGateways"), &pb.ListGatewaysRequest{}, []BindingSummary{creatorBinding, ownerOf("gw-1")}, codes.PermissionDenied},
+		{"creator cannot watch every gateway", gatewaySvc("WatchGateways"), nil, []BindingSummary{creatorBinding}, codes.PermissionDenied},
+		{"owner cannot adjust sandbox counts", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},
+		{"owner cannot set sandbox counts", gatewaySvc("SetActiveSandboxCount"), &pb.SetActiveSandboxCountRequest{}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},
+		{"owner cannot set the gateway version", gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-1"}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},
+		{"creator reads clusters", "/hypershell.v1.ManagedClusterService/ListManagedClusters", &pb.ListManagedClustersRequest{}, []BindingSummary{creatorBinding}, codes.OK},
+		{"creator cannot delete a cluster", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "c"}, []BindingSummary{creatorBinding}, codes.PermissionDenied},
+		{"creator cannot create a cluster", "/hypershell.v1.ManagedClusterService/CreateManagedCluster", &pb.CreateManagedClusterRequest{}, []BindingSummary{creatorBinding}, codes.PermissionDenied},
+		{"admin deletes a cluster", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "c"}, []BindingSummary{adminBinding}, codes.OK},
+		{"no RoleBinding service for users", "/hypershell.v1.RoleBindingService/ListRoleBindings", &pb.ListRoleBindingsRequest{}, []BindingSummary{creatorBinding, adminBinding}, codes.PermissionDenied},
+		{"no RoleBinding watch for users", "/hypershell.v1.RoleBindingService/WatchRoleBindings", nil, []BindingSummary{adminBinding}, codes.PermissionDenied},
+		{"admin reads releases", "/hypershell.v1.GatewayReleaseService/ListGatewayReleases", &pb.ListGatewayReleasesRequest{}, []BindingSummary{adminBinding}, codes.OK},
+		{"admin alone cannot change a release", "/hypershell.v1.GatewayReleaseService/UpdateGatewayRelease", &pb.UpdateGatewayReleaseRequest{}, []BindingSummary{adminBinding}, codes.PermissionDenied},
+		{"unknown service denied", "/hypershell.v1.SomethingNew/DoIt", nil, []BindingSummary{creatorBinding, adminBinding}, codes.PermissionDenied},
+		{"health with a binding", "/grpc.health.v1.Health/Check", nil, []BindingSummary{creatorBinding}, codes.OK},
+		{"no bindings denied", gatewaySvc("GetGateway"), get, nil, codes.NotFound},
+	}
 	for _, tt := range tests {
-		t.Run(tt.method, func(t *testing.T) {
-			if got := isGRPCReadMethod(tt.method); got != tt.want {
-				t.Errorf("isGRPCReadMethod(%q) = %v, want %v", tt.method, got, tt.want)
+		t.Run(tt.name, func(t *testing.T) {
+			if got := status.Code(authorizeUserGRPC(tt.method, tt.req, tt.bindings)); got != tt.want {
+				t.Fatalf("authorizeUserGRPC(%s) = %s, want %s", tt.method, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestIsGRPCAuthorized_CreatorCanDoAnything(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "gateway:creator", Scope: "global"},
-	}
-
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/CreateGateway", bindings) {
-		t.Error("gateway:creator should be authorized for Create")
-	}
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/GetGateway", bindings) {
-		t.Error("gateway:creator should be authorized for Get")
-	}
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/DeleteGateway", bindings) {
-		t.Error("gateway:creator should be authorized for Delete")
-	}
-}
-
-func TestIsGRPCAuthorized_OwnerCanDoAnything(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")},
-	}
-
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/GetGateway", bindings) {
-		t.Error("gateway:owner should be authorized for Get")
-	}
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/CreateGateway", bindings) {
-		t.Error("gateway:owner should be authorized for Create")
-	}
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/DeleteGateway", bindings) {
-		t.Error("gateway:owner should be authorized for Delete")
-	}
-}
-
-func TestIsGRPCAuthorized_ViewerCanOnlyRead(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: strPtr("gw-1")},
-	}
-
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/GetGateway", bindings) {
-		t.Error("gateway:viewer should be authorized for Get")
-	}
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/ListGateways", bindings) {
-		t.Error("gateway:viewer should be authorized for List")
-	}
-	if isGRPCAuthorized("/hypershell.v1.GatewayService/CreateGateway", bindings) {
-		t.Error("gateway:viewer must not be authorized for Create")
-	}
-	if isGRPCAuthorized("/hypershell.v1.GatewayService/DeleteGateway", bindings) {
-		t.Error("gateway:viewer must not be authorized for Delete")
-	}
-}
-
-func TestIsGRPCAuthorized_NoBindingsDenied(t *testing.T) {
-	bindings := []BindingSummary{}
-
-	if isGRPCAuthorized("/hypershell.v1.GatewayService/GetGateway", bindings) {
-		t.Error("empty bindings must be denied")
 	}
 }
 
@@ -138,192 +129,54 @@ func TestIsServiceAccount_EmptyListNeverMatches(t *testing.T) {
 	}
 }
 
-func TestIsServiceAccountOnlyMethod(t *testing.T) {
-	tests := []struct {
-		method string
-		want   bool
-	}{
-		{"/hypershell.v1.GatewayService/AdjustActiveSandboxCount", true},
-		{"/hypershell.v1.GatewayService/SetActiveSandboxCount", true},
-		{"/hypershell.v1.GatewayService/SetGatewayVersion", true},
-		{"/hypershell.v1.GatewayService/UpdateGateway", false},
-		{"/hypershell.v1.GatewayService/CreateGateway", false},
-		{"/hypershell.v1.GatewayService/GetGateway", false},
-		{"malformed", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.method, func(t *testing.T) {
-			if got := isServiceAccountOnlyMethod(tt.method); got != tt.want {
-				t.Errorf("isServiceAccountOnlyMethod(%q) = %v, want %v", tt.method, got, tt.want)
-			}
-		})
-	}
-}
-
-// TestUnaryInterceptor_SandboxCountRestrictedToServiceAccount locks in the guard
-// that keeps the control-plane-only sandbox-count writes out of reach of ordinary
-// role bindings: with an allowlist configured, only an allowlisted service account
-// may call them; an owner/creator (who otherwise passes isGRPCAuthorized for every
-// non-read method) is denied. With no allowlist, the guard falls back to the
-// standard role check so single-tenant/dev deployments keep working.
-func TestUnaryInterceptor_SandboxCountRestrictedToServiceAccount(t *testing.T) {
-	const adjust = "/hypershell.v1.GatewayService/AdjustActiveSandboxCount"
-	const create = "/hypershell.v1.GatewayService/CreateGateway"
+// The bootstrap allowlist keeps the control-plane-only writes, which ordinary
+// role bindings never reach, but not ManagedCluster record writes.
+func TestUnaryInterceptor_AllowlistScope(t *testing.T) {
 	const sa = "service-account-hypershell-control-plane"
-
-	// An owner binding authorizes every non-read method under isGRPCAuthorized.
-	ownerLookup := fakeLookup{bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")}}}
-	prov := fakeProvisioner{userID: "user-1"}
+	owner := fakeLookup{bindings: []BindingSummary{ownerOf("gw-1"), creatorBinding}}
 
 	tests := []struct {
-		name            string
-		username        string
-		method          string
-		serviceAccounts []string
-		wantAllowed     bool
+		name     string
+		username string
+		method   string
+		req      interface{}
+		want     codes.Code
 	}{
-		{"owner denied Adjust when allowlist set", "human-owner", adjust, []string{sa}, false},
-		{"service account allowed Adjust", sa, adjust, []string{sa}, true},
-		{"owner allowed Adjust when no allowlist", "human-owner", adjust, nil, true},
-		{"owner still allowed non-restricted method", "human-owner", create, []string{sa}, true},
+		{"allowlisted adjusts sandbox counts", sa, gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{Namespace: "ns"}, codes.OK},
+		{"allowlisted sets the gateway version", sa, gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-1"}, codes.OK},
+		{"allowlisted cannot delete a cluster record", sa, "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "c"}, codes.PermissionDenied},
+		{"allowlisted cannot rename a cluster record", sa, "/hypershell.v1.ManagedClusterService/UpdateManagedCluster", &pb.UpdateManagedClusterRequest{Id: "c"}, codes.PermissionDenied},
+		{"owner cannot adjust sandbox counts", "human-owner", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{Namespace: "ns"}, codes.PermissionDenied},
+		{"owner cannot set the gateway version", "human-owner", gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-1"}, codes.PermissionDenied},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			interceptor := RBACUnaryInterceptor(ownerLookup, prov, nil, nil, nil, AuthzConfig{
-				EnforceRBAC:     true,
-				ServiceAccounts: tt.serviceAccounts,
-			})
-			ctx := auth.SetUsernameContext(context.Background(), tt.username)
+			interceptor := RBACUnaryInterceptor(owner, fakeProvisioner{userID: "user-1"}, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{sa}})
 			called := false
-			handler := func(context.Context, interface{}) (interface{}, error) {
-				called = true
-				return "ok", nil
-			}
-			_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: tt.method}, handler)
-
-			if tt.wantAllowed {
-				if err != nil {
-					t.Fatalf("expected call allowed, got error %v", err)
-				}
-				if !called {
-					t.Error("expected handler to be invoked")
-				}
-				return
-			}
-			if called {
-				t.Error("handler must not be invoked when denied")
-			}
-			if status.Code(err) != codes.PermissionDenied {
-				t.Errorf("got %v, want PermissionDenied", err)
-			}
-		})
-	}
-}
-
-func TestIsGRPCDeleteMethod(t *testing.T) {
-	tests := []struct {
-		method string
-		want   bool
-	}{
-		{"/hypershell.v1.GatewayReleaseService/DeleteGatewayRelease", true},
-		{"/hypershell.v1.GatewayService/DeleteGateway", true},
-		{"/hypershell.v1.GatewayService/GetGateway", false},
-		{"/hypershell.v1.GatewayService/CreateGateway", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.method, func(t *testing.T) {
-			if got := isGRPCDeleteMethod(tt.method); got != tt.want {
-				t.Errorf("isGRPCDeleteMethod(%q) = %v, want %v", tt.method, got, tt.want)
-			}
-		})
-	}
-}
-
-// Platform Admin gRPC tests
-func TestIsGRPCAuthorized_PlatformAdminCanRead(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/GetGateway", bindings) {
-		t.Error("platform:admin should be authorized for Get")
-	}
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/ListGateways", bindings) {
-		t.Error("platform:admin should be authorized for List")
-	}
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/WatchGateways", bindings) {
-		t.Error("platform:admin should be authorized for Watch")
-	}
-}
-
-func TestIsGRPCAuthorized_PlatformAdminCanDelete(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/DeleteGateway", bindings) {
-		t.Error("platform:admin should be authorized for Delete")
-	}
-}
-
-func TestIsGRPCAuthorized_PlatformAdminCannotCreate(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if isGRPCAuthorized("/hypershell.v1.GatewayService/CreateGateway", bindings) {
-		t.Error("platform:admin must not be authorized for Create without gateway:creator")
-	}
-}
-
-func TestIsGRPCAuthorized_PlatformAdminCannotUpdate(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if isGRPCAuthorized("/hypershell.v1.GatewayService/UpdateGateway", bindings) {
-		t.Error("platform:admin must not be authorized for Update without gateway:owner")
-	}
-	if isGRPCAuthorized("/hypershell.v1.GatewayService/PatchGateway", bindings) {
-		t.Error("platform:admin must not be authorized for Patch without gateway:owner")
-	}
-}
-
-func TestIsGRPCAuthorized_PlatformAdminWithCreatorCanCreate(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-		{RoleName: "gateway:creator", Scope: "global"},
-	}
-
-	if !isGRPCAuthorized("/hypershell.v1.GatewayService/CreateGateway", bindings) {
-		t.Error("platform:admin + gateway:creator should be authorized for Create")
-	}
-}
-
-func TestUnaryInterceptor_GatewayVersionRestrictedToServiceAccount(t *testing.T) {
-	const method = "/hypershell.v1.GatewayService/SetGatewayVersion"
-	const serviceAccount = "service-account-hypershell-control-plane"
-	for _, role := range []string{"gateway:owner", "gateway:creator"} {
-		for _, username := range []string{"human-user", serviceAccount} {
-			t.Run(role+"/"+username, func(t *testing.T) {
-				lookup := fakeLookup{bindings: []BindingSummary{{RoleName: role, Scope: "gateway", GatewayID: strPtr("gw-1")}}}
-				interceptor := RBACUnaryInterceptor(lookup, fakeProvisioner{userID: "user-1"}, nil, nil, nil, AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{serviceAccount}})
-				ctx := auth.SetUsernameContext(context.Background(), username)
-				called := false
-				_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: method}, func(context.Context, interface{}) (interface{}, error) {
+			_, err := interceptor(auth.SetUsernameContext(context.Background(), tt.username), tt.req, &grpc.UnaryServerInfo{FullMethod: tt.method},
+				func(context.Context, interface{}) (interface{}, error) {
 					called = true
 					return nil, nil
 				})
-				if username == serviceAccount {
-					if !called || err != nil {
-						t.Fatalf("control-plane call: handler=%v, error=%v", called, err)
-					}
-				} else if called || status.Code(err) != codes.PermissionDenied {
-					t.Fatalf("ordinary user reached version writer: handler=%v, code=%v", called, status.Code(err))
-				}
-			})
-		}
+			if got := status.Code(err); got != tt.want {
+				t.Fatalf("code = %s, want %s", got, tt.want)
+			}
+			if called != (tt.want == codes.OK) {
+				t.Fatalf("handler called = %v", called)
+			}
+		})
+	}
+}
+
+// Under enforcement an unauthenticated call reaches no hypershell.v1 method.
+func TestUnaryInterceptor_UnauthenticatedDenied(t *testing.T) {
+	interceptor := RBACUnaryInterceptor(fakeLookup{}, fakeProvisioner{}, nil, nil, nil, nil, AuthzConfig{EnforceRBAC: true})
+	handler := func(context.Context, interface{}) (interface{}, error) { return nil, nil }
+	_, err := interceptor(context.Background(), &pb.ListGatewaysRequest{}, &grpc.UnaryServerInfo{FullMethod: gatewaySvc("ListGateways")}, handler)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unauthenticated ListGateways: %v, want PermissionDenied", err)
+	}
+	if _, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/grpc.health.v1.Health/Check"}, handler); err != nil {
+		t.Fatalf("unauthenticated health check: %v", err)
 	}
 }
