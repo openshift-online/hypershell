@@ -322,6 +322,25 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
 
+- **v0.1.2-rhaiv.0 (2026-09-28, v0.0.116-rhaiv.6 -> v0.1.2-rhaiv.0, triggered by Step 0 / issue #366):**
+  First minor-version midstream bump (0.0.x -> 0.1.x). Triggered automatically: Step 0 found
+  issue #366 (`needs-decision`, filed 2026-09-25) with a human reply from `markturansky`
+  ("Midstream has v0.1.2-rhaiv.0 as the latest tracking upstream 0.1.2").
+  - **Mechanical pin sweep only.** `go build/vet/test` and `make check` all passed. Breaking
+    upstream changes in the range (`refactor(proto)!: well-known time types` #3113,
+    `fix(policy)!: L7 append targets` #3380) are present in the commit history but did not
+    require HyperShell code changes to compile and test.
+  - **`needs-decision` deferred:** Agent Sandbox API version (v1.0.x vs `v1beta1` claim)
+    is unverified against the live image. Flag for next ROKS deploy.
+  - **Step 0 worked.** Skill auto-detected issue #366's human reply, extracted the version,
+    ran the full workflow, and closed the issue on success.
+  - **opendatahub-io/openshell has no GitHub Releases, only tags.** Use
+    `gh api repos/opendatahub-io/openshell/tags` (not `/releases`). Using
+    `/releases/tags/<tag>` returns 404.
+  - **Image digests via Quay API** (skopeo not always available):
+    `curl -s "https://quay.io/api/v1/repository/opendatahub/odh-openshell-gateway/tag/?specificTag=<TAG>"
+    | python3 -c "import sys,json; d=json.load(sys.stdin); t=d.get('tags',[]); print(t[0].get('manifest_digest','') if t else 'not-found')"`
+
 - **Skill correction (2026-09-25, HYPERSHELL-301):** Skill had two structural
   errors discovered during build-agent work:
   - Wrong source repo: skill pointed to `NVIDIA/OpenShell` for tag discovery, but
