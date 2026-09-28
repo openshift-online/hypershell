@@ -160,6 +160,13 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	setNestedValue(values, false, "grpcRoute", "enabled")
 	setNestedValue(values, false, "grpcRoute", "backendTLSPolicy", "enabled")
 
+	// Suppress server.appArmorProfile: pre-v0.1.2 chart defaulted this to
+	// "Unconfined" and rendered app_armor_profile into the TOML config, but
+	// the v0.1.2 gateway binary removed that config field and rejects it.
+	// An empty string is falsy in Helm templates, so the field is not rendered.
+	// The v0.1.2+ chart ignores this key entirely.
+	setNestedValue(values, "", "server", "appArmorProfile")
+
 	// cert-manager configuration
 	setNestedValue(values, b.HasCertManager, "certManager", "enabled")
 
