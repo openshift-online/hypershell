@@ -197,6 +197,12 @@ echo ""
 e2e_area "1. Preflight"
 echo ""
 
+# PROVOKE-ERROR: deliberate failure to verify artifact upload on PR check failure.
+# Revert this commit to restore the suite.
+ab_shot "provoke-error-preflight"
+fail_test "Deliberate failure: verifying e2e-console-artifacts are uploaded and accessible after a Kind job failure"
+exit 1
+
 if [[ "${E2E_OIDC_GRANT}" != "password" ]]; then
   fail_test "Browser login needs seeded passworded users (E2E_OIDC_GRANT=password), got '${E2E_OIDC_GRANT}'"
   exit 1
