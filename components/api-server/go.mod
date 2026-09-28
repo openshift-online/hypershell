@@ -10,7 +10,7 @@ require (
 	github.com/golang/glog v1.2.5
 	github.com/gorilla/mux v1.7.3
 	github.com/jackc/pgx/v5 v5.6.0
-	github.com/lib/pq v1.10.9
+	github.com/lib/pq v1.12.3
 	github.com/onsi/gomega v1.27.1
 	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260819203335-5798cb607fcb
 	github.com/prometheus/client_golang v1.16.0
