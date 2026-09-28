@@ -18,6 +18,7 @@
     "lint_job": "lint-control-plane",
     "paths": [
       "components/control-plane/**",
+      "OPENSHELL_VERSION",
       "components/api-server/go.mod",
       "components/api-server/go.sum",
       "components/api-server/pkg/api/grpc/**",
