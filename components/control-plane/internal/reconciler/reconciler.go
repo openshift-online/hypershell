@@ -454,8 +454,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
 	var reconcileErr error
+	var outcome, reason string
 	defer func() {
-		outcome, reason := cpotel.ClassifyReconcileOutcome(reconcileErr)
+		// If outcome not explicitly set, classify from error
+		if outcome == "" {
+			outcome, reason = cpotel.ClassifyReconcileOutcome(reconcileErr)
+		}
 		endSpan(outcome, reason, reconcileErr)
 	}()
 
@@ -608,11 +612,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			}
 		}
 		log.Printf("DEBUG gateway %s converged at generation %d, skipping reconciliation", event.ResourceID, gw.Generation)
+		outcome = cpotel.OutcomeNoop
 		return nil
 	}
 
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
+		outcome = cpotel.OutcomeFailed
+		reason = cpotel.ReasonInvalidConfig
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
 	}
@@ -726,13 +733,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, r.helmClient, nsConfig, opts); err != nil {
 		var renderErr *gateway.RenderedConfigValidationError
 		if errors.As(err, &renderErr) {
-			reason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
-			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), reason); failedGateway != nil {
+			failReason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
+			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), failReason); failedGateway != nil {
 				observeGatewayProvisionFailure(ctx, event.ResourceID)
 			}
 			log.Printf("ERROR gateway %s generated configuration invalid in namespace %s: %v", gw.Name, namespace, renderErr.Err)
+			outcome = cpotel.OutcomeFailed
+			reason = cpotel.ReasonInvalidConfig
 		} else if r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed)) {
 			observeGatewayProvisionFailure(ctx, event.ResourceID)
+			outcome = cpotel.OutcomeFailed
+			reason = cpotel.ReasonUnknown
 		}
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr

@@ -59,12 +59,13 @@ func StartReconcileSpan(ctx context.Context, kind, eventType, traceparent string
 		RecordReconcileDuration(ctx, kind, eventType, outcome, start)
 		RecordReconciliationLag(ctx, kind, time.Since(start))
 
-		// Record failure-specific metrics (CRM-010, CRM-011)
-		if outcome == OutcomeRetryable {
-			RecordReconciliationRetry(ctx, kind, reason)
-			RecordReconcileError(ctx, kind)
-		} else if outcome == OutcomeFailed {
+		// Record failure-specific metrics (CRM-011)
+		// Note: retries are recorded by the queue when the retry is actually
+		// scheduled (CRM-010), not here, to avoid double-counting.
+		if outcome == OutcomeFailed {
 			RecordReconcileFailedWithReason(ctx, kind, reason)
+			RecordReconcileError(ctx, kind)
+		} else if outcome == OutcomeRetryable {
 			RecordReconcileError(ctx, kind)
 		}
 

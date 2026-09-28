@@ -121,7 +121,7 @@ func (r *NamespaceGCReconciler) Run(ctx context.Context) error {
 }
 
 func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "namespace-gc", "reconcile", "")
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", "reconcile", "")
 	var tickErr error
 	defer func() {
 		outcome, reason := cpotel.ClassifyReconcileOutcome(tickErr)
