@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v4"
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 )
 
