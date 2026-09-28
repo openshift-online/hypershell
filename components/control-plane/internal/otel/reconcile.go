@@ -62,10 +62,11 @@ func StartReconcileSpan(ctx context.Context, kind, eventType, traceparent string
 		// Record failure-specific metrics (CRM-011)
 		// Note: retries are recorded by the queue when the retry is actually
 		// scheduled (CRM-010), not here, to avoid double-counting.
-		if outcome == OutcomeFailed {
+		switch outcome {
+		case OutcomeFailed:
 			RecordReconcileFailedWithReason(ctx, kind, reason)
 			RecordReconcileError(ctx, kind)
-		} else if outcome == OutcomeRetryable {
+		case OutcomeRetryable:
 			RecordReconcileError(ctx, kind)
 		}
 

@@ -584,6 +584,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				// transient Keycloak outage. Publish a fixed marker once and stop retrying;
 				// retry only when the status write itself fails.
 				if gw.GetStatus() == gatewayKeycloakClientInvalidStatus {
+					outcome = cpotel.OutcomeFailed
+					reason = cpotel.ReasonIdentityInvalid
 					return nil
 				}
 				if statusErr := r.updateGatewayStatus(ctx, event.ResourceID, gatewayKeycloakClientInvalidStatus); statusErr != nil {
@@ -592,6 +594,8 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 						fmt.Errorf("publish invalid Keycloak client configuration status: %w", statusErr),
 					))
 				}
+				outcome = cpotel.OutcomeFailed
+				reason = cpotel.ReasonIdentityInvalid
 				return nil
 			}
 			if errors.Is(err, errGatewayKeycloakClientMissing) && gw.GetStatus() != gatewayKeycloakClientMissingStatus {
