@@ -589,7 +589,7 @@ func (q *reconcileQueue[T]) processNext() bool {
 		}
 		q.mu.Unlock()
 		q.queue.AddAfter(id, delay)
-		cpotel.RecordReconciliationRetry(q.baseCtx, q.kind)
+		cpotel.RecordReconciliationRetry(q.baseCtx, q.kind, cpotel.ReasonUnknown)
 		log.Printf("WARN %s %s reconcile failed; retrying in %s: %v", q.kind, id, delay, err)
 		return true
 	}

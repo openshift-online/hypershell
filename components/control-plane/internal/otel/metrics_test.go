@@ -29,6 +29,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousReconciliationLag := reconciliationLag
 	previousStaleResourceStatusCount := staleResourceStatusCount
 	previousWatchReconnects := watchReconnects
+	previousReconcileOutcomes := reconcileOutcomes
+	previousReconcileFailed := reconcileFailed
 
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -47,6 +49,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	reconciliationLag = nil
 	staleResourceStatusCount = nil
 	watchReconnects = nil
+	reconcileOutcomes = nil
+	reconcileFailed = nil
 	t.Cleanup(func() {
 		otel.SetMeterProvider(previousProvider)
 		reconcileDuration = previousReconcileDuration
@@ -63,6 +67,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		reconciliationLag = previousReconciliationLag
 		staleResourceStatusCount = previousStaleResourceStatusCount
 		watchReconnects = previousWatchReconnects
+		reconcileOutcomes = previousReconcileOutcomes
+		reconcileFailed = previousReconcileFailed
 		_ = provider.Shutdown(context.Background())
 	})
 
@@ -75,7 +81,7 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 func TestReconciliationMetrics(t *testing.T) {
 	reader := testMetricsReader(t)
 	RecordReconcileError(context.Background(), "Gateway")
-	RecordReconciliationRetry(context.Background(), "Gateway")
+	RecordReconciliationRetry(context.Background(), "Gateway", ReasonK8sConflict)
 	RecordReconciliationLag(context.Background(), "Gateway", 2*time.Second)
 	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", true)
 	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", true)

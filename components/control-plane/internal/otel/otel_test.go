@@ -55,7 +55,7 @@ func TestStartReconcileSpanDisabled(t *testing.T) {
 
 	ctx := context.Background()
 	ctx2, end := StartReconcileSpan(ctx, "Gateway", "reconcile", "")
-	end(nil)
+	end(OutcomeSuccess, "", nil)
 
 	if ctx2 != ctx {
 		t.Error("disabled StartReconcileSpan should return the same context")

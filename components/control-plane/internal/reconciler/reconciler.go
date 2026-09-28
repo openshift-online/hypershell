@@ -56,7 +56,7 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 	}()
 
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedCluster", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
-	defer func() { endSpan(nil) }()
+	defer func() { endSpan(cpotel.OutcomeSuccess, "", nil) }()
 
 	log.Printf("INFO reconciling ManagedCluster %s (event=%d)", event.ResourceID, event.Type)
 	return nil
@@ -138,7 +138,10 @@ func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Eve
 	// masking a dropped reconcile from the queue's retry/backoff.
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayRelease", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	var reconcileErr error
-	defer func() { endSpan(reconcileErr) }()
+	defer func() {
+		outcome, reason := cpotel.ClassifyReconcileOutcome(reconcileErr)
+		endSpan(outcome, reason, reconcileErr)
+	}()
 
 	// A release owns no cluster resources, so a delete is a terminal, idempotent
 	// no-op with respect to Kubernetes: running gateways deployed from the release
@@ -451,7 +454,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
 	var reconcileErr error
-	defer func() { endSpan(reconcileErr) }()
+	defer func() {
+		outcome, reason := cpotel.ClassifyReconcileOutcome(reconcileErr)
+		endSpan(outcome, reason, reconcileErr)
+	}()
 
 	if event.Type == watcher.EventDeleted {
 		forgetGatewayProvisionObservation(event.ResourceID)
@@ -1565,7 +1571,10 @@ func (r *GatewayNetworkReconciler) Handle(ctx context.Context, event watcher.Eve
 
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayNetwork", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	var reconcileErr error
-	defer func() { endSpan(reconcileErr) }()
+	defer func() {
+		outcome, reason := cpotel.ClassifyReconcileOutcome(reconcileErr)
+		endSpan(outcome, reason, reconcileErr)
+	}()
 
 	// A network owns no cluster resources, so a delete is a terminal, idempotent
 	// no-op with respect to Kubernetes: gateways designated by the network are

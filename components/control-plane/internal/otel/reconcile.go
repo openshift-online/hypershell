@@ -12,20 +12,27 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// ReconcileEndFunc is the callback returned by StartReconcileSpan. Call it when
+// the reconcile completes, passing the outcome (from CRM-006), an optional
+// reason code (from CRM-007, required for retryable/failed outcomes), and any
+// error. The error is used for span status and logging; outcome and reason
+// drive the metrics.
+type ReconcileEndFunc func(outcome, reason string, err error)
+
 // StartReconcileSpan begins a reconcile span named by kind and operation
 // (e.g. "reconcile Gateway", "delete Gateway"). Each reconcile starts as a
 // new trace root so it is independently sampled and does not grow the
 // long-lived watch stream span into a single unbounded trace. The caller
 // must call the returned end function when the reconcile completes, passing
-// any error. When telemetry is disabled, it returns the original context
-// and a no-op end function so there is zero overhead (CP-OBS-01).
+// the outcome, reason, and error. When telemetry is disabled, it returns the
+// original context and a no-op end function so there is zero overhead (CP-OBS-01).
 //
 // When traceparent is non-empty, the span carries a link to the originating
 // request trace (RTC-03). A missing or malformed traceparent produces a
 // normal root with no link and no error.
-func StartReconcileSpan(ctx context.Context, kind, eventType, traceparent string) (context.Context, func(error)) {
+func StartReconcileSpan(ctx context.Context, kind, eventType, traceparent string) (context.Context, ReconcileEndFunc) {
 	if !enabled {
-		return ctx, func(error) {}
+		return ctx, func(string, string, error) {}
 	}
 
 	tracer := otel.Tracer(TracerName)
@@ -46,15 +53,27 @@ func StartReconcileSpan(ctx context.Context, kind, eventType, traceparent string
 	ctx, span := tracer.Start(ctx, spanName, opts...)
 
 	start := time.Now()
-	return ctx, func(err error) {
+	return ctx, func(outcome, reason string, err error) {
+		// Record outcome and duration (CRM-008, CRM-009)
+		RecordReconcileOutcome(ctx, kind, outcome)
+		RecordReconcileDuration(ctx, kind, eventType, outcome, start)
+		RecordReconciliationLag(ctx, kind, time.Since(start))
+
+		// Record failure-specific metrics (CRM-010, CRM-011)
+		if outcome == OutcomeRetryable {
+			RecordReconciliationRetry(ctx, kind, reason)
+			RecordReconcileError(ctx, kind)
+		} else if outcome == OutcomeFailed {
+			RecordReconcileFailedWithReason(ctx, kind, reason)
+			RecordReconcileError(ctx, kind)
+		}
+
+		// Set span status
 		if err != nil {
 			span.SetStatus(codes.Error, sanitizeError(err))
-			RecordReconcileError(ctx, kind)
 		} else {
 			span.SetStatus(codes.Ok, "")
 		}
-		RecordReconcileDuration(ctx, kind, eventType, start)
-		RecordReconciliationLag(ctx, kind, time.Since(start))
 		span.End()
 	}
 }
@@ -143,4 +162,17 @@ func sanitizeError(err error) string {
 		return ""
 	}
 	return "reconcile failed"
+}
+
+// ClassifyReconcileOutcome returns an outcome and reason from an error using
+// heuristics. This is a transitional helper while reconcilers are updated to
+// pass explicit outcomes. It defaults to OutcomeRetryable with ReasonUnknown
+// for non-nil errors, which is conservative (allows retry). Reconcilers should
+// prefer passing explicit outcomes to StartReconcileSpan's end callback.
+func ClassifyReconcileOutcome(err error) (outcome, reason string) {
+	if err == nil {
+		return OutcomeSuccess, ""
+	}
+	// Default: assume errors are retryable until proven otherwise
+	return OutcomeRetryable, ReasonUnknown
 }
