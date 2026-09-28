@@ -192,8 +192,9 @@ to the footprint table.
       If none exists, the human has not yet replied - skip this issue and
       report "waiting for human direction on #N".
 
-   c. Extract the version the human indicated (e.g. `v0.1.2-rhaiv.0`). Use that
-      as the target version and set `RESOLVING_ISSUE=<N>`.
+   c. Extract the version the human indicated (e.g. `v0.1.2-rhaiv.0`). Validate
+      it matches `^v[0-9]` before using it. If it does not match, skip the issue
+      and report "malformed version in human reply on #N". Set `RESOLVING_ISSUE=<N>`.
 
    d. Continue with the normal steps below using that target. On successful
       commit+PR (Step 8), close the issue:
@@ -203,9 +204,7 @@ to the footprint table.
       ```
 
    If multiple `needs-decision` issues have human replies, process them
-   sequentially (newest reply first). If `$ARGUMENTS` is set AND a pending
-   issue exists, process the pending issue first so the explicit human
-   direction takes precedence over an auto-detected version.
+   sequentially (newest reply first).
 
 1. **Resolve versions and obtain the image reference.**
 
