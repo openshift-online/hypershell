@@ -48,28 +48,32 @@ func run(cmd *cobra.Command, argv []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Fail before Build so redirected stdin/stdout never triggers a token refresh.
+	if !output.IsTerminal(os.Stdin) || !output.IsTerminal(os.Stdout) {
+		return fmt.Errorf("hsctl ui requires an interactive terminal")
+	}
+
 	conn, err := connection.NewConnection().Config(cfg).RefreshPerRequest(true).Build()
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	if !output.IsTerminal(os.Stdin) || !output.IsTerminal(os.Stdout) {
-		return fmt.Errorf("hsctl ui requires an interactive terminal")
-	}
-
 	if os.Getenv("NO_COLOR") != "" {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
 
+	ctx := cmd.Context()
 	model := tui.New(tui.Options{
 		Source:    tui.NewRESTSource(conn),
 		APIURL:    cfg.URL,
 		Identity:  identity(cfg.AccessToken),
 		Interval:  args.refresh,
+		Context:   ctx,
 		Clipboard: osc52(os.Stdout),
 	})
-	_, err = tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(cmd.Context())).Run()
+	_, err = tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	if err != nil {
 		return fmt.Errorf("terminal interface failed: %w", err)
 	}

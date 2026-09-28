@@ -39,6 +39,10 @@ type Options struct {
 	APIURL   string
 	Identity string
 	Interval time.Duration
+	// Context is the parent for every API request. When cancelled (for example
+	// on quit via tea.WithContext), in-flight requests abort. Nil means
+	// context.Background.
+	Context context.Context
 	// Clipboard sends text to the terminal clipboard. Nil disables copying.
 	Clipboard func(string) error
 	Now       func() time.Time
@@ -160,6 +164,9 @@ func New(opts Options) *Model {
 	if opts.Interval <= 0 {
 		opts.Interval = DefaultInterval
 	}
+	if opts.Context == nil {
+		opts.Context = context.Background()
+	}
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
@@ -189,6 +196,12 @@ func newInput() textinput.Model {
 
 func (m *Model) now() time.Time { return m.opts.Now() }
 
+// requestCtx returns a timeout context derived from the program context so
+// in-flight API calls abort when the UI quits.
+func (m *Model) requestCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(m.opts.Context, RequestTimeout)
+}
+
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.fetchList(KindGateways, false),
@@ -215,7 +228,7 @@ func (m *Model) fetchList(kind Kind, queue bool) tea.Cmd {
 	v.seq++
 	src, seq := m.opts.Source, v.seq
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout)
+		ctx, cancel := m.requestCtx()
 		defer cancel()
 		res, err := src.List(ctx, kind)
 		return listMsg{kind: kind, seq: seq, result: res, err: err}
@@ -240,7 +253,7 @@ func (m *Model) fetchLookups(force bool) tea.Cmd {
 		l.inFlight = true
 		src := m.opts.Source
 		cmds = append(cmds, func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout)
+			ctx, cancel := m.requestCtx()
 			defer cancel()
 			res, err := src.List(ctx, kind)
 			return lookupMsg{kind: kind, result: res, err: err}
@@ -257,7 +270,7 @@ func (m *Model) fetchDetail() tea.Cmd {
 	d.inFlight = true
 	src, kind, id := m.opts.Source, d.kind, d.id
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout)
+		ctx, cancel := m.requestCtx()
 		defer cancel()
 		res, err := src.Get(ctx, kind, id)
 		return detailMsg{kind: kind, id: id, res: res, err: err}
@@ -824,7 +837,7 @@ func (m *Model) onCreateKey(msg tea.KeyMsg) tea.Cmd {
 		f.submitting = true
 		src := m.opts.Source
 		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout)
+			ctx, cancel := m.requestCtx()
 			defer cancel()
 			res, err := src.CreateGateway(ctx, req)
 			return createdMsg{res: res, err: err}
@@ -861,7 +874,7 @@ func (m *Model) onDeleteKey(msg tea.KeyMsg) tea.Cmd {
 		c.err = ""
 		src, id, name := m.opts.Source, c.id, c.name
 		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout)
+			ctx, cancel := m.requestCtx()
 			defer cancel()
 			return deletedMsg{id: id, name: name, err: src.DeleteGateway(ctx, id)}
 		}
