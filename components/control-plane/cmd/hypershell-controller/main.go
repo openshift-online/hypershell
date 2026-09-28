@@ -260,44 +260,6 @@ func main() {
 	}
 
 	var gatewayReconciler watcher.Handler[*pb.Gateway]
-
-	if clientset != nil && dynamicClient != nil {
-		gr, grErr := reconciler.NewGatewayReconciler(
-			dynamicClient,
-			clientset,
-			conn,
-			helmClient,
-			cfg.Namespace,
-			keycloakConfig,
-			exposurePort,
-			cfg.ExternalCAIssuerName,
-			cfg.ExternalCAIssuerKind,
-			databaseConfig,
-			cfg.ClusterID,
-		)
-		if grErr != nil {
-			log.Printf("WARN gateway reconciler disabled: %v", grErr)
-			gatewayReconciler = reconciler.NewStubGatewayReconciler()
-		} else {
-			gatewayReconciler = gr
-		}
-	} else {
-		log.Printf("WARN no kubernetes client available, using stub gateway reconciler")
-		gatewayReconciler = reconciler.NewStubGatewayReconciler()
-	}
-
-	// The gateway reconcile queue is shared: the gateway watch stream drives it,
-	// and the GatewayRelease reconciler enqueues referencing gateways into it when
-	// a release image changes. It is created here (not inside WatchGateways) so the
-	// release reconciler can hold the same instance.
-	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
-	defer gatewayQueue.Stop()
-
-	watchCount := 4 // managed clusters, gateway releases, gateways, networks
-	if kcClient != nil {
-		watchCount++ // role bindings
-	}
-
 	// Each background component below runs under supervisor.Run on its own
 	// goroutine: a failure in one (a dropped watch stream, a reconciler's Run
 	// loop returning, the service-account provisioner's listener dying) is
@@ -341,6 +303,43 @@ func main() {
 		log.Fatalf("FATAL managed-cluster registration failed: %v", regErr)
 	}
 	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, backfill, release fan-out, and namespace GC to it", clusterID, cfg.ManagedClusterName)
+
+	if clientset != nil && dynamicClient != nil {
+		gr, grErr := reconciler.NewGatewayReconciler(
+			dynamicClient,
+			clientset,
+			conn,
+			helmClient,
+			cfg.Namespace,
+			keycloakConfig,
+			exposurePort,
+			cfg.ExternalCAIssuerName,
+			cfg.ExternalCAIssuerKind,
+			databaseConfig,
+			clusterID,
+		)
+		if grErr != nil {
+			log.Printf("WARN gateway reconciler disabled: %v", grErr)
+			gatewayReconciler = reconciler.NewStubGatewayReconciler()
+		} else {
+			gatewayReconciler = gr
+		}
+	} else {
+		log.Printf("WARN no kubernetes client available, using stub gateway reconciler")
+		gatewayReconciler = reconciler.NewStubGatewayReconciler()
+	}
+
+	// The gateway reconcile queue is shared: the gateway watch stream drives it,
+	// and the GatewayRelease reconciler enqueues referencing gateways into it when
+	// a release image changes. It is created after registration so the reconciler
+	// and all queued work use the registered cluster identity.
+	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
+	defer gatewayQueue.Stop()
+
+	watchCount := 4 // managed clusters, gateway releases, gateways, networks
+	if kcClient != nil {
+		watchCount++ // role bindings
+	}
 
 	// Heartbeat: re-register every 60s to update last_seen_at on the hub.
 	go func() {
