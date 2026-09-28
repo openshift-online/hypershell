@@ -41,14 +41,14 @@ COPY components/control-plane/internal/ components/control-plane/internal/
 ARG TARGETARCH
 RUN cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
-# Package Helm chart from fork (git is provided by the Go toolchain image)
-COPY OPENSHELL_VERSION /tmp/chart-source/
-RUN . /tmp/chart-source/OPENSHELL_VERSION && \
-    git clone --depth 1 --branch "${OPENSHELL_TAG}" "${OPENSHELL_CHART_REPO}" /tmp/openshell && \
-    mkdir -p /workspace/charts && \
-    helm package /tmp/openshell/deploy/helm/openshell --destination /workspace/charts/ && \
-    mv /workspace/charts/*.tgz /workspace/charts/openshell.tgz && \
-    rm -rf /tmp/openshell
+# Package Helm chart from the vendored source tree in charts/openshell.
+# The chart source is committed to the repository (no network access needed),
+# which is required for Konflux hermetic builds. When bumping OPENSHELL_VERSION,
+# update charts/openshell/ by extracting the chart from the new upstream tag.
+COPY charts/openshell /tmp/chart-source/openshell
+RUN mkdir -p /workspace/charts && \
+    helm package /tmp/chart-source/openshell --destination /workspace/charts/ && \
+    mv /workspace/charts/*.tgz /workspace/charts/openshell.tgz
 
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:3d43712a61ce01c7049e983e7f4c4609aaad7582c7bbd930b57372f82c446f98 AS static-amd64
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:2ccd532da5e8868a92f479a7268a2fce65279c1f7c8a8dd0880d399c04d6a356 AS static-arm64
