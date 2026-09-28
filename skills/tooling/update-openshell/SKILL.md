@@ -171,6 +171,42 @@ to the footprint table.
 
 ## Workflow
 
+0. **Check for pending `needs-decision` issues.** Before resolving the target
+   version, scan for open issues where a human already provided direction.
+   Skip this step if `$ARGUMENTS` is non-empty (explicit target already given).
+
+   ```bash
+   gh api 'repos/openshift-online/hypershell/issues?labels=needs-decision&state=open&per_page=100' \
+     --jq '.[] | [.number, .title] | @tsv'
+   ```
+
+   For each open `needs-decision` issue:
+
+   a. Read all comments:
+      ```bash
+      gh api repos/openshift-online/hypershell/issues/<N>/comments \
+        --jq '.[] | {author: .user.login, body, created_at}'
+      ```
+
+   b. Find the most-recent comment whose author does **not** end in `[bot]`.
+      If none exists, the human has not yet replied — skip this issue and
+      report "waiting for human direction on #N".
+
+   c. Extract the version the human indicated (e.g. `v0.1.2-rhaiv.0`). Use that
+      as the target version and set `RESOLVING_ISSUE=<N>`.
+
+   d. Continue with the normal steps below using that target. On successful
+      commit+PR (Step 8), close the issue:
+      ```bash
+      gh issue close "$RESOLVING_ISSUE" --repo openshift-online/hypershell \
+        --comment "Resolved in <PR-URL>. The update to <version> is now open for review."
+      ```
+
+   If multiple `needs-decision` issues have human replies, process them
+   sequentially (newest reply first). If `$ARGUMENTS` is set AND a pending
+   issue exists, process the pending issue first so the explicit human
+   direction takes precedence over an auto-detected version.
+
 1. **Resolve versions and obtain the image reference.**
 
    **Stable midstream track:**
@@ -269,7 +305,8 @@ to the footprint table.
 8. **Commit + report.** Conventional commit
    (`chore(deps): bump OpenShell to <version>`), summarize the impact report in
    the body, and open follow-up issues for any `needs-decision` item deferred for
-   a maintainer call.
+   a maintainer call. If this run was triggered by a pending `needs-decision` issue
+   (Step 0), close it now with a link to the PR.
 
 ## Contract surfaces to triage
 
