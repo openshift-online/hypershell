@@ -94,6 +94,7 @@ cleanup() {
     rm -f "$BROWSER_CA_FILE"
   fi
   print_results
+  ab_write_artifact_report
 }
 trap cleanup EXIT
 

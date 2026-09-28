@@ -617,3 +617,123 @@ ab_fail() {
   fail_test "$1"
   ab_fail_evidence "$(ab_evidence_tag "${E2E_CURRENT_AREA%%.*}-$1")"
 }
+
+# ab_write_artifact_report - write e2e-console-artifacts/index.html summarising
+# every screenshot and failure-evidence image collected during the run, plus the
+# pass/fail result list. Called from the cleanup trap after print_results.
+ab_write_artifact_report() {
+  [[ -d "$E2E_CONSOLE_ARTIFACT_DIR" ]] || return 0
+  local out="${E2E_CONSOLE_ARTIFACT_DIR}/index.html"
+  local ts
+  ts="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+  # Build result rows from E2E_TESTS (defined in lib.sh).
+  local result_rows=""
+  for t in "${E2E_TESTS[@]:-}"; do
+    if [[ "$t" == PASS:* ]]; then
+      result_rows+="<li class=\"pass\">&#10003; ${t#PASS: }</li>"$'\n'
+    else
+      result_rows+="<li class=\"fail\">&#10007; ${t#FAIL: }</li>"$'\n'
+    fi
+  done
+
+  # Named screenshots: derive a human title from the filename.
+  # Pattern: NN-slug.png  ->  "Slug Words"  (drop the leading number).
+  local named_cards=""
+  while IFS= read -r -d '' f; do
+    local base title
+    base="$(basename "$f" .png)"
+    title="$(printf '%s' "${base#[0-9][0-9]-}" | tr '-' ' ' | python3 -c "import sys; print(sys.stdin.read().strip().title())")"
+    named_cards+="<figure><img src=\"$(basename "$f")\" alt=\"${title}\"><figcaption>${title}</figcaption></figure>"$'\n'
+  done < <(find "$E2E_CONSOLE_ARTIFACT_DIR" -maxdepth 1 -name '[0-9][0-9]-*.png' -print0 | sort -z)
+
+  # Failure-evidence full screenshots.
+  local evidence_cards=""
+  while IFS= read -r -d '' f; do
+    local base tag
+    base="$(basename "$f" -full.png)"
+    # Keep the area number prefix; just replace dashes with spaces.
+    tag="$(printf '%s' "$base" | tr '-' ' ' | sed 's/^  */ /' | sed 's/  */ /g')"
+    evidence_cards+="<figure class=\"evidence\"><img src=\"$(basename "$f")\" alt=\"${tag}\"><figcaption>&#9888; ${tag}</figcaption></figure>"$'\n'
+  done < <(find "$E2E_CONSOLE_ARTIFACT_DIR" -maxdepth 1 -name '*-full.png' -print0 | sort -z)
+
+  local status_class="ok"
+  local status_text="${E2E_PASS:-0} passed, ${E2E_FAIL:-0} failed"
+  [[ "${E2E_FAIL:-0}" -gt 0 ]] && status_class="fail"
+
+  python3 - "$out" "$ts" "$status_class" "$status_text" \
+    "$result_rows" "$named_cards" "$evidence_cards" <<'PYEOF'
+import sys
+out, ts, status_class, status_text, result_rows, named_cards, evidence_cards = sys.argv[1:]
+html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>E2E Console Run - {ts}</title>
+<style>
+  :root {{
+    --bg: #fff; --fg: #111; --card-bg: #f6f8fa; --border: #d0d7de;
+    --pass: #1a7f37; --fail: #cf222e; --warn: #9a6700;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{
+      --bg: #0d1117; --fg: #e6edf3; --card-bg: #161b22; --border: #30363d;
+      --pass: #3fb950; --fail: #f85149; --warn: #d29922;
+    }}
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; padding: 24px; }}
+  h1 {{ font-size: 1.4rem; margin-bottom: 4px; }}
+  .meta {{ font-size: 0.85rem; opacity: .6; margin-bottom: 20px; }}
+  .badge {{ display: inline-block; padding: 2px 10px; border-radius: 12px; font-weight: 600; font-size: 0.85rem; }}
+  .badge.ok {{ background: var(--pass); color: #fff; }}
+  .badge.fail {{ background: var(--fail); color: #fff; }}
+  h2 {{ font-size: 1rem; margin: 24px 0 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }}
+  ul.results {{ list-style: none; padding: 0; }}
+  ul.results li {{ padding: 2px 0 2px 4px; }}
+  li.pass {{ color: var(--pass); }}
+  li.fail {{ color: var(--fail); }}
+  .gallery {{ display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }}
+  figure {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px;
+            overflow: hidden; width: 360px; flex-shrink: 0; }}
+  figure.evidence {{ border-color: var(--fail); }}
+  figure img {{ width: 100%; height: 240px; object-fit: cover; object-position: top;
+                display: block; background: #222; cursor: zoom-in; }}
+  figcaption {{ padding: 8px 10px; font-size: 0.82rem; font-weight: 600;
+                border-top: 1px solid var(--border); }}
+  figure.evidence figcaption {{ color: var(--fail); }}
+  dialog {{ padding: 0; border: none; border-radius: 6px; max-width: 96vw; max-height: 96vh; background: transparent; }}
+  dialog img {{ display: block; max-width: 96vw; max-height: 96vh; object-fit: contain; border-radius: 4px; }}
+  dialog::backdrop {{ background: rgba(0,0,0,.8); }}
+</style>
+</head>
+<body>
+<h1>E2E Console Run &nbsp;<span class="badge {status_class}">{status_text}</span></h1>
+<p class="meta">{ts}</p>
+
+<h2>Results</h2>
+<ul class="results">
+{result_rows}
+</ul>
+
+<h2>Screenshots</h2>
+<div class="gallery">
+{named_cards}
+</div>
+{"<h2>Failure Evidence</h2><div class='gallery'>" + evidence_cards + "</div>" if evidence_cards.strip() else ""}
+
+<dialog id="zoom"><img id="zoom-img" src="" alt=""></dialog>
+<script>
+const dlg = document.getElementById('zoom');
+const img = document.getElementById('zoom-img');
+document.querySelectorAll('figure img').forEach(el => {{
+  el.addEventListener('click', () => {{ img.src = el.src; dlg.showModal(); }});
+}});
+dlg.addEventListener('click', () => dlg.close());
+</script>
+</body>
+</html>"""
+open(out, 'w').write(html)
+print(f"  Artifact report: {out}")
+PYEOF
+}

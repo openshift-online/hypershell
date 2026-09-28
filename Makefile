@@ -118,7 +118,7 @@ help:
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
 	@echo "                             SEED_STRICT=true: fail the command if seeding is incomplete"
 	@echo "                             FORCE=true: openshift-down skips ownership labels (still refuses reserved names)"
-	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
+	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080) and sync in-cluster CoreDNS gateway IP"
 	@echo "    kind-gateway-trust       Print SSL_CERT_FILE export so the openshell CLI trusts the dev CA"
 	@echo "    kind-openshell           Run the openshell CLI via Kind's own network (works on macOS with no native CLI build)"
 	@echo "                             ARGS=\"-g dev sandbox create\""
