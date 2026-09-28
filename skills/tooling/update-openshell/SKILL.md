@@ -375,9 +375,9 @@ Newest first. Each entry: version, date, what happened, what changed in the repo
     `v0.1.2-rhaiv.0`, ran the full workflow, and closed the issue on success.
   - **opendatahub-io/openshell has no GitHub Releases, only tags.** Use `gh api repos/opendatahub-io/openshell/tags`
     (not `/releases`) to enumerate available versions. Attempting `/releases/tags/<tag>` returns 404.
-  - **Image digests retrieved via Quay API** (skopeo not always available):
-    `curl -s "https://quay.io/api/v1/repository/opendatahub/odh-openshell-gateway/tag/?specificTag=<TAG>"
-    | python3 -c "import sys,json; d=json.load(sys.stdin); t=d.get('tags',[]); print(t[0].get('manifest_digest','') if t else 'not-found')"` 
+  - **Image digests:** Use `skopeo inspect --no-creds docker://quay.io/opendatahub/odh-openshell-gateway:<TAG>`
+    to retrieve the manifest digest. If skopeo is unavailable, the Quay v1 tag API returns the
+    `manifest_digest` field for a given `specificTag` query parameter.
 
 - **Skill correction (2026-09-25, HYPERSHELL-301):** Skill had two structural
   errors discovered during build-agent work:
