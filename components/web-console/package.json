@@ -62,7 +62,7 @@
     "victory-tooltip": "37.3.6",
     "victory-voronoi-container": "37.3.6",
     "victory-zoom-container": "37.3.6",
-    "web-vitals": "5.3.0",
+    "web-vitals": "6.2.1",
     "zod": "4.4.3"
   },
   "devDependencies": {
