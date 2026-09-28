@@ -82,15 +82,17 @@ by outcome.
 
 | Outcome | Meaning |
 | --- | --- |
-| `noop` | The reconciler determined that no work was needed (phase gate, deduplication, or desired state already matches observed state). |
+| `noop` | The reconciler's `Handle` method ran but determined that no work was needed (deduplication, or desired state already matches observed state). |
 | `success` | The reconciler completed all work and the resource converged to its desired state. |
 | `retryable` | The reconciler failed due to a transient condition (network timeout, API unavailable, conflict) and the queue will schedule a retry with backoff. |
-| `terminal` | The reconciler failed due to a condition that cannot recover without external intervention (invalid configuration, missing prerequisite, validation failure). The resource phase moves to `Failed`. |
+| `failed` | The reconciler failed due to a condition that cannot recover without external intervention (invalid configuration, missing prerequisite, validation failure). The resource phase moves to `Failed`. |
 
-A reconciliation that is skipped before a span is created (e.g. a phase-gated
-event that produces no span per CP-OBS-02) SHALL NOT record any outcome
-observation. The absence of an observation is distinct from `noop`: `noop`
-indicates the reconciler ran and made an explicit convergence decision.
+A reconciliation that is skipped before the reconciler's `Handle` method
+executes (e.g. a phase-gated event that the watch loop or queue filters out
+before calling `Handle`, producing no span per CP-OBS-02) SHALL NOT record any
+outcome observation. The `noop` outcome is distinct from this silent skip:
+`noop` means `Handle` ran, evaluated the resource, and decided no mutation was
+needed. Only code paths inside `Handle` record outcomes.
 
 These outcome values SHALL be string constants defined once in the control-plane
 `otel` package and imported by every call site. Adding a new outcome value
@@ -98,7 +100,7 @@ requires updating this spec.
 
 ### Requirement: CRM-007 -- Bounded Reason Codes
 
-Each `retryable` or `terminal` outcome SHALL carry a bounded `reason` label
+Each `retryable` or `failed` outcome SHALL carry a bounded `reason` label
 that aids diagnosis without leaking sensitive data. The reason code set is a
 closed enumeration; adding a new code requires updating this spec.
 
@@ -112,7 +114,7 @@ closed enumeration; adding a new code requires updating this spec.
 | `dependency_not_ready` | A prerequisite resource (release, namespace, secret) is not yet available. |
 | `keycloak_transient` | A Keycloak API call failed with a transient HTTP error. |
 
-#### Terminal Reason Codes
+#### Failed Reason Codes
 
 | Code | When |
 | --- | --- |
@@ -137,7 +139,7 @@ for each observation SHALL be:
 | --- | --- | --- |
 | `resource.kind` | `Gateway`, `GatewayRelease`, `GatewayNetwork`, `ManagedCluster` | Reconciler kind |
 | `event.type` | `reconcile`, `delete` | Watch event type |
-| `outcome` | `noop`, `success`, `retryable`, `terminal` | CRM-006 |
+| `outcome` | `noop`, `success`, `retryable`, `failed` | CRM-006 |
 
 The `reason` attribute (CRM-007) SHALL NOT appear on the duration histogram
 to keep cardinality bounded. Duration with reason can be correlated through
@@ -159,12 +161,12 @@ The counter SHALL carry the following bounded attributes:
 | Attribute | Values |
 | --- | --- |
 | `resource.kind` | `Gateway`, `GatewayRelease`, `GatewayNetwork`, `ManagedCluster` |
-| `outcome` | `noop`, `success`, `retryable`, `terminal` |
+| `outcome` | `noop`, `success`, `retryable`, `failed` |
 
 This counter complements `reconcile.errors` (CP-OBS-07) by tracking all
 outcomes, not only failures. `reconcile.errors` remains for backward
 compatibility; its increment SHALL coincide with either `retryable` or
-`terminal` increments on `reconcile.outcomes`.
+`failed` increments on `reconcile.outcomes`.
 
 ### Requirement: CRM-010 -- Retry Counter with Reason
 
@@ -178,27 +180,28 @@ retryable reason codes in CRM-007. The counter SHALL continue to carry the
 | `resource.kind` | `Gateway`, `GatewayRelease`, `GatewayNetwork`, `ManagedCluster` |
 | `reason` | Retryable codes from CRM-007, or `unknown` |
 
-### Requirement: CRM-011 -- Terminal Failure Counter
+### Requirement: CRM-011 -- Failed Outcome Counter
 
-The control plane SHALL expose a counter metric for terminal reconciliation
-failures that cannot self-recover:
+The control plane SHALL expose a counter metric for reconciliation failures
+that cannot self-recover:
 
 | Metric | Type | Unit | Description |
 | --- | --- | --- | --- |
-| `reconcile.terminal_failures` | Counter | `{failure}` | Count of reconciliation attempts that reached a terminal non-recoverable state |
+| `reconcile.failed` | Counter | `{failure}` | Count of reconciliation attempts that reached a non-recoverable state |
 
 The counter SHALL carry the following bounded attributes:
 
 | Attribute | Values |
 | --- | --- |
 | `resource.kind` | `Gateway`, `GatewayRelease`, `GatewayNetwork`, `ManagedCluster` |
-| `reason` | Terminal codes from CRM-007, or `unknown` |
+| `reason` | Failed codes from CRM-007, or `unknown` |
 
 When exported to Prometheus, the counter SHALL appear as
-`reconcile_terminal_failures_total`. A terminal failure observation SHALL also
-increment `reconcile.outcomes` with `outcome=terminal` and
-`hypershell.reconciliation.failures` (CRM-001). The three increments SHALL
-happen atomically from the caller's perspective.
+`reconcile_failed_total`. A `failed` outcome observation SHALL also increment
+`reconcile.outcomes` with `outcome=failed`,
+`hypershell.reconciliation.failures` (CRM-001), and `reconcile.errors`
+(CP-OBS-07). The four increments SHALL happen atomically from the caller's
+perspective.
 
 ### Requirement: CRM-012 -- Cardinality Policy
 
@@ -207,7 +210,7 @@ product of its bounded attribute domains. Specifically:
 
 - `reconcile.duration`: at most `|resource.kind| x |event.type| x |outcome|` = 4 x 2 x 4 = 32 series.
 - `reconcile.outcomes`: at most `|resource.kind| x |outcome|` = 4 x 4 = 16 series.
-- `reconcile.terminal_failures`: at most `|resource.kind| x |reason|` = 4 x 4 = 16 series (3 terminal codes + `unknown`).
+- `reconcile.failed`: at most `|resource.kind| x |reason|` = 4 x 4 = 16 series (3 failed codes + `unknown`).
 - `hypershell.reconciliation.retries`: at most `|resource.kind| x |reason|` = 4 x 6 = 24 series (5 retryable codes + `unknown`).
 
 The retryable codes are: `grpc_unavailable`, `k8s_conflict`, `k8s_unavailable`, `dependency_not_ready`, `keycloak_transient`.
@@ -221,13 +224,13 @@ logged at WARN level.
 
 Tests SHALL verify:
 
-- Each outcome value (`noop`, `success`, `retryable`, `terminal`) produces
+- Each outcome value (`noop`, `success`, `retryable`, `failed`) produces
   exactly one observation on `reconcile.outcomes` and one observation on
   `reconcile.duration` with the matching outcome attribute.
 - A `retryable` outcome increments `hypershell.reconciliation.retries` with a
   valid reason code and increments `reconcile.errors`.
-- A `terminal` outcome increments `reconcile.terminal_failures` with a valid
-  reason code, increments `reconcile.errors`, and increments
+- A `failed` outcome increments `reconcile.failed` with a valid reason code,
+  increments `reconcile.errors`, and increments
   `hypershell.reconciliation.failures`.
 - A `noop` outcome does NOT increment `reconcile.errors`,
   `hypershell.reconciliation.failures`, or `hypershell.reconciliation.retries`.
@@ -263,14 +266,15 @@ Tests SHALL verify:
 - AND `hypershell.reconciliation.retries` SHALL increment with `resource.kind=Gateway`, `reason=grpc_unavailable`
 - AND `reconcile.errors` SHALL be incremented
 
-#### Scenario: Terminal failure with reason
+#### Scenario: Failed outcome with reason
 
 - GIVEN a Gateway with an invalid image reference
 - WHEN the reconciler validates the configuration and cannot proceed
-- THEN `reconcile.outcomes` SHALL increment with `resource.kind=Gateway`, `outcome=terminal`
-- AND `reconcile.duration` SHALL record the duration with `outcome=terminal`
-- AND `reconcile.terminal_failures` SHALL increment with `resource.kind=Gateway`, `reason=invalid_config`
+- THEN `reconcile.outcomes` SHALL increment with `resource.kind=Gateway`, `outcome=failed`
+- AND `reconcile.duration` SHALL record the duration with `outcome=failed`
+- AND `reconcile.failed` SHALL increment with `resource.kind=Gateway`, `reason=invalid_config`
 - AND `hypershell.reconciliation.failures` SHALL be incremented
+- AND `reconcile.errors` SHALL be incremented
 - AND the Gateway phase SHALL transition to `Failed`
 
 #### Scenario: Unknown reason code fallback
@@ -291,17 +295,17 @@ Tests SHALL verify:
 - The outcome taxonomy (CRM-006) is authoritative for all reconciliation
   metrics. `control-plane-observability.spec.md` CP-OBS-07 defines the OTLP
   instruments; this spec defines their semantic contract.
-- Terminal reason codes align with the control-plane conventions
-  (`standards/control-plane/conventions.spec.md`): terminal errors update the
-  resource status to `Failed` and do not retry.
+- Failed reason codes align with the control-plane conventions
+  (`standards/control-plane/conventions.spec.md`): non-recoverable errors update
+  the resource status to `Failed` and do not retry.
 
 ## Design Decisions
 
 | Decision | Rationale |
 | --- | --- |
-| Four-value outcome taxonomy | Covers the full reconcile lifecycle without unbounded enumeration; maps cleanly to operator actions (noop = healthy, success = converged, retryable = wait, terminal = investigate). |
+| Four-value outcome taxonomy | Covers the full reconcile lifecycle without unbounded enumeration; maps cleanly to operator actions (noop = healthy, success = converged, retryable = wait, failed = investigate). |
 | Closed reason-code enumeration | Prevents label cardinality from growing with fleet size or error diversity; new failure modes require a spec change and review. |
-| Reason on retry/terminal counters but not duration histogram | Duration x outcome is already 32 series; adding reason would multiply by 11 (55 codes x 4 kinds = 220+). Reason-correlated duration is available via trace spans (CP-OBS-02). |
+| Reason on retry/failed counters but not duration histogram | Duration x outcome is already 32 series (4 kinds x 2 event types x 4 outcomes); adding `reason` (9 codes: 5 retryable + 3 failed + `unknown`) would expand to 4 x 2 x 9 = 72 series per kind-event pair. Reason-correlated duration is available via trace spans (CP-OBS-02). |
 | `noop` records duration | Slow no-op paths (e.g. expensive phase-gate evaluation) are a real operational concern; silent omission hides them. |
 | `unknown` fallback reason | New failure modes surface in dashboards immediately (via `unknown` spikes) rather than silently dropping observations until the spec is updated. |
 | Backward compatibility with existing counters | `reconcile.errors` and `hypershell.reconciliation.failures` remain so existing dashboards and alerts continue to work; `reconcile.outcomes` is the forward-looking canonical metric. |
