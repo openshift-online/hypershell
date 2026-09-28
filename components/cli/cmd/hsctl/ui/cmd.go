@@ -49,6 +49,12 @@ func run(cmd *cobra.Command, argv []string) error {
 		return err
 	}
 
+	// Check login before the terminal guard so non-TTY callers get a clear
+	// "not logged in" error rather than the terminal requirement.
+	if armed, reason := cfg.Armed(); !armed {
+		return fmt.Errorf("not logged in, %s, run the 'login' command", reason)
+	}
+
 	// Fail before Build so redirected stdin/stdout never triggers a token refresh.
 	if !output.IsTerminal(os.Stdin) || !output.IsTerminal(os.Stdout) {
 		return fmt.Errorf("hsctl ui requires an interactive terminal")
