@@ -529,10 +529,10 @@ func TestValidateReasonFallback(t *testing.T) {
 
 func TestClassifyReconcileOutcome(t *testing.T) {
 	tests := []struct {
-		name         string
-		err          error
-		wantOutcome  string
-		wantReason   string
+		name        string
+		err         error
+		wantOutcome string
+		wantReason  string
 	}{
 		{"nil error is success", nil, OutcomeSuccess, ""},
 		{"non-nil error is retryable", fmt.Errorf("some error"), OutcomeRetryable, ReasonUnknown},
