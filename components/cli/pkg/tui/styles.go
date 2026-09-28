@@ -15,6 +15,13 @@ var (
 	progressStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "25", Dark: "111"})
 	panelStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
 	focusedLabel  = lipgloss.NewStyle().Bold(true).Underline(true)
+
+	// Detail-view YAML syntax styles (TUI-06). Punctuation stays neutral.
+	yamlKeyStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "25", Dark: "117"})
+	yamlStringStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "65", Dark: "151"})
+	yamlNumberStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "91", Dark: "177"})
+	yamlBoolStyle   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "215"})
+	yamlNullStyle   = mutedStyle
 )
 
 // phaseStyle styles the canonical gateway phases

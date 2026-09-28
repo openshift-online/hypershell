@@ -205,14 +205,28 @@ refreshes of the same view and SHALL be cleared when the view changes.
 
 Pressing `enter` on a row SHALL open a scrollable detail view of that resource
 showing every field returned by the API get endpoint, formatted as indented
-YAML with keys in API order. The detail view SHALL refresh on the same polling
-schedule as its collection. When the resource returns HTTP 404, the detail view
-SHALL state that the resource no longer exists and offer `esc` to return.
+YAML with keys in API order. The YAML body SHALL be syntax-colored so that
+mapping keys, string scalars, numeric scalars, boolean scalars, and null
+scalars are each visually distinct from one another. Structural indentation
+and punctuation (`:`, `-`) SHALL remain readable in the neutral style. When a
+Gateway `phase` value is one of the canonical phases from
+`gateway-phase-vocabulary.spec.md`, that scalar SHALL reuse the same healthy /
+in-progress / warning / error styles as TUI-04; any other phase value SHALL
+use the string-scalar style. Color SHALL NOT be the only cue: every key and
+value remains present as plain text, and when `NO_COLOR` is set to a non-empty
+value the detail YAML SHALL render without color, matching TUI-04.
+
+The detail view SHALL refresh on the same polling schedule as its collection.
+When the resource returns HTTP 404, the detail view SHALL state that the
+resource no longer exists and offer `esc` to return.
 
 For a Gateway, the detail view SHALL also show the openshell connection
 instructions produced by `hsctl get gateway <id> --show-connection`, or a note
 that connection details are not yet available while the gateway is not
-`Running`.
+`Running`. The connection section heading SHALL use the title style; the
+unavailable note and any error from producing instructions SHALL use the muted
+and error styles respectively. The instruction body itself MAY remain
+unstyled text.
 
 `y` SHALL copy the resource ID to the system clipboard when one is available
 through the terminal (OSC 52), and SHALL report in the status line whether the
@@ -224,6 +238,22 @@ selected.
 - GIVEN the user is viewing gateway `gw-a` in detail
 - WHEN another user deletes `gw-a` and the next refresh returns 404
 - THEN the detail view SHALL state that `gw-a` no longer exists
+
+#### Scenario: Detail YAML is syntax-colored
+
+- GIVEN a gateway with `name: demo`, `phase: Running`, and a numeric field
+- WHEN the user opens that gateway in the detail view
+- THEN mapping keys SHALL use the key style
+- AND `demo` SHALL use the string-scalar style
+- AND `Running` SHALL use the healthy style from TUI-04
+- AND the numeric scalar SHALL use the number style
+
+#### Scenario: Detail YAML respects NO_COLOR
+
+- GIVEN `NO_COLOR` is set to a non-empty value
+- WHEN the user opens a resource in the detail view
+- THEN the YAML body SHALL render without color
+- AND every field key and value SHALL still be present as plain text
 
 ### Requirement: TUI-07 - Gateway Provisioning
 

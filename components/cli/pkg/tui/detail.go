@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -38,12 +39,109 @@ func clearStyle(n *yaml.Node) {
 	}
 }
 
+// colorizeYAML applies detail-view syntax coloring to block YAML produced by
+// toYAML. Indentation and punctuation stay neutral; keys and scalar kinds are
+// styled distinctly. Canonical Gateway phase values reuse phaseStyle.
+func colorizeYAML(plain string) string {
+	if plain == "" {
+		return ""
+	}
+	lines := strings.Split(plain, "\n")
+	for i, line := range lines {
+		lines[i] = colorizeYAMLLine(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func colorizeYAMLLine(line string) string {
+	i := 0
+	for i < len(line) && line[i] == ' ' {
+		i++
+	}
+	prefix := line[:i]
+	rest := line[i:]
+
+	listMarker := ""
+	switch {
+	case strings.HasPrefix(rest, "- "):
+		listMarker = "- "
+		rest = rest[2:]
+	case rest == "-":
+		return prefix + "-"
+	}
+
+	key, val, ok := splitYAMLKeyValue(rest)
+	if !ok {
+		if rest == "" {
+			return prefix + listMarker
+		}
+		return prefix + listMarker + styleYAMLScalar(rest, "")
+	}
+
+	styled := yamlKeyStyle.Render(key) + ":"
+	if val != "" {
+		styled += " " + styleYAMLScalar(val, key)
+	}
+	return prefix + listMarker + styled
+}
+
+// splitYAMLKeyValue splits "key: value" or "key:" on the first colon. Bare
+// scalars (no colon) return ok=false.
+func splitYAMLKeyValue(s string) (key, val string, ok bool) {
+	idx := strings.IndexByte(s, ':')
+	if idx <= 0 {
+		return "", "", false
+	}
+	key = s[:idx]
+	rest := s[idx+1:]
+	if rest == "" {
+		return key, "", true
+	}
+	if rest[0] == ' ' {
+		return key, rest[1:], true
+	}
+	return key, rest, true
+}
+
+func styleYAMLScalar(text, key string) string {
+	if key == "phase" {
+		switch text {
+		case "Running", "Pending", "Provisioning", "Degraded", "Failed":
+			return phaseStyle(text).Render(text)
+		}
+		return yamlStringStyle.Render(text)
+	}
+	switch text {
+	case "null", "~":
+		return yamlNullStyle.Render(text)
+	case "true", "false":
+		return yamlBoolStyle.Render(text)
+	}
+	if isYAMLNumber(text) {
+		return yamlNumberStyle.Render(text)
+	}
+	return yamlStringStyle.Render(text)
+}
+
+func isYAMLNumber(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '"' || s[0] == '\'' {
+		return false
+	}
+	_, err := strconv.ParseFloat(s, 64)
+	return err == nil
+}
+
 // detailContent is the full detail text for a resource: its YAML and, for a
 // gateway, the openshell connection instructions.
 func detailContent(kind Kind, r Resource) string {
 	body, err := toYAML(r.Raw)
 	if err != nil {
 		body = errorStyle.Render(err.Error())
+	} else {
+		body = colorizeYAML(body)
 	}
 	if kind != KindGateways {
 		return body

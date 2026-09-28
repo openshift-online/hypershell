@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/openshift-online/hypershell/components/cli/pkg/config"
 )
@@ -667,7 +668,7 @@ func TestDetailShowsYAMLAndHandlesDeletion(t *testing.T) {
 	src.lists[KindGateways] = ListResult{Items: []Resource{gateway(t, "g1", "gw-a", "phase", "Pending")}}
 	h := newHarness(t, src)
 	h.key("enter")
-	view := h.view()
+	view := ansi.Strip(h.view())
 	assertContains(t, view, "name: gw-a")
 	assertContains(t, view, "available once the gateway is Running")
 
