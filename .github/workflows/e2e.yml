@@ -761,7 +761,7 @@ jobs:
         if: failure() && steps.e2e-console.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: e2e-console-artifacts-${{ matrix.database-provider }}
+          name: e2e-console-artifacts
           path: e2e-console-artifacts/
           retention-days: 7
           if-no-files-found: ignore
