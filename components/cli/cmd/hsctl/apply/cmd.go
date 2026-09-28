@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -78,17 +79,32 @@ func run(cmd *cobra.Command, argv []string) error {
 			return err
 		}
 	} else if args.kustomize != "" {
-		// For now, treat kustomize as a directory of YAML files
-		// Full kustomize support would require running `kustomize build`
-		return fmt.Errorf("kustomize support not yet implemented - use -f for now")
+		resources, err = loadFromKustomize(args.kustomize)
+		if err != nil {
+			return err
+		}
 	}
 
 	results := []map[string]interface{}{}
 
+	var hasError bool
 	for _, resource := range resources {
+		// Validate supported kind
+		if !isSupportedKind(resource.Kind) {
+			fmt.Fprintf(os.Stderr, "Skipping unsupported kind: %s/%s\n", resource.Kind, getName(resource))
+			hasError = true
+			continue
+		}
+
+		if args.dryRun {
+			fmt.Printf("%s/%s (dry run)\n", strings.ToLower(resource.Kind), getName(resource))
+			continue
+		}
+
 		result, err := applyResource(conn, resource)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error applying %s/%s: %v\n", resource.Kind, getName(resource), err)
+			hasError = true
 			continue
 		}
 		results = append(results, result)
@@ -101,12 +117,16 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 	}
 
-	if args.outputFmt == "json" {
+	if args.outputFmt == "json" && !args.dryRun {
 		output, err := json.MarshalIndent(results, "", "  ")
 		if err != nil {
 			return err
 		}
 		fmt.Println(string(output))
+	}
+
+	if hasError {
+		return fmt.Errorf("one or more resources failed to apply")
 	}
 
 	return nil
@@ -161,6 +181,68 @@ func loadFromDirectory(dir string) ([]Resource, error) {
 	return allResources, err
 }
 
+func loadFromKustomize(dir string) ([]Resource, error) {
+	// Verify directory exists
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("kustomize directory not found: %s", dir)
+		}
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("kustomize path is not a directory: %s", dir)
+	}
+
+	// Check for kustomization.yaml or kustomization.yml
+	kustomizationPath := filepath.Join(dir, "kustomization.yaml")
+	if _, err := os.Stat(kustomizationPath); os.IsNotExist(err) {
+		kustomizationPath = filepath.Join(dir, "kustomization.yml")
+		if _, err := os.Stat(kustomizationPath); os.IsNotExist(err) {
+			return nil, fmt.Errorf("no kustomization.yaml or kustomization.yml found in %s", dir)
+		}
+	}
+
+	// Find kustomize binary
+	kustomizeBin, err := exec.LookPath("kustomize")
+	if err != nil {
+		return nil, fmt.Errorf("kustomize binary not found in PATH - install from https://kustomize.io/")
+	}
+
+	// Run kustomize build with security flags
+	// --enable-alpha-plugins=false prevents arbitrary plugin execution
+	// --load-restrictor=LoadRestrictionsRootOnly restricts file loading to root directory
+	cmd := exec.Command(kustomizeBin, "build",
+		"--enable-alpha-plugins=false",
+		"--load-restrictor=LoadRestrictionsRootOnly",
+		dir)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// Include stderr for better error messages
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+		return nil, fmt.Errorf("kustomize build failed: %s", errMsg)
+	}
+
+	// Parse the YAML stream from kustomize output
+	resources, err := parseYAMLStream(&stdout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse kustomize output: %w", err)
+	}
+
+	if len(resources) == 0 {
+		return nil, fmt.Errorf("kustomize build produced no resources from %s", dir)
+	}
+
+	return resources, nil
+}
+
 func parseYAMLStream(reader io.Reader) ([]Resource, error) {
 	var resources []Resource
 
@@ -194,6 +276,18 @@ func getName(resource Resource) string {
 		return ""
 	}
 	return name
+}
+
+func isSupportedKind(kind string) bool {
+	supportedKinds := map[string]bool{
+		"Gateway":        true,
+		"GatewayNetwork": true,
+		"GatewayRelease": true,
+		"ManagedCluster": true,
+		"Role":           true,
+		"RoleBinding":    true,
+	}
+	return supportedKinds[kind]
 }
 
 func applyResource(conn *connection.Connection, resource Resource) (map[string]interface{}, error) {
