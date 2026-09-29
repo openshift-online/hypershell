@@ -291,6 +291,26 @@
     "defaultMessage": "Gateway provision duration statistics",
     "description": "Accessible label for the provision time statistics description list."
   },
+  "app.dashboard.reconciliationChart.accumulating": {
+    "defaultMessage": "Trend data is accumulating - check back in an hour",
+    "description": "Shown in the reconciliation over-time chart when hourly data exists but there are too few points to draw a line."
+  },
+  "app.dashboard.reconciliationChart.legend.failures": {
+    "defaultMessage": "Failures",
+    "description": "Legend label for the failures series in the reconciliation over-time chart."
+  },
+  "app.dashboard.reconciliationChart.legend.retries": {
+    "defaultMessage": "Retries",
+    "description": "Legend label for the retries series in the reconciliation over-time chart."
+  },
+  "app.dashboard.reconciliationChart.legend.successes": {
+    "defaultMessage": "Successes",
+    "description": "Legend label for the successes series in the reconciliation over-time chart."
+  },
+  "app.dashboard.reconciliationChart.noData": {
+    "defaultMessage": "No trend data available",
+    "description": "Shown in the reconciliation over-time chart when no hourly trend data is available."
+  },
   "app.dashboard.reconciliationFailures.last24Hours": {
     "defaultMessage": "(last 24 hours)",
     "description": "Lookback period shown with the current reconciliation failure count."
@@ -370,6 +390,10 @@
   "app.dashboard.reliability.summary.reconciliationRetries": {
     "defaultMessage": "Reconciliation retries",
     "description": "Summary row label for reconciliation retries."
+  },
+  "app.dashboard.reliability.summary.reconciliationSuccesses": {
+    "defaultMessage": "Reconciliation successes",
+    "description": "Summary row label for successful reconciliations."
   },
   "app.dashboard.reliability.summary.requestRate": {
     "defaultMessage": "Request rate",
@@ -539,6 +563,10 @@
     "defaultMessage": "Last 24 hours",
     "description": "Caption below a twenty-four-hour trend sparkline on the operational dashboard."
   },
+  "app.dashboard.trend.last2Hours": {
+    "defaultMessage": "Last 2 hours",
+    "description": "Caption below a two-hour trend sparkline on the operational dashboard."
+  },
   "app.dashboard.trend.last7Days": {
     "defaultMessage": "Last 7 days",
     "description": "Caption below a seven-day trend sparkline on the operational dashboard."
@@ -643,9 +671,17 @@
     "defaultMessage": "Reconciliation lag",
     "description": "Title for the reconciliation lag dashboard widget."
   },
+  "app.dashboard.widget.reconciliationOverTime": {
+    "defaultMessage": "Reconciliations over time",
+    "description": "Title for the reconciliation over-time multi-line chart widget."
+  },
   "app.dashboard.widget.reconciliationRetries": {
     "defaultMessage": "Reconciliation retries",
     "description": "Title for the reconciliation retries dashboard widget."
+  },
+  "app.dashboard.widget.reconciliationSuccesses": {
+    "defaultMessage": "Reconciliation successes",
+    "description": "Title for the reconciliation successes dashboard widget."
   },
   "app.dashboard.widget.registeredUsers": {
     "defaultMessage": "Users",
