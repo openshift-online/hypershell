@@ -324,6 +324,7 @@ lint-gateway-management-ui: install-js
 
 .PHONY: lint-web-console
 lint-web-console: install-js
+	$(PNPM) --filter @openshift-online/hypershell-sdk build
 	$(PNPM) --filter @openshift-online/hypershell-domain-probes check
 	$(PNPM) --filter @openshift-online/hypershell-web-console check
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff check
