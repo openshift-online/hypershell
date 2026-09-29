@@ -200,6 +200,7 @@ build-cli:
 .PHONY: build-web-console
 build-web-console:
 	$(CONTAINER_ENGINE) build -t $(web_console_local) \
+		--build-arg GIT_VERSION=$(build_version) \
 		-f components/web-console/Dockerfile .
 
 # ============================================================================

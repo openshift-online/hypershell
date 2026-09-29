@@ -381,6 +381,7 @@ component_spec() {
       BASELINE_IMAGE="${web_console_ref}"
       DOCKERFILE="components/web-console/Dockerfile"
       BUILD_CONTEXT="."
+      BUILD_ARGS=(--build-arg "GIT_VERSION=${build_version}")
       ;;
     *)
       error "Unknown component: ${component}"
