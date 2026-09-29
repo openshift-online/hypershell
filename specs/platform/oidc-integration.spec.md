@@ -271,6 +271,14 @@ The `hypershell-provisioner` client is a confidential service account used for a
 | Keycloak | Downstream Keycloak brokering to Red Hat SSO |
 | `redirectUris` | Production console origin(s) |
 
+**Rollout prerequisite:** issuer and audience validation fail closed. Before, or
+together with, the release that sets `--jwt-issuer` and `--jwt-audience`, the
+production SSO MUST issue tokens whose `iss` equals the configured issuer and
+whose `aud` includes `hypershell-frontend` for every first-party caller of the
+management API (web console, hsctl, control plane). Otherwise all authenticated HTTP and
+gRPC calls from those clients are rejected with 401 immediately after the upgrade,
+including control-plane writes that `RBAC_SERVICE_ACCOUNTS` exempts from RBAC.
+
 ### Local Kind Development
 
 OIDC is always enabled in the Kind cluster. `make kind-up` configures all components for OIDC authentication automatically.

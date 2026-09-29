@@ -78,7 +78,20 @@ patches:
   # JWT_ISSUER with the Route-derived issuer once the Keycloak Route exists.
   # The API resource audience is the shared hypershell-frontend audience;
   # individual callers (web console, hsctl, control plane) remain identifiable
-  # through `azp`.
+  # through `azp`. The audience is a fixed platform constant, not per-cluster
+  # configuration, so it is a literal here rather than a secret key.
+  #
+  # BREAKING CHANGE for existing clusters: issuer and audience validation fail
+  # closed. Once applied, every non-bypassed HTTP and gRPC call (web console,
+  # hsctl, and the control plane's UpdateGateway and watch streams) is rejected
+  # with 401 unless its token carries iss equal to the configured issuer and
+  # hypershell-frontend in aud. RBAC_SERVICE_ACCOUNTS does not bypass this. On
+  # external SSO, before/with this rollout the SSO MUST emit
+  # aud=hypershell-frontend for the hypershell-frontend, hypershell-cli, and
+  # hypershell-control-plane clients (the bundled realm does this with
+  # oidc-audience-mapper entries in deploy/base/keycloak/keycloak.yaml, plus
+  # hypershell-e2e for CI). See specs/platform/oidc-integration.spec.md
+  # (Production / Staging).
   #
   # RBAC_ENFORCE=true turns on the three-role gateway RBAC model
   # (gateway:creator/owner/viewer); it is the sole gate for that model
