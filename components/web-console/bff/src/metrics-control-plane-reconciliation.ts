@@ -37,7 +37,9 @@ interface PrometheusQueryResponse {
 
 interface PrometheusVectorResponse {
   status: string;
-  data?: { result: { metric: Record<string, string>; value: [string, string] }[] };
+  data?: {
+    result: { metric: Record<string, string>; value: [string, string] }[];
+  };
 }
 
 export interface ReconciliationHourlyPoint {
@@ -99,11 +101,11 @@ async function queryReasonBreakdown(
     const response = await fetchMetrics(source, query, controller.signal);
     if (!response.ok) return undefined;
     const body = (await response.json()) as PrometheusVectorResponse;
-    if (body.status !== "success" || !body.data?.result.length) return undefined;
+    if (body.status !== "success" || !body.data?.result.length)
+      return undefined;
     const breakdown: Record<string, number> = {};
     for (const series of body.data.result) {
-      const key =
-        series.metric["reason"] ?? series.metric["resource_kind"];
+      const key = series.metric["reason"] ?? series.metric["resource_kind"];
       const value = Number(series.value[1]);
       if (key && Number.isFinite(value) && value > 0) {
         breakdown[key] = Math.round(value);
@@ -214,11 +216,7 @@ export async function queryControlPlaneReconciliation(
       reconciliationFailureHourlyCountPromql,
       timeoutMs,
     ),
-    optionalFiveMinute(
-      source,
-      reconciliationRetryHourlyCountPromql,
-      timeoutMs,
-    ),
+    optionalFiveMinute(source, reconciliationRetryHourlyCountPromql, timeoutMs),
     optionalFiveMinute(
       source,
       reconciliationSuccessHourlyCountPromql,
