@@ -2,7 +2,7 @@ package otel
 
 import (
 	"github.com/golang/glog"
-	pkgdb "github.com/openshift-online/rh-trex-ai/pkg/db"
+	pkgdb "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 )
 

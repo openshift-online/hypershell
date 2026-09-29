@@ -1,9 +1,9 @@
 package environments
 
 import (
-	"github.com/openshift-online/rh-trex-ai/pkg/config"
-	"github.com/openshift-online/rh-trex-ai/pkg/db/db_session"
-	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/config"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db/db_session"
+	pkgenv "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 type DevOidcEnvImpl struct {

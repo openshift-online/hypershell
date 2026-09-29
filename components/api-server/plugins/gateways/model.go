@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	hypershellapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/segmentio/ksuid"
 	"gorm.io/gorm"
 )

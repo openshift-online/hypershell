@@ -8,7 +8,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 )
 
 // extractRealmRolesFromClaims reads realm roles from OIDC claims emitted by HyperShell Keycloak.

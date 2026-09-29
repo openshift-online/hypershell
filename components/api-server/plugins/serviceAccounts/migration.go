@@ -2,7 +2,7 @@ package serviceAccounts
 
 import (
 	"github.com/go-gormigrate/gormigrate/v2"
-	"github.com/openshift-online/rh-trex-ai/pkg/db"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"gorm.io/gorm"
 )
 

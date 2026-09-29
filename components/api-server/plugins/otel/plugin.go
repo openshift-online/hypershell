@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"

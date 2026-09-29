@@ -10,7 +10,7 @@ import (
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/testutil"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/testutil"
 )
 
 // CreateJWTStringWithClaims signs a test JWT for account like CreateJWTString,

@@ -12,10 +12,10 @@ import (
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
-	"github.com/openshift-online/rh-trex-ai/pkg/errors"
-	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
-	"github.com/openshift-online/rh-trex-ai/pkg/server/grpcutil"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server/grpcutil"
 )
 
 // GatewayClusterLookup resolves the managed cluster a gateway is assigned to.

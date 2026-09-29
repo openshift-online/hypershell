@@ -14,8 +14,8 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
-	"github.com/openshift-online/rh-trex-ai/pkg/environments"
-	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 )
 
 type lazyRBACInterceptor struct {

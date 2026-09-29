@@ -5,7 +5,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 )
 
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {

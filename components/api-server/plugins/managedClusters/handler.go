@@ -10,11 +10,11 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/pkg/auth"
-	"github.com/openshift-online/rh-trex-ai/pkg/errors"
-	"github.com/openshift-online/rh-trex-ai/pkg/handlers"
-	"github.com/openshift-online/rh-trex-ai/pkg/services"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/handlers"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
 // dns1123LabelRE validates K8s DNS label format (RFC 1123): lowercase alphanumeric

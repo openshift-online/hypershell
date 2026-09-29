@@ -18,8 +18,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
-	"github.com/openshift-online/rh-trex-ai/pkg/db"
-	trexerrors "github.com/openshift-online/rh-trex-ai/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
+	trexerrors "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"gorm.io/gorm"
 )
 

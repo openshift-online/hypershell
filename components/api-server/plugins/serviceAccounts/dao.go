@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/db"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

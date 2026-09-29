@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
 var _ GatewayNetworkDao = &gatewayNetworkDaoMock{}

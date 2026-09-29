@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
 // RegisteredClusterLookup reports whether id names a ManagedCluster that a

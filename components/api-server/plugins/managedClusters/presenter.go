@@ -2,9 +2,9 @@ package managedClusters
 
 import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
-	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/pkg/util"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/util"
 )
 
 func ConvertManagedCluster(managedCluster openapi.ManagedCluster) *ManagedCluster {
