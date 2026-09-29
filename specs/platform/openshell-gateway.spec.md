@@ -653,7 +653,6 @@ grpc_endpoint              = "https://openshell-gateway.<namespace>.svc.cluster.
 service_account_name       = "openshell-gateway-sandbox"
 supervisor_sideload_method = "image-volume"
 sa_token_ttl_secs          = 3600
-app_armor_profile          = "Unconfined"
 topology                   = "single-cluster"
 
 [openshell.drivers.kubernetes.sidecar]

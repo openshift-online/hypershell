@@ -647,7 +647,7 @@ The console link opens in a new tab (`target="_blank"`). Do not click it;
 read `href` and `open` it in the same tab so the session cookie jar is reused.
 
 **OpenShell gateway console** (upstream `main`; **verify against the pinned image**
-`quay.io/gkrumbach07/openshell-dashboard@sha256:c69c1f34...`, tag `sha-978bcb5`,
+`quay.io/gkrumbach07/openshell-dashboard@sha256:1d36331138...`, tag `sha-71335e5`,
 see `components/control-plane/internal/gateway/config.go`)
 
 | Element | Selector / path |
@@ -763,7 +763,7 @@ implementation. These supersede the assumptions above where they differ.
   detail page actions toggle is named "Actions"; "Actions for {gatewayName}"
   is the list row toggle. The cluster option's accessible name is
   "<name> Provider: <provider>; region: <region>".
-- **OpenShell console (sha-978bcb5).** Realm SSO makes the console login silent.
+- **OpenShell console (sha-71335e5).** Realm SSO makes the console login silent.
   `whoami` is `{"subject","displayName","identityProvider","roles":[...]}`;
   `/api/v1/gateway` is `{"status","gatewayVersion","computeDrivers"}`. The
   create-sandbox dialog uses test ids `sandbox-name-input`,
