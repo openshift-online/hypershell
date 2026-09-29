@@ -137,6 +137,28 @@ non-empty `.status.addresses`.
 - AND it SHALL set the `phase` to `Degraded`
 - AND it SHALL record the reason in `status`
 
+#### Scenario: Gateway pod still starting during provisioning
+
+- GIVEN a Gateway with `phase` `Provisioning` that has never been `Running`
+- AND its `openshell-gateway` Deployment has been applied, but its pod is still
+  pending, pulling its image, or starting, so the Deployment is not yet Ready
+- WHEN the continuous health reconciler observes the gateway within the
+  deployment-readiness grace window
+- THEN the control plane SHALL keep the `phase` at `Provisioning`
+- AND it SHALL NOT set the `phase` to `Degraded`
+- AND if the Deployment is still not Ready once the grace window elapses, the
+  control plane SHALL set the `phase` to `Degraded` and record the reason in
+  `status` (e.g. "deployment not ready after <window>")
+
+The deployment-readiness grace window is configured by
+`GATEWAY_DEPLOYMENT_READY_TIMEOUT` (default `10m`). The provisioning path
+normally sets `Degraded` itself when its own, shorter readiness window elapses.
+The grace window stops the health reconciler from reporting `Degraded` before
+then, and still moves the gateway to `Degraded` if the provisioning pass never
+completes (e.g. the control plane restarted mid-provision). It applies only to
+a gateway that has not yet reached `Running`: a `Running` gateway whose
+Deployment loses readiness is moved to `Degraded` without a grace window.
+
 #### Scenario: Provisioning fails to apply
 
 - GIVEN a Gateway being reconciled

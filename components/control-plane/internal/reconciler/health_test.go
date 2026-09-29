@@ -40,10 +40,12 @@ func (f fakeExposure) ObserveReadiness(context.Context, exposure.Request) (expos
 
 func newHealthRec(exp exposure.Port, now func() time.Time, timeout time.Duration) *GatewayHealthReconciler {
 	return &GatewayHealthReconciler{
-		exposure:           exp,
-		routeReadyTimeout:  timeout,
-		now:                now,
-		routeNotReadySince: make(map[string]time.Time),
+		exposure:                exp,
+		routeReadyTimeout:       timeout,
+		deploymentReadyTimeout:  timeout,
+		now:                     now,
+		routeNotReadySince:      make(map[string]time.Time),
+		deploymentNotReadySince: make(map[string]time.Time),
 	}
 }
 
@@ -593,12 +595,14 @@ func healthGatewayDeployment(namespace, appliedRelease string, replicas, generat
 func newSettledHealthRec(clientset kubernetes.Interface, gatewayID string) *GatewayHealthReconciler {
 	now := fixedClock(time.Unix(2000, 0))
 	h := &GatewayHealthReconciler{
-		clientset:          clientset,
-		ingressMode:        gateway.IngressModeNone,
-		now:                now,
-		routeNotReadySince: make(map[string]time.Time),
-		routeTornDown:      make(map[string]bool),
-		routeVerifiedAt:    make(map[string]time.Time),
+		clientset:               clientset,
+		ingressMode:             gateway.IngressModeNone,
+		now:                     now,
+		deploymentReadyTimeout:  defaultDeploymentReadyTimeout,
+		routeNotReadySince:      make(map[string]time.Time),
+		deploymentNotReadySince: make(map[string]time.Time),
+		routeTornDown:           make(map[string]bool),
+		routeVerifiedAt:         make(map[string]time.Time),
 	}
 	// Pre-settle teardown so it short-circuits (marker set, addresses empty, and
 	// the verification stamped now so no residual-absence probe is due this tick).
@@ -992,5 +996,120 @@ func TestListAllGateways_Empty(t *testing.T) {
 	}
 	if callCount != 1 {
 		t.Fatalf("expected 1 call, got %d", callCount)
+	}
+}
+
+// A first-time provisioning whose pod is pending or still starting (Deployment
+// applied and observed, updated replica created but not yet available, no roll in
+// progress) must stay Provisioning within the deployment-readiness grace window
+// rather than flap to Degraded before the gateway was ever Running.
+func TestReconcileGatewayHealth_ProvisioningPodNotYetAvailableStaysProvisioning(t *testing.T) {
+	const namespace = "openshell-new"
+	clientset := k8sfake.NewSimpleClientset(
+		healthGatewayDeployment(namespace, "rel-1", 1, 1, 1, 1, 1, 0),
+	)
+	h := newSettledHealthRec(clientset, "gw-1")
+
+	var updates []*pb.UpdateGatewayRequest
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, in *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		updates = append(updates, in)
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	gw := nonRoutedGateway("gw-1", namespace, "Provisioning", "", "")
+	if _, ready := h.reconcileGatewayHealth(context.Background(), client, gw); ready {
+		t.Error("ready = true, want false while the pod is not available")
+	}
+	for _, u := range updates {
+		if u.GetPhase() == "Degraded" {
+			t.Fatalf("phase updated to Degraded (status %q) within the grace window; want Provisioning", u.GetStatus())
+		}
+	}
+}
+
+// A Running gateway whose current revision loses availability is a steady-state
+// degradation: the health loop moves it to Degraded immediately, without waiting
+// for the provisioning grace window.
+func TestReconcileGatewayHealth_RunningPodUnavailableBecomesDegraded(t *testing.T) {
+	const namespace = "openshell-running"
+	clientset := k8sfake.NewSimpleClientset(
+		healthGatewayDeployment(namespace, "rel-1", 1, 1, 1, 1, 1, 0),
+	)
+	h := newSettledHealthRec(clientset, "gw-1")
+
+	var gotPhase string
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, in *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		if in.Phase != nil {
+			gotPhase = in.GetPhase()
+		}
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	gw := nonRoutedGateway("gw-1", namespace, "Running", "Healthy", "rel-1")
+	h.reconcileGatewayHealth(context.Background(), client, gw)
+	if gotPhase != "Degraded" {
+		t.Fatalf("got phase %q, want Degraded", gotPhase)
+	}
+}
+
+func TestEvaluateDeploymentReadiness_ProvisioningWithinGraceStaysProvisioning(t *testing.T) {
+	h := newHealthRec(nil, fixedClock(time.Unix(1000, 0)), 10*time.Minute)
+	gotPhase, gotStatus := h.evaluateDeploymentReadiness("gw-1", "Provisioning", "0/1 updated replicas available")
+	if gotPhase != "Provisioning" {
+		t.Fatalf("got %q, want Provisioning", gotPhase)
+	}
+	if gotStatus != "0/1 updated replicas available" {
+		t.Errorf("status = %q, want the observed reason", gotStatus)
+	}
+}
+
+func TestEvaluateDeploymentReadiness_ProvisioningBeyondGraceBecomesDegraded(t *testing.T) {
+	cur := time.Unix(1000, 0)
+	h := newHealthRec(nil, func() time.Time { return cur }, 10*time.Minute)
+
+	if gotPhase, _ := h.evaluateDeploymentReadiness("gw-1", "Provisioning", "0/1 updated replicas available"); gotPhase != "Provisioning" {
+		t.Fatalf("within grace: got %q, want Provisioning", gotPhase)
+	}
+
+	// Advance past the grace window; the gateway must move to Degraded.
+	cur = cur.Add(11 * time.Minute)
+	gotPhase, gotStatus := h.evaluateDeploymentReadiness("gw-1", "Provisioning", "0/1 updated replicas available")
+	if gotPhase != "Degraded" {
+		t.Fatalf("after grace: got %q, want Degraded", gotPhase)
+	}
+	if !strings.Contains(gotStatus, "deployment not ready after 10m0s") {
+		t.Errorf("status = %q, want it to name the elapsed window", gotStatus)
+	}
+	if _, ok := h.deploymentNotReadySince["gw-1"]; ok {
+		t.Error("timer not cleared after the gateway was moved to Degraded")
+	}
+}
+
+func TestEvaluateDeploymentReadiness_RunningOrDegradedIsDegradedImmediately(t *testing.T) {
+	for _, phase := range []string{"Running", "Degraded"} {
+		t.Run(phase, func(t *testing.T) {
+			h := newHealthRec(nil, fixedClock(time.Unix(1000, 0)), 10*time.Minute)
+			gotPhase, gotStatus := h.evaluateDeploymentReadiness("gw-1", phase, "0/1 updated replicas available")
+			if gotPhase != "Degraded" {
+				t.Fatalf("got %q, want Degraded", gotPhase)
+			}
+			if gotStatus != "0/1 updated replicas available" {
+				t.Errorf("status = %q, want the observed reason", gotStatus)
+			}
+			if _, ok := h.deploymentNotReadySince["gw-1"]; ok {
+				t.Error("timer recorded for a gateway that is not provisioning")
+			}
+		})
+	}
+}
+
+func TestDeploymentReadyTimeout_Env(t *testing.T) {
+	t.Setenv("GATEWAY_DEPLOYMENT_READY_TIMEOUT", "3m")
+	if got := deploymentReadyTimeout(); got != 3*time.Minute {
+		t.Errorf("got %s, want 3m", got)
+	}
+	t.Setenv("GATEWAY_DEPLOYMENT_READY_TIMEOUT", "bogus")
+	if got := deploymentReadyTimeout(); got != defaultDeploymentReadyTimeout {
+		t.Errorf("invalid value: got %s, want default %s", got, defaultDeploymentReadyTimeout)
 	}
 }
