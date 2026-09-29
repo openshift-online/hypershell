@@ -34,6 +34,8 @@ paths:
     $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters~1{id}'
   /api/hypershell/v1/gateways:
     $ref: 'openapi.gateways.yaml#/paths/~1api~1hypershell~1v1~1gateways'
+  /api/hypershell/v1/gateways/placement-availability:
+    $ref: 'openapi.gateways.yaml#/paths/~1api~1hypershell~1v1~1gateways~1placement-availability'
   /api/hypershell/v1/gateways/{id}:
     $ref: 'openapi.gateways.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{id}'
   /api/hypershell/v1/gateways/{gateway_id}/service_accounts:
@@ -136,6 +138,10 @@ components:
       $ref: 'openapi.gateways.yaml#/components/schemas/GatewayList'
     GatewayPatchRequest:
       $ref: 'openapi.gateways.yaml#/components/schemas/GatewayPatchRequest'
+    GatewayPlacementIntent:
+      $ref: 'openapi.gateways.yaml#/components/schemas/GatewayPlacementIntent'
+    GatewayPlacementAvailability:
+      $ref: 'openapi.gateways.yaml#/components/schemas/GatewayPlacementAvailability'
     OpenShellGatewayServiceAccountRole:
       $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountRole'
     OpenShellGatewayServiceAccountStatus:

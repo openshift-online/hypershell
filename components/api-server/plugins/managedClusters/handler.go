@@ -59,6 +59,18 @@ func (h managedClusterHandler) Register(w http.ResponseWriter, r *http.Request) 
 		))
 		return
 	}
+	if req.GetProvider() != "aws" && req.GetProvider() != "ibm" && req.GetProvider() != "kind" {
+		handlers.HandleError(r.Context(), w, errors.Validation("provider must be aws, ibm, or kind"))
+		return
+	}
+	if req.GetVisibility() != "public" && req.GetVisibility() != "vpn" {
+		handlers.HandleError(r.Context(), w, errors.Validation("visibility must be public or vpn"))
+		return
+	}
+	if req.GetProvider() == "ibm" && req.GetVisibility() == "vpn" {
+		handlers.HandleError(r.Context(), w, errors.Validation("IBM placement does not support VPN visibility"))
+		return
+	}
 
 	ctx := r.Context()
 	token, tokenErr := auth.TokenFromContext(ctx)
@@ -82,7 +94,7 @@ func (h managedClusterHandler) Register(w http.ResponseWriter, r *http.Request) 
 		description = *req.Description
 	}
 
-	cluster, created, svcErr := h.managedCluster.Register(ctx, req.Name, description, oidcSubject)
+	cluster, created, svcErr := h.managedCluster.Register(ctx, req.Name, description, req.GetProvider(), req.GetVisibility(), oidcSubject)
 	if svcErr != nil {
 		handlers.HandleError(r.Context(), w, svcErr)
 		return

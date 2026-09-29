@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
@@ -16,12 +17,21 @@ import (
 
 // registerTestCluster registers a ManagedCluster the way a control plane does
 // (a unique OIDC subject via POST /registration semantics) and returns its id.
-// Gateway create/update handlers accept only a cluster_id that references a
-// registered cluster (managed-cluster-registration.spec.md).
+// Placement resolution and gateway update handlers use only registered
+// clusters (managed-cluster-registration.spec.md).
 func registerTestCluster(t *testing.T) string {
 	t.Helper()
 	id, _ := registerTestClusterWithSubject(t)
 	return id
+}
+
+func managedGatewayCreateRequest(name string) openapi.GatewayCreateRequest {
+	request := openapi.GatewayCreateRequest{Name: name}
+	request.SetPlacement(openapi.GatewayPlacementIntent{
+		Network:  openapi.PtrString("public"),
+		Provider: openapi.PtrString("aws"),
+	})
+	return request
 }
 
 // registerTestClusterWithSubject is registerTestCluster that also returns the
@@ -40,7 +50,7 @@ func mustRegisterCluster() (string, string) {
 	subject := "cp-" + suffix
 	name := fmt.Sprintf("mc-%s", suffix)
 	svc := managedClusters.Service(&environments.Environment().Services)
-	cluster, _, svcErr := svc.Register(context.Background(), name, "", subject)
+	cluster, _, svcErr := svc.Register(context.Background(), name, "", "aws", "public", subject)
 	Expect(svcErr).To(BeNil(), "register test managed cluster %s", name)
 	return cluster.ID, subject
 }

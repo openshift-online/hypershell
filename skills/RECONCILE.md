@@ -49,6 +49,8 @@ skills/
 
 ## Reconciliation State
 
+**Scoped analysis (2026-09-29)**: `specs/web-console/gateway-provision-placement.spec.md` against `77feccc3` plus the current working tree: 10 Present. GP-W1 made REST creation intent-only and refreshed restored placement metadata; GP-W2 added localized, programmatically associated disabled-network reasons.
+
 **Last analyzed**: 2026-10-01 (scoped reconciliation of specs/platform/e2e-testing.spec.md + specs/platform/e2e-console-browser-testing.spec.md against HEAD `addb9509` after #413 renumbered the core e2e suite 6 -> 14 areas. All new gaps were test-only (underlying API/CP/UI features already existed). **Executed waves E2E-W4 + CON-W2:** added e2e areas 12-14 to `tests/e2e/e2e-openshell.sh` (E2E-14 registration, E2E-16 reconnect+gRPC identity, E2E-17 promotion, E2E-18 reconciled status, E2E-19 admin inventory+phase) plus helpers in `lib.sh`/`drivers/kind.sh`, and console areas 7+11 (CON-E2E-14 typeahead+install-docs, CON-E2E-13 fleet-dashboard promotion). Verified on a local Kind cluster: full long run = **90 passed, 2 failed** (1 pre-existing area-9 developer-sandbox flake unrelated to this work; 1 promotion `Degraded` assertion since corrected). Short mode 20/0; console unit test 56/0; all shell unit tests pass; `bash -n` clean. **Two divergences recorded** (do not edit specs): D-E2E-DELETE-CP (gateway DELETE needs the CP, so "delete while disconnected" is infeasible -- E2E-16 covers create-convergence only) and D-E2E-DEGRADED (a failed rollout keeps the last-good workload serving and stays Running, not Degraded; the test asserts the never-moves-to-bad safety invariant). Browser areas (CON-E2E-13/14) are code-complete + unit-tested but not browser-run locally (agent-browser not installed); CI covers them. Deferred: E2E-15 multi-cluster (E2E-W5, needs second-CP deploy) and E2E-20 qualification (E2E-W6, infra-gated).) Also 2026-09-23 (HYPERSHELL-334 implementation rebased onto `b152182c`: standing CI secrets moved to AWS Secrets Manager + GitHub OIDC + ESO; test-tier principals seeded from ESO on CI-owned PR environments and kept until the environment is destroyed). Also 2026-09-23 (scoped reanalysis of specs/platform/ephemeral-pr-environments.spec.md after #342: PR-ENV-6 now also publishes the hypershell-realm Keycloak admin console URL with impersonation instructions; PR-ENV-8 hides the password form when the GitHub IdP is active; PR-ENV-9 adds the interactive admin console path via `view-users`/`query-users`/`impersonation` realm-management roles granted on first broker login - all implemented and Present). Also 2026-09-22 (scoped reanalysis + execution of specs/platform/e2e-console-browser-testing.spec.md: CON-W1 fully closed; 49/49 checks pass on Kind including sandbox create/delete via the PatternFly ActionsColumn row kebab + typed-name confirmation modal and TSL single-quote quoting fix in lib.sh; CI integration wired into `.github/workflows/e2e.yml`; spec added to coverage table as 100%). Prior 2026-09-22 (scoped reanalysis for commits since `464ec5e`: updated codebase commit to `5e14f29b` (external-db-only-redo HEAD: remove ManagedDatabase API); registered 6 new spec files (gateway-provision-outcomes, gateway-release-distribution, gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends, openshell-branch-build); updated E2E-9 for 3-mode E2E_MODE split (#332); added E2E-13 for macOS CLI container wrapper (#335); added DM-3g/h/i for new Gateway schema fields; added OS-14/OS-15 for openshift-seed and openshift-test requirements; full-corpus recount pending for new specs). Prior 2026-09-16 (scoped reanalysis + execution of specs/platform/ephemeral-pr-environments.spec.md for HYPERSHELL-240 after the spec moved from continuous-deploy-for-life-of-PR to ephemeral-by-default with `/pr-extend` / `/pr-destroy`; D-E2E-OIDC closed as Present via PR-ENV-10; the last full-corpus analysis remains 2026-08-31). Prior 2026-09-14 scoped analysis of specs/platform/gateway-deletion-finalization.spec.md for HYPERSHELL-182; closed the no-silent-orphan gap G1: best-effort deletion failures for gateway-owned resources with no automatic recovery path -- leaked ClusterRoleBinding, leaked Keycloak gateway/console clients, and Keycloak clients skipped when the stored identity is unresolvable or the provisioner is deconfigured -- now emit a durable IncompleteFinalization Warning Event in the control-plane namespace instead of only logging; in-namespace sweep G2 already satisfied. Prior 2026-09-09 scoped reanalysis of e2e-testing.spec.md + local-development.spec.md against HEAD `21f02a0` for the new OpenShift E2E CI content added by the HYPERSHELL-240 docs commit: OpenShift driver unification #232/#244, dynamic namespace-GC timing, and the merge-queue Kind CI gate are all implemented; D-E2E-OIDC was then still listed as a divergence pending HYPERSHELL-240 (closed 2026-09-16). Prior 2026-09-04 scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
 **Spec corpus**: 56 spec files; the coverage table tracks 48 analyzed feature/spec groups after adding Ephemeral CI Secrets, Ephemeral Test Credentials, Console Browser Testing, Gateway Provision Outcomes, Gateway Release Distribution, Gateway Fleet Total Trend, Gateway Sandbox Active Trends, Hub Cluster Utilization Trends, and OpenShell Branch Build (9 new specs from commits `85927b3c`/`be0bf2ea`/`630a5ed1`/`2bdeece6`; full per-requirement analysis pending for the last 6)
 **Codebase commit**: working tree (HYPERSHELL-334 standing CI secrets + test-tier credentials, rebased onto `b152182c`; prior `5e14f29b` feat: remove ManagedDatabase API), then e2e-console-browser-testing CON-W1 (`2bdeece6`), then #342 Keycloak admin-console impersonation (`d7f33594`)
@@ -58,7 +60,6 @@ skills/
 | Domain | Specs | Requirements | Present | Partial | Missing | Deferred | Coverage |
 |--------|-------|-------------|---------|---------|---------|----------|----------|
 | Platform - Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
-| Platform - Data Model (Kind Removal) | 1 | 20 | 0 | 0 | 20 | 0 | 0% |
 | Platform - Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
 | Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
 | Platform - Gateway DB | 1 | 12 | 10 | 2 | 0 | 0 | 83% |
@@ -87,6 +88,7 @@ skills/
 | Platform - Gateway Provision Time | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - Console Browser Testing | 1 | 12 | 12 | 0 | 0 | 0 | 100% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
+| Web Console - Gateway Provision Placement | 1 | 10 | 10 | 0 | 0 | 0 | 100% |
 | Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
@@ -96,8 +98,8 @@ skills/
 | Platform - Gateway Sandbox Active Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - Hub Cluster Utilization Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - OpenShell Branch Build | 1 | ~12 | 0 | 0 | ~12 | 0 | 0% |
-| **TOTAL (analyzed rows)** | **43** | **384** | **310** | **22** | **47** | **5** | **81%** |
-| **TOTAL (all 48 groups)** | **48** | **~424** | **?** | **?** | **?** | **?** | **Pending** |
+| **TOTAL (analyzed rows)** | **43** | **374** | **320** | **22** | **27** | **5** | **86%** |
+| **TOTAL (all 49 groups)** | **49** | **~434** | **?** | **?** | **?** | **?** | **Pending** |
 
 ### Spec Dependency Order
 
@@ -120,35 +122,6 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Gap Table
-
-### Kind Removal: GatewayRelease + GatewayNetwork
-
-These items track deletion of deprecated kinds across all implementation layers.
-Execution order is the reverse of creation: FE -> CLI -> CP (watcher+reconciler) -> BE+gRPC (plugin, handler, presenter, migration) -> SDK (generated types) -> API (OpenAPI routes+schema).
-Database tables are dropped via a final migration after confirmed zero rows.
-
-| # | Kind | Layer | Action | Status | Code Location | Wave |
-|---|------|-------|--------|--------|---------------|------|
-| RM-1 | GatewayRelease | FE | Remove any UI references (list/detail views, selectors) | Missing | `components/web-console/` | RM-W1 |
-| RM-2 | GatewayNetwork | FE | Remove any UI references | Missing | `components/web-console/` | RM-W1 |
-| RM-3 | GatewayRelease | CLI | Delete `hsctl create/get/list/delete gatewayRelease` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
-| RM-4 | GatewayNetwork | CLI | Delete `hsctl create/get/list/delete gatewayNetwork` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
-| RM-5 | GatewayRelease | CP | Delete `GatewayReleaseReconciler`, `WatchGatewayReleases`, `gateway_version_selection_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
-| RM-6 | GatewayNetwork | CP | Delete `GatewayNetworkReconciler`, `WatchGatewayNetworks`, `gateway_network_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
-| RM-7 | GatewayRelease | CP | Remove `release_id` propagation from `GatewayReconciler`; keep `image` path only | Missing | `components/control-plane/internal/reconciler/reconciler.go` | RM-W3 |
-| RM-8 | GatewayRelease | BE | Delete `components/api-server/plugins/gatewayReleases/` plugin entirely | Missing | `components/api-server/plugins/gatewayReleases/` | RM-W4 |
-| RM-9 | GatewayNetwork | BE | Delete `components/api-server/plugins/gatewayNetworks/` plugin entirely | Missing | `components/api-server/plugins/gatewayNetworks/` | RM-W4 |
-| RM-10 | GatewayRelease | gRPC | Delete `gateway_releases.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayReleases/grpc_*` | RM-W4 |
-| RM-11 | GatewayNetwork | gRPC | Delete `gateway_networks.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayNetworks/grpc_*` | RM-W4 |
-| RM-12 | GatewayRelease | API | Remove `/gateway_releases` routes and `GatewayRelease` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
-| RM-13 | GatewayNetwork | API | Remove `/gateway_networks` routes and `GatewayNetwork` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
-| RM-14 | GatewayRelease | SDK | Regenerate Go + TS SDKs (generated files will drop GatewayRelease types automatically) | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
-| RM-15 | GatewayNetwork | SDK | Regenerate Go + TS SDKs | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
-| RM-16 | GatewayRelease | DB | Add migration to drop `gateway_releases` table (after zero-row verification) | Missing | `components/api-server/plugins/gatewayReleases/migration.go` | RM-W6 |
-| RM-17 | GatewayNetwork | DB | Add migration to drop `gateway_networks` table | Missing | `components/api-server/plugins/gatewayNetworks/migration.go` | RM-W6 |
-| RM-18 | Gateway | BE | Remove `release_id` field from Gateway model, handler, and migration (nullable FK to removed table) | Missing | `components/api-server/plugins/gateways/` | RM-W4 |
-| RM-19 | Gateway | API | Remove `release_id` from OpenAPI Gateway schema, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
-| RM-20 | GatewayRelease+GatewayNetwork | RBAC | Remove both from `grpc_authorization.go` control-plane identity allow-list | Missing | `components/api-server/pkg/rbac/grpc_authorization.go` | RM-W4 |
 
 ### generated-gateway-config-validation.spec.md (HYPERSHELL-179)
 
@@ -204,6 +177,29 @@ Database tables are dropped via a final migration after confirmed zero rows.
 - OpenAPI to spec: The metric does not add a public API field. The existing `ObjectReference` contract supplies `created_at` and `updated_at`, and the gRPC presenter returns both fields after an update.
 
 The first gap analysis found a race between the event-driven reconciler and the health reconciler. Both paths could record the first `Running` transition. CP-OBS-GPD-W1 adds one process-wide claim per Gateway. The delete path removes the claim. A normal reconcile uses the stored phase before work starts. A forced retry keeps the phase that existed before the retry bypass. These checks prevent work on a `Running` or `Degraded` Gateway from producing a new observation.
+
+### gateway-provision-placement.spec.md (HYPERSHELL-354)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GP-01 | Placement intent contract; clients do not submit a concrete cluster | Present | REST create accepts placement intent only and always resolves it; concrete `cluster_id` remains read/internal compatibility data | `openapi/openapi.gateways.yaml`, `plugins/gateways/handler.go` | GP-W1 |
+| GP-02 | Mutually exclusive, required VPN/Public selection; no cluster selector | Present | The new radio-card form replaces the former selector; the obsolete selector file is removed in the current working tree | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
+| GP-03 | Provider selection and VPN/AWS constraint | Present | Public prefers IBM when available; VPN forces AWS and disables IBM | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
+| GP-04 | Placement availability from connected registered clusters | Present | Eligibility, automatic refresh, restored provider/visibility/liveness, and localized disabled-network reasons are present | `plugins/gateways/plugin.go`, `plugins/managedClusters/{service.go,dao.go}`, `gateway-create.tsx` | GP-W1, GP-W2 |
+| GP-05 | Kind-only local placement fallback | Present | API-server Kind flag, connected `local-kind` registration, managed-placement suppression, default selection, and intent submission are implemented | `plugins/gateways/plugin.go`, `gateway-create.tsx`, `deploy/kind/kustomization.yaml` | - |
+| GP-06 | Submit-time form validation with enabled action | Present | Name and placement validate on activation; the action is disabled only while a request is pending | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
+| GP-07 | Random backend resolution without capacity scoring | Present | Cryptographic uniform index over provider/network/liveness-filtered candidates; no capacity input | `plugins/gateways/placement.go`, `placement_test.go` | - |
+| GP-08 | Typed local-kind resolution failures | Present | Kind mode and connected registration are rechecked server-side and failures use the standard client-visible validation error | `plugins/gateways/plugin.go` | - |
+| GP-09 | API, SDK, persistence, authorization, and read compatibility | Present | OpenAPI, Go/TS SDKs, registration data, resolver tests, and existing `cluster_id` reads are wired; gateway intent remains request-scoped | `openapi/`, `components/sdk-*`, `plugins/gateways/`, `plugins/managedClusters/` | - |
+| GP-10 | Accessibility and localization | Present | Localized native radio groups expose selected/disabled state, retain keyboard behavior, and associate each visible choice description with its input through `aria-describedby` | `gateway-create.tsx`, `messages.ts`, `components/web-console/locales/en.json` | GP-W2 |
+
+**Scoped coverage:** 10 of 10 requirements present after GP-W1 and GP-W2. The former cluster-selector component deletion already exists in the user's working tree and is preserved as part of the analyzed state.
+
+**Direction checks:**
+
+- Spec to code: all ten requirement areas have implementation and focused regression coverage.
+- Code to spec: REST creation is intent-only. Existing placement lookup operations remain necessary for rendering resolved cluster names on read surfaces.
+- OpenAPI to spec: placement is required and `cluster_id` is absent from the public REST create contract while remaining available on read models.
 
 ### openshell-gateway-console.spec.md
 
@@ -918,6 +914,33 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 
 ## Wave Plan
 
+### GP-W1: Enforce intent-only REST placement and restore placement capabilities
+
+**Scope:** GP-01, GP-04 (backend)
+
+**Dependency:** Existing placement OpenAPI, generated SDK, registration, and resolver implementation
+
+**Status:** Complete - source and generated contracts updated; affected packages compile. Runtime integration tests require a running Docker daemon for PostgreSQL testcontainers.
+
+1. Remove deprecated `cluster_id` from the public REST `GatewayCreateRequest` source contract and regenerate OpenAPI clients/SDKs.
+2. Make the REST create handler always validate and resolve `placement`; retain resolved `cluster_id` only on persisted/read models and internal update paths.
+3. Extend managed-cluster restore to atomically refresh provider, visibility, and `last_seen_at` from the current registration.
+4. Add regression tests for direct-cluster rejection/absence, intent resolution, and restored capability refresh.
+5. Verify generated artifacts, API build/vet, focused placement tests, and unchanged gateway read compatibility.
+
+### GP-W2: Explain disabled network placement to all users
+
+**Scope:** GP-04 (web), GP-10 verification
+
+**Dependency:** GP-W1
+
+**Status:** Complete - localized unavailability descriptions are visible and associated with each native radio input; reusable UI checks pass (200 tests).
+
+1. Give disabled Public/VPN controls a localized placement-specific reason when no provider is eligible.
+2. Associate choice descriptions with their semantic radio inputs so assistive technology receives the same reason as visual users.
+3. Add UI tests for disabled-network descriptions and accessible associations.
+4. Verify the reusable gateway UI package and web-console adapter/story checks.
+
 ### CGV-W1: Generated gateway configuration validation ✅
 
 **Scope:** CGV-1 through CGV-4 (HYPERSHELL-179) | **Status:** Complete
@@ -1488,6 +1511,7 @@ label-selected pod informer.
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
 | 2026-10-02 | working tree | HYPERSHELL-250: retire legacy `components/pr-test/e2e-openshell.sh` | OS-7 Missing -> Present; PR-ENV-11 updated | Verified the shared harness (`tests/e2e/e2e-openshell.sh` areas 1-11) is a strict superset of the legacy script's 8 areas before removing it. Deleted `components/pr-test/e2e-openshell.sh`; repointed `lint-pr-test` in `.github/workflows/checks.yml` to syntax-check `e2e-openshell-roks.sh` (the `pr_test` component/CI wiring stays, rescoped to ROKS, since that script still lives under `components/pr-test/`); updated the "Legacy pr-test Deprecation" requirement in `ephemeral-pr-environments.spec.md` to "Legacy pr-test Removal" (and matching scenarios), plus mirrored language in `openshift-development.spec.md` and `e2e-testing.spec.md`; updated `CLAUDE.md`, `DEVELOPMENT.md`, and `skills/build/full-stack-pipeline/SKILL.md` to drop deprecation framing and point only at the shared harness. ROKS and GCP skill docs untouched. |
+| 2026-09-29 | `77feccc3` + working tree | Reconciled `gateway-provision-placement.spec.md` | 10/10 Present | Completed GP-W1 intent-only REST create and restored registration capability refresh, then GP-W2 localized disabled-network reasons with `aria-describedby`. API/SDK builds, vet, generated artifacts, UI checks (200 tests), and i18n extraction pass. Runtime API integration tests remain environment-blocked because Docker is not running for PostgreSQL testcontainers. |
 | 2026-10-01 | working tree (on `addb9509`) | Waves E2E-W4 + CON-W2: close #413 e2e coverage gaps (areas 12-14 + console areas 7/11) | e2e-testing areas 6->14 (E2E-14/16/17/18/19 Present); console CON-E2E-13/14 Present | Added e2e areas 12-14 to `e2e-openshell.sh` (ManagedCluster registration, CP reconnect + gRPC identity rejection, release promotion, reconciled release/network status, admin `/v1/users` + unknown-phase), helpers in `lib.sh` (`e2e_json_field`, `e2e_poll_resource_status`, status predicates, new env defaults) and `drivers/kind.sh` (`acquire_registrar_token`); console areas 7 (typeahead + install-docs link) and 11 (fleet-dashboard promotion, skip-gated). Verified on local Kind: long run 90 passed / 2 failed (1 pre-existing area-9 flake; 1 promotion assertion since fixed), short 20/0, console unit 56/0, shell unit tests pass. Two divergences recorded (D-E2E-DELETE-CP: gateway DELETE needs the CP so delete-while-disconnected is infeasible; D-E2E-DEGRADED: failed rollout stays Running-on-last-good, not Degraded). Deferred: E2E-15 multi-cluster, E2E-20 qualification. Fixed a `set -e` abort bug (bare `$(e2e_wait_gateway_running/e2e_poll_resource_status)` assignments now `|| true`). |
 | 2026-09-23 | working tree | HYPERSHELL-334: standing CI secrets + test-tier credentials | Ephemeral CI Secrets 5/5, Test Credentials 12/12, PR-ENV 100% | Moved cluster login and GitHub OAuth off Actions secrets onto AWS SM + GitHub OIDC + ESO. Realm no longer ships human test-tier passwords. CI-owned seed reads `hypershell-e2e-test-users`; seeded users last until namespace destroy; Kind/local keep admin/admin. Rebased onto `b152182c`. Ops must apply TF, put SM values, delete Actions secrets. |
 | 2026-09-22 | `5e14f29b` | RECONCILE.md checkpoint update: registered 6 new spec files, updated E2E-9 for 3-mode split, added E2E-13 (macOS CLI container), DM-3g/h/i (new Gateway fields), OS-14/OS-15 (openshift-seed/test) | 84% (analyzed rows unchanged; 6 new specs pending full analysis) | Codebase commit advanced from `464ec5e` to `5e14f29b`. New specs from commits: `85927b3c` (gateway-provision-outcomes, gateway-release-distribution), `be0bf2ea` (gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends), `630a5ed1` (openshell-branch-build - spec only, 0% implemented). |

@@ -12,6 +12,8 @@ func setRequiredEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000")
 	t.Setenv("HYPERSHELL_MANAGED_CLUSTER_NAME", "local-kind")
+	t.Setenv("HYPERSHELL_MANAGED_CLUSTER_PROVIDER", "kind")
+	t.Setenv("HYPERSHELL_MANAGED_CLUSTER_VISIBILITY", "public")
 	t.Setenv("OIDC_ISSUER", "http://keycloak.example/realms/hypershell")
 	t.Setenv("OIDC_CLIENT_ID", "hypershell-control-plane")
 	t.Setenv("OIDC_CLIENT_SECRET", "secret")

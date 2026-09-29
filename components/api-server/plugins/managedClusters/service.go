@@ -31,7 +31,7 @@ type ManagedClusterService interface {
 	// held by a record with a different or empty oidc_subject, or a subject
 	// already registered under another name, is a 409 Conflict: registration
 	// never creates a duplicate name and never adopts an existing record.
-	Register(ctx context.Context, name, description, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError)
+	Register(ctx context.Context, name, description, provider, visibility, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError)
 	// FindRegisteredBySubject returns the ManagedCluster a control plane
 	// registered under the given OIDC subject, or (nil, nil) when the subject
 	// has not registered. An empty subject never matches.
@@ -169,7 +169,7 @@ func (s *sqlManagedClusterService) All(ctx context.Context) (ManagedClusterList,
 	return managedClusters, nil
 }
 
-func (s *sqlManagedClusterService) Register(ctx context.Context, name, description, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError) {
+func (s *sqlManagedClusterService) Register(ctx context.Context, name, description, provider, visibility, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError) {
 	lockOwnerID, lockErr := s.lockFactory.NewAdvisoryLock(ctx, oidcSubject, managedClustersLockType)
 	if lockErr != nil {
 		return nil, false, errors.DatabaseAdvisoryLock(lockErr)
@@ -187,6 +187,8 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 		}
 		now := time.Now()
 		existing.LastSeenAt = &now
+		existing.Provider = provider
+		existing.Visibility = visibility
 		updated, replaceErr := s.managedClusterDao.Replace(ctx, existing)
 		if replaceErr != nil {
 			return nil, false, services.HandleUpdateError("ManagedCluster", replaceErr)
@@ -219,7 +221,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 		return nil, false, errors.GeneralError("registration lookup failed: %s", delErr)
 	}
 	if deleted != nil {
-		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, now)
+		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, provider, visibility, now)
 		if restoreErr != nil {
 			if isUniqueViolation(restoreErr) {
 				if winner, err := s.managedClusterDao.FindByName(ctx, name); err == nil && winner != nil {
@@ -242,6 +244,8 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 		Name:        name,
 		OIDCSubject: oidcSubject,
 		LastSeenAt:  &now,
+		Provider:    provider,
+		Visibility:  visibility,
 	}
 	cluster.CaptureTraceContext(ctx)
 	created, createErr := s.managedClusterDao.Create(ctx, cluster)

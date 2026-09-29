@@ -23,7 +23,7 @@ func controlPlaneContext(h *test.Helper, subject string) context.Context {
 
 func register(client *openapi.APIClient, ctx context.Context, name string) (*openapi.ManagedClusterRegistrationResponse, *http.Response, error) {
 	return client.DefaultAPI.RegisterManagedCluster(ctx).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name}).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name, Provider: "aws", Visibility: "public"}).
 		Execute()
 }
 
@@ -56,6 +56,38 @@ func TestManagedClusterRegistrationIdempotent(t *testing.T) {
 	_, resp, err = register(client, ctx, uniqueName("hyp0-mc"))
 	Expect(err).To(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+}
+
+// Re-registration restores placement metadata from the current registration,
+// rather than retaining the provider and visibility from the deleted record.
+func TestManagedClusterRegistrationRestoreRefreshesPlacementMetadata(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	ctx := controlPlaneContext(h, uniqueName("cp"))
+	name := uniqueName("hyp0-mc")
+
+	first, resp, err := register(client, ctx, name)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	resp, err = client.DefaultAPI.DeleteManagedCluster(ctx, first.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+	restored, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{
+			Name:       name,
+			Provider:   "ibm",
+			Visibility: "public",
+		}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	Expect(restored.ClusterId).To(Equal(first.ClusterId))
+
+	cluster, _, err := client.DefaultAPI.GetManagedCluster(ctx, restored.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cluster.Provider).To(Equal("ibm"))
+	Expect(cluster.GetVisibility()).To(Equal("public"))
+	Expect(cluster.LastSeenAt).NotTo(BeNil())
 }
 
 // Name Collision Is a Conflict: a name held by a manually created record (empty

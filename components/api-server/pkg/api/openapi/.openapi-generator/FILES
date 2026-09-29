@@ -16,6 +16,8 @@ docs/GatewayAllOfProvisioningConditions.md
 docs/GatewayCreateRequest.md
 docs/GatewayList.md
 docs/GatewayPatchRequest.md
+docs/GatewayPlacementAvailability.md
+docs/GatewayPlacementIntent.md
 docs/InferenceRoute.md
 docs/InferenceRouteList.md
 docs/List.md
@@ -66,6 +68,8 @@ model_gateway_all_of_provisioning_conditions.go
 model_gateway_create_request.go
 model_gateway_list.go
 model_gateway_patch_request.go
+model_gateway_placement_availability.go
+model_gateway_placement_intent.go
 model_inference_route.go
 model_inference_route_list.go
 model_list.go

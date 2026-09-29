@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
-	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
@@ -50,7 +50,7 @@ func registerTestClusterWithSubject(t *testing.T) (string, string) {
 	suffix := strings.ToLower(api.NewID())
 	subject := "cp-" + suffix
 	svc := managedClusters.Service(&environments.Environment().Services)
-	cluster, _, svcErr := svc.Register(context.Background(), fmt.Sprintf("mc-%s", suffix), "", subject)
+	cluster, _, svcErr := svc.Register(context.Background(), fmt.Sprintf("mc-%s", suffix), "", "aws", "public", subject)
 	if svcErr != nil {
 		t.Fatalf("register test managed cluster: %v", svcErr)
 	}
@@ -68,7 +68,7 @@ func registerTestCluster(t *testing.T) string {
 // own cluster. Own id is accepted and delivers only that cluster's gateways; a
 // foreign id is PERMISSION_DENIED; a missing id is INVALID_ARGUMENT.
 func TestGRPCClusterCallerBinding(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
+	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
 	ownID, subject := registerTestClusterWithSubject(t)
@@ -114,23 +114,20 @@ func TestGRPCClusterCallerBinding(t *testing.T) {
 	_, err = stream.Header()
 	Expect(err).NotTo(HaveOccurred(), "own cluster watch must be accepted")
 
-	foreignGw, _, err := client.DefaultAPI.CreateGateway(userCtx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name: "binding-foreign", ClusterId: foreignID,
-	}).Execute()
-	Expect(err).NotTo(HaveOccurred())
-	ownGw, _, err := client.DefaultAPI.CreateGateway(userCtx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name: "binding-own", ClusterId: ownID,
-	}).Execute()
-	Expect(err).NotTo(HaveOccurred())
+	service := gateways.Service(&environments.Environment().Services)
+	foreignGw, svcErr := service.Create(userCtx, &gateways.Gateway{Name: "binding-foreign", ClusterId: foreignID})
+	Expect(svcErr).NotTo(HaveOccurred())
+	ownGw, svcErr := service.Create(userCtx, &gateways.Gateway{Name: "binding-own", ClusterId: ownID})
+	Expect(svcErr).NotTo(HaveOccurred())
 
 	for {
 		evt, recvErr := stream.Recv()
 		Expect(recvErr).NotTo(HaveOccurred(), "stream closed before the own-cluster event")
-		Expect(evt.ResourceId).NotTo(Equal(*foreignGw.Id), "a foreign cluster's gateway was delivered")
+		Expect(evt.ResourceId).NotTo(Equal(foreignGw.ID), "a foreign cluster's gateway was delivered")
 		if evt.GetGateway() != nil {
 			Expect(evt.GetGateway().GetClusterId()).To(Equal(ownID))
 		}
-		if evt.ResourceId == *ownGw.Id {
+		if evt.ResourceId == ownGw.ID {
 			break
 		}
 	}

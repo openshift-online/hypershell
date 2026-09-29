@@ -506,6 +506,107 @@ export const messages = defineMessages({
     defaultMessage: "Configure a new OpenShell gateway.",
     description: "Supporting text on the gateway provisioning page.",
   },
+  /* eslint-disable sort-keys -- Keep gateway placement descriptors together for localization review. */
+  networkAccess: {
+    id: "app.page.gatewayProvision.networkAccess",
+    defaultMessage: "Network access",
+    description: "Network exposure mode for a gateway.",
+  },
+  cloudProvider: {
+    id: "app.page.gatewayProvision.cloudProvider",
+    defaultMessage: "Cloud provider",
+    description: "Cloud provider for public gateway placement.",
+  },
+  publicNetwork: {
+    id: "app.page.gatewayProvision.publicNetwork",
+    defaultMessage: "Public",
+    description: "Public network placement option.",
+  },
+  publicNetworkDescription: {
+    id: "app.page.gatewayProvision.publicNetworkDescription",
+    defaultMessage:
+      "Accessible through a public endpoint. Choose a cloud provider below.",
+    description: "Description of public network placement.",
+  },
+  vpnNetwork: {
+    id: "app.page.gatewayProvision.vpnNetwork",
+    defaultMessage: "VPN",
+    description: "VPN network placement option.",
+  },
+  vpnNetworkDescription: {
+    id: "app.page.gatewayProvision.vpnNetworkDescription",
+    defaultMessage:
+      "Private network access. AWS is required for VPN placement.",
+    description: "Description of VPN placement.",
+  },
+  awsProvider: {
+    id: "app.page.gatewayProvision.awsProvider",
+    defaultMessage: "AWS",
+    description: "AWS cloud provider option.",
+  },
+  ibmCloudProvider: {
+    id: "app.page.gatewayProvision.ibmCloudProvider",
+    defaultMessage: "IBM Cloud",
+    description: "IBM Cloud provider option.",
+  },
+  unavailableProvider: {
+    id: "app.page.gatewayProvision.unavailableProvider",
+    defaultMessage: "{provider} is unavailable: {reason}",
+    description:
+      "Explanation shown when a provider cannot currently accept placement.",
+  },
+  unavailableNetwork: {
+    id: "app.page.gatewayProvision.unavailableNetwork",
+    defaultMessage: "{network} is unavailable: {reason}",
+    description:
+      "Explanation shown when a network cannot currently accept placement.",
+  },
+  noEligibleCluster: {
+    id: "app.page.gatewayProvision.noEligibleCluster",
+    defaultMessage: "no eligible managed cluster is connected.",
+    description:
+      "Provider unavailability reason when no matching connected cluster exists.",
+  },
+  noManagedPlacement: {
+    id: "app.page.gatewayProvision.noManagedPlacement",
+    defaultMessage: "No managed placement is currently available.",
+    description:
+      "Warning shown when no provider or local development placement can be selected.",
+  },
+  vpnRequiresAws: {
+    id: "app.page.gatewayProvision.vpnRequiresAws",
+    defaultMessage: "VPN placement requires AWS.",
+    description: "Explanation shown when IBM Cloud is disabled for VPN.",
+  },
+  localKindPlacement: {
+    id: "app.page.gatewayProvision.localKindPlacement",
+    defaultMessage: "Use local-kind",
+    description: "Local Kind placement option.",
+  },
+  localKindPlacementDescription: {
+    id: "app.page.gatewayProvision.localKindPlacementDescription",
+    defaultMessage: "Use the local Kind cluster for development.",
+    description: "Description of local Kind placement.",
+  },
+  localDevelopment: {
+    id: "app.page.gatewayProvision.localDevelopment",
+    defaultMessage: "Local development",
+    description: "Form group label for local Kind placement.",
+  },
+  placementHelp: {
+    id: "app.page.gatewayProvision.placementHelp",
+    defaultMessage:
+      "A matching managed cluster is selected at random for the chosen network and provider.",
+    description: "Explanation of automatic gateway placement.",
+  },
+  placementAvailabilityError: {
+    id: "app.page.gatewayProvision.placementAvailabilityError",
+    defaultMessage:
+      "Placement availability could not be loaded. Cloud placement is disabled until availability can be verified.",
+    description:
+      "Warning shown when current gateway placement availability cannot be retrieved.",
+  },
+  /* eslint-enable sort-keys */
   provisioningGateway: {
     id: "app.page.gatewayProvision.pending",
     defaultMessage: "Provisioning gateway",

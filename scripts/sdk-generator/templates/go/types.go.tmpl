@@ -13,11 +13,28 @@ import (
 {{- end}}
 )
 
+{{- range .Resource.Models}}{{$model := .}}
+{{- if ne .Name "GatewayCreateRequest"}}
+{{- if .IsEnum}}
+type {{.Name}} string
+{{else}}
+type {{.Name}} struct {
+{{- range .Fields}}
+	{{.GoName}} {{.GoType}} {{.JSONTag}}
+{{- end}}
+}
+{{end}}
+{{end}}
+{{end}}
+
 type {{.Resource.Name}} struct {
 	ObjectReference
 {{range .Resource.Fields}}
 	{{.GoName}} {{.GoType}} {{.JSONTag}}
 {{- end}}
+{{if eq .Resource.Name "Gateway"}}
+	Placement GatewayPlacementIntent `json:"placement,omitempty"`
+{{end}}
 }
 
 type {{.Resource.Name}}List struct {
@@ -33,24 +50,36 @@ func (l *{{.Resource.Name}}List) GetSize() int                   { return l.Size
 type {{.Resource.Name}}Builder struct {
 	resource {{.Resource.Name}}
 	errors   []error
+{{- range .Resource.CreateFields}}
+	{{- if and .Required (ne .GoType "string")}}
+	{{.GoName | lowerFirst}}Set bool
+	{{- end}}
+{{- end}}
 }
 
 func New{{.Resource.Name}}Builder() *{{.Resource.Name}}Builder {
 	return &{{.Resource.Name}}Builder{}
 }
 
-{{range .Resource.Fields}}{{if isWritable .}}
+{{range .Resource.CreateFields}}
 func (b *{{$.Resource.Name}}Builder) {{.GoName}}(v {{.GoType}}) *{{$.Resource.Name}}Builder {
 	b.resource.{{.GoName}} = v
+	{{- if and .Required (ne .GoType "string")}}
+	b.{{.GoName | lowerFirst}}Set = true
+	{{- end}}
 	return b
 }
-{{end}}{{end}}
+{{end}}
 
 func (b *{{.Resource.Name}}Builder) Build() (*{{.Resource.Name}}, error) {
-{{- range .Resource.Fields}}
+{{- range .Resource.CreateFields}}
 	{{- if .Required}}
 	{{- if eq .GoType "string"}}
 	if b.resource.{{.GoName}} == "" {
+		b.errors = append(b.errors, fmt.Errorf("{{.Name}} is required"))
+	}
+	{{- else}}
+	if !b.{{.GoName | lowerFirst}}Set {
 		b.errors = append(b.errors, fmt.Errorf("{{.Name}} is required"))
 	}
 	{{- end}}

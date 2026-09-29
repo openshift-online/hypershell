@@ -105,22 +105,20 @@ func registerRoleBindingTestCluster(t *testing.T) string {
 	t.Helper()
 	suffix := strings.ToLower(api.NewID())
 	svc := managedClusters.Service(&environments.Environment().Services)
-	cluster, _, svcErr := svc.Register(context.Background(), fmt.Sprintf("mc-%s", suffix), "", "cp-"+suffix)
+	cluster, _, svcErr := svc.Register(context.Background(), fmt.Sprintf("mc-%s", suffix), "", "aws", "public", "cp-"+suffix)
 	if svcErr != nil {
 		t.Fatalf("register test managed cluster: %v", svcErr)
 	}
 	return cluster.ID
 }
 
-// createGatewayWithOwnerBinding creates a gateway on clusterID through the REST
-// API, grants userID gateway:owner on it, and returns the gateway id and that
-// binding's id.
+// createGatewayWithOwnerBinding creates an internal gateway fixture on
+// clusterID, grants userID gateway:owner on it, and returns both ids.
 func createGatewayWithOwnerBinding(ctx context.Context, client *openapi.APIClient, userID, name, clusterID string) (string, string) {
-	gw, _, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name: name, ClusterId: clusterID,
-	}).Execute()
-	Expect(err).NotTo(HaveOccurred(), "create gateway %s", name)
-	gatewayID := *gw.Id
+	_ = client
+	gw, svcErr := gateways.Service(&environments.Environment().Services).Create(ctx, &gateways.Gateway{Name: name, ClusterId: clusterID})
+	Expect(svcErr).NotTo(HaveOccurred(), "create gateway %s", name)
+	gatewayID := gw.ID
 
 	// The integration environment does not provision the caller into the
 	// request context, so the create path does not bootstrap the owner binding;

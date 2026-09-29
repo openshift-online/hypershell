@@ -1,0 +1,22 @@
+.choice {
+  min-height: 7rem;
+}
+.choiceTitle {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.choiceHeading {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 3rem;
+}
+.providerLogo {
+  width: 7rem;
+  height: 3rem;
+  object-fit: contain;
+  object-position: left center;
+}
+.help {
+  margin-top: 1.5rem;
+}

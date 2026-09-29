@@ -258,11 +258,14 @@ func TestReRegistrationAfterDeleteDoesNotReclaimATakenName(t *testing.T) {
 
 func createGateway(t *testing.T, client *openapi.APIClient, owner principal, clusterID string) *openapi.Gateway {
 	t.Helper()
-	gw, httpResp, err := client.DefaultAPI.CreateGateway(owner.rest).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name: fmt.Sprintf("gw-%s", strings.ToLower(api.NewID())[:10]), ClusterId: clusterID,
-	}).Execute()
-	Expect(err).NotTo(HaveOccurred(), "create gateway: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
-	return gw
+	_ = client
+	created, err := pb.NewGatewayServiceClient(owner.conn).CreateGateway(context.Background(), &pb.CreateGatewayRequest{
+		Name:      fmt.Sprintf("gw-%s", strings.ToLower(api.NewID())[:10]),
+		ClusterId: clusterID,
+	})
+	Expect(err).NotTo(HaveOccurred(), "create gateway")
+	id := created.GetGateway().GetMetadata().GetId()
+	return &openapi.Gateway{Id: &id, Namespace: created.GetGateway().GetNamespace()}
 }
 
 func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {

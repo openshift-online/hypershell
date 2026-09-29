@@ -25,6 +25,10 @@ type ManagedClusterRegistrationRequest struct {
 	Name string `json:"name"`
 	// Optional description of the spoke.
 	Description *string `json:"description,omitempty"`
+	// Cloud provider hosting this control plane.
+	Provider string `json:"provider"`
+	// Network visibility supported for gateways on this control plane.
+	Visibility string `json:"visibility"`
 }
 
 type _ManagedClusterRegistrationRequest ManagedClusterRegistrationRequest
@@ -33,9 +37,11 @@ type _ManagedClusterRegistrationRequest ManagedClusterRegistrationRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewManagedClusterRegistrationRequest(name string) *ManagedClusterRegistrationRequest {
+func NewManagedClusterRegistrationRequest(name string, provider string, visibility string) *ManagedClusterRegistrationRequest {
 	this := ManagedClusterRegistrationRequest{}
 	this.Name = name
+	this.Provider = provider
+	this.Visibility = visibility
 	return &this
 }
 
@@ -103,6 +109,54 @@ func (o *ManagedClusterRegistrationRequest) SetDescription(v string) {
 	o.Description = &v
 }
 
+// GetProvider returns the Provider field value
+func (o *ManagedClusterRegistrationRequest) GetProvider() string {
+	if o == nil {
+		var ret string
+		return ret
+	}
+
+	return o.Provider
+}
+
+// GetProviderOk returns a tuple with the Provider field value
+// and a boolean to check if the value has been set.
+func (o *ManagedClusterRegistrationRequest) GetProviderOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.Provider, true
+}
+
+// SetProvider sets field value
+func (o *ManagedClusterRegistrationRequest) SetProvider(v string) {
+	o.Provider = v
+}
+
+// GetVisibility returns the Visibility field value
+func (o *ManagedClusterRegistrationRequest) GetVisibility() string {
+	if o == nil {
+		var ret string
+		return ret
+	}
+
+	return o.Visibility
+}
+
+// GetVisibilityOk returns a tuple with the Visibility field value
+// and a boolean to check if the value has been set.
+func (o *ManagedClusterRegistrationRequest) GetVisibilityOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.Visibility, true
+}
+
+// SetVisibility sets field value
+func (o *ManagedClusterRegistrationRequest) SetVisibility(v string) {
+	o.Visibility = v
+}
+
 func (o ManagedClusterRegistrationRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -117,6 +171,8 @@ func (o ManagedClusterRegistrationRequest) ToMap() (map[string]interface{}, erro
 	if !IsNil(o.Description) {
 		toSerialize["description"] = o.Description
 	}
+	toSerialize["provider"] = o.Provider
+	toSerialize["visibility"] = o.Visibility
 	return toSerialize, nil
 }
 
@@ -126,6 +182,8 @@ func (o *ManagedClusterRegistrationRequest) UnmarshalJSON(data []byte) (err erro
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
+		"provider",
+		"visibility",
 	}
 
 	allProperties := make(map[string]interface{})
