@@ -53,9 +53,11 @@ rules:
   - apiGroups: ["scheduling.k8s.io"]
     resources: ["priorityclasses"]
     verbs: ["get"]
+  # create/delete/patch required so the controller can create the chart's
+  # sandbox Role (v0.1.2+) without triggering RBAC escalation.
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
   # Events need create so the namespace reaper can write a durable audit record.
   - apiGroups: [""]
     resources: ["events"]
