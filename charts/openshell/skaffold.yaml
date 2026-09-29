@@ -76,7 +76,7 @@ build:
 deploy:
   helm:
     releases:
-      # cert-manager — comment this in and add values-cert-manager.yaml below
+      # cert-manager - comment this in and add values-cert-manager.yaml below
       # when you want cert-manager to manage TLS while certgen handles JWT.
       # Requires cert-manager CRDs to be installed in the cluster first.
       #- name: cert-manager
@@ -86,7 +86,7 @@ deploy:
       #  createNamespace: true
       #  setValues:
       #    crds.enabled: true
-      # Envoy Gateway — Kubernetes Gateway API implementation.
+      # Envoy Gateway - Kubernetes Gateway API implementation.
       # Installs the Gateway API CRDs and the "eg" GatewayClass.
       # Required when grpcRoute.enabled is true in the openshell release.
       #- name: envoy-gateway
@@ -97,7 +97,7 @@ deploy:
       #  # wait ensures Gateway API CRDs are registered before the openshell
       #  # release attempts to create Gateway and HTTPRoute resources.
       #  wait: true
-      # SPIRE — installs SPIRE Server, Agent, Controller Manager, CSI Driver,
+      # SPIRE - installs SPIRE Server, Agent, Controller Manager, CSI Driver,
       # and OIDC Discovery Provider using the SPIFFE hardened charts.
       # Uncomment both releases and ci/values-spire.yaml below to use
       # SPIFFE JWT-SVIDs for dynamic provider token grants.

@@ -458,7 +458,7 @@ server:
     # -- Lifetime (seconds) of the projected ServiceAccount token kubelet
     # writes into each sandbox pod for the IssueSandboxToken bootstrap
     # exchange. Kubelet enforces a minimum of 600s; the driver clamps
-    # values outside [600, 86400]. Default 3600 — generous, since the
+    # values outside [600, 86400]. Default 3600 - generous, since the
     # supervisor consumes the token within seconds of pod start.
     k8sSaTokenTtlSecs: 3600
     # -- File mode for the mounted JWT signing key Secret. Default 0400
@@ -573,8 +573,8 @@ certManager:
     kind: ""
     group: ""
   # -- Mount gateway client CA from the internal server TLS secret's ca.crt.
-  # The internal server certificate is always signed by the chart CA — the same
-  # CA that signs the client (mTLS) certificate — so the default (true) is
+  # The internal server certificate is always signed by the chart CA - the same
+  # CA that signs the client (mTLS) certificate - so the default (true) is
   # correct for all configurations, including when serverIssuerRef is set.
   # Only set to false if you mount the client CA from a separate secret via
   # server.tls.clientCaSecretName.

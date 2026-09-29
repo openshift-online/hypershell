@@ -22,7 +22,7 @@
 #
 # Security: this is NOT an open gateway. `server.tls.clientCaSecretName` defaults
 # to `openshell-server-client-ca` and there is no OIDC, so `require_client_auth`
-# is true and mTLS is MANDATORY at the TLS handshake — a caller with only the
+# is true and mTLS is MANDATORY at the TLS handshake - a caller with only the
 # Route URL and no client certificate is rejected before any RPC. The passthrough
 # Route terminates TLS at the gateway pod, so this holds end-to-end.
 # `allowUnauthenticatedUsers` only promotes the already cert-verified caller to a

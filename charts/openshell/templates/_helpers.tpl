@@ -310,7 +310,7 @@ Name of the Secret holding gateway-minted sandbox JWT signing material.
 gRPC endpoint sandbox pods use to call back into the gateway. An explicit
 .Values.server.grpcEndpoint is used verbatim. Otherwise it is derived from
 the in-cluster Service DNS, release namespace, service port, and disableTls
-flag — so the default value works for any release name or namespace without
+flag - so the default value works for any release name or namespace without
 override.
 */}}
 {{- define "openshell.grpcEndpoint" -}}

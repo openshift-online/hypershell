@@ -155,11 +155,15 @@ func TestSelectGatewayImage_PlatformDefault(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build Helm values: %v", err)
 			}
-			image, ok := values["image"].(map[string]interface{})
+			gatewayVals, ok := values["gateway"].(map[string]interface{})
 			if !ok {
-				t.Fatal("Helm values must include the gateway image override")
+				t.Fatal("Helm values must include gateway image override")
 			}
-			if image["repository"] != "quay.io/opendatahub/odh-openshell-gateway" || image["tag"] != "v0.0.109-rhaiv.0" {
+			image, ok := gatewayVals["image"].(map[string]interface{})
+			if !ok {
+				t.Fatal("Helm values must include gateway.image override")
+			}
+			if image["registry"] != "quay.io" || image["repository"] != "opendatahub/odh-openshell-gateway" || image["tag"] != "v0.0.109-rhaiv.0" {
 				t.Fatalf("unexpected Helm image values: %v", image)
 			}
 		})

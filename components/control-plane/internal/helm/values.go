@@ -113,15 +113,21 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Pin fullnameOverride so every chart resource uses the expected name.
 	setNestedValue(values, ReleaseName, "fullnameOverride")
 
-	// Image values
+	// Image values. The v0.1.2 chart uses gateway.image.{registry,repository,tag}
+	// and prepends global.image.registry (ghcr.io/nvidia) when the per-image
+	// registry is unset. We always pass fully-qualified image references from the
+	// GatewayRelease, so we split registry out and set it explicitly per-image to
+	// prevent the global prefix from being applied.
 	if b.Gateway.Image != "" {
-		repo, tag := splitImageRef(b.Gateway.Image)
-		setNestedValue(values, repo, "image", "repository")
-		setNestedValue(values, tag, "image", "tag")
+		reg, repo, tag := splitImageRefFull(b.Gateway.Image)
+		setNestedValue(values, reg, "gateway", "image", "registry")
+		setNestedValue(values, repo, "gateway", "image", "repository")
+		setNestedValue(values, tag, "gateway", "image", "tag")
 	}
 
 	if b.Gateway.SupervisorImage != "" {
-		repo, tag := splitImageRef(b.Gateway.SupervisorImage)
+		reg, repo, tag := splitImageRefFull(b.Gateway.SupervisorImage)
+		setNestedValue(values, reg, "supervisor", "image", "registry")
 		setNestedValue(values, repo, "supervisor", "image", "repository")
 		setNestedValue(values, tag, "supervisor", "image", "tag")
 	}
@@ -293,6 +299,40 @@ func splitImageRef(image string) (repo, tag string) {
 		return image, "latest"
 	}
 	return image[:lastColon], image[lastColon+1:]
+}
+
+// splitImageRefFull splits an image reference into registry, repository, and tag.
+// The registry is the first path component if it contains a dot or colon, or is
+// "localhost" -- the same heuristic used by the Docker distribution library.
+// This is needed for the v0.1.2 chart, which applies global.image.registry as a
+// prefix when the per-image registry is unset. By extracting the registry here
+// and setting it explicitly, the chart's global prefix is suppressed.
+func splitImageRefFull(image string) (registry, repo, tag string) {
+	_, tag = splitImageRef(image)
+
+	// Strip digest and tag to work with path only
+	withoutTag := image
+	if at := strings.LastIndex(image, "@"); at != -1 {
+		withoutTag = image[:at]
+	}
+	lastSlash := strings.LastIndex(withoutTag, "/")
+	lastColon := strings.LastIndex(withoutTag, ":")
+	if lastColon > lastSlash {
+		withoutTag = withoutTag[:lastColon]
+	}
+
+	// Split on the first slash to isolate the potential registry component
+	slashIdx := strings.Index(withoutTag, "/")
+	if slashIdx == -1 {
+		return "", withoutTag, tag
+	}
+	first := withoutTag[:slashIdx]
+	rest := withoutTag[slashIdx+1:]
+
+	if strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost" {
+		return first, rest, tag
+	}
+	return "", withoutTag, tag
 }
 
 // setNestedValue sets a value in a nested map structure.
