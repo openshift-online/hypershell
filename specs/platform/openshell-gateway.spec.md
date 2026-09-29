@@ -468,9 +468,9 @@ The gateway Deployment SHALL specify:
 - **Container image:** from the Gateway resource's `image` field
 - **Container args:** `--config /etc/openshell/gateway.toml --db-url $(OPENSHELL_DB_URL)`
 - **SecurityContext:** `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`
-- **Resource requests:** `cpu: 100m`, `memory: 512Mi`
-- **Resource limits:** `cpu: 500m`, `memory: 1Gi`
-  (supplied as the chart's `resources` value; the upstream chart default is `resources: {}`)
+- **Resources:** from `GATEWAY_RESOURCES` when set, otherwise the defaults below. Always supplied as the chart's `resources` value; the upstream chart default is `resources: {}`, which would leave the gateway BestEffort.
+  - **Default requests:** `cpu: 100m`, `memory: 512Mi`
+  - **Default limits:** `cpu: 500m`, `memory: 1Gi`
 - **Ports:** `grpc: 8080`, `health: 8081`, `metrics: 9090`
 - **Probes:**
   - Startup: `GET /healthz` on `health` port (period 2s, failureThreshold 30)
@@ -806,6 +806,7 @@ Control Plane
 | `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
 | `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.0.109-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_IMAGE` | *(unset - published community default)* | Sandbox base image used when a Gateway resource does not specify `sandbox_image`. Passed to the chart as `server.sandboxImage`. See [`global-architecture.spec.md`](./global-architecture.spec.md). |
+| `GATEWAY_RESOURCES` | *(unset - requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`)* | Gateway container requests and limits as a JSON Kubernetes `ResourceRequirements` object, e.g. `{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}`. Replaces the defaults entirely (not merged). MUST set `limits.memory`; no request may exceed its limit; `claims` is not supported. An invalid value fails controller startup. Applied to every gateway on the cluster on its next reconcile (Helm upgrade, which restarts the gateway pod). |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
@@ -951,7 +952,7 @@ helm template openshell-gateway oci://ghcr.io/nvidia/openshell/helm-chart \
 | `workload.kind=deployment` | Always Deployment - PostgreSQL is the sole backend | `internal/reconciler/gateway_reconciler.go` |
 | `server.oidc.*` | `oidc` field on Gateway resource; injected into `gateway.toml` ConfigMap by `ApplyConfigOverrides` | `internal/gateway/manifests.go` |
 | `replicaCount` | HyperShell uses 1 replica (Deployment default) | N/A |
-| `resources` | Gateway container requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`. Always set: the chart default is `{}`, which would leave the gateway BestEffort with no memory limit | `internal/helm/values.go` |
+| `resources` | `GATEWAY_RESOURCES` when set, else requests `cpu: 100m`, `memory: 512Mi` and limits `cpu: 500m`, `memory: 1Gi`. Always set: the chart default is `{}`, which would leave the gateway BestEffort with no memory limit | `internal/helm/values.go`, `internal/helm/resources.go` |
 
 ### cert-manager Installation
 

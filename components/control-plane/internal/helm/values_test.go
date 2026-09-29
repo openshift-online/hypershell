@@ -1,7 +1,11 @@
 package helm
 
 import (
+	"reflect"
+	"strings"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // TestBuild_IngressExposure locks in that the gateway exposure resource follows
@@ -165,37 +169,87 @@ func TestBuild_TrustedCAConfigMapName(t *testing.T) {
 }
 
 // TestBuild_GatewayResources guards that the gateway container always gets
-// explicit requests and limits. The upstream chart defaults to `resources: {}`,
-// which leaves the gateway BestEffort with no memory ceiling.
+// explicit requests and limits (the upstream chart defaults to `resources: {}`,
+// which leaves the gateway BestEffort), and that a GATEWAY_RESOURCES override
+// replaces the defaults.
 func TestBuild_GatewayResources(t *testing.T) {
-	builder := ValuesBuilder{
-		Gateway:   GatewayConfig{Image: "quay.io/test/gateway:latest"},
-		Namespace: "test-ns",
-	}
-
-	values, err := builder.Build()
+	override, err := ParseGatewayResources(`{"limits":{"memory":"2Gi"}}`)
 	if err != nil {
-		t.Fatalf("Build() returned error: %v", err)
+		t.Fatalf("ParseGatewayResources: %v", err)
 	}
 
-	resources, ok := values["resources"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("resources = %#v, want a map", values["resources"])
+	tests := []struct {
+		name      string
+		resources *corev1.ResourceRequirements
+		want      map[string]interface{}
+	}{
+		{
+			name: "defaults when unset",
+			want: map[string]interface{}{
+				"requests": map[string]interface{}{"cpu": "100m", "memory": "512Mi"},
+				"limits":   map[string]interface{}{"cpu": "500m", "memory": "1Gi"},
+			},
+		},
+		{
+			name:      "override replaces defaults",
+			resources: &override,
+			want: map[string]interface{}{
+				"limits": map[string]interface{}{"memory": "2Gi"},
+			},
+		},
 	}
 
-	want := map[string]map[string]string{
-		"requests": {"cpu": "100m", "memory": "512Mi"},
-		"limits":   {"cpu": "500m", "memory": "1Gi"},
-	}
-	for section, fields := range want {
-		got, ok := resources[section].(map[string]interface{})
-		if !ok {
-			t.Fatalf("resources.%s = %#v, want a map", section, resources[section])
-		}
-		for k, v := range fields {
-			if got[k] != v {
-				t.Errorf("resources.%s.%s = %v, want %s", section, k, got[k], v)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			builder := ValuesBuilder{
+				Gateway:   GatewayConfig{Image: "quay.io/test/gateway:latest"},
+				Namespace: "test-ns",
+				Resources: tc.resources,
 			}
-		}
+
+			values, err := builder.Build()
+			if err != nil {
+				t.Fatalf("Build() returned error: %v", err)
+			}
+			if !reflect.DeepEqual(values["resources"], tc.want) {
+				t.Errorf("resources = %#v, want %#v", values["resources"], tc.want)
+			}
+		})
+	}
+}
+
+func TestParseGatewayResources(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr string
+	}{
+		{name: "requests and limits", raw: `{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}`},
+		{name: "memory limit only", raw: `{"limits":{"memory":"1Gi"}}`},
+		{name: "invalid JSON", raw: `{"limits":`, wantErr: "parse resources JSON"},
+		{name: "unknown field", raw: `{"limit":{"memory":"1Gi"}}`, wantErr: "unknown field"},
+		{name: "invalid quantity", raw: `{"limits":{"memory":"lots"}}`, wantErr: "parse resources JSON"},
+		{name: "trailing data", raw: `{"limits":{"memory":"1Gi"}} {}`, wantErr: "unexpected data"},
+		{name: "empty object", raw: `{}`, wantErr: "limits.memory is required"},
+		{name: "no memory limit", raw: `{"limits":{"cpu":"1"}}`, wantErr: "limits.memory is required"},
+		{name: "request exceeds limit", raw: `{"requests":{"memory":"2Gi"},"limits":{"memory":"1Gi"}}`, wantErr: "exceeds limits.memory"},
+		{name: "zero limit", raw: `{"limits":{"memory":"0"}}`, wantErr: "must be positive"},
+		{name: "negative request", raw: `{"requests":{"cpu":"-1"},"limits":{"memory":"1Gi"}}`, wantErr: "must not be negative"},
+		{name: "claims", raw: `{"limits":{"memory":"1Gi"},"claims":[{"name":"gpu"}]}`, wantErr: "claims are not supported"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseGatewayResources(tc.raw)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want containing %q", err, tc.wantErr)
+			}
+		})
 	}
 }

@@ -344,6 +344,9 @@ type GatewayReconciler struct {
 	// provisioned with; validated once at controller startup.
 	database  gateway.DatabaseConfig
 	clusterID string
+	// gatewayResources overrides the gateway container requests and limits
+	// (GATEWAY_RESOURCES); nil uses the chart-values default.
+	gatewayResources *corev1.ResourceRequirements
 }
 
 func NewGatewayReconciler(
@@ -358,6 +361,7 @@ func NewGatewayReconciler(
 	externalCAIssuerKind string,
 	database gateway.DatabaseConfig,
 	clusterID string,
+	gatewayResources *corev1.ResourceRequirements,
 ) (*GatewayReconciler, error) {
 	if database.AdminCredentialsDir == "" {
 		return nil, fmt.Errorf("gateway database admin credentials directory is required")
@@ -413,6 +417,7 @@ func NewGatewayReconciler(
 		ingressBaseDomain:     ingressBaseDomain,
 		database:              database,
 		clusterID:             clusterID,
+		gatewayResources:      gatewayResources,
 	}, nil
 }
 
@@ -696,6 +701,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ExternalCAIssuerName:  r.externalCAIssuerName,
 		ExternalCAIssuerKind:  r.externalCAIssuerKind,
 		IngressBaseDomain:     r.ingressBaseDomain,
+		GatewayResources:      r.gatewayResources,
 	}
 
 	conditions := gateway.InitConditions(r.keycloakConfig != nil)

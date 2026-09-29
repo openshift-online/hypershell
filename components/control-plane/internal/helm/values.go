@@ -3,6 +3,8 @@ package helm
 import (
 	"fmt"
 	"strings"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // GatewayConfig represents the configuration for a gateway deployment.
@@ -66,6 +68,9 @@ type ValuesBuilder struct {
 	ExternalCAIssuerKind string
 	// HasTrustedCA indicates whether the gateway-trusted-ca ConfigMap exists
 	HasTrustedCA bool
+	// Resources overrides the gateway container requests and limits
+	// (GATEWAY_RESOURCES). Nil uses DefaultGatewayResources.
+	Resources *corev1.ResourceRequirements
 }
 
 // Build computes Helm chart values from the Gateway configuration.
@@ -125,9 +130,13 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	setNestedValue(values, "deployment", "workload", "kind")
 	setNestedValue(values, 1, "replicaCount")
 
-	// Gateway container resources. The upstream chart defaults to `resources: {}`,
-	// which would run the gateway BestEffort with no memory ceiling.
-	setNestedValue(values, gatewayResources(), "resources")
+	// Gateway container resources. Always set: the upstream chart defaults to
+	// `resources: {}`, which would run the gateway BestEffort.
+	resources := DefaultGatewayResources()
+	if b.Resources != nil {
+		resources = *b.Resources
+	}
+	setNestedValue(values, resourcesValue(resources), "resources")
 
 	// Sandbox configuration
 	setNestedValue(values, b.Namespace, "server", "sandboxNamespace")
@@ -163,22 +172,6 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	}
 
 	return nil
-}
-
-// gatewayResources returns the gateway container resource requests and limits.
-// The memory limit was raised from 512Mi after the gateway was OOMKilled during
-// review cycles on the IBM cluster.
-func gatewayResources() map[string]interface{} {
-	return map[string]interface{}{
-		"requests": map[string]interface{}{
-			"cpu":    "100m",
-			"memory": "512Mi",
-		},
-		"limits": map[string]interface{}{
-			"cpu":    "500m",
-			"memory": "1Gi",
-		},
-	}
 }
 
 // buildOIDCValues builds OIDC-related Helm chart values.

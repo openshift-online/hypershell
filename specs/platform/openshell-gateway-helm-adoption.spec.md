@@ -165,7 +165,7 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 | Gateway `supervisor_image` field | `supervisorImage.repository`, `supervisorImage.tag` | Split at last `:` |
 | Always `deployment` | `workload.kind` | PostgreSQL backend, never StatefulSet |
 | `1` | `replicaCount` | Single replica per gateway |
-| Fixed gateway sizing | `resources` | Requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`. Chart default is `{}` (no limits) |
+| `GATEWAY_RESOURCES` (else defaults) | `resources` | Default requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`. Always set: chart default is `{}` (no limits) |
 | Gateway namespace | `server.sandboxNamespace` | Sandboxes run in gateway NS |
 | Gateway `serverDnsNames` | `pkiInitJob.serverDnsNames` | TLS certificate SANs |
 | `true` | `serviceAccount.create` | Chart creates gateway SA |

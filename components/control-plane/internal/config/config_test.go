@@ -140,3 +140,42 @@ func TestGetEnvInt(t *testing.T) {
 		})
 	}
 }
+
+// TestLoadGatewayResources checks GATEWAY_RESOURCES handling: unset leaves the
+// override nil (chart values use the defaults), a valid value is parsed, and an
+// invalid value fails startup instead of silently falling back.
+func TestLoadGatewayResources(t *testing.T) {
+	t.Run("unset", func(t *testing.T) {
+		setRequiredEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.GatewayResources != nil {
+			t.Errorf("GatewayResources = %v, want nil", cfg.GatewayResources)
+		}
+	})
+
+	t.Run("valid", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("GATEWAY_RESOURCES", `{"requests":{"memory":"1Gi"},"limits":{"memory":"2Gi"}}`)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.GatewayResources == nil {
+			t.Fatal("GatewayResources = nil, want parsed value")
+		}
+		if got := cfg.GatewayResources.Limits.Memory().String(); got != "2Gi" {
+			t.Errorf("limits.memory = %s, want 2Gi", got)
+		}
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("GATEWAY_RESOURCES", `{"limits":{"cpu":"1"}}`)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GATEWAY_RESOURCES") {
+			t.Fatalf("Load() error = %v, want GATEWAY_RESOURCES error", err)
+		}
+	})
+}

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // ImageDefaults resolves the default container images for gateway deployments.
@@ -218,6 +219,9 @@ type ReconcileOpts struct {
 	ExternalCAIssuerKind string
 	// IngressBaseDomain is the base domain for auto-derived ingress hostnames (e.g. apps.example.com).
 	IngressBaseDomain string
+	// GatewayResources overrides the gateway container requests and limits
+	// (GATEWAY_RESOURCES). Nil uses helm.DefaultGatewayResources.
+	GatewayResources *corev1.ResourceRequirements
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned
