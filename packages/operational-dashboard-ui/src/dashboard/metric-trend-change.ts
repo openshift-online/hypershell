@@ -1,4 +1,7 @@
-import type { OperationalMetric } from "../application/dashboard-types";
+import type {
+  OperationalMetric,
+  OperationalMetricTrend,
+} from "../application/dashboard-types";
 
 export const TREND_CHANGE_THRESHOLD_PERCENT = 5;
 
@@ -9,11 +12,11 @@ export interface MetricTrendChange {
   percent: number;
 }
 
-export function getMetricTrendChange(
-  metric: OperationalMetric,
+export function getTrendChange(
+  trend: OperationalMetricTrend | undefined,
   thresholdPercent = TREND_CHANGE_THRESHOLD_PERCENT,
 ): MetricTrendChange | undefined {
-  const trendPoints = metric.trend?.points;
+  const trendPoints = trend?.points;
   const firstPoint = trendPoints?.[0];
   const lastPoint = trendPoints?.at(-1);
   if (!firstPoint || !lastPoint) {
@@ -43,4 +46,27 @@ export function getMetricTrendChange(
   }
 
   return undefined;
+}
+
+export function getMetricTrendChange(
+  metric: OperationalMetric,
+  thresholdPercent = TREND_CHANGE_THRESHOLD_PERCENT,
+): MetricTrendChange | undefined {
+  const hourlyTrendChange = getTrendChange(
+    metric.hourlyTrend,
+    thresholdPercent,
+  );
+  if (hourlyTrendChange !== undefined) {
+    return hourlyTrendChange;
+  }
+
+  const successRateTrendChange = getTrendChange(
+    metric.successRateTrend,
+    thresholdPercent,
+  );
+  if (successRateTrendChange !== undefined) {
+    return successRateTrendChange;
+  }
+
+  return getTrendChange(metric.trend, thresholdPercent);
 }

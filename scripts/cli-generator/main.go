@@ -280,8 +280,17 @@ func generateCLI(data cliData, outDir string) error {
 
 	var mappings []tmplMapping
 
+	// Preserved files (hand-maintained, not overwritten by the generator):
+	//   cmd/<binary>/main.go         - registers both generated and hand-authored commands
+	//   cmd/<binary>/login/cmd.go    - full OIDC login (browser PKCE + device flow); the
+	//                                  template only has a static-token stub for bootstrapping
+	//   cmd/<binary>/logout/cmd.go   - revokes the refresh token at Keycloak before clearing
+	//                                  credentials; the template omits the revocation call
+	//   go.mod                       - managed by go mod tidy; hand-authored cmds may add deps
+	//
+	// To bootstrap a brand-new project, render cmd/main.go.tmpl and gomod.tmpl
+	// once by hand before committing.
 	mappings = append(mappings,
-		tmplMapping{"cmd/main.go.tmpl", filepath.Join("cmd", data.Binary, "main.go"), nil},
 		tmplMapping{"cmd/login.go.tmpl", filepath.Join("cmd", data.Binary, "login", "cmd.go"), nil},
 		tmplMapping{"cmd/logout.go.tmpl", filepath.Join("cmd", data.Binary, "logout", "cmd.go"), nil},
 		tmplMapping{"cmd/version.go.tmpl", filepath.Join("cmd", data.Binary, "version", "cmd.go"), nil},
@@ -300,7 +309,6 @@ func generateCLI(data cliData, outDir string) error {
 		tmplMapping{"pkg/arguments.go.tmpl", filepath.Join("pkg", "arguments", "arguments.go"), nil},
 		tmplMapping{"pkg/urls.go.tmpl", filepath.Join("pkg", "urls", "urls.go"), nil},
 		tmplMapping{"pkg/info.go.tmpl", filepath.Join("pkg", "info", "info.go"), nil},
-		tmplMapping{"gomod.tmpl", "go.mod", nil},
 	)
 	if data.HasGatewayServiceAccounts {
 		mappings = append(mappings,

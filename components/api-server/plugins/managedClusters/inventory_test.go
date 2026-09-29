@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 )
 
 func TestBuildClusterInventorySnapshot(t *testing.T) {

@@ -22,7 +22,6 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		Name:              d.Name,
 		ClusterId:         d.ClusterId,
 		ReleaseId:         d.ReleaseId,
-		DatabaseId:        d.DatabaseId,
 		Namespace:         d.Namespace,
 		ExternalDns:       d.ExternalDns,
 		TlsMode:           d.TlsMode,

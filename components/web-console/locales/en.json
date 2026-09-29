@@ -31,9 +31,17 @@
     "defaultMessage": "Add widgets",
     "description": "Label for the button that opens the widget drawer."
   },
+  "app.dashboard.apiReliability.last5Minutes": {
+    "defaultMessage": "(last 5 minutes)",
+    "description": "Lookback period shown with the current API reliability metric value."
+  },
   "app.dashboard.description": {
     "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     "description": "Supporting text on the operational dashboard page."
+  },
+  "app.dashboard.gatewayReleases.summaryAriaLabel": {
+    "defaultMessage": "Gateways by release",
+    "description": "Accessible label for the gateway releases stat panel in the dashboard."
   },
   "app.dashboard.gatewayStatus.ariaDesc": {
     "defaultMessage": "Gateway count by status",
@@ -107,14 +115,6 @@
     "defaultMessage": "Managed cluster regions chart",
     "description": "Accessible title for the managed cluster region donut chart."
   },
-  "app.dashboard.managedDatabaseStatus.ariaDesc": {
-    "defaultMessage": "Managed database count by status",
-    "description": "Accessible description for the managed database status donut chart."
-  },
-  "app.dashboard.managedDatabaseStatus.chartTitle": {
-    "defaultMessage": "Managed database status chart",
-    "description": "Accessible title for the managed database status donut chart."
-  },
   "app.dashboard.metric.value": {
     "defaultMessage": "{value} {label}",
     "description": "Formatted count for a dashboard metric card heading."
@@ -123,6 +123,10 @@
     "defaultMessage": "Metric could not be determined",
     "description": "Fallback when a dashboard metric value is non-finite or cannot be shown as a number."
   },
+  "app.dashboard.metricSource.gatewayReleaseDistribution": {
+    "defaultMessage": "Gateway releases",
+    "description": "Label for the gateway release distribution metric source in partial-load warnings."
+  },
   "app.dashboard.metricUnavailable.body": {
     "defaultMessage": "This information is not currently available.",
     "description": "Recovery guidance when an individual dashboard metric is missing."
@@ -130,6 +134,18 @@
   "app.dashboard.metricUnavailable.title": {
     "defaultMessage": "Metric unavailable",
     "description": "Heading shown when an individual dashboard metric is missing."
+  },
+  "app.dashboard.nav.ariaLabel": {
+    "defaultMessage": "Dashboard views",
+    "description": "Accessible name for the secondary navigation between operational and reliability dashboards."
+  },
+  "app.dashboard.nav.operational": {
+    "defaultMessage": "Operational",
+    "description": "Secondary navigation label for the operational dashboard route."
+  },
+  "app.dashboard.nav.reliability": {
+    "defaultMessage": "Reliability",
+    "description": "Secondary navigation label for the reliability dashboard route."
   },
   "app.dashboard.nodeStatus.ariaDesc": {
     "defaultMessage": "Node count by readiness",
@@ -191,6 +207,38 @@
     "defaultMessage": "Unused",
     "description": "Legend label for unused pod capacity slots."
   },
+  "app.dashboard.provisionReliability.ariaDesc": {
+    "defaultMessage": "Gateway provision success and failure counts",
+    "description": "Accessible description for the provision reliability donut chart."
+  },
+  "app.dashboard.provisionReliability.chartTitle": {
+    "defaultMessage": "Gateway provision reliability chart",
+    "description": "Accessible title for the provision reliability donut chart."
+  },
+  "app.dashboard.provisionReliability.failures": {
+    "defaultMessage": "Failures",
+    "description": "Legend label for failed gateway provisions."
+  },
+  "app.dashboard.provisionReliability.hourlySuccessRate": {
+    "defaultMessage": "Hourly success rate",
+    "description": "Title for the hourly provision success-rate sparkline in the provision reliability widget."
+  },
+  "app.dashboard.provisionReliability.last24Hours": {
+    "defaultMessage": "Last 24 hours",
+    "description": "Caption documenting the rolling 24-hour provision reliability lookback window."
+  },
+  "app.dashboard.provisionReliability.lifetimeSuccessCount": {
+    "defaultMessage": "Lifetime success count",
+    "description": "Caption when provision reliability success counts come from the lifetime duration histogram fallback."
+  },
+  "app.dashboard.provisionReliability.rate": {
+    "defaultMessage": "{rate}%",
+    "description": "Center title for the provision reliability donut showing the 24-hour success rate."
+  },
+  "app.dashboard.provisionReliability.successes": {
+    "defaultMessage": "Successes",
+    "description": "Legend label for successful gateway provisions."
+  },
   "app.dashboard.provisionTime.average": {
     "defaultMessage": "Average",
     "description": "Label for average gateway provision duration."
@@ -210,6 +258,10 @@
   "app.dashboard.provisionTime.statsAriaLabel": {
     "defaultMessage": "Gateway provision duration statistics",
     "description": "Accessible label for the provision time statistics description list."
+  },
+  "app.dashboard.reconciliationFailures.last24Hours": {
+    "defaultMessage": "(last 24 hours)",
+    "description": "Lookback period shown with the current reconciliation failure count."
   },
   "app.dashboard.refresh": {
     "defaultMessage": "Refresh dashboard metrics",
@@ -251,9 +303,101 @@
     "defaultMessage": "Unique logins per day",
     "description": "Title above the registered users login sparkline."
   },
+  "app.dashboard.reliability.description": {
+    "defaultMessage": "API request rate, 5xx error rate, and median latency with 24-hour hourly trends. Metrics refresh every 15 minutes.",
+    "description": "Supporting text on the reliability dashboard page."
+  },
+  "app.dashboard.reliability.loadError.body": {
+    "defaultMessage": "An unexpected error occurred while loading reliability metrics.",
+    "description": "Recovery guidance when reliability dashboard metrics cannot be loaded."
+  },
+  "app.dashboard.reliability.loadError.title": {
+    "defaultMessage": "Reliability dashboard metrics are unavailable",
+    "description": "Title shown when reliability dashboard metrics cannot be loaded."
+  },
+  "app.dashboard.reliability.loading": {
+    "defaultMessage": "Loading reliability dashboard metrics",
+    "description": "Accessible status shown while reliability dashboard metrics load."
+  },
+  "app.dashboard.reliability.summary.errorRate": {
+    "defaultMessage": "Error rate",
+    "description": "Summary row label for API 5xx error rate."
+  },
+  "app.dashboard.reliability.summary.latency": {
+    "defaultMessage": "Median latency",
+    "description": "Summary row label for API median latency."
+  },
+  "app.dashboard.reliability.summary.reconciliationFailures": {
+    "defaultMessage": "Reconciliation failures",
+    "description": "Summary row label for reconciliation failures."
+  },
+  "app.dashboard.reliability.summary.reconciliationLag": {
+    "defaultMessage": "Reconciliation lag",
+    "description": "Summary row label for reconciliation lag."
+  },
+  "app.dashboard.reliability.summary.reconciliationRetries": {
+    "defaultMessage": "Reconciliation retries",
+    "description": "Summary row label for reconciliation retries."
+  },
+  "app.dashboard.reliability.summary.requestRate": {
+    "defaultMessage": "Request rate",
+    "description": "Summary row label for API request rate."
+  },
+  "app.dashboard.reliability.summary.staleResourceStatus": {
+    "defaultMessage": "Stale resource status",
+    "description": "Summary row label for resources with stale observed status."
+  },
+  "app.dashboard.reliability.summaryAriaLabel": {
+    "defaultMessage": "API reliability summary",
+    "description": "Accessible label for the reliability summary widget."
+  },
+  "app.dashboard.reliability.title": {
+    "defaultMessage": "Reliability",
+    "description": "Main heading on the reliability dashboard page."
+  },
   "app.dashboard.resetToDefault": {
     "defaultMessage": "Reset to default",
     "description": "Label for restoring the operational dashboard default layout."
+  },
+  "app.dashboard.sandboxStatus.active": {
+    "defaultMessage": "Active",
+    "description": "Legend label for active sandboxes when no status breakdown exists."
+  },
+  "app.dashboard.sandboxStatus.activeSandboxesPerDay": {
+    "defaultMessage": "Active sandboxes per day",
+    "description": "Title above the daily active-sandboxes sparkline."
+  },
+  "app.dashboard.sandboxStatus.activeSandboxesPerHour": {
+    "defaultMessage": "Active sandboxes per hour",
+    "description": "Title above the hourly active-sandboxes sparkline."
+  },
+  "app.dashboard.sandboxStatus.ariaDesc": {
+    "defaultMessage": "Active sandboxes across the gateway fleet.",
+    "description": "Accessible description for the sandbox status donut chart."
+  },
+  "app.dashboard.sandboxStatus.attentionRequired": {
+    "defaultMessage": "Attention required",
+    "description": "Heading for the sandbox status attention labels (expiring, orphaned, idle)."
+  },
+  "app.dashboard.sandboxStatus.attentionUnavailable": {
+    "defaultMessage": "Attention counts unavailable",
+    "description": "Shown when Active loads but orphaned/expiring/idle attention fields are absent."
+  },
+  "app.dashboard.sandboxStatus.chartTitle": {
+    "defaultMessage": "Sandbox status",
+    "description": "Accessible title for the sandbox status donut chart."
+  },
+  "app.dashboard.sandboxStatus.expiringSoon": {
+    "defaultMessage": "{count} Expiring soon",
+    "description": "Attention label for sandboxes expiring within 24 hours."
+  },
+  "app.dashboard.sandboxStatus.idle": {
+    "defaultMessage": "{count} Idle",
+    "description": "Attention label for idle sandboxes with a live Gateway."
+  },
+  "app.dashboard.sandboxStatus.orphaned": {
+    "defaultMessage": "{count} Orphaned",
+    "description": "Attention label for sandboxes whose owning Gateway is gone."
   },
   "app.dashboard.sectionTitle.hubCluster": {
     "defaultMessage": "Hub cluster",
@@ -295,10 +439,6 @@
     "defaultMessage": "Clusters created (30 days)",
     "description": "Summary label for managed clusters created within the lookback window."
   },
-  "app.dashboard.summary.managedDatabases": {
-    "defaultMessage": "Databases",
-    "description": "Summary label for total managed databases."
-  },
   "app.dashboard.summary.memory": {
     "defaultMessage": "Memory",
     "description": "Summary label for memory utilization."
@@ -306,6 +446,14 @@
   "app.dashboard.summary.pods": {
     "defaultMessage": "Pods",
     "description": "Summary label for pod utilization."
+  },
+  "app.dashboard.summary.provisionSuccessRate24h": {
+    "defaultMessage": "Success rate (24h)",
+    "description": "Summary label for the rolling 24-hour gateway provision success rate."
+  },
+  "app.dashboard.summary.provisionSuccessRateLifetime": {
+    "defaultMessage": "Success rate (lifetime)",
+    "description": "Summary label when provision reliability uses the lifetime duration histogram fallback."
   },
   "app.dashboard.summary.provisionTime": {
     "defaultMessage": "Provision time (average)",
@@ -352,8 +500,16 @@
     "description": "Accessible label for the usage metrics list in the summary widget."
   },
   "app.dashboard.title": {
-    "defaultMessage": "HyperShell operational dashboard",
+    "defaultMessage": "Operational",
     "description": "Main heading on the operational dashboard page."
+  },
+  "app.dashboard.trend.last24Hours": {
+    "defaultMessage": "Last 24 hours",
+    "description": "Caption below a twenty-four-hour trend sparkline on the operational dashboard."
+  },
+  "app.dashboard.trend.last7Days": {
+    "defaultMessage": "Last 7 days",
+    "description": "Caption below a seven-day trend sparkline on the operational dashboard."
   },
   "app.dashboard.trend.lastDays": {
     "defaultMessage": "Last {days} days",
@@ -387,13 +543,29 @@
     "defaultMessage": "{percent}% capacity{separator}{value} of {total} {unit}",
     "description": "Tooltip for utilization status in the system summary widget."
   },
+  "app.dashboard.widget.apiErrorRate": {
+    "defaultMessage": "API error rate",
+    "description": "Title for the API 5xx error rate reliability widget."
+  },
+  "app.dashboard.widget.apiLatency": {
+    "defaultMessage": "API latency",
+    "description": "Title for the API median latency reliability widget."
+  },
+  "app.dashboard.widget.apiRequestRate": {
+    "defaultMessage": "API request rate",
+    "description": "Title for the API request rate reliability widget."
+  },
   "app.dashboard.widget.cpu": {
     "defaultMessage": "CPU",
     "description": "Title for the CPU utilization dashboard widget."
   },
+  "app.dashboard.widget.gatewayReleases": {
+    "defaultMessage": "Gateway releases",
+    "description": "Title for the gateway releases dashboard widget."
+  },
   "app.dashboard.widget.gatewayStatus": {
-    "defaultMessage": "Gateway status",
-    "description": "Title for the gateway status dashboard widget."
+    "defaultMessage": "Gateways",
+    "description": "Title for the gateways dashboard widget."
   },
   "app.dashboard.widget.inventorySummary": {
     "defaultMessage": "Inventory summary",
@@ -407,10 +579,6 @@
     "defaultMessage": "Cluster regions",
     "description": "Title for the managed cluster region breakdown dashboard widget."
   },
-  "app.dashboard.widget.managedDatabaseStatus": {
-    "defaultMessage": "Database status",
-    "description": "Title for the managed database status dashboard widget."
-  },
   "app.dashboard.widget.memory": {
     "defaultMessage": "Memory",
     "description": "Title for the memory utilization dashboard widget."
@@ -423,6 +591,10 @@
     "defaultMessage": "Pods",
     "description": "Title for the pods utilization dashboard widget."
   },
+  "app.dashboard.widget.provisionReliability": {
+    "defaultMessage": "Gateway provision reliability",
+    "description": "Title for the gateway provision reliability dashboard widget."
+  },
   "app.dashboard.widget.provisionTime": {
     "defaultMessage": "Gateway provision time",
     "description": "Title for the gateway provision time dashboard widget."
@@ -431,13 +603,37 @@
     "defaultMessage": "Provisioned gateways",
     "description": "Title for the provisioned gateways dashboard widget."
   },
+  "app.dashboard.widget.reconciliationFailures": {
+    "defaultMessage": "Reconciliation failures",
+    "description": "Title for the reconciliation failures dashboard widget."
+  },
+  "app.dashboard.widget.reconciliationLag": {
+    "defaultMessage": "Reconciliation lag",
+    "description": "Title for the reconciliation lag dashboard widget."
+  },
+  "app.dashboard.widget.reconciliationRetries": {
+    "defaultMessage": "Reconciliation retries",
+    "description": "Title for the reconciliation retries dashboard widget."
+  },
   "app.dashboard.widget.registeredUsers": {
     "defaultMessage": "Users",
     "description": "Title for the registered users dashboard widget."
   },
+  "app.dashboard.widget.reliabilitySummary": {
+    "defaultMessage": "Reliability summary",
+    "description": "Title for the reliability summary dashboard widget."
+  },
+  "app.dashboard.widget.sandboxStatus": {
+    "defaultMessage": "Sandbox status",
+    "description": "Title for the sandbox status dashboard widget."
+  },
   "app.dashboard.widget.sectionTitle": {
     "defaultMessage": "Section title",
     "description": "Default label for a section title widget in the add-widgets drawer."
+  },
+  "app.dashboard.widget.staleResourceStatus": {
+    "defaultMessage": "Stale resource status",
+    "description": "Title for the stale resource status dashboard widget."
   },
   "app.dashboard.widget.summary": {
     "defaultMessage": "Summary",
@@ -487,16 +683,8 @@
     "defaultMessage": "Clear cluster search",
     "description": "Accessible label for clearing the cluster typeahead input."
   },
-  "app.gateway.cluster.hub": {
-    "defaultMessage": "Hub cluster",
-    "description": "Placement label for the cluster hosting HyperShell."
-  },
-  "app.gateway.cluster.hubDefault": {
-    "defaultMessage": "Hub cluster (default)",
-    "description": "Default placement option for a gateway provisioning form."
-  },
   "app.gateway.cluster.loadError.body": {
-    "defaultMessage": "You can provision on Hub cluster (default), or try loading managed clusters again.",
+    "defaultMessage": "A registered cluster is required to provision a gateway. Try loading managed clusters again.",
     "description": "Recovery guidance when remote gateway placements cannot be loaded."
   },
   "app.gateway.cluster.loadError.title": {
@@ -530,6 +718,10 @@
   "app.gateway.cluster.region": {
     "defaultMessage": "Region: {region}",
     "description": "Region context that distinguishes a managed cluster option."
+  },
+  "app.gateway.cluster.registeredOnly": {
+    "defaultMessage": "Only clusters with a connected control plane can host a gateway.",
+    "description": "Helper text under the cluster selector explaining which clusters are offered."
   },
   "app.gateway.cluster.select": {
     "defaultMessage": "Select a cluster",
@@ -722,10 +914,6 @@
   "app.gateway.manageServiceAccounts": {
     "defaultMessage": "Manage service accounts",
     "description": "Link text that navigates to the service accounts tab from the connection tab."
-  },
-  "app.gateway.managedDatabaseId": {
-    "defaultMessage": "Managed database ID",
-    "description": "Label for a gateway's managed database identifier."
   },
   "app.gateway.name": {
     "defaultMessage": "Gateway name",
@@ -1219,6 +1407,10 @@
     "defaultMessage": "Operational dashboard",
     "description": "Page and navigation label for the HyperShell dashboard."
   },
+  "app.nav.dashboardReliability": {
+    "defaultMessage": "Reliability dashboard",
+    "description": "Page and navigation label for the HyperShell reliability dashboard."
+  },
   "app.nav.gateways": {
     "defaultMessage": "OpenShell Gateways",
     "description": "Page and resource collection label for OpenShell gateways."
@@ -1250,6 +1442,10 @@
   "app.page.dashboard.description": {
     "defaultMessage": "Operational metrics dashboard for HyperShell adoption and provisioned resources.",
     "description": "Browser metadata description for the operational dashboard page."
+  },
+  "app.page.dashboardReliability.description": {
+    "defaultMessage": "API reliability metrics dashboard for HyperShell request rate, error rate, and latency.",
+    "description": "Browser metadata description for the reliability dashboard page."
   },
   "app.page.gateway.description": {
     "defaultMessage": "Connect to this gateway and review its configuration.",

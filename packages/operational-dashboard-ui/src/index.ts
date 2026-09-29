@@ -5,6 +5,7 @@ export {
 } from "./dashboard-ui-provider";
 export type {
   DashboardControlPlane,
+  DashboardFailedSourceId,
   DashboardInvocationContext,
   DashboardMetricSourceId,
   DashboardOperations,
@@ -22,6 +23,7 @@ export type {
   OperationalMetricStatus,
   OperationalMetricTrend,
   OperationalMetricTrendPoint,
+  ReliabilityMetricSourceId,
   SignupTrendPoint,
 } from "./application/dashboard-types";
 export { noopDashboardProbePublisher } from "./application/dashboard-probes";
@@ -32,10 +34,16 @@ export {
 export {
   operationalDashboardMetricsQueryKey,
   operationalDashboardRefreshMilliseconds,
+  reliabilityDashboardMetricsQueryKey,
+  reliabilityDashboardRefreshMilliseconds,
 } from "./dashboard/dashboard-data";
 export { ResourceRefreshButton } from "./shared/resource-refresh-button";
 export {
   OperationalDashboardPage,
   type OperationalDashboardPageProps,
 } from "./pages/operational-dashboard-page";
+export {
+  ReliabilityDashboardPage,
+  type ReliabilityDashboardPageProps,
+} from "./pages/reliability-dashboard-page";
 export { messages as dashboardMessages } from "./messages";

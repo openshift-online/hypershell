@@ -14,6 +14,17 @@
 # driver in scripts/cluster/drivers/openshift.sh so status and cleanup tooling
 # stay one selector set). ---
 PR_ENV_NS_PREFIX="hypershell-ci-pr-"
+# Push-to-main environments are per-commit so a cancelled older run's
+# teardown cannot delete a newer deploy's namespace. The 7-char short SHA
+# keeps the platform name within 54 characters (full SHA would make
+# -keycloak exceed 63).
+PR_ENV_MAIN_NS_PREFIX="hypershell-ci-main-"
+PR_ENV_MAIN_SHA_LEN=7
+# Merge queue entries are per-commit for the same reason: a cancelled older
+# entry's teardown must not delete a different entry's namespace, and two
+# entries can be validated concurrently (unlike push to main, which is
+# effectively serial).
+PR_ENV_MERGE_QUEUE_NS_PREFIX="hypershell-ci-mq-"
 PR_ENV_OWNED_LABEL="hypershell.redhat.io/owned"
 PR_ENV_ENVIRONMENT_LABEL="hypershell.redhat.io/environment"
 PR_ENV_MANAGED_LABEL="app.kubernetes.io/managed-by"
@@ -21,7 +32,11 @@ PR_ENV_MANAGED_VALUE="hypershell-lifecycle"
 PR_ENV_PART_OF_LABEL="app.kubernetes.io/part-of"
 PR_ENV_PART_OF_VALUE="hypershell"
 PR_ENV_EXPIRES_ANNOTATION="hypershell.redhat.io/expires-at"
-# Control-plane stamps on gateway and ManagedDatabase namespaces. Must match
+# Selects CI-owned Keycloak namespaces for ESO ClusterExternalSecret
+# projection of standing CI secrets (ephemeral-ci-secrets.spec.md).
+PR_ENV_CI_KEYCLOAK_LABEL="hypershell.redhat.io/ci-keycloak"
+PR_ENV_CI_KEYCLOAK_VALUE="true"
+# Control-plane stamps on gateway namespaces. Must match
 # components/control-plane/internal/gateway/namespace.go. Distinct from
 # PR_ENV_MANAGED_VALUE, which marks the platform/keycloak namespace group.
 PR_ENV_CP_MANAGED_LABEL="hypershell.redhat.io/managed"
@@ -53,6 +68,37 @@ PR_ENV_COMMENT_MARKER='<!-- hypershell-pr-environment -->'
 # pr_env_namespace <pr-number> -> the platform namespace name.
 pr_env_namespace() {
   printf '%s%s' "${PR_ENV_NS_PREFIX}" "$1"
+}
+
+# pr_env_short_sha <commit-sha> -> the lowercase 7-char prefix shared by the
+# main and merge-queue namespace schemes. Long enough that two in-flight
+# runs never collide, short enough that -keycloak stays an RFC 1123 name
+# under 63 characters.
+pr_env_short_sha() {
+  local sha
+  sha="$(printf '%s' "${1:?commit SHA is required}" | tr '[:upper:]' '[:lower:]')"
+  if [[ ${#sha} -lt "${PR_ENV_MAIN_SHA_LEN}" ]]; then
+    echo "commit SHA is shorter than ${PR_ENV_MAIN_SHA_LEN} characters" >&2
+    return 1
+  fi
+  printf '%s' "${sha:0:${PR_ENV_MAIN_SHA_LEN}}"
+}
+
+# pr_env_main_namespace <commit-sha> -> the push-to-main platform namespace.
+pr_env_main_namespace() {
+  local short_sha
+  short_sha="$(pr_env_short_sha "$1")" || return 1
+  printf '%s%s' "${PR_ENV_MAIN_NS_PREFIX}" "${short_sha}"
+}
+
+# pr_env_merge_queue_namespace <commit-sha> -> the merge-queue-entry platform
+# namespace. Distinct prefix from pr_env_main_namespace so a merge-queue
+# environment never shares a namespace (or a concurrency group) with a push
+# to main, even if GitHub ever produced the same commit SHA for both.
+pr_env_merge_queue_namespace() {
+  local short_sha
+  short_sha="$(pr_env_short_sha "$1")" || return 1
+  printf '%s%s' "${PR_ENV_MERGE_QUEUE_NS_PREFIX}" "${short_sha}"
 }
 
 # pr_env_keycloak_namespace <platform-namespace> -> the companion Keycloak
@@ -119,13 +165,27 @@ pr_env_expires_at_hours() {
   pr_env_expires_at_seconds $(( ${1} * 3600 )) "${2:-}"
 }
 
+# pr_env_inactivity_expires_at <retained> [now-epoch] -> RFC 3339 UTC expiry
+# for the dual timebox. retained=true uses PR_ENV_RETAINED_MAX_HOURS,
+# otherwise PR_ENV_UNRETAINED_MAX_HOURS. now-epoch is injectable for tests.
+pr_env_inactivity_expires_at() {
+  local retained="${1:-false}"
+  if [[ "${retained}" == "true" ]]; then
+    pr_env_expires_at_hours "${PR_ENV_RETAINED_MAX_HOURS}" "${2:-}"
+  else
+    pr_env_expires_at_hours "${PR_ENV_UNRETAINED_MAX_HOURS}" "${2:-}"
+  fi
+}
+
 # pr_env_command_from_body <body> -> "extend", "destroy", or empty.
 # A command matches when the body is, or begins with, /pr-extend or /pr-destroy
-# (optional leading whitespace). /pr-extended does not match /pr-extend.
+# (optional leading whitespace, including blank lines). GitHub's web UI stores
+# comments with CRLF; strip CR so `/pr-extend\r` does not fail the match.
+# /pr-extended does not match /pr-extend.
 pr_env_command_from_body() {
   local body="${1:-}"
   local first
-  first="$(printf '%s' "${body}" | awk '{print $1; exit}')"
+  first="$(printf '%s' "${body}" | tr -d '\r' | awk 'NF { print $1; exit }')"
   case "${first}" in
     "${PR_ENV_COMMAND_EXTEND}") printf 'extend' ;;
     "${PR_ENV_COMMAND_DESTROY}") printf 'destroy' ;;
@@ -237,13 +297,30 @@ pr_env_should_reap_instance_workload() {
   return 0
 }
 
+# pr_env_run_link
+#
+# Markdown link to the GitHub Actions run currently posting the comment, so a
+# developer watching /pr-extend (or a synchronize deploy) can jump straight to
+# its logs instead of hunting the Actions tab for an issue_comment-triggered
+# run, which never surfaces as a PR check. Reads the default GITHUB_SERVER_URL
+# / GITHUB_REPOSITORY / GITHUB_RUN_ID env vars every job gets for free; empty
+# outside a run (e.g. under test) so callers must tolerate a blank result.
+pr_env_run_link() {
+  if [[ -z "${GITHUB_RUN_ID:-}" || -z "${GITHUB_REPOSITORY:-}" ]]; then
+    return 0
+  fi
+  printf '[Track this deploy](%s/%s/actions/runs/%s)' \
+    "${GITHUB_SERVER_URL:-https://github.com}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+}
+
 # pr_env_comment_access_facts <body>
 #
 # Print the access-fact table and everything after it from an existing marked
 # comment, or return non-zero when the body has no table. Namespaces, console
-# URL, API Route URL, web-console Route URL, and the CLI login do not change
-# from reconcile to reconcile, so a later deploying edit keeps this block
-# instead of replacing the comment with the first-deploy placeholder.
+# URL, API Route URL, web-console Route URL, Keycloak hypershell-realm admin
+# console URL, and the CLI login do not change from reconcile to reconcile, so
+# a later deploying edit keeps this block instead of replacing the comment
+# with the first-deploy placeholder.
 pr_env_comment_access_facts() {
   local body="${1:-}"
   local prefix="${body%%"| Fact | Value |"*}"
@@ -256,11 +333,16 @@ pr_env_comment_access_facts() {
 # Lifetime paragraph for access comments. Unretained environments advertise
 # /pr-extend (keep if still up, redeploy if already destroyed) and state they
 # are destroyed once e2e testing concludes. Retained environments are renewed
-# on each commit and reclaimed after the inactivity timebox.
+# on each commit and reclaimed after the inactivity timebox; the paragraph
+# includes the UTC expiry so the comment matches the stamped
+# hypershell.redhat.io/expires-at. PR_ENV_EXPIRES_AT overrides the computed
+# timestamp so the deploying comment, the namespace stamp, and the ready
+# comment all show the same instant.
 pr_env_comment_lifetime() {
   if [[ "${1:-}" == "true" ]]; then
+    local expires_at="${PR_ENV_EXPIRES_AT:-$(pr_env_expires_at_hours "${PR_ENV_RETAINED_MAX_HOURS}")}"
     cat <<EOF
-This environment is retained and renewed on every commit. It is reclaimed after the inactivity timebox unless you comment \`/pr-destroy\` or the pull request is closed.
+This environment is retained and renewed on every commit. It is reclaimed after the inactivity timebox (\`${expires_at}\` UTC) unless you comment \`/pr-destroy\` or the pull request is closed.
 EOF
   else
     cat <<EOF
@@ -292,14 +374,18 @@ pr_env_comment_deploying_body() {
   local existing="${2:-}"
   local retained="${3:-false}"
   local short_sha="${head_sha:0:7}"
-  local lifetime facts=""
+  local lifetime run_line link facts=""
   lifetime="$(pr_env_comment_lifetime "${retained}")"
+  run_line=""
+  if link="$(pr_env_run_link)" && [[ -n "${link}" ]]; then
+    run_line=$'\n\n'"${link}"
+  fi
   if facts="$(pr_env_comment_access_facts "${existing}")"; then
     cat <<EOF
 ${PR_ENV_COMMENT_MARKER}
 ## HyperShell environment updating to commit \`${short_sha}\`
 
-Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The environment may not be fully responsive during the update. This comment will update in place once the environment is ready.
+Updating the ephemeral OpenShift environment to commit \`${short_sha}\`. The environment may not be fully responsive during the update. This comment will update in place once the environment is ready.${run_line}
 
 ${lifetime}
 
@@ -311,7 +397,7 @@ EOF
 ${PR_ENV_COMMENT_MARKER}
 ## HyperShell environment deploying
 
-Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This comment will update in place once the environment is ready.
+Deploying commit \`${short_sha}\` to an ephemeral OpenShift environment. This comment will update in place once the environment is ready.${run_line}
 
 ${lifetime}
 EOF
@@ -329,18 +415,27 @@ EOF
 # retrieval interactively. <updated> is "true" for the per-commit update
 # wording, "false" for the initial comment. <retained> is "true" when the
 # pull request carries pr-environment/pr-extended.
+# KEYCLOAK_URL (optional env) is the Keycloak Route origin; when set, the
+# table includes the hypershell-realm admin console (GitHub or seeded
+# username/password, then impersonation), not master-realm /admin/.
 pr_env_comment_body() {
   local pr_number="$1" head_sha="$2" platform_ns="$3" keycloak_ns="$4"
   local console_url="$5" api_url="$6" web_url="$7" cluster_api_url="$8" updated="$9"
   local retained="${10:-false}"
   local short_sha="${head_sha:0:7}"
-  local heading lifetime
+  local heading lifetime kc_url kc_admin_row
   if [[ "${updated}" == "true" ]]; then
     heading="HyperShell environment updated to commit \`${short_sha}\`"
   else
     heading="HyperShell environment ready"
   fi
   lifetime="$(pr_env_comment_lifetime "${retained}")"
+  kc_url="${KEYCLOAK_URL:-}"
+  kc_url="${kc_url%/}"
+  kc_admin_row=""
+  if [[ -n "${kc_url}" ]]; then
+    kc_admin_row="| Keycloak admin console | ${kc_url}/admin/hypershell/console/ |"
+  fi
   cat <<EOF
 ${PR_ENV_COMMENT_MARKER}
 ## ${heading}
@@ -355,8 +450,9 @@ ${lifetime}
 | OpenShift console | ${console_url} |
 | API | ${api_url} |
 | Web console | ${web_url} |
+${kc_admin_row}
 
-Log in through the web console with your GitHub account (you must be a member of the configured organization or on its allowlist).
+Log in through the web console with your GitHub account (you must be a member of the configured organization or on its allowlist) or with a seeded test-tier username and password. To test as \`developer\` or \`platform-admin\`, sign in as that user, or open the Keycloak admin console, sign in with GitHub, and impersonate that user.
 
 <details><summary>CLI access</summary>
 

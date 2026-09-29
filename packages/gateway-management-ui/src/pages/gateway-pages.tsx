@@ -83,9 +83,15 @@ export interface GatewaysPageProps {
 }
 
 function isGatewaySortField(value: string): value is GatewaySortField {
-  return ["cluster", "created", "endpoint", "name", "owner", "status"].includes(
-    value,
-  );
+  return [
+    "activeSandboxes",
+    "cluster",
+    "created",
+    "endpoint",
+    "name",
+    "owner",
+    "status",
+  ].includes(value);
 }
 
 function GatewayDetailLink({ gateway }: { gateway: GatewayConnection }) {
@@ -117,17 +123,13 @@ function GatewayCreatedDate({ createdAt }: { createdAt?: string }) {
 function GatewayDetailClusterName({ gateway }: { gateway: GatewayConnection }) {
   const intl = useIntl();
   const { gateways } = useGatewayUi();
-  const clusterId = gateway.clusterId ?? "";
+  const clusterId = gateway.clusterId;
   const placementQuery = useQuery({
-    enabled: clusterId.length > 0,
     queryFn: ({ signal }) => gateways.getGatewayPlacement(clusterId, signal),
     queryKey: gatewayPlacementDetailQueryKey(clusterId),
     staleTime: gatewayPlacementStaleMilliseconds,
   });
 
-  if (!clusterId) {
-    return gateway.clusterName;
-  }
   if (placementQuery.isPending) {
     return (
       <span role="status">
@@ -162,9 +164,9 @@ function GatewayCollectionClusterName({
   placementNames: ReadonlyMap<string, string>;
 }) {
   const intl = useIntl();
-  const clusterId = gateway.clusterId ?? "";
+  const clusterId = gateway.clusterId;
 
-  if (!clusterId || gateway.clusterName.trim()) {
+  if (gateway.clusterName.trim()) {
     return gateway.clusterName;
   }
   if (isLoading) {
@@ -279,9 +281,7 @@ export function GatewaysPage({
       );
       return {
         ...result,
-        items: result.items.map((gateway) =>
-          toGatewayConnection(gateway, intl.formatMessage(messages.hubCluster)),
-        ),
+        items: result.items.map((gateway) => toGatewayConnection(gateway)),
         // Map before reducing: trackConsoleWait records each gateway's
         // console-wait start as a side effect, so every returned gateway must be
         // observed. some() short-circuits, which would leave later gateways
@@ -312,11 +312,8 @@ export function GatewaysPage({
   const placementClusterIds = [
     ...new Set(
       (visiblePage?.items ?? [])
-        .filter(
-          (gateway) =>
-            Boolean(gateway.clusterId) && !gateway.clusterName.trim(),
-        )
-        .map((gateway) => gateway.clusterId ?? ""),
+        .filter((gateway) => !gateway.clusterName.trim())
+        .map((gateway) => gateway.clusterId),
     ),
   ].sort();
   const placementsQuery = useQuery({
@@ -364,8 +361,8 @@ export function GatewaysPage({
       width: 20,
     },
     {
-      // active_sandbox_count is control-plane-owned and advisory; the API does
-      // not sort on it, so this column is not sortable. An unset value renders
+      // The API orders this column directly; an unset (never observed)
+      // count follows the database null-ordering convention and renders
       // the localized not-available fallback rather than a misleading zero.
       id: "activeSandboxes",
       label: intl.formatMessage(messages.activeSandboxes),
@@ -373,7 +370,6 @@ export function GatewaysPage({
         typeof activeSandboxCount === "number"
           ? String(activeSandboxCount)
           : intl.formatMessage(messages.notAvailable),
-      sortable: false,
       width: 10,
     },
     {
@@ -616,10 +612,7 @@ export function GatewayPage({
     return <GatewayLoadState isError />;
   }
 
-  const connection = toGatewayConnection(
-    visibleGateway,
-    intl.formatMessage(messages.hubCluster),
-  );
+  const connection = toGatewayConnection(visibleGateway);
   // Anchor the console-ready deadline the detail header shows to when the UI
   // first observed this gateway awaiting its console, matching the polling clock
   // above rather than the gateway's createdAt.
@@ -773,14 +766,6 @@ export function GatewayPage({
                 </DescriptionListTerm>
                 <DescriptionListDescription>
                   {visibleGateway.releaseId}
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>
-                  <FormattedMessage {...messages.managedDatabaseId} />
-                </DescriptionListTerm>
-                <DescriptionListDescription>
-                  {visibleGateway.databaseId}
                 </DescriptionListDescription>
               </DescriptionListGroup>
             </DescriptionList>

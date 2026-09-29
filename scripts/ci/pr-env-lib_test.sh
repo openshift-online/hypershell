@@ -40,15 +40,40 @@ assert_not_reapable() {
   fi
 }
 
+# GITHUB_RUN_ID / GITHUB_REPOSITORY / GITHUB_SERVER_URL are already present in
+# the environment when this suite runs as a CI step itself; unset them so
+# pr_env_run_link's no-run-context behavior is deterministic here, and opt
+# individual assertions back in with a scoped assignment.
+unset GITHUB_RUN_ID GITHUB_REPOSITORY GITHUB_SERVER_URL KEYCLOAK_URL
+
 # --- Namespace + identity derivation ---
-assert_eq 'hypershell-ci-pr-232' "$(pr_env_namespace 232)" 'platform namespace from PR number'
+assert_eq 'hypershell.redhat.io/ci-keycloak' "${PR_ENV_CI_KEYCLOAK_LABEL}" 'CI Keycloak ESO selector label'
+assert_eq 'true' "${PR_ENV_CI_KEYCLOAK_VALUE}" 'CI Keycloak ESO selector value'
 assert_eq 'hypershell-ci-pr-232-keycloak' "$(pr_env_keycloak_namespace "$(pr_env_namespace 232)")" 'keycloak namespace derivation'
 assert_eq 'pr-232' "$(pr_env_environment_id 232)" 'environment id from PR number'
+assert_eq 'hypershell-ci-main-abcdef1' "$(pr_env_main_namespace 'abcdef1234567890')" 'main namespace from short SHA'
+assert_eq 'hypershell-ci-main-abcdef1' "$(pr_env_main_namespace 'ABCDEF1234567890')" 'main namespace lowercases SHA'
+assert_eq 'hypershell-ci-mq-abcdef1' "$(pr_env_merge_queue_namespace 'abcdef1234567890')" 'merge-queue namespace from short SHA'
+assert_eq 'hypershell-ci-mq-abcdef1' "$(pr_env_merge_queue_namespace 'ABCDEF1234567890')" 'merge-queue namespace lowercases SHA'
+assert_eq 'true' "$([[ "$(pr_env_main_namespace 'abcdef1234567890')" != "$(pr_env_merge_queue_namespace 'abcdef1234567890')" ]] && echo true || echo false)" 'main and merge-queue namespaces never collide for the same SHA'
 
 # The platform namespace must remain an RFC 1123 label within 54 chars so the
 # derived -keycloak name stays under 63. Even a large PR number fits easily.
 big_ns="$(pr_env_namespace 999999)"
 assert_eq 'true' "$([[ ${#big_ns} -le 54 ]] && echo true || echo false)" 'platform namespace within 54 chars'
+main_ns="$(pr_env_main_namespace '0123456789abcdef')"
+assert_eq 'true' "$([[ ${#main_ns} -le 54 ]] && echo true || echo false)" 'main namespace within 54 chars'
+main_kc="$(pr_env_keycloak_namespace "${main_ns}")"
+assert_eq 'true' "$([[ ${#main_kc} -le 63 ]] && echo true || echo false)" 'main keycloak namespace within 63 chars'
+mq_ns="$(pr_env_merge_queue_namespace '0123456789abcdef')"
+assert_eq 'true' "$([[ ${#mq_ns} -le 54 ]] && echo true || echo false)" 'merge-queue namespace within 54 chars'
+mq_kc="$(pr_env_keycloak_namespace "${mq_ns}")"
+assert_eq 'true' "$([[ ${#mq_kc} -le 63 ]] && echo true || echo false)" 'merge-queue keycloak namespace within 63 chars'
+
+# Full SHA in the namespace would push -keycloak over 63 (19+40+9=68).
+full_sha_ns="hypershell-ci-main-0123456789abcdef0123456789abcdef01234567"
+full_sha_kc="$(pr_env_keycloak_namespace "${full_sha_ns}")"
+assert_eq 'true' "$([[ ${#full_sha_kc} -gt 63 ]] && echo true || echo false)" 'full SHA main keycloak would exceed 63 chars'
 
 # --- Timebox round-trip (injected clock for determinism) ---
 base=1000000000  # 2001-09-09T01:46:40Z
@@ -59,6 +84,8 @@ assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 72 * 3600)))" "$(pr_env_expires_a
 # 24-hour unretained max is exactly 24*3600 seconds ahead.
 assert_eq '24' "${PR_ENV_UNRETAINED_MAX_HOURS}" 'unretained default hours'
 assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 24 * 3600)))" "$(pr_env_expires_at_hours 24 "${base}")" 'expires_at_hours unretained default'
+assert_eq "$(pr_env_expires_at_hours 72 "${base}")" "$(pr_env_inactivity_expires_at true "${base}")" 'retained inactivity expiry uses 72h'
+assert_eq "$(pr_env_expires_at_hours 24 "${base}")" "$(pr_env_inactivity_expires_at false "${base}")" 'unretained inactivity expiry uses 24h'
 
 # --- Reaper predicate ---
 now=2000000000
@@ -162,6 +189,29 @@ case "${deploying_body}" in
   *'already been destroyed'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing redeploy-if-destroyed wording' ;;
 esac
+case "${deploying_body}" in
+  *'Track this deploy'*) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment has a run link outside a run' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+
+# --- Run link (Track this deploy), so /pr-extend and synchronize deploys are
+# traceable to the issue_comment / pull_request run posting the comment ---
+assert_eq '' "$(pr_env_run_link)" 'no run link outside a GitHub Actions run'
+assert_eq '' "$(GITHUB_RUN_ID=42 pr_env_run_link)" 'no run link without GITHUB_REPOSITORY'
+assert_eq '' "$(GITHUB_REPOSITORY=openshift-online/hypershell pr_env_run_link)" 'no run link without GITHUB_RUN_ID'
+assert_eq '[Track this deploy](https://github.com/openshift-online/hypershell/actions/runs/42)' \
+  "$(GITHUB_RUN_ID=42 GITHUB_REPOSITORY=openshift-online/hypershell pr_env_run_link)" \
+  'run link defaults to github.com when GITHUB_SERVER_URL is unset'
+assert_eq '[Track this deploy](https://ghe.example.com/openshift-online/hypershell/actions/runs/42)' \
+  "$(GITHUB_RUN_ID=42 GITHUB_REPOSITORY=openshift-online/hypershell GITHUB_SERVER_URL=https://ghe.example.com pr_env_run_link)" \
+  'run link honors a non-default GITHUB_SERVER_URL'
+
+deploying_with_link="$(GITHUB_RUN_ID=42 GITHUB_REPOSITORY=openshift-online/hypershell \
+  pr_env_comment_deploying_body abcdef1234567)"
+case "${deploying_with_link}" in
+  *'[Track this deploy](https://github.com/openshift-online/hypershell/actions/runs/42)'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: deploying comment missing run link when GITHUB_RUN_ID is set' ;;
+esac
 
 # A later reconcile must keep the existing table: those facts do not change
 # from run to run, and wiping them hides login details for the whole swap.
@@ -232,9 +282,13 @@ esac
 assert_eq 'extend' "$(pr_env_command_from_body '/pr-extend')" 'bare /pr-extend'
 assert_eq 'extend' "$(pr_env_command_from_body $'/pr-extend\nplease keep it')" '/pr-extend with trailing text'
 assert_eq 'extend' "$(pr_env_command_from_body '  /pr-extend  ')" '/pr-extend with surrounding whitespace'
+assert_eq 'extend' "$(pr_env_command_from_body $'/pr-extend\r\n\r\n')" 'GitHub web UI CRLF /pr-extend'
+assert_eq 'extend' "$(pr_env_command_from_body $'\r\n/pr-extend\r\n\r\n')" 'leading blank line then CRLF /pr-extend'
 assert_eq 'destroy' "$(pr_env_command_from_body '/pr-destroy')" 'bare /pr-destroy'
 assert_eq 'destroy' "$(pr_env_command_from_body '/pr-destroy now')" '/pr-destroy with trailing text'
+assert_eq 'destroy' "$(pr_env_command_from_body $'/pr-destroy\r\n')" 'GitHub web UI CRLF /pr-destroy'
 assert_eq '' "$(pr_env_command_from_body '/pr-extended')" '/pr-extended is not /pr-extend'
+assert_eq '' "$(pr_env_command_from_body $'/pr-extended\r\n')" 'CRLF /pr-extended is not /pr-extend'
 assert_eq '' "$(pr_env_command_from_body '/pr-destroyed')" '/pr-destroyed is not /pr-destroy'
 assert_eq '' "$(pr_env_command_from_body 'please /pr-extend')" 'command must begin the body'
 assert_eq '' "$(pr_env_command_from_body '')" 'empty body is not a command'
@@ -251,6 +305,10 @@ assert_eq 'extend' "$(printf '%s\n' \
   $'2026-09-16T11:00:00Z\talice\twrite\t/pr-destroy' \
   $'2026-09-16T12:00:00Z\talice\twrite\t/pr-extend' \
   | pr_env_select_latest_command)" 'latest of extend/destroy/extend is extend'
+
+assert_eq 'extend' "$(printf '%s\n' \
+  $'2026-09-16T12:00:00Z\talice\twrite\t/pr-extend\r' \
+  | pr_env_select_latest_command)" 'CRLF extend in command history still counts'
 
 assert_eq 'destroy' "$(printf '%s\n' \
   $'2026-09-16T12:00:00Z\talice\twrite\t/pr-destroy' \
@@ -294,10 +352,37 @@ case "${body}" in
   *'abcdef1'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing short SHA' ;;
 esac
-# The CLI template must use --web against the cluster API, never the app Route.
 case "${body}" in
-  *'oc login --server=https://api.cluster.example.com:6443 --web'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body oc login missing cluster API --web' ;;
+  *'Log in through the web console with your GitHub account'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing GitHub web-console login' ;;
+esac
+case "${body}" in
+  *'seeded test-tier username and password'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing username/password login' ;;
+esac
+case "${body}" in
+  *'impersonate that user'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing Keycloak impersonation guidance' ;;
+esac
+case "${body}" in
+  *'| Keycloak admin console |'*) FAIL=$((FAIL + 1)); echo 'FAIL: comment body included Keycloak admin console without KEYCLOAK_URL' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+kc_body="$(KEYCLOAK_URL=https://keycloak.pr-232.example.com/ pr_env_comment_body 232 abcdef1234567 hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak \
+  https://console.example.com https://api.pr-232.example.com https://web.pr-232.example.com \
+  https://api.cluster.example.com:6443 false)"
+case "${kc_body}" in
+  *'| Keycloak admin console | https://keycloak.pr-232.example.com/admin/hypershell/console/ |'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: comment body missing hypershell-realm Keycloak admin console URL' ;;
+esac
+case "${kc_body}" in
+  *'/admin/'*'/admin/'*) FAIL=$((FAIL + 1)); echo 'FAIL: comment body linked master-realm /admin/ instead of hypershell console' ;;
+  *) PASS=$((PASS + 1)) ;;
+esac
+kc_updating="$(pr_env_comment_deploying_body fffffff111111 "${kc_body}")"
+case "${kc_updating}" in
+  *'| Keycloak admin console | https://keycloak.pr-232.example.com/admin/hypershell/console/ |'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: updating comment dropped Keycloak admin console URL' ;;
 esac
 case "${body}" in
   *'oc login --server=https://api.pr-232.example.com'*) FAIL=$((FAIL + 1)); echo 'FAIL: oc login used app API Route' ;;
@@ -329,23 +414,27 @@ case "${body}" in
   *'refreshed on every new commit'*) FAIL=$((FAIL + 1)); echo 'FAIL: unretained comment implied persistence' ;;
   *) PASS=$((PASS + 1)) ;;
 esac
-retained_body="$(pr_env_comment_body 232 abcdef1234567 ns ns-keycloak c a w https://api.cluster.example.com false true)"
+retained_body="$(PR_ENV_EXPIRES_AT=2026-09-20T17:15:00Z pr_env_comment_body 232 abcdef1234567 ns ns-keycloak c a w https://api.cluster.example.com false true)"
 case "${retained_body}" in
   *'retained and renewed on every commit'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment missing retained wording' ;;
 esac
 case "${retained_body}" in
-  *'inactivity timebox'*) PASS=$((PASS + 1)) ;;
-  *) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment missing inactivity timebox' ;;
+  *'inactivity timebox'*'2026-09-20T17:15:00Z'*' UTC'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment missing UTC inactivity expiry' ;;
 esac
 case "${retained_body}" in
   *'destroyed once e2e testing concludes'*) FAIL=$((FAIL + 1)); echo 'FAIL: retained comment said env is about to be destroyed' ;;
   *) PASS=$((PASS + 1)) ;;
 esac
-retained_deploying="$(pr_env_comment_deploying_body abcdef1234567 '' true)"
+retained_deploying="$(PR_ENV_EXPIRES_AT=2026-09-20T17:15:00Z pr_env_comment_deploying_body abcdef1234567 '' true)"
 case "${retained_deploying}" in
   *'retained and renewed on every commit'*) PASS=$((PASS + 1)) ;;
   *) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment missing retained wording' ;;
+esac
+case "${retained_deploying}" in
+  *'2026-09-20T17:15:00Z'*' UTC'*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment missing UTC inactivity expiry' ;;
 esac
 case "${retained_deploying}" in
   *'destroyed once e2e testing concludes'*) FAIL=$((FAIL + 1)); echo 'FAIL: retained deploying comment said env is about to be destroyed' ;;
@@ -388,11 +477,38 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: unretained teardown does not update the access comment after destroy'
 fi
+if grep -q 'No PR_NUMBER' "${SCRIPT_DIR}/teardown-unretained-pr-env.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: unretained teardown does not handle push-to-main (empty PR_NUMBER)'
+fi
 if grep -q 'PR_ENV_PHASE=destroyed' "${SCRIPT_DIR}/../../.github/workflows/pr-environment-commands.yml"; then
   PASS=$((PASS + 1))
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: /pr-destroy does not update the access comment after destroy'
+fi
+if grep -q "contains(github.event.comment.body, '/pr-extend')" \
+  "${SCRIPT_DIR}/../../.github/workflows/pr-environment-commands.yml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: command workflow if does not match /pr-extend inside a CRLF body'
+fi
+if grep -q 'PR_ENV_EXPIRES_AT: ${{ steps.timebox.outputs.expires_at }}' \
+  "${SCRIPT_DIR}/../../.github/actions/deploy-pr-environment/action.yml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: deploying comment / stamp do not receive the precomputed UTC expiry'
+fi
+if grep -q 'PR_ENV_EXPIRES_AT: ${{ steps.stamp.outputs.expires_at }}' \
+  "${SCRIPT_DIR}/../../.github/actions/deploy-pr-environment/action.yml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: ready comment does not receive the stamped UTC expiry'
 fi
 
 assert_eq 'true' "$(printf '%s' '[{"name":"pr-environment/pr-extended"}]' \
@@ -401,6 +517,21 @@ assert_eq 'false' "$(printf '%s' '[]' \
   | pr_env_label_list_has 'pr-environment/pr-extended')" 'empty label list is not retained'
 assert_eq 'false' "$(printf '%s' '[{"name":"other"}]' \
   | pr_env_label_list_has 'pr-environment/pr-extended')" 'unrelated labels are not retained'
+
+resolve_env="$(mktemp)"
+PR_NUMBER=232 GITHUB_ENV="${resolve_env}" bash "${SCRIPT_DIR}/resolve-openshift-namespace.sh" >/dev/null
+assert_eq 'OPENSHIFT_NAMESPACE=hypershell-ci-pr-232' "$(cat "${resolve_env}")" 'resolve script writes PR namespace'
+rm -f "${resolve_env}"
+resolve_env="$(mktemp)"
+PR_NUMBER= GITHUB_EVENT_NAME=push GITHUB_SHA='abcdef1234567890deadbeef' GITHUB_ENV="${resolve_env}" \
+  bash "${SCRIPT_DIR}/resolve-openshift-namespace.sh" >/dev/null
+assert_eq 'OPENSHIFT_NAMESPACE=hypershell-ci-main-abcdef1' "$(cat "${resolve_env}")" 'resolve script writes per-commit main namespace'
+rm -f "${resolve_env}"
+resolve_env="$(mktemp)"
+PR_NUMBER= GITHUB_EVENT_NAME=merge_group GITHUB_SHA='abcdef1234567890deadbeef' GITHUB_ENV="${resolve_env}" \
+  bash "${SCRIPT_DIR}/resolve-openshift-namespace.sh" >/dev/null
+assert_eq 'OPENSHIFT_NAMESPACE=hypershell-ci-mq-abcdef1' "$(cat "${resolve_env}")" 'resolve script writes per-commit merge-queue namespace'
+rm -f "${resolve_env}"
 
 printf 'pr-env-lib tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

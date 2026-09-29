@@ -142,7 +142,6 @@ type Gateway struct {
 	Name                   string                   `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	ClusterId              string                   `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	ReleaseId              string                   `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
-	DatabaseId             string                   `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty"`
 	Namespace              string                   `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	ExternalDns            *string                  `protobuf:"bytes,8,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
 	TlsMode                *string                  `protobuf:"bytes,9,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
@@ -223,13 +222,6 @@ func (x *Gateway) GetClusterId() string {
 func (x *Gateway) GetReleaseId() string {
 	if x != nil {
 		return x.ReleaseId
-	}
-	return ""
-}
-
-func (x *Gateway) GetDatabaseId() string {
-	if x != nil {
-		return x.DatabaseId
 	}
 	return ""
 }
@@ -365,7 +357,6 @@ type CreateGatewayRequest struct {
 	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	ClusterId        string                 `protobuf:"bytes,3,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	ReleaseId        string                 `protobuf:"bytes,4,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
-	DatabaseId       string                 `protobuf:"bytes,5,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty"`
 	ExternalDns      *string                `protobuf:"bytes,6,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
 	TlsMode          *string                `protobuf:"bytes,7,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
 	ServiceType      *string                `protobuf:"bytes,8,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
@@ -428,13 +419,6 @@ func (x *CreateGatewayRequest) GetClusterId() string {
 func (x *CreateGatewayRequest) GetReleaseId() string {
 	if x != nil {
 		return x.ReleaseId
-	}
-	return ""
-}
-
-func (x *CreateGatewayRequest) GetDatabaseId() string {
-	if x != nil {
-		return x.DatabaseId
 	}
 	return ""
 }
@@ -654,7 +638,6 @@ type UpdateGatewayRequest struct {
 	Name             *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	ClusterId        *string                `protobuf:"bytes,4,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
 	ReleaseId        *string                `protobuf:"bytes,5,opt,name=release_id,json=releaseId,proto3,oneof" json:"release_id,omitempty"`
-	DatabaseId       *string                `protobuf:"bytes,6,opt,name=database_id,json=databaseId,proto3,oneof" json:"database_id,omitempty"`
 	ExternalDns      *string                `protobuf:"bytes,7,opt,name=external_dns,json=externalDns,proto3,oneof" json:"external_dns,omitempty"`
 	TlsMode          *string                `protobuf:"bytes,8,opt,name=tls_mode,json=tlsMode,proto3,oneof" json:"tls_mode,omitempty"`
 	ServiceType      *string                `protobuf:"bytes,9,opt,name=service_type,json=serviceType,proto3,oneof" json:"service_type,omitempty"`
@@ -736,13 +719,6 @@ func (x *UpdateGatewayRequest) GetClusterId() string {
 func (x *UpdateGatewayRequest) GetReleaseId() string {
 	if x != nil && x.ReleaseId != nil {
 		return *x.ReleaseId
-	}
-	return ""
-}
-
-func (x *UpdateGatewayRequest) GetDatabaseId() string {
-	if x != nil && x.DatabaseId != nil {
-		return *x.DatabaseId
 	}
 	return ""
 }
@@ -1506,16 +1482,14 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15ProvisioningCondition\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12U\n" +
 	"\x10condition_status\x18\x02 \x01(\x0e2*.hypershell.v1.ProvisioningConditionStatusR\x0fconditionStatus\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xb1\t\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\xa3\t\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x04 \x01(\tR\tclusterId\x12\x1d\n" +
 	"\n" +
-	"release_id\x18\x05 \x01(\tR\treleaseId\x12\x1f\n" +
-	"\vdatabase_id\x18\x06 \x01(\tR\n" +
-	"databaseId\x12\x1c\n" +
+	"release_id\x18\x05 \x01(\tR\treleaseId\x12\x1c\n" +
 	"\tnamespace\x18\a \x01(\tR\tnamespace\x12&\n" +
 	"\fexternal_dns\x18\b \x01(\tH\x00R\vexternalDns\x88\x01\x01\x12\x1e\n" +
 	"\btls_mode\x18\t \x01(\tH\x01R\atlsMode\x88\x01\x01\x12&\n" +
@@ -1550,15 +1524,13 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15_active_sandbox_countB\x12\n" +
 	"\x10_console_addressB\x12\n" +
 	"\x10_gateway_versionB\x16\n" +
-	"\x14_observed_release_idJ\x04\b\x03\x10\x04R\bfleet_id\"\xa8\x05\n" +
+	"\x14_observed_release_idJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"\x9a\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x03 \x01(\tR\tclusterId\x12\x1d\n" +
 	"\n" +
-	"release_id\x18\x04 \x01(\tR\treleaseId\x12\x1f\n" +
-	"\vdatabase_id\x18\x05 \x01(\tR\n" +
-	"databaseId\x12&\n" +
+	"release_id\x18\x04 \x01(\tR\treleaseId\x12&\n" +
 	"\fexternal_dns\x18\x06 \x01(\tH\x00R\vexternalDns\x88\x01\x01\x12\x1e\n" +
 	"\btls_mode\x18\a \x01(\tH\x01R\atlsMode\x88\x01\x01\x12&\n" +
 	"\fservice_type\x18\b \x01(\tH\x02R\vserviceType\x88\x01\x01\x12\x1b\n" +
@@ -1580,43 +1552,40 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x11_supervisor_imageB\a\n" +
 	"\x05_oidcB\b\n" +
 	"\x06_routeB\x14\n" +
-	"\x12_credential_driverJ\x04\b\x02\x10\x03R\bfleet_id\"I\n" +
+	"\x12_credential_driverJ\x04\b\x02\x10\x03J\x04\b\x05\x10\x06R\bfleet_idR\vdatabase_id\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xad\b\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\x8a\b\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"cluster_id\x18\x04 \x01(\tH\x01R\tclusterId\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"release_id\x18\x05 \x01(\tH\x02R\treleaseId\x88\x01\x01\x12$\n" +
-	"\vdatabase_id\x18\x06 \x01(\tH\x03R\n" +
-	"databaseId\x88\x01\x01\x12&\n" +
-	"\fexternal_dns\x18\a \x01(\tH\x04R\vexternalDns\x88\x01\x01\x12\x1e\n" +
-	"\btls_mode\x18\b \x01(\tH\x05R\atlsMode\x88\x01\x01\x12&\n" +
-	"\fservice_type\x18\t \x01(\tH\x06R\vserviceType\x88\x01\x01\x12\x1b\n" +
+	"release_id\x18\x05 \x01(\tH\x02R\treleaseId\x88\x01\x01\x12&\n" +
+	"\fexternal_dns\x18\a \x01(\tH\x03R\vexternalDns\x88\x01\x01\x12\x1e\n" +
+	"\btls_mode\x18\b \x01(\tH\x04R\atlsMode\x88\x01\x01\x12&\n" +
+	"\fservice_type\x18\t \x01(\tH\x05R\vserviceType\x88\x01\x01\x12\x1b\n" +
 	"\x06status\x18\n" +
-	" \x01(\tH\aR\x06status\x88\x01\x01\x12\x19\n" +
-	"\x05phase\x18\v \x01(\tH\bR\x05phase\x88\x01\x01\x12\x19\n" +
-	"\x05image\x18\f \x01(\tH\tR\x05image\x88\x01\x01\x12.\n" +
-	"\x10supervisor_image\x18\r \x01(\tH\n" +
-	"R\x0fsupervisorImage\x88\x01\x01\x12(\n" +
+	" \x01(\tH\x06R\x06status\x88\x01\x01\x12\x19\n" +
+	"\x05phase\x18\v \x01(\tH\aR\x05phase\x88\x01\x01\x12\x19\n" +
+	"\x05image\x18\f \x01(\tH\bR\x05image\x88\x01\x01\x12.\n" +
+	"\x10supervisor_image\x18\r \x01(\tH\tR\x0fsupervisorImage\x88\x01\x01\x12(\n" +
 	"\x10server_dns_names\x18\x0e \x03(\tR\x0eserverDnsNames\x12(\n" +
-	"\rroute_address\x18\x0f \x01(\tH\vR\frouteAddress\x88\x01\x01\x12\x17\n" +
-	"\x04oidc\x18\x10 \x01(\tH\fR\x04oidc\x88\x01\x01\x12\x19\n" +
-	"\x05route\x18\x11 \x01(\tH\rR\x05route\x88\x01\x01\x120\n" +
-	"\x11credential_driver\x18\x13 \x01(\tH\x0eR\x10credentialDriver\x88\x01\x01\x12,\n" +
-	"\x0fconsole_address\x18\x14 \x01(\tH\x0fR\x0econsoleAddress\x88\x01\x01\x12]\n" +
+	"\rroute_address\x18\x0f \x01(\tH\n" +
+	"R\frouteAddress\x88\x01\x01\x12\x17\n" +
+	"\x04oidc\x18\x10 \x01(\tH\vR\x04oidc\x88\x01\x01\x12\x19\n" +
+	"\x05route\x18\x11 \x01(\tH\fR\x05route\x88\x01\x01\x120\n" +
+	"\x11credential_driver\x18\x13 \x01(\tH\rR\x10credentialDriver\x88\x01\x01\x12,\n" +
+	"\x0fconsole_address\x18\x14 \x01(\tH\x0eR\x0econsoleAddress\x88\x01\x01\x12]\n" +
 	"\x17provisioning_conditions\x18\x15 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x123\n" +
-	"\x13observed_release_id\x18\x16 \x01(\tH\x10R\x11observedReleaseId\x88\x01\x01B\a\n" +
+	"\x13observed_release_id\x18\x16 \x01(\tH\x0fR\x11observedReleaseId\x88\x01\x01B\a\n" +
 	"\x05_nameB\r\n" +
 	"\v_cluster_idB\r\n" +
-	"\v_release_idB\x0e\n" +
-	"\f_database_idB\x0f\n" +
+	"\v_release_idB\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1629,7 +1598,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x12\n" +
 	"\x10_console_addressB\x16\n" +
-	"\x14_observed_release_idJ\x04\b\x03\x10\x04R\bfleet_id\"I\n" +
+	"\x14_observed_release_idJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +

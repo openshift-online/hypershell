@@ -1,16 +1,57 @@
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createDashboardControlPlaneAdapter } from "./dashboard-control-plane";
+import {
+  createDashboardControlPlaneAdapter,
+  mapControlPlaneReconciliationResponse,
+} from "./dashboard-control-plane";
 import type { PlatformInventoryMetricsResponse } from "./platform-inventory-aggregation";
 
 const fetchMock = vi.fn();
-const apiFactory = vi.fn(() => ({}) as unknown as SDKClient);
+const gatewaysListMock = vi.fn();
+const gatewayReleasesListMock = vi.fn();
+const apiFactory = vi.fn(
+  () =>
+    ({
+      gateways: {
+        list: gatewaysListMock,
+      },
+      gatewayReleases: {
+        list: gatewayReleasesListMock,
+      },
+    }) as unknown as SDKClient,
+);
 
 const adapter = createDashboardControlPlaneAdapter(apiFactory);
 const context = {
   correlationId: "11111111-1111-4111-8111-111111111111",
 };
+
+describe("mapControlPlaneReconciliationResponse", () => {
+  it("maps values and hourly trends", () => {
+    expect(
+      mapControlPlaneReconciliationResponse({
+        reconciliation_failures_count: 2,
+        reconciliation_retries_count: 3,
+        reconciliation_lag_p50_seconds: 0.125,
+        stale_resource_status_count: 1,
+        hourly_reconciliation_failures_count: [
+          { hour: "2026-01-01T00:00", value: 2 },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: "reconciliation-failures",
+        unit: "count",
+        value: "2",
+        hourlyTrend: { points: [{ label: "2026-01-01T00:00", value: 2 }] },
+      },
+      { id: "reconciliation-retries", unit: "count", value: "3" },
+      { id: "reconciliation-lag", unit: "sec", value: "0.125" },
+      { id: "stale-resource-status-count", unit: "count", value: "1" },
+    ]);
+  });
+});
 
 const mockClusterPodsResponse = {
   available_pods: 1452,
@@ -30,6 +71,26 @@ const mockGatewayProvisionDurationResponse = {
   p95_seconds: 726,
 };
 
+const mockGatewayProvisionOutcomesResponse = {
+  failure_count_24h: 1,
+  hourly_success_rate: [
+    {
+      failure_count: 1,
+      hour: "2026-08-09T12:00",
+      success_count: 4,
+      success_rate_percent: 80,
+    },
+    {
+      failure_count: 0,
+      hour: "2026-08-09T13:00",
+      success_count: 5,
+      success_rate_percent: 100,
+    },
+  ],
+  success_count_24h: 9,
+  success_rate_percent: 90,
+};
+
 const defaultGatewayPhaseCounts = {
   Running: 100,
   Provisioning: 50,
@@ -42,10 +103,6 @@ function defaultPlatformInventory(): PlatformInventoryMetricsResponse {
       by_region: {},
       by_status: {},
       created_last_30_days: 0,
-      total: 0,
-    },
-    managed_databases: {
-      by_status: {},
       total: 0,
     },
   };
@@ -63,8 +120,37 @@ interface RegisteredUsersMockResponse {
 interface DashboardMetricsMockOptions {
   activeSandboxes?: number;
   omitProvisionDuration?: boolean;
+  omitProvisionOutcomes?: boolean;
   platformInventory?: PlatformInventoryMetricsResponse;
+  provisionOutcomes?: Omit<
+    typeof mockGatewayProvisionOutcomesResponse,
+    "success_rate_percent"
+  > & {
+    success_rate_percent: number | null;
+  };
   registeredUsers?: RegisteredUsersMockResponse;
+}
+
+interface DashboardFetchMockResponse {
+  json: () => Promise<unknown>;
+  ok: boolean;
+  status?: number;
+}
+
+type DashboardFetchMock = (url: string) => Promise<DashboardFetchMockResponse>;
+
+function getDashboardFetchMock(): DashboardFetchMock | undefined {
+  return fetchMock.getMockImplementation() as DashboardFetchMock | undefined;
+}
+
+function delegateDashboardFetch(
+  baseFetch: DashboardFetchMock | undefined,
+  url: string,
+): Promise<DashboardFetchMockResponse> {
+  if (baseFetch === undefined) {
+    throw new Error(`Unexpected fetch to ${url}`);
+  }
+  return baseFetch(url);
 }
 
 function mockClusterMetricsResponses(
@@ -155,6 +241,21 @@ function mockClusterMetricsResponses(
         ok: true,
       });
     }
+    if (url === "/api/metrics/gateway-provision-outcomes") {
+      if (options.omitProvisionOutcomes) {
+        return Promise.resolve({
+          ok: false,
+          status: 502,
+        });
+      }
+      return Promise.resolve({
+        json: () =>
+          Promise.resolve(
+            options.provisionOutcomes ?? mockGatewayProvisionOutcomesResponse,
+          ),
+        ok: true,
+      });
+    }
     return Promise.reject(new Error(`unexpected fetch url: ${url}`));
   });
 }
@@ -199,12 +300,49 @@ function resolveStandardPrometheusSupportRoutes(
       ok: true,
     });
   }
+  if (url === "/api/metrics/gateway-provision-outcomes") {
+    if (options.omitProvisionOutcomes) {
+      return Promise.resolve({
+        ok: false,
+        status: 502,
+      });
+    }
+    return Promise.resolve({
+      json: () =>
+        Promise.resolve(
+          options.provisionOutcomes ?? mockGatewayProvisionOutcomesResponse,
+        ),
+      ok: true,
+    });
+  }
   return undefined;
 }
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
+  gatewaysListMock.mockReset();
+  gatewayReleasesListMock.mockReset();
+  gatewaysListMock.mockResolvedValue({
+    items: [
+      { release_id: "rel-1" },
+      { release_id: "rel-1" },
+      { release_id: "rel-2" },
+      { release_id: "" },
+    ],
+    page: 1,
+    size: 100,
+    total: 4,
+  });
+  gatewayReleasesListMock.mockResolvedValue({
+    items: [
+      { id: "rel-1", name: "OpenShell 2.0" },
+      { id: "rel-2", name: "OpenShell 2.1" },
+    ],
+    page: 1,
+    size: 100,
+    total: 2,
+  });
 });
 
 afterEach(() => {
@@ -246,6 +384,9 @@ describe("createDashboardControlPlaneAdapter", () => {
     const nodesMetric = metrics.metrics.find((metric) => metric.id === "nodes");
     const provisionTimeMetric = metrics.metrics.find(
       (metric) => metric.id === "provision-time",
+    );
+    const provisionReliabilityMetric = metrics.metrics.find(
+      (metric) => metric.id === "provision-reliability",
     );
 
     expect(gatewaysMetric?.value).toBe("150");
@@ -296,12 +437,27 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(provisionTimeMetric).toEqual({
       id: "provision-time",
       provisionDuration: {
-        mean: "5.25",
-        p50: "4.80",
-        p95: "12.10",
+        mean: "315.00",
+        p50: "288.00",
+        p95: "726.00",
       },
-      unit: "minutes",
-      value: "5.25",
+      unit: "sec",
+      value: "315.00",
+    });
+    expect(provisionReliabilityMetric).toEqual({
+      id: "provision-reliability",
+      provisionOutcomes: {
+        failureCount24h: "1",
+        successCount24h: "9",
+        successRatePercent: "90.0",
+      },
+      successRateTrend: {
+        points: [
+          { label: "2026-08-09T12:00", value: 80 },
+          { label: "2026-08-09T13:00", value: 100 },
+        ],
+      },
+      value: "90.0",
     });
     expect(fetchMock).toHaveBeenCalledWith("/api/metrics/cluster-memory", {
       credentials: "same-origin",
@@ -372,7 +528,7 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(sandboxesMetric?.value).toBe("5");
   });
 
-  it("maps gateway provision duration histogram into average, P50, and P95 minutes", async () => {
+  it("maps gateway provision duration histogram into average, P50, and P95 seconds", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
 
     const metrics = await adapter.getOperationalMetrics(context);
@@ -383,13 +539,58 @@ describe("createDashboardControlPlaneAdapter", () => {
     expect(provisionTimeMetric).toEqual({
       id: "provision-time",
       provisionDuration: {
-        mean: "5.25",
-        p50: "4.80",
-        p95: "12.10",
+        mean: "315.00",
+        p50: "288.00",
+        p95: "726.00",
       },
-      unit: "minutes",
-      value: "5.25",
+      unit: "sec",
+      value: "315.00",
     });
+  });
+
+  it("maps gateway provision outcomes into provision reliability", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const provisionReliabilityMetric = metrics.metrics.find(
+      (metric) => metric.id === "provision-reliability",
+    );
+
+    expect(provisionReliabilityMetric).toEqual({
+      id: "provision-reliability",
+      provisionOutcomes: {
+        failureCount24h: "1",
+        successCount24h: "9",
+        successRatePercent: "90.0",
+      },
+      successRateTrend: {
+        points: [
+          { label: "2026-08-09T12:00", value: 80 },
+          { label: "2026-08-09T13:00", value: 100 },
+        ],
+      },
+      value: "90.0",
+    });
+  });
+
+  it("omits provision reliability when success rate is null", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2, undefined, {
+      provisionOutcomes: {
+        failure_count_24h: 0,
+        hourly_success_rate: [],
+        success_count_24h: 0,
+        success_rate_percent: null,
+      },
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-reliability"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-time"),
+    ).toBeDefined();
   });
 
   it("omits provision time when the BFF provision duration route is unavailable", async () => {
@@ -411,6 +612,9 @@ describe("createDashboardControlPlaneAdapter", () => {
     );
 
     expect(provisionTimeMetric).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-reliability"),
+    ).toBeDefined();
     expect(memoryMetric).toEqual({
       id: "memory",
       total: "1",
@@ -419,6 +623,26 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
     expect(
       metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
+  });
+
+  it("omits provision reliability when the BFF provision outcomes route is unavailable", async () => {
+    mockClusterMetricsResponses(
+      1024 ** 3,
+      512 * 1024 ** 2,
+      defaultGatewayPhaseCounts,
+      {
+        omitProvisionOutcomes: true,
+      },
+    );
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-reliability"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provision-time"),
     ).toBeDefined();
   });
 
@@ -805,13 +1029,15 @@ describe("createDashboardControlPlaneAdapter", () => {
 
   it("fails when every metric source is unavailable", async () => {
     fetchMock.mockRejectedValue(new Error("network down"));
+    gatewaysListMock.mockRejectedValue(new Error("network down"));
+    gatewayReleasesListMock.mockRejectedValue(new Error("network down"));
 
     await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
       "All operational dashboard metric sources failed",
     );
   });
 
-  it("aggregates managed cluster and database inventory into operational metrics", async () => {
+  it("aggregates managed cluster inventory into operational metrics", async () => {
     mockClusterMetricsResponses(
       1024 ** 3,
       512 * 1024 ** 2,
@@ -840,13 +1066,6 @@ describe("createDashboardControlPlaneAdapter", () => {
             created_last_30_days: 2,
             total: 150,
           },
-          managed_databases: {
-            by_status: {
-              Ready: 1,
-              unknown: 1,
-            },
-            total: 2,
-          },
         },
       },
     );
@@ -855,9 +1074,6 @@ describe("createDashboardControlPlaneAdapter", () => {
 
     const clustersMetric = metrics.metrics.find(
       (metric) => metric.id === "managed-clusters",
-    );
-    const databasesMetric = metrics.metrics.find(
-      (metric) => metric.id === "managed-databases",
     );
 
     expect(clustersMetric).toEqual({
@@ -882,14 +1098,6 @@ describe("createDashboardControlPlaneAdapter", () => {
         unknown: 1,
       },
       value: "150",
-    });
-    expect(databasesMetric).toEqual({
-      id: "managed-databases",
-      inventoryStatus: {
-        Ready: 1,
-        unknown: 1,
-      },
-      value: "2",
     });
   });
 
@@ -958,9 +1166,6 @@ describe("createDashboardControlPlaneAdapter", () => {
       metrics.metrics.find((metric) => metric.id === "managed-clusters"),
     ).toBeUndefined();
     expect(
-      metrics.metrics.find((metric) => metric.id === "managed-databases"),
-    ).toBeUndefined();
-    expect(
       metrics.metrics.find((metric) => metric.id === "memory"),
     ).toBeDefined();
   });
@@ -1016,6 +1221,285 @@ describe("createDashboardControlPlaneAdapter", () => {
     });
   });
 
+  it("aggregates gateway release distribution into gateway-releases metric", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const gatewayReleasesMetric = metrics.metrics.find(
+      (metric) => metric.id === "gateway-releases",
+    );
+
+    expect(gatewayReleasesMetric).toEqual({
+      id: "gateway-releases",
+      releaseDistribution: {
+        "OpenShell 2.0": 2,
+        "OpenShell 2.1": 1,
+        unknown: 1,
+      },
+      value: "4",
+    });
+    expect(gatewaysListMock).toHaveBeenCalledWith(
+      { orderBy: "name asc", page: 1, size: 100 },
+      { signal: undefined },
+    );
+    expect(gatewayReleasesListMock).toHaveBeenCalledWith(
+      { orderBy: "name asc", page: 1, size: 100 },
+      { signal: undefined },
+    );
+  });
+
+  it("omits gateway-releases when gateway list aggregation fails", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    gatewaysListMock.mockRejectedValue(new Error("gateway list failed"));
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(metrics.failedSources).toEqual(["gateway-release-distribution"]);
+    expect(
+      metrics.metrics.find((metric) => metric.id === "gateway-releases"),
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
+    ).toBeDefined();
+  });
+
+  it("maps gateway daily_fleet_totals into provisioned-gateways trend", async () => {
+    mockClusterMetricsResponses(
+      1024 ** 3,
+      512 * 1024 ** 2,
+      {},
+      { activeSandboxes: 4 },
+    );
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateways") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              counts: { Running: 5 },
+              daily_fleet_totals: [
+                { date: "2026-09-01", total: 18 },
+                { date: "2026-09-02", total: 20 },
+              ],
+            }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const gatewayMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-gateways",
+    );
+
+    expect(gatewayMetric?.trend).toEqual({
+      points: [
+        { label: "2026-09-01", value: 18 },
+        { label: "2026-09-02", value: 20 },
+      ],
+    });
+  });
+
+  it("omits provisioned-gateways trend when daily_fleet_totals is absent", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateways") {
+        return Promise.resolve({
+          json: () => Promise.resolve({ counts: { Running: 5 } }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const gatewayMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-gateways",
+    );
+
+    expect(gatewayMetric?.value).toBe("5");
+    expect(gatewayMetric?.trend).toBeUndefined();
+  });
+
+  it("maps sandbox hourly and daily trends onto provisioned-sandboxes", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateway-sandboxes") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              active_sandboxes: 4,
+              hourly_active_sandboxes: [{ hour: "2026-09-15T12:00", count: 8 }],
+              daily_active_sandboxes: [{ date: "2026-09-01", count: 5 }],
+            }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const sandboxMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-sandboxes",
+    );
+
+    expect(sandboxMetric).toEqual({
+      hourlyTrend: {
+        points: [{ label: "2026-09-15T12:00", value: 8 }],
+      },
+      id: "provisioned-sandboxes",
+      trend: {
+        points: [{ label: "2026-09-01", value: 5 }],
+      },
+      value: "4",
+    });
+  });
+
+  it("maps sandbox attention counts onto provisioned-sandboxes", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateway-sandboxes") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              active_sandboxes: 214,
+              orphaned_sandboxes: 3,
+              expiring_sandboxes: 12,
+              idle_sandboxes: 7,
+            }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const sandboxMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-sandboxes",
+    );
+
+    expect(sandboxMetric).toEqual({
+      expiringSandboxes: 12,
+      id: "provisioned-sandboxes",
+      idleSandboxes: 7,
+      orphanedSandboxes: 3,
+      value: "214",
+    });
+  });
+
+  it("omits absent sandbox attention fields without inventing zeros", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/gateway-sandboxes") {
+        return Promise.resolve({
+          json: () => Promise.resolve({ active_sandboxes: 214 }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+    const sandboxMetric = metrics.metrics.find(
+      (metric) => metric.id === "provisioned-sandboxes",
+    );
+
+    expect(sandboxMetric).toEqual({
+      id: "provisioned-sandboxes",
+      value: "214",
+    });
+    expect(sandboxMetric).not.toHaveProperty("orphanedSandboxes");
+    expect(sandboxMetric).not.toHaveProperty("expiringSandboxes");
+    expect(sandboxMetric).not.toHaveProperty("idleSandboxes");
+  });
+
+  it("maps cluster daily_used into memory, cpu, and pods trends", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+    const baseFetch = getDashboardFetchMock();
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/metrics/cluster-memory") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              available_bytes: 17 * 1024 ** 3,
+              capacity_bytes: 237 * 1024 ** 3,
+              daily_used: [{ date: "2026-09-01", value: 218 }],
+              used_bytes: 220 * 1024 ** 3,
+            }),
+          ok: true,
+        });
+      }
+      if (url === "/api/metrics/cluster-cpu") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              available_cores: 12,
+              capacity_cores: 60,
+              daily_used: [{ date: "2026-09-01", value: 49 }],
+              used_cores: 48,
+            }),
+          ok: true,
+        });
+      }
+      if (url === "/api/metrics/cluster-pods") {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({
+              ...mockClusterPodsResponse,
+              daily_used: [{ date: "2026-09-01", value: 548 }],
+            }),
+          ok: true,
+        });
+      }
+      return delegateDashboardFetch(baseFetch, url);
+    });
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "memory")?.trend,
+    ).toEqual({
+      points: [{ label: "2026-09-01", value: 218 }],
+    });
+    expect(
+      metrics.metrics.find((metric) => metric.id === "cpu")?.trend,
+    ).toEqual({
+      points: [{ label: "2026-09-01", value: 49 }],
+    });
+    expect(
+      metrics.metrics.find((metric) => metric.id === "pods")?.trend,
+    ).toEqual({
+      points: [{ label: "2026-09-01", value: 548 }],
+    });
+  });
+
+  it("omits memory, cpu, and pods trends when daily_used is absent", async () => {
+    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
+
+    const metrics = await adapter.getOperationalMetrics(context);
+
+    expect(
+      metrics.metrics.find((metric) => metric.id === "memory")?.trend,
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "cpu")?.trend,
+    ).toBeUndefined();
+    expect(
+      metrics.metrics.find((metric) => metric.id === "pods")?.trend,
+    ).toBeUndefined();
+    expect(metrics.metrics.find((metric) => metric.id === "memory")).toEqual({
+      id: "memory",
+      total: "1",
+      unit: "GiB",
+      value: "1",
+    });
+  });
+
   it("omits optional registered user adoption fields when degraded", async () => {
     mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2, undefined, {
       registeredUsers: {
@@ -1033,6 +1517,180 @@ describe("createDashboardControlPlaneAdapter", () => {
       createdLast30Days: "12",
       id: "registered-users",
       value: "450",
+    });
+  });
+
+  describe("getReliabilityMetrics", () => {
+    const hourlyRequestRate = [
+      { hour: "2026-09-15T12:00", value: 10.2 },
+      { hour: "2026-09-15T13:00", value: 11.1 },
+    ];
+    const hourlyErrorRate = [
+      { hour: "2026-09-15T12:00", value: 0.5 },
+      { hour: "2026-09-15T13:00", value: 0.8 },
+    ];
+    const hourlyLatency = [
+      { hour: "2026-09-15T12:00", value: 0.09 },
+      { hour: "2026-09-15T13:00", value: 0.085 },
+    ];
+
+    it("maps a full API reliability payload into three metrics with hourly trends", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            error_rate_percent: 1.25,
+            hourly_error_rate_percent: hourlyErrorRate,
+            hourly_latency_p50_seconds: hourlyLatency,
+            hourly_request_rate: hourlyRequestRate,
+            latency_p50_seconds: 0.084,
+            request_rate: 12.5,
+          }),
+      });
+
+      const metrics = await adapter.getReliabilityMetrics(context);
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/metrics/api-reliability", {
+        credentials: "same-origin",
+        signal: undefined,
+      });
+      expect(metrics.metrics).toEqual([
+        {
+          hourlyTrend: {
+            points: [
+              { label: "2026-09-15T12:00", value: 10.2 },
+              { label: "2026-09-15T13:00", value: 11.1 },
+            ],
+          },
+          id: "api-request-rate",
+          unit: "requests/sec",
+          value: "12.500",
+        },
+        {
+          hourlyTrend: {
+            points: [
+              { label: "2026-09-15T12:00", value: 0.5 },
+              { label: "2026-09-15T13:00", value: 0.8 },
+            ],
+          },
+          id: "api-error-rate",
+          unit: "%",
+          value: "1.250",
+        },
+        {
+          hourlyTrend: {
+            points: [
+              { label: "2026-09-15T12:00", value: 0.09 },
+              { label: "2026-09-15T13:00", value: 0.085 },
+            ],
+          },
+          id: "api-latency",
+          unit: "sec",
+          value: "0.084",
+        },
+      ]);
+    });
+
+    it("omits only the missing hourly trend when a historical series is absent", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            error_rate_percent: 1.25,
+            hourly_error_rate_percent: hourlyErrorRate,
+            hourly_request_rate: hourlyRequestRate,
+            latency_p50_seconds: 0.084,
+            request_rate: 12.5,
+          }),
+      });
+
+      const metrics = await adapter.getReliabilityMetrics(context);
+      const latencyMetric = metrics.metrics.find(
+        (metric) => metric.id === "api-latency",
+      );
+      const requestRateMetric = metrics.metrics.find(
+        (metric) => metric.id === "api-request-rate",
+      );
+
+      expect(latencyMetric).toEqual({
+        id: "api-latency",
+        unit: "sec",
+        value: "0.084",
+      });
+      expect(requestRateMetric?.hourlyTrend).toEqual({
+        points: [
+          { label: "2026-09-15T12:00", value: 10.2 },
+          { label: "2026-09-15T13:00", value: 11.1 },
+        ],
+      });
+    });
+
+    it("returns failedSources when the BFF response is not ok", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 502,
+      });
+
+      const metrics = await adapter.getReliabilityMetrics(context);
+
+      expect(metrics.failedSources).toEqual([
+        "api-reliability",
+        "control-plane-reconciliation",
+      ]);
+      expect(metrics.metrics).toEqual([]);
+      expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);
+    });
+
+    it("returns failedSources when required instant fields are missing", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            error_rate_percent: 1.25,
+            request_rate: 12.5,
+          }),
+      });
+
+      const metrics = await adapter.getReliabilityMetrics(context);
+
+      expect(metrics.failedSources).toEqual([
+        "api-reliability",
+        "control-plane-reconciliation",
+      ]);
+      expect(metrics.metrics).toEqual([]);
+      expect(metrics.lastSuccessfulRefresh).toBeInstanceOf(Date);
+    });
+
+    it("rethrows abort errors instead of soft-failing", async () => {
+      const abortError = new DOMException("Aborted", "AbortError");
+      fetchMock.mockRejectedValue(abortError);
+
+      await expect(adapter.getReliabilityMetrics(context)).rejects.toBe(
+        abortError,
+      );
+    });
+
+    it("forwards abort signals to the api-reliability route", async () => {
+      const controller = new AbortController();
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            error_rate_percent: 0,
+            latency_p50_seconds: 0.01,
+            request_rate: 1,
+          }),
+      });
+
+      await adapter.getReliabilityMetrics({
+        ...context,
+        signal: controller.signal,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/metrics/api-reliability", {
+        credentials: "same-origin",
+        signal: controller.signal,
+      });
     });
   });
 });

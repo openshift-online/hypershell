@@ -1,7 +1,9 @@
 import {
-  fetchGatewayMetrics,
+  emptyGatewayPhaseCounts,
   gatewayPhaseCountsToDisplayStatusCounts,
+  gatewayPhases,
   type GatewayDisplayStatusCounts,
+  type GatewayPhaseCounts,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import type {
   DashboardControlPlane,
@@ -13,6 +15,10 @@ import type {
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
 
 import {
+  aggregateGatewayReleaseDistribution,
+  buildGatewayReleasesMetric,
+} from "./gateway-release-distribution-aggregation";
+import {
   platformInventoryMetricsResponseToMetrics,
   type PlatformInventoryMetricsResponse,
 } from "./platform-inventory-aggregation";
@@ -20,23 +26,30 @@ import {
 type DashboardApiFactory = (correlationId: string) => SDKClient;
 
 const gibibyteDivisor = 1024 ** 3;
-const secondsPerMinute = 60;
+
+interface DailyTrendPoint {
+  date: string;
+  value: number;
+}
 
 interface ClusterMemoryResponse {
   available_bytes: number;
   capacity_bytes: number;
+  daily_used?: DailyTrendPoint[];
   used_bytes: number;
 }
 
 interface ClusterCpuResponse {
   available_cores: number;
   capacity_cores: number;
+  daily_used?: DailyTrendPoint[];
   used_cores: number;
 }
 
 interface ClusterPodsResponse {
   available_pods: number;
   capacity_pods: number;
+  daily_used?: DailyTrendPoint[];
   phase_failed_pods: number;
   phase_pending_pods: number;
   phase_running_pods: number;
@@ -58,8 +71,32 @@ interface GatewayProvisionDurationResponse {
   p95_seconds: number;
 }
 
+interface GatewayProvisionHourlySuccessRate {
+  failure_count: number;
+  hour: string;
+  success_count: number;
+  success_rate_percent: number;
+}
+
+interface GatewayProvisionOutcomesResponse {
+  failure_count_24h: number;
+  hourly_success_rate: GatewayProvisionHourlySuccessRate[];
+  success_count_24h: number;
+  success_rate_percent: number | null;
+}
+
 interface GatewaySandboxesResponse {
   active_sandboxes: number;
+  orphaned_sandboxes?: number;
+  expiring_sandboxes?: number;
+  idle_sandboxes?: number;
+  daily_active_sandboxes?: { count: number; date: string }[];
+  hourly_active_sandboxes?: { count: number; hour: string }[];
+}
+
+interface GatewayMetricsResponse {
+  counts: Record<string, number>;
+  daily_fleet_totals?: { date: string; total: number }[];
 }
 
 interface RegisteredUsersDailyLogin {
@@ -108,6 +145,46 @@ function registeredUsersResponseToMetric(
   return metric;
 }
 
+function mapDailyTrend(
+  dailySeries: readonly { date: string; value: number }[] | undefined,
+) {
+  if (dailySeries === undefined) {
+    return undefined;
+  }
+
+  return {
+    points: dailySeries.map((point) => ({
+      label: point.date,
+      value: point.value,
+    })),
+  };
+}
+
+function mapFleetTotalTrend(
+  dailyFleetTotals: GatewayMetricsResponse["daily_fleet_totals"],
+) {
+  if (dailyFleetTotals === undefined) {
+    return undefined;
+  }
+
+  return {
+    points: dailyFleetTotals.map((point) => ({
+      label: point.date,
+      value: point.total,
+    })),
+  };
+}
+
+function parseGatewayPhaseCounts(
+  counts: Record<string, number>,
+): GatewayPhaseCounts {
+  const phaseCounts = emptyGatewayPhaseCounts();
+  for (const phase of gatewayPhases) {
+    phaseCounts[phase] = counts[phase] ?? 0;
+  }
+  return phaseCounts;
+}
+
 function bytesToRoundedGib(bytes: number): string {
   return String(Math.round(bytes / gibibyteDivisor));
 }
@@ -131,11 +208,14 @@ async function fetchClusterMemoryMetric(
 
   const body = (await response.json()) as ClusterMemoryResponse;
 
+  const trend = mapDailyTrend(body.daily_used);
+
   return {
     id: "memory",
     total: bytesToRoundedGib(body.capacity_bytes),
     unit: "GiB",
     value: bytesToRoundedGib(body.used_bytes),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -154,11 +234,14 @@ async function fetchClusterCpuMetric(
 
   const body = (await response.json()) as ClusterCpuResponse;
 
+  const trend = mapDailyTrend(body.daily_used);
+
   return {
     id: "cpu",
     total: coresToRoundedString(body.capacity_cores),
     unit: "cores",
     value: coresToRoundedString(body.used_cores),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -177,6 +260,8 @@ async function fetchClusterPodsMetric(
 
   const body = (await response.json()) as ClusterPodsResponse;
 
+  const trend = mapDailyTrend(body.daily_used);
+
   return {
     id: "pods",
     podPhases: {
@@ -189,6 +274,7 @@ async function fetchClusterPodsMetric(
     total: String(body.capacity_pods),
     unit: "pods",
     value: String(body.used_pods),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -217,8 +303,58 @@ async function fetchClusterNodesMetric(
   };
 }
 
-function formatProvisionMinutesFromSeconds(seconds: number): string {
-  return (seconds / secondsPerMinute).toFixed(2);
+function formatProvisionSeconds(seconds: number): string {
+  return seconds.toFixed(2);
+}
+
+function formatSuccessRatePercent(value: number): string {
+  return value.toFixed(1);
+}
+
+async function fetchGatewayProvisionOutcomesMetric(
+  signal?: AbortSignal,
+): Promise<OperationalMetric | undefined> {
+  try {
+    const response = await fetch("/api/metrics/gateway-provision-outcomes", {
+      credentials: "same-origin",
+      signal,
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const body = (await response.json()) as GatewayProvisionOutcomesResponse;
+    if (body.success_rate_percent === null) {
+      return undefined;
+    }
+
+    const successRatePercent = formatSuccessRatePercent(
+      body.success_rate_percent,
+    );
+    const hourlyPoints = body.hourly_success_rate.map((point) => ({
+      label: point.hour,
+      value: point.success_rate_percent,
+    }));
+
+    return {
+      id: "provision-reliability",
+      provisionOutcomes: {
+        failureCount24h: String(body.failure_count_24h),
+        successCount24h: String(body.success_count_24h),
+        successRatePercent,
+      },
+      ...(hourlyPoints.length >= 2
+        ? {
+            successRateTrend: {
+              points: hourlyPoints,
+            },
+          }
+        : {}),
+      value: successRatePercent,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 async function fetchGatewayProvisionDurationMetric(
@@ -234,9 +370,9 @@ async function fetchGatewayProvisionDurationMetric(
     }
 
     const body = (await response.json()) as GatewayProvisionDurationResponse;
-    const mean = formatProvisionMinutesFromSeconds(body.mean_seconds);
-    const p50 = formatProvisionMinutesFromSeconds(body.p50_seconds);
-    const p95 = formatProvisionMinutesFromSeconds(body.p95_seconds);
+    const mean = formatProvisionSeconds(body.mean_seconds);
+    const p50 = formatProvisionSeconds(body.p50_seconds);
+    const p95 = formatProvisionSeconds(body.p95_seconds);
 
     return {
       id: "provision-time",
@@ -245,7 +381,7 @@ async function fetchGatewayProvisionDurationMetric(
         p50,
         p95,
       },
-      unit: "minutes",
+      unit: "sec",
       value: mean,
     };
   } catch {
@@ -256,6 +392,7 @@ async function fetchGatewayProvisionDurationMetric(
 function gatewayDisplayCountsToMetric(
   total: number,
   counts: GatewayDisplayStatusCounts,
+  trend?: ReturnType<typeof mapFleetTotalTrend>,
 ): OperationalMetric {
   return {
     id: "provisioned-gateways",
@@ -266,6 +403,7 @@ function gatewayDisplayCountsToMetric(
       provisioning: counts.provisioning,
     },
     value: String(total),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -283,10 +421,39 @@ async function fetchGatewaySandboxesMetric(
   }
 
   const body = (await response.json()) as GatewaySandboxesResponse;
+  const hourlyTrend =
+    body.hourly_active_sandboxes === undefined
+      ? undefined
+      : {
+          points: body.hourly_active_sandboxes.map((point) => ({
+            label: point.hour,
+            value: point.count,
+          })),
+        };
+  const trend =
+    body.daily_active_sandboxes === undefined
+      ? undefined
+      : {
+          points: body.daily_active_sandboxes.map((point) => ({
+            label: point.date,
+            value: point.count,
+          })),
+        };
 
   return {
     id: "provisioned-sandboxes",
     value: String(body.active_sandboxes),
+    ...(body.orphaned_sandboxes === undefined
+      ? {}
+      : { orphanedSandboxes: body.orphaned_sandboxes }),
+    ...(body.expiring_sandboxes === undefined
+      ? {}
+      : { expiringSandboxes: body.expiring_sandboxes }),
+    ...(body.idle_sandboxes === undefined
+      ? {}
+      : { idleSandboxes: body.idle_sandboxes }),
+    ...(hourlyTrend ? { hourlyTrend } : {}),
+    ...(trend ? { trend } : {}),
   };
 }
 
@@ -302,15 +469,27 @@ function isAbortError(error: unknown): boolean {
 async function fetchGatewayPrometheusMetric(
   signal?: AbortSignal,
 ): Promise<OperationalMetric> {
-  const phaseCounts = await fetchGatewayMetrics(signal);
+  const response = await fetch("/api/metrics/gateways", {
+    credentials: "same-origin",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch gateway metrics: ${String(response.status)}`,
+    );
+  }
+
+  const body = (await response.json()) as GatewayMetricsResponse;
+  const phaseCounts = parseGatewayPhaseCounts(body.counts);
   const displayStatusCounts =
     gatewayPhaseCountsToDisplayStatusCounts(phaseCounts);
   const total = Object.values(phaseCounts).reduce(
     (sum, count) => sum + count,
     0,
   );
+  const trend = mapFleetTotalTrend(body.daily_fleet_totals);
 
-  return gatewayDisplayCountsToMetric(total, displayStatusCounts);
+  return gatewayDisplayCountsToMetric(total, displayStatusCounts, trend);
 }
 
 async function fetchGatewayPrometheusMetrics(
@@ -323,11 +502,15 @@ async function fetchGatewayPrometheusMetrics(
 
   const metrics: OperationalMetric[] = [gatewayMetric, sandboxMetric];
 
-  const provisionTimeMetric = await fetchGatewayProvisionDurationMetric(
-    context.signal,
-  );
+  const [provisionTimeMetric, provisionReliabilityMetric] = await Promise.all([
+    fetchGatewayProvisionDurationMetric(context.signal),
+    fetchGatewayProvisionOutcomesMetric(context.signal),
+  ]);
   if (provisionTimeMetric !== undefined) {
     metrics.push(provisionTimeMetric);
+  }
+  if (provisionReliabilityMetric !== undefined) {
+    metrics.push(provisionReliabilityMetric);
   }
 
   return metrics;
@@ -351,6 +534,19 @@ async function fetchRegisteredUsersMetric(
   return [registeredUsersResponseToMetric(body)];
 }
 
+async function fetchGatewayReleaseDistributionMetrics(
+  context: DashboardInvocationContext,
+  apiFactory: DashboardApiFactory,
+): Promise<OperationalMetric[]> {
+  const client = apiFactory(context.correlationId);
+  const aggregate = await aggregateGatewayReleaseDistribution(
+    client,
+    context.signal,
+  );
+
+  return [buildGatewayReleasesMetric(aggregate)];
+}
+
 async function fetchPlatformInventoryMetrics(
   context: DashboardInvocationContext,
 ): Promise<OperationalMetric[]> {
@@ -366,6 +562,181 @@ async function fetchPlatformInventoryMetrics(
 
   const body = (await response.json()) as PlatformInventoryMetricsResponse;
   return platformInventoryMetricsResponseToMetrics(body);
+}
+
+interface ApiReliabilityHourlyPoint {
+  hour: string;
+  value: number;
+}
+
+interface ApiReliabilityResponse {
+  error_rate_percent: number;
+  hourly_error_rate_percent?: ApiReliabilityHourlyPoint[];
+  hourly_latency_p50_seconds?: ApiReliabilityHourlyPoint[];
+  hourly_request_rate?: ApiReliabilityHourlyPoint[];
+  latency_p50_seconds: number;
+  request_rate: number;
+}
+
+interface ControlPlaneReconciliationPoint {
+  hour: string;
+  value: number;
+}
+
+interface ControlPlaneReconciliationResponse {
+  reconciliation_failures_count: number;
+  reconciliation_retries_count: number;
+  reconciliation_lag_p50_seconds?: number;
+  stale_resource_status_count: number;
+  hourly_reconciliation_failures_count?: ControlPlaneReconciliationPoint[];
+  hourly_reconciliation_retries_count?: ControlPlaneReconciliationPoint[];
+  hourly_reconciliation_lag_p50_seconds?: ControlPlaneReconciliationPoint[];
+  hourly_stale_resource_status_count?: ControlPlaneReconciliationPoint[];
+}
+
+function mapHourlyTrend(
+  series: readonly ApiReliabilityHourlyPoint[] | undefined,
+): OperationalMetric["hourlyTrend"] {
+  if (series === undefined) {
+    return undefined;
+  }
+
+  return {
+    points: series.map((point) => ({
+      label: point.hour,
+      value: point.value,
+    })),
+  };
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function mapApiReliabilityResponse(
+  body: ApiReliabilityResponse,
+): OperationalMetric[] {
+  if (
+    !isFiniteNumber(body.request_rate) ||
+    !isFiniteNumber(body.error_rate_percent) ||
+    !isFiniteNumber(body.latency_p50_seconds)
+  ) {
+    throw new Error(
+      "API reliability metrics response is missing required fields",
+    );
+  }
+
+  const requestRateTrend = mapHourlyTrend(body.hourly_request_rate);
+  const errorRateTrend = mapHourlyTrend(body.hourly_error_rate_percent);
+  const latencyTrend = mapHourlyTrend(body.hourly_latency_p50_seconds);
+
+  return [
+    {
+      id: "api-request-rate",
+      unit: "requests/sec",
+      value: body.request_rate.toFixed(3),
+      ...(requestRateTrend ? { hourlyTrend: requestRateTrend } : {}),
+    },
+    {
+      id: "api-error-rate",
+      unit: "%",
+      value: body.error_rate_percent.toFixed(3),
+      ...(errorRateTrend ? { hourlyTrend: errorRateTrend } : {}),
+    },
+    {
+      id: "api-latency",
+      unit: "sec",
+      value: body.latency_p50_seconds.toFixed(3),
+      ...(latencyTrend ? { hourlyTrend: latencyTrend } : {}),
+    },
+  ];
+}
+
+async function fetchApiReliabilityMetrics(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/api-reliability", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch API reliability metrics: ${String(response.status)}`,
+    );
+  }
+
+  const body = (await response.json()) as ApiReliabilityResponse;
+  return mapApiReliabilityResponse(body);
+}
+
+export function mapControlPlaneReconciliationResponse(
+  body: ControlPlaneReconciliationResponse,
+): OperationalMetric[] {
+  const values = [
+    body.reconciliation_failures_count,
+    body.reconciliation_retries_count,
+    body.stale_resource_status_count,
+  ];
+  if (values.some((value) => !isFiniteNumber(value))) {
+    throw new Error(
+      "Control-plane reconciliation response is missing required fields",
+    );
+  }
+
+  const failuresTrend = mapHourlyTrend(
+    body.hourly_reconciliation_failures_count,
+  );
+  const retriesTrend = mapHourlyTrend(body.hourly_reconciliation_retries_count);
+  const lagTrend = mapHourlyTrend(body.hourly_reconciliation_lag_p50_seconds);
+  const staleTrend = mapHourlyTrend(body.hourly_stale_resource_status_count);
+  const metrics: OperationalMetric[] = [
+    {
+      id: "reconciliation-failures",
+      unit: "count",
+      value: body.reconciliation_failures_count.toFixed(0),
+      ...(failuresTrend ? { hourlyTrend: failuresTrend } : {}),
+    },
+    {
+      id: "reconciliation-retries",
+      unit: "count",
+      value: body.reconciliation_retries_count.toFixed(0),
+      ...(retriesTrend ? { hourlyTrend: retriesTrend } : {}),
+    },
+    ...(isFiniteNumber(body.reconciliation_lag_p50_seconds)
+      ? [
+          {
+            id: "reconciliation-lag",
+            unit: "sec",
+            value: body.reconciliation_lag_p50_seconds.toFixed(3),
+            ...(lagTrend ? { hourlyTrend: lagTrend } : {}),
+          },
+        ]
+      : []),
+    {
+      id: "stale-resource-status-count",
+      unit: "count",
+      value: String(Math.round(body.stale_resource_status_count)),
+      ...(staleTrend ? { hourlyTrend: staleTrend } : {}),
+    },
+  ];
+  return metrics;
+}
+
+async function fetchControlPlaneReconciliationMetrics(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/control-plane-reconciliation", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch control-plane reconciliation metrics: ${String(response.status)}`,
+    );
+  }
+  return mapControlPlaneReconciliationResponse(
+    (await response.json()) as ControlPlaneReconciliationResponse,
+  );
 }
 
 interface MetricSourceDefinition {
@@ -388,6 +759,11 @@ const metricSources: readonly MetricSourceDefinition[] = [
   {
     id: "platform-inventory",
     fetch: async (context) => fetchPlatformInventoryMetrics(context),
+  },
+  {
+    id: "gateway-release-distribution",
+    fetch: async (context, apiFactory) =>
+      fetchGatewayReleaseDistributionMetrics(context, apiFactory),
   },
   {
     id: "cluster-memory",
@@ -455,6 +831,50 @@ export function createDashboardControlPlaneAdapter(
         lastSuccessfulRefresh: new Date(),
         metrics,
       };
+    },
+
+    async getReliabilityMetrics(
+      context: DashboardInvocationContext,
+    ): Promise<OperationalDashboardMetrics> {
+      context.signal?.throwIfAborted();
+
+      try {
+        const results = await Promise.allSettled([
+          fetchApiReliabilityMetrics(context),
+          fetchControlPlaneReconciliationMetrics(context),
+        ]);
+        const metrics: OperationalMetric[] = [];
+        const failedSources: (
+          "api-reliability" | "control-plane-reconciliation"
+        )[] = [];
+        for (const [index, result] of results.entries()) {
+          const source =
+            index === 0 ? "api-reliability" : "control-plane-reconciliation";
+          if (result.status === "fulfilled") metrics.push(...result.value);
+          else if (isAbortError(result.reason)) throw result.reason;
+          else failedSources.push(source);
+        }
+        if (metrics.length === 0)
+          throw new Error("All reliability dashboard metric sources failed");
+        return {
+          ...(failedSources.length > 0 ? { failedSources } : {}),
+          lastSuccessfulRefresh: new Date(),
+          metrics,
+        };
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
+
+        // Soft-fail like getOperationalMetrics partial sources so
+        // mergeReliabilityDashboardMetrics can keep stale widgets on
+        // refresh and the page can show the partial-load warning.
+        return {
+          failedSources: ["api-reliability", "control-plane-reconciliation"],
+          lastSuccessfulRefresh: new Date(),
+          metrics: [],
+        };
+      }
     },
   };
 }

@@ -56,7 +56,6 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     created_at: null,
     created_by: "",
     credential_driver: "",
-    database_id: "database-1",
     external_dns: "gateway.example.com",
     gateway_version: "",
     href: "/api/hypershell/v1/gateways/gateway-1",
@@ -207,7 +206,7 @@ describe("gateway API operations adapter", () => {
       {
         orderBy: "name asc",
         page: 1,
-        search: "name ilike '%team''s east%'",
+        search: "oidc_subject <> '' and name ilike '%team''s east%'",
         size: 20,
       },
       { signal: abortController.signal },
@@ -420,6 +419,10 @@ describe("gateway API operations adapter", () => {
       controlPlane.findGatewayPlacements("", context),
     ).resolves.toMatchObject({ hasMore: true });
     expect(managedClusterApi.list).toHaveBeenCalledOnce();
+    expect(managedClusterApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "oidc_subject <> ''" }),
+      expect.anything(),
+    );
   });
 
   it("treats ILIKE wildcard and escape characters as search literals", async () => {
@@ -438,7 +441,8 @@ describe("gateway API operations adapter", () => {
 
     expect(managedClusterApi.list).toHaveBeenCalledWith(
       expect.objectContaining({
-        search: "name ilike '%my\\_cluster\\%\\\\west''s%'",
+        search:
+          "oidc_subject <> '' and name ilike '%my\\_cluster\\%\\\\west''s%'",
       }),
       { signal: undefined },
     );
@@ -524,6 +528,26 @@ describe("gateway API operations adapter", () => {
 
     expect(gatewayApi.list).toHaveBeenCalledWith(
       expect.objectContaining({ orderBy: "created_by desc" }),
+      { signal: undefined },
+    );
+  });
+
+  it("sorts the sandbox column by the authoritative count field", async () => {
+    gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
+
+    await controlPlane.listGateways(
+      {
+        ...listRequest,
+        page: 1,
+        search: "",
+        sortDirection: "desc",
+        sortField: "activeSandboxes",
+      },
+      context,
+    );
+
+    expect(gatewayApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: "active_sandbox_count desc" }),
       { signal: undefined },
     );
   });
@@ -643,9 +667,7 @@ describe("gateway API operations adapter", () => {
   });
 
   it("provisions on the selected cluster with hidden request defaults", async () => {
-    gatewayApi.create.mockResolvedValue(
-      gateway({ database_id: "", release_id: "" }),
-    );
+    gatewayApi.create.mockResolvedValue(gateway({ release_id: "" }));
 
     await controlPlane.provisionGateway(
       {
@@ -658,7 +680,6 @@ describe("gateway API operations adapter", () => {
     expect(gatewayApi.create).toHaveBeenCalledWith(
       {
         cluster_id: "cluster-east",
-        database_id: "",
         name: "team-gateway",
         release_id: "",
         route: '{"enabled":true}',

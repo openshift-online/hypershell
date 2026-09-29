@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Keep privileged runtime identities and the workloads that use them together.
+# Monitoring includes cluster RBAC and hostPath node-exporter mounts; shared
+# certificate authorities and network policies also remain platform-owned.
+resources:
+  - namespace.yaml
+  - controller.yaml
+  - controller-rbac.yaml
+  - networkpolicies.yaml
+  - ../prometheus
+  - ../certificates

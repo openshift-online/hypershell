@@ -1,5 +1,56 @@
 import type { OperationalDashboardMetrics } from "../application/dashboard-types";
 
+function buildSevenDayTrendPoints(
+  baseValue: number,
+  step: number,
+): { label: string; value: number }[] {
+  const points: { label: string; value: number }[] = [];
+  const today = new Date();
+  const utcToday = Date.UTC(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    today.getUTCDate(),
+  );
+
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const day = new Date(utcToday - offset * 24 * 60 * 60 * 1000);
+    points.push({
+      label: day.toISOString().slice(0, 10),
+      value: baseValue + (6 - offset) * step,
+    });
+  }
+
+  return points;
+}
+
+function buildHourlyTrendPoints(
+  baseValue: number,
+  step: number,
+): { label: string; value: number }[] {
+  const points: { label: string; value: number }[] = [];
+  const end = new Date();
+  const endHour = Date.UTC(
+    end.getUTCFullYear(),
+    end.getUTCMonth(),
+    end.getUTCDate(),
+    end.getUTCHours(),
+  );
+
+  for (let offset = 23; offset >= 0; offset -= 1) {
+    const hour = new Date(endHour - offset * 60 * 60 * 1000);
+    const year = hour.getUTCFullYear();
+    const month = String(hour.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(hour.getUTCDate()).padStart(2, "0");
+    const hourLabel = String(hour.getUTCHours()).padStart(2, "0");
+    points.push({
+      label: `${String(year)}-${month}-${day}T${hourLabel}:00`,
+      value: baseValue + (23 - offset) * step,
+    });
+  }
+
+  return points;
+}
+
 function buildRegisteredUsersTrendPoints(): {
   label: string;
   value: number;
@@ -38,11 +89,32 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
           healthy: 80,
           provisioning: 9,
         }),
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(80, 2)),
+        }),
         value: "97",
       }),
       Object.freeze({
+        expiringSandboxes: 12,
+        hourlyTrend: Object.freeze({
+          points: Object.freeze(buildHourlyTrendPoints(180, 1)),
+        }),
         id: "provisioned-sandboxes",
+        idleSandboxes: 7,
+        orphanedSandboxes: 3,
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(190, 3)),
+        }),
         value: "214",
+      }),
+      Object.freeze({
+        id: "gateway-releases",
+        releaseDistribution: Object.freeze({
+          "OpenShell 2.0": 62,
+          "OpenShell 2.1-canary": 12,
+          unknown: 3,
+        }),
+        value: "77",
       }),
       Object.freeze({
         createdLast7Days: "12",
@@ -58,12 +130,18 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
       Object.freeze({
         id: "memory",
         total: "237",
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(200, 3)),
+        }),
         unit: "GiB",
         value: "220",
       }),
       Object.freeze({
         id: "cpu",
         total: "60",
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(40, 1)),
+        }),
         unit: "cores",
         value: "48",
       }),
@@ -77,6 +155,9 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
           unknown: 0,
         }),
         total: "2000",
+        trend: Object.freeze({
+          points: Object.freeze(buildSevenDayTrendPoints(500, 7)),
+        }),
         unit: "pods",
         value: "548",
       }),
@@ -91,12 +172,27 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
       Object.freeze({
         id: "provision-time",
         provisionDuration: Object.freeze({
-          mean: "5.25",
-          p50: "4.80",
-          p95: "12.10",
+          mean: "315.00",
+          p50: "288.00",
+          p95: "726.00",
         }),
-        unit: "minutes",
-        value: "5.25",
+        unit: "sec",
+        value: "315.00",
+      }),
+      Object.freeze({
+        id: "provision-reliability",
+        provisionOutcomes: Object.freeze({
+          failureCount24h: "1",
+          successCount24h: "9",
+          successRatePercent: "90.0",
+        }),
+        successRateTrend: Object.freeze({
+          points: Object.freeze([
+            Object.freeze({ label: "2026-08-09T12:00", value: 80 }),
+            Object.freeze({ label: "2026-08-09T13:00", value: 100 }),
+          ]),
+        }),
+        value: "90.0",
       }),
       Object.freeze({
         createdLast30Days: "2",
@@ -118,14 +214,61 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
         }),
         value: "8",
       }),
-      Object.freeze({
-        id: "managed-databases",
-        inventoryStatus: Object.freeze({
-          Ready: 2,
-          unknown: 1,
-        }),
-        value: "3",
-      }),
     ]),
     lastSuccessfulRefresh: new Date("2026-08-25T10:55:00.000Z"),
   });
+
+function replaceProvisionedSandboxes(
+  metrics: OperationalDashboardMetrics,
+  sandboxes: OperationalDashboardMetrics["metrics"][number],
+): OperationalDashboardMetrics {
+  return Object.freeze({
+    ...metrics,
+    metrics: Object.freeze(
+      metrics.metrics.map((metric) =>
+        metric.id === "provisioned-sandboxes" ? sandboxes : metric,
+      ),
+    ),
+  });
+}
+
+/**
+ * SSA-11 Storybook / local-dev state: all attention counts present and zero
+ * (Attention required section hidden; Active and trends still shown).
+ */
+export const mockOperationalDashboardMetricsZeroAttention: OperationalDashboardMetrics =
+  replaceProvisionedSandboxes(
+    mockOperationalDashboardMetrics,
+    Object.freeze({
+      expiringSandboxes: 0,
+      hourlyTrend: Object.freeze({
+        points: Object.freeze(buildHourlyTrendPoints(180, 1)),
+      }),
+      id: "provisioned-sandboxes",
+      idleSandboxes: 0,
+      orphanedSandboxes: 0,
+      trend: Object.freeze({
+        points: Object.freeze(buildSevenDayTrendPoints(190, 3)),
+      }),
+      value: "214",
+    }),
+  );
+
+/**
+ * SSA-11 Storybook / local-dev state: Active present without attention fields
+ * (Attention required shows the unavailable state).
+ */
+export const mockOperationalDashboardMetricsAttentionUnavailable: OperationalDashboardMetrics =
+  replaceProvisionedSandboxes(
+    mockOperationalDashboardMetrics,
+    Object.freeze({
+      hourlyTrend: Object.freeze({
+        points: Object.freeze(buildHourlyTrendPoints(180, 1)),
+      }),
+      id: "provisioned-sandboxes",
+      trend: Object.freeze({
+        points: Object.freeze(buildSevenDayTrendPoints(190, 3)),
+      }),
+      value: "214",
+    }),
+  );

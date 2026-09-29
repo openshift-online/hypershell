@@ -13,7 +13,6 @@ export interface GatewayRecord {
   consoleUrl?: string;
   createdAt?: string;
   createdBy?: string;
-  databaseId: string;
   externalDns?: string;
   gatewayVersion?: string;
   id: string;
@@ -43,7 +42,13 @@ export interface GatewayPlacementOptions {
 
 export type GatewaySortDirection = "asc" | "desc";
 export type GatewaySortField =
-  "cluster" | "created" | "endpoint" | "name" | "owner" | "status";
+  | "activeSandboxes"
+  | "cluster"
+  | "created"
+  | "endpoint"
+  | "name"
+  | "owner"
+  | "status";
 
 export interface GatewayListRequest {
   page: number;

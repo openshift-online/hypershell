@@ -15,8 +15,8 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
 	localapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
-	"github.com/openshift-online/rh-trex-ai/pkg/testutil"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/testutil"
 )
 
 const (

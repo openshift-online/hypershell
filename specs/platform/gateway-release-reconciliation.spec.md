@@ -118,11 +118,11 @@ release by `release_id`; Gateways that pin an explicit `image` and do not
 reference the release SHALL NOT be disturbed.
 
 The fan-out's Gateway listing SHALL be scoped to the control plane's own managed
-cluster: on a managed-cluster spoke (a non-empty cluster identity, the pull model)
-the release watch runs on every control plane, so the listing SHALL apply the
-server-side cluster filter and SHALL NOT match, or request reconciliation of,
-Gateways owned by another cluster. In single-cluster mode (empty cluster identity)
-no cluster filter is applied and the whole fleet is eligible.
+cluster: the release watch runs on every control plane, so the listing SHALL apply
+the server-side cluster filter with the control plane's registered `cluster_id` and
+SHALL NOT match, or request reconciliation of, Gateways owned by another cluster.
+Every control plane has a cluster identity (`control-plane.spec.md`, "Requirement:
+Mandatory Cluster Identity"); there is no unfiltered mode.
 
 #### Scenario: Image change fans out to referencing gateways
 

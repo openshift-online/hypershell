@@ -64,6 +64,12 @@ type NamespaceGCReconciler struct {
 	// cpNamespace is the control-plane namespace where GC Events are recorded so
 	// they outlive the namespace being deleted.
 	cpNamespace string
+	// clusterID is this control plane's registered cluster id. The live set is
+	// built from this cluster's gateways only: the api-server rejects an
+	// unfiltered ListGateways from a registered control plane, and the sweep only
+	// ever selects namespaces this instance labeled, which it creates solely for
+	// gateways assigned to its own cluster.
+	clusterID string
 	// now is overridable in tests for deterministic grace-period evaluation.
 	now func() time.Time
 	// liveNamespaces returns the set of namespaces currently backed by a live
@@ -77,7 +83,7 @@ type NamespaceGCReconciler struct {
 
 // NewNamespaceGCReconciler builds a NamespaceGCReconciler, applying defaults for
 // any non-positive interval or grace period.
-func NewNamespaceGCReconciler(client kubernetes.Interface, grpcConn *grpc.ClientConn, interval, gracePeriod time.Duration, cpNamespace string) *NamespaceGCReconciler {
+func NewNamespaceGCReconciler(client kubernetes.Interface, grpcConn *grpc.ClientConn, interval, gracePeriod time.Duration, cpNamespace, clusterID string) *NamespaceGCReconciler {
 	if interval <= 0 {
 		interval = defaultNamespaceGCInterval
 	}
@@ -90,6 +96,7 @@ func NewNamespaceGCReconciler(client kubernetes.Interface, grpcConn *grpc.Client
 		interval:    interval,
 		gracePeriod: gracePeriod,
 		cpNamespace: cpNamespace,
+		clusterID:   clusterID,
 		now:         time.Now,
 	}
 	r.liveNamespaces = r.grpcLiveNamespaces
@@ -163,12 +170,13 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	}
 }
 
-// grpcLiveNamespaces returns the set of namespaces backed by a live Gateway,
-// paging the entire fleet behind a bounded timeout. It is the default
+// grpcLiveNamespaces returns the set of namespaces backed by a live Gateway of
+// this control plane's cluster, paging the whole cluster inventory behind a
+// bounded timeout. It is the default
 // liveNamespaces seam and is called both to seed a sweep and to re-confirm
 // liveness immediately before a delete.
 //
-// The list is paginated, so it pages through the entire fleet; a truncated
+// The list is paginated, so it pages through the entire inventory; a truncated
 // (first-page) view would omit later gateways from the live set and orphan
 // their live namespaces. This is a destructive path, so the live set must key
 // on the real namespace, never a synthesized guess: a live gateway with no
@@ -180,7 +188,7 @@ func (r *NamespaceGCReconciler) grpcLiveNamespaces(ctx context.Context) (map[str
 	listCtx, cancel := context.WithTimeout(ctx, gatewayListTimeout)
 	defer cancel()
 	client := pb.NewGatewayServiceClient(r.grpcConn)
-	gateways, err := listAllGateways(listCtx, client, "")
+	gateways, err := listAllGateways(listCtx, client, r.clusterID)
 	if err != nil {
 		return nil, fmt.Errorf("list gateways: %w", err)
 	}

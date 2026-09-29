@@ -102,10 +102,22 @@
         "react-intl",
         "zod",
         "victory-area",
+        "victory-axis",
+        "victory-bar",
+        "victory-box-plot",
+        "victory-chart",
         "victory-core",
+        "victory-create-container",
+        "victory-cursor-container",
         "victory-group",
+        "victory-legend",
+        "victory-line",
+        "victory-pie",
+        "victory-scatter",
+        "victory-stack",
         "victory-tooltip",
-        "victory-voronoi-container"
+        "victory-voronoi-container",
+        "victory-zoom-container"
       ],
       "groupName": "workspace UI peer providers",
       "automerge": true

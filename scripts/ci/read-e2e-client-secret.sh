@@ -6,17 +6,16 @@
 # The e2e suite authenticates through the hypershell-e2e client (client
 # credentials for the admin path, token exchange for the developer path), never
 # through a brokered GitHub user's password grant. The client secret is per-PR:
-# it is the same value the workflow put in the hypershell-github-oauth Secret in
-# the Keycloak namespace, which the render-realm-config init container splices
-# into the hypershell-e2e client via the ${HYPERSHELL_E2E_CLIENT_SECRET}
-# placeholder. This script prints that secret to stdout so the workflow can
-# mask it and export
+# it lives in Secret hypershell-e2e-client in the Keycloak namespace, which the
+# render-realm-config init container splices into the hypershell-e2e client via
+# HYPERSHELL_E2E_CLIENT_SECRET. This script prints that secret to stdout so the
+# workflow can mask it and export
 # E2E_OIDC_SA_CLIENT_SECRET; it must never be echoed into logs, the pull-request
 # comment, or a public artifact.
 #
 # Environment:
 #   PR_NUMBER                 pull-request number (required)
-#   PR_ENV_E2E_SECRET_NAME    Secret name (default: hypershell-github-oauth)
+#   PR_ENV_E2E_SECRET_NAME    Secret name (default: hypershell-e2e-client)
 #   PR_ENV_E2E_SECRET_KEY     Secret data key (default: e2e-client-secret)
 #   PR_ENV_KUBECTL            kubectl/oc binary (default: oc)
 set -euo pipefail
@@ -27,7 +26,7 @@ source "${SCRIPT_DIR}/pr-env-lib.sh"
 
 KUBECTL="${PR_ENV_KUBECTL:-oc}"
 : "${PR_NUMBER:?PR_NUMBER is required}"
-secret_name="${PR_ENV_E2E_SECRET_NAME:-hypershell-github-oauth}"
+secret_name="${PR_ENV_E2E_SECRET_NAME:-hypershell-e2e-client}"
 secret_key="${PR_ENV_E2E_SECRET_KEY:-e2e-client-secret}"
 
 platform_ns="$(pr_env_namespace "${PR_NUMBER}")"
@@ -39,7 +38,7 @@ encoded="$("${KUBECTL}" get secret "${secret_name}" -n "${keycloak_ns}" \
 if [[ -z "${encoded}" ]]; then
   {
     echo "ERROR: could not read ${secret_key} from Secret ${secret_name} in ${keycloak_ns}."
-    echo "The workflow's 'Provision GitHub OAuth secret' step must create this Secret"
+    echo "The workflow must create Secret hypershell-e2e-client"
     echo "(with the e2e-client-secret key) before Keycloak boots and e2e runs."
   } >&2
   exit 1

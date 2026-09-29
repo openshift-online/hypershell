@@ -17,7 +17,7 @@ graph TB
     AK[Keycloak]
     AAPI[API Server]
     AWS_CONTROL[Control Plane]
-    ADB[(CNPG PostgreSQL)]
+    ADB[(Cloud-managed PostgreSQL)]
     AP[Prometheus]
     AAPI --> ADB
     AWS_CONTROL --> AAPI
@@ -27,7 +27,7 @@ graph TB
     IK[Keycloak]
     IAPI[API Server]
     ICP[Control Plane]
-    IDB[(CNPG PostgreSQL)]
+    IDB[(Cloud-managed PostgreSQL)]
     IP[Prometheus]
     IAPI --> IDB
     ICP --> IAPI

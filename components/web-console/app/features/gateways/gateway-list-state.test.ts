@@ -38,4 +38,21 @@ describe("gateway list URL state", () => {
       sortField: "name",
     });
   });
+
+  it("round-trips the active sandbox count sort", () => {
+    const state = parseGatewayListState(
+      new URLSearchParams("sort=activeSandboxes&direction=desc"),
+    );
+
+    expect(state).toEqual({
+      page: 1,
+      search: "",
+      size: 20,
+      sortDirection: "desc",
+      sortField: "activeSandboxes",
+    });
+    expect(serializeGatewayListState(state).toString()).toBe(
+      "sort=activeSandboxes&direction=desc",
+    );
+  });
 });

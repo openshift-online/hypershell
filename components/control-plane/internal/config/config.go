@@ -9,20 +9,11 @@ import (
 	"time"
 )
 
-// Database provider values for DATABASE_PROVIDER. DatabaseProviderDeployment
-// is the default (unset or empty DATABASE_PROVIDER resolves to it): a
-// standalone PostgreSQL Deployment per gateway, requiring no operator.
-// DatabaseProviderCNPG opts into the CloudNativePG-backed placement and
-// requires the CNPG operator CRDs to be installed; see
-// gateway.RequireCNPGAPI, which the control-plane entrypoint uses to fail
-// startup cleanly when they are not.
-// DatabaseProviderExternal selects an externally-managed PostgreSQL server;
-// the control plane issues DDL in-process and requires no CNPG operator.
-const (
-	DatabaseProviderDeployment = "deployment"
-	DatabaseProviderCNPG       = "cnpg"
-	DatabaseProviderExternal   = "external"
-)
+// DefaultGatewayDatabaseAdminDir is where the controller Deployment mounts the
+// PostgreSQL admin credentials Secret used to provision gateway databases. One
+// file per Secret key: host, port, user, password, sslrootcert, and optionally
+// dbname and sslmode. See specs/platform/openshell-gateway-database.spec.md.
+const DefaultGatewayDatabaseAdminDir = "/etc/hypershell/gateway-database"
 
 // DefaultGatewayReconcileWorkers is the fallback size of the gateway reconcile
 // worker pool when GATEWAY_RECONCILE_WORKERS is unset or invalid. It matches the
@@ -37,20 +28,24 @@ type Config struct {
 	Namespace      string
 	LogLevel       string
 
-	// ClusterID is this control-plane's managed-cluster identity (a Gateway
-	// cluster_id / KSUID). When set, the control-plane restricts the gateways it
-	// watches, seeds, and health-checks to those whose cluster_id matches, so a
-	// managed-cluster spoke only ever provisions its own gateways (the pull
-	// model). Empty preserves the single-cluster behaviour of handling every
-	// gateway. Sourced from HYPERSHELL_CLUSTER_ID; in production, resolved at
-	// runtime via spoke self-registration and should NOT be set in gitops.
-	ClusterID string
-
-	// ManagedClusterName is the human-readable name of this spoke cluster, unique
-	// per fleet (e.g. hyp0-mc1). When set together with OIDC credentials, the
-	// control plane self-registers on startup, resolving ClusterID dynamically.
-	// Sourced from HYPERSHELL_MANAGED_CLUSTER_NAME.
+	// ManagedClusterName is the human-readable name this control plane
+	// registers under (e.g. hyp0-mc1, or local-kind in the Kind overlay), unique
+	// per control plane. It is REQUIRED: every control plane is a registered
+	// spoke, and its cluster_id is resolved at startup by calling
+	// POST /managed_clusters/registration with this name. There is no
+	// unregistered (unfiltered) mode, and a cluster id is never read from
+	// configuration. Sourced from HYPERSHELL_MANAGED_CLUSTER_NAME.
+	// See specs/platform/control-plane.spec.md ("Mandatory Cluster Identity").
 	ManagedClusterName string
+
+	// OIDC client credentials used both for registration and as per-RPC bearer
+	// credentials on every gRPC call (including the watch streams). All three
+	// are REQUIRED. OIDCTokenEndpoint optionally overrides the token endpoint
+	// discovered from the issuer.
+	OIDCIssuer        string
+	OIDCClientID      string
+	OIDCClientSecret  string
+	OIDCTokenEndpoint string
 
 	// ServiceAccountProvisionerAddress is the in-cluster bind address for the
 	// internal service-account provisioner gRPC server. A NetworkPolicy restricts
@@ -75,30 +70,33 @@ type Config struct {
 	// See specs/platform/gateway-reconcile-concurrency.spec.md.
 	GatewayReconcileWorkers int
 
-	// DatabaseProvider is the control-plane-wide default ManagedDatabase
-	// provider, resolved from DATABASE_PROVIDER by resolveDatabaseProvider.
-	// It is always one of DatabaseProviderDeployment, DatabaseProviderCNPG or
-	// DatabaseProviderExternal; Load returns an error for any other
-	// DATABASE_PROVIDER value instead of silently falling back. Existing ManagedDatabase resources keep
-	// reconciling per their own Provider field regardless of this default
-	// (see internal/reconciler.ManagedDatabaseReconciler), so gateways backed
-	// by CNPG remain compatible even when this default is "deployment".
-	DatabaseProvider string
+	// Helm chart configuration
+	HelmChartPath     string
+	HelmChartRegistry string
+	HelmChartVersion  string
+
+	// External CA issuer configuration for Route passthrough mode
+	ExternalCAIssuerName string
+	ExternalCAIssuerKind string
+
+	// GatewayDatabaseAdminDir is the directory holding the mounted PostgreSQL
+	// admin credentials for gateway database provisioning. Sourced from
+	// GATEWAY_DATABASE_ADMIN_DIR; the controller refuses to start unless it holds
+	// a complete, verify-full credential set (see gateway.ValidateAdminCredentialsDir).
+	GatewayDatabaseAdminDir string
 }
 
 func Load() (*Config, error) {
-	databaseProvider, err := resolveDatabaseProvider(os.Getenv("DATABASE_PROVIDER"))
-	if err != nil {
-		return nil, err
-	}
-
 	cfg := &Config{
 		GRPCServerAddr:                   getEnv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000"),
 		APIServerURL:                     getEnv("HYPERSHELL_API_SERVER_URL", "http://localhost:8000"),
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
 		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
-		ClusterID:                        getEnv("HYPERSHELL_CLUSTER_ID", ""),
 		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
+		OIDCIssuer:                       getEnv("OIDC_ISSUER", ""),
+		OIDCClientID:                     getEnv("OIDC_CLIENT_ID", ""),
+		OIDCClientSecret:                 getEnv("OIDC_CLIENT_SECRET", ""),
+		OIDCTokenEndpoint:                getEnv("OIDC_TOKEN_ENDPOINT", ""),
 		ServiceAccountProvisionerAddress: getEnv("HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS", ""),
 
 		NamespaceGCEnabled:     getEnvBool("GATEWAY_NAMESPACE_GC_ENABLED", true),
@@ -107,33 +105,42 @@ func Load() (*Config, error) {
 
 		GatewayReconcileWorkers: getEnvInt("GATEWAY_RECONCILE_WORKERS", DefaultGatewayReconcileWorkers, 1),
 
-		DatabaseProvider: databaseProvider,
+		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
+		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
+		HelmChartVersion:  getEnv("HELM_CHART_VERSION", ""),
+
+		ExternalCAIssuerName: getEnv("EXTERNAL_CA_ISSUER_NAME", ""),
+		ExternalCAIssuerKind: getEnv("EXTERNAL_CA_ISSUER_KIND", "ClusterIssuer"),
+
+		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 	}
 
 	if cfg.GRPCServerAddr == "" {
 		return nil, fmt.Errorf("HYPERSHELL_GRPC_SERVER_ADDR is required")
 	}
 
-	return cfg, nil
-}
-
-// resolveDatabaseProvider validates a raw DATABASE_PROVIDER value into one of
-// the three supported providers. Unset or empty means DatabaseProviderDeployment
-// (deployment-backed ManagedDatabase placement is the default and requires no
-// CNPG APIs); any value other than "deployment", "cnpg" or "external" is a
-// startup configuration error rather than a silent fallback.
-func resolveDatabaseProvider(raw string) (string, error) {
-	switch raw {
-	case "", DatabaseProviderDeployment:
-		return DatabaseProviderDeployment, nil
-	case DatabaseProviderCNPG:
-		return DatabaseProviderCNPG, nil
-	case DatabaseProviderExternal:
-		return DatabaseProviderExternal, nil
-	default:
-		return "", fmt.Errorf("invalid DATABASE_PROVIDER %q: must be %q, %q, or %q (unset defaults to %q)",
-			raw, DatabaseProviderCNPG, DatabaseProviderDeployment, DatabaseProviderExternal, DatabaseProviderDeployment)
+	// Every control plane is a registered spoke: without a cluster name and OIDC
+	// client credentials it cannot register, so it cannot scope its watches, and
+	// it must not start at all. Check in a fixed order so the error always names
+	// the first missing variable.
+	required := []struct{ name, value string }{
+		{"HYPERSHELL_MANAGED_CLUSTER_NAME", cfg.ManagedClusterName},
+		{"OIDC_ISSUER", cfg.OIDCIssuer},
+		{"OIDC_CLIENT_ID", cfg.OIDCClientID},
+		{"OIDC_CLIENT_SECRET", cfg.OIDCClientSecret},
 	}
+	for _, r := range required {
+		if strings.TrimSpace(r.value) == "" {
+			return nil, fmt.Errorf("%s is required: every control plane registers with the hub as a managed cluster (specs/platform/control-plane.spec.md, Mandatory Cluster Identity)", r.name)
+		}
+	}
+
+	// Validate Helm configuration
+	if cfg.HelmChartRegistry != "" && cfg.HelmChartVersion == "" {
+		return nil, fmt.Errorf("HELM_CHART_VERSION is required when HELM_CHART_REGISTRY is set")
+	}
+
+	return cfg, nil
 }
 
 func getEnv(key, fallback string) string {

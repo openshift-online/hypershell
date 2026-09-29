@@ -116,6 +116,8 @@ The route SHALL NOT forward to the HyperShell API server and SHALL NOT require a
 
 On Prometheus failure, timeout, or non-success Prometheus response status, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT return zeroed CPU figures as a fallback.
 
+When instant queries succeed, the route MAY also include optional `daily_used` (7 UTC calendar days of daily used cores) per `platform/hub-cluster-utilization-trends.spec.md` HCUT-03 and HCUT-05.
+
 #### Scenario: Dashboard administrator receives CPU cores
 
 - GIVEN OIDC is enabled and the caller has `platform:admin`
@@ -148,7 +150,9 @@ The operational dashboard host adapter (`createDashboardControlPlaneAdapter`) SH
 | `total` | Decimal string of **capacity** cores, rounded to the nearest whole core (`round(capacity_cores)`) |
 | `unit` | `"cores"` |
 
-The adapter SHALL NOT emit `trend` or `status` for the `cpu` metric in version 1.
+The adapter SHALL NOT emit `status` for the `cpu` metric in version 1.
+
+When BFF `daily_used` is present, the adapter SHALL also emit optional `trend` per `platform/hub-cluster-utilization-trends.spec.md` HCUT-07. When `daily_used` is absent, the adapter SHALL omit `trend`.
 
 The `system-summary` card SHALL continue to source its CPU row from the same `cpu` metric (OP-DASH-13). The utilization donut SHALL render because `unit` and `total` are present.
 
@@ -221,7 +225,7 @@ The operational dashboard package SHALL update `mockOperationalDashboardMetrics`
 ## Non-Goals
 
 - Memory, pod utilization (see `platform/cluster-pods.spec.md`), node count, and provision-time metrics (covered by or deferred to other specs)
-- Historical trend series or sparklines for CPU
+- Per-day capacity or utilization-percentage trend series (used-only daily trends are defined in `platform/hub-cluster-utilization-trends.spec.md`)
 - Per-node or per-namespace CPU breakdown in the UI
 - CPU metrics for registered **managed clusters** or gateway tenant namespaces
 - A HyperShell REST `/cluster_cpu` OpenAPI resource in version 1

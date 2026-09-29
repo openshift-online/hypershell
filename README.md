@@ -6,6 +6,12 @@ HyperShell provisions and manages [OpenShell](https://github.com/NVIDIA/OpenShel
 
 Open the [hosted HyperShell architecture atlas](https://openshift-online.github.io/hypershell/) or read the [architecture atlas build instructions](docs/architecture/README.md) for rendered diagrams covering the platform topology, API server, control plane, tenant Gateway workload, clients and SDKs, data, ingress, identity, web console, observability, delivery, and domain model. Each page includes its Mermaid source and repository specification citations.
 
+## GitOps deployment packages
+
+For separate platform and application Argo CD instances, see the
+[GitOps deployment packages](deploy/gitops/README.md). The existing `deploy/hub`
+entry point remains a combined deployment for current consumers.
+
 ## Kubernetes Prerequisites
 
 The control plane requires the following resources to be present on the target cluster before it can fully reconcile gateways.
@@ -168,8 +174,8 @@ Or apply a kustomize patch via `deploy/openshift/kustomization.yaml` with your s
 | `HYPERSHELL_GRPC_SERVER_ADDR` | `localhost:9000` | ✓ | gRPC address of the API server |
 | `HYPERSHELL_API_SERVER_URL` | `http://localhost:8000` | ✓ | HTTP address of the API server |
 | `HYPERSHELL_NAMESPACE` | pod namespace | ✓ | Namespace this controller runs in. In cluster this is the downward API (`metadata.namespace`), so the value is unique to that controller. It is also the `hypershell.redhat.io/instance` identity stamped on gateway namespaces so GC never reaps another HyperShell's workloads. |
-| `GATEWAY_IMAGE` | *(none)* | **✓ required** | Container image for tenant gateways (pinned by digest; no fallback). Set in `deploy/base/controller.yaml` |
-| `GATEWAY_SUPERVISOR_IMAGE` | *(none)* | **✓ required** | Container image for gateway supervisors (pinned by digest; no fallback). Set in `deploy/base/controller.yaml` |
+| `GATEWAY_IMAGE` | *(none)* | **✓ required** | Container image for tenant gateways (pinned by digest; no fallback). Set in `deploy/base/platform-resources/controller.yaml` |
+| `GATEWAY_SUPERVISOR_IMAGE` | *(none)* | **✓ required** | Container image for gateway supervisors (pinned by digest; no fallback). Set in `deploy/base/platform-resources/controller.yaml` |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | ✓ | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | ✓ | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | *(none)* | | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |

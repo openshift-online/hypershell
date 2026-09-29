@@ -34,8 +34,8 @@ graph TB
     S2 -->|gRPC| GW
     SN -->|gRPC| GW
   end
-  DB[(ManagedDatabase<br/>logical gateway DB)]
-  GW -->|OPENSHELL_DB_URL| DB
+  DB[(Gateway PostgreSQL server<br/>database + role gw_id)]
+  GW -->|--db-url, sslmode=require| DB
   CERT[cert-manager] -.-> TLS
   AGENT[Agent Sandbox controller] -.-> S1
   style NS fill:#f5f8fa

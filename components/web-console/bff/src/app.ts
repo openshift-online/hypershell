@@ -24,10 +24,13 @@ import {
   type BrowserRuntimeConfig,
   type ServerConfig,
 } from "./config.js";
-import { queryGatewayPhaseCounts } from "./metrics-gateways.js";
+import { queryApiReliability } from "./metrics-api-reliability.js";
+import { queryControlPlaneReconciliation } from "./metrics-control-plane-reconciliation.js";
+import { queryGatewayMetrics } from "./metrics-gateways.js";
 import { queryClusterCpu } from "./metrics-cluster-cpu.js";
 import { queryClusterMemory } from "./metrics-cluster-memory.js";
 import { queryGatewayProvisionDuration } from "./metrics-gateway-provision-duration.js";
+import { queryGatewayProvisionOutcomes } from "./metrics-gateway-provision-outcomes.js";
 import { queryGatewaySandboxes } from "./metrics-gateway-sandboxes.js";
 import { queryPlatformInventory } from "./metrics-platform-inventory.js";
 import { queryRegisteredUsers } from "./metrics-registered-users.js";
@@ -68,6 +71,7 @@ function isApplicationRoute(pathname: string): boolean {
   return (
     pathname === "/" ||
     pathname === "/dashboard" ||
+    pathname === "/dashboard/reliability" ||
     pathname === "/login" ||
     pathname === "/gateways/new" ||
     pathname === "/metrics" ||
@@ -106,6 +110,7 @@ function requiresDashboardAdminAccess(
 ): boolean {
   return (
     pathname === "/dashboard" ||
+    pathname === "/dashboard/reliability" ||
     pathname === "/metrics" ||
     (pathname === "/" && isDashboardHost(hostHeader))
   );
@@ -479,12 +484,11 @@ export async function buildApp(
     { preHandler: requireDashboardMetricsAccess },
     async (request, reply) => {
       try {
-        const counts = await queryGatewayPhaseCounts(
+        return await queryGatewayMetrics(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
           config.prometheusNamespace,
         );
-        return { counts };
       } catch (error) {
         request.log.warn({ err: error }, "gateway metrics query failed");
         reply.code(502);
@@ -599,6 +603,27 @@ export async function buildApp(
   );
 
   app.get(
+    "/api/metrics/gateway-provision-outcomes",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryGatewayProvisionOutcomes(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          config.prometheusNamespace,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "gateway provision outcomes metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
     "/api/metrics/gateway-sandboxes",
     { preHandler: requireDashboardMetricsAccess },
     async (request, reply) => {
@@ -654,6 +679,46 @@ export async function buildApp(
         request.log.warn(
           { err: error },
           "registered user metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/api-reliability",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryApiReliability(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "API reliability metrics query failed",
+        );
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/control-plane-reconciliation",
+    { preHandler: requireDashboardMetricsAccess },
+    async (request, reply) => {
+      try {
+        return await queryControlPlaneReconciliation(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "control-plane reconciliation metrics query failed",
         );
         reply.code(502);
         return { error: "Metrics unavailable", statusCode: 502 };

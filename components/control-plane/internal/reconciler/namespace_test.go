@@ -44,7 +44,7 @@ func nsWithLabels(name string, labels, annotations map[string]string) *corev1.Na
 // live" - past-grace orphans are reaped - and overridden by the tests that
 // exercise the stale-liveness protection.
 func newTestGC(client kubernetes.Interface, now time.Time) *NamespaceGCReconciler {
-	r := NewNamespaceGCReconciler(client, nil, time.Minute, 10*time.Minute, "hypershell")
+	r := NewNamespaceGCReconciler(client, nil, time.Minute, 10*time.Minute, "hypershell", "mc1")
 	r.now = func() time.Time { return now }
 	r.liveNamespaces = func(context.Context) (map[string]struct{}, error) {
 		return map[string]struct{}{}, nil
@@ -129,7 +129,7 @@ func TestRecordGCEvent_InvolvedObjectNamespaceMatchesEventNamespace(t *testing.T
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	client := fake.NewSimpleClientset()
-	r := NewNamespaceGCReconciler(client, nil, time.Minute, 10*time.Minute, "hypershell-stage")
+	r := NewNamespaceGCReconciler(client, nil, time.Minute, 10*time.Minute, "hypershell-stage", "mc1")
 	r.now = func() time.Time { return now }
 
 	if err := r.recordGCEvent(ctx, "openshell-gw", "test message"); err != nil {
@@ -155,25 +155,6 @@ func TestRecordGCEvent_InvolvedObjectNamespaceMatchesEventNamespace(t *testing.T
 	}
 	if ev.InvolvedObject.Name != "openshell-gw" {
 		t.Errorf("involvedObject.name = %q, want openshell-gw", ev.InvolvedObject.Name)
-	}
-}
-
-func TestReconcileNamespace_SkipsManagedDatabaseNamespace(t *testing.T) {
-	ctx := context.Background()
-	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	// ManagedDatabase namespaces share management labels but use the openshell-db- prefix.
-	ns := managedNS("openshell-db-a1b2c3d4e5f67890", map[string]string{
-		gateway.GCEligibleSinceAnnotation: now.Add(-20 * time.Minute).Format(time.RFC3339),
-	})
-	client := fake.NewSimpleClientset(ns)
-	r := newTestGC(client, now)
-
-	if err := r.reconcileNamespace(ctx, ns, map[string]struct{}{}); err != nil {
-		t.Fatalf("reconcileNamespace() error = %v", err)
-	}
-
-	if !nsExists(t, client, "openshell-db-a1b2c3d4e5f67890") {
-		t.Fatalf("ManagedDatabase namespace deleted by gateway GC, want retained")
 	}
 }
 

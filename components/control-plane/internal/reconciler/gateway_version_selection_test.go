@@ -3,10 +3,12 @@ package reconciler
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -55,6 +57,7 @@ func strptr(s string) *string { return &s }
 // A gateway that references a release resolves to that release's image, and the
 // resolved image takes precedence over any direct image on the gateway.
 func TestSelectGatewayImage_ReleasePrecedesDirectImage(t *testing.T) {
+	t.Setenv("GATEWAY_IMAGE", "registry.redhat.io/openshell/gateway:platform-default")
 	conn := dialReleaseServer(t, releaseServer{
 		release: &pb.GatewayRelease{
 			Metadata: &pb.ObjectReference{Id: "r1"},
@@ -84,6 +87,7 @@ func TestSelectGatewayImage_ReleasePrecedesDirectImage(t *testing.T) {
 // The primary database-backed path: a gateway that references a release and
 // carries no direct image resolves to the release image.
 func TestSelectGatewayImage_ReleaseOnly(t *testing.T) {
+	t.Setenv("GATEWAY_IMAGE", "registry.redhat.io/openshell/gateway:platform-default")
 	conn := dialReleaseServer(t, releaseServer{
 		release: &pb.GatewayRelease{
 			Metadata: &pb.ObjectReference{Id: "r1"},
@@ -106,6 +110,7 @@ func TestSelectGatewayImage_ReleaseOnly(t *testing.T) {
 
 // With no release_id the direct image is used.
 func TestSelectGatewayImage_DirectImageFallback(t *testing.T) {
+	t.Setenv("GATEWAY_IMAGE", "registry.redhat.io/openshell/gateway:platform-default")
 	r := &GatewayReconciler{} // no grpcConn needed: release path not taken
 
 	img, err := r.selectGatewayImage(context.Background(), &pb.Gateway{
@@ -120,23 +125,109 @@ func TestSelectGatewayImage_DirectImageFallback(t *testing.T) {
 	}
 }
 
-// With neither release_id nor a direct image, selection returns empty so the
-// manifest layer applies the platform default.
-func TestSelectGatewayImage_EmptyLetsManifestDefault(t *testing.T) {
+// Gateways without a release or direct image use GATEWAY_IMAGE in Helm values.
+func TestSelectGatewayImage_PlatformDefault(t *testing.T) {
+	const defaultImage = "quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd"
+	t.Setenv("GATEWAY_IMAGE", defaultImage)
+
+	for _, tc := range []struct {
+		name  string
+		image *string
+	}{
+		{name: "absent image"},
+		{name: "empty image", image: strptr("")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &GatewayReconciler{}
+			img, err := r.selectGatewayImage(context.Background(), &pb.Gateway{Name: "g1", Image: tc.image})
+			if err != nil {
+				t.Fatalf("select default image: %v", err)
+			}
+			if img != defaultImage {
+				t.Fatalf("expected platform image %q, got %q", defaultImage, img)
+			}
+
+			builder := helm.ValuesBuilder{
+				Gateway:   helm.GatewayConfig{Image: img},
+				Namespace: "openshell-test",
+			}
+			values, err := builder.Build()
+			if err != nil {
+				t.Fatalf("build Helm values: %v", err)
+			}
+			image, ok := values["image"].(map[string]interface{})
+			if !ok {
+				t.Fatal("Helm values must include the gateway image override")
+			}
+			if image["repository"] != "quay.io/opendatahub/odh-openshell-gateway" || image["tag"] != "v0.0.109-rhaiv.0" {
+				t.Fatalf("unexpected Helm image values: %v", image)
+			}
+		})
+	}
+}
+
+func TestSelectGatewayImage_MissingPlatformDefaultFails(t *testing.T) {
+	t.Setenv("GATEWAY_IMAGE", "")
 	r := &GatewayReconciler{}
 
 	img, err := r.selectGatewayImage(context.Background(), &pb.Gateway{Name: "g1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "GATEWAY_IMAGE") {
+		t.Fatalf("expected a GATEWAY_IMAGE configuration error, got image %q, error %v", img, err)
 	}
 	if img != "" {
-		t.Fatalf("expected empty selection, got %q", img)
+		t.Fatalf("expected no image on error, got %q", img)
+	}
+}
+
+// --- Supervisor image selection ---
+
+// A gateway with an explicit supervisor_image uses that image.
+func TestSelectSupervisorImage_DirectImage(t *testing.T) {
+	t.Setenv("GATEWAY_SUPERVISOR_IMAGE", "registry.redhat.io/openshell/supervisor:platform-default")
+	img := selectSupervisorImage(&pb.Gateway{
+		Name:            "g1",
+		SupervisorImage: strptr("registry.redhat.io/openshell/supervisor:v1"),
+	})
+	if img != "registry.redhat.io/openshell/supervisor:v1" {
+		t.Fatalf("expected direct supervisor image, got %q", img)
+	}
+}
+
+// Without a direct supervisor_image the platform default is used.
+func TestSelectSupervisorImage_PlatformDefault(t *testing.T) {
+	const defaultImage = "registry.redhat.io/openshell/supervisor:platform-default"
+	t.Setenv("GATEWAY_SUPERVISOR_IMAGE", defaultImage)
+
+	for _, tc := range []struct {
+		name            string
+		supervisorImage *string
+	}{
+		{name: "absent supervisor_image"},
+		{name: "empty supervisor_image", supervisorImage: strptr("")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := selectSupervisorImage(&pb.Gateway{Name: "g1", SupervisorImage: tc.supervisorImage})
+			if img != defaultImage {
+				t.Fatalf("expected platform default %q, got %q", defaultImage, img)
+			}
+		})
+	}
+}
+
+// When neither a direct supervisor_image nor GATEWAY_SUPERVISOR_IMAGE is set,
+// selectSupervisorImage returns empty so the reconciler can fail fast.
+func TestSelectSupervisorImage_MissingPlatformDefaultReturnsEmpty(t *testing.T) {
+	t.Setenv("GATEWAY_SUPERVISOR_IMAGE", "")
+	img := selectSupervisorImage(&pb.Gateway{Name: "g1"})
+	if img != "" {
+		t.Fatalf("expected empty image when no default is configured, got %q", img)
 	}
 }
 
 // A referenced release that does not exist fails the selection so the reconcile
 // is retried; it must not silently fall back to a default or empty image.
 func TestSelectGatewayImage_ReleaseNotFoundFails(t *testing.T) {
+	t.Setenv("GATEWAY_IMAGE", "registry.redhat.io/openshell/gateway:platform-default")
 	conn := dialReleaseServer(t, releaseServer{err: status.Error(codes.NotFound, "GatewayRelease with id='missing' not found")})
 	r := &GatewayReconciler{grpcConn: conn}
 
@@ -152,6 +243,7 @@ func TestSelectGatewayImage_ReleaseNotFoundFails(t *testing.T) {
 // A referenced release with an empty image fails the selection rather than
 // deploying an empty image.
 func TestSelectGatewayImage_ReleaseEmptyImageFails(t *testing.T) {
+	t.Setenv("GATEWAY_IMAGE", "registry.redhat.io/openshell/gateway:platform-default")
 	conn := dialReleaseServer(t, releaseServer{
 		release: &pb.GatewayRelease{Metadata: &pb.ObjectReference{Id: "r1"}, Image: ""},
 	})
@@ -167,6 +259,7 @@ func TestSelectGatewayImage_ReleaseEmptyImageFails(t *testing.T) {
 
 // A transient lookup error fails the selection so the reconcile is retried.
 func TestSelectGatewayImage_TransientLookupErrorFails(t *testing.T) {
+	t.Setenv("GATEWAY_IMAGE", "registry.redhat.io/openshell/gateway:platform-default")
 	conn := dialReleaseServer(t, releaseServer{err: status.Error(codes.Unavailable, "release service temporarily unavailable")})
 	r := &GatewayReconciler{grpcConn: conn}
 
@@ -181,6 +274,7 @@ func TestSelectGatewayImage_TransientLookupErrorFails(t *testing.T) {
 // An empty payload (nil GatewayRelease) is a configuration error, not a usable
 // image.
 func TestSelectGatewayImage_EmptyPayloadFails(t *testing.T) {
+	t.Setenv("GATEWAY_IMAGE", "registry.redhat.io/openshell/gateway:platform-default")
 	conn := dialReleaseServer(t, releaseServer{release: nil})
 	r := &GatewayReconciler{grpcConn: conn}
 

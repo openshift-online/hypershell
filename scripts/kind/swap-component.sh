@@ -73,7 +73,7 @@ restore_web_console_from_overlay() {
     return 0
   fi
   warn "Could not render web-console from the deploy/kind overlay; applying the base manifest (no OIDC env)."
-  kube apply -f "${REPO_ROOT}/deploy/base/web-console.yaml"
+  kube apply -f "${REPO_ROOT}/deploy/base/applications/web-console.yaml"
 }
 
 swap_up() {

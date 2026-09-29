@@ -83,6 +83,47 @@ jobs:
       - name: Run repository policy checks
         run: make check
 
+  gitops-manifests:
+    name: GitOps manifest ownership
+    needs: detect-changes
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install pinned manifest test tools
+        run: |
+          go install sigs.k8s.io/kustomize/kustomize/v5@v5.8.1
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+          python3 -m pip install 'PyYAML==6.0.3'
+      - name: Check ownership and compatibility compositions
+        run: python3 scripts/test_gitops_manifests.py
+
+  # Whole-repo agent-skill security gate. Always runs (not path-filtered) so
+  # skill and baseline changes cannot silently skip the scan. Pins SkillSpector
+  # to a release tag for reproducible CI; bump intentionally when upgrading.
+  skillspector-scan:
+    name: SkillSpector security scan
+    needs: detect-changes
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned SkillSpector
+        run: |
+          python3 --version
+          python3 -m pip install --user "git+https://github.com/NVIDIA/skillspector.git@v2.5.0"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+      - name: Run SkillSpector scan (force)
+        run: |
+          command -v skillspector
+          skillspector --version
+          bash scripts/skillspector-scan.sh --force
+
   sdk-drift:
     name: OpenAPI SDK drift
     needs: detect-changes
@@ -130,13 +171,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: hypershell
-      - name: Check out framework dependency
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: openshift-online/rh-trex-ai
-          ref: ee905fbd54a8653e16cfc2115ca684adf5d29bb4
-          path: rh-trex-ai
-          persist-credentials: false
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
@@ -361,6 +395,8 @@ jobs:
     needs:
       - detect-changes
       - repository-policy
+      - gitops-manifests
+      - skillspector-scan
       - sdk-drift
       - lint-api-server
       - lint-cli

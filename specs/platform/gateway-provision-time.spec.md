@@ -17,13 +17,13 @@ Version 2 aggregates three fleet-wide statistics from the control-plane histogra
 | **P50 (median)** | 50th percentile of recorded provision durations |
 | **P95** | 95th percentile of recorded provision durations |
 
-All three values SHALL be presented in **minutes** on the dashboard. The underlying histogram unit is **seconds** (CP-OBS-07).
+All three values SHALL be presented in **seconds** on the dashboard, matching the underlying histogram unit (CP-OBS-07).
 
-The operational dashboard `system-summary` card already renders a provision-time row (OP-DASH-13). Version 2 extends that card with separate rows for mean, median (P50), and P95. There is no standalone `provision-time` widget in the default layout.
+The operational dashboard `system-summary` card already renders provision-duration rows (OP-DASH-13). Version 2 extends that card with separate rows for mean, median (P50), and P95. The default layout also includes a standalone `provision-time` widget (OP-DASH-10).
 
 ### Relationship to other specifications
 
-- **Control-plane observability** (`platform/control-plane-observability.spec.md` CP-OBS-07) owns recording `gateway.provision.duration` as an OTLP histogram in seconds with explicit bucket boundaries from 1 second through 15 minutes.
+- **Control-plane observability** (`platform/control-plane-observability.spec.md` CP-OBS-07) owns recording `gateway.provision.duration` as an OTLP histogram in seconds with explicit bucket boundaries from 1 second through 15 minutes and the companion `gateway.provision.outcomes` counter (`platform/gateway-provision-outcomes.spec.md`).
 - **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `provision-time` system-summary rows, refresh policy (OP-DASH-09), independent metric sources (OP-DASH-19), and dashboard-operator access (OP-DASH-04).
 - **Cluster memory/CPU/pods/nodes** specs follow the same BFF Prometheus proxy pattern used here.
 - **Gateway list metrics** (`provisioned-gateways`, `provisioned-sandboxes`) remain REST-driven and are unrelated to provision duration.
@@ -73,30 +73,30 @@ The platform SHALL compute three non-negative durations in **seconds** from the 
 | `p50_seconds` | `histogram_quantile(0.50, sum(gateway_provision_duration_seconds_bucket) by (le))` |
 | `p95_seconds` | `histogram_quantile(0.95, sum(gateway_provision_duration_seconds_bucket) by (le))` |
 
-All three expressions SHALL use the same evaluation timestamp. The BFF SHALL convert each value to **minutes** by dividing by `60`.
+All three expressions SHALL use the same evaluation timestamp. The adapter SHALL format each value in **seconds** without unit conversion.
 
 The adapter SHALL expose the result on the `provision-time` `OperationalMetric` as:
 
 | Field | Value |
 | --- | --- |
-| `value` | Decimal string of `mean_seconds / 60`, rounded to **two** fractional digits |
-| `unit` | `"minutes"` |
+| `value` | Decimal string of `mean_seconds`, rounded to **two** fractional digits |
+| `unit` | `"sec"` |
 | `provisionDuration.mean` | Same string as `value` |
-| `provisionDuration.p50` | Decimal string of `p50_seconds / 60`, rounded to two fractional digits |
-| `provisionDuration.p95` | Decimal string of `p95_seconds / 60`, rounded to two fractional digits |
+| `provisionDuration.p50` | Decimal string of `p50_seconds`, rounded to two fractional digits |
+| `provisionDuration.p95` | Decimal string of `p95_seconds`, rounded to two fractional digits |
 
 Version 2 SHALL NOT emit `total`, `status`, or `trend` on the `provision-time` metric.
 
-When `gateway_provision_duration_seconds_count` is zero, any PromQL result is non-finite (`NaN` or `+Inf`), or any converted minute value is non-finite, collection SHALL fail (GPT-07).
+When `gateway_provision_duration_seconds_count` is zero, any PromQL result is non-finite (`NaN` or `+Inf`), or any formatted second value is non-finite, collection SHALL fail (GPT-07).
 
-#### Scenario: Histogram yields mean five point two five, P50 four point eight, P95 twelve point one minutes
+#### Scenario: Histogram yields mean three fifteen, P50 two eighty-eight, P95 seven twenty-six seconds
 
 - GIVEN Prometheus returns `mean_seconds = 315`, `p50_seconds = 288`, and `p95_seconds = 726`
 - WHEN the adapter maps the BFF response
-- THEN `value` and `provisionDuration.mean` SHALL be `"5.25"`
-- AND `provisionDuration.p50` SHALL be `"4.80"`
-- AND `provisionDuration.p95` SHALL be `"12.10"`
-- AND `unit` SHALL be `"minutes"`
+- THEN `value` and `provisionDuration.mean` SHALL be `"315.00"`
+- AND `provisionDuration.p50` SHALL be `"288.00"`
+- AND `provisionDuration.p95` SHALL be `"726.00"`
+- AND `unit` SHALL be `"sec"`
 
 ---
 
@@ -199,12 +199,12 @@ The `system-summary` card SHALL render **three** provision-duration rows sourced
 
 When `provisionDuration` is absent but `value` and `unit` are present, the UI MAY render only the mean row for backward compatibility during rollout.
 
-#### Scenario: System summary shows three minute-labeled rows
+#### Scenario: System summary shows three second-labeled rows
 
-- GIVEN `provisionDuration` is `{ mean: "5.25", p50: "4.80", p95: "12.10" }` and `unit` is `"minutes"`
+- GIVEN `provisionDuration` is `{ mean: "315.00", p50: "288.00", p95: "726.00" }` and `unit` is `"sec"`
 - WHEN the system-summary provision-duration rows render
 - THEN the operator SHALL see localized labels for average, P50, and P95
-- AND each row SHALL show the corresponding value with the minutes unit presentation
+- AND each row SHALL show the corresponding value with the `sec` unit presentation
 
 ---
 
@@ -212,17 +212,18 @@ When `provisionDuration` is absent but `value` and `unit` are present, the UI MA
 
 Provision-time collection SHALL NOT depend on the paginated gateway list (`GET /api/hypershell/v1/gateways`).
 
-Gateway metrics source failure (BFF `GET /api/metrics/gateways` or `GET /api/metrics/gateway-sandboxes`) SHALL omit `provisioned-gateways` and `provisioned-sandboxes` only. It SHALL NOT omit `provision-time` when the BFF provision-duration route succeeds.
+A non-success BFF response for `GET /api/metrics/gateways` or `GET /api/metrics/gateway-sandboxes` SHALL fail the entire `gateway-metrics` source and omit `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, and `provision-reliability`, even when provision-duration or provision-outcomes routes would have succeeded on their own (OP-DASH-23).
 
-Conversely, provision-duration BFF failure SHALL omit only `provision-time`. It SHALL NOT affect other gateway-metrics-derived counts (OP-DASH-19).
+Conversely, provision-duration BFF failure SHALL omit only `provision-time`. Provision-outcomes BFF failure SHALL omit only `provision-reliability`. It SHALL NOT omit `provisioned-gateways` or `provisioned-sandboxes` when their BFF routes succeed (OP-DASH-19, OP-DASH-23).
 
-#### Scenario: Gateway metrics down does not hide provision time
+#### Scenario: Prometheus gateway counts down omits entire gateway-metrics source
 
-- GIVEN the `gateway-metrics` source fails (for example, `GET /api/metrics/gateways` returns HTTP `502`)
-- AND `GET /api/metrics/gateway-provision-duration` succeeds
+- GIVEN `GET /api/metrics/gateways` returns HTTP `502`
+- AND `GET /api/metrics/gateway-provision-duration` would succeed if queried
 - WHEN the operator opens `/dashboard`
-- THEN `provision-time` SHALL appear in the adapter response with mean, P50, and P95
-- AND gateway and sandbox widgets SHALL render the localized metric-unavailable state
+- THEN the `gateway-metrics` source SHALL be treated as failed
+- AND `provisioned-gateways`, `provisioned-sandboxes`, `provision-time`, and `provision-reliability` SHALL be omitted
+- AND registered-user, inventory, and cluster metrics SHALL still load when their sources succeed
 
 ---
 
@@ -230,7 +231,7 @@ Conversely, provision-duration BFF failure SHALL omit only `provision-time`. It 
 
 Provision time SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (OP-DASH-09).
 
-When provision-duration collection fails (BFF `502`, zero observations, non-finite quantiles, or adapter validation error), the adapter SHALL omit only the `provision-time` metric. Other metric sources SHALL still contribute when they succeed (OP-DASH-19). The dashboard SHALL NOT display `0` minutes as a fallback.
+When provision-duration collection fails (BFF `502`, zero observations, non-finite quantiles, or adapter validation error), the adapter SHALL omit only the `provision-time` metric. Other metric sources SHALL still contribute when they succeed (OP-DASH-19). The dashboard SHALL NOT display `0` seconds as a fallback.
 
 #### Scenario: No histogram observations omits provision time only
 
@@ -250,7 +251,7 @@ The web console SHALL include unit tests for:
 - BFF route PromQL mapping and JSON response formatting (including `observation_count`)
 - BFF `502` on zero count, Prometheus errors, and non-finite quantiles
 - Adapter mapping from BFF JSON to `provision-time` with `provisionDuration.mean`, `.p50`, and `.p95`
-- Independent source behavior: gateway-metrics source failure does not block provision time and vice versa (GPT-06)
+- Partial gateway-metrics source behavior: gateway-count or sandbox route failure omits the entire gateway-metrics source; provision-duration or provision-outcomes route failure omits only the corresponding metric (GPT-06)
 
 The operational dashboard package SHALL include unit tests or Storybook fixtures for the three-row system-summary presentation when `provisionDuration` is present.
 
@@ -258,7 +259,7 @@ The operational dashboard package SHALL include unit tests or Storybook fixtures
 
 - GIVEN a mocked BFF response with `mean_seconds: 315`, `p50_seconds: 288`, `p95_seconds: 726`, and `observation_count: 2`
 - WHEN dashboard adapter unit tests run
-- THEN they SHALL assert the `provision-time` metric `id`, `value: "5.25"`, `unit: "minutes"`, and `provisionDuration` with `p50: "4.80"` and `p95: "12.10"`
+- THEN they SHALL assert the `provision-time` metric `id`, `value: "315.00"`, `unit: "sec"`, and `provisionDuration` with `p50: "288.00"` and `p95: "726.00"`
 
 ## Non-Goals
 

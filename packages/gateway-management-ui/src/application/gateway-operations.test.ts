@@ -11,7 +11,6 @@ import {
 
 const gateway: GatewayRecord = {
   clusterId: "",
-  databaseId: "",
   id: "gateway-1",
   name: "Team gateway",
   namespace: "openshell",

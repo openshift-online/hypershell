@@ -72,7 +72,7 @@ The control plane SHALL create one span per resource reconciliation, wrapping ea
 
 Each reconcile span SHALL record at least the resource kind and event type as span attributes. The span status SHALL reflect the reconcile outcome: OK on success, Error with a description on failure. When a reconcile is skipped because of the phase gate or deduplication, no span SHALL be created for the skipped event.
 
-The continuous reconcilers (health, namespace GC, sandbox count) SHALL each create a span per tick wrapping the periodic reconcile cycle, named by reconciler (for example `reconcile gateway-health`, `reconcile namespace-gc`, `reconcile sandbox-count`).
+The continuous reconcilers (health, namespace GC, sandbox count, sandbox attention) SHALL each create a span per tick wrapping the periodic reconcile cycle, named by reconciler (for example `reconcile gateway-health`, `reconcile namespace-gc`, `reconcile sandbox-count`, `reconcile sandbox-attention`).
 
 **Verification:** Trigger a gateway create, update, and delete event; confirm one span each named by kind and event type, with the outcome reflected in the span status. Confirm that a phase-gated skip produces no span. Confirm that the health reconciler produces a span per tick.
 
@@ -202,6 +202,10 @@ The control plane SHALL export OpenTelemetry metrics for reconciliation and watc
 | `reconcile.queue.depth` | Observable gauge | `{item}` | Ready resource keys that are waiting for a reconcile worker |
 | `reconcile.queue.wait.duration` | Histogram | `s` | Time from when a resource key becomes ready until a worker starts reconciliation |
 | `gateway.provision.duration` | Histogram | `s` | Time from Gateway creation until its first successful transition to `Running` |
+| `gateway.provision.outcomes` | Counter | `{outcome}` | Count of terminal gateway provision outcomes (`success` or `failure`) |
+| `gateway.sandbox.orphaned` | Gauge | `{sandbox}` | Cluster-local orphaned active sandbox count |
+| `gateway.sandbox.expiring` | Gauge | `{sandbox}` | Cluster-local expiring-soon active sandbox count |
+| `gateway.sandbox.idle` | Gauge | `{sandbox}` | Cluster-local idle active sandbox count |
 | `reconcile.errors` | Counter | `{error}` | Count of failed reconciliations |
 | `watch.reconnects` | Counter | `{reconnect}` | Count of watch stream reconnections |
 
@@ -219,6 +223,16 @@ the queue wait duration.
 The control plane SHALL record one `gateway.provision.duration` observation only after the Gateway phase update to `Running` succeeds. The initial reconcile path SHALL record a direct transition to `Running`. The health reconcile path SHALL record a delayed transition from `Provisioning` to `Running`. It SHALL NOT record a later recovery from `Degraded` to `Running` as a new provision. The duration SHALL use the `created_at` and `updated_at` values in the stored Gateway that the API server returns. It SHALL ignore missing, invalid, or reversed timestamps. The metric SHALL NOT contain a Gateway identifier. Its explicit bucket boundaries SHALL cover 1 second through 15 minutes.
 
 When exported to Prometheus, the histogram SHALL appear as `gateway_provision_duration_seconds` with standard `_bucket`, `_count`, and `_sum` suffixes. The operational dashboard provision-time feature (`platform/gateway-provision-time.spec.md`) consumes that series through the web-console BFF.
+
+The control plane SHALL record one `gateway.provision.outcomes` observation per gateway on its first terminal provision outcome. It SHALL increment `outcome=success` together with the first successful `Running` transition that records `gateway.provision.duration`. It SHALL increment `outcome=failure` on the first successful transition to `Failed`. Success and failure observations SHALL share the same one-per-gateway in-process claim as provision duration so a gateway contributes at most one terminal outcome. It SHALL NOT record additional outcomes when a gateway recovers from `Degraded` to `Running`. The metric SHALL NOT contain a Gateway identifier.
+
+When exported to Prometheus, the counter SHALL appear as `gateway_provision_outcomes_total{outcome="success|failure"}`. The operational dashboard provision-reliability feature (`platform/gateway-provision-outcomes.spec.md`) consumes that series through the web-console BFF.
+
+The control plane SHALL export `gateway.sandbox.orphaned`, `gateway.sandbox.expiring`, and `gateway.sandbox.idle` as gauges updated from the sandbox attention reconcile tick. Each gauge SHALL report the most recently derived non-negative cluster-local count and SHALL include a low-cardinality `hypershell.cluster_id` attribute (managed-cluster ID, or `default` in single-cluster mode). Derivation rules, pod-only degrade behavior, hard-failure zeroing, and dashboard consumption are owned by `platform/gateway-sandbox-attention-status.spec.md` (SSA-05 / SSA-06). The gauges SHALL NOT contain a sandbox, namespace, or Gateway identifier attribute. When OTLP metrics are disabled (CP-OBS-01), the gauges SHALL NOT be exported.
+
+When the OTel SDK initializes with a non-empty instance namespace (`HYPERSHELL_NAMESPACE`), the resource SHALL include `k8s.namespace.name` so Prometheus series carry `k8s_namespace_name` for BFF instance scoping (same contract as provision-time metrics).
+
+When exported to Prometheus, the gauges SHALL appear as `gateway_sandbox_orphaned`, `gateway_sandbox_expiring`, and `gateway_sandbox_idle`. The operational dashboard Sandbox status attention fields consume the fleet total through the web-console BFF as `sum(max by (hypershell_cluster_id) (...))`.
 
 Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT prevent adding one later.
 
@@ -246,6 +260,31 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - THEN `gateway.provision.duration` SHALL record the time from creation to that phase change in seconds
 - AND a later recovery from `Degraded` to `Running` SHALL NOT record another observation
 - AND the metric SHALL NOT contain the Gateway identifier
+
+#### Scenario: Gateway provision success outcome recorded
+
+- GIVEN a Gateway has not yet contributed a provision observation
+- WHEN the control plane successfully changes its phase to `Running` for the first time
+- THEN `gateway.provision.outcomes` SHALL increment once with `outcome=success`
+- AND `gateway.provision.duration` SHALL record the provision duration for the same gateway
+- AND a later recovery from `Degraded` to `Running` SHALL NOT increment the outcomes counter again
+
+#### Scenario: Gateway provision failure outcome recorded
+
+- GIVEN a Gateway has not yet contributed a provision observation
+- WHEN the control plane successfully changes its phase to `Failed` for the first time
+- THEN `gateway.provision.outcomes` SHALL increment once with `outcome=failure`
+- AND `gateway.provision.duration` SHALL NOT record a duration observation for that gateway
+
+#### Scenario: Sandbox attention gauges exported
+
+- GIVEN the OTel SDK is initialized with metrics export enabled
+- AND the control plane has derived orphaned `3`, expiring-soon `12`, and idle `7` for its managed clusters
+- WHEN the sandbox attention reconcile tick completes
+- THEN `gateway.sandbox.orphaned` SHALL report `3`
+- AND `gateway.sandbox.expiring` SHALL report `12`
+- AND `gateway.sandbox.idle` SHALL report `7`
+- AND none of those gauges SHALL contain a sandbox, namespace, or Gateway identifier
 
 #### Scenario: Gateway reconcile queue metrics recorded
 

@@ -3,12 +3,13 @@ package rbac
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 )
 
 type RoleBindingLookup interface {
@@ -26,26 +27,49 @@ type AuthzConfig struct {
 	ServiceAccounts []string
 }
 
+// ServiceAccountsFromEnv reads RBAC_SERVICE_ACCOUNTS as a comma-separated allowlist.
+func ServiceAccountsFromEnv() []string {
+	serviceAccountEnv := os.Getenv("RBAC_SERVICE_ACCOUNTS")
+	if serviceAccountEnv == "" {
+		return nil
+	}
+
+	serviceAccounts := make([]string, 0)
+	for _, entry := range strings.Split(serviceAccountEnv, ",") {
+		if trimmed := strings.TrimSpace(entry); trimmed != "" {
+			serviceAccounts = append(serviceAccounts, trimmed)
+		}
+	}
+	return serviceAccounts
+}
+
 type rbacAuthzMiddleware struct {
 	lookup           RoleBindingLookup
 	config           AuthzConfig
 	activityRecorder DailyActivityRecorder
+	clusters         RegisteredClusterResolver
 }
 
 var _ auth.AuthorizationMiddleware = &rbacAuthzMiddleware{}
 
-func NewRBACAuthzMiddleware(lookup RoleBindingLookup, config AuthzConfig, activityRecorder DailyActivityRecorder) auth.AuthorizationMiddleware {
+// NewRBACAuthzMiddleware builds the REST authorization middleware. clusters
+// resolves the caller's JWT subject to a registered ManagedCluster so that a
+// control plane is treated like an RBAC_SERVICE_ACCOUNTS entry: it is never
+// recorded as a daily-active user. As for allowlisted accounts, it gets no REST
+// role-binding bypass (control_plane_identity.go). clusters may be nil.
+func NewRBACAuthzMiddleware(lookup RoleBindingLookup, config AuthzConfig, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver) auth.AuthorizationMiddleware {
 	return &rbacAuthzMiddleware{
 		lookup:           lookup,
 		config:           config,
 		activityRecorder: activityRecorder,
+		clusters:         clusters,
 	}
 }
 
 func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !m.config.EnforceRBAC {
-			recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.activityRecorder)
+			recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.clusters, m.activityRecorder)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -99,6 +123,22 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 		gatewayID := extractGatewayID(r, resource)
 		jwtRoles := GetJWTRolesFromContext(r.Context())
 
+		// Self-deregistration: a control plane may delete the ManagedCluster
+		// record registered under its own JWT subject (bin/teardown-cluster in
+		// hypershell-gitops deregisters a spoke this way). Any other record
+		// needs platform:admin (isAuthorized).
+		if resource == "managed_clusters" && r.Method == http.MethodDelete && resourceID != "" {
+			own, err := m.isOwnManagedCluster(r.Context(), resourceID)
+			if err != nil {
+				http.Error(w, "Service Unavailable: managed cluster lookup failed", http.StatusServiceUnavailable)
+				return
+			}
+			if own {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
 		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles) {
 			if resource == "service_accounts" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
@@ -108,12 +148,33 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 			return
 		}
 
-		recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.activityRecorder)
+		recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.clusters, m.activityRecorder)
 		next.ServeHTTP(w, r)
 	})
 }
 
-func recordAuthorizedDailyActivity(ctx context.Context, r *http.Request, serviceAccounts []string, activityRecorder DailyActivityRecorder) {
+// isOwnManagedCluster reports whether clusterID is the ManagedCluster the
+// caller registered under its verified JWT subject.
+func (m *rbacAuthzMiddleware) isOwnManagedCluster(ctx context.Context, clusterID string) (bool, error) {
+	if m.clusters == nil {
+		return false, nil
+	}
+	subject := subjectFromVerifiedToken(ctx)
+	if subject == "" {
+		return false, nil
+	}
+	registeredID, found, err := m.clusters.RegisteredClusterIDForSubject(ctx, subject)
+	if err != nil {
+		return false, err
+	}
+	return found && registeredID == clusterID, nil
+}
+
+// recordAuthorizedDailyActivity records the caller as a daily-active user
+// unless it is a control-plane identity: an allowlisted account, or a
+// registered managed cluster per clusters. A cluster lookup failure skips the
+// record; it never fails the request.
+func recordAuthorizedDailyActivity(ctx context.Context, r *http.Request, serviceAccounts []string, clusters RegisteredClusterResolver, activityRecorder DailyActivityRecorder) {
 	if activityRecorder == nil || isExemptEndpoint(r) {
 		return
 	}
@@ -128,6 +189,9 @@ func recordAuthorizedDailyActivity(ctx context.Context, r *http.Request, service
 
 	userID := GetUserIDFromContext(ctx)
 	if userID == "" {
+		return
+	}
+	if registered, err := registeredClusterCaller(ctx, clusters, subjectFromVerifiedToken(ctx)); err != nil || registered {
 		return
 	}
 
@@ -305,9 +369,17 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		return hasUsersInventoryAccess(bindings, jwtRoles)
 	}
 
-	if (resource == "managed_clusters" || resource == "managed_databases") &&
-		method == http.MethodGet && resourceID == "" {
-		return hasDashboardInventoryAccess(bindings, jwtRoles)
+	if resource == "managed_clusters" {
+		// Reads back gateway placement (the console's cluster picker) and the
+		// dashboard inventory. Writes are operator functions: a placeholder
+		// squats a name so the control plane that registers under it gets a
+		// permanent 409, a rename breaks its control plane's re-registration,
+		// and a delete detaches every gateway on the cluster. A control plane
+		// deregistering itself is decided in AuthorizeApi before this.
+		if method == http.MethodGet {
+			return hasDashboardInventoryAccess(bindings, jwtRoles)
+		}
+		return hasPlatformAdmin(bindings)
 	}
 
 	if resource == "gateways" && method == http.MethodPost && resourceID == "" {
@@ -344,6 +416,15 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "role_bindings" {
 		return len(bindings) > 0
+	}
+
+	if resource == "gateway_releases" {
+		if hasPlatformAdmin(bindings) {
+			if method == http.MethodGet || method == http.MethodDelete {
+				return true
+			}
+		}
+		return hasGatewayCreator(bindings)
 	}
 
 	return hasGatewayCreator(bindings)

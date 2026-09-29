@@ -36,7 +36,7 @@ source, rebuild the site, and preserve the source citation.
 | [`source/control-plane.md`](./source/control-plane.md) | Watcher, reconcilers, and multi-cluster clients |
 | [`source/gateway-workload.md`](./source/gateway-workload.md) | Gateway namespace, Supervisor, Sandboxes, and policy |
 | [`source/client-surfaces.md`](./source/client-surfaces.md) | CLI, Go SDK, TypeScript SDK, and web API surfaces |
-| [`source/data-plane.md`](./source/data-plane.md) | CNPG and standalone PostgreSQL modes |
+| [`source/data-plane.md`](./source/data-plane.md) | Per-gateway databases on registered PostgreSQL servers |
 | [`source/ingress.md`](./source/ingress.md) | Gateway API and OpenShift Route exposure modes |
 | [`source/identity.md`](./source/identity.md) | Keycloak federation, OIDC, and service accounts |
 | [`source/web-console.md`](./source/web-console.md) | React host, reusable UI package, BFF, and trust boundary |
@@ -59,6 +59,5 @@ workflow publishes the generated `dist/architecture` directory to the
 repository's GitHub Pages site after changes land on `main`.
 
 The pages intentionally describe the current repository architecture, including
-configuration-selected alternatives such as `DATABASE_PROVIDER` and
-`GATEWAY_INGRESS_MODE`. They are documentation artifacts, not a replacement for
+configuration-selected alternatives such as `GATEWAY_INGRESS_MODE`. They are documentation artifacts, not a replacement for
 the authoritative specifications cited within them.

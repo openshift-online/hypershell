@@ -1,6 +1,7 @@
 package roleBindings
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strings"
@@ -11,16 +12,17 @@ import (
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
-	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/pkg/auth"
-	"github.com/openshift-online/rh-trex-ai/pkg/controllers"
-	"github.com/openshift-online/rh-trex-ai/pkg/db"
-	"github.com/openshift-online/rh-trex-ai/pkg/environments"
-	"github.com/openshift-online/rh-trex-ai/pkg/registry"
-	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
-	"github.com/openshift-online/rh-trex-ai/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/plugins/generic"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/controllers"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() RoleBindingService
@@ -69,6 +71,24 @@ func Service(s *environments.Services) RoleBindingService {
 	return nil
 }
 
+// gatewayClusterLookup resolves gateway -> cluster assignments through the
+// gateways plugin's service locator, looked up per call so it follows the
+// environment's service registry. It returns nil when the gateways plugin is
+// absent, which the gRPC handler treats as fail-closed for cluster-scoped
+// requests.
+func gatewayClusterLookup(s *environments.Services) GatewayClusterLookup {
+	if s == nil || s.GetService("Gateways") == nil {
+		return nil
+	}
+	return func(ctx context.Context, gatewayID string) (string, bool, *errors.ServiceError) {
+		source, ok := s.GetService("Gateways").(GatewayClusterLookupSource)
+		if !ok {
+			return "", false, errors.GeneralError("gateway service does not provide a cluster lookup")
+		}
+		return source.GatewayClusterLookup()(ctx, gatewayID)
+	}
+}
+
 func init() {
 	registry.RegisterService("RoleBindings", func(env interface{}) interface{} {
 		return NewServiceLocator(env.(*environments.Env))
@@ -111,7 +131,7 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterRoleBindingServiceServer(grpcServer, NewRoleBindingGRPCHandler(rbService, roleService, userService, brokerFunc))
+		pb.RegisterRoleBindingServiceServer(grpcServer, NewRoleBindingGRPCHandler(rbService, roleService, userService, gatewayClusterLookup(envServices), brokerFunc))
 	})
 
 	presenters.RegisterPath(RoleBinding{}, "role_bindings")

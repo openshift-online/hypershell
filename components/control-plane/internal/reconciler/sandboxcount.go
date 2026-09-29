@@ -57,8 +57,8 @@ type SandboxCountReconciler struct {
 	// cluster. The self-heal writes an absolute count (including zero) for every
 	// gateway it enumerates, reconciling against pods it observes LOCALLY; an
 	// unfiltered enumeration would make a spoke SET a foreign cluster's gateway
-	// count to zero because it observes none of that cluster's pods. Empty
-	// enumerates all gateways (single-cluster default).
+	// count to zero because it observes none of that cluster's pods. It is this
+	// control plane's registered cluster id and is always set.
 	clusterID string
 
 	// adjust, set, and namespaces are the seams to the API server, overridable in

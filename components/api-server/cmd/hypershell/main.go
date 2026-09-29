@@ -9,22 +9,21 @@ import (
 	"github.com/spf13/cobra"
 
 	localapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
-	pkgcmd "github.com/openshift-online/rh-trex-ai/pkg/cmd"
+	pkgcmd "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/cmd"
 
 	_ "github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayReleases"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/otel"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/serviceAccounts"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/users"
-	_ "github.com/openshift-online/rh-trex-ai/plugins/events"
-	_ "github.com/openshift-online/rh-trex-ai/plugins/generic"
+	_ "github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
+	_ "github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 // rh-trex-ai includes HTTP request headers and request and response bodies at

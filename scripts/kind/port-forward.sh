@@ -24,6 +24,17 @@ if [[ -n "${PROXY_CONTAINER}" ]]; then
 
   stop_port_forward
   start_port_forward "${GATEWAY_PORT}"
+
+  # Sync in-cluster CoreDNS with the current gateway IP. cloud-provider-kind can
+  # assign a different container IP on restart, making the BFF unable to reach
+  # Keycloak for OIDC code exchange (EHOSTUNREACH -> login 401).
+  GW_IP=$(kube get gateway hypershell-gw -n "${KIND_NAMESPACE}" \
+    -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
+  if [[ -n "${GW_IP}" ]]; then
+    patch_cluster_coredns "${GW_IP}"
+  else
+    warn "Could not read gateway IP from status - skipping in-cluster CoreDNS sync"
+  fi
 else
   info "No cloud-provider-kind proxy container found - using kubectl port-forward"
   start_kubectl_port_forwards

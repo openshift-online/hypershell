@@ -12,7 +12,8 @@ import { englishMessages } from "../../i18n/catalog";
 import { ApplicationShell } from "./application-shell";
 
 const previewGateway: GatewayConnection = {
-  clusterName: "Hub cluster",
+  clusterId: "cluster-east",
+  clusterName: "local-kind",
   consoleUrl: "https://console.example.test",
   createdAt: "2026-08-10T14:30:00Z",
   endpoint: "https://gateway.example.test:443",
@@ -27,7 +28,6 @@ const previewGateway: GatewayConnection = {
 const previewGatewayResource: GatewayRecord = {
   clusterId: "",
   createdAt: "2026-08-10T14:30:00Z",
-  databaseId: "database-1",
   externalDns: "gateway.example.test",
   id: "gateway-b",
   name: "OpenShell gateway",

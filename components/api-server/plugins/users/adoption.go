@@ -2,11 +2,6 @@ package users
 
 import "time"
 
-const (
-	createdLookback7Days  = 7 * 24 * time.Hour
-	createdLookback30Days = 30 * 24 * time.Hour
-)
-
 // UserAdoptionDailyLogin is one UTC calendar day in the unique-login sparkline.
 type UserAdoptionDailyLogin struct {
 	Date  string
@@ -34,29 +29,21 @@ func buildUserAdoptionSnapshot(
 	createdLast7Days int64,
 	createdLast30Days int64,
 	dailyCounts map[string]int64,
+	uniqueLoginsLast7Days int64,
+	uniqueLoginsLast30Days int64,
 	evaluationTime time.Time,
 ) *UserAdoptionSnapshot {
 	today := utcDayStart(evaluationTime)
 	startDate := today.AddDate(0, 0, -(activityRetentionDays - 1))
 
 	dailyUniqueLogins := make([]UserAdoptionDailyLogin, 0, activityRetentionDays)
-	var uniqueLoginsLast7Days int64
-	var uniqueLoginsLast30Days int64
-
 	for dayOffset := 0; dayOffset < activityRetentionDays; dayOffset++ {
 		day := startDate.AddDate(0, 0, dayOffset)
 		dateLabel := day.Format("2006-01-02")
-		count := dailyCounts[dateLabel]
 		dailyUniqueLogins = append(dailyUniqueLogins, UserAdoptionDailyLogin{
 			Date:  dateLabel,
-			Count: count,
+			Count: dailyCounts[dateLabel],
 		})
-
-		daysFromToday := activityRetentionDays - 1 - dayOffset
-		if daysFromToday < 7 {
-			uniqueLoginsLast7Days += count
-		}
-		uniqueLoginsLast30Days += count
 	}
 
 	return &UserAdoptionSnapshot{
@@ -75,6 +62,8 @@ func BuildUserAdoptionSnapshotForTest(
 	createdLast7Days int64,
 	createdLast30Days int64,
 	dailyCounts map[string]int64,
+	uniqueLoginsLast7Days int64,
+	uniqueLoginsLast30Days int64,
 	evaluationTime time.Time,
 ) *UserAdoptionSnapshot {
 	return buildUserAdoptionSnapshot(
@@ -82,6 +71,8 @@ func BuildUserAdoptionSnapshotForTest(
 		createdLast7Days,
 		createdLast30Days,
 		dailyCounts,
+		uniqueLoginsLast7Days,
+		uniqueLoginsLast30Days,
 		evaluationTime,
 	)
 }

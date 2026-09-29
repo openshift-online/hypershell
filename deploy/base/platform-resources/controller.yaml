@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hypershell-controller
+  namespace: hypershell-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-controller
+  namespace: hypershell-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hypershell-controller
+  template:
+    metadata:
+      labels:
+        app: hypershell-controller
+    spec:
+      serviceAccountName: hypershell-controller
+      securityContext:
+        runAsNonRoot: true
+      # The admin host is always an FQDN (Kind in-cluster Service, RDS, IBM
+      # Cloud). Kubernetes defaults ndots:5, so a four-dot name is searched as
+      # a relative name first and burns connect_timeout on NXDOMAIN suffixes.
+      # ndots:2 is set in this base overlay for every environment, not Kind
+      # only: in-namespace short names still search, and the FQDN is treated
+      # as absolute. Kind CoreDNS is the motivating flake; production
+      # controllers benefit the same way.
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+      containers:
+        - name: controller
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          # Required per overlay, intentionally not set here:
+          #   HYPERSHELL_MANAGED_CLUSTER_NAME  the name this control plane
+          #     registers under (unique per control plane, e.g. local-kind,
+          #     local-openshift, hub, hyp0-mc1);
+          #   OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET  its own OIDC
+          #     client, holding the managed-cluster-registrar realm role.
+          # Every control plane registers with the hub and scopes its watches to
+          # the returned cluster_id; without these it exits at startup naming the
+          # missing variable (control-plane.spec.md, Mandatory Cluster Identity).
+          # HYPERSHELL_GRPC_SERVER_ADDR selects the gRPC transport: in-cluster
+          # names (no dot, *.svc, *.svc.*, localhost) dial plaintext, anything
+          # else dials TLS with the system trust store.
+          env:
+            - name: HYPERSHELL_GRPC_SERVER_ADDR
+              value: "hypershell-api-server:9000"
+            - name: HYPERSHELL_API_SERVER_URL
+              value: "http://hypershell-api-server:8000"
+            - name: HYPERSHELL_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HYPERSHELL_LOG_LEVEL
+              value: "info"
+            # Plaintext in-cluster gRPC provisioner endpoint. A NetworkPolicy
+            # restricts port 9443 to the api-server pod; the channel mirrors the
+            # sibling control-plane -> api-server watch channel (no mTLS).
+            - name: HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS
+              value: "0.0.0.0:9443"
+            # Tags must match OPENSHELL_VERSION when bumping the OpenShell release.
+            - name: GATEWAY_IMAGE
+              value: quay.io/opendatahub/odh-openshell-gateway:v0.0.116-rhaiv.6
+            - name: GATEWAY_SUPERVISOR_IMAGE
+              value: quay.io/opendatahub/odh-openshell-supervisor:v0.0.116-rhaiv.6
+            # Directory the gateway database admin credentials Secret is mounted
+            # at (one file per key). The controller refuses to start without it.
+            - name: GATEWAY_DATABASE_ADMIN_DIR
+              value: /etc/hypershell/gateway-database
+          volumeMounts:
+            - name: gateway-database-admin
+              mountPath: /etc/hypershell/gateway-database
+              readOnly: true
+          ports:
+            - containerPort: 9443
+              name: provisioner
+          # These probes are coupled to the service account provisioner port (9443).
+          # If HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS is ever empty,
+          # the provisioner is disabled, nothing binds port 9443, and the controller will fail probes.
+          # Overlays that disable the provisioner must also override or remove these probes.
+          startupProbe:
+            tcpSocket:
+              port: provisioner
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: provisioner
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: provisioner
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        # PostgreSQL admin credentials for gateway database provisioning. Keys:
+        # host, port, user, password, sslrootcert (PEM CA bundle) required;
+        # dbname and sslmode (verify-full only) optional. Staged out-of-band by
+        # the platform team, for example through External Secrets Operator
+        # (deploy/components/gateway-database-admin-secret). See
+        # specs/platform/openshell-gateway-database.spec.md.
+        - name: gateway-database-admin
+          secret:
+            secretName: hypershell-gateway-database-admin
+            defaultMode: 288
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hypershell-controller
+  namespace: hypershell-system
+spec:
+  selector:
+    app: hypershell-controller
+  ports:
+    - name: provisioner
+      port: 9443
+      targetPort: 9443
+      appProtocol: grpc

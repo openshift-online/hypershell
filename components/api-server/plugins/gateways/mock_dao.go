@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
 var _ GatewayDao = &gatewayDaoMock{}
@@ -42,6 +42,15 @@ func (d *gatewayDaoMock) Replace(ctx context.Context, gateway *Gateway) (*Gatewa
 
 func (d *gatewayDaoMock) Delete(ctx context.Context, id string) error {
 	return errors.NotImplemented("Gateway").AsError()
+}
+
+func (d *gatewayDaoMock) ClusterIDByNamespace(ctx context.Context, namespace string) (string, error) {
+	for _, gateway := range d.gateways {
+		if gateway.Namespace == namespace {
+			return gateway.ClusterId, nil
+		}
+	}
+	return "", gorm.ErrRecordNotFound
 }
 
 func (d *gatewayDaoMock) FindByIDs(ctx context.Context, ids []string) (GatewayList, error) {

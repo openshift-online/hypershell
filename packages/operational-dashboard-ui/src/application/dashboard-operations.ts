@@ -1,9 +1,10 @@
 import type {
   DashboardControlPlane,
+  DashboardFailedSourceId,
   DashboardInvocationContext,
-  DashboardMetricSourceId,
   DashboardOperations,
   DashboardWorkflowRuntime,
+  OperationalDashboardMetrics,
 } from "./dashboard-types";
 import type {
   DashboardProbe,
@@ -21,8 +22,6 @@ export interface DashboardOperationDependencies {
 const defaultRuntime: DashboardWorkflowRuntime = {
   createCorrelationId: () => crypto.randomUUID(),
 };
-
-const workflowAction: DashboardWorkflowAction = "get-operational-metrics";
 
 function isCancelled(error: unknown): boolean {
   return (
@@ -50,13 +49,14 @@ function workflowProbe(
 }
 
 function partialFailureProbe(
+  action: DashboardWorkflowAction,
   correlationId: string,
-  failedSources: readonly DashboardMetricSourceId[],
+  failedSources: readonly DashboardFailedSourceId[],
 ): DashboardProbe {
   return Object.freeze({
     context: Object.freeze({ correlationId }),
     fields: Object.freeze({
-      action: workflowAction,
+      action,
       failedSources,
       outcome: "failed",
     }),
@@ -66,62 +66,87 @@ function partialFailureProbe(
   });
 }
 
+async function loadMetricsWithProbes(
+  action: DashboardWorkflowAction,
+  load: (
+    context: DashboardInvocationContext,
+  ) => Promise<OperationalDashboardMetrics>,
+  probes: DashboardProbePublisher,
+  runtime: DashboardWorkflowRuntime,
+  signal?: AbortSignal,
+): Promise<OperationalDashboardMetrics> {
+  const correlationId = runtime.createCorrelationId();
+  const context: DashboardInvocationContext = {
+    correlationId,
+    ...(signal === undefined ? {} : { signal }),
+  };
+  const occurredAt = new Date().toISOString();
+
+  probes.publish(
+    workflowProbe(
+      action,
+      correlationId,
+      "dashboard.workflow.started",
+      occurredAt,
+      "started",
+    ),
+  );
+
+  try {
+    const metrics = await load(context);
+    probes.publish(
+      workflowProbe(
+        action,
+        correlationId,
+        "dashboard.workflow.completed",
+        new Date().toISOString(),
+        "succeeded",
+      ),
+    );
+    if (
+      metrics.failedSources !== undefined &&
+      metrics.failedSources.length > 0
+    ) {
+      probes.publish(
+        partialFailureProbe(action, correlationId, metrics.failedSources),
+      );
+    }
+    return metrics;
+  } catch (error) {
+    probes.publish(
+      workflowProbe(
+        action,
+        correlationId,
+        "dashboard.workflow.completed",
+        new Date().toISOString(),
+        isCancelled(error) ? "cancelled" : "failed",
+      ),
+    );
+    throw error;
+  }
+}
+
 export function createDashboardOperations({
   controlPlane,
   probes = noopDashboardProbePublisher,
   runtime = defaultRuntime,
 }: DashboardOperationDependencies): DashboardOperations {
   return {
-    getOperationalMetrics: async (signal) => {
-      const correlationId = runtime.createCorrelationId();
-      const context: DashboardInvocationContext = {
-        correlationId,
-        ...(signal === undefined ? {} : { signal }),
-      };
-      const occurredAt = new Date().toISOString();
-
-      probes.publish(
-        workflowProbe(
-          workflowAction,
-          correlationId,
-          "dashboard.workflow.started",
-          occurredAt,
-          "started",
-        ),
-      );
-
-      try {
-        const metrics = await controlPlane.getOperationalMetrics(context);
-        probes.publish(
-          workflowProbe(
-            workflowAction,
-            correlationId,
-            "dashboard.workflow.completed",
-            new Date().toISOString(),
-            "succeeded",
-          ),
-        );
-        if (
-          metrics.failedSources !== undefined &&
-          metrics.failedSources.length > 0
-        ) {
-          probes.publish(
-            partialFailureProbe(correlationId, metrics.failedSources),
-          );
-        }
-        return metrics;
-      } catch (error) {
-        probes.publish(
-          workflowProbe(
-            workflowAction,
-            correlationId,
-            "dashboard.workflow.completed",
-            new Date().toISOString(),
-            isCancelled(error) ? "cancelled" : "failed",
-          ),
-        );
-        throw error;
-      }
-    },
+    getOperationalMetrics: (signal) =>
+      loadMetricsWithProbes(
+        "get-operational-metrics",
+        (context) => controlPlane.getOperationalMetrics(context),
+        probes,
+        runtime,
+        signal,
+      ),
+    getReliabilityMetrics: (signal) =>
+      loadMetricsWithProbes(
+        "get-reliability-metrics",
+        (context) => controlPlane.getReliabilityMetrics(context),
+        probes,
+        runtime,
+        signal,
+      ),
   };
 }

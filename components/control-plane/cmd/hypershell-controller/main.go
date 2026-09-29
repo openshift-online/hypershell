@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -23,6 +22,8 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/grpctransport"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
@@ -36,13 +37,15 @@ import (
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
-const defaultManifestsDir = "/manifests/gateway"
-
 // registerWithBackoff calls regClient.Register with exponential backoff until it
-// succeeds. A 403 response is non-retryable: the spoke lacks the required Keycloak
-// role, so it logs a fatal message and exits immediately.
-func registerWithBackoff(ctx context.Context, regClient *registration.Client) (string, error) {
-	backoff := time.Second
+// succeeds. 403 and 409 responses are non-retryable: a 403 means the control
+// plane lacks the managed-cluster-registrar Keycloak role, and a 409 means its
+// name is held by a record it does not own (or its subject is registered under
+// another name) and an operator must resolve it. Both return a fatal error
+// immediately. See specs/platform/managed-cluster-registration.spec.md
+// ("Fail-Closed Startup").
+func registerWithBackoff(ctx context.Context, regClient registrar, initialBackoff time.Duration) (string, error) {
+	backoff := initialBackoff
 	const maxBackoff = 60 * time.Second
 	for {
 		clusterID, err := regClient.Register(ctx)
@@ -53,8 +56,11 @@ func registerWithBackoff(ctx context.Context, regClient *registration.Client) (s
 		if errors.Is(err, registration.ErrForbidden) {
 			return "", fmt.Errorf("managed-cluster-registrar role not assigned in Keycloak; assign the role and restart: %w", err)
 		}
+		if errors.Is(err, registration.ErrConflict) {
+			return "", fmt.Errorf("managed cluster name cannot be registered by this control plane; an operator must remove the conflicting ManagedCluster record (and re-point its gateways) or change HYPERSHELL_MANAGED_CLUSTER_NAME: %w", err)
+		}
 
-		log.Printf("WARN spoke registration failed (retrying in %s): %v", backoff, err)
+		log.Printf("WARN managed-cluster registration failed (retrying in %s): %v", backoff, err)
 		select {
 		case <-ctx.Done():
 			return "", fmt.Errorf("registration cancelled: %w", ctx.Err())
@@ -67,13 +73,21 @@ func registerWithBackoff(ctx context.Context, regClient *registration.Client) (s
 	}
 }
 
+// registrar is the registration call registerWithBackoff drives; a seam for tests.
+type registrar interface {
+	Register(ctx context.Context) (string, error)
+}
+
 // instanceLabelBackfillTimeout bounds the one-shot startup backfill that stamps
 // this instance's identity label onto its legacy gateway namespaces, so a stalled
-// API server or apiserver cannot delay the GC reconciler's launch indefinitely.
+// API server cannot delay the GC reconciler's launch indefinitely.
 const instanceLabelBackfillTimeout = 2 * time.Minute
 
-func managedDatabaseWatchEligible(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface) bool {
-	return clientset != nil && dynamicClient != nil
+func helmBinaryPath() string {
+	if v := os.Getenv("HELM_BINARY"); v != "" {
+		return v
+	}
+	return "/usr/local/bin/helm"
 }
 
 func main() {
@@ -82,89 +96,57 @@ func main() {
 		log.Fatalf("loading config: %v", err)
 	}
 
-	log.Printf("INFO hypershell-controller starting")
-	log.Printf("INFO grpc=%s api=%s namespace=%s database_provider=%s", cfg.GRPCServerAddr, cfg.APIServerURL, cfg.Namespace, cfg.DatabaseProvider)
-	if cfg.ClusterID != "" {
-		log.Printf("INFO managed-cluster mode: scoping gateway watch/seed/health to cluster_id=%s", cfg.ClusterID)
-	} else {
-		log.Printf("INFO single-cluster mode: handling all gateways (no cluster_id filter)")
+	// Gateway database provisioning is a hard startup precondition: the admin
+	// credentials Secret must be mounted and well-formed (verify-full, PEM CA)
+	// before any reconcile loop starts, so a misconfigured controller fails here
+	// with a clear message instead of failing every gateway later. The server is
+	// not contacted at startup; reachability is checked per reconcile with retries.
+	if err := gateway.ValidateAdminCredentialsDir(cfg.GatewayDatabaseAdminDir); err != nil {
+		log.Fatalf("gateway database admin credentials (GATEWAY_DATABASE_ADMIN_DIR=%s): %v", cfg.GatewayDatabaseAdminDir, err)
 	}
+	databaseConfig := gateway.DatabaseConfig{AdminCredentialsDir: cfg.GatewayDatabaseAdminDir}
+
+	grpcTransport := grpctransport.Classify(cfg.GRPCServerAddr)
+	log.Printf("INFO hypershell-controller starting")
+	log.Printf("INFO grpc=%s (transport=%s) api=%s namespace=%s managed-cluster-name=%s",
+		cfg.GRPCServerAddr, grpcTransport, cfg.APIServerURL, cfg.Namespace, cfg.ManagedClusterName)
+
+	// Verify helm binary is available
+	helmBin := helmBinaryPath()
+	if err := helm.VerifyHelmAvailable(context.Background(), helmBin); err != nil {
+		log.Fatalf("helm binary verification failed: %v", err)
+	}
+
+	// Verify Helm chart is available
+	if err := helm.VerifyChartPath(cfg.HelmChartPath); err != nil {
+		log.Fatalf("helm chart verification failed: %v", err)
+	}
+	log.Printf("INFO helm chart verified at %s", cfg.HelmChartPath)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	otelShutdown, otelErr := cpotel.Init(ctx)
+	otelShutdown, otelErr := cpotel.Init(ctx, cfg.Namespace)
 	if otelErr != nil {
 		log.Printf("WARN OpenTelemetry initialization failed, continuing without telemetry: %v", otelErr)
 	}
 	defer cpotel.Shutdown(otelShutdown)
 
+	// Every RPC, including the long-lived watch streams, carries the control
+	// plane's OIDC bearer token; the API server does not exempt watch streams
+	// from authentication. The transport (plaintext in-cluster, TLS otherwise) is
+	// selected from the dial address; a TLS handshake failure surfaces as an
+	// ordinary connection error that the watchers retry with backoff.
+	tokenProvider := auth.NewTokenProvider(cfg.OIDCIssuer, cfg.OIDCClientID, cfg.OIDCClientSecret)
+	if cfg.OIDCTokenEndpoint != "" {
+		tokenProvider.SetTokenEndpoint(cfg.OIDCTokenEndpoint)
+		log.Printf("INFO using explicit OIDC token endpoint: %s", cfg.OIDCTokenEndpoint)
+	}
 	dialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(grpctransport.Credentials(cfg.GRPCServerAddr)),
+		grpc.WithPerRPCCredentials(auth.NewGRPCCredentials(tokenProvider)),
 	}
 	dialOpts = append(dialOpts, cpotel.GRPCDialOptions()...)
-
-	var tokenProvider *auth.TokenProvider
-	oidcIssuer := os.Getenv("OIDC_ISSUER")
-	if oidcIssuer != "" {
-		oidcClientID := os.Getenv("OIDC_CLIENT_ID")
-		if oidcClientID == "" {
-			oidcClientID = "hypershell-control-plane"
-		}
-		oidcClientSecret := os.Getenv("OIDC_CLIENT_SECRET")
-		if oidcClientSecret == "" {
-			log.Fatalf("OIDC_CLIENT_SECRET is required when OIDC_ISSUER is set")
-		}
-
-		tokenProvider = auth.NewTokenProvider(oidcIssuer, oidcClientID, oidcClientSecret)
-		if endpoint := os.Getenv("OIDC_TOKEN_ENDPOINT"); endpoint != "" {
-			tokenProvider.SetTokenEndpoint(endpoint)
-			log.Printf("INFO using explicit OIDC token endpoint: %s", endpoint)
-		}
-		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(auth.NewGRPCCredentials(tokenProvider)))
-		log.Printf("INFO OIDC authentication enabled for gRPC connections")
-	} else {
-		log.Printf("INFO OIDC authentication disabled for gRPC connections")
-	}
-
-	// Spoke self-registration: resolve cluster_id at runtime before any gRPC watch.
-	// Requires both HYPERSHELL_MANAGED_CLUSTER_NAME and OIDC credentials.
-	if cfg.ManagedClusterName != "" && tokenProvider != nil {
-		regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, tokenProvider)
-
-		clusterID, regErr := registerWithBackoff(ctx, regClient)
-		if regErr != nil {
-			log.Fatalf("FATAL spoke registration failed: %v", regErr)
-		}
-		cfg.ClusterID = clusterID
-		log.Printf("INFO spoke registered as cluster_id=%s (name=%s)", cfg.ClusterID, cfg.ManagedClusterName)
-
-		// Heartbeat: re-register every 60s to update last_seen_at on the hub.
-		go func() {
-			ticker := time.NewTicker(60 * time.Second)
-			defer ticker.Stop()
-			var consecutiveFailures int
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					if _, err := regClient.Register(ctx); err != nil {
-						consecutiveFailures++
-						if consecutiveFailures >= 5 {
-							log.Printf("ERROR heartbeat has failed %d consecutive times; hub may be unreachable: %v", consecutiveFailures, err)
-						} else {
-							log.Printf("WARN heartbeat registration failed: %v", err)
-						}
-					} else {
-						consecutiveFailures = 0
-					}
-				}
-			}
-		}()
-	} else if cfg.ManagedClusterName != "" {
-		log.Printf("WARN HYPERSHELL_MANAGED_CLUSTER_NAME is set but OIDC is not configured; skipping self-registration")
-	}
 
 	conn, err := grpc.NewClient(cfg.GRPCServerAddr, dialOpts...)
 	if err != nil {
@@ -200,23 +182,6 @@ func main() {
 		}
 	}
 
-	// DATABASE_PROVIDER=cnpg is a hard startup precondition: the control plane
-	// must fail cleanly here, before any watch/reconcile loop starts, when the
-	// exact CNPG API resources this codebase depends on (clusters, databases,
-	// databaseroles in postgresql.cnpg.io/v1) are not served, rather than
-	// deferring the failure to the first CNPG-backed reconciliation deep
-	// inside the gateway/database reconcilers. DATABASE_PROVIDER=deployment (the
-	// default) never reaches this check and has no CNPG dependency at all.
-	if cfg.DatabaseProvider == config.DatabaseProviderCNPG {
-		if clientset == nil {
-			log.Fatalf("DATABASE_PROVIDER=cnpg requires an in-cluster Kubernetes client to verify the CNPG API prerequisites")
-		}
-		if err := gateway.RequireCNPGAPI(clientset); err != nil {
-			log.Fatalf("%v", err)
-		}
-		log.Printf("INFO CNPG API prerequisites verified for DATABASE_PROVIDER=cnpg")
-	}
-
 	// The Gateway Exposure port decouples route-address resolution and readiness
 	// observation from the concrete ingress backend. Select the adapter by the
 	// SAME effective ingress mode the reconciler uses to emit ingress resources
@@ -248,17 +213,12 @@ func main() {
 	}
 
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
-	var databaseReconciler watcher.Handler[*pb.ManagedDatabase]
-	if managedDatabaseWatchEligible(clientset, dynamicClient) {
-		databaseReconciler = reconciler.NewManagedDatabaseReconciler(dynamicClient, clientset, conn, cfg.Namespace)
-	} else {
-		log.Printf("WARN ManagedDatabase watch disabled: both Kubernetes typed and dynamic clients are required")
-	}
 	networkReconciler := reconciler.NewGatewayNetworkReconciler(conn)
 
-	manifestsDir := os.Getenv("GATEWAY_MANIFESTS_DIR")
-	if manifestsDir == "" {
-		manifestsDir = defaultManifestsDir
+	// Initialize Helm client for gateway deployments
+	helmClient := &helm.ShellClient{
+		ChartPath:  cfg.HelmChartPath,
+		HelmBinary: helmBin,
 	}
 
 	var keycloakConfig *gateway.KeycloakConfig
@@ -277,16 +237,19 @@ func main() {
 		}
 	}
 
+	// The RoleBinding reconciler needs the registered cluster id, which is only
+	// known after registration below; the Keycloak client is built here and the
+	// reconciler once the id is in hand.
+	var kcClient *keycloak.Client
 	var roleBindingReconciler watcher.Handler[*pb.RoleBinding]
 	var serviceAccountProvider *serviceaccountkeycloak.Client
 	if keycloakConfig != nil {
-		kcClient := keycloak.NewClient(
+		kcClient = keycloak.NewClient(
 			keycloakConfig.ServerURL,
 			keycloakConfig.Realm,
 			keycloakConfig.ClientID,
 			keycloakConfig.ClientSecret,
 		)
-		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn)
 		serviceAccountProvider = serviceaccountkeycloak.NewClient(
 			keycloakConfig.ServerURL,
 			keycloakConfig.Realm,
@@ -297,36 +260,6 @@ func main() {
 	}
 
 	var gatewayReconciler watcher.Handler[*pb.Gateway]
-
-	if clientset != nil && dynamicClient != nil {
-		gr, grErr := reconciler.NewGatewayReconciler(dynamicClient, clientset, conn, manifestsDir, cfg.Namespace, keycloakConfig, exposurePort)
-		if grErr != nil {
-			log.Printf("WARN gateway reconciler disabled: %v", grErr)
-			gatewayReconciler = reconciler.NewStubGatewayReconciler()
-		} else {
-			gatewayReconciler = gr
-		}
-	} else {
-		log.Printf("WARN no kubernetes client available, using stub gateway reconciler")
-		gatewayReconciler = reconciler.NewStubGatewayReconciler()
-	}
-
-	// The gateway reconcile queue is shared: the gateway watch stream drives it,
-	// and the GatewayRelease reconciler enqueues referencing gateways into it when
-	// a release image changes. It is created here (not inside WatchGateways) so the
-	// release reconciler can hold the same instance.
-	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
-	defer gatewayQueue.Stop()
-	releaseReconciler := reconciler.NewGatewayReleaseReconciler(conn, gatewayQueue, cfg.ClusterID)
-
-	watchCount := 4 // managed clusters, gateway releases, gateways, networks
-	if databaseReconciler != nil {
-		watchCount++
-	}
-	if roleBindingReconciler != nil {
-		watchCount++
-	}
-
 	// Each background component below runs under supervisor.Run on its own
 	// goroutine: a failure in one (a dropped watch stream, a reconciler's Run
 	// loop returning, the service-account provisioner's listener dying) is
@@ -353,26 +286,113 @@ func main() {
 		log.Printf("INFO service-account provisioner disabled")
 	}
 
+	// Mandatory cluster identity: resolve cluster_id by registration before any
+	// gRPC watch or gateway-scoped reconciler starts. There is no unregistered
+	// mode; a failure here either retries (transient) or exits (403/409). The
+	// service-account provisioner above is not cluster-scoped and is already
+	// serving, so the pod's probes stay green while registration retries (for
+	// example while the hub API server is still starting).
+	regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, tokenProvider)
+	clusterID, regErr := registerWithBackoff(ctx, regClient, time.Second)
+	if regErr != nil {
+		if ctx.Err() != nil {
+			log.Printf("INFO shutdown signal received before registration completed; stopping")
+			wg.Wait()
+			return
+		}
+		log.Fatalf("FATAL managed-cluster registration failed: %v", regErr)
+	}
+	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, backfill, release fan-out, and namespace GC to it", clusterID, cfg.ManagedClusterName)
+
+	if clientset != nil && dynamicClient != nil {
+		gr, grErr := reconciler.NewGatewayReconciler(
+			dynamicClient,
+			clientset,
+			conn,
+			helmClient,
+			cfg.Namespace,
+			keycloakConfig,
+			exposurePort,
+			cfg.ExternalCAIssuerName,
+			cfg.ExternalCAIssuerKind,
+			databaseConfig,
+			clusterID,
+		)
+		if grErr != nil {
+			log.Printf("WARN gateway reconciler disabled: %v", grErr)
+			gatewayReconciler = reconciler.NewStubGatewayReconciler()
+		} else {
+			gatewayReconciler = gr
+		}
+	} else {
+		log.Printf("WARN no kubernetes client available, using stub gateway reconciler")
+		gatewayReconciler = reconciler.NewStubGatewayReconciler()
+	}
+
+	// The gateway reconcile queue is shared: the gateway watch stream drives it,
+	// and the GatewayRelease reconciler enqueues referencing gateways into it when
+	// a release image changes. It is created after registration so the reconciler
+	// and all queued work use the registered cluster identity.
+	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
+	defer gatewayQueue.Stop()
+
+	watchCount := 4 // managed clusters, gateway releases, gateways, networks
+	if kcClient != nil {
+		watchCount++ // role bindings
+	}
+
+	// Heartbeat: re-register every 60s to update last_seen_at on the hub.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		var consecutiveFailures int
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				heartbeatID, err := regClient.Register(ctx)
+				if err != nil {
+					consecutiveFailures++
+					if consecutiveFailures >= 5 {
+						log.Printf("ERROR heartbeat has failed %d consecutive times; hub may be unreachable: %v", consecutiveFailures, err)
+					} else {
+						log.Printf("WARN heartbeat registration failed: %v", err)
+					}
+					continue
+				}
+				consecutiveFailures = 0
+				// The record this process filters by is gone (deleted, or the
+				// hub database was reset) and registration created a new one.
+				// Every watch and reconciler is scoped to the old id, so restart
+				// to pick up the new identity rather than serve a stale filter.
+				if heartbeatID != clusterID {
+					log.Fatalf("FATAL registered cluster_id changed from %s to %s (ManagedCluster record was recreated); exiting so the control plane restarts with the new identity", clusterID, heartbeatID)
+				}
+			}
+		}
+	}()
+
+	releaseReconciler := reconciler.NewGatewayReleaseReconciler(conn, gatewayQueue, clusterID)
+	if kcClient != nil {
+		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn, clusterID)
+	}
+
 	supervise("ManagedCluster watch", func(ctx context.Context) error {
 		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler)
 	})
-	if databaseReconciler != nil {
-		supervise("ManagedDatabase watch", func(ctx context.Context) error {
-			return watcher.WatchManagedDatabases(ctx, conn, databaseReconciler)
-		})
-	}
 	supervise("GatewayRelease watch", func(ctx context.Context) error {
 		return watcher.WatchGatewayReleases(ctx, conn, releaseReconciler)
 	})
 	supervise("Gateway watch", func(ctx context.Context) error {
-		return watcher.WatchGateways(ctx, conn, gatewayQueue, cfg.ClusterID)
+		return watcher.WatchGateways(ctx, conn, gatewayQueue, clusterID)
 	})
 	supervise("GatewayNetwork watch", func(ctx context.Context) error {
 		return watcher.WatchGatewayNetworks(ctx, conn, networkReconciler)
 	})
 	if roleBindingReconciler != nil {
 		supervise("RoleBinding watch", func(ctx context.Context) error {
-			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler)
+			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler, clusterID)
 		})
 	}
 
@@ -382,7 +402,7 @@ func main() {
 	// status synchronized with observed workload health (Running <-> Degraded).
 	// It requires an in-cluster Kubernetes client to observe Deployments.
 	if clientset != nil {
-		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig, cfg.ClusterID, cfg.Namespace)
+		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig, clusterID, cfg.Namespace)
 		supervise("gateway health reconciler", healthReconciler.Run)
 		log.Printf("INFO gateway health reconciler launched")
 	} else {
@@ -394,9 +414,19 @@ func main() {
 	// its cache), instead of a repeated full-namespace pod LIST. It requires an
 	// in-cluster Kubernetes client to watch pods.
 	if clientset != nil {
-		sandboxCountReconciler := reconciler.NewSandboxCountReconciler(clientset, conn, 0, cfg.ClusterID)
+		sandboxCountReconciler := reconciler.NewSandboxCountReconciler(clientset, conn, 0, clusterID)
 		supervise("sandbox count reconciler", sandboxCountReconciler.Run)
 		log.Printf("INFO sandbox count reconciler launched")
+
+		if dynamicClient != nil {
+			sandboxAttentionReconciler := reconciler.NewSandboxAttentionReconciler(
+				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace,
+			)
+			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
+			log.Printf("INFO sandbox attention reconciler launched")
+		} else {
+			log.Printf("WARN no dynamic client available, sandbox attention reconciliation disabled")
+		}
 	} else {
 		log.Printf("WARN no kubernetes client available, sandbox count reconciliation disabled")
 	}
@@ -414,11 +444,11 @@ func main() {
 		// synchronously so the first sweep sees the freshly-labeled namespaces; it
 		// is best-effort and never blocks startup on failure.
 		backfillCtx, cancelBackfill := context.WithTimeout(ctx, instanceLabelBackfillTimeout)
-		reconciler.RunInstanceLabelBackfill(backfillCtx, clientset, conn, cfg.Namespace, cfg.ClusterID)
+		reconciler.RunInstanceLabelBackfill(backfillCtx, clientset, conn, cfg.Namespace, clusterID)
 		cancelBackfill()
 
 		gcReconciler := reconciler.NewNamespaceGCReconciler(
-			clientset, conn, cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod, cfg.Namespace,
+			clientset, conn, cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod, cfg.Namespace, clusterID,
 		)
 		supervise("namespace GC reconciler", gcReconciler.Run)
 		log.Printf("INFO namespace GC reconciler launched (interval=%s grace=%s)",

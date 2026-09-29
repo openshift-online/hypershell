@@ -255,15 +255,15 @@ func sharedGatewayListenerName() string {
 }
 
 // ReconcileConsole idempotently reconciles the per-gateway console (Keycloak
-// client, credential Secret, Deployment, Service, selected exposure, and
-// NetworkPolicies) for an already-provisioned routed gateway. It exists so the
-// continuous health reconciler can self-heal the console independently of the
-// provisioning phase gate. A console failure does not stop the gateway. Thus,
-// the provisioning path does not run again after the gateway reaches Running.
-// The health reconciler repairs a transient failure or later drift. This
-// function is a thin, exported wrapper over reconcileConsole that uses
-// the default image set; callers pass the same ReconcileOpts fields the console
-// reads (Keycloak, GatewayName, GatewayID, IsOpenShift, SkipNetworkPolicies).
+// client, credential Secret, Deployment, Service, and selected exposure) for an
+// already-provisioned routed gateway. It exists so the continuous health
+// reconciler can self-heal the console independently of the provisioning phase
+// gate. A console failure does not stop the gateway. Thus, the provisioning
+// path does not run again after the gateway reaches Running. The health
+// reconciler repairs a transient failure or later drift. This function is a
+// thin, exported wrapper over reconcileConsole that uses the default image set;
+// callers pass the same ReconcileOpts fields the console reads (Keycloak,
+// GatewayName, GatewayID, IsOpenShift).
 func ReconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts) error {
 	images := opts.Images
 	if images == nil {
@@ -273,7 +273,7 @@ func ReconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 }
 
 // DeleteConsole removes the per-gateway console (Keycloak client, credential
-// Secret, Deployment, Service, both exposure kinds, and NetworkPolicies). It
+// Secret, Deployment, Service, and both exposure kinds). It
 // clears the stored console_address through opts.UpdateConsoleAddress. It is the
 // exported counterpart to ReconcileConsole. The continuous health reconciler
 // can remove the console independently of the provisioning phase gate. This
@@ -400,16 +400,6 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 
 	if err := reconcileConsoleExposure(ctx, dynamicClient, namespace, host, ingressMode); err != nil {
 		return fmt.Errorf("reconcile console exposure in %s: %w", namespace, err)
-	}
-
-	if opts.SkipNetworkPolicies {
-		logNetworkPoliciesDisabled()
-	} else {
-		for _, np := range buildConsoleNetworkPolicies(namespace) {
-			if err := reconcileResource(ctx, dynamicClient, np); err != nil {
-				log.Printf("WARN failed to reconcile console NetworkPolicy %s: %v", np.GetName(), err)
-			}
-		}
 	}
 
 	// The console_address is deliberately NOT published here. Publishing it at
@@ -548,8 +538,8 @@ func hasConsoleTrustedCABundle(ctx context.Context, clientset *kubernetes.Client
 
 // buildConsoleDeployment builds the two-container console Deployment (dashboard +
 // oauth2-proxy sidecar). The dashboard binds all interfaces on 8000 so the
-// kubelet can probe it, but the Service and NetworkPolicies keep 8000
-// unreachable so only the in-pod oauth2-proxy reaches it. When trustedCA is set,
+// kubelet can probe it, but the Service keeps 8000 internal so only
+// the in-pod oauth2-proxy reaches it. When trustedCA is set,
 // the sidecar mounts the tenant's gateway-trusted-ca bundle and is pointed at it
 // for OIDC discovery so a privately-signed issuer certificate validates.
 func buildConsoleDeployment(namespace, consoleImage, proxyImage, issuer, consoleClientID, redirectURI string, trustedCA bool) *unstructured.Unstructured {
@@ -893,90 +883,6 @@ func deleteConsoleExposures(ctx context.Context, dynamicClient dynamic.Interface
 	)
 }
 
-// buildConsoleNetworkPolicies builds the two console NetworkPolicies: ingress to
-// oauth2-proxy from the shared Gateway namespace, and ingress to the gateway pod
-// from the console pod.
-func buildConsoleNetworkPolicies(namespace string) []*unstructured.Unstructured {
-	gwNS := gatewayIngressNamespace()
-
-	allowRouter := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "networking.k8s.io/v1",
-			"kind":       "NetworkPolicy",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-console-allow-router",
-				"namespace": namespace,
-				"labels":    consoleLabelsAny(),
-			},
-			"spec": map[string]interface{}{
-				"podSelector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
-						"app.kubernetes.io/instance": consoleName,
-						"app.kubernetes.io/name":     "openshell",
-					},
-				},
-				"policyTypes": []interface{}{"Ingress"},
-				"ingress": []interface{}{
-					map[string]interface{}{
-						"ports": []interface{}{
-							map[string]interface{}{"port": consoleProxyPort, "protocol": "TCP"},
-						},
-						"from": []interface{}{
-							map[string]interface{}{
-								"namespaceSelector": map[string]interface{}{
-									"matchLabels": map[string]interface{}{
-										"kubernetes.io/metadata.name": gwNS,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	allowConsole := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "networking.k8s.io/v1",
-			"kind":       "NetworkPolicy",
-			"metadata": map[string]interface{}{
-				"name":      "openshell-gateway-allow-console",
-				"namespace": namespace,
-				"labels":    consoleLabelsAny(),
-			},
-			"spec": map[string]interface{}{
-				"podSelector": map[string]interface{}{
-					"matchLabels": map[string]interface{}{
-						"app.kubernetes.io/instance": "openshell-gateway",
-						"app.kubernetes.io/name":     "openshell",
-					},
-				},
-				"policyTypes": []interface{}{"Ingress"},
-				"ingress": []interface{}{
-					map[string]interface{}{
-						"ports": []interface{}{
-							map[string]interface{}{"port": int64(8080), "protocol": "TCP"},
-						},
-						"from": []interface{}{
-							map[string]interface{}{
-								"podSelector": map[string]interface{}{
-									"matchLabels": map[string]interface{}{
-										"app.kubernetes.io/instance": consoleName,
-										"app.kubernetes.io/name":     "openshell",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	return []*unstructured.Unstructured{allowRouter, allowConsole}
-}
-
 // deleteConsole removes all console resources and the console Keycloak client.
 // It attempts every deletion regardless of individual failures and returns their
 // joined errors (nil when the console is already absent), so a caller can retry
@@ -996,13 +902,6 @@ func deleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 
 	if err := deleteConsoleExposures(ctx, dynamicClient, namespace); err != nil {
 		errs = append(errs, err)
-	}
-
-	netpolGVR := schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}
-	for _, name := range []string{"openshell-console-allow-router", "openshell-gateway-allow-console"} {
-		if err := dynamicClient.Resource(netpolGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-			errs = append(errs, fmt.Errorf("delete console NetworkPolicy %s in %s: %w", name, namespace, err))
-		}
 	}
 
 	if err := clientset.CoreV1().Secrets(namespace).Delete(ctx, consoleSecretName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {

@@ -84,15 +84,6 @@ func TestExtractRealmRolesFromClaims(t *testing.T) {
 	}
 }
 
-func TestHasHypershellAdminRole_FromGroupsClaim(t *testing.T) {
-	roles := extractRealmRolesFromClaims(jwt.MapClaims{
-		"groups": []interface{}{"/hypershell-admins"},
-	})
-	if !HasHypershellAdminRole(roles) {
-		t.Fatal("hypershell-admins in groups claim should grant dashboard-operator access")
-	}
-}
-
 func stringSlicesEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

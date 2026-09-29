@@ -96,15 +96,12 @@ The environment SHALL be activated via `API_ENV=development_oidc`. The `environm
 
 ### gRPC Bypass
 
-When JWT is enabled, trusted in-cluster services (e.g., the control plane) SHALL be exempt from JWT validation on their gRPC watch streams. The `--auth-bypass-methods` flag SHALL include:
+When JWT is enabled, only the framework's health and reflection services SHALL be exempt from JWT validation. The `--auth-bypass-methods` flag SHALL include exactly:
 
 - `/grpc.health.v1.Health/`
 - `/grpc.reflection.v1alpha.ServerReflection/`
-- `/hypershell.v1.GatewayService/WatchGateways`
-- `/hypershell.v1.GatewayReleaseService/WatchGatewayReleases`
-- `/hypershell.v1.ManagedClusterService/WatchManagedClusters`
-- `/hypershell.v1.ManagedDatabaseService/WatchManagedDatabases`
-- `/hypershell.v1.GatewayNetworkService/WatchGatewayNetworks`
+
+The control plane's gRPC watch streams (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`, `WatchRoleBindings`) SHALL NOT be exempt: the control plane authenticates them with its OIDC `client_credentials` bearer token, and the API server binds `WatchGateways` and `WatchRoleBindings` to the caller's registered cluster (`managed-cluster-registration.spec.md`, "Requirement: Watch Stream Caller Binding"; `hub-grpc-tls.spec.md`, "Requirement: Authenticated Watch Streams Before Exposure").
 
 Health and OpenAPI HTTP paths SHALL also bypass JWT: `/healthcheck`, `/metrics`, `/api/hypershell/v1/openapi`, `/openapi`.
 
@@ -253,6 +250,8 @@ Protocol mappers (same as `hypershell-frontend`):
 - **Realm roles mapper** -- maps realm roles to the `groups` claim
 
 The CLI stores the access token, refresh token, issuer URL, and client ID in `~/.config/hypershell/config.json` (or `~/.hypershell.json` if the legacy path exists). On each command the CLI refreshes the access token eagerly if it is expired and a refresh token is available.
+
+Every HTTP client the CLI constructs (API server requests and OIDC issuer requests: token refresh, revocation, PKCE code exchange, device flow) SHALL honor the standard proxy environment variables (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`), including when `--insecure` disables TLS verification, so the CLI works from networks whose only egress is an HTTP proxy (e.g. an OpenShell sandbox).
 
 ### `hypershell-provisioner` Client
 

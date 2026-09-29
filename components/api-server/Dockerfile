@@ -12,13 +12,14 @@ FROM go-${BUILDARCH} AS builder
 WORKDIR /workspace
 
 COPY go.mod go.sum ./
-RUN go mod edit -dropreplace github.com/openshift-online/rh-trex-ai && go mod download
+RUN go mod edit -dropreplace github.com/openshift-online/rh-trex-ai/components/api-server && go mod download
 
 COPY cmd/ cmd/
 COPY pkg/ pkg/
 COPY plugins/ plugins/
 COPY openapi/ openapi/
 
+# Embed the version and build time in the API binary.
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
 ARG TARGETARCH

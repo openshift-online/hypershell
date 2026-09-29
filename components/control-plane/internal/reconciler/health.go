@@ -55,9 +55,10 @@ type GatewayHealthReconciler struct {
 	clientset     kubernetes.Interface
 	dynamicClient dynamic.Interface
 	grpcConn      *grpc.ClientConn
-	// clusterID scopes the health sweep to this managed cluster's gateways. When
-	// non-empty the fleet list is filtered server-side so a spoke never stamps
-	// (Degraded/Running) a gateway owned by another cluster. Empty sweeps all.
+	// clusterID scopes the health sweep to this managed cluster's gateways. The
+	// list is filtered server-side so a control plane never stamps
+	// (Degraded/Running) a gateway owned by another cluster. Always set: it is
+	// the control plane's registered cluster id.
 	clusterID             string
 	interval              time.Duration
 	exposure              exposure.Port
@@ -66,7 +67,6 @@ type GatewayHealthReconciler struct {
 	isOpenShift           bool
 	hasGatewayAPI         bool
 	ingressMode           string
-	skipNetworkPolicies   bool
 	versionObserver       gatewayVersionObserver
 	controlPlaneNamespace string
 
@@ -136,7 +136,6 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		isOpenShift:           isOpenShift,
 		hasGatewayAPI:         hasGatewayAPI,
 		ingressMode:           ingressMode,
-		skipNetworkPolicies:   os.Getenv("GATEWAY_SKIP_NETWORK_POLICIES") == "true",
 		now:                   time.Now,
 		routeNotReadySince:    make(map[string]time.Time),
 		routeTornDown:         make(map[string]bool),
@@ -392,7 +391,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		return namespace, ready
 	}
 	if isGatewayProvisionCompletion(phase, desiredPhase) {
-		observeGatewayProvisionDuration(ctx, response.GetGateway())
+		observeGatewayProvisionSuccess(ctx, response.GetGateway())
 	}
 
 	log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)
@@ -446,12 +445,11 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 		return
 	}
 	opts := gateway.ReconcileOpts{
-		IsOpenShift:         h.isOpenShift,
-		HasGatewayAPI:       h.hasGatewayAPI,
-		SkipNetworkPolicies: h.skipNetworkPolicies,
-		Keycloak:            h.keycloakConfig,
-		GatewayID:           gatewayID,
-		GatewayName:         gw.GetName(),
+		IsOpenShift:   h.isOpenShift,
+		HasGatewayAPI: h.hasGatewayAPI,
+		Keycloak:      h.keycloakConfig,
+		GatewayID:     gatewayID,
+		GatewayName:   gw.GetName(),
 	}
 	if err := gateway.ReconcileConsole(ctx, h.dynamicClient, h.concreteClientset(), gateway.NamespaceConfig{Name: namespace}, opts); err != nil {
 		log.Printf("WARN console self-heal in %s: %v", namespace, err)
@@ -511,12 +509,11 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 		}
 	}
 	opts := gateway.ReconcileOpts{
-		IsOpenShift:         h.isOpenShift,
-		HasGatewayAPI:       h.hasGatewayAPI,
-		SkipNetworkPolicies: h.skipNetworkPolicies,
-		Keycloak:            h.keycloakConfig,
-		GatewayID:           gatewayID,
-		GatewayName:         gw.GetName(),
+		IsOpenShift:   h.isOpenShift,
+		HasGatewayAPI: h.hasGatewayAPI,
+		Keycloak:      h.keycloakConfig,
+		GatewayID:     gatewayID,
+		GatewayName:   gw.GetName(),
 	}
 	// Wire an address-clearing callback only when an address is actually stored,
 	// so a gateway that never published one adds no gateway-update traffic.
@@ -545,8 +542,6 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 	case gateway.IngressModeRoute:
 		teardownErr = gateway.DeleteRouteResources(ctx, h.dynamicClient, h.concreteClientset(), namespace, opts)
 	case gateway.IngressModeNone:
-		// No gateway exposure is active. Remove remaining console resources and
-		// clear a stored route address from an earlier configuration.
 		teardownErr = gateway.DeleteConsole(ctx, h.dynamicClient, h.concreteClientset(), namespace, opts)
 		if opts.UpdateRouteAddress != nil {
 			if err := opts.UpdateRouteAddress(ctx, ""); err != nil {

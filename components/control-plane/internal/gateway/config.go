@@ -14,22 +14,20 @@ import (
 type ImageDefaults interface {
 	DefaultGatewayImage() string
 	DefaultSupervisorImage() string
-	DefaultDatabaseImage() string
 	DefaultSandboxImage() string
 	DefaultConsoleImage() string
 	DefaultOAuth2ProxyImage() string
 }
 
-const defaultDatabaseImage = "postgres:18"
 const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
 
 // defaultConsoleImage is the OpenShell dashboard image (the per-gateway
 // console). The upstream project publishes it to quay.io, so clusters pull it
 // directly (imagePullPolicy IfNotPresent) rather than building from source.
-// Pinned by digest to the sha-07f1b13 build for reproducibility; bump
+// Pinned by digest to the sha-978bcb5 build for reproducibility; bump
 // deliberately when adopting a new dashboard contract. Overridable via
 // HYPERSHELL_CONSOLE_IMAGE (e.g. a platform-registry mirror in production).
-const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:cb5e5b18b4cdf62efb1ce33e2ae73ed646d3cdf438966cae3c328f1c04cce0b4"
+const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:c69c1f34c574556684710a7d2d2a3654f164b855efe0d273a098782447068fc5"
 
 // defaultOAuth2ProxyImage is the oauth2-proxy sidecar image. Overridable via
 // HYPERSHELL_OAUTH2_PROXY_IMAGE.
@@ -51,36 +49,9 @@ func (StaticImageDefaults) DefaultSupervisorImage() string {
 	return os.Getenv("GATEWAY_SUPERVISOR_IMAGE")
 }
 
-func (StaticImageDefaults) DefaultDatabaseImage() string {
-	if v := os.Getenv("OPENSHELL_DATABASE_IMAGE"); v != "" {
-		return v
-	}
-	return defaultDatabaseImage
-}
-
-type CNPGConfig struct {
-	ClusterName      string
-	ClusterNamespace string
-}
-
-// ExternalDBConfig locates the admin credentials for an external
-// ManagedDatabase. CredentialsNamespace is the value of
-// ManagedDatabase.connection_secret: the NAMESPACE holding the credentials, not
-// a Secret name. It must satisfy the hypershell-managed-db- prefix rule, and
-// the control plane reads exactly one fixed-name Secret
-// (hypershell-managed-db-credentials) inside it.
-//
-// ManagedDatabaseID is carried for diagnostics only: single-shot cleanup logs
-// it so an operator can tie an orphaned role/database back to its registration.
-type ExternalDBConfig struct {
-	CredentialsNamespace string
-	ManagedDatabaseID    string
-}
-
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
 // It is overridable via GATEWAY_SANDBOX_IMAGE so clusters whose nodes cannot
-// reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror,
-// mirroring the OPENSHELL_DATABASE_IMAGE override for the gateway database.
+// reach ghcr.io (e.g. IBM ROKS) can point it at an in-cluster registry mirror.
 func (StaticImageDefaults) DefaultSandboxImage() string {
 	if v := os.Getenv("GATEWAY_SANDBOX_IMAGE"); v != "" {
 		return v
@@ -186,26 +157,15 @@ type ReconcileOpts struct {
 	IsOpenShift    bool
 	HasCertManager bool
 	HasGatewayAPI  bool
-	HasCNPG        bool
-	// DatabaseProvider is the ManagedDatabase provider ("cnpg", "deployment", or "external").
-	DatabaseProvider string
-	CNPG             CNPGConfig
-	// DeploymentDBNamespace is the namespace where the Deployment-managed
-	// database lives. Used when DatabaseProvider is "deployment" to copy
-	// credentials into the tenant namespace.
-	DeploymentDBNamespace string
-	// ExternalDB carries the admin Secret reference for the external provider.
-	ExternalDB            ExternalDBConfig
+	// Database locates the mounted PostgreSQL admin credentials every gateway
+	// database is provisioned with (see database.go).
+	Database DatabaseConfig
+	// databaseReconciler, when set, replaces the DatabaseReconciler built from
+	// Database. It is a test seam for exercising provisioning and deletion
+	// without a PostgreSQL server; production wiring leaves it nil.
+	databaseReconciler    DatabaseReconciler
 	ControlPlaneNamespace string
 	Images                ImageDefaults
-	// SkipNetworkPolicies disables creation of the per-tenant gateway
-	// NetworkPolicies. On distributions where the shared Gateway data plane
-	// runs out-of-cluster (e.g. cloud-provider-kind's Envoy container in local
-	// dev), its source IP cannot be matched by the namespace/pod selectors
-	// these policies use, so the policies would blackhole all ingress to the
-	// gateway. Dev clusters set this true to skip them; production/OpenShift
-	// leaves it false (the zero value) to keep tenant isolation enforced.
-	SkipNetworkPolicies bool
 	// GatewayID is the API-server resource ID for the gateway being reconciled.
 	// Used when updating fields (e.g. routeAddress) back to the API server.
 	GatewayID string
@@ -215,9 +175,6 @@ type ReconcileOpts struct {
 	// UpdateConsoleAddress is an optional callback that PATCHes the console_address
 	// field on the API-server Gateway. Nil means no update will be attempted.
 	UpdateConsoleAddress ConsoleAddressUpdater
-	// RotateDBCredentials is the value of the hypershell.redhat.io/rotate-db-credentials
-	// annotation on the Gateway resource. Empty means no rotation requested.
-	RotateDBCredentials string
 	// Keycloak holds the Keycloak Admin REST API configuration. Nil means
 	// Keycloak integration is not configured.
 	Keycloak *KeycloakConfig
@@ -254,6 +211,13 @@ type ReconcileOpts struct {
 	// only logged, matching legacy behavior). Implementations must not include
 	// secrets in any argument.
 	RecordOrphan OrphanRecorder
+	// ExternalCAIssuerName is the name of the cert-manager issuer for externally trusted certificates.
+	// Required for Route passthrough mode (TLS termination at pod, client sees cert directly).
+	ExternalCAIssuerName string
+	// ExternalCAIssuerKind is the kind of the external CA issuer (ClusterIssuer or Issuer).
+	ExternalCAIssuerKind string
+	// IngressBaseDomain is the base domain for auto-derived ingress hostnames (e.g. apps.example.com).
+	IngressBaseDomain string
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned

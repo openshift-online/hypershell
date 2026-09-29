@@ -40,8 +40,11 @@ func (d *testUserDao) CountCreatedSince(_ context.Context, since time.Time) (int
 }
 
 type testActivityDao struct {
-	dailyCounts map[string]int64
-	err         error
+	dailyCounts             map[string]int64
+	distinctUsersLast7Days  int64
+	distinctUsersLast30Days int64
+	err                     error
+	distinctCountErr        error
 }
 
 func (d *testActivityDao) UpsertDailyActivity(context.Context, string, time.Time) error { return nil }
@@ -50,6 +53,17 @@ func (d *testActivityDao) DailyUniqueLoginCounts(context.Context, time.Time, tim
 		return nil, d.err
 	}
 	return d.dailyCounts, nil
+}
+func (d *testActivityDao) CountDistinctUsersWithActivity(_ context.Context, startDate time.Time, endDate time.Time) (int64, error) {
+	if d.distinctCountErr != nil {
+		return 0, d.distinctCountErr
+	}
+	today := utcDayStart(time.Now().UTC())
+	lookback7DaysStart := today.AddDate(0, 0, -6)
+	if !startDate.Before(lookback7DaysStart) {
+		return d.distinctUsersLast7Days, nil
+	}
+	return d.distinctUsersLast30Days, nil
 }
 func (d *testActivityDao) PruneBefore(context.Context, time.Time) error { return nil }
 

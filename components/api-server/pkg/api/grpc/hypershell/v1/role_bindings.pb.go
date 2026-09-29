@@ -114,7 +114,15 @@ func (x *RoleBinding) GetUsername() string {
 }
 
 type WatchRoleBindingsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// cluster_id, when set, restricts the stream to bindings whose gateway is
+	// assigned to that managed cluster (scoping is by the binding's gateway's
+	// cluster_id). Global bindings (no gateway_id) are not delivered under the
+	// filter. Because the event broker fans every binding out to every
+	// subscriber, this filter is the security boundary that keeps a spoke's
+	// stream scoped to its own cluster; a registered caller must set it to its
+	// own cluster id (see WatchGatewaysRequest.cluster_id).
+	ClusterId     *string `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -147,6 +155,13 @@ func (x *WatchRoleBindingsRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use WatchRoleBindingsRequest.ProtoReflect.Descriptor instead.
 func (*WatchRoleBindingsRequest) Descriptor() ([]byte, []int) {
 	return file_hypershell_v1_role_bindings_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *WatchRoleBindingsRequest) GetClusterId() string {
+	if x != nil && x.ClusterId != nil {
+		return *x.ClusterId
+	}
+	return ""
 }
 
 type WatchRoleBindingsResponse struct {
@@ -215,7 +230,12 @@ type ListRoleBindingsRequest struct {
 	// plane uses this to recompute a user's effective Keycloak roles on a gateway.
 	UserId *string `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
 	// Optional additional filter to a single gateway.
-	GatewayId     *string `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3,oneof" json:"gateway_id,omitempty"`
+	GatewayId *string `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3,oneof" json:"gateway_id,omitempty"`
+	// cluster_id, when set, excludes bindings whose gateway is not assigned to
+	// that managed cluster, and excludes global bindings (no gateway_id). Same
+	// semantics as WatchRoleBindingsRequest.cluster_id; a registered caller must
+	// set it to its own cluster id.
+	ClusterId     *string `protobuf:"bytes,3,opt,name=cluster_id,json=clusterId,proto3,oneof" json:"cluster_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -260,6 +280,13 @@ func (x *ListRoleBindingsRequest) GetUserId() string {
 func (x *ListRoleBindingsRequest) GetGatewayId() string {
 	if x != nil && x.GatewayId != nil {
 		return *x.GatewayId
+	}
+	return ""
+}
+
+func (x *ListRoleBindingsRequest) GetClusterId() string {
+	if x != nil && x.ClusterId != nil {
+		return *x.ClusterId
 	}
 	return ""
 }
@@ -324,20 +351,26 @@ const file_hypershell_v1_role_bindings_proto_rawDesc = "" +
 	"\busername\x18\a \x01(\tR\busernameB\n" +
 	"\n" +
 	"\b_user_idB\r\n" +
-	"\v_gateway_id\"\x1a\n" +
-	"\x18WatchRoleBindingsRequest\"\xa9\x01\n" +
+	"\v_gateway_id\"M\n" +
+	"\x18WatchRoleBindingsRequest\x12\"\n" +
+	"\n" +
+	"cluster_id\x18\x01 \x01(\tH\x00R\tclusterId\x88\x01\x01B\r\n" +
+	"\v_cluster_id\"\xa9\x01\n" +
 	"\x19WatchRoleBindingsResponse\x12,\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x18.hypershell.v1.EventTypeR\x04type\x12=\n" +
 	"\frole_binding\x18\x02 \x01(\v2\x1a.hypershell.v1.RoleBindingR\vroleBinding\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
-	"resourceId\"v\n" +
+	"resourceId\"\xa9\x01\n" +
 	"\x17ListRoleBindingsRequest\x12\x1c\n" +
 	"\auser_id\x18\x01 \x01(\tH\x00R\x06userId\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"gateway_id\x18\x02 \x01(\tH\x01R\tgatewayId\x88\x01\x01B\n" +
+	"gateway_id\x18\x02 \x01(\tH\x01R\tgatewayId\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"cluster_id\x18\x03 \x01(\tH\x02R\tclusterId\x88\x01\x01B\n" +
 	"\n" +
 	"\b_user_idB\r\n" +
-	"\v_gateway_id\"L\n" +
+	"\v_gateway_idB\r\n" +
+	"\v_cluster_id\"L\n" +
 	"\x18ListRoleBindingsResponse\x120\n" +
 	"\x05items\x18\x01 \x03(\v2\x1a.hypershell.v1.RoleBindingR\x05items2\xe3\x01\n" +
 	"\x12RoleBindingService\x12h\n" +
@@ -389,6 +422,7 @@ func file_hypershell_v1_role_bindings_proto_init() {
 	}
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_role_bindings_proto_msgTypes[0].OneofWrappers = []any{}
+	file_hypershell_v1_role_bindings_proto_msgTypes[1].OneofWrappers = []any{}
 	file_hypershell_v1_role_bindings_proto_msgTypes[3].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

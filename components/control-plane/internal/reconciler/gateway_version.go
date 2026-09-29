@@ -44,7 +44,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayVersion(ctx context.Context, c
 	}
 
 	if h.healthAccessCheckDue(namespace) {
-		if err := gateway.ReconcileGatewayHealthAccess(ctx, h.clientset, namespace, h.controlPlaneNamespace, h.skipNetworkPolicies); err != nil {
+		if err := gateway.ReconcileGatewayHealthAccess(ctx, h.clientset, namespace); err != nil {
 			log.Printf("WARN gateway version: reconcile access for %s: %v", gatewayID, err)
 			return
 		}

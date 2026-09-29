@@ -18,7 +18,8 @@ import {
 } from "./gateway-connections";
 
 const gateway: GatewayConnection = {
-  clusterName: "Hub cluster",
+  clusterId: "cluster-east",
+  clusterName: "local-kind",
   consoleUrl: "https://console.example.test",
   endpoint: "https://gateway.example.test:443",
   gatewayVersion: "0.0.109",
@@ -74,22 +75,22 @@ describe("gateway connections", () => {
     expect(command).toContain("OPENSHELL_VERSION='v0.0.109; unsafe' sh");
   });
 
-  it("removes a postfix and does not add a second version prefix", () => {
+  it("keeps a version suffix and does not add a second version prefix", () => {
     expect(
       buildOpenShellInstallCommand({
         ...gateway,
         gatewayVersion: "v0.0.109-rh9a8f8",
       }),
-    ).toContain("OPENSHELL_VERSION=v0.0.109 sh");
+    ).toContain("OPENSHELL_VERSION=v0.0.109-rh9a8f8 sh");
   });
 
-  it("removes a postfix before it adds the version prefix", () => {
+  it("keeps a version suffix and adds the version prefix", () => {
     expect(
       buildOpenShellInstallCommand({
         ...gateway,
         gatewayVersion: "0.0.109-rh9a8f8",
       }),
-    ).toContain("OPENSHELL_VERSION=v0.0.109 sh");
+    ).toContain("OPENSHELL_VERSION=v0.0.109-rh9a8f8 sh");
   });
 
   it("omits OIDC flags when OIDC is not configured", () => {

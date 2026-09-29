@@ -57,11 +57,7 @@ CLOUD_PROVIDER_KIND_REF?=08ce4ea4cc10bce8ffbcf4f859a086bb6b292230
 # actually resolved to, so up.sh restarts to pick up a moved branch tip.
 CLOUD_PROVIDER_KIND_BRANCH?=
 CERT_MANAGER_VERSION?=v1.21.1
-CNPG_VERSION?=v1.30.0
-AGENT_SANDBOX_VERSION?=v0.5.4
-
-# PostgreSQL image for API server CNPG cluster (unset = CNPG default)
-HYPERSHELL_DATABASE_IMAGE?=
+AGENT_SANDBOX_VERSION?=v0.5.6
 
 # Kind config
 KIND_CONFIG=deploy/kind/kind-config.yaml
@@ -72,7 +68,7 @@ KIND_DNS_PORT?=5553
 # The gateway base domain is discovered from that Gateway's listener hostname.
 GATEWAY_API_GATEWAY_NAME?=openshell-grpc-gateway
 GATEWAY_API_GATEWAY_NAMESPACE?=openshift-ingress
-GATEWAY_IMAGE?=quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd
+GATEWAY_IMAGE?=$(shell . ./OPENSHELL_VERSION && echo "$${OPENSHELL_GATEWAY_IMAGE}:$${OPENSHELL_TAG}")
 
 # Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
@@ -122,8 +118,10 @@ help:
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
 	@echo "                             SEED_STRICT=true: fail the command if seeding is incomplete"
 	@echo "                             FORCE=true: openshift-down skips ownership labels (still refuses reserved names)"
-	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080)"
+	@echo "    kind-fix-ports           Re-establish host port forwarding (443 + 8080) and sync in-cluster CoreDNS gateway IP"
 	@echo "    kind-gateway-trust       Print SSL_CERT_FILE export so the openshell CLI trusts the dev CA"
+	@echo "    kind-openshell           Run the openshell CLI via Kind's own network (works on macOS with no native CLI build)"
+	@echo "                             ARGS=\"-g dev sandbox create\""
 	@echo "    LOCAL_IMAGES=true        Build baseline images from the working tree (kind-up)"
 	@echo "    BUILD_SOURCE=baseline    With LOCAL_IMAGES=true, build from origin/main"
 	@echo ""
@@ -138,6 +136,7 @@ help:
 	@echo "    unit-test-all            Run all unit test suites (Go, frontend, shell)"
 	@echo "    ci-test                  Run all *_test.sh shell unit tests (auto-discovered)"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
+	@echo "    e2e-console              Run browser E2E of the web console and OpenShell console (agent-browser)"
 	@echo "    e2e-performance          Run the performance harness (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
 	@echo "    e2e-performance-report   Tabulate recent local performance runs"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
@@ -158,6 +157,11 @@ help:
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
 	@echo "    hooks-run                Run hook checks manually"
+	@echo ""
+	@echo "  APM"
+	@echo "    apm-install              Install APM dependencies + run security scan"
+	@echo "    apm-install-force        Install APM dependencies + require skillspector scan (CI)"
+	@echo "    apm-audit                Run APM security audit"
 	@echo ""
 
 # ============================================================================
@@ -191,7 +195,7 @@ build-controller:
 
 .PHONY: build-cli
 build-cli:
-	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hypershell
+	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hsctl
 
 .PHONY: build-web-console
 build-web-console:
@@ -230,8 +234,20 @@ test-dependency-age-policy:
 check-dependency-age: test-dependency-age-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
 
+.PHONY: sync-openshell-version
+sync-openshell-version:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py --stamp
+
+.PHONY: test-openshell-version-policy
+test-openshell-version-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_sync_openshell_version.py
+
+.PHONY: check-openshell-version
+check-openshell-version: test-openshell-version-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age test-release-bundle
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-openshell-version test-release-bundle
 
 # ============================================================================
 # Git hooks
@@ -244,6 +260,21 @@ hooks-install:
 .PHONY: hooks-run
 hooks-run:
 	$(LEFTHOOK_CMD) run check
+
+# ============================================================================
+# APM
+# ============================================================================
+
+.PHONY: apm-install apm-install-force
+apm-install:
+	@scripts/apm-install.sh
+
+apm-install-force:
+	@scripts/apm-install.sh --force
+
+.PHONY: apm-audit
+apm-audit:
+	apm run audit
 
 # ============================================================================
 # Lint targets
@@ -324,8 +355,7 @@ unit-test-all: install-js ci-test
 export CONTAINER_ENGINE KIND_CLUSTER_NAME KIND_NAMESPACE
 export KIND_HOT_RELOAD KIND_HOST_MOUNT_PATH KIND_KEYCLOAK_URL LOCAL_IMAGES BUILD_SOURCE
 export KIND_PULL_SECRET PULL_SECRET
-export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_REF CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION CNPG_VERSION AGENT_SANDBOX_VERSION
-export HYPERSHELL_DATABASE_IMAGE
+export GATEWAY_API_VERSION KIND_VERSION CLOUD_PROVIDER_KIND_REPO CLOUD_PROVIDER_KIND_REF CLOUD_PROVIDER_KIND_BRANCH CERT_MANAGER_VERSION AGENT_SANDBOX_VERSION
 export IMAGE_REGISTRY IMAGE_TAG KIND_CONFIG
 export api_server_ref control_plane_ref web_console_ref
 export API_SERVER_IMAGE CONTROL_PLANE_IMAGE WEB_CONSOLE_IMAGE
@@ -471,6 +501,17 @@ kind-web-console-down:
 kind-gateway-trust:
 	@scripts/kind/gateway-trust.sh
 
+.PHONY: kind-openshell
+kind-openshell:
+	@scripts/kind/openshell.sh $(ARGS)
+
+# Turn on gRPC TLS on the Kind api-server, verify the control plane's TLS dial
+# end to end, then restore plaintext (KEEP=true keeps it on; ARGS=revert
+# restores it). See specs/platform/hub-grpc-tls.spec.md.
+.PHONY: kind-grpc-tls-smoke
+kind-grpc-tls-smoke:
+	@scripts/kind/grpc-tls-smoke.sh $(ARGS)
+
 # ============================================================================
 # OpenShift cluster lifecycle - shell logic lives in scripts/cluster/
 # ============================================================================
@@ -531,6 +572,7 @@ generate-cli:
 		--project hypershell \
 		--api-prefix /api/hypershell/v1 \
 		--module github.com/openshift-online/hypershell/components/cli
+	gofmt -w components/cli
 
 generate-sdk-go:
 	$(MAKE) -C components/api-server generate-sdk
@@ -550,6 +592,19 @@ e2e:
 	@E2E_PROVISION_TIMEOUT=300 \
 		E2E_SANDBOX_TIMEOUT=180 \
 		bash tests/e2e/e2e-openshell.sh
+
+# Browser-driven e2e of the HyperShell web console and the per-gateway OpenShell
+# console (agent-browser headless Chromium). Requires port 443 forwarding from
+# `make kind-up` (not KIND_NO_SUDO) and the agent-browser version pinned in
+# dependency-age-tools.json. See specs/platform/e2e-console-browser-testing.spec.md.
+.PHONY: e2e-console
+e2e-console:
+	@echo ""
+	@echo "==> Running browser E2E (web console + OpenShell console)"
+	@echo ""
+	@E2E_PROVISION_TIMEOUT=300 \
+		E2E_SANDBOX_TIMEOUT=180 \
+		bash tests/e2e/e2e-console.sh
 
 .PHONY: e2e-performance
 e2e-performance:

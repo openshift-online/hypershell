@@ -15,7 +15,7 @@ graph LR
   HTTP[REST API<br/>/api/hypershell/v1]
   RPC[gRPC API<br/>Watch + CRUD]
   PLUGINS[Kind plugins<br/>Gateway · Cluster · Database<br/>Release · Network · ServiceAccount]
-  DB[(PostgreSQL<br/>CNPG-backed)]
+  DB[(PostgreSQL<br/>externally provisioned)]
   CP[Control Plane<br/>watch clients]
   CLI --> HTTP
   GO --> HTTP

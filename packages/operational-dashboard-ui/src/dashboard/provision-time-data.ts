@@ -5,12 +5,12 @@ import { messages } from "../messages";
 import { isDisplayableOperationalMetricValue } from "./operational-metric-display";
 
 export interface ProvisionDurationStats {
-  meanMinutes: number;
-  p50Minutes: number;
-  p95Minutes: number;
+  meanSeconds: number;
+  p50Seconds: number;
+  p95Seconds: number;
 }
 
-function parseMinutes(value: string | undefined): number | undefined {
+function parseSeconds(value: string | undefined): number | undefined {
   if (value === undefined || !isDisplayableOperationalMetricValue(value)) {
     return undefined;
   }
@@ -21,29 +21,29 @@ function parseMinutes(value: string | undefined): number | undefined {
 export function parseProvisionDurationStats(
   metric: OperationalMetric,
 ): ProvisionDurationStats | undefined {
-  const meanMinutes = parseMinutes(
+  const meanSeconds = parseSeconds(
     metric.provisionDuration?.mean ?? metric.value,
   );
-  const p50Minutes = parseMinutes(metric.provisionDuration?.p50);
-  const p95Minutes = parseMinutes(metric.provisionDuration?.p95);
+  const p50Seconds = parseSeconds(metric.provisionDuration?.p50);
+  const p95Seconds = parseSeconds(metric.provisionDuration?.p95);
 
   if (
-    meanMinutes === undefined ||
-    p50Minutes === undefined ||
-    p95Minutes === undefined
+    meanSeconds === undefined ||
+    p50Seconds === undefined ||
+    p95Seconds === undefined
   ) {
     return undefined;
   }
 
-  return { meanMinutes, p50Minutes, p95Minutes };
+  return { meanSeconds, p50Seconds, p95Seconds };
 }
 
 export function formatProvisionDurationValue(
   intl: IntlShape,
-  minutes: number,
+  seconds: number,
   unit: string | undefined,
 ): string {
-  const value = minutes.toFixed(2);
+  const value = seconds.toFixed(2);
 
   if (unit) {
     return intl.formatMessage(messages.utilizationLabel, {

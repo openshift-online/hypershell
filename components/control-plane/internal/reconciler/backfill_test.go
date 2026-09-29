@@ -72,7 +72,7 @@ func TestBackfillInstanceLabels(t *testing.T) {
 			gatewayWithNamespace("id-empty", ""),
 		})
 
-		labeled, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", "")
+		labeled, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", "mc1")
 		if err != nil {
 			t.Fatalf("BackfillInstanceLabels() error = %v", err)
 		}
@@ -104,7 +104,7 @@ func TestBackfillInstanceLabels(t *testing.T) {
 				return nil, fmt.Errorf("boom")
 			},
 		}
-		if _, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", ""); err == nil {
+		if _, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", "mc1"); err == nil {
 			t.Fatalf("BackfillInstanceLabels() error = nil, want list failure")
 		}
 		got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-a", metav1.GetOptions{})
@@ -133,7 +133,7 @@ func TestBackfillInstanceLabels(t *testing.T) {
 			gatewayWithNamespace("id-b", "openshell-b"),
 		})
 
-		labeled, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", "")
+		labeled, err := BackfillInstanceLabels(ctx, client, gwClient, "hypershell", "mc1")
 		if err == nil {
 			t.Fatalf("BackfillInstanceLabels() error = nil, want a collected per-namespace error")
 		}

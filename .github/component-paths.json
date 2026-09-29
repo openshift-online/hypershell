@@ -102,13 +102,13 @@
       ".github/component-paths.json",
       ".github/scripts/detect-components.sh",
       ".github/workflows/e2e.yml",
-      ".github/workflows/e2e-openshift-main.yml",
       ".github/workflows/unit-tests.yml",
       ".github/workflows/tests.yml",
       ".github/workflows/pr-environment.yml",
       ".github/workflows/pr-environment-destroy.yml",
       ".github/workflows/pr-environment-commands.yml",
-      ".github/actions/deploy-pr-environment/**"
+      ".github/actions/deploy-pr-environment/**",
+      ".github/actions/openshift-cluster-login/**"
     ]
   },
   "pr_test": {

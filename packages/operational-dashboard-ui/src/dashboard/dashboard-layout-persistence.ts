@@ -3,6 +3,25 @@ import type {
   Variants,
 } from "@patternfly/widgetized-dashboard";
 
+export const REMOVED_WIDGET_TYPES = new Set([
+  "provisioned-sandboxes",
+  // The ManagedDatabase resource no longer exists, so the inventory status
+  // donut it drove is gone. Strip saved tiles so they cannot reappear.
+  // See specs/platform/openshell-gateway-database.spec.md.
+  "managed-database-status",
+]);
+
+export function stripRemovedWidgetTypes(
+  template: ExtendedTemplateConfig,
+): ExtendedTemplateConfig {
+  return (Object.keys(template) as Variants[]).reduce((acc, variant) => {
+    acc[variant] = template[variant].filter(
+      (item) => !REMOVED_WIDGET_TYPES.has(item.widgetType),
+    );
+    return acc;
+  }, {} as ExtendedTemplateConfig);
+}
+
 export function getActiveWidgetTypes(
   template: ExtendedTemplateConfig,
 ): string[] {

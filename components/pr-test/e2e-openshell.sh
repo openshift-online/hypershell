@@ -196,7 +196,6 @@ body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': '$CLUSTER_ID',
     'release_id': '$REL_ID',
-    'database_id': '$DB_ID',
     'oidc': json.dumps({
         'issuer': os.environ['OIDC_ISSUER'],
         'audience': os.environ['OIDC_CLIENT_ID'],

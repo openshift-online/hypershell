@@ -235,9 +235,8 @@ func TestGatewayVersionAccessChecks(t *testing.T) {
 	observationFails := false
 	observations := 0
 	h := &GatewayHealthReconciler{
-		clientset:           clientset,
-		skipNetworkPolicies: true,
-		now:                 func() time.Time { return now },
+		clientset: clientset,
+		now:       func() time.Time { return now },
 		versionObserver: versionObserverFunc(func(context.Context, string) (string, error) {
 			observations++
 			if observationFails {

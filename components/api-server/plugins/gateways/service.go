@@ -7,11 +7,11 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
-	"github.com/openshift-online/rh-trex-ai/pkg/db"
-	"github.com/openshift-online/rh-trex-ai/pkg/errors"
-	"github.com/openshift-online/rh-trex-ai/pkg/logger"
-	"github.com/openshift-online/rh-trex-ai/pkg/services"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/logger"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
 const gatewaysLockType db.LockType = "gateways"
@@ -40,6 +40,10 @@ type GatewayService interface {
 
 	FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError)
 
+	// ClusterIDByNamespace returns the cluster the live gateway backing
+	// namespace is assigned to; found is false when no live gateway backs it.
+	ClusterIDByNamespace(ctx context.Context, namespace string) (clusterID string, found bool, svcErr *errors.ServiceError)
+
 	// CountByPhase returns the number of gateways in each phase.
 	CountByPhase(ctx context.Context) (map[string]int64, *errors.ServiceError)
 
@@ -51,13 +55,11 @@ func NewGatewayService(
 	lockFactory db.LockFactory,
 	gatewayDao GatewayDao,
 	events services.EventService,
-	placement PlacementResolver,
 ) GatewayService {
 	return &sqlGatewayService{
 		lockFactory: lockFactory,
 		gatewayDao:  gatewayDao,
 		events:      events,
-		placement:   placement,
 	}
 }
 
@@ -67,7 +69,6 @@ type sqlGatewayService struct {
 	lockFactory db.LockFactory
 	gatewayDao  GatewayDao
 	events      services.EventService
-	placement   PlacementResolver
 }
 
 func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
@@ -106,21 +107,6 @@ func (s *sqlGatewayService) GetUnscoped(ctx context.Context, id string) (*Gatewa
 }
 
 func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError) {
-	// database_id is server-owned. Clear any value that reached the business
-	// layer from an API client before selecting the configured placement strategy.
-	gateway.DatabaseId = ""
-	if s.placement != nil {
-		if err := s.placement.Resolve(ctx, gateway); err != nil {
-			if IsPlacementValidationError(err) {
-				return nil, errors.Validation("gateway placement is invalid: %s", err)
-			}
-			return nil, errors.GeneralError("gateway placement failed: %s", err)
-		}
-	}
-	if gateway.DatabaseId == "" {
-		return nil, errors.GeneralError("gateway placement did not assign database_id")
-	}
-
 	gateway.CaptureTraceContext(ctx)
 	gateway, err := s.gatewayDao.Create(ctx, gateway)
 	if err != nil {
@@ -227,6 +213,17 @@ func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.Servi
 	}
 
 	return nil
+}
+
+func (s *sqlGatewayService) ClusterIDByNamespace(ctx context.Context, namespace string) (string, bool, *errors.ServiceError) {
+	clusterID, err := s.gatewayDao.ClusterIDByNamespace(ctx, namespace)
+	if err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return "", false, nil
+		}
+		return "", false, errors.GeneralError("Unable to look up the gateway in namespace %s: %s", namespace, err)
+	}
+	return clusterID, true, nil
 }
 
 func (s *sqlGatewayService) FindByIDs(ctx context.Context, ids []string) (GatewayList, *errors.ServiceError) {

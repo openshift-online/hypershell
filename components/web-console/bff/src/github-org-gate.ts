@@ -6,6 +6,15 @@ export interface GithubOrgGateInput {
   allowlistRaw: string | undefined;
   fetchImpl?: typeof fetch;
   githubApiOrigin: string;
+  // Whether this Keycloak session carries a federated GitHub identity, per the
+  // `github-identity` realm role the "github" identity provider FORCE-syncs
+  // onto every GitHub login (see deploy/base/keycloak/keycloak.yaml). Read
+  // from the ID token's role claim, not inferred from a broker-endpoint status
+  // code: Keycloak's `/broker/{alias}/token` returns 403 both for sessions
+  // with no GitHub identity AND for a genuinely GitHub-linked session that
+  // simply lacks the broker `read-token` role, so that status code cannot
+  // reliably distinguish the two.
+  githubLinked: boolean;
   oidcIssuer: string;
   onLookupError?: (error: unknown) => void;
   orgGate: string;
@@ -53,20 +62,23 @@ export function githubIdentityAllowed(input: {
 /**
  * Evaluates the GitHub org gate for an OIDC callback.
  *
- * Allowlisted usernames skip the GitHub API. Public org membership is checked
- * next without a GitHub token, so members who keep their membership public
- * still get in when the OAuth App is not approved by the org. Private
- * membership uses the Keycloak-stored GitHub token against
- * `/user/memberships/orgs/{org}` (and `/user/orgs` as a fallback).
+ * Allowlisted usernames skip the GitHub API. A session with no federated
+ * GitHub identity (`input.githubLinked` false - seeded password users) is
+ * admitted unconditionally, since there is no GitHub identity to gate. That
+ * determination comes from the ID token's `github-identity` realm role
+ * (FORCE-synced by the "github" identity provider on every GitHub login), not
+ * from a Keycloak broker-endpoint status code: `/broker/{alias}/token`
+ * returns 403 both for "no GitHub identity" and for "GitHub-linked but
+ * missing the broker read-token role", so that status code cannot reliably
+ * distinguish the two and must not be used to decide admission.
  *
- * A Keycloak session with no GitHub identity at all (seeded password users)
- * is admitted: broker V1 returns 403 when the access token was never granted
- * `broker/read-token`, which only happens for accounts that never went
- * through the GitHub broker. That is the GitHub linkage check, not a JWT
- * username guess. A session that *is* GitHub-linked but whose token cannot be
- * read back (broker V1 404, "nothing is stored") fails closed rather than
- * being admitted, since we cannot verify org membership for it. Any other
- * lookup failure is also a denial.
+ * For a GitHub-linked session, public org membership is checked first without
+ * a GitHub token, so members who keep their membership public still get in
+ * when the OAuth App is not approved by the org. Private membership uses the
+ * Keycloak-stored GitHub token against `/user/memberships/orgs/{org}` (and
+ * `/user/orgs` as a fallback). Any failure reading that token, or any other
+ * lookup failure, is a denial: a GitHub-linked session must have its org
+ * membership positively confirmed.
  */
 export async function evaluateGithubOrgGate(
   input: GithubOrgGateInput,
@@ -83,6 +95,10 @@ export async function evaluateGithubOrgGate(
     return true;
   }
 
+  if (!input.githubLinked) {
+    return true;
+  }
+
   const fetchImpl = input.fetchImpl ?? globalThis.fetch;
   const origin = input.githubApiOrigin.replace(/\/+$/u, "");
   try {
@@ -96,15 +112,11 @@ export async function evaluateGithubOrgGate(
     ) {
       return true;
     }
-    const broker = await fetchBrokerGithubToken({
+    const githubToken = await fetchBrokerGithubToken({
       accessToken: input.accessToken,
       fetchImpl,
       oidcIssuer: input.oidcIssuer,
     });
-    if (!broker.linked) {
-      return true;
-    }
-    const githubToken = broker.token;
     if (
       await isActiveOrgMember({
         fetchImpl,
@@ -262,14 +274,12 @@ async function fetchBrokerGithubToken(input: {
   accessToken: string;
   fetchImpl: typeof fetch;
   oidcIssuer: string;
-}): Promise<{ linked: true; token: string } | { linked: false }> {
-  // storeToken + addReadTokenRoleOnCreate. Keycloak V1 retrieveToken:
-  // 403 if the access token has no broker/read-token, meaning the account
-  // never went through the GitHub broker (password users) - safe to treat
-  // as "not linked". 404 means the user *is* linked to the GitHub provider
-  // but Keycloak has nothing stored for it; that is a verifiable identity we
-  // failed to verify, so it must not be treated the same as "not linked".
-  // 200 is a GitHub login.
+}): Promise<string> {
+  // storeToken + addReadTokenRoleOnCreate. Called only for a session already
+  // known (from the ID token's github-identity role) to be GitHub-linked, so
+  // any non-2xx here - 403 (missing broker read-token role), 404 (nothing
+  // stored) or otherwise - is a verification failure and must deny, not be
+  // read as "no GitHub identity".
   const issuer = input.oidcIssuer.replace(/\/+$/u, "");
   const response = await input.fetchImpl(`${issuer}/broker/github/token`, {
     headers: {
@@ -278,14 +288,6 @@ async function fetchBrokerGithubToken(input: {
     },
     signal: AbortSignal.timeout(githubRequestTimeoutMs),
   });
-  if (response.status === 403) {
-    return { linked: false };
-  }
-  if (response.status === 404) {
-    throw new Error(
-      "Keycloak reports a linked GitHub identity with no stored broker token (HTTP 404)",
-    );
-  }
   if (!response.ok) {
     throw new Error(
       `Keycloak GitHub broker token failed with HTTP ${String(response.status)}`,
@@ -299,7 +301,7 @@ async function fetchBrokerGithubToken(input: {
       "Keycloak GitHub broker token response had no access_token",
     );
   }
-  return { linked: true, token };
+  return token;
 }
 
 function readBrokerAccessToken(

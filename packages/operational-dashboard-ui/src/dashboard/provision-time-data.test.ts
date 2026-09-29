@@ -6,20 +6,20 @@ import { parseProvisionDurationStats } from "./provision-time-data";
 const provisionTimeMetric: OperationalMetric = {
   id: "provision-time",
   provisionDuration: {
-    mean: "5.25",
-    p50: "4.80",
-    p95: "12.10",
+    mean: "315.00",
+    p50: "288.00",
+    p95: "726.00",
   },
-  unit: "minutes",
-  value: "5.25",
+  unit: "sec",
+  value: "315.00",
 };
 
 describe("parseProvisionDurationStats", () => {
   it("parses mean, P50, and P95 from provisionDuration", () => {
     expect(parseProvisionDurationStats(provisionTimeMetric)).toEqual({
-      meanMinutes: 5.25,
-      p50Minutes: 4.8,
-      p95Minutes: 12.1,
+      meanSeconds: 315,
+      p50Seconds: 288,
+      p95Seconds: 726,
     });
   });
 
@@ -28,8 +28,8 @@ describe("parseProvisionDurationStats", () => {
       parseProvisionDurationStats({
         ...provisionTimeMetric,
         provisionDuration: {
-          mean: "5.25",
-          p50: "4.80",
+          mean: "315.00",
+          p50: "288.00",
           p95: "NaN",
         },
       }),

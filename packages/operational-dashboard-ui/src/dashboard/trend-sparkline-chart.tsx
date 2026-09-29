@@ -20,11 +20,15 @@ interface SparklineDatum {
 const SPARKLINE_PLOT_HEIGHT = 56;
 
 export function TrendSparklineChart({
+  caption,
   trend,
   title,
+  valueFormatter,
 }: Readonly<{
+  caption?: string;
   trend: OperationalMetricTrend;
   title: string;
+  valueFormatter?: (value: number) => string;
 }>) {
   const intl = useIntl();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -63,7 +67,7 @@ export function TrendSparklineChart({
     intl.formatMessage(messages.trendTooltip, {
       date: datum.x,
       metric: title,
-      value: datum.y,
+      value: valueFormatter ? valueFormatter(datum.y) : datum.y,
     });
 
   const trendDayCount = trend.points.length.toString();
@@ -89,7 +93,8 @@ export function TrendSparklineChart({
         </ChartGroup>
       </div>
       <small className="hypershell-dashboard-sparkline-chart__caption">
-        {intl.formatMessage(messages.trendLastDays, { days: trendDayCount })}
+        {caption ??
+          intl.formatMessage(messages.trendLastDays, { days: trendDayCount })}
       </small>
     </div>
   );

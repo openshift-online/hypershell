@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # e2e-performance.sh - infrastructure-agnostic performance harness.
 #
-# Provisions a fleet of gateways in batches, runs the e2e suite in short mode
+# Provisions a fleet of gateways in batches, runs the e2e suite in perf mode
 # after each batch (checkpoint), then runs the suite in long mode as a
 # functional gate. Reuses the e2e driver interface: no kubectl/oc/kind
 # commands appear in this file.
@@ -49,7 +49,6 @@ if [[ "${E2E_PERF_CHECKPOINT}" != "1" ]]; then
   E2E_PERF_BATCH_SIZE="${E2E_PERF_GATEWAY_COUNT}"
 fi
 
-DB_PROVIDER="${DATABASE_PROVIDER:-external}"
 E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
 
 # --- Driver selection ---
@@ -127,7 +126,6 @@ perf_export_child_env() {
   export E2E_OIDC_PASSWORD="${E2E_OIDC_PASSWORD:-}"
   export E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}"
   export E2E_RELEASE_ID="${E2E_RELEASE_ID:-}"
-  export E2E_DATABASE_ID="${E2E_DATABASE_ID:-}"
   export E2E_PERF_PROVISION_TIMEOUT="${E2E_PERF_PROVISION_TIMEOUT:-}"
   export E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-}"
   if [[ -n "${OPENSHIFT_NAMESPACE:-}" ]]; then
@@ -366,12 +364,11 @@ perf_run_mini_test() {
   set +e
   E2E_GATEWAY_NAME="${CANARY_NAME}" \
     E2E_SKIP_CLEANUP=1 \
-    E2E_MODE=short \
+    E2E_MODE=perf \
     E2E_PAUSE=0 \
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
     E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
-    E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" \
     bash "${SCRIPT_DIR}/e2e-openshell.sh"
   PERF_MINI_RC=$?
   set -e
@@ -431,11 +428,6 @@ if ! e2e_discover_seed_ids; then
 fi
 perf_export_child_env
 
-if [[ "${DB_PROVIDER}" == "cnpg" && -z "${E2E_DATABASE_ID}" ]]; then
-  red "ERROR: No ManagedDatabase found (required for DATABASE_PROVIDER=cnpg)"
-  exit 1
-fi
-
 dim "  Driver:            ${E2E_INFRA_DRIVER}"
 dim "  HyperShell API:    ${API_HOST}"
 dim "  Gateway count:     ${E2E_PERF_GATEWAY_COUNT}"
@@ -447,7 +439,6 @@ dim "  Functional:        ${E2E_PERF_RUN_FUNCTIONAL}"
 dim "  Results:           ${PERF_RESULTS_FILE}"
 dim "  cluster_id:        ${E2E_CLUSTER_ID}"
 dim "  release_id:        ${E2E_RELEASE_ID}"
-[[ -n "${E2E_DATABASE_ID}" ]] && dim "  database_id:       ${E2E_DATABASE_ID}"
 echo ""
 sep
 
@@ -537,7 +528,7 @@ while (( start_index <= E2E_PERF_GATEWAY_COUNT )); do
 
   if [[ "${E2E_PERF_CHECKPOINT}" == "1" ]]; then
     echo ""
-    dim "  Checkpoint mini test (E2E_MODE=short, gateway=${CANARY_NAME})..."
+    dim "  Checkpoint mini test (E2E_MODE=perf, gateway=${CANARY_NAME})..."
     perf_run_mini_test
     if [[ "$PERF_MINI_RC" == "0" ]]; then
       mini_result="pass"
@@ -548,7 +539,7 @@ while (( start_index <= E2E_PERF_GATEWAY_COUNT )); do
     fi
 
     perf_percentiles "${PERF_BATCH_RUNNING[@]+"${PERF_BATCH_RUNNING[@]}"}"
-    perf_results_add_checkpoint "${TOTAL_OK}" "$(e2e_utc_now)" "short" "$mini_result" "$PERF_MINI_S"
+    perf_results_add_checkpoint "${TOTAL_OK}" "$(e2e_utc_now)" "perf" "$mini_result" "$PERF_MINI_S"
 
     if [[ "$mini_result" == "fail" ]]; then
       PERF_RUN_RESULT="fail"
@@ -620,7 +611,6 @@ if [[ "${E2E_PERF_RUN_FUNCTIONAL}" == "1" && "$PERF_STOPPED_EARLY" != "true" ]];
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
     E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
-    E2E_DATABASE_ID="${E2E_DATABASE_ID:-}" \
     bash "${SCRIPT_DIR}/e2e-openshell.sh"
   func_rc=$?
   set -e

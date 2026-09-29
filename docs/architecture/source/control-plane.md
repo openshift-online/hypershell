@@ -14,13 +14,15 @@ sequenceDiagram
   participant W as Watcher
   participant R as Gateway Reconciler
   participant K as ManagedCluster K8s API
+  participant PG as Gateway PostgreSQL server
   User->>API: POST /gateways
   API->>DB: Persist desired state
   DB-->>API: Gateway record
   API-->>W: gRPC Watch event
   W->>R: Dispatch ADDED/MODIFIED
   R->>K: Ensure namespace + PKI
-  R->>K: Ensure database resources
+  R->>PG: CREATE ROLE + CREATE DATABASE gw_id (verify-full)
+  R->>K: Ensure DB credentials Secret (sslmode=require, no CA)
   R->>K: Ensure Deployment + Service + RBAC
   R->>K: Ensure exposure resources
   K-->>R: Observe readiness
@@ -35,11 +37,9 @@ graph TB
   WS[ gRPC Watch streams ] --> W[Watcher]
   W --> F[Event fan-out]
   F --> GR[Gateway Reconciler]
-  F --> MDR[ManagedDatabase Reconciler]
   F --> RR[Release Reconciler]
   F --> NR[GatewayNetwork Reconciler]
   GR --> POOL[Multi-cluster KubeClient pool]
-  MDR --> POOL
   RR --> POOL
   NR --> POOL
   POOL --> C1[ManagedCluster A]
@@ -48,6 +48,8 @@ graph TB
   GR --> EXP[Gateway Exposure port]
   EXP --> API[Gateway API / Route adapter]
   GR --> KC[Keycloak + service-account provisioner]
+  ADM[Mounted Secret<br/>hypershell-gateway-database-admin] -.-> GR
+  GR --> PG[(Gateway PostgreSQL server<br/>sslmode=verify-full)]
   style W fill:#cce5ff
   style F fill:#fff3cd
   style POOL fill:#d4edda

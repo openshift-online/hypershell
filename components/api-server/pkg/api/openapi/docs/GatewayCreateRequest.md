@@ -7,7 +7,6 @@ Name | Type | Description | Notes
 **Name** | **string** |  | 
 **ClusterId** | **string** |  | 
 **ReleaseId** | **string** |  | 
-**DatabaseId** | **string** | Required placement placeholder; the API server ignores its value and assigns the ManagedDatabase | 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -24,7 +23,7 @@ Name | Type | Description | Notes
 
 ### NewGatewayCreateRequest
 
-`func NewGatewayCreateRequest(name string, clusterId string, releaseId string, databaseId string, ) *GatewayCreateRequest`
+`func NewGatewayCreateRequest(name string, clusterId string, releaseId string, ) *GatewayCreateRequest`
 
 NewGatewayCreateRequest instantiates a new GatewayCreateRequest object
 This constructor will assign default values to properties that have it defined,
@@ -97,26 +96,6 @@ and a boolean to check if the value has been set.
 `func (o *GatewayCreateRequest) SetReleaseId(v string)`
 
 SetReleaseId sets ReleaseId field to given value.
-
-
-### GetDatabaseId
-
-`func (o *GatewayCreateRequest) GetDatabaseId() string`
-
-GetDatabaseId returns the DatabaseId field if non-nil, zero value otherwise.
-
-### GetDatabaseIdOk
-
-`func (o *GatewayCreateRequest) GetDatabaseIdOk() (*string, bool)`
-
-GetDatabaseIdOk returns a tuple with the DatabaseId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetDatabaseId
-
-`func (o *GatewayCreateRequest) SetDatabaseId(v string)`
-
-SetDatabaseId sets DatabaseId field to given value.
 
 
 ### GetExternalDns

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -21,7 +20,6 @@ const (
 	GatewayHealthPort int32 = 8081
 	// GatewayHealthServiceName is the controller-only health Service name.
 	GatewayHealthServiceName   = "openshell-gateway-health"
-	gatewayHealthPolicyName    = "openshell-gateway-allow-controller-health"
 	gatewayHealthAccessTimeout = 3 * time.Second
 )
 
@@ -33,89 +31,13 @@ var gatewayManagedLabels = map[string]string{
 }
 
 // ReconcileGatewayHealthAccess makes the internal gateway health endpoint
-// available to the control plane. It repairs the dedicated Service and policy,
-// and removes old health-port permissions from the owned ingress policies.
-func ReconcileGatewayHealthAccess(ctx context.Context, clientset kubernetes.Interface, namespace, controlPlaneNamespace string, skipNetworkPolicies bool) error {
+// available to the control plane. It reconciles the dedicated Service.
+func ReconcileGatewayHealthAccess(ctx context.Context, clientset kubernetes.Interface, namespace string) error {
 	if namespace == "" {
 		return fmt.Errorf("gateway namespace is required")
 	}
-	if !skipNetworkPolicies && controlPlaneNamespace == "" {
-		return fmt.Errorf("control plane namespace is required")
-	}
 
-	if err := reconcileGatewayHealthService(ctx, clientset, namespace); err != nil {
-		return err
-	}
-	if skipNetworkPolicies {
-		return nil
-	}
-	if err := reconcileGatewayHealthNetworkPolicy(ctx, clientset, namespace, controlPlaneNamespace); err != nil {
-		return err
-	}
-	for _, name := range []string{
-		"openshell-gateway-allow-sandbox",
-		"openshell-gateway-allow-sandbox-v2",
-		"openshell-gateway-allow-router",
-	} {
-		if err := removeLegacyHealthAccess(ctx, clientset, namespace, name); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Policies combine their permissions. The new controller policy cannot cancel
-// an old sandbox or router permission. Repair those policies on existing
-// gateways, which can skip the normal provisioning pass after an upgrade.
-func removeLegacyHealthAccess(ctx context.Context, clientset kubernetes.Interface, namespace, name string) error {
-	ctx, cancel := context.WithTimeout(ctx, gatewayHealthAccessTimeout)
-	defer cancel()
-
-	policies := clientset.NetworkingV1().NetworkPolicies(namespace)
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		policy, err := policies.Get(ctx, name, metav1.GetOptions{})
-		if k8serrors.IsNotFound(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		updated := policy.DeepCopy()
-		changed := false
-		ingress := make([]networkingv1.NetworkPolicyIngressRule, 0, len(updated.Spec.Ingress))
-		for _, rule := range updated.Spec.Ingress {
-			ports := make([]networkingv1.NetworkPolicyPort, 0, len(rule.Ports))
-			removed := false
-			for _, port := range rule.Ports {
-				if port.Port != nil && (port.Protocol == nil || *port.Protocol == corev1.ProtocolTCP) &&
-					(*port.Port == intstr.FromInt32(GatewayHealthPort) || *port.Port == intstr.FromString(gatewayHealthPortName)) {
-					removed = true
-					continue
-				}
-				ports = append(ports, port)
-			}
-			if removed {
-				changed = true
-				// An empty port list permits all ports. Remove a rule that only
-				// granted health access instead of leaving that list empty.
-				if len(ports) == 0 {
-					continue
-				}
-				rule.Ports = ports
-			}
-			ingress = append(ingress, rule)
-		}
-		if !changed {
-			return nil
-		}
-		updated.Spec.Ingress = ingress
-		_, err = policies.Update(ctx, updated, metav1.UpdateOptions{})
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("remove old health access from NetworkPolicy %s in %s: %w", name, namespace, err)
-	}
-	return nil
+	return reconcileGatewayHealthService(ctx, clientset, namespace)
 }
 
 func reconcileGatewayHealthService(ctx context.Context, clientset kubernetes.Interface, namespace string) error {
@@ -221,81 +143,6 @@ func reconcileGatewayHealthService(ctx context.Context, clientset kubernetes.Int
 		return fmt.Errorf("reconcile gateway health Service in %s: %w", namespace, err)
 	}
 	return nil
-}
-
-func reconcileGatewayHealthNetworkPolicy(ctx context.Context, clientset kubernetes.Interface, namespace, controlPlaneNamespace string) error {
-	ctx, cancel := context.WithTimeout(ctx, gatewayHealthAccessTimeout)
-	defer cancel()
-
-	policies := clientset.NetworkingV1().NetworkPolicies(namespace)
-	desiredSpec := gatewayHealthNetworkPolicySpec(controlPlaneNamespace)
-
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		policy, err := policies.Get(ctx, gatewayHealthPolicyName, metav1.GetOptions{})
-		if k8serrors.IsNotFound(err) {
-			_, err = policies.Create(ctx, &networkingv1.NetworkPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      gatewayHealthPolicyName,
-					Namespace: namespace,
-					Labels:    copyStringMap(gatewayManagedLabels),
-				},
-				Spec: desiredSpec,
-			}, metav1.CreateOptions{})
-			return err
-		}
-		if err != nil {
-			return err
-		}
-
-		updated := policy.DeepCopy()
-		changed := false
-		if !reflect.DeepEqual(updated.Spec, desiredSpec) {
-			updated.Spec = desiredSpec
-			changed = true
-		}
-		if updated.Labels == nil {
-			updated.Labels = make(map[string]string, len(gatewayManagedLabels))
-		}
-		for key, value := range gatewayManagedLabels {
-			if updated.Labels[key] != value {
-				updated.Labels[key] = value
-				changed = true
-			}
-		}
-		if !changed {
-			return nil
-		}
-
-		_, err = policies.Update(ctx, updated, metav1.UpdateOptions{})
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("reconcile gateway health NetworkPolicy in %s: %w", namespace, err)
-	}
-	return nil
-}
-
-func gatewayHealthNetworkPolicySpec(controlPlaneNamespace string) networkingv1.NetworkPolicySpec {
-	protocol := corev1.ProtocolTCP
-	port := intstr.FromInt32(GatewayHealthPort)
-	return networkingv1.NetworkPolicySpec{
-		PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
-			"app.kubernetes.io/instance": GatewayDeploymentName,
-			"app.kubernetes.io/name":     "openshell",
-		}},
-		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
-		Ingress: []networkingv1.NetworkPolicyIngressRule{{
-			From: []networkingv1.NetworkPolicyPeer{{
-				NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
-					"kubernetes.io/metadata.name": controlPlaneNamespace,
-				}},
-				PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
-					"app": "hypershell-controller",
-				}},
-			}},
-			Ports: []networkingv1.NetworkPolicyPort{{Protocol: &protocol, Port: &port}},
-		}},
-	}
 }
 
 func copyStringMap(source map[string]string) map[string]string {

@@ -9,11 +9,14 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/golang/glog v1.2.5
 	github.com/gorilla/mux v1.7.3
+	github.com/jackc/pgx/v5 v5.6.0
+	github.com/lib/pq v1.10.9
 	github.com/onsi/gomega v1.27.1
-	github.com/openshift-online/rh-trex-ai v0.0.32-0.20260821210346-d5888edfb8cd
+	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20260925121109-368daa9d29e6
 	github.com/prometheus/client_golang v1.16.0
+	github.com/prometheus/client_model v0.3.0
 	github.com/segmentio/ksuid v1.0.2
-	github.com/spf13/cobra v0.0.5
+	github.com/spf13/cobra v0.0.7
 	github.com/spf13/pflag v1.0.5
 	github.com/uptrace/opentelemetry-go-extra/otelgorm v0.3.2
 	github.com/yaacov/tree-search-language v0.0.0-20190923184055-1c2dad2e354b
@@ -81,14 +84,12 @@ require (
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
-	github.com/lib/pq v1.10.9 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
@@ -112,7 +113,6 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
-	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

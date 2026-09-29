@@ -21,7 +21,7 @@ checks manually with `make check`.
 - `packages/gateway-management-ui/` - Private reusable React package containing canonical gateway management workflows
 - `packages/operational-dashboard-ui/` - Private reusable React package containing the operational metrics dashboard
 - `specs/` - Desired state of the system ([platform](specs/platform/), [standards](specs/standards/))
-- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [patternfly](skills/build/patternfly), [ibm-cluster](skills/deploy/ibm-cluster), [deploy-cluster](skills/deploy/deploy-cluster), [cloud-hub-ingress-bootstrap](skills/deploy/cloud-hub-ingress-bootstrap), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/)
+- `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [dev-cluster](skills/build/dev-cluster), [patternfly](skills/build/patternfly), [ibm-cluster](skills/deploy/ibm-cluster), [deploy-cluster](skills/deploy/deploy-cluster), [cloud-hub-ingress-bootstrap](skills/deploy/cloud-hub-ingress-bootstrap), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/), [security-audit](skills/security/run-security-audit)
 - `apm.yml` - APM manifest declaring upstream skill dependencies
 
 ## Key Files
@@ -40,15 +40,17 @@ checks manually with `make check`.
 | **GatewayNetwork** | Network connectivity topology between gateways |
 | **GatewayRelease** | Versioned container images for gateway deployments |
 | **ManagedCluster** | Kubernetes cluster registered into the platform |
-| **ManagedDatabase** | Database instance provisioned for gateway use |
 
 All resources are top-level; there is no Fleet/Sector grouping. Tenancy is
 enforced by RBAC (platform-level and per-gateway), not by a resource grouping.
+Gateway databases are not API resources: the control plane provisions one
+PostgreSQL database and role per gateway on the server named by the mounted
+`hypershell-gateway-database-admin` Secret (`specs/platform/openshell-gateway-database.spec.md`).
 
 ## Resource Flow
 
 ```
-Clusters/DBs Registered -> Release Published ->
+Clusters Registered -> Release Published ->
 Gateway Deployed on Cluster -> Network Mesh Established -> Traffic Flows
 ```
 
@@ -84,6 +86,7 @@ Support skills available at any point:
 - `/align` -- convention health check
 - `/maintain-ci` -- CI workflow and component registration maintenance
 - `/update-openshell` -- sync HyperShell to a new upstream OpenShell release (self-reinforcing)
+- `/run-security-audit` -- comprehensive security audit (threat model + code audit)
 - `/memory` -- project memory management
 
 ## Commands
@@ -108,6 +111,7 @@ cd components/control-plane && go test ./...   # Unit tests
 # All Components
 make ci-test                                   # Run all *_test.sh shell unit tests
 make unit-test-all                             # Run Go, frontend, and shell unit tests
+make e2e-console                               # Browser e2e of web console + OpenShell console (agent-browser; needs port 443 from make kind-up)
 make build-all                                 # Build all container images
 pnpm --filter @openshift-online/hypershell-gateway-management-ui check  # Verify reusable gateway UI
 pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check  # Verify operational dashboard UI
@@ -115,6 +119,10 @@ make kind-up                                   # Start local Kind cluster
 make kind-down                                 # Destroy Kind cluster
 make kind-status                               # Show cluster status
 make lint                                      # Lint all Go code
+
+# APM & Security
+make apm-install                               # Install APM dependencies + run security scan
+make apm-audit                                 # Run APM security audit
 ```
 
 ## Critical Conventions

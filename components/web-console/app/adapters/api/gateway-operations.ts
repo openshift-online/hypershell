@@ -50,6 +50,7 @@ type GatewayApiFactory = (correlationId: string) => GatewayApiClient;
 const placementPageSize = defaultGatewayListRequest.size;
 
 const gatewaySortFields = {
+  activeSandboxes: "active_sandbox_count",
   cluster: "cluster_id",
   created: "created_at",
   endpoint: "route_address",
@@ -172,7 +173,6 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     ...(consoleUrl ? { consoleUrl } : {}),
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),
     ...(createdBy ? { createdBy } : {}),
-    databaseId: gateway.database_id,
     externalDns:
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
     ...(gatewayVersion ? { gatewayVersion } : {}),
@@ -265,6 +265,8 @@ function toServiceAccountCapabilities(
 function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
+
+const registeredPlacementFilter = "oidc_subject <> ''";
 
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
   const region = optionalString(cluster.region);
@@ -362,6 +364,12 @@ export function createGatewayControlPlaneAdapter(
       return mapFailure(async () => {
         const normalizedSearch = search.trim();
         const literal = escapeIlikeLiteral(normalizedSearch);
+        // Only a cluster whose control plane has self-registered (non-empty
+        // oidc_subject) can host a gateway; the API rejects any other
+        // cluster_id, so never offer one as a placement.
+        const search_ = literal
+          ? `${registeredPlacementFilter} and name ilike '%${literal}%'`
+          : registeredPlacementFilter;
         const result = await apiClient(
           apiFactory,
           context,
@@ -369,7 +377,7 @@ export function createGatewayControlPlaneAdapter(
           {
             orderBy: "name asc",
             page: 1,
-            ...(literal ? { search: `name ilike '%${literal}%'` } : {}),
+            search: search_,
             size: placementPageSize,
           },
           { signal: context.signal },
@@ -539,7 +547,6 @@ export function createGatewayControlPlaneAdapter(
           await apiClient(apiFactory, context).gateways.create(
             {
               cluster_id: input.clusterId,
-              database_id: "",
               name: input.name,
               release_id: "",
               route: JSON.stringify({ enabled: true }),

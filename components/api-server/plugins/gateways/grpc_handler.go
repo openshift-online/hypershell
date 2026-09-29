@@ -12,10 +12,10 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
-	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
-	"github.com/openshift-online/rh-trex-ai/pkg/server/grpcutil"
-	"github.com/openshift-online/rh-trex-ai/pkg/services"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server/grpcutil"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
 type gatewayGRPCHandler struct {
@@ -23,10 +23,11 @@ type gatewayGRPCHandler struct {
 	service    GatewayService
 	generic    services.GenericService
 	brokerFunc func() *pkgserver.EventBroker
+	clusters   RegisteredClusterLookup
 }
 
-func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker) pb.GatewayServiceServer {
-	return &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc}
+func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup) pb.GatewayServiceServer {
+	return &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters}
 }
 
 // validateGatewayPhase rejects a phase outside the canonical vocabulary. An
@@ -63,11 +64,11 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := grpcutil.ValidateStringField("release_id", req.ReleaseId, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("database_id", req.DatabaseId, false); err != nil {
-		return nil, err
-	}
 	if err := validateGatewayPhase(req.Phase); err != nil {
 		return nil, err
+	}
+	if svcErr := validateClusterReference(ctx, h.clusters, req.ClusterId); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	var serverDnsNamesJSON *string
 	if len(req.ServerDnsNames) > 0 {
@@ -80,7 +81,6 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		Name:           req.Name,
 		ClusterId:      req.ClusterId,
 		ReleaseId:      req.ReleaseId,
-		DatabaseId:     req.DatabaseId,
 		ExternalDns:    req.ExternalDns,
 		TlsMode:        req.TlsMode,
 		ServiceType:    req.ServiceType,
@@ -158,14 +158,17 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	if req.Name != nil {
 		gateway.Name = *req.Name
 	}
-	if req.ClusterId != nil {
+	// Only a change of cluster_id is validated (see the REST Patch handler):
+	// status write-backs that re-send the stored value are not reassignments.
+	if req.ClusterId != nil && *req.ClusterId != gateway.ClusterId {
+		if svcErr := validateClusterReference(ctx, h.clusters, *req.ClusterId); svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
 		gateway.ClusterId = *req.ClusterId
 	}
 	if req.ReleaseId != nil {
 		gateway.ReleaseId = *req.ReleaseId
 	}
-	// database_id is server-owned placement state. Ignore values supplied by
-	// callers; gateway creation business logic is the only assignment path.
 	if req.ExternalDns != nil {
 		gateway.ExternalDns = req.ExternalDns
 	}
@@ -341,11 +344,11 @@ func (h *gatewayGRPCHandler) WatchGateways(req *pb.WatchGatewaysRequest, stream 
 
 	// clusterFilter, when set, scopes this stream to a single managed cluster.
 	// The broker fans EVERY gateway out to EVERY subscriber, so without this a
-	// spoke would receive (and could act on) other clusters' gateways. This is
-	// cooperative scoping, not an enforced trust boundary: the server does not yet
-	// authenticate that the caller owns the claimed cluster_id (no per-caller
-	// RBAC), so any control-plane could pass any cluster_id. Enforcement is pending
-	// the managed-cluster caller-identity binding (remote gRPC TLS+OIDC dial).
+	// control plane would receive (and could act on) other clusters' gateways.
+	// For a caller whose JWT subject is a registered ManagedCluster, the gRPC
+	// RBAC interceptor has already required cluster_id to equal that cluster's
+	// id before this handler subscribes (pkg/rbac cluster caller binding), so
+	// the filter is enforced, not cooperative, for control planes.
 	clusterFilter := req.GetClusterId()
 
 	ctx := stream.Context()

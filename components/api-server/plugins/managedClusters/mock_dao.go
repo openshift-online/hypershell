@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
 var _ ManagedClusterDao = &managedClusterDaoMock{}
@@ -62,6 +62,23 @@ func (d *managedClusterDaoMock) FindByOIDCSubject(ctx context.Context, subject s
 		}
 	}
 	return nil, gorm.ErrRecordNotFound
+}
+
+func (d *managedClusterDaoMock) FindByName(ctx context.Context, name string) (*ManagedCluster, error) {
+	for _, mc := range d.managedClusters {
+		if mc.Name == name {
+			return mc, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (d *managedClusterDaoMock) FindDeletedBySubjectAndName(ctx context.Context, subject, name string) (*ManagedCluster, error) {
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (d *managedClusterDaoMock) Restore(ctx context.Context, id string, lastSeenAt time.Time) (*ManagedCluster, error) {
+	return nil, errors.NotImplemented("ManagedCluster").AsError()
 }
 
 func (d *managedClusterDaoMock) InventorySnapshot(ctx context.Context, evaluationTime time.Time) (*ClusterInventorySnapshot, error) {

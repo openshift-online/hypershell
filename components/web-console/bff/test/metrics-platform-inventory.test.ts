@@ -40,7 +40,7 @@ function prometheusScalarSample(value: string) {
 }
 
 describe("queryPlatformInventory", () => {
-  it("aggregates labeled cluster and database inventory samples", async () => {
+  it("aggregates labeled cluster inventory samples", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
       const query = url.searchParams.get("query") ?? "";
@@ -51,10 +51,6 @@ describe("queryPlatformInventory", () => {
         return;
       }
       if (query === "hypershell_managed_clusters_created_last_30_days_total") {
-        response.end(prometheusScalarSample("2"));
-        return;
-      }
-      if (query === "hypershell_managed_databases_total") {
         response.end(prometheusScalarSample("2"));
         return;
       }
@@ -86,26 +82,6 @@ describe("queryPlatformInventory", () => {
         );
         return;
       }
-      if (query === "hypershell_managed_databases_inventory_total") {
-        response.end(
-          JSON.stringify({
-            status: "success",
-            data: {
-              result: [
-                {
-                  metric: { status: "Ready" },
-                  value: ["1704067200", "1"],
-                },
-                {
-                  metric: { status: "unknown" },
-                  value: ["1704067200", "1"],
-                },
-              ],
-            },
-          }),
-        );
-        return;
-      }
 
       response.statusCode = 404;
       response.end();
@@ -121,11 +97,6 @@ describe("queryPlatformInventory", () => {
     expect(result.managed_clusters.by_status).toEqual({
       Failed: 50,
       Ready: 4,
-    });
-    expect(result.managed_databases.total).toBe(2);
-    expect(result.managed_databases.by_status).toEqual({
-      Ready: 1,
-      unknown: 1,
     });
 
     prometheus.close();
@@ -159,8 +130,6 @@ describe("queryPlatformInventory", () => {
       'max(hypershell_managed_clusters_total{namespace="hyp1"})',
       'max(hypershell_managed_clusters_created_last_30_days_total{namespace="hyp1"})',
       'max by (status, provider, region) (hypershell_managed_clusters_inventory_total{namespace="hyp1"})',
-      'max(hypershell_managed_databases_total{namespace="hyp1"})',
-      'max by (status) (hypershell_managed_databases_inventory_total{namespace="hyp1"})',
     ]);
 
     prometheus.close();

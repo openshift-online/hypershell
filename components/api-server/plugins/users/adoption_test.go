@@ -23,11 +23,13 @@ func TestBuildUserAdoptionSnapshotRollups(t *testing.T) {
 		2,
 		5,
 		dailyCounts,
+		1,
+		1,
 		evaluationTime,
 	)
 
-	Expect(snapshot.UniqueLoginsLast7Days).To(Equal(int64(2)))
-	Expect(snapshot.UniqueLoginsLast30Days).To(Equal(int64(2)))
+	Expect(snapshot.UniqueLoginsLast7Days).To(Equal(int64(1)))
+	Expect(snapshot.UniqueLoginsLast30Days).To(Equal(int64(1)))
 	Expect(snapshot.DailyUniqueLogins[len(snapshot.DailyUniqueLogins)-2].Count).To(Equal(int64(1)))
 	Expect(snapshot.DailyUniqueLogins[len(snapshot.DailyUniqueLogins)-1].Count).To(Equal(int64(1)))
 }

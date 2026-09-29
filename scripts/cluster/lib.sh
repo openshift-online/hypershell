@@ -24,6 +24,8 @@ error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
 
 CLUSTER_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${CLUSTER_SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=reconcile-test-users.sh
+source "${CLUSTER_SCRIPT_DIR}/reconcile-test-users.sh"
 
 : "${CONTAINER_ENGINE:=$(command -v podman 2>/dev/null || echo docker)}"
 : "${IMAGE_REGISTRY:=quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main}"
@@ -36,7 +38,9 @@ REPO_ROOT="$(cd "${CLUSTER_SCRIPT_DIR}/../.." && pwd)"
 : "${web_console_local:=localhost/hypershell-web-console:dev}"
 : "${build_version:=$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 : "${build_time:=$(date -u '+%Y-%m-%d %H:%M:%S UTC')}"
-: "${GATEWAY_IMAGE:=quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd}"
+# shellcheck source=../../OPENSHELL_VERSION
+source "${REPO_ROOT}/OPENSHELL_VERSION"
+: "${GATEWAY_IMAGE:=${OPENSHELL_GATEWAY_IMAGE}:${OPENSHELL_TAG}}"
 : "${GATEWAY_API_GATEWAY_NAME:=openshell-grpc-gateway}"
 : "${GATEWAY_API_GATEWAY_NAMESPACE:=openshift-ingress}"
 
@@ -479,6 +483,32 @@ else:
     items=[]
 for it in items:
     if isinstance(it, dict) and it.get("name") == name:
+        print(it.get("id") or "")
+        break
+' "$1"
+}
+
+# Id of the named ManagedCluster only when a control plane registered it
+# (non-empty oidc_subject). Every control plane self-registers under its
+# HYPERSHELL_MANAGED_CLUSTER_NAME, so seeding waits for that record instead of
+# creating one: a record created with POST /managed_clusters is an inert
+# placeholder (empty oidc_subject) that turns the control plane's registration
+# into a 409. Empty on missing name, unregistered record, or bad JSON.
+json_registered_cluster_id() {
+  python3 -c 'import json,sys
+name=sys.argv[1]
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if isinstance(data, dict):
+    items=data.get("items") or []
+elif isinstance(data, list):
+    items=data
+else:
+    items=[]
+for it in items:
+    if isinstance(it, dict) and it.get("name") == name and (it.get("oidc_subject") or ""):
         print(it.get("id") or "")
         break
 ' "$1"

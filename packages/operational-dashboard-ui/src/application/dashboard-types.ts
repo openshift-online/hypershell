@@ -28,6 +28,16 @@ export interface OperationalMetricProvisionDuration {
   p95: string;
 }
 
+export type ProvisionSuccessCountWindow =
+  "duration_24h" | "duration_lifetime" | "outcomes_24h";
+
+export interface OperationalMetricProvisionOutcomes {
+  failureCount24h: string;
+  successCount24h: string;
+  successCountWindow?: ProvisionSuccessCountWindow;
+  successRatePercent: string;
+}
+
 export interface OperationalMetric {
   createdLast7Days?: string;
   createdLast30Days?: string;
@@ -35,9 +45,16 @@ export interface OperationalMetric {
   inventoryProviders?: Record<string, number>;
   inventoryRegions?: Record<string, number>;
   inventoryStatus?: Record<string, number>;
+  orphanedSandboxes?: number;
+  expiringSandboxes?: number;
+  idleSandboxes?: number;
   podPhases?: OperationalMetricPodPhases;
   provisionDuration?: OperationalMetricProvisionDuration;
+  provisionOutcomes?: OperationalMetricProvisionOutcomes;
+  releaseDistribution?: Record<string, number>;
   status?: OperationalMetricStatus;
+  hourlyTrend?: OperationalMetricTrend;
+  successRateTrend?: OperationalMetricTrend;
   total?: string;
   trend?: OperationalMetricTrend;
   uniqueLoginsLast7Days?: string;
@@ -57,11 +74,19 @@ export type DashboardMetricSourceId =
   | "cluster-nodes"
   | "cluster-pods"
   | "gateway-metrics"
+  | "gateway-release-distribution"
   | "platform-inventory"
   | "registered-users";
 
+/** Metric source id used only on reliability-dashboard payloads (REL-DASH / ARM). */
+export type ReliabilityMetricSourceId =
+  "api-reliability" | "control-plane-reconciliation";
+
+export type DashboardFailedSourceId =
+  DashboardMetricSourceId | ReliabilityMetricSourceId;
+
 export interface OperationalDashboardMetrics {
-  failedSources?: readonly DashboardMetricSourceId[];
+  failedSources?: readonly DashboardFailedSourceId[];
   lastSuccessfulRefresh: Date;
   metrics: readonly OperationalMetric[];
 }
@@ -71,16 +96,22 @@ export interface DashboardInvocationContext {
   signal?: AbortSignal;
 }
 
-/** Application-owned driven port for operational dashboard metrics. */
+/** Application-owned driven port for operational and reliability dashboard metrics. */
 export interface DashboardControlPlane {
   getOperationalMetrics(
     context: DashboardInvocationContext,
   ): Promise<OperationalDashboardMetrics>;
+  getReliabilityMetrics(
+    context: DashboardInvocationContext,
+  ): Promise<OperationalDashboardMetrics>;
 }
 
-/** Driving entry port used by the operational dashboard presentation adapters. */
+/** Driving entry port used by the dashboard presentation adapters. */
 export interface DashboardOperations {
   getOperationalMetrics(
+    signal?: AbortSignal,
+  ): Promise<OperationalDashboardMetrics>;
+  getReliabilityMetrics(
     signal?: AbortSignal,
   ): Promise<OperationalDashboardMetrics>;
 }

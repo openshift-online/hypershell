@@ -3,27 +3,26 @@ package gateways
 import (
 	"context"
 	"net/http"
-	"os"
 
-	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
-	"github.com/openshift-online/hypershell/components/api-server/plugins/managedDatabases"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
-	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/pkg/auth"
-	"github.com/openshift-online/rh-trex-ai/pkg/controllers"
-	"github.com/openshift-online/rh-trex-ai/pkg/db"
-	"github.com/openshift-online/rh-trex-ai/pkg/environments"
-	"github.com/openshift-online/rh-trex-ai/pkg/registry"
-	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
-	"github.com/openshift-online/rh-trex-ai/pkg/services"
-	"github.com/openshift-online/rh-trex-ai/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/plugins/generic"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/controllers"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator struct {
@@ -31,121 +30,40 @@ type ServiceLocator struct {
 	list    services.GenericService
 }
 
-type dbLookupAdapter struct {
-	svc      managedDatabases.ManagedDatabaseService
-	provider string // when non-empty, FindSole filters to this provider
-}
-
-func (a *dbLookupAdapter) FindSole(ctx context.Context) (string, error) {
-	all, err := a.svc.All(ctx)
-	if err != nil {
-		return "", err
-	}
-	var matches []*managedDatabases.ManagedDatabase
-	for _, db := range all {
-		if a.provider == "" || db.Provider == a.provider {
-			matches = append(matches, db)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0].ID, nil
-	}
-	return "", nil
-}
-
-// FindOldest returns the earliest-created ManagedDatabase matching the
-// adapter's provider filter, or "" when none match. Ordering is creation
-// timestamp ascending with ID ascending as the tie-break, so the choice is
-// deterministic and concurrent gateway creations agree without coordination.
-// IDs are time-sortable KSUIDs, so the tie-break agrees with creation order.
-func (a *dbLookupAdapter) FindOldest(ctx context.Context) (string, error) {
-	all, err := a.svc.All(ctx)
-	if err != nil {
-		return "", err
-	}
-	return pickOldestManagedDatabase(all, a.provider), nil
-}
-
-// pickOldestManagedDatabase returns the ID of the earliest-created
-// ManagedDatabase matching provider (empty provider matches all), or "" when
-// none match. Ordering is creation timestamp ascending with ID ascending as the
-// tie-break, so the result is deterministic and independent of the order the
-// DAO returned rows in. IDs are time-sortable KSUIDs, so the tie-break agrees
-// with creation order.
-func pickOldestManagedDatabase(all managedDatabases.ManagedDatabaseList, provider string) string {
-	var oldest *managedDatabases.ManagedDatabase
-	for _, db := range all {
-		if db == nil {
-			continue
-		}
-		if provider != "" && db.Provider != provider {
-			continue
-		}
-		if oldest == nil ||
-			db.CreatedAt.Before(oldest.CreatedAt) ||
-			(db.CreatedAt.Equal(oldest.CreatedAt) && db.ID < oldest.ID) {
-			oldest = db
-		}
-	}
-	if oldest == nil {
-		return ""
-	}
-	return oldest.ID
-}
-
-type dbCreatorAdapter struct {
-	svc      managedDatabases.ManagedDatabaseService
-	provider string
-}
-
-func (a *dbCreatorAdapter) CreateForGateway(ctx context.Context, gatewayName string) (string, error) {
-	d, err := a.svc.Create(ctx, &managedDatabases.ManagedDatabase{
-		Name:     "gw-" + gatewayName + "-db",
-		Provider: a.provider,
-	})
-	if err != nil {
-		return "", err
-	}
-	return d.ID, nil
-}
-
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewGatewayDao(&env.Database.SessionFactory)
 	RegisterGatewayMetrics(dao)
 
-	// Resolved once at server startup (this factory runs a single time via
-	// registry.LoadDiscoveredServices), not per request: an unsupported
-	// DATABASE_PROVIDER value is a startup configuration error, so it must
-	// fail here rather than surface later as a silently-wrong placement
-	// choice on the first gateway creation request.
-	databaseProvider, err := resolveDatabaseProvider(os.Getenv("DATABASE_PROVIDER"))
-	if err != nil {
-		glog.Fatalf("gateways: %v", err)
-	}
-
 	return ServiceLocator{
 		gateway: func() GatewayService {
-			var placement PlacementResolver
-			mdSvc := managedDatabases.Service(&env.Services)
-			if mdSvc != nil {
-				switch databaseProvider {
-				case ProviderDeployment:
-					placement = NewDeploymentPlacement(&dbCreatorAdapter{svc: mdSvc, provider: databaseProvider})
-				case ProviderCNPG:
-					placement = NewCNPGPlacement(&dbLookupAdapter{svc: mdSvc, provider: ProviderCNPG})
-				case ProviderExternal:
-					placement = NewExternalPlacement(&dbLookupAdapter{svc: mdSvc, provider: ProviderExternal})
-				}
-			}
-
 			return NewGatewayService(
 				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 				dao,
 				events.Service(&env.Services),
-				placement,
 			)
 		},
 		list: newGatewayListService(&env.Database.SessionFactory),
+	}
+}
+
+// The roleBindings plugin resolves a binding's gateway to its cluster through
+// this locator (it cannot import this package, which imports roleBindings).
+var _ roleBindings.GatewayClusterLookupSource = ServiceLocator{}
+
+// GatewayClusterLookup returns the managed cluster a gateway is assigned to,
+// including soft-deleted gateways, so the RoleBinding watch and list can scope
+// bindings to a cluster by their gateway (managed-cluster-registration.spec.md,
+// "Watch Stream Caller Binding").
+func (l ServiceLocator) GatewayClusterLookup() roleBindings.GatewayClusterLookup {
+	return func(ctx context.Context, gatewayID string) (string, bool, *errors.ServiceError) {
+		gateway, svcErr := l.gateway().GetUnscoped(ctx, gatewayID)
+		if svcErr != nil {
+			if svcErr.Is404() {
+				return "", false, nil
+			}
+			return "", false, svcErr
+		}
+		return gateway.ClusterId, true, nil
 	}
 }
 
@@ -171,6 +89,27 @@ func listService(s *environments.Services) services.GenericService {
 	return nil
 }
 
+// registeredClusterLookup resolves cluster_id references through the
+// managedClusters plugin's service, looked up per call so it follows the
+// environment's service registry. It returns nil when the plugin is absent, which
+// validateClusterReference treats as fail-closed.
+func registeredClusterLookup(s *environments.Services) RegisteredClusterLookup {
+	if s == nil || s.GetService("ManagedClusters") == nil {
+		return nil
+	}
+	return func(ctx context.Context, id string) (bool, *errors.ServiceError) {
+		svc := managedClusters.Service(s)
+		if svc == nil {
+			return false, errors.GeneralError("managed cluster service is not available")
+		}
+		cluster, svcErr := svc.GetRegistered(ctx, id)
+		if svcErr != nil {
+			return false, svcErr
+		}
+		return cluster != nil, nil
+	}
+}
+
 func init() {
 	registry.RegisterService("Gateways", func(env interface{}) interface{} {
 		return NewServiceLocator(env.(*environments.Env))
@@ -193,7 +132,7 @@ func init() {
 			})
 			ownerLookup = rbService
 		}
-		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup)
+		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, registeredClusterLookup(envServices))
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)
@@ -233,7 +172,7 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterGatewayServiceServer(grpcServer, NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc))
+		pb.RegisterGatewayServiceServer(grpcServer, NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices)))
 	})
 
 	presenters.RegisterPath(Gateway{}, "gateways")
@@ -254,4 +193,6 @@ func init() {
 	db.RegisterMigration(migrationDropFleetsTable())
 	db.RegisterMigration(migrationAddTraceContext())
 	db.RegisterMigration(migrationAddProvisioningConditions())
+	db.RegisterMigration(migrationDropDatabaseId())
+	db.RegisterMigration(migrationDropManagedDatabasesTable())
 }

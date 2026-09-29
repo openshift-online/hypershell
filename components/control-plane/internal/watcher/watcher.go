@@ -15,7 +15,6 @@ import (
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -93,254 +92,6 @@ func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
-const (
-	managedDatabaseDeleteTombstoneHeader = "hypershell-managed-database-delete-tombstones"
-	managedDatabaseReplayRequestHeader   = "hypershell-managed-database-replay"
-	managedDatabaseReplayRequestValue    = "deleted-v1"
-)
-
-func requireManagedDatabaseTombstoneCapability(header metadata.MD) error {
-	if values := header.Get(managedDatabaseDeleteTombstoneHeader); len(values) != 1 || values[0] != "v1" {
-		return fmt.Errorf("managed database watch requires API server delete-tombstone capability v1; upgrade the API server before the control plane")
-	}
-	return nil
-}
-
-func WatchManagedDatabases(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.ManagedDatabase]) error {
-	client := pb.NewManagedDatabaseServiceClient(conn)
-	// ManagedDatabase events use the same durable, per-resource queue as Gateways.
-	// This is especially important for deletes: the API event is not replayed, so
-	// a transient Kubernetes cleanup failure must retain and retry its tombstone.
-	rq := newManagedDatabaseReconcileQueue(ctx, handler)
-	defer rq.stop()
-	return watchLoop(ctx, "ManagedDatabase", func(ctx context.Context) error {
-		// Derive a cancelable child so the concurrent seed below is torn down when
-		// the receiver ends (stream error/EOF), and vice versa.
-		runCtx, runCancel := context.WithCancel(ctx)
-		defer runCancel()
-
-		stream, err := client.WatchManagedDatabases(runCtx, &pb.WatchManagedDatabasesRequest{})
-		if err != nil {
-			return fmt.Errorf("starting managed database watch: %w", err)
-		}
-
-		// Block on the stream header before seeding. Opening the stream is not a
-		// subscription handshake: client.WatchManagedDatabases can return before the
-		// server registers its broker subscription, so a seed issued immediately
-		// could LIST state, then miss an event that fires before the subscription
-		// goes live. The server flushes the header only after it has subscribed (see
-		// the WatchManagedDatabases handler), so blocking here closes that
-		// list-watch gap -- the seed's LIST captures everything before this point
-		// and the watch captures everything after.
-		header, err := stream.Header()
-		if err != nil {
-			return fmt.Errorf("awaiting managed database watch subscription header: %w", err)
-		}
-		if err := requireManagedDatabaseTombstoneCapability(header); err != nil {
-			return err
-		}
-
-		// Drain the watch stream concurrently while seeding below. The API server's
-		// event broker drops events when its per-subscriber buffer fills, and seeding
-		// -- a paginated LIST plus a reconcile per item -- can take long enough for
-		// that to happen. Leaving the stream unread during the seed would permanently
-		// lose a live event that arrives in that window (the stream never replays).
-		streamErr := make(chan error, 1)
-		go func() {
-			defer close(streamErr)
-			for {
-				event, err := stream.Recv()
-				if err == io.EOF {
-					// Cancel before publishing so a concurrently-returning seed that
-					// checks runCtx does not race this send and misclassify itself as
-					// the root cause. The channel is buffered, so canceling first
-					// cannot block. Same reasoning applies to the error branch below.
-					runCancel()
-					streamErr <- nil
-					return
-				}
-				if err != nil {
-					runCancel()
-					streamErr <- fmt.Errorf("receiving managed database event: %w", err)
-					return
-				}
-				rq.enqueue(Event[*pb.ManagedDatabase]{
-					Type:       toEventType(event.Type),
-					ResourceID: event.ResourceId,
-					Resource:   event.ManagedDatabase,
-				})
-			}
-		}()
-
-		// Replay durable delete tombstones over a separate server stream while the
-		// goroutine above continuously drains live broker events. Then seed current
-		// live resources. This closes both restart gaps without making historical
-		// replay compete with the broker's bounded subscriber channel.
-		bootstrapErr := replayDeletedManagedDatabases(runCtx, client, rq)
-		if bootstrapErr == nil {
-			bootstrapErr = seedManagedDatabases(runCtx, client, rq)
-		}
-		if bootstrapErr != nil {
-			// Distinguish two causes so a genuine bootstrap failure is never masked by
-			// cancellation from the receiver, and vice versa.
-			if runCtx.Err() != nil {
-				recvErr := <-streamErr
-				if recvErr != nil {
-					return recvErr
-				}
-				return bootstrapErr
-			}
-			runCancel()
-			<-streamErr
-			return bootstrapErr
-		}
-
-		// The seed completed; wait for the drain goroutine to finish (stream error
-		// or EOF). runCancel (via defer) or watchLoop canceling the parent attempt
-		// ctx breaks the Recv and lets this return promptly.
-		return <-streamErr
-	})
-}
-
-// managedDatabaseSeedPageSize is the page size used when listing existing
-// ManagedDatabases to seed the reconciler. It matches the API server's maximum
-// page size so a typical fleet is covered in a single request.
-const managedDatabaseSeedPageSize = 500
-
-// seedManagedDatabases lists the current ManagedDatabase inventory and drives a
-// reconcile for each, recovering any whose create event the watch stream will
-// never replay (it sends only future events on (re)connect). It is the LIST half
-// of the standard controller LIST-then-WATCH pattern.
-//
-// Unlike seedGateways this needs no phase-gate bypass or absence pruning: the
-// ManagedDatabase reconciler is level-based and idempotent. The durable queue
-// still retains failed work, particularly terminal delete tombstones received
-// from the dedicated replay stream. A single paginated pass is sufficient rather than the
-// stable-pass repetition seedGateways needs -- ManagedDatabases are few (about
-// one per fleet) and fit a single page, so offset-pagination skew cannot silently
-// omit one across a page boundary.
-type managedDatabaseSeedSink interface {
-	enqueue(Event[*pb.ManagedDatabase])
-}
-
-var _ managedDatabaseSeedSink = (*reconcileQueue[*pb.ManagedDatabase])(nil)
-
-func replayDeletedManagedDatabases(ctx context.Context, client pb.ManagedDatabaseServiceClient, sink managedDatabaseSeedSink) error {
-	replayCtx := metadata.AppendToOutgoingContext(ctx, managedDatabaseReplayRequestHeader, managedDatabaseReplayRequestValue)
-	stream, err := client.WatchManagedDatabases(replayCtx, &pb.WatchManagedDatabasesRequest{})
-	if err != nil {
-		return fmt.Errorf("starting ManagedDatabase tombstone replay: %w", err)
-	}
-	header, err := stream.Header()
-	if err != nil {
-		return fmt.Errorf("awaiting ManagedDatabase tombstone replay header: %w", err)
-	}
-	if err := requireManagedDatabaseTombstoneCapability(header); err != nil {
-		return err
-	}
-
-	replayed := 0
-	for {
-		event, err := stream.Recv()
-		if err == io.EOF {
-			log.Printf("INFO replayed %d ManagedDatabase delete tombstone(s)", replayed)
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("receiving ManagedDatabase tombstone replay: %w", err)
-		}
-		if event.Type != pb.EventType_EVENT_TYPE_DELETED || event.ResourceId == "" || event.ManagedDatabase == nil {
-			return fmt.Errorf("ManagedDatabase tombstone replay returned malformed event for resource %q", event.ResourceId)
-		}
-		sink.enqueue(Event[*pb.ManagedDatabase]{
-			Type:       EventDeleted,
-			ResourceID: event.ResourceId,
-			Resource:   event.ManagedDatabase,
-		})
-		replayed++
-	}
-}
-
-func seedManagedDatabases(ctx context.Context, client pb.ManagedDatabaseServiceClient, sink managedDatabaseSeedSink) error {
-	inventory, err := listAllManagedDatabases(ctx, client)
-	if err != nil {
-		return err
-	}
-	for _, db := range inventory {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		ev := Event[*pb.ManagedDatabase]{
-			Type:       EventUpdated,
-			ResourceID: db.GetMetadata().GetId(),
-			Resource:   db,
-		}
-		sink.enqueue(ev)
-	}
-	log.Printf("INFO seeded %d managed database(s) into reconciler on watch (re)connect", len(inventory))
-	return nil
-}
-
-func managedDatabaseEventVersion(ev Event[*pb.ManagedDatabase]) int64 {
-	return ev.Resource.GetMetadata().GetUpdatedAt().AsTime().UnixNano()
-}
-
-func newManagedDatabaseReconcileQueue(ctx context.Context, handler Handler[*pb.ManagedDatabase], opts ...queueOption[*pb.ManagedDatabase]) *reconcileQueue[*pb.ManagedDatabase] {
-	queueOpts := []queueOption[*pb.ManagedDatabase]{withVersion(managedDatabaseEventVersion)}
-	queueOpts = append(queueOpts, opts...)
-	return newReconcileQueue(ctx, "ManagedDatabase", handler, queueOpts...)
-}
-
-// listAllManagedDatabases requires two consecutive paginated passes to agree on
-// the ID set. Offset pagination is not a snapshot: a concurrent deletion can
-// shift a still-live database into an already-read page. The live stream captures
-// the deletion but emits no event for the skipped pre-existing database, so an
-// unstable seed must be retried rather than accepted.
-func listAllManagedDatabases(ctx context.Context, client pb.ManagedDatabaseServiceClient) ([]*pb.ManagedDatabase, error) {
-	const maxSeedListPasses = 5
-	var previousIDs map[string]struct{}
-	for pass := 1; pass <= maxSeedListPasses; pass++ {
-		current, err := listManagedDatabasesOnce(ctx, client)
-		if err != nil {
-			return nil, err
-		}
-		ids := make(map[string]struct{}, len(current))
-		for id := range current {
-			ids[id] = struct{}{}
-		}
-		if previousIDs != nil && sameIDSet(previousIDs, ids) {
-			inventory := make([]*pb.ManagedDatabase, 0, len(current))
-			for _, database := range current {
-				inventory = append(inventory, database)
-			}
-			return inventory, nil
-		}
-		previousIDs = ids
-	}
-	return nil, fmt.Errorf("ManagedDatabase inventory did not stabilize after %d list passes; reconnecting to retry seed", maxSeedListPasses)
-}
-
-func listManagedDatabasesOnce(ctx context.Context, client pb.ManagedDatabaseServiceClient) (map[string]*pb.ManagedDatabase, error) {
-	inventory := make(map[string]*pb.ManagedDatabase)
-	for page := int32(1); ; page++ {
-		resp, err := client.ListManagedDatabases(ctx, &pb.ListManagedDatabasesRequest{
-			Page: page,
-			Size: managedDatabaseSeedPageSize,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("listing managed databases to seed reconciler: %w", err)
-		}
-		items := resp.GetItems()
-		for _, database := range items {
-			inventory[database.GetMetadata().GetId()] = database
-		}
-		total := int(resp.GetMetadata().GetTotal())
-		if len(items) == 0 || len(items) < managedDatabaseSeedPageSize || (total > 0 && len(inventory) >= total) {
-			return inventory, nil
-		}
-	}
-}
-
 func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.GatewayRelease]) error {
 	client := pb.NewGatewayReleaseServiceClient(conn)
 	// Drive release reconciliation through a per-resource reconcile queue rather
@@ -374,16 +125,24 @@ func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
-// OptionalClusterID maps a control-plane cluster identity to the proto optional
-// cluster_id field: an empty identity becomes nil (no server-side filter, the
-// single-cluster default), a non-empty one is sent so the api-server scopes the
-// list/watch to that cluster. Exported and shared: the reconciler's list helper
-// uses it too, so the mapping stays single-sourced.
-func OptionalClusterID(clusterID string) *string {
-	if clusterID == "" {
-		return nil
+// ErrMissingClusterID is returned by every cluster-scoped list/watch (gateways
+// and role bindings) when it is asked to run without this control plane's
+// registered cluster id. Every control
+// plane is registered (specs/platform/control-plane.spec.md, "Mandatory Cluster
+// Identity"), so an empty id is a programming error, never an "unfiltered" mode.
+var ErrMissingClusterID = errors.New("refusing a cluster-scoped list/watch without this control plane's registered cluster_id")
+
+// ClusterFilter maps this control plane's registered cluster id to the proto
+// cluster_id filter the api-server scopes gateway and role binding lists and
+// watches by. The
+// filter is mandatory: an empty id is rejected with ErrMissingClusterID rather
+// than sent as "no filter". Exported and shared with the reconciler's list
+// helper so the mapping stays single-sourced.
+func ClusterFilter(clusterID string) (*string, error) {
+	if strings.TrimSpace(clusterID) == "" {
+		return nil, ErrMissingClusterID
 	}
-	return &clusterID
+	return &clusterID, nil
 }
 
 // gatewayWorkerCount clamps a configured gateway reconcile worker count to a
@@ -432,13 +191,17 @@ func (g *GatewayReconcileQueue) EnqueueForced(ev Event[*pb.Gateway]) { g.q.enque
 func (g *GatewayReconcileQueue) Stop() { g.q.stop() }
 
 // WatchGateways streams gateway events and drives them through the caller-owned
-// per-resource reconcile queue. When clusterID is non-empty the watch and its
-// seed lists are scoped server-side to gateways with that cluster_id, so a
-// managed-cluster spoke only ever reconciles its own gateways (the pull model);
-// empty watches every gateway. The queue is owned and stopped by the caller
+// per-resource reconcile queue. The watch and its seed lists are scoped
+// server-side to gateways with this control plane's registered cluster_id, so it
+// only ever reconciles its own gateways (the pull model); an empty clusterID is
+// rejected. The queue is owned and stopped by the caller
 // (main) and shared with out-of-band enqueuers such as the GatewayRelease
 // reconciler, so it is neither created nor stopped here.
 func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayReconcileQueue, clusterID string) error {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return err
+	}
 	client := pb.NewGatewayServiceClient(conn)
 	// Gateway reconciliation is driven through a per-resource reconcile queue rather
 	// than invoked inline: the watch stream does not replay state on reconnect, so a
@@ -457,7 +220,7 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 		runCtx, runCancel := context.WithCancel(ctx)
 		defer runCancel()
 
-		stream, err := client.WatchGateways(runCtx, &pb.WatchGatewaysRequest{ClusterId: OptionalClusterID(clusterID)})
+		stream, err := client.WatchGateways(runCtx, &pb.WatchGatewaysRequest{ClusterId: clusterFilter})
 		if err != nil {
 			return fmt.Errorf("starting gateway watch: %w", err)
 		}
@@ -767,9 +530,13 @@ func listGatewaysStable(ctx context.Context, client pb.GatewayServiceClient, clu
 // returning it keyed by ID (which also dedupes an item a concurrent create caused
 // to appear on two pages).
 func listGatewaysOnce(ctx context.Context, client pb.GatewayServiceClient, clusterID string) (map[string]*pb.Gateway, error) {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return nil, err
+	}
 	inventory := make(map[string]*pb.Gateway)
 	for page := int32(1); ; page++ {
-		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{Page: page, Size: gatewaySeedPageSize, ClusterId: OptionalClusterID(clusterID)})
+		resp, err := client.ListGateways(ctx, &pb.ListGatewaysRequest{Page: page, Size: gatewaySeedPageSize, ClusterId: clusterFilter})
 		if err != nil {
 			return nil, fmt.Errorf("listing gateways to seed reconcile queue: %w", err)
 		}
@@ -844,7 +611,16 @@ func WatchGatewayNetworks(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
-func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.RoleBinding]) error {
+// WatchRoleBindings streams the role bindings of this control plane's gateways.
+// clusterID scopes the stream server-side: the api-server delivers only bindings
+// whose gateway is assigned to that cluster (and no global bindings), and
+// requires a registered caller to pass its own id. Like WatchGateways, the filter
+// is mandatory; an empty id is rejected with ErrMissingClusterID.
+func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.RoleBinding], clusterID string) error {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return err
+	}
 	client := pb.NewRoleBindingServiceClient(conn)
 	// Retry assignment until it succeeds. The RoleBinding event often arrives
 	// before the Keycloak client (or its roles) exist; a half-provisioned client
@@ -855,7 +631,7 @@ func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handl
 		withRetryIf[*pb.RoleBinding](isRoleBindingRetryable))
 	defer rq.stop()
 	return watchLoop(ctx, "RoleBinding", func(ctx context.Context) error {
-		stream, err := client.WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{})
+		stream, err := client.WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{ClusterId: clusterFilter})
 		if err != nil {
 			return fmt.Errorf("starting role binding watch: %w", err)
 		}

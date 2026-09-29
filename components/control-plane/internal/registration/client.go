@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,15 +14,23 @@ import (
 )
 
 // ErrForbidden is returned when the API server responds 403.
-// This is non-retryable: the spoke lacks the required Keycloak role.
-var ErrForbidden = fmt.Errorf("registration denied: missing managed-cluster-registrar role in Keycloak")
+// This is non-retryable: the control plane lacks the required Keycloak role.
+var ErrForbidden = errors.New("registration denied: missing managed-cluster-registrar role in Keycloak")
+
+// ErrConflict is returned (wrapped, with the API's message) when the API server
+// responds 409. This is non-retryable: the requested name belongs to a record
+// this OIDC subject does not own, or this subject is registered under another
+// name. An operator must resolve it; see
+// specs/platform/managed-cluster-registration.spec.md ("Name Collision Is a
+// Conflict").
+var ErrConflict = errors.New("registration conflict")
 
 // TokenSource can produce a bearer token.
 type TokenSource interface {
 	Token() (string, error)
 }
 
-// Client registers a spoke control-plane with the hub API server.
+// Client registers a control plane with the hub API server.
 type Client struct {
 	apiServerURL string
 	clusterName  string
@@ -48,8 +57,9 @@ type registrationResponse struct {
 }
 
 // Register calls POST /api/hypershell/v1/managed_clusters/registration.
-// Returns (clusterID, nil) on success, (ErrForbidden, nil) on 403, or an
-// error for transient failures that should be retried.
+// Returns (clusterID, nil) on success, ErrForbidden on 403, an error wrapping
+// ErrConflict (carrying the API's reason) on 409, or an error for transient
+// failures that should be retried.
 func (c *Client) Register(ctx context.Context) (string, error) {
 	token, err := c.tokens.Token()
 	if err != nil {
@@ -88,6 +98,10 @@ func (c *Client) Register(ctx context.Context) (string, error) {
 		return "", ErrForbidden
 	}
 
+	if resp.StatusCode == http.StatusConflict {
+		return "", fmt.Errorf("%w: %s", ErrConflict, apiErrorReason(respBody))
+	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("registration returned %d: %s", resp.StatusCode, string(respBody))
 	}
@@ -102,4 +116,19 @@ func (c *Client) Register(ctx context.Context) (string, error) {
 	}
 
 	return result.ClusterID, nil
+}
+
+// apiErrorReason extracts the human-readable reason from an API error body
+// ({"kind":"Error","reason":"..."}), falling back to the raw body.
+func apiErrorReason(body []byte) string {
+	var apiErr struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Reason != "" {
+		return apiErr.Reason
+	}
+	if trimmed := strings.TrimSpace(string(body)); trimmed != "" {
+		return trimmed
+	}
+	return "409 Conflict"
 }

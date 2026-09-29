@@ -27,6 +27,63 @@ fi
 # to the openshell binary.
 export OPENSHELL_GATEWAY_INSECURE=true
 
+# _kind_host_is_dual_stack - true when ::1 is a usable local address, i.e. the
+# host has IPv6 loopback and *.gw.localhost will resolve dual-stack. Binding to
+# ::1 succeeds only when the kernel has the address configured; it fails on the
+# IPv4-only hosts CI runs on. Portable across macOS and Linux.
+_kind_host_is_dual_stack() {
+  python3 -c "import socket, sys
+try:
+    s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    s.bind(('::1', 0)); s.close(); sys.exit(0)
+except OSError:
+    sys.exit(1)" 2>/dev/null
+}
+
+# Run the openshell CLI inside a container on the kind network when the native
+# binary cannot work:
+#   - macOS: the CLI is a Linux binary that cannot execute on the host, and even
+#     a native build could not reach the gateway LB (cloud-provider-kind
+#     publishes it on the kind container network, not routable from macOS).
+#   - dual-stack Linux: the CLI (>=0.0.116) breaks on a dual-stack
+#     *.gw.localhost DNS answer (prefers ::1, does not fall back, can segfault).
+#     The only sudo-free way to strip ::1 is the container's own single-stack
+#     resolver (*.localhost -> 127.0.0.1 inside the netns); editing /etc/hosts
+#     would need sudo, which the e2e suite must never require.
+# scripts/kind/openshell-container.sh runs the Linux CLI in a container on the
+# kind network with --add-host entries pointing gateway/OIDC hostnames at the
+# cloud-provider-kind Envoy LB IP (see that script's header).
+#
+# IPv4-only Linux (CI) keeps the fast native-binary path: no ::1 in the answer,
+# nothing to strip. Any explicit OPENSHELL_BIN override is honored. Guarded to
+# the kind driver: the OpenShift driver sources this file for its shared OIDC
+# helpers and manages its own CLI, so the wrapper must not hijack OPENSHELL_BIN
+# on a dual-stack OpenShift run.
+if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]] \
+   && [[ ( -z "${OPENSHELL_BIN:-}" || "${OPENSHELL_BIN}" == "openshell" ) ]] \
+   && { [[ "$(uname -s)" == "Darwin" ]] || _kind_host_is_dual_stack; }; then
+  _E2E_OSH_WRAPPER="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/kind/openshell-container.sh"
+  if [[ ! -x "${_E2E_OSH_WRAPPER}" ]]; then
+    red "ERROR: openshell container wrapper not found or not executable: ${_E2E_OSH_WRAPPER}"
+    red "  The native CLI cannot be used here ($([[ "$(uname -s)" == "Darwin" ]] && echo macOS || echo 'dual-stack host')) without sudo /etc/hosts edits, which the e2e suite forbids."
+    exit 1
+  fi
+  if [[ -z "${CONTAINER_ENGINE:-}" ]]; then
+    red "ERROR: no container engine (podman/docker) found for the openshell CLI wrapper."
+    red "  A dual-stack host must run the CLI in a container to avoid a sudo /etc/hosts edit."
+    red "  Install podman or docker, or run the suite on an IPv4-only host."
+    exit 1
+  fi
+  export OPENSHELL_BIN="${_E2E_OSH_WRAPPER}"
+  # The wrapper runs the Linux CLI straight from the container image, so there
+  # is nothing to download or extract onto the host.
+  export E2E_OPENSHELL_INSTALL=never
+  # The wrapper's in-container forwarder listens on loopback :443, so the CLI
+  # gateway endpoint must target :443 rather than the host-published ephemeral
+  # port that discover_gateway_endpoint would otherwise bake into metadata.json.
+  : "${_KINDCCM_GW_PORT:=443}"
+fi
+
 # Force IPv4 and remap *.hypershell.localhost:443 to the cloud-provider-kind
 # envoy ephemeral port. Two problems motivate this:
 #   1. DNS stub returns both 127.0.0.1 and ::1 for *.localhost; the envoy proxy
@@ -51,25 +108,30 @@ _kind_discover_port() {
     fi
   fi
 }
-# _kind_gw_port - return an IPv4-only port for the openshell CLI gateway endpoint.
-# The openshell CLI (Rust/hyper) prefers IPv6 for *.gw.localhost and does NOT
-# fall back after a TLS RST (Docker's IPv6 NAT is unreliable on some kernels).
-# We front the envoy port with a socat listener bound to 127.0.0.1 only: ::1
-# then gets ECONNREFUSED and hyper retries on 127.0.0.1. curl is unaffected
-# because it already uses --ipv4. Sets _KINDCCM_GW_PORT.
+# _kind_start_gw_socat - front the cloud-provider-kind envoy port with an
+# IPv4-only loopback listener for the openshell CLI gateway endpoint, giving the
+# endpoint a stable port instead of the ephemeral kindccm port.
+#
+# This runs only on the native-binary path, which the driver restricts to
+# IPv4-only hosts (see the wrapper-activation block above): a dual-stack host
+# routes the CLI through the container wrapper instead, because the CLI
+# (>=0.0.116) breaks on a dual-stack *.gw.localhost DNS answer and the only
+# sudo-free way to strip ::1 is the container's single-stack resolver. So here
+# there is no ::1 in the answer and the IPv4 listener is always the one hit.
+# curl is unaffected: it hits the raw envoy port with --ipv4. Sets
+# _KINDCCM_GW_PORT.
 _kind_start_gw_socat() {
   [[ -n "${_KINDCCM_GW_PORT}" ]] && return
   _kind_discover_port
   local raw_port="${_KINDCCM_PORT}"
-  # When sudo set up iptables (port 443 redirected), socat isn't needed:
-  # the openshell CLI can reach port 443 directly on IPv4 and IPv6 doesn't
-  # matter because port 443 is forwarded by the kernel.
+  # When sudo set up iptables (port 443 redirected) or the container wrapper
+  # handles forwarding, socat isn't needed: the CLI reaches port 443 directly.
   if [[ -z "${raw_port}" || "${raw_port}" == "443" ]]; then
     _KINDCCM_GW_PORT="${raw_port:-443}"
     return
   fi
   if ! command -v socat &>/dev/null; then
-    # socat unavailable; fall back to the raw port and accept that IPv6 may fail.
+    # socat unavailable; fall back to the raw ephemeral port.
     _KINDCCM_GW_PORT="${raw_port}"
     return
   fi
@@ -84,6 +146,7 @@ _kind_start_gw_socat() {
   _KINDCCM_SOCAT_PID=$!
   _KINDCCM_GW_PORT="${socat_port}"
 }
+
 _driver_curl() {
   # Try direct HTTPRoute access first. This works in most setups where the
   # routes are directly accessible on port 443 (docker, podman, or iptables-
@@ -173,9 +236,17 @@ discover_console_host() {
 
 # discover_gateway_endpoint - find the gateway gRPC endpoint.
 # Sets _DISCOVER_GW_ENDPOINT from the GRPCRoute hostname once the
-# parent Gateway is Programmed.
+# parent Gateway is Programmed. Also sets _DISCOVER_GW_HOST (the bare
+# hostname) and _DISCOVER_GW_LB_ADDR (the parent Gateway's own
+# status.addresses[0].value, i.e. the cloud-provider-kind Envoy container's
+# address on Kind's own podman network) so callers that run the openshell CLI
+# in a container on that same network (see e2e-openshell.sh's
+# _install_openshell_cli_container_wrapper) can reach it directly, instead of
+# through the host-side ephemeral-port remap _DISCOVER_GW_ENDPOINT uses.
 discover_gateway_endpoint() {
   _DISCOVER_GW_ENDPOINT=""
+  _DISCOVER_GW_HOST=""
+  _DISCOVER_GW_LB_ADDR=""
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
 
@@ -195,6 +266,9 @@ discover_gateway_endpoint() {
         -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}' 2>/dev/null \
         | grep -c 'Programmed=True' || true)
       if [[ "${gw_programmed:-0}" -ge 1 ]]; then
+        _DISCOVER_GW_HOST="$grpc_host"
+        _DISCOVER_GW_LB_ADDR=$(kubectl get gateway "${gw_ref_name}" -n "${gw_ref_ns}" \
+          -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
         _kind_start_gw_socat
         if [[ -n "${_KINDCCM_GW_PORT}" && "${_KINDCCM_GW_PORT}" != "443" ]]; then
           _DISCOVER_GW_ENDPOINT="https://${grpc_host}:${_KINDCCM_GW_PORT}"
@@ -306,6 +380,7 @@ _driver_acquire_oidc_token() {
           -d "client_id=${E2E_OIDC_SA_CLIENT_ID}"
           -d "client_secret=${E2E_OIDC_SA_CLIENT_SECRET}"
           -d "subject_token=${subject_token}"
+          -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token"
         )
         # The CI admin identity is the hypershell-e2e service account, which
         # owns gateways it creates. Impersonating the seeded admin user
@@ -327,6 +402,12 @@ _driver_acquire_oidc_token() {
 
 acquire_oidc_token() {
   _driver_acquire_oidc_token "$@"
+}
+
+# Kind and CI-owned OpenShift users must not be deleted by a test run
+# (ephemeral-test-credentials.spec.md). They last until the environment does.
+de_seed_test_users() {
+  return 0
 }
 
 : "${E2E_GATEWAY_NAMESPACE_GC_INTERVAL:=30s}"
@@ -613,6 +694,23 @@ acquire_gateway_token_with_role() {
 # additional arguments to curl.
 api_curl() {
   _driver_curl -H "Authorization: Bearer ${_OIDC_ACCESS_TOKEN}" "$@"
+}
+
+# get_browser_ca_bundle - print a PEM file path the headless browser should
+# trust, or nothing when the CA cannot be extracted. Optional driver hook used by
+# e2e-console.sh (e2e-console-browser-testing.spec.md). Kind: the cert-manager CA
+# from hypershell-ca-secret, which signs both *.hypershell.localhost
+# (hypershell-https-tls) and *.gw.localhost (hypershell-gw-tls).
+get_browser_ca_bundle() {
+  local ca_file
+  ca_file="$(mktemp "${TMPDIR:-/tmp}/hypershell-e2e-browser-ca.XXXXXX")"
+  if kubectl get secret hypershell-ca-secret -n "${E2E_HS_NAMESPACE:-hypershell-system}" \
+      -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d > "$ca_file" 2>/dev/null \
+      && [[ -s "$ca_file" ]]; then
+    printf '%s\n' "$ca_file"
+    return 0
+  fi
+  rm -f "$ca_file"
 }
 
 # get_cluster_domain - return the base domain for gateway DNS names.

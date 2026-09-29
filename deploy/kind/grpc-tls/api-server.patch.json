@@ -1,0 +1,7 @@
+[
+  {"op": "add", "path": "/spec/template/spec/containers/0/command/-", "value": "--grpc-enable-tls=true"},
+  {"op": "add", "path": "/spec/template/spec/containers/0/command/-", "value": "--grpc-tls-cert-file=/grpc-tls/tls.crt"},
+  {"op": "add", "path": "/spec/template/spec/containers/0/command/-", "value": "--grpc-tls-key-file=/grpc-tls/tls.key"},
+  {"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts/-", "value": {"name": "grpc-tls", "mountPath": "/grpc-tls", "readOnly": true}},
+  {"op": "add", "path": "/spec/template/spec/volumes/-", "value": {"name": "grpc-tls", "secret": {"secretName": "hypershell-api-grpc-tls"}}}
+]

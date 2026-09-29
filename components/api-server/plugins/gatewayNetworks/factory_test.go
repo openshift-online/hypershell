@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
-	"github.com/openshift-online/rh-trex-ai/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 func newGatewayNetwork(id string) (*gatewayNetworks.GatewayNetwork, error) {

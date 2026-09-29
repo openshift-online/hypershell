@@ -14,7 +14,17 @@
              spec builds on;
              `oidc-integration.spec.md` -- platform OIDC and RBAC role mapping;
              `../security/rbac-enforcement.spec.md` -- `platform:admin` vs
-             `gateway:creator`
+             `gateway:creator`;
+             `ephemeral-test-credentials.spec.md` -- the three test-tier principals
+             (`admin`, `developer`, `platform-admin`), their cloud-store passwords
+             aligned by External Secrets Operator, and seeding for the environment
+             lifetime;
+             lifecycle; this spec owns only who may impersonate them and what each
+             tier can do;
+             `ephemeral-ci-secrets.spec.md` -- standing OpenShift pull-request CI
+             secrets (cluster login, GitHub OAuth App) in AWS Secrets Manager,
+             GitHub OIDC into that store, and ESO alignment of the in-cluster
+             subset; this spec owns only the workflow that consumes them
 
 ## Purpose
 
@@ -102,8 +112,8 @@ the CI YAML or the Keycloak realm export.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase) only where a
-scenario provisions one. "Environment" here means the per-pull-request namespace
+GatewayNetwork, GatewayRelease, ManagedCluster) only where a scenario
+provisions one. "Environment" here means the per-pull-request namespace
 group (the platform namespace and its companion `-keycloak` namespace) that
 `openshift-development.spec.md` defines.
 
@@ -194,9 +204,13 @@ between deploy and the suite. `/pr-extend` and `/pr-destroy` live in
 destroy workflow SHALL trigger on `closed` (which covers both merge and close)
 to destroy a retained environment (see the Timebox and Reaping requirement), so
 Tests runs do not list a skipped Destroy check. None of these jobs SHALL run
-on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
-merge-queue gate; this environment does not share a namespace with a
-merge-queue SHA.
+on `merge_group`: this ephemeral-environment lifecycle (GitHub-brokered
+OAuth, the access comment, `/pr-extend`/`/pr-destroy`) is pull-request-only,
+and this environment does not share a namespace with a merge-queue SHA.
+`e2e-testing.spec.md` separately runs Kind and OpenShift as the merge-queue
+gate, the latter through the same `Deploy OpenShift Environment`/`OpenShift`
+jobs this spec's pull-request path uses, but without any of this spec's
+pull-request-only features.
 
 Deploy and OpenShift SHALL run only for pull requests targeting the origin
 repository. Fork pull requests SHALL NOT receive cluster credentials and SHALL
@@ -311,9 +325,13 @@ SHALL preserve any active per-namespace component swap the same way
 
 - GIVEN a pull request enters the GitHub merge queue
 - WHEN CI evaluates which jobs to run
-- THEN this workflow SHALL NOT run
-- AND the Kind e2e job SHALL remain the merge-queue gate as
-  `e2e-testing.spec.md` defines
+- THEN this pull-request-only ephemeral-environment lifecycle (this spec)
+  SHALL NOT run: no GitHub-brokered OAuth, no access comment, no
+  `/pr-extend`/`/pr-destroy`
+- AND the Kind and OpenShift e2e jobs SHALL still gate the merge queue as
+  `e2e-testing.spec.md` defines, OpenShift using a distinct
+  `hypershell-ci-mq-<short-sha>` namespace that never collides with a
+  pull-request or push-to-main namespace
 
 ### Requirement: Extend and Destroy Controls
 
@@ -486,8 +504,8 @@ artifact across the stack.
   head commit
 - AND it SHALL swap the new control plane image into the environment by digest
   before the `Deploy OpenShift Environment` check succeeds
-- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster`,
-  `GatewayRelease`, and `ManagedDatabase` seed resources
+- AND `make openshift-seed` SHALL reuse the existing `ManagedCluster` and
+  `GatewayRelease` seed resources
 - AND it SHALL delete and recreate the existing `dev-gateway` rather than reuse
   it or create a second Gateway named `dev-gateway`
 
@@ -620,14 +638,14 @@ The reaper SHALL perform the deletion itself through the same teardown code path
 `make openshift-down` uses, invoked per expired environment, rather than a
 separate reimplementation of that teardown. It therefore SHALL delete the whole
 namespace group (platform and `-keycloak`), the environment's cluster-scoped
-RBAC, and the instance-managed gateway and ManagedDatabase namespaces the control
-plane stamped, and SHALL clear that environment's per-namespace swaps, exactly as
+RBAC, and the instance-managed gateway namespaces the control plane stamped, and
+SHALL clear that environment's per-namespace swaps, exactly as
 `make openshift-down` does. Sharing the one teardown path keeps the reaper and
 `make openshift-down` from drifting: a change to what teardown removes takes
 effect in both without a second edit.
 
-Gateway and ManagedDatabase namespaces are not in the namespace group and do not
-carry `hypershell.redhat.io/owned`. Periodic GC cannot reap them after the
+Gateway namespaces are not in the namespace group and do not carry
+`hypershell.redhat.io/owned`. Periodic GC cannot reap them after the
 platform project is gone (`openshell-gateway-namespace-gc.spec.md`). Because the
 reaper runs the `make openshift-down` teardown, it SHALL delete namespaces
 labeled `hypershell.redhat.io/managed=true`,
@@ -729,7 +747,11 @@ contain the same non-secret access facts `openshift-development.spec.md` defines
 -- the environment namespaces, the OpenShift console URL for the platform
 namespace, the API Route URL, and the web-console Route URL -- presented as the
 same login guidance `make openshift-up` prints at the end of a successful
-bring-up, so the comment and the command agree.
+bring-up, so the comment and the command agree. On a GitHub-brokered
+environment the comment SHALL also include the Keycloak hypershell-realm admin
+console URL (`https://<keycloak-route>/admin/hypershell/console/`), not the
+master-realm `/admin/` path, and SHALL tell the developer to sign in with
+GitHub there to impersonate `developer` or `platform-admin`.
 
 The comment SHALL make the environment's lifetime explicit. On an unretained
 pull request, including the in-progress deploying placeholder, the comment SHALL
@@ -739,8 +761,11 @@ that `/pr-extend` redeploys the environment if it has already been destroyed.
 Once the pull request is retained, the comment SHALL instead state that the
 environment is retained, that it is renewed on every commit, and that it is
 reclaimed after the inactivity timebox unless destroyed with `/pr-destroy` or
-the pull request is closed. The comment SHALL never imply an unretained
-environment will persist.
+the pull request is closed. The retained comment SHALL include that inactivity
+expiry as an RFC 3339 timestamp labelled UTC so the developer can see when
+the reaper will reclaim the environment, matching the
+`hypershell.redhat.io/expires-at` value stamped on the namespace group. The
+comment SHALL never imply an unretained environment will persist.
 
 After an unretained in-run teardown or an authorized `/pr-destroy` confirms the
 environment is gone, the workflow SHALL edit that same marked comment in place
@@ -764,8 +789,8 @@ for the same pull request, the workflow SHALL repeat this sequence against the
 one marked comment: an early edit stating the environment is updating to the
 new commit and may not be fully responsive during the update, while retaining
 the existing access-fact table (namespaces, console URL, API Route URL,
-web-console Route URL, and CLI login do not change from reconcile to
-reconcile), then a final edit stating it has been updated to
+web-console Route URL, Keycloak hypershell-realm admin console URL, and CLI
+login do not change from reconcile to reconcile), then a final edit stating it has been updated to
 commit `<sha>` with refreshed login details. The `<sha>` in the final comment
 SHALL be the commit whose digest swap completed, so the comment never claims a
 commit the swap did not deploy.
@@ -796,9 +821,14 @@ public artifact.
 - GIVEN a pull request is opened and its environment becomes ready
 - WHEN the workflow finishes deploying
 - THEN it SHALL edit the marked comment in place with the namespaces, console
-  URL, API Route URL, and web-console Route URL, rather than posting a second
-  comment
+  URL, API Route URL, web-console Route URL, and Keycloak hypershell-realm
+  admin console URL, rather than posting a second comment
 - AND the comment SHALL present the same login details `make openshift-up` prints
+- AND the comment SHALL tell the developer they can sign in with GitHub or
+  with a seeded test-tier username and password
+- AND the comment SHALL tell the developer they can impersonate `developer`
+  or `platform-admin` from the Keycloak admin console
+- AND the comment SHALL NOT link master-realm `/admin/` as the GitHub login
 - AND the comment SHALL NOT contain a credential
 
 #### Scenario: Comment updated on each new commit
@@ -846,6 +876,7 @@ public artifact.
 - THEN the comment SHALL state the environment is retained and renewed on each commit
 - AND it SHALL state it is reclaimed after the inactivity timebox unless
   destroyed with `/pr-destroy` or the pull request is closed
+- AND it SHALL include the inactivity expiry as an RFC 3339 timestamp labelled UTC
 - AND it SHALL NOT tell the reader the environment is about to be destroyed
 
 #### Scenario: Comment reflects a destroyed environment
@@ -864,11 +895,18 @@ public artifact.
 ### Requirement: Pull-Request Trust Boundary
 
 The workflow SHALL run only on `pull_request` events from the origin repository
-(the repository that holds the workflow and the cluster credentials). It SHALL
-NOT use `pull_request_target`. Fork pull requests SHALL NOT receive the cluster
-kubeconfig, the GitHub OAuth client secret, or any other secret this workflow
-needs, and SHALL NOT get an environment. The GitHub organization gate and
-allowlist (see GitHub-Brokered Keycloak Authentication) govern interactive
+(the repository that holds the workflow). Cluster login and the GitHub OAuth App
+secret SHALL NOT live as GitHub Actions secrets; they SHALL live in AWS Secrets
+Manager and SHALL be consumed as `ephemeral-ci-secrets.spec.md` defines (GitHub
+OIDC into IAM for runner-only cluster login, only after the job confirms the head
+repository is the origin; ESO for the in-cluster OAuth copy). OpenShift cluster
+login and deploy SHALL refuse or skip when
+`github.event.pull_request.head.repo.full_name` is not `github.repository`. The
+workflow SHALL NOT use `pull_request_target`. Fork pull requests SHALL NOT receive
+the cluster login, the GitHub OAuth client secret, or any other secret this
+workflow needs, and SHALL NOT get an environment. Tests / E2E remains one job so
+Kind still runs on forks. The GitHub organization gate
+and allowlist (see GitHub-Brokered Keycloak Authentication) govern interactive
 login to an already-deployed origin-repo environment; they SHALL NOT be used as
 a reason to deploy untrusted pull-request trees with cluster credentials.
 
@@ -882,8 +920,9 @@ a reason to deploy untrusted pull-request trees with cluster credentials.
 #### Scenario: Fork pull request is not deployed
 
 - GIVEN a pull request whose head branch lives in a fork
-- WHEN GitHub evaluates this workflow
-- THEN the workflow SHALL NOT receive cluster credentials
+- WHEN GitHub evaluates Deploy OpenShift Environment
+- THEN that job SHALL skip
+- AND cluster login SHALL NOT assume the CI IAM role
 - AND it SHALL NOT create or update a `hypershell-ci-pr-*` environment
 
 ### Requirement: GitHub-Brokered Keycloak Authentication
@@ -901,16 +940,18 @@ suite behave identically. This spec adds a dedicated confidential client
 
 The target cluster SHALL provide one GitHub OAuth App (or GitHub App used as
 the OAuth client) for these environments. The App's client id, client secret,
-and a single stable callback URL SHALL come from configuration, not from the
-overlay and not from a per-pull-request Route host. GitHub does not accept
-wildcard redirect URIs and limits registered callback URLs, so GitHub SHALL
-redirect only to that stable callback. The callback is cluster infrastructure,
-in the same class as the shared Gateway: it receives GitHub's redirect and
-completes the broker login against the Keycloak that the OAuth `state`
-identifies (the pull-request number). GitHub SHALL NOT redirect to a per-PR
-Keycloak Route host. If the client id, client secret, or stable callback URL is
-unset, the workflow SHALL fail before the access comment is posted, rather than
-leave an environment nobody can log into.
+and a single stable callback URL SHALL come from AWS Secrets Manager via ESO as
+`ephemeral-ci-secrets.spec.md` defines (`hysh-aws-01/ci/github-oauth`), not
+from a GitHub Actions secret, not from the overlay, and not from a
+per-pull-request Route host. GitHub does not accept wildcard redirect URIs and
+limits registered callback URLs, so GitHub SHALL redirect only to that stable
+callback. The callback is cluster infrastructure, in the same class as the
+shared Gateway: it receives GitHub's redirect and completes the broker login
+against the Keycloak that the OAuth `state` identifies (the pull-request
+number). GitHub SHALL NOT redirect to a per-PR Keycloak Route host. If the
+client id, client secret, or stable callback URL is unset, the workflow SHALL
+fail before the access comment is posted, rather than leave an environment
+nobody can log into.
 
 The Keycloak SHALL configure a GitHub identity provider using that OAuth App
 and the OAuth `read:org` scope so HyperShell can read the authenticating user's
@@ -931,22 +972,70 @@ identities may use the environment:
 
 The organization gate and the allowlist SHALL be enforced by the web-console BFF
 after the OIDC callback, using the Keycloak-stored GitHub token
-(`storeToken`) to call GitHub `GET /user/orgs` and comparing
-`preferred_username` against the allowlist. This is a weaker guarantee than a
-Keycloak first-broker-login SPI: Keycloak may still issue an SSO session, but
-the BFF SHALL NOT persist a HyperShell session for a denied user. The console's
-API bearer is that session's access token, so a denied login SHALL NOT produce a
-token the BFF can forward. The API server is not separately org-gated; e2e and
-control-plane callers keep using their own service-account clients. These are
-developer environments; the BFF check avoids a custom Keycloak image. Kind and
-local SHALL leave `GITHUB_ORG_GATE` unset when the GitHub Secret is absent. When
-the gate is on, a Keycloak session with no readable GitHub broker identity
-(seeded password users: Keycloak `GET /broker/github/token` returns 403 or 404)
-SHALL still receive a HyperShell session. GitHub-brokered identities remain
-subject to the organization and allowlist checks.
-The organization name, the allowlist, the GitHub OAuth client id and secret, and
-the stable callback URL SHALL come from configuration, not code, so a different
-organization, allowlist, or OAuth App does not require an overlay edit.
+(`storeToken`) to call GitHub `GET /user/memberships/orgs/{org}` (falling back
+to `GET /user/orgs`) and comparing `preferred_username` against the allowlist.
+This is a weaker guarantee than a Keycloak first-broker-login SPI: Keycloak may
+still issue an SSO session, but the BFF SHALL NOT persist a HyperShell session
+for a denied user. The console's API bearer is that session's access token, so
+a denied login SHALL NOT produce a token the BFF can forward. The API server is
+not separately org-gated; e2e and control-plane callers keep using their own
+service-account clients. These are developer environments; the BFF check
+avoids a custom Keycloak image. Kind and local SHALL leave `GITHUB_ORG_GATE`
+unset when the GitHub Secret is absent.
+
+The BFF SHALL NOT decide "does this session have a GitHub identity to gate" by
+probing whether Keycloak's `GET /broker/github/token` endpoint returns 403.
+That status code is ambiguous: Keycloak returns it both for a session with no
+GitHub federated identity at all (seeded password users) and for a genuinely
+GitHub-linked session that simply was not granted the broker `read-token` role
+(for example, an existing password account later linked to GitHub through
+"Handle Existing Account" in the first-broker-login flow, which does not run
+the `addReadTokenRoleOnCreate` hook because it fires only when a *new* user is
+created). Treating every 403 as "not linked, so admit" collapses that
+distinction and lets a real GitHub identity - member or not - through the gate
+whenever the role grant did not happen, which defeats the gate entirely. The
+realm's "github" identity provider SHALL instead FORCE-sync a dedicated
+`github-identity` realm role (via `oidc-hardcoded-role-idp-mapper`) onto every
+GitHub login, and the BFF SHALL read that role from the ID token to decide
+linkage. A session without `github-identity` (seeded password users) SHALL
+still receive a HyperShell session with no GitHub API calls. A session that
+carries `github-identity` SHALL have its org membership or allowlist status
+positively confirmed against the GitHub API; any failure to do so, including a
+403 or 404 from `GET /broker/github/token`, SHALL deny the login rather than
+admit it.
+
+The organization name and the allowlist SHALL come from configuration, not
+code. The GitHub OAuth client id, client secret, and stable callback URL SHALL
+come from the cloud store as `ephemeral-ci-secrets.spec.md` defines, so a
+different organization, allowlist, or OAuth App does not require an overlay
+edit or a GitHub Actions secret change.
+
+#### Known gap: the gate applies only to the web-console login path
+
+This BFF check governs the `hypershell-frontend` client's `/auth/callback`
+route only. It does not extend to Keycloak itself, so any client that
+completes the GitHub broker login directly - notably `hypershell-cli`, a
+public client with a loopback redirect (`http://127.0.0.1:*`) intended for
+local CLI use - obtains a session the same way any OAuth CLI tool does,
+without ever calling the BFF. The realm's GitHub identity provider mappers
+(`github-grant-platform-admin`, `github-grant-gateway-creator`) grant
+`platform:admin` and `gateway:creator` to every GitHub login unconditionally,
+so a token obtained this way carries full platform privileges regardless of
+`openshift-online` membership.
+
+This is an accepted gap, not an oversight: closing it at the Keycloak level
+requires a first-broker-login authenticator (script or custom SPI) that calls
+the GitHub org API before granting realm roles, which in turn requires a
+custom Keycloak image. Diverging the PR-environment Keycloak image from the
+production image was rejected as a bigger risk than the gap itself - these are
+throwaway, per-PR developer/debug environments on a shared e2e cluster with no
+production data, the cluster does not hand out kubeconfigs or credentials to
+anyone outside this workflow's own service accounts, and a bad actor able to
+reach this login flow has no path to the underlying Kubernetes/OpenShift
+credentials for the shared cluster from it. `oc login --web` is a separate,
+cluster-level OAuth flow (against the OpenShift built-in OAuth server, not
+`hypershell-frontend` or `hypershell-cli`) and is not gated by this check
+either, for the same reason.
 
 #### Scenario: Organization member authenticates
 
@@ -1014,7 +1103,7 @@ annotation already matches.
 - THEN GitHub SHALL be the brokered identity provider
 - AND Red Hat SSO SHALL NOT be configured as an identity provider
 
-### Requirement: Admin Authorization and Developer-Tier Testing by Impersonation
+### Requirement: Admin Authorization and Self-Service Role Assumption by Impersonation
 
 Every GitHub identity that authenticates to a pull-request environment (whether
 by organization membership or by allowlist) SHALL be granted the realm roles
@@ -1023,21 +1112,94 @@ as `../security/rbac-enforcement.spec.md` defines those roles.
 `platform:admin` grants global gateway view and delete; it does not grant
 gateway create. `gateway:creator` grants gateway create. The realm SHALL assign
 both roles to brokered GitHub users on first broker login, so no manual role
-assignment is required after login.
+assignment is required after login. That is the same HyperShell API capability
+as the seeded `admin` test-tier principal (`ephemeral-test-credentials.spec.md`
+assigns that principal `platform:admin` and `gateway:creator`), so a GitHub
+session already starts at that tier.
 
-To let an admin verify the developer permission boundary with the same GitHub
-login, the environment SHALL support developer-tier testing by impersonation
-rather than by a second interactive account. Keycloak federates one GitHub
-identity to exactly one Keycloak user, so a GitHub user cannot "pick" between an
-admin and a developer account; instead the environment SHALL seed a
-developer-tier principal -- a Keycloak user that holds `gateway:viewer` (mapped
-to `openshell-user` on a reachable gateway, per `e2e-testing.spec.md` area 9)
-and holds neither `platform:admin` nor `gateway:creator` -- and SHALL enable
-impersonation so an admin can obtain tokens for that principal. Impersonation
-SHALL be available both interactively (an admin impersonates the developer
-principal through the Keycloak account/admin console) and programmatically
-through Keycloak token exchange, so the e2e suite can acquire developer-scoped
-tokens without an interactive login (see Automated E2E Authentication).
+Interactive login to the hypershell realm, including the Keycloak admin
+console at `/admin/hypershell/console/` and the web-console OIDC login, SHALL
+present GitHub when that identity provider is enabled and SHALL also present
+a username/password form. Test-tier principal passwords on CI-owned PR
+environments are non-guessable (`ephemeral-test-credentials.spec.md`), so
+showing the form does not republish a guessable login. A human MAY
+authenticate with GitHub or with a seeded test-tier username and password.
+Master-realm `/admin/` is Keycloak's bootstrap-admin console and is not this
+path. On first broker login the realm SHALL also grant the
+`realm-management` client roles `view-users`, `query-users`, and
+`impersonation`, so the GitHub user can open that admin console and
+impersonate `developer` and `platform-admin` without a second account.
+`impersonation` is Keycloak's realm-wide role, not a target-scoped
+permission. The intended interactive targets are those two principals.
+Narrowing the role to them would require user-level fine-grained admin
+permissions; this workflow does not configure that model. FGAP v1 is
+enabled only for token-exchange onto gateway and frontend clients
+(`EnsureE2ETokenExchange`). These are org-gated throwaway environments
+that already grant every brokered user `platform:admin` and
+`gateway:creator`.
+
+To let any authenticated GitHub user verify a lower-privilege permission boundary
+with the same GitHub login, the environment SHALL support self-service role
+assumption by impersonation rather than by a second interactive account. Keycloak
+federates one GitHub identity to exactly one Keycloak user, so a GitHub user
+cannot "pick" between tiers by logging in differently; instead the environment
+SHALL seed the `developer` and `platform-admin` test-tier principals that
+`ephemeral-test-credentials.spec.md` defines and seeds. `developer` holds the
+realm role `hypershell-users` and neither `platform:admin` nor `gateway:creator`.
+`platform-admin` holds `platform:admin` without `gateway:creator`.
+`gateway:viewer` is a per-gateway DB binding (`../security/rbac-enforcement.spec.md`),
+not a Keycloak realm role, so seeding SHALL NOT assign it. The path to an
+`openshell-user` token on a reachable gateway is the per-gateway Keycloak client
+role grant in Automated E2E Authentication.
+
+Impersonation SHALL be enabled so **any** authenticated GitHub user, not only a
+designated admin, can obtain tokens for `developer` and `platform-admin`. They
+SHALL NOT need to impersonate `admin`; their own session already carries that
+HyperShell API capability. Human self-service impersonation covers the HyperShell API
+permission boundary (create vs view/delete). Per-gateway `openshell-user` sandbox
+create is the e2e driver's `assign_gateway_client_role` path in Automated E2E
+Authentication, not a human console path. Impersonation SHALL be available
+interactively through the Keycloak admin console (intended for those two
+principals; the `impersonation` role is realm-wide, as Admin Authorization
+states) and programmatically through Keycloak token exchange, so the e2e
+suite can also acquire scoped tokens without an interactive login. A GitHub
+user's `hypershell-frontend` token SHALL NOT token-exchange as another
+GitHub-brokered user: token-exchange impersonation is the `hypershell-e2e`
+client, which requests `developer` or `platform-admin` by username.
+Impersonation SHALL NOT require the impersonating user to know or supply the
+target principal's password; `ephemeral-test-credentials.spec.md` owns where
+that password lives (the cluster's cloud secret store, aligned in-cluster by
+ESO) and it is never part of this flow.
+
+Those principals exist after CI seed and until the environment is destroyed
+(`ephemeral-test-credentials.spec.md`). E2e SHALL NOT de-seed them. `/pr-extend`
+and other automation against a live environment SHALL still be able to impersonate
+`developer` and `platform-admin` after e2e has finished.
+
+#### Scenario: GitHub user logs into the Keycloak admin console
+
+- GIVEN a pull-request environment whose Keycloak brokers to GitHub
+- WHEN a GitHub user opens `https://<keycloak-route>/admin/hypershell/console/`
+- THEN they SHALL authenticate with GitHub
+- AND they SHALL also be offered a username/password form on that login page
+- AND they SHALL reach the hypershell-realm admin console
+- AND they SHALL be able to impersonate `developer` and `platform-admin`
+- AND they SHALL NOT have used master-realm `/admin/` or the bootstrap admin
+  password
+
+#### Scenario: Login page keeps username/password alongside GitHub
+
+- GIVEN a pull-request environment whose Keycloak brokers to GitHub
+- AND the environment has seeded the test-tier principals from Secret
+  `hypershell-e2e-test-users`
+- WHEN a human opens the web console login or
+  `https://<keycloak-route>/admin/hypershell/console/`
+- THEN the hypershell-realm login page SHALL present GitHub
+- AND it SHALL present a username/password form
+- AND signing in as `admin`, `developer`, or `platform-admin` with that
+  principal's Secret password SHALL succeed
+- AND signing in as `admin`/`admin`, `developer`/`developer`, or
+  `platform-admin`/`platform-admin` SHALL fail
 
 #### Scenario: Authenticated GitHub user can fully drive the environment
 
@@ -1049,15 +1211,57 @@ tokens without an interactive login (see Automated E2E Authentication).
 - AND viewing or deleting any gateway SHALL succeed because they hold
   `platform:admin`
 
-#### Scenario: Admin tests the developer boundary by impersonation
+#### Scenario: Any authenticated user tests the developer HyperShell API boundary by impersonation
 
-- GIVEN an admin is logged in to a pull-request environment
-- AND the environment has seeded a developer-tier principal with `gateway:viewer`
-  / `openshell-user` and without `platform:admin` or `gateway:creator`
-- WHEN the admin obtains developer-scoped tokens by impersonating that principal
-- THEN operations allowed to that tier (creating a sandbox on a reachable
-  gateway) SHALL succeed
+- GIVEN any GitHub user is logged in to a pull-request environment
+- AND the environment currently has the seeded `developer` test-tier principal
+- AND that principal holds `hypershell-users` and neither `platform:admin` nor
+  `gateway:creator`
+- WHEN that user obtains developer-scoped tokens by impersonating that principal
+- THEN creating a gateway via the HyperShell API SHALL return `403 Forbidden`
+- AND the user SHALL NOT have needed the `developer` principal's password to do so
+
+#### Scenario: Human self-service does not include per-gateway sandbox create
+
+- GIVEN any GitHub user is logged in to a pull-request environment
+- AND the environment currently has the seeded `developer` test-tier principal
+- AND a reachable gateway exists
+- AND the e2e driver has not granted that principal `openshell-user` on that
+  gateway's Keycloak client
+- WHEN that user impersonates `developer`
+- THEN creating a gateway via the HyperShell API SHALL return `403 Forbidden`
+- AND creating a sandbox on that gateway is not a human self-service path; it
+  remains the e2e driver's `assign_gateway_client_role` grant in Automated E2E
+  Authentication
+
+#### Scenario: GitHub users cannot token-exchange as each other
+
+- GIVEN GitHub user A and GitHub user B are both authenticated to a pull-request
+  environment
+- WHEN user A requests an impersonated token for user B through Keycloak token
+  exchange
+- THEN Keycloak SHALL deny the request
+- AND user A SHALL still be able to impersonate `developer` and `platform-admin`
+  through the admin console and through `hypershell-e2e` token exchange
+
+#### Scenario: Any authenticated user tests the platform-admin boundary by impersonation
+
+- GIVEN any GitHub user is logged in to a pull-request environment
+- AND the environment currently has the seeded `platform-admin` test-tier
+  principal
+- AND that principal holds `platform:admin` without `gateway:creator`
+- WHEN that user obtains platform-admin-scoped tokens by impersonating that
+  principal
+- THEN viewing or deleting any gateway SHALL succeed
 - AND creating a gateway via the HyperShell API SHALL return `403 Forbidden`
+
+#### Scenario: Impersonation still works after e2e on a live environment
+
+- GIVEN a CI e2e run has finished against a still-live PR environment
+- WHEN a GitHub-authenticated user requests an impersonated token for `developer`
+  or `platform-admin`
+- THEN Keycloak SHALL issue that token
+- AND `/pr-extend` SHALL NOT need to re-seed those principals
 
 ### Requirement: Automated E2E Authentication
 
@@ -1066,10 +1270,12 @@ brokered users have no resource-owner password grant, the e2e suite SHALL NOT
 authenticate with a username/password grant against a brokered user. The
 OpenShift driver's `acquire_oidc_token` and `acquire_gateway_token_with_role`
 keep the same signatures and call sites `e2e-testing.spec.md` defines; they
-SHALL become grant-agnostic. Kind and manual OpenShift runs default to the
-password grant against seeded users. This workflow SHALL set `E2E_OIDC_GRANT` to
-the service-account and token-exchange path so the suite still calls those
-functions.
+SHALL become grant-agnostic. Kind and local OpenShift runs default to the
+password grant against the static seeded users (`admin`/`admin`,
+`developer`/`developer`, `platform-admin`/`platform-admin`) that
+`ephemeral-test-credentials.spec.md` retains for every locally run test. This
+workflow SHALL set `E2E_OIDC_GRANT` to the service-account and token-exchange path
+so the suite still calls those functions.
 
 The realm SHALL include a dedicated confidential client `hypershell-e2e` whose
 service account holds `platform:admin` and `gateway:creator`. That client, its
@@ -1085,8 +1291,10 @@ workflow SHALL NOT reuse `hypershell-provisioner` for e2e (that client holds
 `manage-clients` and `manage-users`). After `make openshift-up`, CI SHALL read
 the `hypershell-e2e`
 client secret from the deployed Keycloak namespace (a Kubernetes Secret in
-`hypershell-ci-pr-<number>-keycloak`) and SHALL NOT take it from a repo secret
-that cannot match a per-PR realm. The e2e suite's admin `acquire_oidc_token`
+`hypershell-ci-pr-<number>-keycloak`) and SHALL NOT take it from AWS Secrets
+Manager or a GitHub Actions secret that cannot match a per-PR realm. Standing
+cluster login and OAuth App material remain `ephemeral-ci-secrets.spec.md`;
+this per-PR client secret is not in that inventory. The e2e suite's admin `acquire_oidc_token`
 path SHALL obtain its HyperShell API token through that client's client-
 credentials grant, so the CI run authenticates without a human GitHub login.
 
@@ -1096,7 +1304,20 @@ Both SHALL come from Keycloak token exchange impersonating the seeded developer
 principal: `acquire_oidc_token` for the HyperShell API audience, and
 `acquire_gateway_token_with_role` targeting that gateway's Keycloak client for
 the gateway audience. Neither call SHALL use a password grant on these
-environments. Area 10 SHALL acquire the platform-admin token through the
+environments.
+
+Before `acquire_gateway_token_with_role` for area 9, the OpenShift e2e driver
+SHALL grant the seeded `developer` principal the `openshell-user` client role on
+that gateway's Keycloak client. Kind already does this as a test-setup shortcut
+(`assign_gateway_client_role`); the OpenShift driver SHALL do the same. That
+grant mirrors what the control-plane RoleBinding reconciler does for a
+`gateway:viewer` binding. The suite SHALL NOT create a HyperShell
+`gateway:viewer` RoleBinding for this: there is no user-id discovery path for a
+non-owner through the API, and a Keycloak seed step cannot grant a per-gateway
+DB binding. Token exchange then yields an `openshell-user` token because the
+client role is already present, not because seed assigned `gateway:viewer`.
+
+Area 10 SHALL acquire the platform-admin token through the
 `hypershell-e2e` service account, not through a passworded `admin` user.
 
 The `hypershell-e2e` client secret and any impersonation credential SHALL NOT
@@ -1109,6 +1330,8 @@ appear in logs, the pull-request comment, or public artifacts.
 - THEN `acquire_oidc_token` SHALL use the `hypershell-e2e` client-credentials
   grant, not a password grant
 - AND the token SHALL carry `platform:admin` and `gateway:creator`
+- AND the token's `preferred_username` SHALL be `service-account-hypershell-e2e`
+  (the profile username mapper), not a hardcoded `admin` claim
 - AND CI SHALL have read that client secret from the Keycloak namespace after
   `make openshift-up`
 
@@ -1135,6 +1358,16 @@ appear in logs, the pull-request comment, or public artifacts.
 - THEN `acquire_oidc_token` SHALL obtain it by impersonating that principal
   through token exchange
 - AND the token SHALL NOT carry `platform:admin` or `gateway:creator`
+
+#### Scenario: Area 9 grants openshell-user before token exchange
+
+- GIVEN a reachable gateway with a per-gateway Keycloak client
+- AND the seeded `developer` principal exists
+- WHEN area 9 prepares to acquire that principal's gateway token
+- THEN the OpenShift driver SHALL grant `openshell-user` on that client to
+  `developer`
+- AND only then SHALL `acquire_gateway_token_with_role` token-exchange onto
+  that client
 
 #### Scenario: CI acquires the developer gateway token by impersonation
 
@@ -1265,17 +1498,19 @@ exists).
 | `/pr-extend` and `/pr-destroy` require write access, checked before using credentials | The comment-triggered workflow runs with repository and cluster credentials; an arbitrary commenter must not be able to pin or delete shared-cluster environments. A GitHub permission check (not `author_association`) matches the existing origin-only trust boundary |
 | Every deploy stamps `expires-at`; retained gets the inactivity window, unretained a short backstop | The reaper keys on `expires-at`. A retained PR wants a multi-day inactivity timebox; an unretained PR relies on in-run teardown but needs a short backstop so a crashed teardown is still reclaimed promptly. `make openshift-up` does not stamp either; local dev is not time-boxed |
 | Seed after every image swap; reuse existing named resources, except `dev-gateway` | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) rather than POST a second copy. `dev-gateway` is the one exception: Keycloak runs on in-memory storage with no persistent volume, so a Keycloak pod restart discards its dynamically-provisioned OIDC client while the `dev-gateway` row survives untouched in PostgreSQL, and the reconciler deliberately never auto-recreates a missing client (`openshell-gateway-keycloak.spec.md`, "Existing gateway client is missing"). Reusing a `dev-gateway` that predates the current Keycloak instance would permanently strand it in status `Keycloak client is missing`, so seeding deletes and recreates it on every run instead. This is a stopgap until Keycloak has durable storage across restarts |
-| Origin `pull_request` only; Kind remains the merge-queue gate | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
+| This pull-request-scoped lifecycle is origin `pull_request` only; `merge_group` gets OpenShift e2e through `e2e-testing.spec.md`'s own commit-SHA-keyed namespace instead | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
 | Per-PR concurrency group | Two in-flight swaps on one namespace can leave mixed digests; cancelling or queuing the older run keeps the comment SHA honest |
 | One GitHub OAuth App and one stable callback | GitHub does not allow wildcard redirect URIs and limits callback URLs, so per-PR Keycloak Routes cannot be registered as GitHub callbacks. A cluster-scoped callback, like the shared Gateway, is the identity infrastructure this workflow depends on |
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
 | In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment as the last step of Tests / E2E / OpenShift unless retained, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
 | Deploy lives in the e2e stage after Unit, not a parallel PR Environment workflow | A separate workflow would deploy even when Unit fails and would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate means unit failure skips deploy, OpenShift can `needs:` deploy, and teardown can be a last step of the suite job |
-| Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway/database namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway and ManagedDatabase namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
+| Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
 | Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |
-| Authenticated users get `platform:admin` and `gateway:creator`; developer tier by impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no admin-or-developer account picker. A seeded `gateway:viewer` / `openshell-user` principal plus impersonation lets an admin still verify the developer boundary with the same login |
-| Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a repo-held provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and manual OpenShift on the password grant |
+| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub or a seeded username/password, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works for the environment lifetime; e2e does not de-seed |
+| Area 9 grants `openshell-user` on the gateway client before token exchange | Kind already uses `assign_gateway_client_role` because there is no user-id discovery path to create a `gateway:viewer` RoleBinding for a non-owner. The OpenShift driver does the same so a brokered PR env has a specified path to an `openshell-user` token. That grant is not a Keycloak realm-role seed |
+| Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
+| Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |
 | Deprecate `e2e-openshell.sh` now, remove it later; leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded. Team members still run it, so it is deprecated first (notice + docs pointing at the shared harness) and removed later once that usage migrates. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component stays until both scripts are gone |

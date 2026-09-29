@@ -23,6 +23,19 @@ export const messages = defineMessages({
     description:
       "Browser metadata description for the operational dashboard page.",
   },
+  dashboardReliabilityNav: {
+    id: "app.nav.dashboardReliability",
+    defaultMessage: "Reliability dashboard",
+    description:
+      "Page and navigation label for the HyperShell reliability dashboard.",
+  },
+  dashboardReliabilityPageDescription: {
+    id: "app.page.dashboardReliability.description",
+    defaultMessage:
+      "API reliability metrics dashboard for HyperShell request rate, error rate, and latency.",
+    description:
+      "Browser metadata description for the reliability dashboard page.",
+  },
   dashboardAccessDeniedBody: {
     id: "app.page.dashboard.accessDenied.body",
     defaultMessage:

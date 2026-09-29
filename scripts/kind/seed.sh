@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# Seed the platform's baseline resources (ManagedCluster, GatewayRelease,
-# ManagedDatabase, Gateway) into a running Kind cluster via the REST API.
+# Seed the platform's baseline resources (GatewayRelease, Gateway) into a
+# running Kind cluster via the REST API. The ManagedCluster is NOT seeded: the
+# control plane registers itself as local-kind (HYPERSHELL_MANAGED_CLUSTER_NAME
+# in deploy/kind) and this script waits for that record and uses its id. A
+# record created here would make the control plane's registration a 409
+# (specs/platform/managed-cluster-registration.spec.md). Gateway databases need
+# no seeding: the control plane provisions them on the server named by the
+# hypershell-gateway-database-admin Secret that up.sh creates.
 #
 # Split out of up.sh so it can run AFTER the component image swap in CI, against
 # the working-tree image rather than the baseline placeholder image kind-up
@@ -12,13 +18,13 @@
 # SKIP_SEED=true on kind-up and runs `make kind-seed` after the swap.
 #
 # Environment:
-#   DATABASE_PROVIDER   cnpg | deployment | external (default: external). Must
-#                       match the provider kind-up provisioned infrastructure for.
 #   KIND_SEED_STRICT    when "true", a seeding failure exits non-zero instead of
 #                       only warning. CI sets this so a contract regression fails
 #                       the job at the seed step with the real HTTP error, rather
 #                       than surfacing later as a confusing discovery failure.
 #                       KIND_SEED_STRICT remains an alias.
+#   SEED_CLUSTER_WAIT_SECONDS  how long to wait for the control plane to register
+#                       the local-kind ManagedCluster (default 240).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,43 +33,63 @@ source "${SCRIPT_DIR}/lib.sh"
 
 require_cluster
 
-# DATABASE_PROVIDER unset/empty means "external" (mirrors up.sh).
-DB_PROVIDER="${DATABASE_PROVIDER:-external}"
-if [[ "${DB_PROVIDER}" != "cnpg" && "${DB_PROVIDER}" != "deployment" && "${DB_PROVIDER}" != "external" ]]; then
-  error "DATABASE_PROVIDER must be 'cnpg', 'deployment', or 'external', got '${DB_PROVIDER}'"
-  exit 1
-fi
 
 # --- Seed Gateway via REST API ---
 header "Gateway Provisioning"
-API_URL="http://localhost:8000"
-info "Port-forwarding to API server..."
-kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
-PF_PID=$!
-cleanup_pf() { kill "${PF_PID}" 2>/dev/null || true; wait "${PF_PID}" 2>/dev/null || true; }
+PF_LOG="$(mktemp -t hypershell-kind-seed-pf.XXXXXX)"
+PF_PID=""
+LOCAL_PORT=""
+
+# A random local port avoids colliding with a fixed :8000 that some other tool
+# or long-lived tunnel already holds on this machine. A collision on a fixed
+# port would make kubectl fail to bind; that failure is not merely cosmetic,
+# because it used to be discarded (>/dev/null) and the readiness loop below
+# would then treat a response from that OTHER, unrelated listener as proof the
+# real API server was reachable. Every following request would silently talk
+# to the wrong backend and fail with a misleading 401 (see the port-forward log
+# on failure below).
+start_api_port_forward() {
+  LOCAL_PORT=$(( (RANDOM % 20000) + 20000 ))
+  API_URL="http://localhost:${LOCAL_PORT}"
+  : >"${PF_LOG}"
+  kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" "${LOCAL_PORT}:8000" >"${PF_LOG}" 2>&1 &
+  PF_PID=$!
+}
+
+cleanup_pf() {
+  kill "${PF_PID}" 2>/dev/null || true
+  wait "${PF_PID}" 2>/dev/null || true
+  rm -f "${PF_LOG}"
+}
 trap cleanup_pf EXIT
 
+info "Port-forwarding to API server..."
+start_api_port_forward
+
 # `port-forward` accepts a local TCP connection before it has confirmed the pod
-# is serving, so a fixed `sleep` races the REST server coming up. Poll until the
-# API answers with *any* HTTP status -- a 401/403 without a token still proves
-# the server responded (curl exits 0). An empty reply / dead forward makes curl
-# exit non-zero (HTTP 000), so tear the forward down and re-establish it before
-# retrying.
+# is serving, so a fixed `sleep` races the REST server coming up. Confirm
+# kubectl's own "Forwarding from" line (proof this process bound the local
+# port) before trusting an HTTP response on it. A dead process (bind failure,
+# broken pipe) is restarted with a fresh random port rather than retried on the
+# same one.
 info "Waiting for API server to answer through the port-forward..."
 api_reachable=""
 for _ in $(seq 1 30); do
-  if curl -s -o /dev/null -m 3 "${API_URL}/api/hypershell/v1/gateways" 2>/dev/null; then
+  if ! kill -0 "${PF_PID}" 2>/dev/null; then
+    start_api_port_forward
+    sleep 1
+    continue
+  fi
+  if grep -q "^Forwarding from" "${PF_LOG}" 2>/dev/null &&
+    curl -s -o /dev/null -m 3 "${API_URL}/api/hypershell/v1/gateways" 2>/dev/null; then
     api_reachable=true
     break
   fi
-  kill "${PF_PID}" 2>/dev/null || true
-  wait "${PF_PID}" 2>/dev/null || true
-  kube port-forward svc/hypershell-api-server -n "${KIND_NAMESPACE}" 8000:8000 >/dev/null 2>&1 &
-  PF_PID=$!
-  sleep 2
+  sleep 1
 done
 if [[ -z "${api_reachable}" ]]; then
   warn "API server did not answer through the port-forward; seeding may fail"
+  warn "port-forward log: $(cat "${PF_LOG}" 2>/dev/null)"
 fi
 
 # Keycloak --import-realm does not update existing users when keycloak.yaml
@@ -82,7 +108,7 @@ info "Obtaining API token from Keycloak..."
 # HTTP authz middleware (unlike the gRPC interceptor) has no service-account
 # bypass -- every write requires the caller's JWT to carry the `gateway:creator`
 # realm role. The `hypershell-control-plane` client holds no such role, so its
-# token 403s on `POST /managed_clusters` onward and (because seeding is non-fatal) would
+# token 403s on `POST /gateway_releases` onward and (because seeding is non-fatal) would
 # leave the cluster with no seeded resources behind a scroll-past warning. The
 # `admin` user has `gateway:creator`, and `hypershell-frontend` permits the
 # password grant (publicClient + directAccessGrantsEnabled), so this token is
@@ -153,40 +179,44 @@ extract_id() {
 seed_failed=""
 CLUSTER_ID=""
 RELEASE_ID=""
-DATABASE_ID=""
 
 if [[ -z "${seed_failed}" ]]; then
-  # Check for existing ManagedCluster
-  info "Checking for existing local-kind ManagedCluster..."
-  EXISTING_MC_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_clusters")
-  EXISTING_MC_HTTP=$(echo "${EXISTING_MC_RAW}" | tail -1)
-  EXISTING_MC_RESP=$(echo "${EXISTING_MC_RAW}" | sed '$d')
-
-  if [[ "${EXISTING_MC_HTTP}" == "200" ]]; then
-    CLUSTER_ID=$(printf '%s' "${EXISTING_MC_RESP}" | json_named_id local-kind)
-    if [[ -n "${CLUSTER_ID}" ]]; then
-      success "local-kind ManagedCluster already exists: ${CLUSTER_ID}"
-    fi
-  fi
-
-  if [[ -z "${CLUSTER_ID}" ]]; then
-    info "Creating ManagedCluster..."
-    _mc_body="{\"name\":\"local-kind\",\"provider\":\"kind\",\"kubeconfig_secret\":\"kind-kubeconfig\""
-    if [[ "${DB_PROVIDER}" == "external" ]]; then
-      _mc_body="${_mc_body},\"region\":\"kind-local\""
-    fi
-    _mc_body="${_mc_body}}"
-    MC_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_clusters" "${_mc_body}")
+  # The control plane registers local-kind itself; wait for that record (bounded)
+  # rather than creating one. Never POST /managed_clusters here.
+  SEED_CLUSTER_NAME="local-kind"
+  _cluster_wait="${SEED_CLUSTER_WAIT_SECONDS:-240}"
+  info "Waiting up to ${_cluster_wait}s for the control plane to register the ${SEED_CLUSTER_NAME} ManagedCluster..."
+  _cluster_deadline=$(( $(date +%s) + _cluster_wait ))
+  MC_HTTP=""
+  MC_RESP=""
+  while :; do
+    MC_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_clusters")
     MC_HTTP=$(echo "${MC_RAW}" | tail -1)
     MC_RESP=$(echo "${MC_RAW}" | sed '$d')
-    CLUSTER_ID=$(extract_id "${MC_RESP}")
-
-    if [[ -z "${CLUSTER_ID}" ]]; then
-      warn "ManagedCluster creation failed (HTTP ${MC_HTTP}): ${MC_RESP:-no response}"
-      seed_failed=true
-    else
-      success "ManagedCluster created: ${CLUSTER_ID}"
+    if [[ "${MC_HTTP}" == "200" ]]; then
+      CLUSTER_ID=$(printf '%s' "${MC_RESP}" | json_registered_cluster_id "${SEED_CLUSTER_NAME}")
+      if [[ -n "${CLUSTER_ID}" ]]; then
+        break
+      fi
     fi
+    if (( $(date +%s) >= _cluster_deadline )); then
+      break
+    fi
+    sleep 5
+  done
+
+  if [[ -n "${CLUSTER_ID}" ]]; then
+    success "${SEED_CLUSTER_NAME} ManagedCluster registered by the control plane: ${CLUSTER_ID}"
+  else
+    _placeholder_id=$(printf '%s' "${MC_RESP}" | json_named_id "${SEED_CLUSTER_NAME}")
+    if [[ -n "${_placeholder_id}" ]]; then
+      warn "ManagedCluster ${_placeholder_id} is named ${SEED_CLUSTER_NAME} but was not registered by a control plane (empty oidc_subject), so the control plane's registration is rejected with 409."
+      warn "Delete it (DELETE /api/hypershell/v1/managed_clusters/${_placeholder_id}) and restart the controller: kubectl -n ${KIND_NAMESPACE} rollout restart deploy/hypershell-controller"
+    else
+      warn "Timed out after ${_cluster_wait}s waiting for the control plane to register ${SEED_CLUSTER_NAME} (last GET /managed_clusters HTTP ${MC_HTTP:-none}): ${MC_RESP:0:200}"
+      warn "Check the controller log: kubectl -n ${KIND_NAMESPACE} logs deploy/hypershell-controller"
+    fi
+    seed_failed=true
   fi
 fi
 
@@ -222,55 +252,6 @@ if [[ -z "${seed_failed}" ]]; then
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  if [[ "${DB_PROVIDER}" == "deployment" ]]; then
-    info "Skipping ManagedDatabase seed - deployment mode auto-creates per-gateway databases"
-    DATABASE_ID=""
-  else
-    # Check for existing openshell-db ManagedDatabase
-    info "Checking for existing openshell-db ManagedDatabase..."
-    EXISTING_MD_RAW=$(api_get "${API_URL}/api/hypershell/v1/managed_databases")
-    EXISTING_MD_HTTP=$(echo "${EXISTING_MD_RAW}" | tail -1)
-    EXISTING_MD_RESP=$(echo "${EXISTING_MD_RAW}" | sed '$d')
-
-    if [[ "${EXISTING_MD_HTTP}" == "200" ]]; then
-      DATABASE_ID=$(printf '%s' "${EXISTING_MD_RESP}" | json_named_id openshell-db)
-      if [[ -n "${DATABASE_ID}" ]]; then
-        success "openshell-db ManagedDatabase already exists: ${DATABASE_ID}"
-      fi
-    fi
-
-    if [[ -z "${DATABASE_ID}" ]]; then
-      info "Creating ManagedDatabase (provider=${DB_PROVIDER})..."
-      if [[ "${DB_PROVIDER}" == "external" ]]; then
-        # connection_secret names the NAMESPACE holding the admin credentials
-        # (created by up.sh), not a Secret name. The Secret inside it is always
-        # hypershell-managed-db-credentials.
-        MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-          "{\"name\":\"openshell-db\",\"provider\":\"external\",\"connection_secret\":\"hypershell-managed-db-kind\",\"region\":\"kind-local\"}")
-      else
-        MD_RAW=$(api_post "${API_URL}/api/hypershell/v1/managed_databases" \
-          "{\"name\":\"openshell-db\",\"provider\":\"${DB_PROVIDER}\"}")
-      fi
-      MD_HTTP=$(echo "${MD_RAW}" | tail -1)
-      MD_RESP=$(echo "${MD_RAW}" | sed '$d')
-
-      if [[ "${MD_HTTP}" != "201" && "${MD_HTTP}" != "200" ]]; then
-        warn "ManagedDatabase creation failed (HTTP ${MD_HTTP}): ${MD_RESP:-no response}"
-        seed_failed=true
-      else
-        DATABASE_ID=$(extract_id "${MD_RESP}")
-        if [[ -z "${DATABASE_ID}" ]]; then
-          warn "ManagedDatabase creation returned success but no ID: ${MD_RESP:-no response}"
-          seed_failed=true
-        else
-          success "ManagedDatabase created: ${DATABASE_ID}"
-        fi
-      fi
-    fi
-  fi
-fi
-
-if [[ -z "${seed_failed}" ]]; then
   # Check if dev-gateway already exists before creating
   info "Checking for existing dev-gateway..."
   GATEWAY_ID=""
@@ -291,16 +272,7 @@ if [[ -z "${seed_failed}" ]]; then
     OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
     # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-    # For external mode, send database_id="" so server-side placement resolves it:
-    # externalPlacement.Resolve selects the sole provider=external ManagedDatabase
-    # (no region matching - the single registered external DB is always used).
-    # For other modes, deployment uses "" (auto) and cnpg uses the actual DATABASE_ID.
-    _gw_database_id="${DATABASE_ID}"
-    if [[ "${DB_PROVIDER}" == "external" ]]; then
-      _gw_database_id=""
-    fi
     GW_BODY="{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
-    GW_BODY="${GW_BODY},\"database_id\":\"${_gw_database_id}\""
     GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
     GW_BODY="${GW_BODY}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")

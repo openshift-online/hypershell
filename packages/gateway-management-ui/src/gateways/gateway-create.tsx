@@ -113,7 +113,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     GatewayProvisionInput
   >({
     defaultValues: {
-      clusterId: "",
+      clusterId: null,
       name: "",
     },
     resolver: zodResolver(schema),

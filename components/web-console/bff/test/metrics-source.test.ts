@@ -21,6 +21,11 @@ import { queryClusterNodes } from "../src/metrics-cluster-nodes.js";
 import { queryClusterPods } from "../src/metrics-cluster-pods.js";
 import { queryGatewayPhaseCounts } from "../src/metrics-gateways.js";
 import { queryGatewayProvisionDuration } from "../src/metrics-gateway-provision-duration.js";
+import {
+  isPrometheusRangeRequest,
+  parsePrometheusUrl,
+  rejectPrometheusRange,
+} from "./prometheus-stub.js";
 
 let directory: string;
 let caFile: string;
@@ -317,16 +322,23 @@ describe("metrics sources", () => {
     await writeFile(tokenFile, "cluster-token");
     const clusterUrl = await serve((req, res) => {
       expect(req.headers.authorization).toBe("Bearer cluster-token");
-      const query =
-        new URL(req.url ?? "", "http://unused").searchParams.get("query") ?? "";
+      const url = parsePrometheusUrl(req);
+      if (isPrometheusRangeRequest(url)) {
+        rejectPrometheusRange(res);
+        return;
+      }
+      const query = url.searchParams.get("query") ?? "";
       clusterQueries.push(query);
       res.end(sample(query.includes('mode="idle"') ? "16" : "4"));
     });
     const applicationUrl = await serve((req, res) => {
       expect(req.headers.authorization).toBeUndefined();
-      applicationQueries.push(
-        new URL(req.url ?? "", "http://unused").searchParams.get("query") ?? "",
-      );
+      const url = parsePrometheusUrl(req);
+      if (isPrometheusRangeRequest(url)) {
+        rejectPrometheusRange(res);
+        return;
+      }
+      applicationQueries.push(url.searchParams.get("query") ?? "");
       res.end(
         JSON.stringify({
           status: "success",
@@ -426,15 +438,21 @@ describe("metrics sources", () => {
   it("accepts zero CPU use, available memory, ready nodes, and pod phase counts", async () => {
     const values = new Map([
       ['sum(count by (instance) (node_cpu_seconds_total{mode="idle"}))', "4"],
+      ['sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))', "0"],
       ["sum(node_memory_MemTotal_bytes)", "100"],
+      ["sum(node_memory_MemAvailable_bytes)", "0"],
       ["count(kube_node_info)", "4"],
       ['sum(kube_node_status_allocatable{resource="pods"})', "100"],
       ["count(kube_pod_info)", "1"],
       ['sum(kube_pod_status_phase{phase="Running"})', "1"],
     ]);
     const url = await serve((req, res) => {
-      const query =
-        new URL(req.url ?? "", "http://unused").searchParams.get("query") ?? "";
+      const url = parsePrometheusUrl(req);
+      if (isPrometheusRangeRequest(url)) {
+        rejectPrometheusRange(res);
+        return;
+      }
+      const query = url.searchParams.get("query") ?? "";
       res.end(sample(values.get(query) ?? "0"));
     }, false);
     expect(await queryClusterCpu(url, 1000)).toEqual({

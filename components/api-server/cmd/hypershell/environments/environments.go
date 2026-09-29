@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
-	"github.com/openshift-online/rh-trex-ai/pkg/trex"
+	pkgenv "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/trex"
 )
 
 func init() {

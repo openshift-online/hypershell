@@ -29,21 +29,13 @@ const (
 	// each other's gateways as orphans.
 	InstanceLabel = "hypershell.redhat.io/instance"
 
-	// GatewayNamespacePrefix and DatabaseNamespacePrefix mirror the namespace names
-	// the API server assigns in its BeforeCreate hooks (gatewayNamespacePrefix in
-	// components/api-server/plugins/gateways/model.go and dbNamespacePrefix in
-	// components/api-server/plugins/managedDatabases/model.go). Both produce
-	// "<prefix><16 hex chars>", and both namespace kinds carry the same management
-	// labels, so GC cannot tell them apart by label alone and falls back to the name.
-	//
-	// The trailing dash in DatabaseNamespacePrefix is load-bearing: a gateway hash
-	// may legitimately begin with the hex letters "db" (e.g. openshell-db1a2b...),
-	// but never with "openshell-db-" because the character after "db" is always a
-	// hex digit, never a dash. Keep these two constants in sync with the API server;
-	// if that naming ever changes, gateway GC would silently start reaping (or
-	// sparing) the wrong namespaces.
-	GatewayNamespacePrefix  = "openshell-"
-	DatabaseNamespacePrefix = "openshell-db-"
+	// GatewayNamespacePrefix mirrors the namespace name the API server assigns in
+	// its BeforeCreate hook (gatewayNamespacePrefix in
+	// components/api-server/plugins/gateways/model.go), producing
+	// "openshell-<16 hex chars>". Keep it in sync with the API server; if that
+	// naming ever changes, gateway GC would silently start reaping (or sparing)
+	// the wrong namespaces.
+	GatewayNamespacePrefix = "openshell-"
 
 	// GCEligibleSinceAnnotation records, in RFC3339, when a managed namespace was
 	// first observed orphaned (no live Gateway). The grace period is measured
@@ -95,19 +87,17 @@ func IsManagedNamespace(ns *corev1.Namespace, instance string) bool {
 }
 
 // isGatewayWorkloadName reports whether name is a gateway workload namespace
-// (openshell-<hex>) rather than a ManagedDatabase namespace (openshell-db-<hex>).
+// (openshell-<hex>).
 func isGatewayWorkloadName(name string) bool {
-	return strings.HasPrefix(name, GatewayNamespacePrefix) &&
-		!strings.HasPrefix(name, DatabaseNamespacePrefix)
+	return strings.HasPrefix(name, GatewayNamespacePrefix)
 }
 
 // IsGatewayNamespaceForGC reports whether ns is a gateway workload namespace
 // this control-plane instance owns and that periodic garbage collection may
-// reap. ManagedDatabase CNPG namespaces (openshell-db-*) carry the same
-// management labels but are owned by the ManagedDatabase reconciler. Namespaces
-// owned by a different instance, or lacking this instance's identity label, are
-// never eligible: another HyperShell's live gateways would otherwise look
-// orphaned because they are absent from this instance's API server.
+// reap. Namespaces owned by a different instance, or lacking this instance's
+// identity label, are never eligible: another HyperShell's live gateways would
+// otherwise look orphaned because they are absent from this instance's API
+// server.
 func IsGatewayNamespaceForGC(ns *corev1.Namespace, instance string) bool {
 	if !IsManagedNamespace(ns, instance) {
 		return false

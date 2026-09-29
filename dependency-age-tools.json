@@ -3,5 +3,10 @@
     "kind": "go",
     "name": "github.com/golangci/golangci-lint/v2",
     "version": "v2.12.2"
+  },
+  {
+    "kind": "npm",
+    "name": "agent-browser",
+    "version": "0.37.0"
   }
 ]

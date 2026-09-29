@@ -44,6 +44,11 @@ apm_modules/
 # Temporary kustomize wrap dirs used by openshift-up
 .openshift-render.*/
 
+# Security audit / threat-model working artifacts
+security-audit/
+.threat-model-state/
+.skillspector-reports/
+
 # Local tool binaries (built by make kind-prereqs)
 bin/
 
@@ -59,3 +64,4 @@ loop.txt
 
 # JetBrains IDE project files
 .idea/
+/e2e-console-artifacts

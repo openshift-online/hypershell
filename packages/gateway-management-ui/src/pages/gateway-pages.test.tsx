@@ -16,7 +16,8 @@ import type { GatewayConnection } from "../gateways/gateway-connections";
 import { GatewayPage, GatewaysPage } from "./gateway-pages";
 
 const previewGateway: GatewayConnection = {
-  clusterName: "Hub cluster",
+  clusterId: "cluster-east",
+  clusterName: "local-kind",
   consoleUrl: "https://console.example.test",
   createdAt: "2026-08-10T14:30:00Z",
   endpoint: "https://gateway.example.test:443",
@@ -72,9 +73,8 @@ const navigation = {
 
 function gatewayResponse(id: string, name: string) {
   return {
-    clusterId: "",
+    clusterId: "cluster-east",
     createdAt: "2026-08-10T14:30:00Z",
-    databaseId: "database-1",
     externalDns: "gateway.example.com",
     gatewayVersion: "0.0.109",
     id,
@@ -181,9 +181,8 @@ describe("gateway shell pages", () => {
       <GatewayPage
         gatewayId="gateway-1"
         gateway={{
-          clusterId: "",
+          clusterId: "cluster-east",
           consoleUrl: "https://console.example.test",
-          databaseId: "database-1",
           externalDns: "gateway.example.com",
           gatewayVersion: "0.0.109",
           id: "gateway-1",
@@ -228,7 +227,7 @@ describe("gateway shell pages", () => {
     ).toBeTruthy();
     expect(screen.getByText("release-1")).toBeTruthy();
     expect(screen.getByText("Cluster", { exact: true })).toBeTruthy();
-    expect(screen.getByText("Hub cluster")).toBeTruthy();
+    expect(await screen.findByText("Cluster East")).toBeTruthy();
     renameGatewayMock.mockResolvedValue(
       gatewayResponse("gateway-1", "Renamed team gateway"),
     );
@@ -309,9 +308,8 @@ describe("gateway shell pages", () => {
     renderPage(() => (
       <GatewayPage
         gateway={{
-          clusterId: "",
+          clusterId: "cluster-east",
           consoleUrl: "https://console.example.test",
-          databaseId: "database-1",
           externalDns: "gateway.example.com",
           gatewayVersion: "0.0.109",
           id: "gateway-1",
@@ -1104,6 +1102,7 @@ describe("gateway shell pages", () => {
         }}
         gateways={[
           {
+            clusterId: "cluster-west",
             clusterName: "West cluster",
             consoleUrl: "https://console.example.test/zulu",
             endpoint: "https://zulu.example.test:443",
@@ -1115,6 +1114,7 @@ describe("gateway shell pages", () => {
             status: "Ready",
           },
           {
+            clusterId: "cluster-east",
             clusterName: "East cluster",
             consoleUrl: "https://console.example.test/alpha",
             endpoint: "https://alpha.example.test:443",
@@ -1180,7 +1180,7 @@ describe("gateway shell pages", () => {
 
     expect(screen.getByRole("columnheader", { name: "Cluster" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Created" })).toBeTruthy();
-    expect(screen.getByText("Hub cluster")).toBeTruthy();
+    expect(screen.getByText("local-kind")).toBeTruthy();
     expect(screen.getByText("Aug 10, 2026")).toBeTruthy();
     expect(
       screen
@@ -1273,6 +1273,37 @@ describe("gateway shell pages", () => {
         page: 1,
         sortDirection: "asc",
         sortField: "created",
+      },
+      "sort",
+    );
+  });
+
+  it("sorts the gateway list by active sandbox count", async () => {
+    const user = userEvent.setup();
+    const onCollectionStateChange = vi.fn();
+    const collectionState = {
+      page: 1,
+      search: "",
+      size: 20,
+      sortDirection: "asc" as const,
+      sortField: "name" as const,
+    };
+    renderPage(() => (
+      <GatewaysPage
+        collectionState={collectionState}
+        gateways={previewGateways}
+        onCollectionStateChange={onCollectionStateChange}
+      />
+    ));
+
+    await user.click(screen.getByRole("button", { name: "Active sandboxes" }));
+
+    expect(onCollectionStateChange).toHaveBeenCalledWith(
+      {
+        ...collectionState,
+        page: 1,
+        sortDirection: "asc",
+        sortField: "activeSandboxes",
       },
       "sort",
     );

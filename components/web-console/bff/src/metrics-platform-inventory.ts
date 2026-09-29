@@ -11,12 +11,8 @@ export const managedClustersCreatedLast30DaysPromql =
   "hypershell_managed_clusters_created_last_30_days_total";
 export const managedClustersInventoryPromql =
   "hypershell_managed_clusters_inventory_total";
-export const managedDatabasesTotalPromql = "hypershell_managed_databases_total";
-export const managedDatabasesInventoryPromql =
-  "hypershell_managed_databases_inventory_total";
 
 const clusterInventoryGroupBy = ["status", "provider", "region"] as const;
-const databaseInventoryGroupBy = ["status"] as const;
 
 export interface ManagedClustersInventoryResponse {
   by_provider: Record<string, number>;
@@ -26,14 +22,8 @@ export interface ManagedClustersInventoryResponse {
   total: number;
 }
 
-export interface ManagedDatabasesInventoryResponse {
-  by_status: Record<string, number>;
-  total: number;
-}
-
 export interface PlatformInventoryResponse {
   managed_clusters: ManagedClustersInventoryResponse;
-  managed_databases: ManagedDatabasesInventoryResponse;
 }
 
 function incrementBucket(
@@ -53,47 +43,31 @@ export async function queryPlatformInventory(
   timeoutMs: number,
   namespace?: string,
 ): Promise<PlatformInventoryResponse> {
-  const [
-    clusterTotal,
-    clustersCreatedLast30Days,
-    clusterInventory,
-    databaseTotal,
-    databaseInventory,
-  ] = await Promise.all([
-    queryPrometheusInstantScalar(
-      prometheusUrl,
-      applicationScalarQuery(managedClustersTotalPromql, namespace),
-      timeoutMs,
-    ),
-    queryPrometheusInstantScalar(
-      prometheusUrl,
-      applicationScalarQuery(managedClustersCreatedLast30DaysPromql, namespace),
-      timeoutMs,
-    ),
-    queryPrometheusInstantVector(
-      prometheusUrl,
-      applicationVectorQuery(
-        managedClustersInventoryPromql,
-        clusterInventoryGroupBy,
-        namespace,
+  const [clusterTotal, clustersCreatedLast30Days, clusterInventory] =
+    await Promise.all([
+      queryPrometheusInstantScalar(
+        prometheusUrl,
+        applicationScalarQuery(managedClustersTotalPromql, namespace),
+        timeoutMs,
       ),
-      timeoutMs,
-    ),
-    queryPrometheusInstantScalar(
-      prometheusUrl,
-      applicationScalarQuery(managedDatabasesTotalPromql, namespace),
-      timeoutMs,
-    ),
-    queryPrometheusInstantVector(
-      prometheusUrl,
-      applicationVectorQuery(
-        managedDatabasesInventoryPromql,
-        databaseInventoryGroupBy,
-        namespace,
+      queryPrometheusInstantScalar(
+        prometheusUrl,
+        applicationScalarQuery(
+          managedClustersCreatedLast30DaysPromql,
+          namespace,
+        ),
+        timeoutMs,
       ),
-      timeoutMs,
-    ),
-  ]);
+      queryPrometheusInstantVector(
+        prometheusUrl,
+        applicationVectorQuery(
+          managedClustersInventoryPromql,
+          clusterInventoryGroupBy,
+          namespace,
+        ),
+        timeoutMs,
+      ),
+    ]);
 
   const byStatus: Record<string, number> = {};
   const byProvider: Record<string, number> = {};
@@ -112,12 +86,6 @@ export async function queryPlatformInventory(
     );
   }
 
-  const databaseByStatus: Record<string, number> = {};
-  for (const sample of databaseInventory) {
-    const status = sample.labels.status ?? "unknown";
-    incrementBucket(databaseByStatus, status, sample.value);
-  }
-
   return {
     managed_clusters: {
       by_provider: byProvider,
@@ -125,10 +93,6 @@ export async function queryPlatformInventory(
       by_status: byStatus,
       created_last_30_days: clustersCreatedLast30Days,
       total: clusterTotal,
-    },
-    managed_databases: {
-      by_status: databaseByStatus,
-      total: databaseTotal,
     },
   };
 }

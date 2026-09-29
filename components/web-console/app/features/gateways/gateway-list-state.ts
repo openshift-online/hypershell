@@ -30,6 +30,7 @@ function sizeFrom(value: string | null): number {
 
 function sortFieldFrom(value: string | null) {
   switch (value) {
+    case "activeSandboxes":
     case "cluster":
     case "created":
     case "endpoint":

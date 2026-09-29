@@ -1,8 +1,16 @@
 import { fetchMetrics, type MetricsSource } from "./metrics-source.js";
+import {
+  alignDailyIntegerSeries,
+  dailyRangeStepSeconds,
+  queryPrometheusRangeScalarSamples,
+  sevenDayUtcCalendarRange,
+} from "./prometheus-range-query.js";
 
 export const clusterPodsCapacityPromql =
   'sum(kube_node_status_allocatable{resource="pods"})';
 export const clusterPodsUsedPromql = "count(kube_pod_info)";
+export const clusterPodsDailyUsedPromql = clusterPodsUsedPromql;
+export const clusterPodsDailyUsedStepSeconds = dailyRangeStepSeconds;
 
 export type ClusterPodPhase =
   "Failed" | "Pending" | "Running" | "Succeeded" | "Unknown";
@@ -19,9 +27,15 @@ export function clusterPodPhasePromql(phase: ClusterPodPhase): string {
   return `sum(kube_pod_status_phase{phase="${phase}"})`;
 }
 
+export interface ClusterPodsDailyUsed {
+  date: string;
+  value: number;
+}
+
 export interface ClusterPodsCounts {
   available_pods: number;
   capacity_pods: number;
+  daily_used?: ClusterPodsDailyUsed[];
   phase_failed_pods: number;
   phase_pending_pods: number;
   phase_running_pods: number;
@@ -150,7 +164,7 @@ export async function queryClusterPods(
 
   const available_pods = capacity_pods - used_pods;
 
-  return {
+  const response: ClusterPodsCounts = {
     available_pods,
     capacity_pods,
     phase_failed_pods,
@@ -160,4 +174,26 @@ export async function queryClusterPods(
     phase_unknown_pods,
     used_pods,
   };
+
+  try {
+    const { end, start } = sevenDayUtcCalendarRange();
+    const samples = await queryPrometheusRangeScalarSamples(
+      prometheusUrl,
+      clusterPodsDailyUsedPromql,
+      start,
+      end,
+      `${String(clusterPodsDailyUsedStepSeconds)}s`,
+      timeoutMs,
+    );
+    response.daily_used = alignDailyIntegerSeries(samples).map(
+      ({ date, value }) => ({
+        date,
+        value,
+      }),
+    );
+  } catch {
+    // Omit trend only.
+  }
+
+  return response;
 }

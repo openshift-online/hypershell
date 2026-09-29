@@ -77,11 +77,6 @@ func TestCanonicalizePath(t *testing.T) {
 			"/apis/route.openshift.io/v1/namespaces/{name}/routes/{name}",
 		},
 		{
-			"cnpg cluster",
-			"/apis/postgresql.cnpg.io/v1/namespaces/ns/clusters/openshell-db",
-			"/apis/postgresql.cnpg.io/v1/namespaces/{name}/clusters/{name}",
-		},
-		{
 			"cert-manager certificate",
 			"/apis/cert-manager.io/v1/namespaces/ns/certificates/my-cert",
 			"/apis/cert-manager.io/v1/namespaces/{name}/certificates/{name}",
@@ -100,16 +95,6 @@ func TestCanonicalizePath(t *testing.T) {
 			"persistentvolumeclaim (previously missing from allowlist)",
 			"/api/v1/namespaces/ns/persistentvolumeclaims/data-vol",
 			"/api/v1/namespaces/{name}/persistentvolumeclaims/{name}",
-		},
-		{
-			"cnpg database (previously missing from allowlist)",
-			"/apis/postgresql.cnpg.io/v1/namespaces/ns/databases/app-db",
-			"/apis/postgresql.cnpg.io/v1/namespaces/{name}/databases/{name}",
-		},
-		{
-			"cnpg databaserole (previously missing from allowlist)",
-			"/apis/postgresql.cnpg.io/v1/namespaces/ns/databaseroles/reader",
-			"/apis/postgresql.cnpg.io/v1/namespaces/{name}/databaseroles/{name}",
 		},
 		{
 			"cluster-scoped named resource",
@@ -155,10 +140,6 @@ func TestCanonicalizePathNoIdentifierLeak(t *testing.T) {
 		{
 			"/apis/gateway.networking.k8s.io/v1/namespaces/my-ns/httproutes/my-route",
 			[]string{"my-ns", "my-route"},
-		},
-		{
-			"/apis/postgresql.cnpg.io/v1/namespaces/db-ns/clusters/openshell-db",
-			[]string{"db-ns", "openshell-db"},
 		},
 		{
 			"/apis/gateway.networking.k8s.io/v1/namespaces/prod/gateways/main-gw",

@@ -123,7 +123,7 @@ list_comment_rows() {
     [[ -n "${created}" ]] || continue
     perm="${perms[${user}]:-none}"
     printf '%s\t%s\t%s\t%s\n' "${created}" "${user}" "${perm}" "${body}"
-  done < <(printf '%s' "${comments}" | jq -r '.[] | [.created_at, .user.login, (.body // "" | gsub("\n"; " "))] | @tsv')
+  done < <(printf '%s' "${comments}" | jq -r '.[] | [.created_at, .user.login, (.body // "" | gsub("\r"; "") | gsub("\n"; " "))] | @tsv')
 }
 
 trigger_cmd="$(pr_env_command_from_body "${TRIGGER_BODY}")"

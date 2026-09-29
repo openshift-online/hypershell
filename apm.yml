@@ -5,8 +5,17 @@ author: OpenShift Fleet Engineering
 targets:
 - claude
 dependencies:
+  # Prodsec secure-development skills are selected individually.
   apm:
-  - OpenShift-Fleet/agentic-sdlc#7995f9bacb12392234ee89ef380aa65f455ba4ea
+  - OpenShift-Fleet/agentic-sdlc#b04b1171f6100062c2edf7b89ee2ab871a6a3e9b
+  - RedHatProductSecurity/prodsec-skills/module/skills/go-security#b55c6b9c3392645f62da59a447c29473c413e371
+  - RedHatProductSecurity/prodsec-skills/module/skills/tls-compliance#b55c6b9c3392645f62da59a447c29473c413e371
+  - RedHatProductSecurity/prodsec-skills/module/skills/database-security#b55c6b9c3392645f62da59a447c29473c413e371
+  - RedHatProductSecurity/prodsec-skills/module/skills/react-security#b55c6b9c3392645f62da59a447c29473c413e371
+  - RedHatProductSecurity/prodsec-skills/module/skills/helm-chart-security#b55c6b9c3392645f62da59a447c29473c413e371
+  - RedHatProductSecurity/prodsec-skills/module/skills/linux-capabilities#b55c6b9c3392645f62da59a447c29473c413e371
   mcp: []
 includes: auto
-scripts: {}
+scripts:
+  install: "scripts/apm-install-hook.sh"
+  audit: "apm audit && scripts/skillspector-scan.sh --force"

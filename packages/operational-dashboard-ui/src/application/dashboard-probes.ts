@@ -3,7 +3,8 @@ import type {
   DomainProbePublisher,
 } from "@openshift-online/hypershell-domain-probes";
 
-export type DashboardWorkflowAction = "get-operational-metrics";
+export type DashboardWorkflowAction =
+  "get-operational-metrics" | "get-reliability-metrics";
 export type DashboardLayoutAction = "persist-layout-template";
 export type DashboardProbeAction =
   DashboardWorkflowAction | DashboardLayoutAction;

@@ -27,6 +27,8 @@ error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
 : "${KIND_NAMESPACE:=hypershell-system}"
 : "${CONTAINER_ENGINE:=$(command -v podman 2>/dev/null || echo docker)}"
 REPO_ROOT="$(cd "${SCRIPT_DIR:-$(dirname "${BASH_SOURCE[0]:-$0}")}/../.." && pwd)"
+# shellcheck source=../cluster/reconcile-test-users.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../cluster/reconcile-test-users.sh"
 
 # Prefer locally-built binaries from make kind-prereqs
 if [[ -d "${REPO_ROOT}/bin" ]]; then
@@ -35,7 +37,9 @@ fi
 if [[ "$(basename "${CONTAINER_ENGINE}")" == "podman" ]]; then
   export KIND_EXPERIMENTAL_PROVIDER=podman
 fi
-: "${GATEWAY_IMAGE:=quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd}"
+# shellcheck source=../../OPENSHELL_VERSION
+source "${REPO_ROOT}/OPENSHELL_VERSION"
+: "${GATEWAY_IMAGE:=${OPENSHELL_GATEWAY_IMAGE}:${OPENSHELL_TAG}}"
 : "${KEYCLOAK_HOSTNAME:=keycloak.hypershell.localhost}"
 : "${KEYCLOAK_OIDC_ISSUER:=https://${KEYCLOAK_HOSTNAME}/realms/hypershell}"
 : "${KEYCLOAK_OIDC_CLIENT_ID:=hypershell-frontend}"
@@ -77,6 +81,32 @@ else:
     items=[]
 for it in items:
     if isinstance(it, dict) and it.get("name") == name:
+        print(it.get("id") or "")
+        break
+' "$1"
+}
+
+# Id of the named ManagedCluster only when a control plane registered it
+# (non-empty oidc_subject). Every control plane self-registers under its
+# HYPERSHELL_MANAGED_CLUSTER_NAME, so seeding waits for that record instead of
+# creating one: a record created with POST /managed_clusters is an inert
+# placeholder (empty oidc_subject) that turns the control plane's registration
+# into a 409. Empty on missing name, unregistered record, or bad JSON.
+json_registered_cluster_id() {
+  python3 -c 'import json,sys
+name=sys.argv[1]
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if isinstance(data, dict):
+    items=data.get("items") or []
+elif isinstance(data, list):
+    items=data
+else:
+    items=[]
+for it in items:
+    if isinstance(it, dict) and it.get("name") == name and (it.get("oidc_subject") or ""):
         print(it.get("id") or "")
         break
 ' "$1"
@@ -352,6 +382,40 @@ ${existing}"
   success "Cluster CoreDNS patched"
 }
 
+# Pin the gateway-database admin FQDN into the controller's /etc/hosts.
+# Kind CoreDNS is a single busy replica and is restarted mid-kind-up to add
+# *.hypershell.localhost hosts. The Go resolver then times out on
+# postgres.external-cloud-db.svc.cluster.local (CI: "dial tcp: lookup ...:
+# i/o timeout") even with ndots:2, while the same name still matches the
+# verify-full certificate SAN. hostAliases keeps that SAN and skips kube-dns.
+# kubectl set image (CI swap) preserves hostAliases; a later kustomize apply
+# of the controller overlay would wipe them, so callers must run this after
+# the last apply of that Deployment.
+pin_controller_gateway_db_hosts() {
+  local ns="${1:-external-cloud-db}"
+  local host="${2:-postgres.external-cloud-db.svc.cluster.local}"
+  local ip
+  ip="$(kube get svc postgres -n "${ns}" -o jsonpath='{.spec.clusterIP}')"
+  if [[ -z "${ip}" || "${ip}" == "None" ]]; then
+    error "stand-in postgres Service in ${ns} has no ClusterIP"
+    return 1
+  fi
+  info "Pinning controller /etc/hosts ${host} -> ${ip} (bypass Kind CoreDNS)"
+  kube patch deployment hypershell-controller -n "${KIND_NAMESPACE}" --type merge \
+    --patch "$(cat <<EOF
+spec:
+  template:
+    spec:
+      hostAliases:
+        - ip: "${ip}"
+          hostnames:
+            - "${host}"
+            - postgres.external-cloud-db.svc
+            - postgres
+EOF
+)"
+}
+
 # --- cloud-provider-kind SHA tracking ---
 
 # The expected commit is written to bin/.cloud-provider-kind.sha by
@@ -515,94 +579,24 @@ stop_port_forward() {
 
 # --- Keycloak seed-user reconciliation ---
 
-_keycloak_admin_api_token() {
-  local token_url token_resp
-  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
-    token_url="${KIND_KEYCLOAK_URL%/}/realms/master/protocol/openid-connect/token"
-  else
-    token_url="https://${KEYCLOAK_HOSTNAME}/realms/master/protocol/openid-connect/token"
-  fi
-
-  token_resp=$(curl -sSk -m 10 -X POST "${token_url}" \
-    -d "grant_type=password" \
-    -d "client_id=admin-cli" \
-    -d "username=admin" \
-    -d "password=admin" 2>&1 || true)
-  echo "${token_resp}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true
-}
-
-_keycloak_assign_realm_role() {
-  local admin_token="$1"
-  local username="$2"
-  local role="$3"
-  local base user_uuid role_json role_id role_name code
-
-  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
-    base="${KIND_KEYCLOAK_URL%/}"
-  else
-    base="https://${KEYCLOAK_HOSTNAME}"
-  fi
-
-  user_uuid=$(curl -sSk -m 10 -H "Authorization: Bearer ${admin_token}" \
-    "${base}/admin/realms/hypershell/users?username=${username}&exact=true" 2>/dev/null \
-    | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
-  if [[ -z "${user_uuid}" ]]; then
-    warn "Keycloak user not found while reconciling roles: ${username}"
-    return 1
-  fi
-
-  role_json=$(curl -sSk -m 10 -H "Authorization: Bearer ${admin_token}" \
-    "${base}/admin/realms/hypershell/roles/$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${role}")" 2>/dev/null || true)
-  role_id=$(echo "${role_json}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
-  role_name=$(echo "${role_json}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))" 2>/dev/null || true)
-  if [[ -z "${role_id}" || -z "${role_name}" ]]; then
-    warn "Keycloak realm role not found while reconciling roles: ${role}"
-    return 1
-  fi
-
-  code=$(curl -sSk -m 10 -o /dev/null -w '%{http_code}' -X POST \
-    -H "Authorization: Bearer ${admin_token}" \
-    -H "Content-Type: application/json" \
-    "${base}/admin/realms/hypershell/users/${user_uuid}/role-mappings/realm" \
-    -d "[{\"id\":\"${role_id}\",\"name\":\"${role_name}\"}]" 2>/dev/null || true)
-  if [[ "${code}" != "204" && "${code}" != "200" ]]; then
-    warn "Failed to assign Keycloak realm role ${role} to ${username} (HTTP ${code})"
-    return 1
-  fi
-  return 0
-}
-
-# Aligns live Keycloak users with deploy/base/keycloak/keycloak.yaml. Idempotent.
+# Aligns live Keycloak users with the static developer-owned seeds
+# (ephemeral-test-credentials.spec.md). Idempotent.
 reconcile_keycloak_seed_users() {
-  local admin_token=""
-  local -a required_roles=("platform:admin" "gateway:creator" "hypershell-admins" "hypershell-users")
-
+  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
+    KEYCLOAK_BASE_URL="${KIND_KEYCLOAK_URL%/}"
+  else
+    KEYCLOAK_BASE_URL="https://${KEYCLOAK_HOSTNAME}"
+  fi
+  KEYCLOAK_CURL_INSECURE=true
+  TEST_USER_PASSWORD_SOURCE=static
   if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
     info "Reconciling Keycloak seed users via ${KIND_KEYCLOAK_URL}..."
   else
     info "Reconciling Keycloak seed users at https://${KEYCLOAK_HOSTNAME}..."
   fi
-
-  for _ in $(seq 1 30); do
-    admin_token="$(_keycloak_admin_api_token)"
-    if [[ -n "${admin_token}" ]]; then
-      break
-    fi
-    sleep 2
-  done
-  if [[ -z "${admin_token}" ]]; then
-    warn "Could not obtain Keycloak admin API token; skipping seed-user role reconciliation"
-    return 0
+  if ! keycloak_reconcile_test_users; then
+    error "Failed to reconcile static Keycloak test-tier principals"
+    return 1
   fi
-
-  local role failed=""
-  for role in "${required_roles[@]}"; do
-    if ! _keycloak_assign_realm_role "${admin_token}" "admin" "${role}"; then
-      failed=true
-    fi
-  done
-
-  if [[ -z "${failed}" ]]; then
-    success "Keycloak admin user reconciled (dashboard requires platform:admin)"
-  fi
+  success "Keycloak test-tier principals reconciled (admin/admin, developer/developer, platform-admin/platform-admin)"
 }

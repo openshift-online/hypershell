@@ -369,7 +369,6 @@ function gatewayEndpoint(gateway: GatewayApiPayload): string | undefined {
 
 export function toGatewayConnection(
   gateway: GatewayApiPayload,
-  hubClusterName: string,
 ): GatewayConnection {
   const clusterId = gateway.clusterId.trim();
   const phase = gateway.phase?.trim() ?? "";
@@ -379,8 +378,9 @@ export function toGatewayConnection(
     ...(typeof gateway.activeSandboxCount === "number"
       ? { activeSandboxCount: gateway.activeSandboxCount }
       : {}),
-    ...(clusterId ? { clusterId } : {}),
-    clusterName: clusterId ? "" : hubClusterName,
+    clusterId,
+    // The name is resolved from the ManagedCluster the id references.
+    clusterName: "",
     ...(gateway.consoleUrl ? { consoleUrl: gateway.consoleUrl } : {}),
     ...(gateway.createdAt ? { createdAt: gateway.createdAt } : {}),
     ...(gateway.createdBy ? { createdBy: gateway.createdBy } : {}),

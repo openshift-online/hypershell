@@ -32,10 +32,6 @@ paths:
     $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters~1registration'
   /api/hypershell/v1/managed_clusters/{id}:
     $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters~1{id}'
-  /api/hypershell/v1/managed_databases:
-    $ref: 'openapi.managedDatabases.yaml#/paths/~1api~1hypershell~1v1~1managed_databases'
-  /api/hypershell/v1/managed_databases/{id}:
-    $ref: 'openapi.managedDatabases.yaml#/paths/~1api~1hypershell~1v1~1managed_databases~1{id}'
   /api/hypershell/v1/gateway_releases:
     $ref: 'openapi.gatewayReleases.yaml#/paths/~1api~1hypershell~1v1~1gateway_releases'
   /api/hypershell/v1/gateway_releases/{id}:
@@ -118,12 +114,6 @@ components:
       $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterRegistrationRequest'
     ManagedClusterRegistrationResponse:
       $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterRegistrationResponse'
-    ManagedDatabase:
-      $ref: 'openapi.managedDatabases.yaml#/components/schemas/ManagedDatabase'
-    ManagedDatabaseList:
-      $ref: 'openapi.managedDatabases.yaml#/components/schemas/ManagedDatabaseList'
-    ManagedDatabasePatchRequest:
-      $ref: 'openapi.managedDatabases.yaml#/components/schemas/ManagedDatabasePatchRequest'
     GatewayRelease:
       $ref: 'openapi.gatewayReleases.yaml#/components/schemas/GatewayRelease'
     GatewayReleaseList:

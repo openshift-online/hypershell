@@ -7,7 +7,11 @@ import {
   type DashboardOperations,
   type DashboardUiNavigation,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
-import { mockOperationalDashboardMetrics } from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
+import {
+  mockOperationalDashboardMetrics,
+  mockOperationalDashboardMetricsAttentionUnavailable,
+  mockOperationalDashboardMetricsZeroAttention,
+} from "@openshift-online/hypershell-operational-dashboard-ui/fixtures";
 import { IntlProvider } from "react-intl";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { expect, userEvent, within } from "storybook/test";
@@ -21,11 +25,20 @@ const stubNavigation: DashboardUiNavigation = {
   navigate: () => undefined,
 };
 
+const stubReliabilityMetrics = {
+  lastSuccessfulRefresh: new Date(),
+  metrics: [],
+};
+
 const stubDashboard = createDashboardOperations({
   controlPlane: {
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve(mockOperationalDashboardMetrics);
+    },
+    getReliabilityMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve(stubReliabilityMetrics);
     },
   },
 });
@@ -41,6 +54,10 @@ const initialLoadFailedDashboard = createDashboardOperations({
       return Promise.reject(
         new Error("Unable to reach the operational metrics service."),
       );
+    },
+    getReliabilityMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve(stubReliabilityMetrics);
     },
   },
 });
@@ -67,6 +84,10 @@ const partialLoadDashboard = createDashboardOperations({
         ),
       });
     },
+    getReliabilityMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve(stubReliabilityMetrics);
+    },
   },
 });
 
@@ -88,6 +109,10 @@ function createRefreshFailedDashboard(): DashboardOperations {
       return Promise.reject(
         new Error("Unable to refresh operational dashboard metrics."),
       );
+    },
+    getReliabilityMetrics: (context) => {
+      context.signal?.throwIfAborted();
+      return Promise.resolve(stubReliabilityMetrics);
     },
   };
 
@@ -153,6 +178,33 @@ type Story = StoryObj<typeof meta>;
 
 export const MockedMetrics: Story = {};
 
+export const SandboxAttentionZeroCounts: Story = {
+  render: () => (
+    <DashboardPreview metrics={mockOperationalDashboardMetricsZeroAttention} />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("Sandbox status");
+    await expect(canvas.queryByText("Attention required")).toBeNull();
+    await expect(canvas.queryByText(/Orphaned/)).toBeNull();
+  },
+};
+
+export const SandboxAttentionUnavailable: Story = {
+  render: () => (
+    <DashboardPreview
+      metrics={mockOperationalDashboardMetricsAttentionUnavailable}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("Attention counts unavailable");
+    await expect(canvas.getByText("Attention required")).toBeVisible();
+  },
+};
+
 export const InventorySummary: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -161,9 +213,31 @@ export const InventorySummary: Story = {
     await expect(canvas.getByText("Inventory summary")).toBeVisible();
     await expect(canvas.getByText("Cluster providers")).toBeVisible();
     await expect(canvas.getByText("Cluster regions")).toBeVisible();
-    await expect(canvas.getByText("Database status")).toBeVisible();
     await expect(canvas.getByText("Clusters")).toBeVisible();
-    await expect(canvas.getByText("Databases")).toBeVisible();
+  },
+};
+
+export const HubUtilizationTrendSparklines: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("Memory");
+    await canvas.findByText("CPU");
+    await canvas.findByText("Pods");
+    const sparklineCaptions = canvas.getAllByText("Last 7 days");
+    await expect(sparklineCaptions.length).toBeGreaterThanOrEqual(3);
+  },
+};
+
+export const SystemSummaryTrendArrows: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await canvas.findByText("System summary");
+    const trendButtons = canvas.getAllByRole("button", {
+      name: /increase|decrease/i,
+    });
+    await expect(trendButtons.length).toBeGreaterThanOrEqual(4);
   },
 };
 

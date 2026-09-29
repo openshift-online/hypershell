@@ -2,56 +2,64 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
-// TestLoadDatabaseProvider covers the DATABASE_PROVIDER startup contract:
-// unset/empty and "deployment" both resolve to DatabaseProviderDeployment,
-// "cnpg" resolves to DatabaseProviderCNPG, and any other value is a startup
-// configuration error rather than a silent fallback to CNPG.
-func TestLoadDatabaseProvider(t *testing.T) {
+// setRequiredEnv sets the configuration every control plane must have to start:
+// a managed-cluster name and OIDC client credentials (Mandatory Cluster Identity).
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
 	t.Setenv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000")
+	t.Setenv("HYPERSHELL_MANAGED_CLUSTER_NAME", "local-kind")
+	t.Setenv("OIDC_ISSUER", "http://keycloak.example/realms/hypershell")
+	t.Setenv("OIDC_CLIENT_ID", "hypershell-control-plane")
+	t.Setenv("OIDC_CLIENT_SECRET", "secret")
+}
 
-	cases := []struct {
-		name       string
-		envValue   string
-		envUnset   bool
-		wantErr    bool
-		wantResult string
-	}{
-		{name: "unset defaults to deployment", envUnset: true, wantResult: DatabaseProviderDeployment},
-		{name: "empty defaults to deployment", envValue: "", wantResult: DatabaseProviderDeployment},
-		{name: "deployment stays deployment", envValue: "deployment", wantResult: DatabaseProviderDeployment},
-		{name: "cnpg selects cnpg", envValue: "cnpg", wantResult: DatabaseProviderCNPG},
-		{name: "unsupported value is an error", envValue: "bogus", wantErr: true},
-		{name: "case-sensitive: CNPG is an error, not silently cnpg", envValue: "CNPG", wantErr: true},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.envUnset {
-				t.Setenv("DATABASE_PROVIDER", "")
-				if err := os.Unsetenv("DATABASE_PROVIDER"); err != nil {
-					t.Fatalf("unset DATABASE_PROVIDER: %v", err)
+// TestLoadRequiresClusterIdentity covers "Missing cluster name refuses to start"
+// and "Missing OIDC credentials refuse to start": each required variable, when
+// unset or blank, fails Load with an error naming that variable.
+func TestLoadRequiresClusterIdentity(t *testing.T) {
+	for _, name := range []string{
+		"HYPERSHELL_MANAGED_CLUSTER_NAME",
+		"OIDC_ISSUER",
+		"OIDC_CLIENT_ID",
+		"OIDC_CLIENT_SECRET",
+	} {
+		for _, mode := range []string{"unset", "blank"} {
+			t.Run(name+"/"+mode, func(t *testing.T) {
+				setRequiredEnv(t)
+				if mode == "unset" {
+					if err := os.Unsetenv(name); err != nil {
+						t.Fatalf("unset %s: %v", name, err)
+					}
+				} else {
+					t.Setenv(name, "   ")
 				}
-			} else {
-				t.Setenv("DATABASE_PROVIDER", tc.envValue)
-			}
-
-			cfg, err := Load()
-			if tc.wantErr {
+				cfg, err := Load()
 				if err == nil {
-					t.Fatalf("Load() with DATABASE_PROVIDER=%q: want error, got nil (provider=%q)", tc.envValue, cfg.DatabaseProvider)
+					t.Fatalf("Load() with %s %s: want error, got config %+v", name, mode, cfg)
 				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Load() with DATABASE_PROVIDER=%q: unexpected error: %v", tc.envValue, err)
-			}
-			if cfg.DatabaseProvider != tc.wantResult {
-				t.Fatalf("Load() with DATABASE_PROVIDER=%q: DatabaseProvider = %q, want %q", tc.envValue, cfg.DatabaseProvider, tc.wantResult)
-			}
-		})
+				if !strings.Contains(err.Error(), name) {
+					t.Fatalf("Load() error %q does not name %s", err, name)
+				}
+			})
+		}
+	}
+}
+
+// TestLoadIgnoresClusterIDEnv: the cluster id is resolved by registration only;
+// a stale HYPERSHELL_CLUSTER_ID in the environment is never consulted.
+func TestLoadIgnoresClusterIDEnv(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("HYPERSHELL_CLUSTER_ID", "2stalecluster")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	if cfg.ManagedClusterName != "local-kind" || cfg.OIDCClientID != "hypershell-control-plane" {
+		t.Fatalf("unexpected identity config: %+v", cfg)
 	}
 }
 
@@ -60,7 +68,7 @@ func TestLoadDatabaseProvider(t *testing.T) {
 // invalid or non-positive value warns and falls back to the default rather than
 // disabling the pool. The resolved count is always >= 1.
 func TestLoadGatewayReconcileWorkers(t *testing.T) {
-	t.Setenv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000")
+	setRequiredEnv(t)
 
 	cases := []struct {
 		name     string
@@ -130,36 +138,5 @@ func TestGetEnvInt(t *testing.T) {
 				t.Fatalf("getEnvInt(%q, %d, %d) = %d, want %d", tt.value, tt.fallback, tt.min, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestResolveDatabaseProvider(t *testing.T) {
-	tests := []struct {
-		raw     string
-		want    string
-		wantErr bool
-	}{
-		{raw: "", want: DatabaseProviderDeployment},
-		{raw: "deployment", want: DatabaseProviderDeployment},
-		{raw: "cnpg", want: DatabaseProviderCNPG},
-		{raw: "Deployment", wantErr: true},
-		{raw: "postgres", wantErr: true},
-		{raw: " cnpg", wantErr: true},
-	}
-	for _, tt := range tests {
-		got, err := resolveDatabaseProvider(tt.raw)
-		if tt.wantErr {
-			if err == nil {
-				t.Errorf("resolveDatabaseProvider(%q): want error, got result %q", tt.raw, got)
-			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("resolveDatabaseProvider(%q): unexpected error: %v", tt.raw, err)
-			continue
-		}
-		if got != tt.want {
-			t.Errorf("resolveDatabaseProvider(%q) = %q, want %q", tt.raw, got, tt.want)
-		}
 	}
 }

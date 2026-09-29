@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
-	"github.com/openshift-online/rh-trex-ai/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 func newGateway(id string) (*gateways.Gateway, error) {
@@ -15,7 +15,6 @@ func newGateway(id string) (*gateways.Gateway, error) {
 		Name:           "test-name",
 		ClusterId:      "test-cluster_id",
 		ReleaseId:      "test-release_id",
-		DatabaseId:     "test-database_id",
 		ExternalDns:    stringPtr("test-external_dns"),
 		TlsMode:        stringPtr("test-tls_mode"),
 		ServiceType:    stringPtr("test-service_type"),

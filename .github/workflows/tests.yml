@@ -53,7 +53,10 @@ on:
 # Union of the permissions the called workflows need. A reusable workflow can
 # never be granted more than its caller, so this ceiling must cover e2e's
 # `checks: read` (Konflux build waits) and `pull-requests: write` (access
-# comment) in addition to the shared `contents: read`.
+# comment) in addition to the shared `contents: read`. Tests / E2E also
+# grants `id-token: write` on the caller job so OpenShift cluster login can
+# use GitHub OIDC. e2e.yml does not declare a workflow-level permissions
+# block; Kind omits id-token, and only deploy/OpenShift request it.
 permissions:
   contents: read
   checks: read
@@ -124,6 +127,7 @@ jobs:
       contents: read
       checks: read
       pull-requests: write
+      id-token: write
     secrets: inherit
     with:
       api_server: ${{ needs.detect-changes.outputs.api_server }}

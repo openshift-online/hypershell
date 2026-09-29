@@ -9,8 +9,16 @@
 # infrastructure operation and the TLS policy are overridden below.
 # shellcheck source=kind.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kind.sh"
+# The shared Kind helpers enable insecure CLI TLS for their local CA. OpenShift
+# uses trusted routes (or E2E_OPENSHIFT_CA_SECRET), so never inherit that bypass.
+unset OPENSHELL_GATEWAY_INSECURE
 
 : "${E2E_OPENSHIFT_KEYCLOAK_ROUTE:=keycloak}"
+# Namespace holding the Keycloak Route. Defaults to the "<platform>-keycloak"
+# convention the PR-environment deploys use; set it when the deployment names
+# the Keycloak namespace differently (e.g. a GitOps environment where it is
+# "keycloak-<platform>").
+: "${E2E_OPENSHIFT_KEYCLOAK_NAMESPACE:=}"
 : "${E2E_OPENSHIFT_CA_SECRET:=}"
 : "${E2E_OPENSHIFT_CA_NAMESPACE:=}"
 
@@ -27,7 +35,7 @@ _openshift_require_config() {
     dim "  OPENSHIFT_NAMESPACE unset; using oc project '${OPENSHIFT_NAMESPACE}'"
   fi
   E2E_HS_NAMESPACE="${OPENSHIFT_NAMESPACE}"
-  E2E_KEYCLOAK_NAMESPACE="${OPENSHIFT_NAMESPACE}-keycloak"
+  E2E_KEYCLOAK_NAMESPACE="${E2E_OPENSHIFT_KEYCLOAK_NAMESPACE:-${OPENSHIFT_NAMESPACE}-keycloak}"
 }
 
 _openshift_configure_oidc() {
@@ -161,6 +169,30 @@ get_cli_binary() {
   echo "oc"
 }
 
+# get_browser_ca_bundle - print a PEM file path the headless browser should
+# trust, or nothing when Route certificates are publicly trusted or no CA can be
+# read. Prefers the private CA from E2E_OPENSHIFT_CA_SECRET (the same one curl
+# trusts), then the default router CA (openshift-ingress-operator/router-ca,
+# readable by cluster admins only).
+get_browser_ca_bundle() {
+  _openshift_require_config >/dev/null || return 0
+  if [[ -n "${E2E_OPENSHIFT_CA_SECRET}" ]]; then
+    _openshift_configure_tls >/dev/null || return 0
+    [[ -n "${SSL_CERT_FILE:-}" && -s "${SSL_CERT_FILE}" ]] && printf '%s\n' "$SSL_CERT_FILE"
+    return 0
+  fi
+  local encoded ca_file
+  encoded=$(oc get secret router-ca -n openshift-ingress-operator \
+    -o jsonpath='{.data.tls\.crt}' 2>/dev/null || true)
+  [[ -n "$encoded" ]] || return 0
+  ca_file="$(mktemp "${TMPDIR:-/tmp}/hypershell-e2e-browser-ca.XXXXXX")"
+  if printf '%s' "$encoded" | openssl base64 -d -A > "$ca_file" 2>/dev/null && [[ -s "$ca_file" ]]; then
+    printf '%s\n' "$ca_file"
+    return 0
+  fi
+  rm -f "$ca_file"
+}
+
 wait_for_gateway_route() {
   local gw_name="${1:?gateway name required}"
   local gw_namespace="${2:?gateway namespace required}"
@@ -189,11 +221,67 @@ wait_for_gateway_route() {
   return 1
 }
 
+_openshift_is_ci_owned() {
+  [[ "${OPENSHIFT_NAMESPACE:-}" == hypershell-ci-pr-* ]]
+}
+
+_openshift_load_ci_passwords() {
+  _openshift_is_ci_owned || return 0
+  [[ "${E2E_OIDC_GRANT:-password}" == "password" ]] || return 0
+  [[ -z "${_OPENSHIFT_CI_PASSWORDS_LOADED:-}" ]] || return 0
+  local ns="${E2E_KEYCLOAK_NAMESPACE}"
+  local admin_pw dev_pw pa_pw
+  admin_pw="$(oc get secret hypershell-e2e-test-users -n "${ns}" \
+    -o jsonpath='{.data.admin}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  dev_pw="$(oc get secret hypershell-e2e-test-users -n "${ns}" \
+    -o jsonpath='{.data.developer}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  pa_pw="$(oc get secret hypershell-e2e-test-users -n "${ns}" \
+    -o jsonpath='{.data.platform-admin}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  if [[ -z "${admin_pw}" || -z "${dev_pw}" || -z "${pa_pw}" ]]; then
+    red "  Secret hypershell-e2e-test-users is missing in ${ns}"
+    red "  Password-grant e2e against a CI-owned PR environment cannot fall back to username-equals-password"
+    return 1
+  fi
+  E2E_OIDC_PASSWORD="${admin_pw}"
+  E2E_DEV_PASSWORD="${dev_pw}"
+  E2E_PLATFORM_ADMIN_PASSWORD="${pa_pw}"
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    echo "::add-mask::${admin_pw}"
+    echo "::add-mask::${dev_pw}"
+    echo "::add-mask::${pa_pw}"
+  fi
+  _OPENSHIFT_CI_PASSWORDS_LOADED=1
+}
+
+_openshift_password_for() {
+  local username="$1"
+  local fallback="$2"
+  case "${username}" in
+    admin) printf '%s' "${E2E_OIDC_PASSWORD}" ;;
+    developer) printf '%s' "${E2E_DEV_PASSWORD}" ;;
+    platform-admin) printf '%s' "${E2E_PLATFORM_ADMIN_PASSWORD}" ;;
+    *) printf '%s' "${fallback}" ;;
+  esac
+}
+
 # Ensure direct callers (including unit tests) get the cluster-derived issuer.
 acquire_oidc_token() {
+  local username="${1:-${E2E_OIDC_USERNAME}}"
+  local password="${2:-${E2E_OIDC_PASSWORD}}"
+  local client_id="${3:-${E2E_OIDC_CLIENT_ID}}"
   _openshift_configure_oidc || return 1
   _openshift_configure_tls || return 1
-  _driver_acquire_oidc_token "$@"
+  _openshift_load_ci_passwords || return 1
+  if _openshift_is_ci_owned && [[ "${E2E_OIDC_GRANT:-password}" == "password" ]]; then
+    password="$(_openshift_password_for "${username}" "${password}")"
+  fi
+  _driver_acquire_oidc_token "${username}" "${password}" "${client_id}"
+}
+
+de_seed_test_users() {
+  # Test-tier principals stay for the whole environment lifetime
+  # (ephemeral-test-credentials.spec.md). Namespace destroy removes them.
+  return 0
 }
 
 # configure_namespace_gc_timing / restore_namespace_gc_timing - resolve the

@@ -37,12 +37,16 @@ func newSandboxCountClient(t *testing.T) (pb.GatewayServiceClient, context.Conte
 	return pb.NewGatewayServiceClient(conn), ctx
 }
 
+func sandboxCountClusterID() string {
+	id, _ := mustRegisterCluster()
+	return id
+}
+
 func createGatewayForSandboxCount(ctx context.Context, client pb.GatewayServiceClient, name string) *pb.Gateway {
 	created, err := client.CreateGateway(ctx, &pb.CreateGatewayRequest{
-		Name:       name,
-		ClusterId:  "test-cluster",
-		ReleaseId:  "test-release",
-		DatabaseId: "test-db",
+		Name:      name,
+		ClusterId: sandboxCountClusterID(),
+		ReleaseId: "test-release",
 	})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(created.Gateway.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))

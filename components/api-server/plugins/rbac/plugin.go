@@ -2,16 +2,15 @@ package rbac
 
 import (
 	"os"
-	"strings"
 
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
-	"github.com/openshift-online/rh-trex-ai/pkg/auth"
-	"github.com/openshift-online/rh-trex-ai/pkg/environments"
-	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 )
 
 func init() {
@@ -32,19 +31,14 @@ func init() {
 		}
 		if rbService != nil {
 			enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
-			var serviceAccounts []string
-			if sa := os.Getenv("RBAC_SERVICE_ACCOUNTS"); sa != "" {
-				for _, s := range strings.Split(sa, ",") {
-					if trimmed := strings.TrimSpace(s); trimmed != "" {
-						serviceAccounts = append(serviceAccounts, trimmed)
-					}
-				}
-			}
 			authzConfig := rbac.AuthzConfig{
 				EnforceRBAC:     enforceRBAC,
-				ServiceAccounts: serviceAccounts,
+				ServiceAccounts: rbac.ServiceAccountsFromEnv(),
 			}
-			rbacMiddleware := rbac.NewRBACAuthzMiddleware(rbService, authzConfig, activityRecorder)
+			// nil when the managedClusters plugin is absent: registered-cluster
+			// callers are then not recognised as control planes.
+			controlPlanes := newControlPlaneResolver(envServices)
+			rbacMiddleware := rbac.NewRBACAuthzMiddleware(rbService, authzConfig, activityRecorder, controlPlanes)
 			apiV1Router.Use(rbacMiddleware.AuthorizeApi)
 		}
 	})

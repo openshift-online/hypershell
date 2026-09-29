@@ -24,7 +24,7 @@ $ARGUMENTS
 
 - **Desired state only.** Ask what the system should do, not what's broken.
 - **Scope boundary.** Which components does this change touch? (API, gRPC, CP, plugins)
-- **Reserved terms check.** Verify no collision with HyperShell domain terms (Fleet, Gateway, GatewayNetwork, GatewayRelease, ManagedCluster, ManagedDatabase).
+- **Reserved terms check.** Verify no collision with HyperShell domain terms (Fleet, Gateway, GatewayNetwork, GatewayRelease, ManagedCluster).
 
 ### Phase 2 -- Ground in the codebase
 
