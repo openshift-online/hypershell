@@ -190,6 +190,51 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/"
+  # The base pins HyperShell components to the mutable :latest tag with
+  # imagePullPolicy IfNotPresent, so a node that already cached an older
+  # :latest keeps running it after a new release. Manifests that pass flags
+  # only the new binary knows then crash-loop the baseline pods before the PR
+  # images are swapped in. Always re-resolve the tag here; pulls of an
+  # unchanged digest are served from the node cache.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-api-server
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: migrate
+                imagePullPolicy: Always
+            containers:
+              - name: api-server
+                imagePullPolicy: Always
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-controller
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: controller
+                imagePullPolicy: Always
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-web-console
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: web-console
+                imagePullPolicy: Always
   # Shared-cluster e2e cannot spare surge pods. A 1-replica RollingUpdate is
   # maxUnavailable:0 / maxSurge:1, so a digest swap needs two pods and the
   # new one sits Pending. Recreate kills the old replica first. Production
