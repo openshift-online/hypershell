@@ -73,7 +73,10 @@ patches:
   # they stay in sync with the Keycloak instance provisioned for this cluster.
   # The issuer is kept separate from the JWKS URL because tokens carry the
   # external realm URL in `iss` while the keys may be fetched through another
-  # route. The API resource audience is the shared hypershell-frontend audience;
+  # route. `make openshift-up` bootstraps api-service.issuerUrl with the
+  # in-cluster Service URL, so scripts/cluster/drivers/openshift.sh overrides
+  # JWT_ISSUER with the Route-derived issuer once the Keycloak Route exists.
+  # The API resource audience is the shared hypershell-frontend audience;
   # individual callers (web console, hsctl, control plane) remain identifiable
   # through `azp`.
   #
