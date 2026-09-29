@@ -239,6 +239,17 @@ check-dependency-age: test-dependency-age-policy
 sync-openshell-version:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py --stamp
 
+.PHONY: vendor-openshell-chart
+vendor-openshell-chart:
+	@. ./OPENSHELL_VERSION && \
+	  echo "Vendoring OpenShell chart $$OPENSHELL_TAG from $$OPENSHELL_CHART_REPO..." && \
+	  git clone --depth 1 --branch "$$OPENSHELL_TAG" "$$OPENSHELL_CHART_REPO" /tmp/openshell-chart-vendor && \
+	  rm -rf charts/openshell && \
+	  cp -r /tmp/openshell-chart-vendor/deploy/helm/openshell charts/openshell && \
+	  rm -rf /tmp/openshell-chart-vendor && \
+	  grep -rl $$'\xe2\x80\x94' charts/openshell/ | xargs -r sed -i 's/\xe2\x80\x94/-/g' && \
+	  echo "Vendored charts/openshell/ at $$OPENSHELL_TAG"
+
 .PHONY: test-openshell-version-policy
 test-openshell-version-policy:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_sync_openshell_version.py

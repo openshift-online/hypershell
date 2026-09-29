@@ -274,25 +274,22 @@ to the footprint table.
 3a. **Vendor the Helm chart.** The Dockerfile packages the chart from
    `charts/openshell/` at build time - no network access is allowed inside
    Konflux hermetic builds. After bumping `OPENSHELL_TAG` in `OPENSHELL_VERSION`,
-   replace the vendored chart directory:
+   run the vendor target:
 
    ```bash
-   source OPENSHELL_VERSION
-   git clone --depth 1 --branch "${OPENSHELL_TAG}" "${OPENSHELL_CHART_REPO}" /tmp/openshell
-   rm -rf charts/openshell
-   cp -r /tmp/openshell/deploy/helm/openshell charts/openshell
-   # Strip em-dashes (U+2014) - the pre-commit hook rejects them
-   grep -rl $'\xe2\x80\x94' charts/openshell/ | xargs -r sed -i 's/\xe2\x80\x94/-/g'
+   make vendor-openshell-chart
    ```
 
-   The resulting diff will be ~48 files and thousands of lines. That is expected
-   and correct - it is a wholesale upstream chart snapshot, not bespoke logic.
-   Every bump will look like this.
+   This clones the upstream tag declared in `OPENSHELL_VERSION`, replaces
+   `charts/openshell/` wholesale, and strips em-dashes (U+2014) which the
+   pre-commit hook rejects. The resulting diff will be ~48 files and thousands
+   of lines - that is expected. Every bump will look like this.
 
-   After copying, check whether the new chart adds RBAC rules that the controller
-   does not yet hold. Any permission the chart's ClusterRole or Role grants must
-   also be present in `deploy/base/platform-resources/controller-rbac.yaml`, or
-   Kubernetes will reject the apply with an RBAC escalation error:
+   After vendoring, check whether the new chart adds RBAC rules that the
+   controller does not yet hold. Any permission the chart's ClusterRole or Role
+   grants must also be present in
+   `deploy/base/platform-resources/controller-rbac.yaml`, or Kubernetes will
+   reject the apply with an RBAC escalation error:
 
    ```bash
    # Quick check: list all verbs/resources from the vendored chart's RBAC templates
@@ -434,8 +431,8 @@ Newest first. Each entry: version, date, what happened, what changed in the repo
   - **Chart vendoring is required on every bump.** `charts/openshell/` must be
     replaced from the upstream tag. If it's stale, the Dockerfile packages the old
     chart silently - new RBAC rules, value schema changes, and template fixes are
-    not applied even though the image tag was bumped. The `rm -rf charts/openshell
-    && cp -r` pattern plus em-dash strip is the complete update (see Step 3a).
+    not applied even though the image tag was bumped. Run `make vendor-openshell-chart`
+    after editing `OPENSHELL_VERSION` (see Step 3a).
   - **Chart RBAC escalation.** v0.1.2 added a `node-reader` ClusterRole (grants
     `runtimeclasses` get, `priorityclasses` get) and a sandbox Role (grants `pods`
     create/delete/patch). Both had to be added to `controller-rbac.yaml` to avoid
