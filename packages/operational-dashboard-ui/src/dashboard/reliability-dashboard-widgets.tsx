@@ -23,10 +23,7 @@ import { TrendDownIcon, TrendUpIcon } from "@patternfly/react-icons";
 import type { PropsWithChildren, ReactNode } from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
-import type {
-  OperationalMetric,
-  ReliabilityMetricId,
-} from "../application/dashboard-types";
+import type { OperationalMetric } from "../application/dashboard-types";
 import {
   getMetricTrendChange,
   type MetricTrendChange,
@@ -99,7 +96,6 @@ function formatMetricWithUnit(
     value: displayValue,
   });
 }
-
 
 type ReliabilitySummaryMetricId =
   | "api-request-rate"
