@@ -33,10 +33,14 @@ describe("mapControlPlaneReconciliationResponse", () => {
       mapControlPlaneReconciliationResponse({
         reconciliation_failures_count: 2,
         reconciliation_retries_count: 3,
+        reconciliation_successes_count: 42,
         reconciliation_lag_p50_seconds: 0.125,
         stale_resource_status_count: 1,
         hourly_reconciliation_failures_count: [
           { hour: "2026-01-01T00:00", value: 2 },
+        ],
+        hourly_reconciliation_successes_count: [
+          { hour: "2026-01-01T00:00", value: 42 },
         ],
       }),
     ).toEqual([
@@ -47,6 +51,12 @@ describe("mapControlPlaneReconciliationResponse", () => {
         hourlyTrend: { points: [{ label: "2026-01-01T00:00", value: 2 }] },
       },
       { id: "reconciliation-retries", unit: "count", value: "3" },
+      {
+        id: "reconciliation-successes",
+        unit: "count",
+        value: "42",
+        hourlyTrend: { points: [{ label: "2026-01-01T00:00", value: 42 }] },
+      },
       { id: "reconciliation-lag", unit: "sec", value: "0.125" },
       { id: "stale-resource-status-count", unit: "count", value: "1" },
     ]);

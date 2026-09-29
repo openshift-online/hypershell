@@ -14,8 +14,10 @@ const WIDGET_TITLE_MESSAGES = {
   "api-latency": messages.apiLatencyWidget,
   "reconciliation-failures": messages.widgetReconciliationFailures,
   "reconciliation-retries": messages.widgetReconciliationRetries,
+  "reconciliation-successes": messages.widgetReconciliationSuccesses,
   "reconciliation-lag": messages.widgetReconciliationLag,
   "stale-resource-status-count": messages.widgetStaleResourceStatus,
+  "reconciliation-over-time": messages.widgetReconciliationOverTime,
 } as const;
 
 type ReliabilityWidgetType = keyof typeof WIDGET_TITLE_MESSAGES;
@@ -93,6 +95,24 @@ const threeColumnLayout = [
     x: 0,
     y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 2,
   },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "reconciliation-successes#1",
+    title: "Reconciliation successes",
+    w: 1,
+    widgetType: "reconciliation-successes",
+    x: 1,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 2,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+    i: "reconciliation-over-time#1",
+    title: "Reconciliations over time",
+    w: RELIABILITY_DASHBOARD_COLUMN_COUNT,
+    widgetType: "reconciliation-over-time",
+    x: 0,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 3,
+  },
 ] as const;
 
 const mobileLayout = [
@@ -167,6 +187,24 @@ const mobileLayout = [
     widgetType: "stale-resource-status-count",
     x: 0,
     y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 6,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT,
+    i: "reconciliation-successes#1",
+    title: "Reconciliation successes",
+    w: 1,
+    widgetType: "reconciliation-successes",
+    x: 0,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 7,
+  },
+  {
+    h: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+    i: "reconciliation-over-time#1",
+    title: "Reconciliations over time",
+    w: 1,
+    widgetType: "reconciliation-over-time",
+    x: 0,
+    y: RELIABILITY_SUMMARY_WIDGET_HEIGHT + RELIABILITY_TREND_WIDGET_HEIGHT * 8,
   },
 ] as const;
 

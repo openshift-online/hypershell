@@ -51,6 +51,7 @@ export interface OperationalMetric {
   podPhases?: OperationalMetricPodPhases;
   provisionDuration?: OperationalMetricProvisionDuration;
   provisionOutcomes?: OperationalMetricProvisionOutcomes;
+  reasonBreakdown?: Record<string, number>;
   releaseDistribution?: Record<string, number>;
   status?: OperationalMetricStatus;
   hourlyTrend?: OperationalMetricTrend;

@@ -98,6 +98,11 @@ export const mockReliabilityDashboardMetrics: OperationalDashboardMetrics =
           ),
         }),
         id: "reconciliation-failures",
+        reasonBreakdown: Object.freeze({
+          invalid_config: 12,
+          missing_prerequisite: 8,
+          identity_invalid: 3,
+        }),
         unit: "count",
         value: "23",
       }),
@@ -111,8 +116,27 @@ export const mockReliabilityDashboardMetrics: OperationalDashboardMetrics =
           ),
         }),
         id: "reconciliation-retries",
+        reasonBreakdown: Object.freeze({
+          k8s_conflict: 6,
+          grpc_unavailable: 5,
+          keycloak_transient: 3,
+          dependency_not_ready: 2,
+        }),
         unit: "count",
         value: "16",
+      }),
+      Object.freeze({
+        hourlyTrend: Object.freeze({
+          points: Object.freeze(
+            buildHourlyCountTrendPoints([
+              12, 14, 11, 13, 10, 15, 12, 14, 13, 11, 12, 15, 14, 13, 11, 12,
+              14, 10, 13, 15, 12, 11, 14, 13,
+            ]),
+          ),
+        }),
+        id: "reconciliation-successes",
+        unit: "count",
+        value: "307",
       }),
       Object.freeze({
         hourlyTrend: Object.freeze({
