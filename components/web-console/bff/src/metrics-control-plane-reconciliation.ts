@@ -105,7 +105,7 @@ async function queryReasonBreakdown(
       return undefined;
     const breakdown: Record<string, number> = {};
     for (const series of body.data.result) {
-      const key = series.metric["reason"] ?? series.metric["resource_kind"];
+      const key = series.metric.reason ?? series.metric.resource_kind;
       const value = Number(series.value[1]);
       if (key && Number.isFinite(value) && value > 0) {
         breakdown[key] = Math.round(value);
