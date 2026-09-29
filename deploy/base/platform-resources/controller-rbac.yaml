@@ -44,6 +44,15 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch"]
+  # Required so the controller can create the chart's node-reader ClusterRole
+  # (v0.1.2+) without triggering RBAC escalation: Kubernetes rejects grants of
+  # permissions the granting subject does not itself hold.
+  - apiGroups: ["node.k8s.io"]
+    resources: ["runtimeclasses"]
+    verbs: ["get"]
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["get"]
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
