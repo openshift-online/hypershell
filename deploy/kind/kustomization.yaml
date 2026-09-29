@@ -45,6 +45,12 @@ patches:
                   # covered by the same *.gw.localhost cert as the gRPC route.
                   - name: GATEWAY_API_HTTP_LISTENER_NAME
                     value: grpc
+                  # Kind runs every gateway on one small node, so reserve less
+                  # than the production default (requests 100m/512Mi) to fit
+                  # more gateways. Keep the default limits: dev runs the same
+                  # workloads, and a lower memory ceiling would just OOMKill.
+                  - name: GATEWAY_RESOURCES
+                    value: '{"requests":{"cpu":"50m","memory":"128Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}'
                   # The console dashboard and oauth2-proxy sidecar images are
                   # public registry images; the control plane's ImageDefaults
                   # already point at them (dashboard pinned by digest on quay),
