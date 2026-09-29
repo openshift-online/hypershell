@@ -595,7 +595,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 						fmt.Errorf("validate existing Keycloak client identity: %w", err),
 						fmt.Errorf("publish invalid Keycloak client configuration status: %w", statusErr),
 					)
-					return watcher.PreservePayloadForRetry(reconcileErr)
+					return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 				}
 				outcome = cpotel.OutcomeFailed
 				reason = cpotel.ReasonIdentityInvalid
@@ -617,14 +617,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				reason = cpotel.ReasonDependencyNotReady
 			}
 			reconcileErr = fmt.Errorf("reconcile Keycloak client for gateway %q: %w", gw.Name, err)
-			return watcher.PreservePayloadForRetry(reconcileErr)
+			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 		}
 		if r.keycloakClient != nil && isGatewayKeycloakClientStatus(gw.GetStatus()) {
 			if err := r.updateGatewayStatus(ctx, event.ResourceID, ""); err != nil {
 				outcome = cpotel.OutcomeRetryable
 				reason = cpotel.ReasonGRPCUnavailable
 				reconcileErr = fmt.Errorf("clear Keycloak client status for gateway %q: %w", gw.Name, err)
-				return watcher.PreservePayloadForRetry(reconcileErr)
+				return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 			}
 		}
 		log.Printf("DEBUG gateway %s converged at generation %d, skipping reconciliation", event.ResourceID, gw.Generation)

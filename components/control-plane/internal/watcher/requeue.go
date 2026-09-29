@@ -62,6 +62,40 @@ func PreservesPayloadForRetry(err error) bool {
 	return errors.As(err, &marked)
 }
 
+// retryReasonError attaches a CRM-007 retryable reason code to an error so the
+// reconcile queue can emit the correct reason attribute on the retry metric
+// (CRM-010). It is transparent to all other error-chain checks (Unwrap passes
+// through), so it composes safely with PreservePayloadForRetry.
+type retryReasonError struct {
+	err    error
+	reason string
+}
+
+func (e *retryReasonError) Error() string { return e.err.Error() }
+func (e *retryReasonError) Unwrap() error { return e.err }
+
+// WithRetryableReason attaches a CRM-007 retryable reason code to err so the
+// queue records an accurate reason label on the retry metric. A nil err returns
+// nil. Compose with PreservePayloadForRetry when both behaviours are needed:
+//
+//	return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(err), reason)
+func WithRetryableReason(err error, reason string) error {
+	if err == nil {
+		return nil
+	}
+	return &retryReasonError{err: err, reason: reason}
+}
+
+// retryableReasonFromErr extracts the CRM-007 retryable reason code from err's
+// chain, returning cpotel.ReasonUnknown if no reason was attached.
+func retryableReasonFromErr(err error) string {
+	var re *retryReasonError
+	if errors.As(err, &re) {
+		return re.reason
+	}
+	return cpotel.ReasonUnknown
+}
+
 // reconcileQueue serializes reconciliations per resource. It retries errors
 // by default, with optional limits and error filters for callers that need them.
 // It replaces the fire-and-forget requeue goroutine that could race the reconciler.
@@ -589,7 +623,7 @@ func (q *reconcileQueue[T]) processNext() bool {
 		}
 		q.mu.Unlock()
 		q.queue.AddAfter(id, delay)
-		cpotel.RecordReconciliationRetry(q.baseCtx, q.kind, cpotel.ReasonUnknown)
+		cpotel.RecordReconciliationRetry(q.baseCtx, q.kind, retryableReasonFromErr(err))
 		log.Printf("WARN %s %s reconcile failed; retrying in %s: %v", q.kind, id, delay, err)
 		return true
 	}
