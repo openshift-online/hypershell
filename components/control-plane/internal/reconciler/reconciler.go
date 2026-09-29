@@ -589,10 +589,13 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					return nil
 				}
 				if statusErr := r.updateGatewayStatus(ctx, event.ResourceID, gatewayKeycloakClientInvalidStatus); statusErr != nil {
-					return watcher.PreservePayloadForRetry(errors.Join(
+					outcome = cpotel.OutcomeRetryable
+					reason = cpotel.ReasonGRPCUnavailable
+					reconcileErr = errors.Join(
 						fmt.Errorf("validate existing Keycloak client identity: %w", err),
 						fmt.Errorf("publish invalid Keycloak client configuration status: %w", statusErr),
-					))
+					)
+					return watcher.PreservePayloadForRetry(reconcileErr)
 				}
 				outcome = cpotel.OutcomeFailed
 				reason = cpotel.ReasonIdentityInvalid
@@ -608,11 +611,20 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			// transient Keycloak failure into a full Kubernetes reconciliation. The
 			// fixed status write above generates another watch event, but the queue's
 			// per-key backoff floor prevents that self-event from creating a hot loop.
-			return watcher.PreservePayloadForRetry(fmt.Errorf("reconcile Keycloak client for gateway %q: %w", gw.Name, err))
+			outcome = cpotel.OutcomeRetryable
+			reason = cpotel.ReasonKeycloakTransient
+			if errors.Is(err, errGatewayKeycloakClientMissing) {
+				reason = cpotel.ReasonDependencyNotReady
+			}
+			reconcileErr = fmt.Errorf("reconcile Keycloak client for gateway %q: %w", gw.Name, err)
+			return watcher.PreservePayloadForRetry(reconcileErr)
 		}
 		if r.keycloakClient != nil && isGatewayKeycloakClientStatus(gw.GetStatus()) {
 			if err := r.updateGatewayStatus(ctx, event.ResourceID, ""); err != nil {
-				return watcher.PreservePayloadForRetry(fmt.Errorf("clear Keycloak client status for gateway %q: %w", gw.Name, err))
+				outcome = cpotel.OutcomeRetryable
+				reason = cpotel.ReasonGRPCUnavailable
+				reconcileErr = fmt.Errorf("clear Keycloak client status for gateway %q: %w", gw.Name, err)
+				return watcher.PreservePayloadForRetry(reconcileErr)
 			}
 		}
 		log.Printf("DEBUG gateway %s converged at generation %d, skipping reconciliation", event.ResourceID, gw.Generation)
