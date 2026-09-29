@@ -163,3 +163,39 @@ func TestBuild_TrustedCAConfigMapName(t *testing.T) {
 		})
 	}
 }
+
+// TestBuild_GatewayResources guards that the gateway container always gets
+// explicit requests and limits. The upstream chart defaults to `resources: {}`,
+// which leaves the gateway BestEffort with no memory ceiling.
+func TestBuild_GatewayResources(t *testing.T) {
+	builder := ValuesBuilder{
+		Gateway:   GatewayConfig{Image: "quay.io/test/gateway:latest"},
+		Namespace: "test-ns",
+	}
+
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+
+	resources, ok := values["resources"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("resources = %#v, want a map", values["resources"])
+	}
+
+	want := map[string]map[string]string{
+		"requests": {"cpu": "100m", "memory": "512Mi"},
+		"limits":   {"cpu": "500m", "memory": "1Gi"},
+	}
+	for section, fields := range want {
+		got, ok := resources[section].(map[string]interface{})
+		if !ok {
+			t.Fatalf("resources.%s = %#v, want a map", section, resources[section])
+		}
+		for k, v := range fields {
+			if got[k] != v {
+				t.Errorf("resources.%s.%s = %v, want %s", section, k, got[k], v)
+			}
+		}
+	}
+}

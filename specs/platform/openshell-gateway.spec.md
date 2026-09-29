@@ -468,8 +468,9 @@ The gateway Deployment SHALL specify:
 - **Container image:** from the Gateway resource's `image` field
 - **Container args:** `--config /etc/openshell/gateway.toml --db-url $(OPENSHELL_DB_URL)`
 - **SecurityContext:** `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, capabilities `drop: [ALL]`, `seccompProfile.type: RuntimeDefault`
-- **Resource requests:** `cpu: 100m`, `memory: 256Mi`
-- **Resource limits:** `cpu: 500m`, `memory: 512Mi`
+- **Resource requests:** `cpu: 100m`, `memory: 512Mi`
+- **Resource limits:** `cpu: 500m`, `memory: 1Gi`
+  (supplied as the chart's `resources` value; the upstream chart default is `resources: {}`)
 - **Ports:** `grpc: 8080`, `health: 8081`, `metrics: 9090`
 - **Probes:**
   - Startup: `GET /healthz` on `health` port (period 2s, failureThreshold 30)
@@ -950,6 +951,7 @@ helm template openshell-gateway oci://ghcr.io/nvidia/openshell/helm-chart \
 | `workload.kind=deployment` | Always Deployment - PostgreSQL is the sole backend | `internal/reconciler/gateway_reconciler.go` |
 | `server.oidc.*` | `oidc` field on Gateway resource; injected into `gateway.toml` ConfigMap by `ApplyConfigOverrides` | `internal/gateway/manifests.go` |
 | `replicaCount` | HyperShell uses 1 replica (Deployment default) | N/A |
+| `resources` | Gateway container requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`. Always set: the chart default is `{}`, which would leave the gateway BestEffort with no memory limit | `internal/helm/values.go` |
 
 ### cert-manager Installation
 
