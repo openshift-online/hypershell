@@ -471,9 +471,9 @@ export const messages = defineMessages({
   },
   reconciliationChartAccumulating: {
     id: "app.dashboard.reconciliationChart.accumulating",
-    defaultMessage: "Trend data is accumulating - check back in an hour",
+    defaultMessage: "Trend data is accumulating - check back in a few minutes",
     description:
-      "Shown in the reconciliation over-time chart when hourly data exists but there are too few points to draw a line.",
+      "Shown in the reconciliation over-time chart when 5-minute data exists but there are too few points to draw a line.",
   },
   reconciliationChartLegendFailures: {
     id: "app.dashboard.reconciliationChart.legend.failures",

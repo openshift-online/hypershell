@@ -26,7 +26,7 @@ export const reconciliationLagP50SecondsPromql =
 export const staleResourceStatusCountPromql =
   "sum(max by (hypershell_cluster_id) (hypershell_stale_resource_status_count))";
 export const reconciliationFailuresByReasonPromql =
-  'sum by (resource_kind) (increase(reconcile_outcomes_total{outcome!="success"}[24h]))';
+  'sum by (resource_kind) (increase(reconcile_outcomes_total{outcome="failed"}[24h]))';
 export const reconciliationRetriesByReasonPromql =
   "sum by (reason) (increase(hypershell_reconciliation_retries_total[24h]))";
 
