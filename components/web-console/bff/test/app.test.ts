@@ -247,6 +247,49 @@ describe("web-console BFF", () => {
     }
   });
 
+  it("does not hold startup on an API that accepts the socket but stalls", async () => {
+    // Accepts connections and never responds.
+    const stalledServer = createServer(() => undefined);
+    await new Promise<void>((resolve) =>
+      stalledServer.listen(0, "127.0.0.1", resolve),
+    );
+    const address = stalledServer.address();
+    if (!address || typeof address === "string") {
+      throw new Error("stalled server did not bind");
+    }
+    const config: ServerConfig = {
+      apiOrigin: `http://127.0.0.1:${String(address.port)}`,
+      apiTimeoutMs: 30_000,
+      host: "127.0.0.1",
+      logLevel: "silent",
+      nodeEnv: "test",
+      port: 8080,
+      prometheusQueryTimeoutMs: 10_000,
+      prometheusUrl: "http://127.0.0.1:9090",
+      sessionTtlSeconds: 28_800,
+      staticRoot,
+      webVersion: "unknown",
+    };
+    const startedAt = Date.now();
+    const stalledApp = await buildApp(config);
+    try {
+      // Bounded by the dedicated probe timeout, not the 30s proxy timeout.
+      expect(Date.now() - startedAt).toBeLessThan(5_000);
+      const response = await stalledApp.inject({ method: "GET", url: "/" });
+      expect(response.body).toContain(
+        "&quot;apiVersion&quot;:&quot;unknown&quot;",
+      );
+    } finally {
+      await stalledApp.close();
+      stalledServer.closeAllConnections();
+      await new Promise<void>((resolve) => {
+        stalledServer.close(() => {
+          resolve();
+        });
+      });
+    }
+  });
+
   it("keeps assets immutable and does not fall back for unknown routes", async () => {
     const asset = await app.inject({
       method: "GET",

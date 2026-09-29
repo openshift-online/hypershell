@@ -132,6 +132,10 @@ function proxyBody(
 }
 
 const runtimeConfigMetaName = "hypershell-runtime-config";
+// Caps the startup version probe independently of apiTimeoutMs (30s by
+// default) so an API that accepts the socket but stalls cannot hold the BFF
+// back from listening.
+const API_VERSION_PROBE_TIMEOUT_MS = 2_000;
 
 function escapeHtmlAttribute(value: string): string {
   return value
@@ -173,7 +177,8 @@ interface ApiMetadata {
  * Fetches the API server's build version from its public metadata endpoint
  * (GET /api/hypershell) once at startup so it can be relayed to the browser
  * through the runtime config. Version display must never gate BFF readiness,
- * so any failure resolves to "unknown" (WEB-TRACE-06 best-effort precedent).
+ * so any failure resolves to "unknown" (WEB-TRACE-06 best-effort precedent),
+ * and the probe gets its own short timeout rather than the proxy timeout.
  */
 async function fetchApiVersion(
   config: ServerConfig,
@@ -181,7 +186,9 @@ async function fetchApiVersion(
 ): Promise<string> {
   try {
     const response = await fetch(`${config.apiOrigin}/api/hypershell`, {
-      signal: AbortSignal.timeout(config.apiTimeoutMs),
+      signal: AbortSignal.timeout(
+        Math.min(config.apiTimeoutMs, API_VERSION_PROBE_TIMEOUT_MS),
+      ),
     });
     if (!response.ok) {
       log.warn(
