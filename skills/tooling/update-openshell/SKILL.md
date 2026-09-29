@@ -130,6 +130,9 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 
 | File | What to change | Notes |
 |------|----------------|-------|
+| `OPENSHELL_VERSION` | `OPENSHELL_TAG`, `OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST` | Edit first; `OPENSHELL_TAG` drives both the deployment pins and the chart vendor step |
+| `charts/openshell/` | Entire directory replaced from upstream tag | Vendored chart - see Step 3a for the extraction command; expect ~48 files, large diff is normal |
+| `components/control-plane/internal/gateway/config.go` | `defaultConsoleImage` constant (digest + comment tag) | Must agree with `OPENSHELL_CONSOLE_DIGEST`; check when triage flags any proto or gRPC surface change |
 | `deploy/base/control-plane/deployment.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE` env vars | **Source of truth** - change here first |
 | `deploy/base/platform-resources/controller.yaml` | same env vars | Must match the deployment above |
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
@@ -268,6 +271,56 @@ to the footprint table.
    grep -rn "openshell/\(gateway\|supervisor\)" deploy/                # older ghcr.io image names
    ```
 
+3a. **Vendor the Helm chart.** The Dockerfile packages the chart from
+   `charts/openshell/` at build time - no network access is allowed inside
+   Konflux hermetic builds. After bumping `OPENSHELL_TAG` in `OPENSHELL_VERSION`,
+   replace the vendored chart directory:
+
+   ```bash
+   source OPENSHELL_VERSION
+   git clone --depth 1 --branch "${OPENSHELL_TAG}" "${OPENSHELL_CHART_REPO}" /tmp/openshell
+   rm -rf charts/openshell
+   cp -r /tmp/openshell/deploy/helm/openshell charts/openshell
+   # Strip em-dashes (U+2014) - the pre-commit hook rejects them
+   grep -rl $'\xe2\x80\x94' charts/openshell/ | xargs -r sed -i 's/\xe2\x80\x94/-/g'
+   ```
+
+   The resulting diff will be ~48 files and thousands of lines. That is expected
+   and correct - it is a wholesale upstream chart snapshot, not bespoke logic.
+   Every bump will look like this.
+
+   After copying, check whether the new chart adds RBAC rules that the controller
+   does not yet hold. Any permission the chart's ClusterRole or Role grants must
+   also be present in `deploy/base/platform-resources/controller-rbac.yaml`, or
+   Kubernetes will reject the apply with an RBAC escalation error:
+
+   ```bash
+   # Quick check: list all verbs/resources from the vendored chart's RBAC templates
+   grep -r "resources:\|verbs:" charts/openshell/templates/ | grep -v '#'
+   ```
+
+3b. **Check the console image.** The console dashboard
+   (`quay.io/gkrumbach07/openshell-dashboard`) has its own tagging scheme and is
+   NOT locked to `OPENSHELL_TAG`. It only needs a bump when the gateway's
+   workspace/sandbox gRPC proto changes (breaking proto changes cause the
+   dashboard BFF to hang loading sandbox lists with no visible error). Check
+   whenever triage (Step 2) flags a proto or gRPC surface change:
+
+   ```bash
+   # List available console image tags (newest first)
+   curl -s "https://quay.io/api/v1/repository/gkrumbach07/openshell-dashboard/tag/?limit=20" \
+     | python3 -c "import sys,json; [print(t['name'],t.get('manifest_digest','')) for t in json.load(sys.stdin)['tags']]"
+   ```
+
+   When updating, set both files - they must agree:
+   - `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION`
+   - `defaultConsoleImage` in `components/control-plane/internal/gateway/config.go`
+     (also update the `sha-XXXXXXX` tag name in the comment on the line above)
+
+   Symptom of a stale console image after a proto-breaking bump: the Sandboxes
+   tab shows an infinite loading spinner that never resolves, with no error in the
+   browser console. The gateway itself is healthy - only the BFF gRPC call hangs.
+
 4. **Verify contracts.** For each `needs-decision` item from step 2, check the
    thing it touches:
    - **Gateway config (`gateway.toml`)**: diff the keys the control plane renders
@@ -317,7 +370,7 @@ does, the item is `needs-decision`:
 | Gateway/supervisor config schema (TOML) | Control plane renders `gateway.toml` | `manifests/gateway/configmap.yaml`, `internal/gateway/config.go` |
 | Sandbox CR / `agents.x-k8s.io` API version | Gateway manages sandboxes; RBAC grants on it | `manifests/gateway/rbac.yaml`, `networkpolicy.yaml`, `deploy/base/controller-rbac.yaml` |
 | Credential storage drivers | HyperShell selects/validates drivers | `ValidateCredentialDriverConfig`, `openshell-gateway-credentials.spec.md` |
-| gRPC/proto surface | API server + control plane speak gRPC | `components/api-server/proto/` |
+| gRPC/proto surface | API server + control plane speak gRPC; console BFF calls gateway gRPC directly for sandbox/workspace ops | `components/api-server/proto/`; also check console image compatibility (Step 3b) when proto changes are in triage |
 | Gateway/supervisor CLI flags & env | Control plane sets them | `configmap.yaml`, deployment manifests |
 | PKI / TLS / ingress (Route, cert-manager, Gateway API) | HyperShell hand-rolls per-tenant PKI + ingress | `internal/gateway/` reconciler, ingress specs |
 | Auth (OIDC) | OIDC is the client auth mechanism (no client mTLS) | `ValidateOIDCConfig`, gateway OIDC config |
@@ -378,6 +431,29 @@ Newest first. Each entry: version, date, what happened, what changed in the repo
   - **Image digests:** Use `skopeo inspect --no-creds docker://quay.io/opendatahub/odh-openshell-gateway:<TAG>`
     to retrieve the manifest digest. If skopeo is unavailable, the Quay v1 tag API returns the
     `manifest_digest` field for a given `specificTag` query parameter.
+  - **Chart vendoring is required on every bump.** `charts/openshell/` must be
+    replaced from the upstream tag. If it's stale, the Dockerfile packages the old
+    chart silently - new RBAC rules, value schema changes, and template fixes are
+    not applied even though the image tag was bumped. The `rm -rf charts/openshell
+    && cp -r` pattern plus em-dash strip is the complete update (see Step 3a).
+  - **Chart RBAC escalation.** v0.1.2 added a `node-reader` ClusterRole (grants
+    `runtimeclasses` get, `priorityclasses` get) and a sandbox Role (grants `pods`
+    create/delete/patch). Both had to be added to `controller-rbac.yaml` to avoid
+    RBAC escalation errors on apply. On every bump, scan the new chart's RBAC
+    templates and cross-check against the controller's ClusterRole.
+  - **Console image must be checked when proto surfaces change.** v0.1.2 changed
+    the workspace/sandbox gRPC proto (`refactor(proto)!: use well-known time types`
+    #3113). The old console image (`sha-978bcb5`) could not parse v0.1.2 gateway
+    responses - the sandbox list UI showed an infinite loading spinner with no
+    error. Updated to `sha-71335e5` (built 2026-09-23,
+    `sha256:1d36331138c37aa75285869a21d2aa35ebdab5b1f6980f028b28df405ec5a927`).
+    Both `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION` and `defaultConsoleImage`
+    in `config.go` must be updated together and must agree. See Step 3b.
+  - **`appArmorProfile` in Kind.** v0.1.2 chart sets
+    `securityContext.appArmorProfile: type: RuntimeDefault` on pods. Kind does not
+    support AppArmor, so pods fail to schedule. Suppressed via a Helm values
+    override in the control plane's values builder. On future bumps, check whether
+    the chart adds new Linux security context fields that Kind does not support.
 
 - **Skill correction (2026-09-25, HYPERSHELL-301):** Skill had two structural
   errors discovered during build-agent work:
