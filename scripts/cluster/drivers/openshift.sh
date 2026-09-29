@@ -886,8 +886,9 @@ configure_oidc_from_routes() {
 
   # --jwt-issuer must equal the token `iss`, which KC_HOSTNAME pins to the
   # external Route. The bootstrap api-service.issuerUrl is the in-cluster
-  # Service URL (the control plane fetches tokens through it), so override the
-  # overlay's secret-sourced JWT_ISSUER with the Route-derived issuer.
+  # Service URL used by the control plane to fetch tokens. The overlay omits
+  # JWT_ISSUER so repeated applies cannot merge a secret-backed valueFrom with
+  # this route-derived literal value on retained PR environments.
   info "Configuring API server JWT issuer"
   oc_cli set env deployment/hypershell-api-server -n "${OPENSHIFT_NAMESPACE}" -c api-server \
     "JWT_ISSUER=${OPENSHIFT_OIDC_ISSUER}" >/dev/null
