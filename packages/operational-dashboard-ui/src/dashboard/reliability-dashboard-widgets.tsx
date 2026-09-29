@@ -100,21 +100,21 @@ function formatMetricWithUnit(
   });
 }
 
-const RELIABILITY_SUMMARY_METRIC_IDS = [
-  "api-request-rate",
-  "api-error-rate",
-  "api-latency",
-  "reconciliation-failures",
-  "reconciliation-retries",
-  "reconciliation-successes",
-  "reconciliation-lag",
-  "stale-resource-status-count",
-] as const satisfies readonly ReliabilityMetricId[];
 
 type ReliabilitySummaryMetricId =
-  (typeof RELIABILITY_SUMMARY_METRIC_IDS)[number];
+  | "api-request-rate"
+  | "api-error-rate"
+  | "api-latency"
+  | "reconciliation-failures"
+  | "reconciliation-retries"
+  | "reconciliation-successes"
+  | "reconciliation-lag"
+  | "stale-resource-status-count";
 
-const RELIABILITY_SUMMARY_LABELS = {
+const RELIABILITY_SUMMARY_LABELS: Record<
+  ReliabilitySummaryMetricId,
+  (typeof messages)[keyof typeof messages]
+> = {
   "api-request-rate": messages.reliabilitySummaryRequestRate,
   "api-error-rate": messages.reliabilitySummaryErrorRate,
   "api-latency": messages.reliabilitySummaryLatency,
@@ -124,14 +124,19 @@ const RELIABILITY_SUMMARY_LABELS = {
     messages.reliabilitySummaryReconciliationSuccesses,
   "reconciliation-lag": messages.reliabilitySummaryReconciliationLag,
   "stale-resource-status-count": messages.reliabilitySummaryStaleResourceStatus,
-} as const;
+};
 
-const API_RELIABILITY_SUMMARY_METRIC_IDS = RELIABILITY_SUMMARY_METRIC_IDS.slice(
-  0,
-  3,
-);
-const RECONCILIATION_SUMMARY_METRIC_IDS =
-  RELIABILITY_SUMMARY_METRIC_IDS.slice(3);
+const API_RELIABILITY_SUMMARY_METRIC_IDS: readonly ReliabilitySummaryMetricId[] =
+  ["api-request-rate", "api-error-rate", "api-latency"];
+
+const RECONCILIATION_SUMMARY_METRIC_IDS: readonly ReliabilitySummaryMetricId[] =
+  [
+    "reconciliation-failures",
+    "reconciliation-retries",
+    "reconciliation-successes",
+    "reconciliation-lag",
+    "stale-resource-status-count",
+  ];
 
 function reliabilitySummaryTrendSubject(
   metricId: ReliabilitySummaryMetricId,
