@@ -58,6 +58,7 @@ describe("GET /api/metrics/control-plane-reconciliation", () => {
       prometheusUrl,
       sessionTtlSeconds: 28_800,
       staticRoot,
+      webVersion: "unknown",
     };
     return buildApp(config);
   }
