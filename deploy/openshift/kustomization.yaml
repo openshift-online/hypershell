@@ -74,22 +74,24 @@ patches:
   # Route exists. Do not declare JWT_ISSUER here: a retained environment has
   # the route-derived literal value, and applying a secret-backed valueFrom
   # over it produces an invalid EnvVar with both value and valueFrom.
-  # The API resource audience is the shared hypershell-frontend audience;
-  # individual callers (web console, hsctl, control plane) remain identifiable
-  # through `azp`. The audience is a fixed platform constant, not per-cluster
-  # configuration, so it is a literal here rather than a secret key.
+  # The API resource audience is hypershell-api: `aud` names the management
+  # API (the resource server), while `azp` names the calling OAuth client
+  # (hypershell-frontend, hypershell-cli, hypershell-control-plane). The
+  # audience is a fixed platform constant, not per-cluster configuration, so it
+  # is a literal here rather than a secret key.
   #
   # BREAKING CHANGE for existing clusters: issuer and audience validation fail
   # closed. Once applied, every non-bypassed HTTP and gRPC call (web console,
   # hsctl, and the control plane's UpdateGateway and watch streams) is rejected
   # with 401 unless its token carries iss equal to the configured issuer and
-  # hypershell-frontend in aud. RBAC_SERVICE_ACCOUNTS does not bypass this. On
-  # external SSO, before/with this rollout the SSO MUST emit
-  # aud=hypershell-frontend for the hypershell-frontend, hypershell-cli, and
+  # hypershell-api in aud. RBAC_SERVICE_ACCOUNTS does not bypass this. On
+  # external SSO, before/with this rollout the SSO MUST emit an aud that
+  # includes hypershell-api for the hypershell-frontend, hypershell-cli, and
   # hypershell-control-plane clients (the bundled realm does this with
   # oidc-audience-mapper entries in deploy/base/keycloak/keycloak.yaml, plus
-  # hypershell-e2e for CI). See specs/platform/oidc-integration.spec.md
-  # (Production / Staging).
+  # hypershell-e2e for CI). Only management API callers may get that mapper:
+  # any token carrying hypershell-api is accepted. See
+  # specs/platform/oidc-integration.spec.md (Production / Staging).
   #
   # RBAC_ENFORCE=true turns on the three-role gateway RBAC model
   # (gateway:creator/owner/viewer); it is the sole gate for that model
@@ -176,7 +178,7 @@ patches:
         value: "--jwt-issuer=$(JWT_ISSUER)"
       - op: add
         path: /spec/template/spec/containers/0/command/-
-        value: "--jwt-audience=hypershell-frontend"
+        value: "--jwt-audience=hypershell-api"
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"
