@@ -77,7 +77,7 @@ func (p *Prometheus) do(ctx context.Context, path string, q url.Values) (*promRe
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var pr promResponse
 	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
 		return nil, fmt.Errorf("decode prometheus response: %w", err)

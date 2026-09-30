@@ -3,7 +3,6 @@ package sources
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -309,14 +308,4 @@ func shortSHA(s string) string {
 		return s[:10]
 	}
 	return s
-}
-
-// sortedKeys is a small helper for deterministic iteration in tests.
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
