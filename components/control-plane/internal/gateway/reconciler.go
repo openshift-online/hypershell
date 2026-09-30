@@ -402,7 +402,7 @@ func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		errs = append(errs, fmt.Errorf("delete BackendTLSPolicy in %s: %w", namespace, err))
 	}
 
-	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, "openshell-gateway-backend-ca", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, backendCAConfigMapName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
 		errs = append(errs, fmt.Errorf("delete backend CA ConfigMap in %s: %w", namespace, err))
 	}
 
@@ -488,10 +488,10 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 	}
 
 	if ingressMode == IngressModeGatewayAPI {
-		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-gateway-backend-ca", metav1.GetOptions{}); err == nil {
+		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{}); err == nil {
 			return false, nil
 		} else if !k8serrors.IsNotFound(err) {
-			return false, fmt.Errorf("probe configmap openshell-gateway-backend-ca in %s: %w", namespace, err)
+			return false, fmt.Errorf("probe configmap %s in %s: %w", backendCAConfigMapName, namespace, err)
 		}
 	}
 	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
@@ -648,6 +648,13 @@ func waitForSecret(ctx context.Context, clientset *kubernetes.Clientset, namespa
 // GatewayDeploymentName is the name of the primary gateway workload Deployment
 // whose readiness gates the Gateway `Running` phase.
 const GatewayDeploymentName = "openshell-gateway"
+
+// backendCAConfigMapName is the ConfigMap holding the CA certificate the
+// Gateway's BackendTLSPolicy validates the backend pod certificate against. The
+// create, delete, and teardown-readiness paths MUST agree on this name or the
+// ConfigMap leaks on teardown and the readiness probe watches the wrong object;
+// see openshell-gateway.spec.md.
+const backendCAConfigMapName = "openshell-gateway-backend-ca"
 
 // AppliedReleaseAnnotation records, on the gateway Deployment's metadata, the
 // GatewayRelease id the Deployment's current pod template was rendered from. The
@@ -1549,7 +1556,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 	if caData != "" {
 		backendCA := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "openshell-backend-ca",
+				Name:      backendCAConfigMapName,
 				Namespace: namespace,
 				Labels: map[string]string{
 					"app.kubernetes.io/name":       "openshell",
@@ -1563,7 +1570,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 			},
 		}
 
-		existing, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "openshell-backend-ca", metav1.GetOptions{})
+		existing, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{})
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
 				if _, err := clientset.CoreV1().ConfigMaps(namespace).Create(ctx, backendCA, metav1.CreateOptions{}); err != nil {
@@ -1604,7 +1611,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 							map[string]interface{}{
 								"group": "",
 								"kind":  "ConfigMap",
-								"name":  "openshell-backend-ca",
+								"name":  backendCAConfigMapName,
 							},
 						},
 						"hostname": fmt.Sprintf("openshell-gateway.%s.svc.cluster.local", namespace),
