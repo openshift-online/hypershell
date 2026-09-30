@@ -18,7 +18,7 @@ The implementation includes the following security constraints:
 
 1. **No Arbitrary Plugin Execution**: The command runs kustomize with `--enable-alpha-plugins=false` to prevent execution of arbitrary plugins.
 
-2. **Load Restrictions**: Uses `--load-restrictor=LoadRestrictionsRootOnly` to restrict file loading to the kustomize root directory.
+2. **Load Restrictions**: Uses `--load-restrictor=LoadRestrictionsRootOnly` to restrict local file loading to the kustomize root directory. Note that remote bases referenced via git or http URLs in `kustomization.yaml` are not blocked by this restriction.
 
 3. **No Secret Leakage**: The command does not print secret values. Only resource status (created/configured/unchanged) is displayed.
 

@@ -92,12 +92,19 @@ func run(cmd *cobra.Command, argv []string) error {
 		// Validate supported kind
 		if !isSupportedKind(resource.Kind) {
 			fmt.Fprintf(os.Stderr, "Skipping unsupported kind: %s/%s\n", resource.Kind, getName(resource))
-			hasError = true
 			continue
 		}
 
 		if args.dryRun {
-			fmt.Printf("%s/%s (dry run)\n", strings.ToLower(resource.Kind), getName(resource))
+			result := map[string]interface{}{
+				"kind":   resource.Kind,
+				"name":   getName(resource),
+				"status": "dry-run",
+			}
+			results = append(results, result)
+			if args.outputFmt != "json" {
+				fmt.Printf("%s/%s (dry run)\n", strings.ToLower(resource.Kind), getName(resource))
+			}
 			continue
 		}
 
@@ -117,7 +124,7 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 	}
 
-	if args.outputFmt == "json" && !args.dryRun {
+	if args.outputFmt == "json" {
 		output, err := json.MarshalIndent(results, "", "  ")
 		if err != nil {
 			return err
@@ -188,7 +195,7 @@ func loadFromKustomize(dir string) ([]Resource, error) {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("kustomize directory not found: %s", dir)
 		}
-		return nil, err
+		return nil, fmt.Errorf("stat kustomize directory %s: %w", dir, err)
 	}
 	if !info.IsDir() {
 		return nil, fmt.Errorf("kustomize path is not a directory: %s", dir)
