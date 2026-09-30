@@ -440,7 +440,7 @@ must keep aligned with this cluster:
 
 The control plane reads the gateway's own `image` and `supervisor_image` fields
 and requires them to be set explicitly. Required environment variables `GATEWAY_IMAGE` and
-`GATEWAY_SUPERVISOR_IMAGE` (set in `deploy/base/controller.yaml`) define the authoritative
+`GATEWAY_SUPERVISOR_IMAGE` (set in `deploy/base/platform-resources/controller.yaml`) define the authoritative
 image sources and have no fallback defaults; set both to the mirrored internal refs, and pass
 `namespace` explicitly (the deployed API image still validates it as required despite the
 OpenAPI `readOnly` marking):
