@@ -388,7 +388,7 @@ success "Stand-in PostgreSQL ready (ssl=on)"
 
 # The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
 # mounted from its own namespace at /etc/hypershell/gateway-database
-# (deploy/base/controller.yaml), and refuses to start without it. It must exist
+# (deploy/base/platform-resources/controller.yaml), and refuses to start without it. It must exist
 # BEFORE the kustomize apply below so the controller pod can mount it. Its
 # sslrootcert is the CA that signed the stand-in server's certificate, and
 # sslmode is pinned to verify-full: the controller rejects anything weaker.

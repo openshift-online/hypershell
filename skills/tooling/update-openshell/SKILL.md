@@ -97,11 +97,9 @@ $ARGUMENTS
 
 ## Source of truth
 
-The **authoritative** current version pins live in two control-plane deployment
-manifests (both must agree):
+The **authoritative** current version pins live in the controller manifest:
 
-- `deploy/base/control-plane/deployment.yaml` (lines with `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`)
-- `deploy/base/platform-resources/controller.yaml` (same env vars)
+- `deploy/base/platform-resources/controller.yaml` (lines with `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`)
 
 ```yaml
 - name: GATEWAY_IMAGE
@@ -135,8 +133,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `OPENSHELL_VERSION` | `OPENSHELL_TAG`, `OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST` | Edit first; `OPENSHELL_TAG` drives both the deployment pins and the chart vendor step |
 | `charts/openshell/` | Entire directory replaced from upstream tag | Vendored chart - see Step 3a for the extraction command; expect ~48 files, large diff is normal |
 | `components/control-plane/internal/gateway/config.go` | `defaultConsoleImage` constant (digest + comment tag) | Must agree with `OPENSHELL_CONSOLE_DIGEST`; check when triage flags any proto or gRPC surface change |
-| `deploy/base/control-plane/deployment.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE` env vars | **Source of truth** - change here first |
-| `deploy/base/platform-resources/controller.yaml` | same env vars | Must match the deployment above |
+| `deploy/base/platform-resources/controller.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE` env vars | **Source of truth** - change here first |
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
 | `specs/platform/openshell-gateway-credentials.spec.md` | example manifests | Spec citation |
@@ -217,7 +214,7 @@ to the footprint table.
 
    ```bash
    # Current pin (read from source-of-truth file)
-   grep "GATEWAY_IMAGE" deploy/base/control-plane/deployment.yaml
+   grep "GATEWAY_IMAGE" deploy/base/platform-resources/controller.yaml
 
    # Latest available midstream tag
    gh api repos/opendatahub-io/openshell/tags \
@@ -263,8 +260,8 @@ to the footprint table.
      --jq '.files[].filename'
    ```
 
-3. **Bump the pins.** Edit `deploy/base/control-plane/deployment.yaml` first,
-   then `deploy/base/platform-resources/controller.yaml`, then sweep the rest of
+3. **Bump the pins.** Edit `deploy/base/platform-resources/controller.yaml` first,
+   then sweep the rest of
    the [Version footprint](#version-footprint). Per the repo convention *"Image
    references must match across the stack"*, grep all overlays and manifests too:
 
@@ -462,8 +459,8 @@ Newest first. Each entry: version, date, what happened, what changed in the repo
     NVIDIA repo is still needed for release-note triage but is NOT the image source.
     Correct command: `gh api repos/opendatahub-io/openshell/tags --jq '[.[] | select(.name | test("^v[0-9]"))] | .[0].name'`
   - Wrong source-of-truth file path: skill said `deploy/base/controller.yaml`
-    (does not exist). Correct paths: `deploy/base/control-plane/deployment.yaml`
-    and `deploy/base/platform-resources/controller.yaml` (both must agree).
+    (does not exist). Correct path: `deploy/base/platform-resources/controller.yaml`
+    (the former `control-plane/deployment.yaml` duplicate was removed).
   - Added build-agent track for testing unmerged upstream branches/commits.
   - Current pin at time of correction: `v0.0.116-rhaiv.6`; latest midstream: `v0.0.116-rhaiv.15`.
 

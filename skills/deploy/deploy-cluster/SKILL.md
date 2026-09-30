@@ -222,7 +222,7 @@ echo "Open in browser: $CONSOLE_URL"
 
 ## Gateway Image Environment Variables
 
-The controller uses two **required** environment variables (set in `deploy/base/controller.yaml`)
+The controller uses two **required** environment variables (set in `deploy/base/platform-resources/controller.yaml`)
 to provision tenant gateways. These have **no fallback defaults** if unset, gateway
 reconciliation fails immediately:
 
@@ -236,7 +236,7 @@ env:
 
 When a gateway is created, the controller reads these environment variables to determine
 which image(s) to deploy. To update to a new upstream OpenShell release, update these
-values in `deploy/base/controller.yaml` and reapply the deployment.
+values in `deploy/base/platform-resources/controller.yaml` and reapply the deployment.
 
 ## OpenShift-Specific Differences from Kind
 

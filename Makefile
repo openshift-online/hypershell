@@ -153,6 +153,7 @@ help:
 	@echo "    check-dependency-pins    Verify dependency version pins"
 	@echo "    check-dependency-age     Verify dependency minimum age"
 	@echo "    check-ci-components      Verify CI component registration"
+	@echo "    check-deploy-orphans     Verify every deploy/base manifest is referenced by a kustomization"
 	@echo ""
 	@echo "  Hooks"
 	@echo "    hooks-install            Install Git hooks (lefthook)"
@@ -227,6 +228,10 @@ check-dependency-pins: test-dependency-pin-policy
 check-ci-components:
 	python3 scripts/check_ci_components.py
 
+.PHONY: check-deploy-orphans
+check-deploy-orphans:
+	python3 scripts/check_deploy_orphans.py
+
 .PHONY: test-dependency-age-policy
 test-dependency-age-policy:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_dependency_age.py
@@ -259,7 +264,7 @@ check-openshell-version: test-openshell-version-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
 
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-openshell-version test-release-bundle
+check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version test-release-bundle
 
 # ============================================================================
 # Git hooks
