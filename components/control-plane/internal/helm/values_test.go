@@ -1,6 +1,10 @@
 package helm
 
 import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -284,5 +288,52 @@ func TestBuild_SandboxRuntimeImage(t *testing.T) {
 	}
 	if _, ok := values["sandboxRuntime"]; ok {
 		t.Errorf("sandboxRuntime set without an image: %#v", values["sandboxRuntime"])
+	}
+}
+
+// TestBuild_SandboxRuntimeImageRendersInChart guards the value path itself: a
+// key the chart does not read silently no-ops, which leaves the runtime on the
+// moving chart default. It renders the vendored chart with the builder's values
+// and asserts the pin reaches the gateway config. Skipped without a helm binary.
+func TestBuild_SandboxRuntimeImageRendersInChart(t *testing.T) {
+	helmBin, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm binary not found on PATH")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
+	if err != nil {
+		t.Fatalf("resolve chart path: %v", err)
+	}
+
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			Image:               "quay.io/test/gateway:v1",
+			SupervisorImage:     "quay.io/test/supervisor:v1",
+			SandboxRuntimeImage: "quay.io/test/sandbox:v1",
+		},
+		Namespace: "test-ns",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("marshal values: %v", err)
+	}
+	valuesFile := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+		t.Fatalf("write values: %v", err)
+	}
+
+	// The Agent Sandbox preflight needs a live cluster; disable it for offline rendering.
+	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	want := `sandbox_runtime_image        = "quay.io/test/sandbox:v1"`
+	if !strings.Contains(string(out), want) {
+		t.Errorf("rendered chart does not carry the sandbox runtime pin %q", want)
 	}
 }
