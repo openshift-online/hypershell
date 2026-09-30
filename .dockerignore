@@ -15,6 +15,8 @@ components/**
 !components/api-server/**
 !components/control-plane/
 !components/control-plane/**
+!components/fleet-dashboard/
+!components/fleet-dashboard/**
 !components/sdk-typescript/
 !components/sdk-typescript/**
 !packages/
@@ -23,6 +25,8 @@ packages/**
 !packages/gateway-management-ui/**
 !packages/operational-dashboard-ui/
 !packages/operational-dashboard-ui/**
+!packages/fleet-dashboard-ui/
+!packages/fleet-dashboard-ui/**
 !components/web-console/
 !components/web-console/**
 !scripts/bootstrap_pnpm.sh
