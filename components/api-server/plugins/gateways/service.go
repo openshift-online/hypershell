@@ -2,8 +2,10 @@ package gateways
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 	"net/http"
+	"reflect"
 
 	"gorm.io/gorm"
 
@@ -234,9 +236,29 @@ func desiredStateChanged(current, next *Gateway) bool {
 		!strEq(current.Image, next.Image) ||
 		!strEq(current.SupervisorImage, next.SupervisorImage) ||
 		!strEq(current.ServerDnsNames, next.ServerDnsNames) ||
-		!strEq(current.Oidc, next.Oidc) ||
-		!strEq(current.Route, next.Route) ||
+		!jsonEq(current.Oidc, next.Oidc) ||
+		!jsonEq(current.Route, next.Route) ||
 		!strEq(current.CredentialDriver, next.CredentialDriver)
+}
+
+// jsonEq compares two optional JSON documents semantically. Oidc and Route are
+// jsonb columns, so the stored text is normalized by PostgreSQL (key order,
+// spacing) and never byte-equals the compact JSON a client writes back. A
+// byte compare would report a spurious desired-state change on every write,
+// bumping generation and re-opening the control plane's convergence gate.
+// Non-JSON values fall back to a string compare.
+func jsonEq(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if *a == *b {
+		return true
+	}
+	var av, bv any
+	if json.Unmarshal([]byte(*a), &av) != nil || json.Unmarshal([]byte(*b), &bv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
 }
 
 func strEq(a, b *string) bool {
