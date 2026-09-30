@@ -81,11 +81,24 @@ func run(logger *slog.Logger) error {
 		Handler:           server.New(handlers, authn, static),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	// Dedicated /metrics listener, not fronted by the oauth-proxy, scraped
+	// directly by Prometheus (data-architecture.spec §9).
+	metricsSrv := &http.Server{
+		Addr:              cfg.MetricsAddr,
+		Handler:           server.Metrics(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", cfg.ListenAddr, "authEnabled", cfg.AuthEnabled)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+	}()
+	go func() {
+		logger.Info("metrics listening", "addr", cfg.MetricsAddr)
+		if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
@@ -98,6 +111,7 @@ func run(logger *slog.Logger) error {
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	_ = metricsSrv.Shutdown(shutdownCtx)
 	return srv.Shutdown(shutdownCtx)
 }
 

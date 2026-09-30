@@ -20,8 +20,9 @@ import (
 // Config is the fully-resolved runtime configuration.
 type Config struct {
 	// Server
-	ListenAddr string
-	StaticRoot string // if set, serve UI from this dir instead of the embedded bundle
+	ListenAddr  string
+	MetricsAddr string // dedicated /metrics listener, not fronted by oauth-proxy (§9)
+	StaticRoot  string // if set, serve UI from this dir instead of the embedded bundle
 
 	// Prometheus
 	PromURL       string
@@ -82,6 +83,7 @@ type SubjectAccessReview struct {
 func Load() (*Config, error) {
 	c := &Config{
 		ListenAddr:            env("FD_LISTEN_ADDR", ":8080"),
+		MetricsAddr:           env("FD_METRICS_ADDR", ":9090"),
 		StaticRoot:            env("FD_STATIC_ROOT", ""),
 		PromURL:               env("FD_PROM_URL", ""),
 		PromTokenFile:         env("FD_PROM_TOKEN_FILE", ""),
