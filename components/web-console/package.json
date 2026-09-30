@@ -7,7 +7,9 @@
     "architecture:check": "node scripts/check-architecture-config.mjs",
     "build": "react-router build",
     "build:storybook": "STORYBOOK=true storybook build --output-dir storybook-static",
-    "check": "pnpm run format:check && pnpm run architecture:check && pnpm run lint && pnpm run typecheck && pnpm run test:run && pnpm run i18n:check && pnpm run build && pnpm run build:storybook",
+    "storybook:mockups": "STORYBOOK=true storybook dev --config-dir .storybook-mockups --port 6007 --no-open",
+    "build:storybook:mockups": "STORYBOOK=true storybook build --config-dir .storybook-mockups --output-dir ../../specs/web-console/mockups/storybook-static",
+    "check": "pnpm run format:check && pnpm run architecture:check && pnpm run lint && pnpm run typecheck && pnpm run test:run && pnpm run i18n:check && pnpm run build && pnpm run build:storybook && pnpm run build:storybook:mockups",
     "dev": "react-router dev",
     "format:check": "prettier --check .",
     "i18n:check": "formatjs extract 'app/**/*.{ts,tsx}' '../../packages/gateway-management-ui/src/**/*.{ts,tsx}' '../../packages/operational-dashboard-ui/src/**/*.{ts,tsx}' --out-file /tmp/hypershell-web-console-en.json && cmp locales/en.json /tmp/hypershell-web-console-en.json",
@@ -19,7 +21,8 @@
     "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:live": "playwright test --config playwright.live.config.ts",
     "test:run": "vitest run --coverage",
-    "typecheck": "react-router typegen && tsc --project tsconfig.app.json --noEmit && tsc --project tsconfig.test.json --noEmit"
+    "typecheck": "react-router typegen && tsc --project tsconfig.app.json --noEmit && tsc --project tsconfig.test.json --noEmit && pnpm run typecheck:mockups",
+    "typecheck:mockups": "tsc --project ../../specs/web-console/mockups/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@openshift-online/hypershell-domain-probes": "workspace:0.0.0",
