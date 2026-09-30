@@ -2,8 +2,8 @@
 """Fail when a YAML file under deploy/base is not reachable from any kustomization.
 
 Orphaned manifests drift silently from the live copies (they still get edited
-but nothing deploys them), so every deploy/base YAML must be referenced, directly
-or through a referenced directory, by a kustomization.yaml under deploy/.
+but nothing deploys them), so every deploy/base YAML must be reachable, directly
+or through a referenced directory, from a root kustomization (see main()).
 """
 
 import re
@@ -40,9 +40,18 @@ def referenced_paths(kfile: Path) -> set[Path]:
 
 
 def main() -> int:
-    reachable: set[Path] = set()
-    queue = kustomization_files()
-    reachable.update(k.resolve() for k in queue)
+    # Roots are the consumable entry points: every kustomization outside
+    # deploy/base (overlays, gitops packages, components) plus deploy/base's own
+    # top-level kustomization. Nested base kustomizations count only when a
+    # reachable parent references their directory, so a dead subtree that ships
+    # its own kustomization.yaml is still reported.
+    roots = [
+        k
+        for k in kustomization_files()
+        if BASE not in k.parents or k.parent == BASE
+    ]
+    reachable: set[Path] = {k.resolve() for k in roots}
+    queue = list(roots)
     while queue:
         kfile = queue.pop()
         for path in referenced_paths(kfile):
@@ -62,7 +71,7 @@ def main() -> int:
         if p.resolve() not in reachable
     )
     if orphans:
-        print("Orphaned manifests under deploy/base (not referenced by any kustomization):")
+        print("Orphaned manifests under deploy/base (not reachable from any overlay or root kustomization):")
         for orphan in orphans:
             print(f"  {orphan}")
         print("Reference them from a kustomization.yaml or delete them.")
