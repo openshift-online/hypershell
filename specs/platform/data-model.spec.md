@@ -478,28 +478,88 @@ With `-o json`: JSON array of all applied resources.
 hsctl apply -k <dir>                # build kustomization in <dir> and apply the result
 ```
 
-Equivalent to: build the kustomization (resolve `bases`, `resources`, merge `patches`) into a flat manifest stream, then apply each document in order.
+Builds and applies HyperShell resources from a Kustomize directory. The `-k` flag shells out to the `kustomize` binary (which must be installed and available in PATH), builds the manifests, and applies each resource using the same reconciliation logic as `-f`.
 
-The kustomization schema is a subset of Kubernetes Kustomize:
+##### Security Features
+
+The implementation includes the following security constraints:
+
+1. **No Arbitrary Plugin Execution**: The command runs kustomize with `--enable-alpha-plugins=false` to prevent execution of arbitrary plugins.
+
+2. **Load Restrictions**: Uses `--load-restrictor=LoadRestrictionsRootOnly` to restrict local file loading to the kustomize root directory. Note that remote bases referenced via git or http URLs in `kustomization.yaml` are not blocked by this restriction.
+
+3. **No Secret Leakage**: The command does not print secret values. Only resource status (created/configured/unchanged) is displayed.
+
+##### Kustomize Schema
+
+The kustomization schema is standard Kubernetes Kustomize:
 
 ```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-resources:           # relative paths to YAML files included in this build
-  - gateways/
-  - releases/
+resources:           # relative paths to YAML files or directories included in this build
+  - gateway.yaml
+  - cluster.yaml
+  - release.yaml
 
-bases:               # other kustomization directories to include first
+bases:               # (deprecated - use resources instead) other kustomization directories to include
   - ../../base
 
-patches:             # strategic-merge patches applied after resource collection
+patches:             # strategic-merge or JSON patches applied after resource collection
   - path: gateway-patch.yaml
     target:
       kind: Gateway
-      name: api-gw-us-east
+      name: api-gateway
 ```
 
-Patches use **strategic merge**: scalar fields overwrite, maps merge, sequences replace.
+Patches use **strategic merge** by default: scalar fields overwrite, maps merge, sequences replace.
+
+##### Directory Structure Example
+
+```
+.hypershell/
+├── base/
+│   ├── kustomization.yaml
+│   ├── gateway.yaml
+│   ├── cluster.yaml
+│   └── release.yaml
+└── overlays/
+    ├── dev/
+    │   ├── kustomization.yaml
+    │   └── patches/
+    ├── staging/
+    │   ├── kustomization.yaml
+    │   └── patches/
+    └── prod/
+        ├── kustomization.yaml
+        └── patches/
+```
+
+##### Error Handling
+
+The command provides clear error messages for common issues:
+
+- **Missing Directory**: `Error: kustomize directory not found: /nonexistent`
+- **Missing kustomization.yaml**: `Error: no kustomization.yaml or kustomization.yml found in ./empty-dir/`
+- **Invalid Kustomize Content**: `Error: kustomize build failed: <detailed error from kustomize>`
+- **Kustomize Binary Missing**: `Error: kustomize binary not found in PATH - install from https://kustomize.io/`
+
+Build and validation errors identify source files and return non-zero exit codes.
+
+##### Reconciliation Behavior
+
+The `-k` flag uses the same reconciliation semantics as `-f`:
+
+- If a resource with the same name exists, it is updated (PATCH)
+- If a resource does not exist, it is created (POST)
+- Resources are applied in the order they appear in the kustomize output
+- Unsupported kinds are skipped with a warning (does not fail the command)
+
+##### Requirements
+
+- `kustomize` binary must be installed and available in PATH
+- Install from: https://kustomize.io/
 
 #### Examples
 
@@ -524,10 +584,10 @@ cat gateway.yaml | hsctl apply -f -
 
 | Flag | Description | Status |
 |---|---|---|
-| `-f <path>` | File, directory, or `-` for stdin. Mutually exclusive with `-k`. | 🔲 planned |
-| `-k <dir>` | Kustomize directory. Mutually exclusive with `-f`. | 🔲 planned |
-| `--dry-run` | Print what would be applied without making API calls. | 🔲 planned |
-| `-o json` | JSON output (array of applied resources). | 🔲 planned |
+| `-f <path>` | File, directory, or `-` for stdin. Mutually exclusive with `-k`. | ✅ implemented |
+| `-k <dir>` | Kustomize directory. Mutually exclusive with `-f`. | ✅ implemented |
+| `--dry-run` | Print what would be applied without making API calls. | ✅ implemented |
+| `-o json` | JSON output (array of applied resources). | ✅ implemented |
 
 #### Status column
 
@@ -536,6 +596,7 @@ cat gateway.yaml | hsctl apply -f -
 | `created` | Resource did not exist; POST succeeded. |
 | `configured` | Resource existed; PATCH applied one or more changes. |
 | `unchanged` | Resource existed and matched desired state; no API call made. |
+| `dry-run` | Dry-run mode; resource would be applied (with `-o json` only). |
 
 ### Global Flags
 
