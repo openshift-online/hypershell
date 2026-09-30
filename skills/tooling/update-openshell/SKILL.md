@@ -230,6 +230,18 @@ to the footprint table.
    The tag IS the image tag - no transformation needed. Target image:
    `quay.io/opendatahub/odh-openshell-gateway:<tag>`
 
+   **Exit condition - compare FULL tags including rhaiv suffix:**
+
+   After resolving both versions, compare the full midstream tag strings:
+   - If `latest_midstream_tag == current_pin` (exact string match) → **exit, nothing to update.**
+   - If they differ for **any reason** - different base version, different rhaiv patch number,
+     or different rhaiv suffix format - → **proceed with the update.**
+
+   A rhaiv patch increment (`rhaiv.0` → `rhaiv.2`) on the same NVIDIA base version IS
+   still an update and must be applied. The NVIDIA base version comparison in Step 2 is
+   **FOR TRIAGE ONLY** (to find which release notes to read); it is NOT the update trigger.
+   Never conclude "no update needed" because the NVIDIA base matches - compare the full tags.
+
    **Agent build track (unmerged upstream branch/commit):**
 
    Invoke the HyperShell build agent, specifying the NVIDIA/OpenShell branch or
@@ -409,6 +421,18 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **Skill correction (2026-09-30, rhaiv-exit-condition bug):** Agent ran the nightly
+  update-openshell job with current pin `v0.1.2-rhaiv.0` and latest midstream tag
+  `v0.1.2-rhaiv.2`. It correctly fetched both, but then concluded "no update needed"
+  because the NVIDIA upstream base release (`v0.1.2`) already matched the current pin's
+  base. The agent conflated the triage BASE version comparison (Step 2, for finding
+  release notes) with the update trigger. Root cause: the skill had no explicit exit
+  condition comparing FULL midstream tags; the NVIDIA base-version check appeared to be
+  the deciding gate. Fix: added an explicit "Exit condition" block in Step 1 that mandates
+  comparing full tag strings (including rhaiv suffix) and explicitly states the NVIDIA
+  base comparison is triage-only, not the update trigger. A rhaiv patch bump on the same
+  NVIDIA base is always an update.
 
 - **v0.1.2-rhaiv.0 (2026-09-28, v0.0.116-rhaiv.6 -> v0.1.2-rhaiv.0, triggered by Step 0 / issue #366):**
   This is the first minor-version midstream bump (0.0.x -> 0.1.x). Triggered automatically:
