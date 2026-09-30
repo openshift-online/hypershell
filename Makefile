@@ -228,8 +228,13 @@ check-dependency-pins: test-dependency-pin-policy
 check-ci-components:
 	python3 scripts/check_ci_components.py
 
+.PHONY: test-deploy-orphans-policy
+test-deploy-orphans-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_deploy_orphans.py
+
 .PHONY: check-deploy-orphans
-check-deploy-orphans:
+check-deploy-orphans: test-deploy-orphans-policy
+
 	python3 scripts/check_deploy_orphans.py
 
 .PHONY: test-dependency-age-policy
