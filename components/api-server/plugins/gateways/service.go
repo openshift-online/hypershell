@@ -246,7 +246,7 @@ func desiredStateChanged(current, next *Gateway) bool {
 // spacing) and never byte-equals the compact JSON a client writes back. A
 // byte compare would report a spurious desired-state change on every write,
 // bumping generation and re-opening the control plane's convergence gate.
-// Non-JSON values fall back to a string compare.
+// Unparseable values are treated as changed unless byte-identical.
 func jsonEq(a, b *string) bool {
 	if a == nil || b == nil {
 		return a == b
