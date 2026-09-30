@@ -17,23 +17,46 @@ function documentWithMeta(content: string | undefined): Document {
 }
 
 describe("readBrowserRuntimeConfig", () => {
-  it("reads the sample ratio from the injected meta tag", () => {
+  it("reads the sample ratio and build versions from the meta tag", () => {
     const config = readBrowserRuntimeConfig(
-      documentWithMeta('{"tracing":{"sampleRatio":0.25}}'),
+      documentWithMeta(
+        '{"apiVersion":"abc1234","tracing":{"sampleRatio":0.25},"webVersion":"def5678"}',
+      ),
     );
 
-    expect(config).toEqual({ tracing: { sampleRatio: 0.25 } });
+    expect(config).toEqual({
+      apiVersion: "abc1234",
+      tracing: { sampleRatio: 0.25 },
+      webVersion: "def5678",
+    });
+  });
+
+  it("defaults build versions to unknown without disabling tracing", () => {
+    for (const content of [
+      '{"tracing":{"sampleRatio":0.25}}',
+      '{"apiVersion":5,"tracing":{"sampleRatio":0.25},"webVersion":""}',
+    ]) {
+      expect(readBrowserRuntimeConfig(documentWithMeta(content))).toEqual({
+        apiVersion: "unknown",
+        tracing: { sampleRatio: 0.25 },
+        webVersion: "unknown",
+      });
+    }
   });
 
   it("samples nothing when the meta tag is absent", () => {
     expect(readBrowserRuntimeConfig(documentWithMeta(undefined))).toEqual({
+      apiVersion: "unknown",
       tracing: { sampleRatio: 0 },
+      webVersion: "unknown",
     });
   });
 
   it("fails closed to no tracing when the content is not valid JSON", () => {
     expect(readBrowserRuntimeConfig(documentWithMeta("not-json"))).toEqual({
+      apiVersion: "unknown",
       tracing: { sampleRatio: 0 },
+      webVersion: "unknown",
     });
   });
 
@@ -46,7 +69,9 @@ describe("readBrowserRuntimeConfig", () => {
       "{}",
     ]) {
       expect(readBrowserRuntimeConfig(documentWithMeta(content))).toEqual({
+        apiVersion: "unknown",
         tracing: { sampleRatio: 0 },
+        webVersion: "unknown",
       });
     }
   });

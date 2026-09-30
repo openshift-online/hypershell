@@ -1,4 +1,4 @@
-package gateway
+package gatewayconnect
 
 import (
 	"bytes"
@@ -27,7 +27,7 @@ func TestShellArg(t *testing.T) {
 }
 
 func TestPrintConnectionInstructions_InvalidJSON(t *testing.T) {
-	err := printConnectionInstructions(&bytes.Buffer{}, []byte("not-json"))
+	err := WriteInstructions(&bytes.Buffer{}, []byte("not-json"))
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -55,7 +55,7 @@ func TestBuildConnectionScript_IncludesDriverConfig(t *testing.T) {
 func TestPrintConnectionInstructions_PendingWhenEmpty(t *testing.T) {
 	body := []byte(`{"name":"mygw","phase":"ready"}`)
 	var buf bytes.Buffer
-	if err := printConnectionInstructions(&buf, body); err != nil {
+	if err := WriteInstructions(&buf, body); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()

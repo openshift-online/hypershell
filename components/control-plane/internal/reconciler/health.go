@@ -33,6 +33,15 @@ const gatewayHealthWorkerCount = 4
 // specs/platform/openshell-gateway-routing.spec.md § Gateway Exposure Configuration.
 const defaultRouteReadyTimeout = 10 * time.Minute
 
+// defaultDeploymentReadyTimeout is the grace window a provisioning gateway's
+// Deployment may remain not-Ready (pods pending, pulling images, or starting)
+// before the health loop moves the gateway to Degraded. The provisioning path
+// normally reports Degraded itself once its own, shorter readiness window
+// elapses; this window is the health loop's backstop for a provisioning pass
+// that never completes (e.g. the control plane restarted mid-provision). See
+// openshell-gateway-health.spec.md § Phase Reflects Workload and Route Readiness.
+const defaultDeploymentReadyTimeout = 10 * time.Minute
+
 // routeVerifyInterval is the minimum time between residual route/console
 // absence re-checks for a settled (torn-down, addressless) gateway.
 //
@@ -59,16 +68,17 @@ type GatewayHealthReconciler struct {
 	// list is filtered server-side so a control plane never stamps
 	// (Degraded/Running) a gateway owned by another cluster. Always set: it is
 	// the control plane's registered cluster id.
-	clusterID             string
-	interval              time.Duration
-	exposure              exposure.Port
-	routeReadyTimeout     time.Duration
-	keycloakConfig        *gateway.KeycloakConfig
-	isOpenShift           bool
-	hasGatewayAPI         bool
-	ingressMode           string
-	versionObserver       gatewayVersionObserver
-	controlPlaneNamespace string
+	clusterID              string
+	interval               time.Duration
+	exposure               exposure.Port
+	routeReadyTimeout      time.Duration
+	deploymentReadyTimeout time.Duration
+	keycloakConfig         *gateway.KeycloakConfig
+	isOpenShift            bool
+	hasGatewayAPI          bool
+	ingressMode            string
+	versionObserver        gatewayVersionObserver
+	controlPlaneNamespace  string
 
 	// The shared client returns a protected token snapshot to each worker.
 	consoleClientChecker gateway.ConsoleClientChecker
@@ -81,6 +91,12 @@ type GatewayHealthReconciler struct {
 	// window can be enforced during provisioning. Entries are cleared once the
 	// gateway settles (Running, Degraded, or Deployment not Ready). In-memory
 	// only: on restart the window restarts, which is acceptable.
+	//
+	// deploymentNotReadySince records, per gateway, when its Deployment was first
+	// observed not Ready (with no rollout in progress) while the gateway was still
+	// Provisioning, so the deployment-readiness grace window can be enforced.
+	// Cleared once the Deployment is Ready or the gateway leaves Provisioning.
+	// In-memory only: on restart the window restarts, which is acceptable.
 	//
 	// routeTornDown records, per gateway, that a full route+console teardown has
 	// completed with no residual resources or stored addresses, so subsequent
@@ -96,10 +112,11 @@ type GatewayHealthReconciler struct {
 	// settled gateway keeps being re-verified forever at that low cadence, because
 	// elapsed wall-clock time is not proof that a stale provisioning pass cannot
 	// still resurrect resources (see routeVerifyInterval).
-	mu                 sync.Mutex
-	routeNotReadySince map[string]time.Time
-	routeTornDown      map[string]bool
-	routeVerifiedAt    map[string]time.Time
+	mu                      sync.Mutex
+	routeNotReadySince      map[string]time.Time
+	deploymentNotReadySince map[string]time.Time
+	routeTornDown           map[string]bool
+	routeVerifiedAt         map[string]time.Time
 	// mu also protects healthAccessCheckedAt. Entries expire after five minutes.
 	healthAccessCheckedAt map[string]time.Time
 }
@@ -122,24 +139,26 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
 	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
 	return &GatewayHealthReconciler{
-		clientset:             clientset,
-		dynamicClient:         dynamicClient,
-		grpcConn:              grpcConn,
-		clusterID:             clusterID,
-		versionObserver:       newHTTPGatewayVersionObserver(),
-		controlPlaneNamespace: controlPlaneNamespace,
-		interval:              defaultHealthInterval,
-		exposure:              exposurePort,
-		routeReadyTimeout:     routeReadyTimeout(),
-		keycloakConfig:        keycloakConfig,
-		consoleClientChecker:  consoleClientChecker,
-		isOpenShift:           isOpenShift,
-		hasGatewayAPI:         hasGatewayAPI,
-		ingressMode:           ingressMode,
-		now:                   time.Now,
-		routeNotReadySince:    make(map[string]time.Time),
-		routeTornDown:         make(map[string]bool),
-		routeVerifiedAt:       make(map[string]time.Time),
+		clientset:               clientset,
+		dynamicClient:           dynamicClient,
+		grpcConn:                grpcConn,
+		clusterID:               clusterID,
+		versionObserver:         newHTTPGatewayVersionObserver(),
+		controlPlaneNamespace:   controlPlaneNamespace,
+		interval:                defaultHealthInterval,
+		exposure:                exposurePort,
+		routeReadyTimeout:       routeReadyTimeout(),
+		deploymentReadyTimeout:  deploymentReadyTimeout(),
+		keycloakConfig:          keycloakConfig,
+		consoleClientChecker:    consoleClientChecker,
+		isOpenShift:             isOpenShift,
+		hasGatewayAPI:           hasGatewayAPI,
+		ingressMode:             ingressMode,
+		now:                     time.Now,
+		routeNotReadySince:      make(map[string]time.Time),
+		deploymentNotReadySince: make(map[string]time.Time),
+		routeTornDown:           make(map[string]bool),
+		routeVerifiedAt:         make(map[string]time.Time),
 	}
 }
 
@@ -174,6 +193,18 @@ func routeReadyTimeout() time.Duration {
 		log.Printf("WARN invalid GATEWAY_ROUTE_READY_TIMEOUT %q; using default %s", v, defaultRouteReadyTimeout)
 	}
 	return defaultRouteReadyTimeout
+}
+
+// deploymentReadyTimeout resolves the deployment-readiness grace window from
+// GATEWAY_DEPLOYMENT_READY_TIMEOUT, falling back to the default.
+func deploymentReadyTimeout() time.Duration {
+	if v := os.Getenv("GATEWAY_DEPLOYMENT_READY_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		log.Printf("WARN invalid GATEWAY_DEPLOYMENT_READY_TIMEOUT %q; using default %s", v, defaultDeploymentReadyTimeout)
+	}
+	return defaultDeploymentReadyTimeout
 }
 
 // Run drives the health reconciliation loop until the context is cancelled.
@@ -342,12 +373,16 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		return namespace, false
 	case !ready:
 		// The updated (current) revision's pods are unavailable and no roll is in
-		// progress: a steady-state degradation of the running release.
+		// progress. For a gateway that has not yet reached Running this is a
+		// first-time provisioning whose pods are still pending or starting, held
+		// at Provisioning within the grace window; otherwise it is a steady-state
+		// degradation of the running release.
 		h.clearRouteTimer(gatewayID)
-		desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), reason
+		desiredPhase, desiredStatus = h.evaluateDeploymentReadiness(gatewayID, phase, reason)
 	case h.exposure != nil && isRoutedGateway(gw):
 		// Deployment is Ready; a routed gateway additionally requires its external
 		// exposure to be observed Ready before it can be Running.
+		h.clearDeploymentTimer(gatewayID)
 		desiredPhase, desiredStatus = h.evaluateRouteReadiness(ctx, gatewayID, namespace, phase)
 		if desiredPhase == "" {
 			// Transient error observing the exposure; leave the phase untouched
@@ -355,6 +390,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 			return namespace, ready
 		}
 	default:
+		h.clearDeploymentTimer(gatewayID)
 		h.clearRouteTimer(gatewayID)
 		desiredPhase, desiredStatus = string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy
 	}
@@ -381,6 +417,24 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	// health reconciler only owns phase and status except while the lightweight
 	// Keycloak reconciler has published one of its fixed external-state markers.
 	update := observedGatewayHealthUpdate(gatewayID, phase, gw.GetStatus(), desiredPhase, desiredStatus, h.keycloakConfig != nil)
+
+	// The health reconciler owns finalizing the user-facing provisioning
+	// conditions after convergence. The provisioning body acknowledges
+	// observed_generation at manifest apply, so the convergence gate suppresses it
+	// before its later pass could set GatewayHealthy to Complete once the workload
+	// (and, for a routed gateway, its route) is observed ready. Whoever promotes a
+	// gateway to Running therefore also completes its conditions, so a Running
+	// gateway never reports an unfinished step. Only write when a condition is not
+	// already Complete, so a steady-state healthy tick adds no update traffic.
+	if desiredPhase == string(gatewayhealth.PhaseRunning) && desiredStatus == gatewayhealth.StatusHealthy {
+		if conds := gw.GetProvisioningConditions(); len(conds) > 0 && !allConditionsComplete(conds) {
+			if update == nil {
+				update = &pb.UpdateGatewayRequest{Id: gatewayID}
+			}
+			update.ProvisioningConditions = completedConditions(conds)
+		}
+	}
+
 	if update == nil {
 		return namespace, ready
 	}
@@ -427,6 +481,35 @@ func observedGatewayHealthUpdate(gatewayID, currentPhase, currentStatus, desired
 		Phase:  &desiredPhase,
 		Status: &desiredStatus,
 	}
+}
+
+// allConditionsComplete reports whether every provisioning condition is
+// Complete. An empty list is not complete: there is nothing to assert healthy.
+func allConditionsComplete(conds []*pb.ProvisioningCondition) bool {
+	if len(conds) == 0 {
+		return false
+	}
+	for _, c := range conds {
+		if c.GetConditionStatus() != pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE {
+			return false
+		}
+	}
+	return true
+}
+
+// completedConditions returns a copy of conds with every condition set to
+// Complete and its message cleared. The existing condition set and order are
+// preserved so the console stepper keeps the same steps it has been showing
+// (e.g. IdentityProviderReady stays absent when Keycloak is not configured).
+func completedConditions(conds []*pb.ProvisioningCondition) []*pb.ProvisioningCondition {
+	out := make([]*pb.ProvisioningCondition, len(conds))
+	for i, c := range conds {
+		out[i] = &pb.ProvisioningCondition{
+			Type:            c.GetType(),
+			ConditionStatus: pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE,
+		}
+	}
+	return out
 }
 
 // selfHealConsole re-reconciles the per-gateway console when it is observed not
@@ -667,6 +750,51 @@ func (h *GatewayHealthReconciler) evaluateRouteReadiness(ctx context.Context, ga
 	// currentPhase is Running (lost readiness) or Degraded (still unhealthy).
 	h.clearRouteTimer(gatewayID)
 	return string(gatewayhealth.PhaseDegraded), rr.Reason
+}
+
+// evaluateDeploymentReadiness decides the phase and status for a gateway whose
+// Deployment is not Ready and has no rollout in progress.
+//
+// The deployment-readiness grace window applies only while the gateway is still
+// provisioning (never yet Running): its pods may legitimately be pending,
+// pulling images, or starting, so within the window it stays Provisioning and
+// beyond it becomes Degraded. A gateway that had reached Running and then loses
+// readiness is moved to Degraded immediately, and a Degraded gateway stays
+// Degraded until its workload recovers.
+func (h *GatewayHealthReconciler) evaluateDeploymentReadiness(gatewayID, currentPhase, reason string) (string, string) {
+	if currentPhase == string(gatewayhealth.PhaseProvisioning) {
+		since := h.markDeploymentNotReady(gatewayID)
+		if h.now().Sub(since) >= h.deploymentReadyTimeout {
+			h.clearDeploymentTimer(gatewayID)
+			return string(gatewayhealth.PhaseDegraded), fmt.Sprintf("deployment not ready after %s: %s", h.deploymentReadyTimeout, reason)
+		}
+		return string(gatewayhealth.PhaseProvisioning), reason
+	}
+
+	// currentPhase is Running (lost readiness) or Degraded (still unhealthy).
+	h.clearDeploymentTimer(gatewayID)
+	return string(gatewayhealth.PhaseDegraded), reason
+}
+
+// markDeploymentNotReady records the first time a provisioning gateway's
+// Deployment was observed not Ready, returning that timestamp (existing or now).
+func (h *GatewayHealthReconciler) markDeploymentNotReady(gatewayID string) time.Time {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if t, ok := h.deploymentNotReadySince[gatewayID]; ok {
+		return t
+	}
+	t := h.now()
+	h.deploymentNotReadySince[gatewayID] = t
+	return t
+}
+
+// clearDeploymentTimer forgets any recorded deployment-not-ready start time for a
+// gateway.
+func (h *GatewayHealthReconciler) clearDeploymentTimer(gatewayID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.deploymentNotReadySince, gatewayID)
 }
 
 // markRouteNotReady records the first time the gateway's Deployment was observed

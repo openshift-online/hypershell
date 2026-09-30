@@ -3,13 +3,15 @@ package main
 import (
 	"testing"
 
+	pkgcmd "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/cmd"
+
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api"
 )
 
 // The serve command must keep exposing the framework's environment flags,
 // including the gRPC TLS ones the overlays set, or a hub would fail to start.
 func TestServeCommandRegistersGRPCTLSFlags(t *testing.T) {
-	cmd := newServeCommand(api.GetOpenAPISpec)
+	cmd := pkgcmd.NewServeCommand(api.GetOpenAPISpec)
 	if cmd.Use != "serve" {
 		t.Fatalf("command use %q, want serve", cmd.Use)
 	}

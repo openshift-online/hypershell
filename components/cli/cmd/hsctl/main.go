@@ -16,6 +16,7 @@ import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/login"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/logout"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/revoke"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/ui"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/version"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/whoami"
 )
@@ -39,6 +40,7 @@ func init() {
 	root.AddCommand(login.Cmd)
 	root.AddCommand(logout.Cmd)
 	root.AddCommand(revoke.Cmd)
+	root.AddCommand(ui.Cmd)
 	root.AddCommand(version.Cmd)
 	root.AddCommand(whoami.Cmd)
 }

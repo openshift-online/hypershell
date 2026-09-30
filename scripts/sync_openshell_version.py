@@ -18,15 +18,15 @@ VERSION_FILE = REPO_ROOT / "OPENSHELL_VERSION"
 MANAGED_FILES: list[tuple[Path, list[str]]] = [
     (
         REPO_ROOT / "deploy" / "base" / "platform-resources" / "controller.yaml",
-        ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE"],
+        ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE", "GATEWAY_SANDBOX_RUNTIME_IMAGE"],
     ),
     (
         REPO_ROOT / "deploy" / "base" / "control-plane" / "deployment.yaml",
-        ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE"],
+        ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE", "GATEWAY_SANDBOX_RUNTIME_IMAGE"],
     ),
     (
         REPO_ROOT / "deploy" / "ibm" / "kustomization.yaml",
-        ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE"],
+        ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE", "GATEWAY_SANDBOX_RUNTIME_IMAGE"],
     ),
 ]
 

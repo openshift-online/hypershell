@@ -3,7 +3,7 @@ package serviceAccounts
 import (
 	"time"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"gorm.io/gorm"
 )
 

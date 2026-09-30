@@ -5,7 +5,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/rh-trex-ai/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 )
 
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
@@ -36,29 +36,31 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
-		Id:                reference.Id,
-		Kind:              reference.Kind,
-		Href:              reference.Href,
-		CreatedAt:         openapi.PtrTime(gateway.CreatedAt),
-		UpdatedAt:         openapi.PtrTime(gateway.UpdatedAt),
-		Name:              gateway.Name,
-		ClusterId:         gateway.ClusterId,
-		ReleaseId:         gateway.ReleaseId,
-		Namespace:         gateway.Namespace,
-		ExternalDns:       gateway.ExternalDns,
-		TlsMode:           gateway.TlsMode,
-		ServiceType:       gateway.ServiceType,
-		Status:            gateway.Status,
-		Phase:             gateway.Phase,
-		Image:             gateway.Image,
-		SupervisorImage:   gateway.SupervisorImage,
-		RouteAddress:      gateway.RouteAddress,
-		ConsoleAddress:    gateway.ConsoleAddress,
-		GatewayVersion:    gateway.GatewayVersion,
-		ObservedReleaseId: gateway.ObservedReleaseId,
-		Oidc:              gateway.Oidc,
-		Route:             gateway.Route,
-		CredentialDriver:  gateway.CredentialDriver,
+		Id:                 reference.Id,
+		Kind:               reference.Kind,
+		Href:               reference.Href,
+		CreatedAt:          openapi.PtrTime(gateway.CreatedAt),
+		UpdatedAt:          openapi.PtrTime(gateway.UpdatedAt),
+		Name:               gateway.Name,
+		ClusterId:          gateway.ClusterId,
+		ReleaseId:          gateway.ReleaseId,
+		Namespace:          gateway.Namespace,
+		ExternalDns:        gateway.ExternalDns,
+		TlsMode:            gateway.TlsMode,
+		ServiceType:        gateway.ServiceType,
+		Status:             gateway.Status,
+		Phase:              gateway.Phase,
+		Image:              gateway.Image,
+		SupervisorImage:    gateway.SupervisorImage,
+		RouteAddress:       gateway.RouteAddress,
+		ConsoleAddress:     gateway.ConsoleAddress,
+		GatewayVersion:     gateway.GatewayVersion,
+		ObservedReleaseId:  gateway.ObservedReleaseId,
+		Oidc:               gateway.Oidc,
+		Route:              gateway.Route,
+		CredentialDriver:   gateway.CredentialDriver,
+		Generation:         &gateway.Generation,
+		ObservedGeneration: &gateway.ObservedGeneration,
 		ActiveSandboxCount: func() *int32 {
 			if gateway.ActiveSandboxCount != nil {
 				return openapi.PtrInt32(int32(*gateway.ActiveSandboxCount))

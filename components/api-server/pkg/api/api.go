@@ -2,7 +2,7 @@ package api
 
 // Import core TRex API types
 import (
-	trexapi "github.com/openshift-online/rh-trex-ai/pkg/api"
+	trexapi "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 )
 
 // Re-export TRex types for convenience

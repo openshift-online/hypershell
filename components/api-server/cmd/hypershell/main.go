@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	localapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
-	pkgcmd "github.com/openshift-online/rh-trex-ai/pkg/cmd"
+	pkgcmd "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/cmd"
 
 	_ "github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
@@ -22,8 +22,8 @@ import (
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/serviceAccounts"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/users"
-	_ "github.com/openshift-online/rh-trex-ai/plugins/events"
-	_ "github.com/openshift-online/rh-trex-ai/plugins/generic"
+	_ "github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
+	_ "github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 // rh-trex-ai includes HTTP request headers and request and response bodies at
@@ -39,7 +39,7 @@ func main() {
 	}
 	rootCmd.AddCommand(
 		pkgcmd.NewMigrateCommand("hypershell"),
-		newServeCommand(localapi.GetOpenAPISpec),
+		pkgcmd.NewServeCommand(localapi.GetOpenAPISpec),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

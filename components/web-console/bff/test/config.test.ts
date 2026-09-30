@@ -1,4 +1,4 @@
-import { browserRuntimeConfig, loadConfig } from "../src/config.js";
+import { browserRuntimeConfig, loadConfig, shortSha } from "../src/config.js";
 
 describe("loadConfig", () => {
   it("validates and normalizes trusted runtime configuration", () => {
@@ -138,6 +138,20 @@ describe("loadConfig", () => {
   });
 });
 
+describe("shortSha", () => {
+  it("truncates a full commit sha to the short form", () => {
+    expect(shortSha("c05eb79c0123456789abcdef0123456789abcdef")).toBe(
+      "c05eb79",
+    );
+  });
+
+  it("keeps non-sha version strings as-is", () => {
+    expect(shortSha("c05eb79")).toBe("c05eb79");
+    expect(shortSha("v1.2.3")).toBe("v1.2.3");
+    expect(shortSha("unknown")).toBe("unknown");
+  });
+});
+
 describe("browserRuntimeConfig", () => {
   it("mirrors the configured sample ratio to the browser allowlist", () => {
     const config = loadConfig({
@@ -147,7 +161,9 @@ describe("browserRuntimeConfig", () => {
     });
 
     expect(browserRuntimeConfig(config)).toEqual({
+      apiVersion: "unknown",
       tracing: { sampleRatio: 0.25 },
+      webVersion: "unknown",
     });
   });
 
@@ -155,8 +171,31 @@ describe("browserRuntimeConfig", () => {
     const config = loadConfig({ STATIC_ROOT: "./public" });
 
     expect(browserRuntimeConfig(config)).toEqual({
+      apiVersion: "unknown",
       tracing: { sampleRatio: 0 },
+      webVersion: "unknown",
     });
+  });
+
+  it("relays the API version and the stamped console version", () => {
+    const config = loadConfig({
+      HYPERSHELL_WEB_VERSION: "def5678",
+      STATIC_ROOT: "./public",
+    });
+
+    expect(browserRuntimeConfig(config, "abc1234")).toEqual({
+      apiVersion: "abc1234",
+      tracing: { sampleRatio: 0 },
+      webVersion: "def5678",
+    });
+  });
+
+  it("defaults the console version to unknown when unset or blank", () => {
+    expect(loadConfig({ STATIC_ROOT: "./public" }).webVersion).toBe("unknown");
+    expect(
+      loadConfig({ HYPERSHELL_WEB_VERSION: "  ", STATIC_ROOT: "./public" })
+        .webVersion,
+    ).toBe("unknown");
   });
 
   it("exposes no server-only configuration to the browser", () => {
@@ -171,7 +210,11 @@ describe("browserRuntimeConfig", () => {
     expect(serialized).not.toContain("collector.example.test");
     expect(serialized).not.toContain("a".repeat(64));
     expect(serialized).not.toContain("openshift-online");
-    expect(Object.keys(browserRuntimeConfig(config))).toEqual(["tracing"]);
+    expect(Object.keys(browserRuntimeConfig(config)).sort()).toEqual([
+      "apiVersion",
+      "tracing",
+      "webVersion",
+    ]);
   });
 });
 

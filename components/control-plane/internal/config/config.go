@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // DefaultGatewayDatabaseAdminDir is where the controller Deployment mounts the
@@ -84,6 +87,12 @@ type Config struct {
 	// GATEWAY_DATABASE_ADMIN_DIR; the controller refuses to start unless it holds
 	// a complete, verify-full credential set (see gateway.ValidateAdminCredentialsDir).
 	GatewayDatabaseAdminDir string
+
+	// GatewayResources overrides the gateway container requests and limits
+	// passed to the Helm chart. Parsed from GATEWAY_RESOURCES (JSON
+	// ResourceRequirements); nil when unset, so the chart values use
+	// helm.DefaultGatewayResources. See specs/platform/openshell-gateway.spec.md.
+	GatewayResources *corev1.ResourceRequirements
 }
 
 func Load() (*Config, error) {
@@ -133,6 +142,17 @@ func Load() (*Config, error) {
 		if strings.TrimSpace(r.value) == "" {
 			return nil, fmt.Errorf("%s is required: every control plane registers with the hub as a managed cluster (specs/platform/control-plane.spec.md, Mandatory Cluster Identity)", r.name)
 		}
+	}
+
+	// An invalid GATEWAY_RESOURCES fails startup rather than falling back to the
+	// defaults like the other tunables: silently ignoring an operator's sizing
+	// could leave gateways under-provisioned and OOMKilled with no signal.
+	if v := os.Getenv("GATEWAY_RESOURCES"); v != "" {
+		rr, err := helm.ParseGatewayResources(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GATEWAY_RESOURCES: %w", err)
+		}
+		cfg.GatewayResources = &rr
 	}
 
 	// Validate Helm configuration

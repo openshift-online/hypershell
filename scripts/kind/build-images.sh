@@ -53,7 +53,9 @@ else
 
   info "Building web console..."
   ${CONTAINER_ENGINE} build -t "${web_console_local}" \
-    -f "${BUILD_DIR}/components/web-console/Dockerfile" "${BUILD_DIR}"
+    -f "${BUILD_DIR}/components/web-console/Dockerfile" \
+    --build-arg GIT_VERSION="${build_version}" \
+    "${BUILD_DIR}"
 
   success "All images built"
 fi

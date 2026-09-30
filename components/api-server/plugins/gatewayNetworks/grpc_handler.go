@@ -9,10 +9,10 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
-	pkgserver "github.com/openshift-online/rh-trex-ai/pkg/server"
-	"github.com/openshift-online/rh-trex-ai/pkg/server/grpcutil"
-	"github.com/openshift-online/rh-trex-ai/pkg/services"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server/grpcutil"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
 type gatewayNetworkGRPCHandler struct {

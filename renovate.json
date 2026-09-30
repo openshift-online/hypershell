@@ -17,10 +17,10 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "OpenShell gateway and supervisor images pinned as env var values in deployment manifests",
+      "description": "OpenShell gateway, supervisor, and sandbox runtime images pinned as env var values in deployment manifests",
       "managerFilePatterns": ["^deploy/base/.*\\.yaml$"],
       "matchStrings": [
-        "-\\s*name:\\s*GATEWAY(?:_SUPERVISOR)?_IMAGE\\n\\s+value:\\s*(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?"
+        "-\\s*name:\\s*GATEWAY(?:_SUPERVISOR|_SANDBOX_RUNTIME)?_IMAGE\\n\\s+value:\\s*(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?"
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-rhaiv\\.(?<build>\\d+)$"
@@ -66,11 +66,12 @@
       "automerge": true
     },
     {
-      "description": "Group OpenShell gateway and supervisor image updates into a single PR",
+      "description": "Group OpenShell gateway, supervisor, and sandbox runtime image updates into a single PR",
       "matchManagers": ["custom.regex"],
       "matchPackageNames": [
         "quay.io/opendatahub/odh-openshell-gateway",
-        "quay.io/opendatahub/odh-openshell-supervisor"
+        "quay.io/opendatahub/odh-openshell-supervisor",
+        "quay.io/opendatahub/odh-openshell-sandbox"
       ],
       "groupName": "OpenShell images"
     },

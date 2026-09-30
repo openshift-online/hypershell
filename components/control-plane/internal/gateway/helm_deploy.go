@@ -21,9 +21,10 @@ func deployGatewayViaHelm(
 	// Build Helm values from gateway configuration
 	valuesBuilder := &helm.ValuesBuilder{
 		Gateway: helm.GatewayConfig{
-			Image:           nsConfig.Gateway.Image,
-			SupervisorImage: nsConfig.Gateway.SupervisorImage,
-			ServerDnsNames:  nsConfig.Gateway.ServerDnsNames,
+			Image:               nsConfig.Gateway.Image,
+			SupervisorImage:     nsConfig.Gateway.SupervisorImage,
+			SandboxRuntimeImage: nsConfig.Gateway.SandboxRuntimeImage,
+			ServerDnsNames:      nsConfig.Gateway.ServerDnsNames,
 			OIDC: helm.OIDCConfig{
 				Issuer:      nsConfig.Gateway.OIDC.Issuer,
 				Audience:    nsConfig.Gateway.OIDC.Audience,
@@ -54,6 +55,7 @@ func deployGatewayViaHelm(
 		ExternalCAIssuerName:       opts.ExternalCAIssuerName,
 		ExternalCAIssuerKind:       opts.ExternalCAIssuerKind,
 		HasTrustedCA:               hasTrustedCA,
+		Resources:                  opts.GatewayResources,
 	}
 
 	values, err := valuesBuilder.Build()

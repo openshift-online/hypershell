@@ -8,6 +8,7 @@ import { UserIcon } from "@patternfly/react-icons";
 import { useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
+import { readBrowserRuntimeConfig } from "../../composition/browser-runtime-config";
 import { messages } from "../../i18n/messages";
 import { useSession } from "./use-session";
 
@@ -21,6 +22,7 @@ export function UserMenu() {
   const intl = useIntl();
   const [isOpen, setIsOpen] = useState(false);
   const { data: session } = useSession();
+  const runtimeConfig = readBrowserRuntimeConfig();
 
   if (!session?.authenticated) {
     return null;
@@ -55,6 +57,18 @@ export function UserMenu() {
       )}
     >
       <DropdownList>
+        <DropdownItem isDisabled>
+          <FormattedMessage
+            {...messages.consoleVersion}
+            values={{ version: runtimeConfig.webVersion }}
+          />
+        </DropdownItem>
+        <DropdownItem isDisabled>
+          <FormattedMessage
+            {...messages.apiVersion}
+            values={{ version: runtimeConfig.apiVersion }}
+          />
+        </DropdownItem>
         <DropdownItem to="/auth/logout">
           <FormattedMessage {...messages.logout} />
         </DropdownItem>

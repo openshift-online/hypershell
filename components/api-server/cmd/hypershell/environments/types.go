@@ -1,7 +1,7 @@
 package environments
 
 import (
-	pkgenv "github.com/openshift-online/rh-trex-ai/pkg/environments"
+	pkgenv "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 const (

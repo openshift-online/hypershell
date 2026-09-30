@@ -200,6 +200,7 @@ build-cli:
 .PHONY: build-web-console
 build-web-console:
 	$(CONTAINER_ENGINE) build -t $(web_console_local) \
+		--build-arg GIT_VERSION=$(build_version) \
 		-f components/web-console/Dockerfile .
 
 # ============================================================================
@@ -237,6 +238,17 @@ check-dependency-age: test-dependency-age-policy
 .PHONY: sync-openshell-version
 sync-openshell-version:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py --stamp
+
+.PHONY: vendor-openshell-chart
+vendor-openshell-chart:
+	@. ./OPENSHELL_VERSION && \
+	  echo "Vendoring OpenShell chart $$OPENSHELL_TAG from $$OPENSHELL_CHART_REPO..." && \
+	  git clone --depth 1 --branch "$$OPENSHELL_TAG" "$$OPENSHELL_CHART_REPO" /tmp/openshell-chart-vendor && \
+	  rm -rf charts/openshell && \
+	  cp -r /tmp/openshell-chart-vendor/deploy/helm/openshell charts/openshell && \
+	  rm -rf /tmp/openshell-chart-vendor && \
+	  grep -rl $$'\xe2\x80\x94' charts/openshell/ | xargs -r sed -i 's/\xe2\x80\x94/-/g' && \
+	  echo "Vendored charts/openshell/ at $$OPENSHELL_TAG"
 
 .PHONY: test-openshell-version-policy
 test-openshell-version-policy:
@@ -324,6 +336,7 @@ lint-gateway-management-ui: install-js
 
 .PHONY: lint-web-console
 lint-web-console: install-js
+	$(PNPM) --filter @openshift-online/hypershell-sdk build
 	$(PNPM) --filter @openshift-online/hypershell-domain-probes check
 	$(PNPM) --filter @openshift-online/hypershell-web-console check
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff check

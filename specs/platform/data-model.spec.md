@@ -57,6 +57,7 @@ erDiagram
         string release_id FK
         string namespace
         string image
+        string supervisor_image
         string[] server_dns_names
         jsonb oidc
         jsonb route
@@ -69,6 +70,8 @@ erDiagram
         string phase
         string gateway_version
         string observed_release_id
+        int generation
+        int observed_generation
         time created_at
         time updated_at
         time deleted_at
@@ -165,7 +168,7 @@ All fields in the table below SHALL be part of the REST and gRPC Gateway create 
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:fd0090fbaf1f5aa9e05f7c66d1078b83acc247407ed51ec531a76e3af5a27775`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/controller.yaml`) |
 | `sandbox_image` | string | Sandbox base image the gateway uses when launching sandboxes (default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`). Control plane passes the resolved value as Helm `server.sandboxImage`. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
@@ -189,6 +192,121 @@ A Gateway SHALL track its deployment lifecycle through the `phase` field. The `s
 - WHEN the control plane provisions it on the target cluster
 - THEN the phase SHALL transition to "Provisioning"
 - AND upon successful deployment, to "Running"
+
+### Requirement: Gateway Generation Tracking
+
+A Gateway SHALL carry a monotonic `generation` and an `observed_generation`
+that together let the control plane distinguish a genuine desired-state change
+from a redundant reconciliation event.
+
+The API server SHALL increment `generation` whenever any field of the Gateway's
+desired spec changes, including `image`, `supervisor_image`, `server_dns_names`,
+`oidc`, `route`, `database`, `credential_driver`, `external_dns`, `tls_mode`,
+`service_type`, `release_id`, `database_id`, and `cluster_id`. It SHALL NOT
+increment `generation` for changes to control-plane-owned observed fields
+(`status`, `phase`, `route_address`, `observed_generation`).
+
+On creation, a Gateway SHALL initialize with `generation = 1` and
+`observed_generation = 0`, so that a newly created Gateway is never spuriously
+*converged* (`observed_generation < generation`) and always undergoes initial
+provisioning.
+
+`observed_generation` is control-plane-owned. The control plane SHALL set it to
+the `generation` it last successfully applied to the cluster. A Gateway is
+*converged* when `observed_generation == generation`.
+
+The two fields differ in contract writability:
+
+- `generation` SHALL be read-only across all client-facing REST and gRPC
+  contracts (create, update, and patch); it is managed exclusively by the API
+  server.
+- `observed_generation` SHALL be read-only in the REST API and in all create
+  requests, but SHALL be writable by the control plane through the gRPC
+  `UpdateGatewayRequest` (the same back-channel by which the control plane
+  reports `phase`, `status`, and `route_address`).
+
+The API server SHALL treat `observed_generation` as a monotonic convergence
+latch. On an `UpdateGatewayRequest` it SHALL accept a new `observed_generation`
+only when `current observed_generation <= new <= generation`, and SHALL reject a
+write that regresses the value below the current `observed_generation` or
+exceeds the current `generation`. This prevents a stale or reordered update from
+regressing the marker, and prevents any write from declaring a `generation`
+converged before it has been applied - a false-converged state would otherwise
+permanently mask drift.
+
+#### Scenario: New gateway starts unconverged
+- GIVEN a valid Gateway create request
+- WHEN the API server persists the Gateway
+- THEN it SHALL set `generation = 1` and `observed_generation = 0`
+- AND the Gateway SHALL NOT be *converged*, so the control plane provisions it
+
+#### Scenario: Spec change advances generation
+- GIVEN a Gateway with `generation` N that has been applied
+  (`observed_generation == N`)
+- WHEN a client updates a desired-spec field (e.g. `image`)
+- THEN the API server SHALL increment `generation` to N+1
+- AND `observed_generation` SHALL remain N until the control plane re-applies
+
+#### Scenario: Control plane writes observed_generation back
+- GIVEN a Gateway with `generation` N+1 and `observed_generation` N
+- WHEN the control plane successfully re-applies the manifests
+- THEN it SHALL set `observed_generation` to N+1 via `UpdateGatewayRequest`
+- AND the API server SHALL accept the write despite `observed_generation` being
+  read-only to REST clients
+
+#### Scenario: Out-of-range observed_generation is rejected
+- GIVEN a Gateway with `generation` N+1 and `observed_generation` N
+- WHEN an `UpdateGatewayRequest` sets `observed_generation` below N or above N+1
+- THEN the API server SHALL reject the write
+- AND `observed_generation` SHALL remain N
+
+#### Scenario: Health update does not advance generation
+- GIVEN a converged Gateway with `generation` N
+- WHEN the control plane writes an observed `phase`/`status`/`route_address`
+- THEN `generation` SHALL remain N
+- AND the Gateway SHALL remain converged
+
+### Requirement: Monotonic Provisioning Conditions
+
+`provisioning_conditions` is a user-facing progress ladder (see
+[gateway-provisioning-progress.spec.md](gateway-provisioning-progress.spec.md)).
+The control plane's provisioning path is not serialized end to end: a watch
+re-seed on reconnect, or two controller pods overlapping during a rollout, can
+replay earlier-stage conditions for the same `generation`. A last-writer-wins
+persist would let a completed step flip back to an earlier state, so a Gateway
+that has reached `phase` `Running` could transiently report an unfinished step.
+
+The API server SHALL enforce provisioning-condition progress monotonically per
+generation, under the same per-row lock that guards `generation`:
+
+- When an update advances `generation` (a desired-spec change), the API server
+  SHALL clear the prior generation's `provisioning_conditions` so the new
+  provisioning cycle repopulates them from the beginning.
+- When an update does not advance `generation`, the API server SHALL merge the
+  incoming conditions onto the persisted ones so that, per condition type, the
+  status only moves forward along `Pending` -> `InProgress` -> `Complete`. A
+  `Failed` status SHALL always be accepted (an operator must see a real
+  failure), and a condition SHALL be able to recover from `Failed`. A condition
+  present only in the persisted document SHALL be retained so a narrower write
+  cannot drop a step that already completed.
+
+#### Scenario: Redundant reconcile pass does not regress a completed step
+- GIVEN a Gateway at `generation` N whose `GatewayHealthy` condition is `Complete`
+- WHEN a redundant reconcile pass writes `GatewayHealthy` as `InProgress` at the
+  same `generation`
+- THEN the API server SHALL keep `GatewayHealthy` as `Complete`
+
+#### Scenario: Spec change restarts provisioning conditions
+- GIVEN a converged Gateway at `generation` N with all conditions `Complete`
+- WHEN a client updates a desired-spec field, advancing `generation` to N+1
+- THEN the API server SHALL clear `provisioning_conditions`
+- AND the control plane SHALL repopulate them for the new generation
+
+#### Scenario: Failure surfaces over a completed step
+- GIVEN a Gateway at `generation` N whose `GatewayDeployed` condition is `Complete`
+- WHEN a reconcile pass writes `GatewayDeployed` as `Failed` at the same
+  `generation`
+- THEN the API server SHALL record `GatewayDeployed` as `Failed`
 
 ### Requirement: Canary Release Strategy
 

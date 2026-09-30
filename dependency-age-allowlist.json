@@ -1,10 +1,10 @@
 [
   {
     "kind": "go",
-    "name": "github.com/openshift-online/rh-trex-ai",
-    "version": "v0.0.32-0.20260819203335-5798cb607fcb",
-    "reason": "HyperShell requires the framework GORM plugin registry (openshift-online/rh-trex-ai#51) that installs API server database query tracing, merged inside the cooldown window.",
-    "compensatingVerification": "The dependency is commit-pinned; API server formatting, vet, and golangci-lint run against that exact commit."
+    "name": "github.com/openshift-online/rh-trex-ai/components/api-server",
+    "version": "v0.0.0-20260925121109-368daa9d29e6",
+    "reason": "HyperShell requires the framework gRPC transport security fix (openshift-online/rh-trex-ai#54) so --grpc-enable-tls works without the shared --enable-tls, plus JWT issuer and audience validation (openshift-online/rh-trex-ai#52) and fail-closed signed-token verification (openshift-online/rh-trex-ai#53). The framework moved its Go module to components/api-server (openshift-online/rh-trex-ai#45) and publishes no tag for that module path, so a pseudo-version is required.",
+    "compensatingVerification": "The dependency is commit-pinned; API server formatting, vet, golangci-lint, unit tests, and integration tests run against that exact commit."
   },
   {
     "kind": "go",

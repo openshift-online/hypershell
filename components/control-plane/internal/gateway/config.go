@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // ImageDefaults resolves the default container images for gateway deployments.
@@ -14,6 +15,7 @@ import (
 type ImageDefaults interface {
 	DefaultGatewayImage() string
 	DefaultSupervisorImage() string
+	DefaultSandboxRuntimeImage() string
 	DefaultSandboxImage() string
 	DefaultConsoleImage() string
 	DefaultOAuth2ProxyImage() string
@@ -24,10 +26,10 @@ const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:l
 // defaultConsoleImage is the OpenShell dashboard image (the per-gateway
 // console). The upstream project publishes it to quay.io, so clusters pull it
 // directly (imagePullPolicy IfNotPresent) rather than building from source.
-// Pinned by digest to the sha-978bcb5 build for reproducibility; bump
+// Pinned by digest to the sha-71335e5 build for reproducibility; bump
 // deliberately when adopting a new dashboard contract. Overridable via
 // HYPERSHELL_CONSOLE_IMAGE (e.g. a platform-registry mirror in production).
-const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:c69c1f34c574556684710a7d2d2a3654f164b855efe0d273a098782447068fc5"
+const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:1d36331138c37aa75285869a21d2aa35ebdab5b1f6980f028b28df405ec5a927"
 
 // defaultOAuth2ProxyImage is the oauth2-proxy sidecar image. Overridable via
 // HYPERSHELL_OAUTH2_PROXY_IMAGE.
@@ -47,6 +49,15 @@ func (StaticImageDefaults) DefaultGatewayImage() string {
 // variable; reconciliation will fail if not provided.
 func (StaticImageDefaults) DefaultSupervisorImage() string {
 	return os.Getenv("GATEWAY_SUPERVISOR_IMAGE")
+}
+
+// DefaultSandboxRuntimeImage resolves the trusted workload-side sandbox runtime
+// image. The supervisor and the sandbox runtime speak a versioned boundary
+// protocol, so they must come from the same OpenShell build. Set via
+// GATEWAY_SANDBOX_RUNTIME_IMAGE; when unset the chart default applies, which
+// resolves to a moving upstream tag and can skew from the pinned supervisor.
+func (StaticImageDefaults) DefaultSandboxRuntimeImage() string {
+	return os.Getenv("GATEWAY_SANDBOX_RUNTIME_IMAGE")
 }
 
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
@@ -86,13 +97,14 @@ type GatewayConfig struct {
 	// only to the release actually applied to the workload, never to a desired
 	// release the provisioning path has not yet rolled out. See
 	// gateway-release-rollout.spec.md.
-	ReleaseID        string                  `yaml:"releaseID"`
-	SupervisorImage  string                  `yaml:"supervisorImage"`
-	ServerDnsNames   []string                `yaml:"serverDnsNames"`
-	ExternalDns      string                  `yaml:"externalDns"`
-	OIDC             OIDCConfig              `yaml:"oidc"`
-	Route            RouteConfig             `yaml:"route"`
-	CredentialDriver *CredentialDriverConfig `yaml:"credentialDriver"`
+	ReleaseID           string                  `yaml:"releaseID"`
+	SupervisorImage     string                  `yaml:"supervisorImage"`
+	SandboxRuntimeImage string                  `yaml:"sandboxRuntimeImage"`
+	ServerDnsNames      []string                `yaml:"serverDnsNames"`
+	ExternalDns         string                  `yaml:"externalDns"`
+	OIDC                OIDCConfig              `yaml:"oidc"`
+	Route               RouteConfig             `yaml:"route"`
+	CredentialDriver    *CredentialDriverConfig `yaml:"credentialDriver"`
 }
 
 type CredentialDriverConfig struct {
@@ -218,6 +230,9 @@ type ReconcileOpts struct {
 	ExternalCAIssuerKind string
 	// IngressBaseDomain is the base domain for auto-derived ingress hostnames (e.g. apps.example.com).
 	IngressBaseDomain string
+	// GatewayResources overrides the gateway container requests and limits
+	// (GATEWAY_RESOURCES). Nil uses helm.DefaultGatewayResources.
+	GatewayResources *corev1.ResourceRequirements
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned

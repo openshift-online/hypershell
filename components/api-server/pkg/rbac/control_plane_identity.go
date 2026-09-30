@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 )
 
 // Control-Plane Identity (managed-cluster-registration.spec.md): a caller whose

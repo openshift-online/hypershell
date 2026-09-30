@@ -68,10 +68,28 @@ patches:
                       secretKeyRef:
                         name: hypershell-api-config
                         key: api-service.clientSecret
-  # --- API server: enable JWT + JWK cert URL from OIDC secret + enforce RBAC ---
-  # The JWKS URL is read from the hypershell-api-config secret so it stays in
-  # sync with the Keycloak instance provisioned for this cluster. Without this,
-  # the framework defaults to sso.redhat.com and rejects Keycloak-issued tokens.
+  # --- API server: validate JWT signature, issuer, and audience + enforce RBAC ---
+  # The JWKS URL comes from hypershell-api-config. JWT_ISSUER is set from the
+  # external Keycloak Route by scripts/cluster/drivers/openshift.sh after the
+  # Route exists. Do not declare JWT_ISSUER here: a retained environment has
+  # the route-derived literal value, and applying a secret-backed valueFrom
+  # over it produces an invalid EnvVar with both value and valueFrom.
+  # The API resource audience is the shared hypershell-frontend audience;
+  # individual callers (web console, hsctl, control plane) remain identifiable
+  # through `azp`. The audience is a fixed platform constant, not per-cluster
+  # configuration, so it is a literal here rather than a secret key.
+  #
+  # BREAKING CHANGE for existing clusters: issuer and audience validation fail
+  # closed. Once applied, every non-bypassed HTTP and gRPC call (web console,
+  # hsctl, and the control plane's UpdateGateway and watch streams) is rejected
+  # with 401 unless its token carries iss equal to the configured issuer and
+  # hypershell-frontend in aud. RBAC_SERVICE_ACCOUNTS does not bypass this. On
+  # external SSO, before/with this rollout the SSO MUST emit
+  # aud=hypershell-frontend for the hypershell-frontend, hypershell-cli, and
+  # hypershell-control-plane clients (the bundled realm does this with
+  # oidc-audience-mapper entries in deploy/base/keycloak/keycloak.yaml, plus
+  # hypershell-e2e for CI). See specs/platform/oidc-integration.spec.md
+  # (Production / Staging).
   #
   # RBAC_ENFORCE=true turns on the three-role gateway RBAC model
   # (gateway:creator/owner/viewer); it is the sole gate for that model
@@ -155,10 +173,61 @@ patches:
         value: "--jwk-cert-url=$(JWK_CERT_URL)"
       - op: add
         path: /spec/template/spec/containers/0/command/-
+        value: "--jwt-issuer=$(JWT_ISSUER)"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--jwt-audience=hypershell-frontend"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/"
+  # The base pins HyperShell components to the mutable :latest tag with
+  # imagePullPolicy IfNotPresent, so a node that already cached an older
+  # :latest keeps running it after a new release. Manifests that pass flags
+  # only the new binary knows then crash-loop the baseline pods before the PR
+  # images are swapped in. Always re-resolve the tag here; pulls of an
+  # unchanged digest are served from the node cache.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-api-server
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: migrate
+                imagePullPolicy: Always
+            containers:
+              - name: api-server
+                imagePullPolicy: Always
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-controller
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: controller
+                imagePullPolicy: Always
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hypershell-web-console
+        namespace: hypershell-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: web-console
+                imagePullPolicy: Always
   # Shared-cluster e2e cannot spare surge pods. A 1-replica RollingUpdate is
   # maxUnavailable:0 / maxSurge:1, so a digest swap needs two pods and the
   # new one sits Pending. Recreate kills the old replica first. Production

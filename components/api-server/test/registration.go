@@ -9,7 +9,7 @@ import (
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
-	"github.com/openshift-online/rh-trex-ai/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 func RegisterIntegration(t *testing.T) (*Helper, *openapi.APIClient) {

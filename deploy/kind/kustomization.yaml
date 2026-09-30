@@ -45,6 +45,12 @@ patches:
                   # covered by the same *.gw.localhost cert as the gRPC route.
                   - name: GATEWAY_API_HTTP_LISTENER_NAME
                     value: grpc
+                  # Kind runs every gateway on one small node, so reserve less
+                  # than the production default (requests 100m/512Mi) to fit
+                  # more gateways. Keep the default limits: dev runs the same
+                  # workloads, and a lower memory ceiling would just OOMKill.
+                  - name: GATEWAY_RESOURCES
+                    value: '{"requests":{"cpu":"50m","memory":"128Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}'
                   # The console dashboard and oauth2-proxy sidecar images are
                   # public registry images; the control plane's ImageDefaults
                   # already point at them (dashboard pinned by digest on quay),
@@ -133,7 +139,7 @@ patches:
     patch: |
       - op: remove
         path: /spec/storage
-  # --- API server: enable JWT + JWK cert URL + bypass paths ---
+  # Enable JWT issuer and audience checks and authentication bypass paths.
   # Appending --enable-jwt=true is index-independent: --enable-jwt is a pflag
   # BoolVar, and repeated single-value flags are last-value-wins, so the
   # appended true overrides the base --enable-jwt=false no matter where it sits
@@ -152,6 +158,12 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--jwk-cert-url=http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell/protocol/openid-connect/certs"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--jwt-issuer=https://keycloak.hypershell.localhost/realms/hypershell"
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--jwt-audience=hypershell-frontend"
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"

@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
-	trexdao "github.com/openshift-online/rh-trex-ai/pkg/dao"
-	"github.com/openshift-online/rh-trex-ai/pkg/db"
-	"github.com/openshift-online/rh-trex-ai/pkg/services"
+	trexdao "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/dao"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
 const gatewayCreatorJoinTemplate = `LEFT JOIN (

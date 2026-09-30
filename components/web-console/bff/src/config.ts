@@ -83,6 +83,13 @@ const configSchema = z.object({
   CLUSTER_PROMETHEUS_URL: httpOrigin.optional(),
   CLUSTER_PROMETHEUS_TOKEN_FILE: z.string().trim().min(1).optional(),
   CLUSTER_PROMETHEUS_CA_FILE: z.string().trim().min(1).optional(),
+  HYPERSHELL_WEB_VERSION: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) =>
+      value === undefined || value === "" ? undefined : value,
+    ),
   SESSION_SECRET: z
     .string()
     .regex(/^[0-9a-f]{64}$/iu, "must be a 64-character hex string (32 bytes)")
@@ -132,14 +139,19 @@ export interface ServerConfig {
   sessionTtlSeconds: number;
   staticRoot: string;
   tracing?: TracingConfig;
+  /** Console build version stamped into the image at build time. */
+  webVersion: string;
 }
 
 /**
  * Configuration handed to the untrusted browser. This is an allowlist: only
  * values safe to reveal to a client appear here. The collector endpoint,
- * origins, session secret, and OIDC settings never cross this boundary.
+ * origins, session secret, and OIDC settings never cross this boundary. Build
+ * versions are non-sensitive build identification, so they are allowed.
  */
 export interface BrowserRuntimeConfig {
+  /** API server build version, relayed from its metadata endpoint. */
+  apiVersion: string;
   tracing: {
     /**
      * Fraction of browser-rooted traces to record, 0..1. It mirrors the BFF
@@ -149,20 +161,35 @@ export interface BrowserRuntimeConfig {
      */
     sampleRatio: number;
   };
+  /** Web console build version stamped into the image at build time. */
+  webVersion: string;
 }
 
 /** Projects the server config down to the allowlist the browser may read. */
 export function browserRuntimeConfig(
   config: ServerConfig,
+  apiVersion = "unknown",
 ): BrowserRuntimeConfig {
   return {
+    apiVersion,
     tracing: { sampleRatio: config.tracing?.sampleRatio ?? 0 },
+    webVersion: config.webVersion,
   };
 }
 
 /** Derives the OTLP/HTTP traces URL from a collector base endpoint. */
 function tracesEndpointFor(collectorEndpoint: string): string {
   return `${collectorEndpoint.replace(/\/+$/u, "")}/v1/traces`;
+}
+
+/**
+ * Images built by Konflux receive the full 40-character commit sha, while the
+ * identity menu shows the short form operators type into git commands.
+ * Anything that is not a full sha (local short shas, dev strings) is kept
+ * as-is.
+ */
+export function shortSha(version: string): string {
+  return /^[0-9a-f]{40}$/iu.test(version) ? version.slice(0, 7) : version;
 }
 
 export function loadConfig(
@@ -238,5 +265,6 @@ export function loadConfig(
           ),
         }
       : undefined,
+    webVersion: shortSha(result.data.HYPERSHELL_WEB_VERSION ?? "unknown"),
   };
 }

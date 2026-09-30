@@ -2,16 +2,18 @@ package gateways
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 	"net/http"
+	"reflect"
 
 	"gorm.io/gorm"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/api"
-	"github.com/openshift-online/rh-trex-ai/pkg/db"
-	"github.com/openshift-online/rh-trex-ai/pkg/errors"
-	"github.com/openshift-online/rh-trex-ai/pkg/logger"
-	"github.com/openshift-online/rh-trex-ai/pkg/services"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/logger"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
 
 const gatewaysLockType db.LockType = "gateways"
@@ -133,6 +135,46 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	defer s.lockFactory.Unlock(ctx, lockOwnerID)
 
 	gateway.CaptureTraceContext(ctx)
+
+	// generation is API-server-owned: increment it iff a desired-spec field
+	// changed, and never trust a client-supplied value. observed_generation is a
+	// monotonic convergence latch written only by the control plane. See
+	// data-model.spec.md § Gateway Generation Tracking.
+	current, getErr := s.gatewayDao.Get(ctx, gateway.ID)
+	if getErr != nil {
+		return nil, services.HandleGetError("Gateway", "id", gateway.ID, getErr)
+	}
+	newGeneration := current.Generation
+	if desiredStateChanged(current, gateway) {
+		newGeneration = current.Generation + 1
+		// A new desired generation restarts provisioning: drop the prior
+		// generation's progress so the control plane repopulates it from the
+		// beginning. Clearing (rather than merging) is what lets a step legitimately
+		// return to Pending/InProgress when the workload is genuinely re-provisioned.
+		gateway.ProvisioningConditions = nil
+	} else {
+		// Same generation: provisioning conditions only move forward. Redundant
+		// control-plane reconcile passes -- a watch re-seed on reconnect, or two
+		// controller pods overlapping during a rollout (neither serialized end to
+		// end) -- replay earlier-stage conditions, and last-writer-wins would let a
+		// completed step flip back to InProgress. Merging under this row's advisory
+		// lock keeps a Running gateway from ever reporting an unfinished step. See
+		// specs/platform/openshell-gateway-health.spec.md.
+		merged, mergeErr := mergeMonotonicProvisioningConditions(current.ProvisioningConditions, gateway.ProvisioningConditions)
+		if mergeErr != nil {
+			return nil, errors.GeneralError("merge provisioning conditions for gateway %s: %s", gateway.ID, mergeErr)
+		}
+		gateway.ProvisioningConditions = merged
+	}
+	gateway.Generation = newGeneration
+	if gateway.ObservedGeneration != current.ObservedGeneration {
+		if gateway.ObservedGeneration < current.ObservedGeneration || gateway.ObservedGeneration > newGeneration {
+			return nil, errors.BadRequest(
+				"observed_generation %d out of range [%d, %d]",
+				gateway.ObservedGeneration, current.ObservedGeneration, newGeneration)
+		}
+	}
+
 	gateway, err = s.gatewayDao.Replace(ctx, gateway)
 	if err != nil {
 		return nil, services.HandleUpdateError("Gateway", err)
@@ -178,6 +220,52 @@ func (s *sqlGatewayService) SetGatewayVersion(ctx context.Context, id, version s
 		return "", services.HandleUpdateError("Gateway", err)
 	}
 	return resulting, nil
+}
+
+// desiredStateChanged reports whether any workload-altering (desired-spec) field
+// differs between the persisted Gateway and the incoming update. Observed fields
+// (status, phase, route_address, generation, observed_generation) and identity
+// fields (name, namespace) are excluded: they do not alter the live
+// workload and must not advance generation. See data-model.spec.md.
+func desiredStateChanged(current, next *Gateway) bool {
+	return current.ClusterId != next.ClusterId ||
+		current.ReleaseId != next.ReleaseId ||
+		!strEq(current.ExternalDns, next.ExternalDns) ||
+		!strEq(current.TlsMode, next.TlsMode) ||
+		!strEq(current.ServiceType, next.ServiceType) ||
+		!strEq(current.Image, next.Image) ||
+		!strEq(current.SupervisorImage, next.SupervisorImage) ||
+		!strEq(current.ServerDnsNames, next.ServerDnsNames) ||
+		!jsonEq(current.Oidc, next.Oidc) ||
+		!jsonEq(current.Route, next.Route) ||
+		!strEq(current.CredentialDriver, next.CredentialDriver)
+}
+
+// jsonEq compares two optional JSON documents semantically. Oidc and Route are
+// jsonb columns, so the stored text is normalized by PostgreSQL (key order,
+// spacing) and never byte-equals the compact JSON a client writes back. A
+// byte compare would report a spurious desired-state change on every write,
+// bumping generation and re-opening the control plane's convergence gate.
+// Unparseable values are treated as changed unless byte-identical.
+func jsonEq(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if *a == *b {
+		return true
+	}
+	var av, bv any
+	if json.Unmarshal([]byte(*a), &av) != nil || json.Unmarshal([]byte(*b), &bv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
+}
+
+func strEq(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {

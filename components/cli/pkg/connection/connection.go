@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/openshift-online/hypershell/components/cli/pkg/config"
 	"github.com/openshift-online/hypershell/components/cli/pkg/info"
@@ -17,10 +19,17 @@ type Connection struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
+
+	// refresh, when set, renews the access token before each request so a
+	// long-lived session keeps working after the initial token expires.
+	refresh bool
+	cfg     *config.Config
+	mu      sync.Mutex
 }
 
 type ConnectionBuilder struct {
-	cfg *config.Config
+	cfg     *config.Config
+	refresh bool
 }
 
 func NewConnection() *ConnectionBuilder {
@@ -29,6 +38,15 @@ func NewConnection() *ConnectionBuilder {
 
 func (b *ConnectionBuilder) Config(value *config.Config) *ConnectionBuilder {
 	b.cfg = value
+	return b
+}
+
+// RefreshPerRequest makes the connection renew the access token before every
+// request instead of only when it is built. Refresh never writes to the
+// terminal; when renewal fails, requests return an error wrapping
+// config.ErrSessionExpired.
+func (b *ConnectionBuilder) RefreshPerRequest(value bool) *ConnectionBuilder {
+	b.refresh = value
 	return b
 }
 
@@ -50,7 +68,12 @@ func (b *ConnectionBuilder) Build() (result *Connection, err error) {
 		return
 	}
 
-	if err = config.EnsureFreshToken(b.cfg); err != nil {
+	if b.refresh {
+		err = config.EnsureFreshTokenQuietly(b.cfg)
+	} else {
+		err = config.EnsureFreshToken(b.cfg)
+	}
+	if err != nil {
 		return
 	}
 
@@ -60,8 +83,25 @@ func (b *ConnectionBuilder) Build() (result *Connection, err error) {
 		httpClient: &http.Client{
 			Transport: newTransport(b.cfg.Insecure),
 		},
+		refresh: b.refresh,
+		cfg:     b.cfg,
 	}
 	return
+}
+
+// accessToken returns the token to send, renewing it first when the
+// connection refreshes per request.
+func (c *Connection) accessToken() (string, error) {
+	if !c.refresh {
+		return c.token, nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := config.EnsureFreshTokenQuietly(c.cfg); err != nil {
+		return "", err
+	}
+	c.token = c.cfg.AccessToken
+	return c.token, nil
 }
 
 // newTransport sets Proxy explicitly because a zero-value http.Transport,
@@ -78,17 +118,27 @@ func newTransport(insecure bool) *http.Transport {
 }
 
 func (c *Connection) Do(method, path string, query url.Values, body io.Reader) (*http.Response, error) {
+	return c.DoContext(context.Background(), method, path, query, body)
+}
+
+// DoContext is Do bound to ctx, so the request is abandoned when ctx ends.
+func (c *Connection) DoContext(ctx context.Context, method, path string, query url.Values, body io.Reader) (*http.Response, error) {
 	fullURL := c.baseURL + path
 	if query != nil {
 		fullURL += "?" + query.Encode()
 	}
 
-	req, err := http.NewRequest(method, fullURL, body)
+	token, err := c.accessToken()
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("can't create request: %v", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", "hypershell/"+info.Version)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {

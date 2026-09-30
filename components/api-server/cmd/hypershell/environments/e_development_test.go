@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/config"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/config"
 )
 
 // TestDevJWTOverrideWarning covers P2-3: the development environment force-

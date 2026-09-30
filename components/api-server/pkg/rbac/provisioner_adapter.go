@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/openshift-online/rh-trex-ai/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 )
 
 type UserUpserter interface {

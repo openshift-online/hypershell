@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
-	"github.com/openshift-online/rh-trex-ai/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 func newGateway(id string) (*gateways.Gateway, error) {

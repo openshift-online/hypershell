@@ -136,9 +136,9 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 - GIVEN the chart archive is vendored into the control plane container image at `/charts/openshell.tgz`
 - WHEN the reconciler starts up
 - THEN it SHALL verify the chart exists at the embedded path and pass it to the Helm CLI for install operations
-- AND the chart source repository and tag SHALL be declared in the top-level `OPENSHELL_VERSION` file (`OPENSHELL_CHART_REPO` and `OPENSHELL_TAG`)
-- AND the Dockerfile SHALL clone the chart source at the specified tag, package it with `helm package`, and embed the resulting `.tgz` archive
-- AND upgrading the chart version SHALL require updating `OPENSHELL_VERSION` and rebuilding the control plane image
+- AND the chart source repository and tag SHALL be declared in the top-level `OPENSHELL_VERSION` file (`OPENSHELL_CHART_REPO` and `OPENSHELL_TAG`) as provenance and re-vendor coordinates, not as build-time inputs
+- AND the chart source SHALL be committed to the repository under `charts/openshell/` and vendored via `make vendor-openshell-chart` (which clones the upstream tag, replaces the directory, and strips forbidden characters); the Dockerfile COPYs this committed tree and runs `helm package` with no network access, satisfying Konflux hermetic build requirements
+- AND upgrading the chart version SHALL require updating `OPENSHELL_VERSION`, running `make vendor-openshell-chart` to re-vendor the chart source, and rebuilding the control plane image
 - AND this ensures the chart version is always coupled to the control plane release -- a given control plane image always deploys the same chart version
 
 #### Scenario: OCI registry override (development only)
@@ -165,6 +165,7 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 | Gateway `supervisor_image` field | `supervisorImage.repository`, `supervisorImage.tag` | Split at last `:` |
 | Always `deployment` | `workload.kind` | PostgreSQL backend, never StatefulSet |
 | `1` | `replicaCount` | Single replica per gateway |
+| `GATEWAY_RESOURCES` (else defaults) | `resources` | Default requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`. Always set: chart default is `{}` (no limits) |
 | Gateway namespace | `server.sandboxNamespace` | Sandboxes run in gateway NS |
 | Gateway `serverDnsNames` | `pkiInitJob.serverDnsNames` | TLS certificate SANs |
 | `true` | `serviceAccount.create` | Chart creates gateway SA |

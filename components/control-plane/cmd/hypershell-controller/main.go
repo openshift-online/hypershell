@@ -317,6 +317,7 @@ func main() {
 			cfg.ExternalCAIssuerKind,
 			databaseConfig,
 			clusterID,
+			cfg.GatewayResources,
 		)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)

@@ -239,5 +239,24 @@ else
   echo 'FAIL: e2e cleanup does not dump controller/postgres logs before GC restore'
 fi
 
+# Route ingress mode (GATEWAY_INGRESS_MODE=route, e.g. IBM Cloud ROKS): no
+# GRPCRoute exists; readiness is the OpenShift router admitting the per-tenant
+# Route, and the endpoint is that Route's host.
+oc() {
+  local args="$*"
+  case "$args" in
+    *"get route openshell-gateway -n tenant-r -o jsonpath={.spec.host}"*) printf '%s' 'gw-tenant-r.gw.test.example.com' ;;
+    *"get route openshell-gateway -n tenant-r"*) printf '%s\n' 'Admitted=True' ;;
+    *"get grpcroute openshell-gateway -n tenant-r"*) return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+assert_eq 'route' "$(_gateway_route_mode tenant-r)" 'Route-mode detection'
+assert_eq 'https://gw-tenant-r.gw.test.example.com:443' "$(
+  discover_gateway_endpoint gw-r tenant-r >/dev/null && printf '%s' "${_DISCOVER_GW_ENDPOINT}")" 'Route-mode endpoint discovery'
+wait_for_gateway_route gw-r tenant-r
+PASS=$((PASS + 1))
+
 printf 'OpenShift driver tests: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

@@ -1,4 +1,6 @@
-import { defineMessages } from "react-intl";
+import { defineMessages, type MessageDescriptor } from "react-intl";
+
+import type { ReliabilityMetricId } from "./application/dashboard-types";
 
 export const messages = defineMessages({
   addWidgets: {
@@ -31,6 +33,54 @@ export const messages = defineMessages({
     id: "app.dashboard.summary.cpus",
     defaultMessage: "CPUs",
     description: "Summary label for provisioned CPU capacity.",
+  },
+  dashboardHelpApiErrorRate: {
+    id: "app.dashboard.help.apiErrorRate",
+    defaultMessage:
+      "The current API error rate is the percentage of API requests that returned an HTTP 5xx response over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is the 5xx error rate calculated from the 5 minutes immediately before that sample's timestamp.<br></br>HTTP 4xx responses, such as 401 or 403 responses, aren't included in the error rate.",
+    description: "Help text for the API error rate widget.",
+  },
+  dashboardHelpApiLatency: {
+    id: "app.dashboard.help.apiLatency",
+    defaultMessage:
+      "The current API latency is the median response time for API requests over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is the median latency calculated from the 5 minutes immediately before that sample's timestamp.<br></br>Latency is shown in seconds. The median means that half of the requests were completed in less time and half took longer.",
+    description: "Help text for the API latency widget.",
+  },
+  dashboardHelpApiRequestRate: {
+    id: "app.dashboard.help.apiRequestRate",
+    defaultMessage:
+      "The current API request rate is the average number of requests per second over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is calculated from the 5 minutes immediately before that sample's timestamp.<br></br>The API request rate includes inbound requests to the HyperShell API endpoints.",
+    description: "Help text for the API request rate widget.",
+  },
+  dashboardHelpReconciliationFailures: {
+    id: "app.dashboard.help.reconciliationFailures",
+    defaultMessage:
+      "The current value is the number of failed reconciliation attempts during the last 24 hours. Each trend point shows the number of failures recorded during a one-hour period across the previous 24 hours.",
+    description: "Help text for the reconciliation failures widget.",
+  },
+  dashboardHelpReconciliationLag: {
+    id: "app.dashboard.help.reconciliationLag",
+    defaultMessage:
+      "The current reconciliation lag is the median time, in seconds, from when a reconciliation becomes eligible to when it completes, measured over the last 5 minutes. Each trend point is an hourly sample from the previous 24 hours. Its value is the median lag calculated from the observations available at that sample's timestamp.",
+    description: "Help text for the reconciliation lag widget.",
+  },
+  dashboardHelpReconciliationRetries: {
+    id: "app.dashboard.help.reconciliationRetries",
+    defaultMessage:
+      "The current value is the number of reconciliation retries during the last 24 hours. Each trend point shows the number of retries recorded during a one-hour period across the previous 24 hours.",
+    description: "Help text for the reconciliation retries widget.",
+  },
+  dashboardHelpStaleResourceStatus: {
+    id: "app.dashboard.help.staleResourceStatus",
+    defaultMessage:
+      "The current value is the number of resources whose observed status has not caught up with their desired state. A resource is stale when its observed release is different from the release currently desired by the control plane. Each trend point shows the count of stale resources at that sample time.",
+    description: "Help text for the stale resource status widget.",
+  },
+  dashboardHelpUsers: {
+    id: "app.dashboard.help.users",
+    defaultMessage:
+      "The current Users value is the total number of registered users in HyperShell. It isn't a count of users who are online right now.<br></br>The trend shows the number of distinct registered users who used the API on each UTC calendar day during the last 30 days. A user is counted once per day even if they made multiple API requests.",
+    description: "Help text for the Users widget.",
   },
   description: {
     id: "app.dashboard.description",
@@ -838,3 +888,25 @@ export const messages = defineMessages({
     description: "Title for the stale resource status dashboard widget.",
   },
 });
+
+export const dashboardHelpMessages: Partial<
+  Record<ReliabilityMetricId, MessageDescriptor>
+> = {
+  "api-error-rate": messages.dashboardHelpApiErrorRate,
+  "api-latency": messages.dashboardHelpApiLatency,
+  "api-request-rate": messages.dashboardHelpApiRequestRate,
+  "reconciliation-failures": messages.dashboardHelpReconciliationFailures,
+  "reconciliation-lag": messages.dashboardHelpReconciliationLag,
+  "reconciliation-retries": messages.dashboardHelpReconciliationRetries,
+  "stale-resource-status-count": messages.dashboardHelpStaleResourceStatus,
+};
+
+export function getDashboardHelpMessage(
+  metricId: string,
+): MessageDescriptor | undefined {
+  if (!(metricId in dashboardHelpMessages)) {
+    return undefined;
+  }
+
+  return dashboardHelpMessages[metricId as ReliabilityMetricId];
+}

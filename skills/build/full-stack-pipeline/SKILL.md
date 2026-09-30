@@ -144,7 +144,7 @@ go run ./scripts/generator.go \
   --fields "name:string:required,cluster_id:string:required,status:string" \
   --project hypershell \
   --repo github.com/openshift-online/hypershell/components/api-server \
-  --library github.com/openshift-online/rh-trex-ai
+  --library github.com/openshift-online/rh-trex-ai/components/api-server
 ```
 
 ## Build and Deploy

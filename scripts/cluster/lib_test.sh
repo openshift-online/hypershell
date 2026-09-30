@@ -205,6 +205,12 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: openshift-up does not strategic-merge patch Keycloak route env'
 fi
+if grep -A3 'Configuring API server JWT issuer' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -q 'JWT_ISSUER=${OPENSHIFT_OIDC_ISSUER}'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: openshift-up does not set the API server JWT_ISSUER to the Route-derived issuer'
+fi
 if grep -A14 'Setting Keycloak KC_HOSTNAME' "${SCRIPT_DIR}/drivers/openshift.sh" | grep -Eq 'replace -f|set env deployment/keycloak'; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: openshift-up still replaces or set-envs the Keycloak Deployment'

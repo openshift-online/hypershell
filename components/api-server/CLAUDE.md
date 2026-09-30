@@ -69,6 +69,10 @@ Each Kind is a self-contained plugin in `plugins/{kinds}/` with uniform structur
 
 ## Upstream Framework (rh-trex-ai)
 
+Module path: `github.com/openshift-online/rh-trex-ai/components/api-server`. The
+framework publishes no tags for that path, so `go.mod` pins a commit pseudo-version
+(and `dependency-age-allowlist.json` records why).
+
 Key upstream packages consumed:
 - `pkg/api` - Meta type, event types, ID generation
 - `pkg/server` - API server, metrics, health check servers

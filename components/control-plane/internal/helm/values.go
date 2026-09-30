@@ -3,17 +3,20 @@ package helm
 import (
 	"fmt"
 	"strings"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // GatewayConfig represents the configuration for a gateway deployment.
 // This is a local copy to avoid import cycles with the gateway package.
 type GatewayConfig struct {
-	Image            string
-	SupervisorImage  string
-	ServerDnsNames   []string
-	OIDC             OIDCConfig
-	Route            RouteConfig
-	CredentialDriver *CredentialDriverConfig
+	Image               string
+	SupervisorImage     string
+	SandboxRuntimeImage string
+	ServerDnsNames      []string
+	OIDC                OIDCConfig
+	Route               RouteConfig
+	CredentialDriver    *CredentialDriverConfig
 }
 
 // OIDCConfig represents OIDC configuration.
@@ -66,6 +69,9 @@ type ValuesBuilder struct {
 	ExternalCAIssuerKind string
 	// HasTrustedCA indicates whether the gateway-trusted-ca ConfigMap exists
 	HasTrustedCA bool
+	// Resources overrides the gateway container requests and limits
+	// (GATEWAY_RESOURCES). Nil uses DefaultGatewayResources.
+	Resources *corev1.ResourceRequirements
 }
 
 // Build computes Helm chart values from the Gateway configuration.
@@ -108,22 +114,46 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Pin fullnameOverride so every chart resource uses the expected name.
 	setNestedValue(values, ReleaseName, "fullnameOverride")
 
-	// Image values
+	// Image values. The v0.1.2 chart uses gateway.image.{registry,repository,tag}
+	// and prepends global.image.registry (ghcr.io/nvidia) when the per-image
+	// registry is unset. We always pass fully-qualified image references from the
+	// GatewayRelease, so we split registry out and set it explicitly per-image to
+	// prevent the global prefix from being applied.
 	if b.Gateway.Image != "" {
-		repo, tag := splitImageRef(b.Gateway.Image)
-		setNestedValue(values, repo, "image", "repository")
-		setNestedValue(values, tag, "image", "tag")
+		reg, repo, tag := splitImageRefFull(b.Gateway.Image)
+		setNestedValue(values, reg, "gateway", "image", "registry")
+		setNestedValue(values, repo, "gateway", "image", "repository")
+		setNestedValue(values, tag, "gateway", "image", "tag")
 	}
 
 	if b.Gateway.SupervisorImage != "" {
-		repo, tag := splitImageRef(b.Gateway.SupervisorImage)
+		reg, repo, tag := splitImageRefFull(b.Gateway.SupervisorImage)
+		setNestedValue(values, reg, "supervisor", "image", "registry")
 		setNestedValue(values, repo, "supervisor", "image", "repository")
 		setNestedValue(values, tag, "supervisor", "image", "tag")
+	}
+
+	// The sandbox runtime and supervisor speak a versioned boundary protocol, so
+	// the runtime must be pinned to the same OpenShell build as the supervisor.
+	// Left unset, the chart defaults to a moving upstream tag.
+	if b.Gateway.SandboxRuntimeImage != "" {
+		reg, repo, tag := splitImageRefFull(b.Gateway.SandboxRuntimeImage)
+		setNestedValue(values, reg, "sandboxRuntime", "image", "registry")
+		setNestedValue(values, repo, "sandboxRuntime", "image", "repository")
+		setNestedValue(values, tag, "sandboxRuntime", "image", "tag")
 	}
 
 	// Workload configuration
 	setNestedValue(values, "deployment", "workload", "kind")
 	setNestedValue(values, 1, "replicaCount")
+
+	// Gateway container resources. Always set: the upstream chart defaults to
+	// `resources: {}`, which would run the gateway BestEffort.
+	resources := DefaultGatewayResources()
+	if b.Resources != nil {
+		resources = *b.Resources
+	}
+	setNestedValue(values, resourcesValue(resources), "resources")
 
 	// Sandbox configuration
 	setNestedValue(values, b.Namespace, "server", "sandboxNamespace")
@@ -273,6 +303,40 @@ func splitImageRef(image string) (repo, tag string) {
 		return image, "latest"
 	}
 	return image[:lastColon], image[lastColon+1:]
+}
+
+// splitImageRefFull splits an image reference into registry, repository, and tag.
+// The registry is the first path component if it contains a dot or colon, or is
+// "localhost" -- the same heuristic used by the Docker distribution library.
+// This is needed for the v0.1.2 chart, which applies global.image.registry as a
+// prefix when the per-image registry is unset. By extracting the registry here
+// and setting it explicitly, the chart's global prefix is suppressed.
+func splitImageRefFull(image string) (registry, repo, tag string) {
+	_, tag = splitImageRef(image)
+
+	// Strip digest and tag to work with path only
+	withoutTag := image
+	if at := strings.LastIndex(image, "@"); at != -1 {
+		withoutTag = image[:at]
+	}
+	lastSlash := strings.LastIndex(withoutTag, "/")
+	lastColon := strings.LastIndex(withoutTag, ":")
+	if lastColon > lastSlash {
+		withoutTag = withoutTag[:lastColon]
+	}
+
+	// Split on the first slash to isolate the potential registry component
+	slashIdx := strings.Index(withoutTag, "/")
+	if slashIdx == -1 {
+		return "", withoutTag, tag
+	}
+	first := withoutTag[:slashIdx]
+	rest := withoutTag[slashIdx+1:]
+
+	if strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost" {
+		return first, rest, tag
+	}
+	return "", withoutTag, tag
 }
 
 // setNestedValue sets a value in a nested map structure.

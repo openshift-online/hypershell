@@ -534,8 +534,15 @@ fi
 # conditions and that every condition completed successfully.
 
 show_cmd "api_curl ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}  # verify provisioning_conditions"
-GW_COND_JSON=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
-GW_COND_CHECK=$(echo "$GW_COND_JSON" | python3 -c "
+# A re-reconcile (watch resync, controller reconnect) re-initializes the
+# conditions to Pending and walks them again while the gateway is already
+# Running, so a single read can observe InProgress/Pending that settles
+# seconds later. Retry within a bounded window; only a settled incomplete
+# state is a failure.
+GW_COND_DEADLINE=$(($(date +%s) + ${E2E_CONDITIONS_SETTLE_TIMEOUT:-60}))
+while true; do
+  GW_COND_JSON=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null || true)
+  GW_COND_CHECK=$(echo "$GW_COND_JSON" | python3 -c "
 import json, sys
 try:
     gw = json.load(sys.stdin)
@@ -564,6 +571,18 @@ if incomplete:
     print('INCOMPLETE:%s' % '; '.join(incomplete)); sys.exit(0)
 print('OK:%d' % len(conditions))
 " 2>/dev/null || echo "SCRIPT_ERROR")
+  case "$GW_COND_CHECK" in
+    OK:*) break ;;
+    INCOMPLETE:*)
+      if [[ $(date +%s) -lt $GW_COND_DEADLINE ]]; then
+        dim "    conditions not yet settled (${GW_COND_CHECK#INCOMPLETE:}); retrying"
+        sleep 5
+        continue
+      fi
+      ;;
+  esac
+  break
+done
 
 case "$GW_COND_CHECK" in
   OK:*)
@@ -1410,6 +1429,10 @@ poll_active_sandbox_count() {
   local expected="$1" last="" deadline
   deadline=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
   while [[ $(date +%s) -lt $deadline ]]; do
+    # api_curl sends _OIDC_ACCESS_TOKEN, which may still hold a per-gateway
+    # token (wrong audience for the HyperShell API) or have expired; refresh the
+    # management-API token each poll like the other polling loops.
+    acquire_oidc_token 2>/dev/null || true
     last=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" 2>/dev/null | \
       python3 -c "import json,sys; v=json.load(sys.stdin).get('active_sandbox_count'); print('' if v is None else v)" 2>/dev/null || true)
     [[ "$last" == "$expected" ]] && { echo "$last"; return 0; }
@@ -1544,6 +1567,19 @@ else
   DEV_TOKEN=""
   fail_test "Failed to acquire developer per-gateway OIDC token with openshell-user role"
 fi
+
+# DEV_TOKEN carries only the per-gateway audience, which the HyperShell API
+# rejects (--jwt-audience). Developer calls to the management API use a token
+# minted for the API client instead, like the platform admin token below.
+show_cmd "# acquire HyperShell API OIDC token for developer (client: ${E2E_OIDC_CLIENT_ID})"
+DEV_API_TOKEN=""
+if acquire_oidc_token "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD"; then
+  DEV_API_TOKEN="${_OIDC_ACCESS_TOKEN}"
+else
+  fail_test "Failed to acquire developer HyperShell API OIDC token"
+fi
+# Restore the admin management-API token for the api_curl calls that follow.
+acquire_oidc_token 2>/dev/null || true
 
 if [[ -n "$DEV_TOKEN" ]]; then
   DEV_GW_LOCAL_NAME="${GW_LOCAL_NAME}-dev"
@@ -1713,7 +1749,7 @@ except Exception:
   DEV_LIST_FILE=$(mktemp)
   DEV_LIST_STATUS=$(_driver_curl -o "${DEV_LIST_FILE}" -w '%{http_code}' \
     "${API_HOST}/api/hypershell/v1/gateways" \
-    -H "Authorization: Bearer ${DEV_TOKEN}" 2>/dev/null || true)
+    -H "Authorization: Bearer ${DEV_API_TOKEN}" 2>/dev/null || true)
   DEV_LIST_KIND=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("kind",""))' \
     "${DEV_LIST_FILE}" 2>/dev/null || true)
   rm -f "${DEV_LIST_FILE}"
@@ -1759,7 +1795,7 @@ print(json.dumps(body))
   DEV_GW_RESP_FILE=$(mktemp)
   DEV_GW_STATUS=$(_driver_curl -o "${DEV_GW_RESP_FILE}" -w '%{http_code}' \
     -X POST "${API_HOST}/api/hypershell/v1/gateways" \
-    -H "Authorization: Bearer ${DEV_TOKEN}" \
+    -H "Authorization: Bearer ${DEV_API_TOKEN}" \
     -H "Content-Type: application/json" \
     -d "${DEV_GW_BODY}" 2>/dev/null || true)
   DEV_GW_RESP=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_GW_RESP_FILE}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
@@ -1770,7 +1806,7 @@ print(json.dumps(body))
       DEV_DEFAULT_GW_ID=$(echo "$DEV_GW_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
       if [[ -n "$DEV_DEFAULT_GW_ID" ]]; then
         _driver_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${DEV_DEFAULT_GW_ID}" \
-          -H "Authorization: Bearer ${DEV_TOKEN}" &>/dev/null || true
+          -H "Authorization: Bearer ${DEV_API_TOKEN}" &>/dev/null || true
       fi
     elif [[ "$DEV_GW_STATUS" == "403" ]]; then
       fail_test "Developer user: gateway create blocked -- default gateway:creator binding was not assigned (HTTP 403)"

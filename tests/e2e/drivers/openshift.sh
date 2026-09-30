@@ -148,8 +148,52 @@ discover_gateway_endpoint() {
     _DISCOVER_GW_ENDPOINT="https://${grpc_host}:443"
     return 0
   fi
+
+  # Route ingress mode (GATEWAY_INGRESS_MODE=route, e.g. IBM Cloud ROKS): the
+  # control plane emits an OpenShift Route instead of Gateway API resources, so
+  # fall back to the per-tenant Route's host. The Route is passthrough; the
+  # gateway pod terminates TLS with its own CA, which no public trust store
+  # knows, so the openshell CLI must dial with InsecureSkipVerify -- the same
+  # policy the kind driver uses for its local CA. OPENSHELL_GATEWAY_INSECURE
+  # is what writes gateway_insecure into the CLI's gateway metadata.json, and
+  # this driver's top-level `unset` (kept for edge-mode trusted certificates)
+  # must not apply here.
+  local route_host
+  route_host=$(_gateway_route_host "$gw_namespace")
+  if [[ -n "$route_host" ]]; then
+    _DISCOVER_GW_ENDPOINT="https://${route_host}:443"
+    export OPENSHELL_GATEWAY_INSECURE=true
+    return 0
+  fi
   dim "  No programmed Gateway route found for ${gw_name}"
   return 1
+}
+
+# _gateway_route_mode - print "route" when the tenant gateway is exposed
+# through an OpenShift Route (no GRPCRoute exists and the per-tenant Route
+# does), "gateway-api" when a GRPCRoute exists, and nothing when neither
+# object is present yet.
+_gateway_route_mode() {
+  local gw_namespace="${1:?gateway namespace required}"
+  if oc get grpcroute openshell-gateway -n "$gw_namespace" \
+      -o jsonpath='{.spec.parentRefs[0].name}' 2>/dev/null | grep -q .; then
+    printf '%s\n' "gateway-api"
+    return 0
+  fi
+  if _gateway_route_host "$gw_namespace" >/dev/null; then
+    printf '%s\n' "route"
+    return 0
+  fi
+  return 1
+}
+
+# _gateway_route_host - print the host of the per-tenant OpenShift Route for
+# the gateway, or nothing when it does not exist (Gateway API mode, or not
+# created yet).
+_gateway_route_host() {
+  local gw_namespace="${1:?gateway namespace required}"
+  oc get route openshell-gateway -n "$gw_namespace" \
+    -o jsonpath='{.spec.host}' 2>/dev/null || true
 }
 
 get_cluster_domain() {
@@ -201,6 +245,20 @@ wait_for_gateway_route() {
 
   dim "  Waiting for Gateway route readiness (timeout: ${timeout}s)..."
   while [[ $(date +%s) -lt $deadline ]]; do
+    # Route ingress mode (GATEWAY_INGRESS_MODE=route, e.g. IBM Cloud ROKS):
+    # readiness is the OpenShift router admitting the per-tenant Route.
+    if [[ "$(_gateway_route_mode "$gw_namespace")" == "route" ]]; then
+      local admitted
+      admitted=$(oc get route openshell-gateway -n "$gw_namespace" \
+        -o jsonpath='{range .status.ingress[*].conditions[*]}{.type}={.status}{"\n"}{end}' 2>/dev/null \
+        | grep -c 'Admitted=True' || true)
+      if [[ "${admitted:-0}" -ge 1 ]]; then
+        return 0
+      fi
+      dim "    ${gw_name}: Route Admitted=${admitted:-0}"
+      sleep 5
+      continue
+    fi
     local gw_ref_name gw_ref_ns programmed accepted
     gw_ref_name=$(oc get grpcroute openshell-gateway -n "$gw_namespace" \
       -o jsonpath='{.spec.parentRefs[0].name}' 2>/dev/null || true)

@@ -31,7 +31,19 @@ function renderMenu() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  document
+    .querySelectorAll('meta[name="hypershell-runtime-config"]')
+    .forEach((element) => {
+      element.remove();
+    });
 });
+
+function setRuntimeConfig(content: string): void {
+  const meta = document.createElement("meta");
+  meta.setAttribute("name", "hypershell-runtime-config");
+  meta.setAttribute("content", content);
+  document.head.append(meta);
+}
 
 it("shows the user name and a full sign-out link", async () => {
   const user = userEvent.setup();
@@ -51,6 +63,52 @@ it("shows the user name and a full sign-out link", async () => {
   // Sign-out is a real navigation to the BFF endpoint, not a client route, so
   // the BFF can clear the session and perform RP-initiated Keycloak logout.
   expect(logout.getAttribute("href")).toBe("/auth/logout");
+});
+
+it("shows the console and API build versions above sign-out", async () => {
+  const user = userEvent.setup();
+  setRuntimeConfig(
+    '{"apiVersion":"abc1234","tracing":{"sampleRatio":0},"webVersion":"def5678"}',
+  );
+  getSessionMock.mockResolvedValue({
+    authenticated: true,
+    roles: [],
+    user: { name: "Ada Lovelace" },
+  });
+
+  renderMenu();
+
+  const toggle = await screen.findByRole("button", { name: /Ada Lovelace/u });
+  await user.click(toggle);
+
+  const menu = screen.getByRole("menu");
+  expect(within(menu).getByText("Console build: def5678")).toBeTruthy();
+  expect(within(menu).getByText("API build: abc1234")).toBeTruthy();
+  // Version items are informational: rendered as disabled menu items rather
+  // than actionable links.
+  for (const item of within(menu).getAllByRole("menuitem", {
+    name: /build/u,
+  })) {
+    expect((item as HTMLButtonElement).disabled).toBe(true);
+  }
+});
+
+it("shows unknown versions when no runtime config is injected", async () => {
+  const user = userEvent.setup();
+  getSessionMock.mockResolvedValue({
+    authenticated: true,
+    roles: [],
+    user: { name: "Ada Lovelace" },
+  });
+
+  renderMenu();
+
+  const toggle = await screen.findByRole("button", { name: /Ada Lovelace/u });
+  await user.click(toggle);
+
+  const menu = screen.getByRole("menu");
+  expect(within(menu).getByText("Console build: unknown")).toBeTruthy();
+  expect(within(menu).getByText("API build: unknown")).toBeTruthy();
 });
 
 it("falls back to the preferred username, then email, then Account", async () => {

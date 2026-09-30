@@ -384,10 +384,12 @@ secrets are unnecessary):
 skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
   docker://docker.io/library/postgres:18 docker://$REG/openshift/postgres:18
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0@sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd    docker://$REG/openshift/openshell-gateway:v0.0.109-rhaiv.0
+  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:fd0090fbaf1f5aa9e05f7c66d1078b83acc247407ed51ec531a76e3af5a27775    docker://$REG/openshift/openshell-gateway:v0.1.2-rhaiv.0
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.0.109-rhaiv.0@sha256:96e21135c18bc9f6f4d1dfd0cccae3c91769ef4d87da2e470eca4b56a24b2152 docker://$REG/openshift/openshell-supervisor:v0.0.109-rhaiv.0
-oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, postgres
+  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.0@sha256:31c77a215c927a7aafe5a8aa68ca8610fd13f3bb1587e1836e60f5242b148109 docker://$REG/openshift/openshell-supervisor:v0.1.2-rhaiv.0
+skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
+  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.2-rhaiv.0@sha256:283838f9787bdd876ec8f110a5d5b5c752082a410f75173f0abf2533ae651989 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.2-rhaiv.0
+oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, openshell-sandbox-runtime, postgres
 ```
 
 ### 5.3: Deploy with the `deploy/ibm` overlay

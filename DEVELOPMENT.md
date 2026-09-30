@@ -278,6 +278,11 @@ if that legacy path already exists) and uses the `hypershell-cli` Keycloak clien
 
 Check identity with `hsctl whoami` and log out with `hsctl logout`.
 
+Run `./components/cli/hsctl ui` for an interactive terminal view of gateways,
+managed clusters, releases, and networks that refreshes in place and can
+provision and delete gateways. Press `?` inside it for key bindings. The
+behavior is specified in `specs/platform/hsctl-terminal-ui.spec.md`.
+
 ### Hot reload and OIDC
 
 Web console hot reload (`make kind-web-console-up`) runs the Vite dev server
