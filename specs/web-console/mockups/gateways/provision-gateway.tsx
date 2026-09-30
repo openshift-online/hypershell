@@ -1,27 +1,86 @@
 import {
   ActionGroup,
   Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
   Form,
-  FormHelperText,
   FormGroup,
+  Gallery,
+  FormHelperText,
   HelperText,
   HelperTextItem,
-  MenuToggle,
-  Select,
-  SelectOption,
-  SelectList,
+  PageSection,
   TextInput,
 } from "@patternfly/react-core";
 import { useState } from "react";
 
+import awsLogo from "../../../../packages/gateway-management-ui/src/assets/aws-logo.svg";
+import ibmCloudLogo from "../../../../packages/gateway-management-ui/src/assets/ibm-cloud.svg";
 import { MockupTemplate } from "../shell/mockup-template";
+
+function Choice({
+  title,
+  description,
+  value,
+  selected,
+  icon,
+  isDisabled,
+  name,
+  onChoose,
+}: {
+  title: string;
+  description?: string;
+  value: string;
+  selected?: boolean;
+  icon?: string;
+  isDisabled?: boolean;
+  name: string;
+  onChoose: () => void;
+}) {
+  const labelId = `${name}-${value}-label`;
+  return (
+    <Card
+      isDisabled={isDisabled}
+      isSelectable
+      isSelected={selected}
+      onClick={() => {
+        if (!isDisabled) onChoose();
+      }}
+    >
+      <CardHeader
+        selectableActions={{
+          isChecked: selected,
+          isHidden: true,
+          name,
+          onChange: onChoose,
+          selectableActionAriaLabelledby: labelId,
+          selectableActionProps: { value },
+          variant: "single",
+        }}
+      >
+        <CardTitle>
+          {icon ? <img alt="" height="24" src={icon} width="24" /> : null}{" "}
+          <span id={labelId}>{title}</span>
+        </CardTitle>
+      </CardHeader>
+      {description ? <CardBody>{description}</CardBody> : null}
+    </Card>
+  );
+}
 
 export function ProvisionGatewayMockup({
   showValidationErrors = false,
+  showLocalDevelopment = false,
 }: {
   showValidationErrors?: boolean;
+  showLocalDevelopment?: boolean;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [network, setNetwork] = useState<"public" | "vpn">("public");
+  const [provider, setProvider] = useState<"aws" | "ibm">("ibm");
+  const [localKind, setLocalKind] = useState(showLocalDevelopment);
 
   return (
     <MockupTemplate
@@ -31,70 +90,131 @@ export function ProvisionGatewayMockup({
       showRefresh={false}
       title="Provision gateway"
     >
-      <Form isWidthLimited>
-        <FormGroup isRequired label="Gateway name" fieldId="gateway-name">
-          <TextInput
-            id="gateway-name"
-            name="gateway-name"
-            validated={showValidationErrors ? "error" : "default"}
-          />
-          {showValidationErrors ? (
+      <PageSection hasBodyWrapper={false} isFilled variant="secondary">
+        <Form aria-label="Provision gateway" isWidthLimited>
+          <FormGroup isRequired label="Gateway name" fieldId="gateway-name">
+            <TextInput
+              id="gateway-name"
+              isRequired
+              onChange={(_event, value) => setName(value)}
+              value={name}
+              validated={showValidationErrors && !name ? "error" : "default"}
+            />
+            {showValidationErrors ? (
+              <FormHelperText>
+                <HelperText>
+                  <HelperTextItem
+                    screenReaderText="error status"
+                    variant="error"
+                  >
+                    This field is required.
+                  </HelperTextItem>
+                </HelperText>
+              </FormHelperText>
+            ) : null}
+          </FormGroup>
+          <FormGroup isRequired label="Network access" fieldId="network-access">
+            <Gallery
+              hasGutter
+              minWidths={{ default: "250px", md: "300px" }}
+              role="radiogroup"
+            >
+              {showLocalDevelopment ? (
+                <Choice
+                  name="placement"
+                  value="local-kind"
+                  selected={localKind}
+                  title="Local development"
+                  description="Run the gateway on the local Kind cluster."
+                  onChoose={() => {
+                    setLocalKind(true);
+                  }}
+                />
+              ) : null}
+              <Choice
+                name="placement"
+                value="public"
+                selected={!localKind && network === "public"}
+                title="Public"
+                description="Accessible through a public endpoint. Choose a cloud provider below."
+                onChoose={() => {
+                  setLocalKind(false);
+                  setNetwork("public");
+                }}
+              />
+              <Choice
+                name="placement"
+                value="vpn"
+                selected={!localKind && network === "vpn"}
+                title="VPN"
+                description="Private network access. AWS is required for VPN placement."
+                onChoose={() => {
+                  setLocalKind(false);
+                  setNetwork("vpn");
+                  setProvider("aws");
+                }}
+              />
+            </Gallery>
             <FormHelperText>
               <HelperText>
-                <HelperTextItem screenReaderText="error status" variant="error">
-                  This field is required.
+                <HelperTextItem
+                  screenReaderText={
+                    showValidationErrors ? "error status" : undefined
+                  }
+                  variant={showValidationErrors ? "error" : "default"}
+                >
+                  {showValidationErrors && !localKind && !network
+                    ? "This field is required."
+                    : ""}
                 </HelperTextItem>
               </HelperText>
             </FormHelperText>
+          </FormGroup>
+          {network ? (
+            <FormGroup
+              isRequired
+              label="Cloud provider"
+              fieldId="cloud-provider"
+            >
+              <Gallery
+                hasGutter
+                minWidths={{ default: "250px", md: "300px" }}
+                role="radiogroup"
+              >
+                <Choice
+                  name="provider"
+                  value="aws"
+                  selected={provider === "aws"}
+                  title="Amazon Web Services"
+                  icon={awsLogo}
+                  onChoose={() => setProvider("aws")}
+                />
+                <Choice
+                  name="provider"
+                  value="ibm"
+                  selected={provider === "ibm"}
+                  title="IBM Cloud"
+                  icon={ibmCloudLogo}
+                  isDisabled={network === "vpn"}
+                  onChoose={() => setProvider("ibm")}
+                />
+              </Gallery>
+            </FormGroup>
           ) : null}
-        </FormGroup>
-        <FormGroup
-          isRequired
-          label="Cluster"
-          fieldId="gateway-cluster"
-        >
-          <Select
-            isOpen={isOpen}
-            onOpenChange={setIsOpen}
-            toggle={(toggleRef) => (
-              <MenuToggle
-                onClick={() => setIsOpen((open) => !open)}
-                ref={toggleRef}
-                isExpanded={isOpen}
-                isFullWidth
-                status={showValidationErrors ? "danger" : undefined}
-              >
-                Select a cluster
-              </MenuToggle>
-            )}
-          >
-            <SelectList>
-              <SelectOption value="hyp0-hub">hyp0-hub</SelectOption>
-              <SelectOption value="hyp0-spoke1">hyp0-spoke1</SelectOption>
-            </SelectList>
-          </Select>
-          <FormHelperText>
-            <HelperText>
-              <HelperTextItem
-                screenReaderText={showValidationErrors ? "error status" : undefined}
-                variant={showValidationErrors ? "error" : "default"}
-              >
-                {showValidationErrors
-                  ? "This field is required."
-                  : "Only clusters with a connected control plane can host a gateway."}
-              </HelperTextItem>
-            </HelperText>
-          </FormHelperText>
-        </FormGroup>
-        <ActionGroup>
-          <Button type="submit" variant="primary">
-            Provision gateway
-          </Button>
-          <Button type="button" variant="link">
-            Cancel
-          </Button>
-        </ActionGroup>
-      </Form>
+          <p>
+            A matching managed cluster is selected at random for the chosen
+            network and provider.
+          </p>
+          <ActionGroup>
+            <Button type="submit" variant="primary">
+              Provision gateway
+            </Button>
+            <Button type="button" variant="link">
+              Cancel
+            </Button>
+          </ActionGroup>
+        </Form>
+      </PageSection>
     </MockupTemplate>
   );
 }
