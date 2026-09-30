@@ -212,3 +212,12 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateGatewayConfig_SandboxRuntimeImage(t *testing.T) {
+	if err := ValidateGatewayConfig(GatewayConfig{SandboxRuntimeImage: "quay.io/test/sandbox:v1"}); err != nil {
+		t.Fatalf("valid sandbox runtime image rejected: %v", err)
+	}
+	if err := ValidateGatewayConfig(GatewayConfig{SandboxRuntimeImage: "not a valid ref!"}); err == nil {
+		t.Fatal("invalid sandbox runtime image accepted")
+	}
+}

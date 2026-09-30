@@ -49,6 +49,8 @@ spec:
               value: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0
             - name: GATEWAY_SUPERVISOR_IMAGE
               value: quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.0
+            - name: GATEWAY_SANDBOX_RUNTIME_IMAGE
+              value: quay.io/opendatahub/odh-openshell-sandbox:v0.1.2-rhaiv.0
           ports:
             - name: http
               containerPort: 8080

@@ -15,6 +15,7 @@ import (
 type ImageDefaults interface {
 	DefaultGatewayImage() string
 	DefaultSupervisorImage() string
+	DefaultSandboxRuntimeImage() string
 	DefaultSandboxImage() string
 	DefaultConsoleImage() string
 	DefaultOAuth2ProxyImage() string
@@ -48,6 +49,15 @@ func (StaticImageDefaults) DefaultGatewayImage() string {
 // variable; reconciliation will fail if not provided.
 func (StaticImageDefaults) DefaultSupervisorImage() string {
 	return os.Getenv("GATEWAY_SUPERVISOR_IMAGE")
+}
+
+// DefaultSandboxRuntimeImage resolves the trusted workload-side sandbox runtime
+// image. The supervisor and the sandbox runtime speak a versioned boundary
+// protocol, so they must come from the same OpenShell build. Set via
+// GATEWAY_SANDBOX_RUNTIME_IMAGE; when unset the chart default applies, which
+// resolves to a moving upstream tag and can skew from the pinned supervisor.
+func (StaticImageDefaults) DefaultSandboxRuntimeImage() string {
+	return os.Getenv("GATEWAY_SANDBOX_RUNTIME_IMAGE")
 }
 
 // DefaultSandboxImage resolves the base image tenant sandbox pods launch from.
@@ -87,13 +97,14 @@ type GatewayConfig struct {
 	// only to the release actually applied to the workload, never to a desired
 	// release the provisioning path has not yet rolled out. See
 	// gateway-release-rollout.spec.md.
-	ReleaseID        string                  `yaml:"releaseID"`
-	SupervisorImage  string                  `yaml:"supervisorImage"`
-	ServerDnsNames   []string                `yaml:"serverDnsNames"`
-	ExternalDns      string                  `yaml:"externalDns"`
-	OIDC             OIDCConfig              `yaml:"oidc"`
-	Route            RouteConfig             `yaml:"route"`
-	CredentialDriver *CredentialDriverConfig `yaml:"credentialDriver"`
+	ReleaseID           string                  `yaml:"releaseID"`
+	SupervisorImage     string                  `yaml:"supervisorImage"`
+	SandboxRuntimeImage string                  `yaml:"sandboxRuntimeImage"`
+	ServerDnsNames      []string                `yaml:"serverDnsNames"`
+	ExternalDns         string                  `yaml:"externalDns"`
+	OIDC                OIDCConfig              `yaml:"oidc"`
+	Route               RouteConfig             `yaml:"route"`
+	CredentialDriver    *CredentialDriverConfig `yaml:"credentialDriver"`
 }
 
 type CredentialDriverConfig struct {

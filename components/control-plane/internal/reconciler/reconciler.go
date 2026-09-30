@@ -650,6 +650,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return reconcileErr
 	}
 	gwConfig.SupervisorImage = supervisorImage
+	gwConfig.SandboxRuntimeImage = (gateway.StaticImageDefaults{}).DefaultSandboxRuntimeImage()
 
 	if gw.Oidc != nil && *gw.Oidc != "" {
 		var oidcConfig gateway.OIDCConfig

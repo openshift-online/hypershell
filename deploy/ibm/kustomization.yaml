@@ -83,3 +83,5 @@ patches:
                     value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:v0.1.2-rhaiv.0
                   - name: GATEWAY_SUPERVISOR_IMAGE
                     value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:v0.1.2-rhaiv.0
+                  - name: GATEWAY_SANDBOX_RUNTIME_IMAGE
+                    value: image-registry.openshift-image-registry.svc:5000/openshift/openshell-sandbox-runtime:v0.1.2-rhaiv.0

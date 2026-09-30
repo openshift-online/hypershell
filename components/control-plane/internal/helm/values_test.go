@@ -253,3 +253,36 @@ func TestParseGatewayResources(t *testing.T) {
 		})
 	}
 }
+
+// TestBuild_SandboxRuntimeImage locks in that the sandbox runtime image is
+// pinned alongside the supervisor. The two speak a versioned boundary protocol;
+// leaving the runtime to the chart default (a moving upstream tag) skews it from
+// the pinned supervisor and sandboxes never leave Provisioning.
+func TestBuild_SandboxRuntimeImage(t *testing.T) {
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			Image:               "quay.io/test/gateway:v1",
+			SupervisorImage:     "quay.io/test/supervisor:v1",
+			SandboxRuntimeImage: "quay.io/test/sandbox:v1",
+		},
+		Namespace: "test-ns",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	want := map[string]interface{}{"registry": "quay.io", "repository": "test/sandbox", "tag": "v1"}
+	runtime, _ := values["sandboxRuntime"].(map[string]interface{})
+	if got := runtime["image"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("sandboxRuntime.image = %#v, want %#v", got, want)
+	}
+
+	builder.Gateway.SandboxRuntimeImage = ""
+	values, err = builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	if _, ok := values["sandboxRuntime"]; ok {
+		t.Errorf("sandboxRuntime set without an image: %#v", values["sandboxRuntime"])
+	}
+}

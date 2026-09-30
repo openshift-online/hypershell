@@ -10,12 +10,13 @@ import (
 // GatewayConfig represents the configuration for a gateway deployment.
 // This is a local copy to avoid import cycles with the gateway package.
 type GatewayConfig struct {
-	Image            string
-	SupervisorImage  string
-	ServerDnsNames   []string
-	OIDC             OIDCConfig
-	Route            RouteConfig
-	CredentialDriver *CredentialDriverConfig
+	Image               string
+	SupervisorImage     string
+	SandboxRuntimeImage string
+	ServerDnsNames      []string
+	OIDC                OIDCConfig
+	Route               RouteConfig
+	CredentialDriver    *CredentialDriverConfig
 }
 
 // OIDCConfig represents OIDC configuration.
@@ -130,6 +131,16 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 		setNestedValue(values, reg, "supervisor", "image", "registry")
 		setNestedValue(values, repo, "supervisor", "image", "repository")
 		setNestedValue(values, tag, "supervisor", "image", "tag")
+	}
+
+	// The sandbox runtime and supervisor speak a versioned boundary protocol, so
+	// the runtime must be pinned to the same OpenShell build as the supervisor.
+	// Left unset, the chart defaults to a moving upstream tag.
+	if b.Gateway.SandboxRuntimeImage != "" {
+		reg, repo, tag := splitImageRefFull(b.Gateway.SandboxRuntimeImage)
+		setNestedValue(values, reg, "sandboxRuntime", "image", "registry")
+		setNestedValue(values, repo, "sandboxRuntime", "image", "repository")
+		setNestedValue(values, tag, "sandboxRuntime", "image", "tag")
 	}
 
 	// Workload configuration

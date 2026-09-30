@@ -108,6 +108,8 @@ manifests (both must agree):
   value: quay.io/opendatahub/odh-openshell-gateway:<TAG>
 - name: GATEWAY_SUPERVISOR_IMAGE
   value: quay.io/opendatahub/odh-openshell-supervisor:<TAG>
+- name: GATEWAY_SANDBOX_RUNTIME_IMAGE   # must match the supervisor build
+  value: quay.io/opendatahub/odh-openshell-sandbox:<TAG>
 ```
 
 Where `<TAG>` is either a midstream tag (`v0.0.116-rhaiv.15`) or a digest
@@ -123,7 +125,7 @@ Update the version in every file below. Discover the live list before editing -
 do not trust this table blindly; it is a checklist, not a source of truth:
 
 ```bash
-grep -rln "odh-openshell-\(gateway\|supervisor\):" . | grep -v '\.git/'
+grep -rln "odh-openshell-\(gateway\|supervisor\|sandbox\):" . | grep -v '\.git/'
 grep -rln "openshell/\(gateway\|supervisor\):" . | grep -v '\.git/'     # older image names (ghcr.io/nvidia)
 grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intentional fixtures afterwards
 ```

@@ -62,6 +62,12 @@ func ValidateGatewayConfig(config GatewayConfig) error {
 		}
 	}
 
+	if config.SandboxRuntimeImage != "" {
+		if err := ValidateImageReference(config.SandboxRuntimeImage); err != nil {
+			return fmt.Errorf("invalid sandbox runtime image: %w", err)
+		}
+	}
+
 	for i, dns := range config.ServerDnsNames {
 		if err := ValidateDNSName(dns); err != nil {
 			return fmt.Errorf("invalid serverDnsNames[%d]: %w", i, err)
