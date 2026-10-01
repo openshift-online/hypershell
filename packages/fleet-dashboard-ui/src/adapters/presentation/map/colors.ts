@@ -31,15 +31,6 @@ export const GATEWAY_COLOR = {
   idle: TONE_COLOR.unknown,
 } as const;
 
-/**
- * The "sand" sparkline total-outline accent (warm amber). The stacked bands below
- * it use the per-phase GATEWAY_COLOR palette; this only traces the summed height.
- */
-export const SAND_LINE = token(
-  "--pf-t--global--color--status--warning--default",
-  "#dca614",
-);
-
 /** Surfaces/strokes for cards, lanes and edges on the dark canvas. */
 export const CARD_BG = token(
   "--pf-t--global--background--color--secondary--default",
@@ -68,12 +59,26 @@ export const TEXT_SUBTLE = token(
 export const ICON_BG = "#ffffff";
 
 /**
- * A deterministic hue (0-359) for an opaque label string. Derived from a visual
- * hash so a given provider/role always draws the same colour WITHOUT baking any
+ * Brand hues for the handful of widely-known public cloud vendors, so their chips
+ * read in the colour people expect (AWS orange, IBM Cloud blue) rather than an
+ * arbitrary hash hue. These are generic, public vendor names - NOT fleet-identifying
+ * values - so they stay clear of the identity firewall (data-architecture.spec §3.5);
+ * any provider not listed here still falls back to the deterministic hash hue, so no
+ * fleet-specific provider inventory is baked into source.
+ */
+const BRAND_HUE: Record<string, number> = {
+  aws: 36, // AWS orange (#ff9900)
+  ibm: 216, // IBM Cloud blue (#0f62fe)
+};
+
+/**
+ * A deterministic hue (0-359) for an opaque label string. Known public cloud
+ * vendors get their brand hue; everything else is derived from a visual hash so a
+ * given provider/role always draws the same colour WITHOUT baking any fleet-specific
  * provider or role list into source (firewall - data-architecture.spec §3.5).
  */
 function hueFor(label: string): number {
-  return fnv1a(`hue:${label}`) % 360;
+  return BRAND_HUE[label.toLowerCase()] ?? fnv1a(`hue:${label}`) % 360;
 }
 
 /** Chip colours (dark fill + bright same-hue text) for a cloud provider label. */

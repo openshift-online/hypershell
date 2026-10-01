@@ -1,9 +1,11 @@
-// A single instance rendered as an SVG card: provider chip, gateway donut,
-// digest-seeded identicon (ringed by promotion state), name + alias + release +
-// digest, a "sand" gateway-history sparkline, and a role badge. All text is server
-// DATA (names/versions/digests/labels), so this card needs no i18n catalog; the
-// accessible, translated equivalent is the sibling promotion/instances tables.
+// A single instance rendered as an SVG card: a provider chip paired with a
+// hub/spoke role indicator (top-left), a digest-seeded identicon (ringed by
+// promotion state, top-right), name + alias + release, a "sand" gateway-history
+// sparkline, and the live gateway count (bottom-right). All text is server DATA
+// (names/versions/labels), so this card needs no i18n catalog; the accessible,
+// translated equivalent is the sibling promotion/instances tables.
 
+import { totalGateways } from "../../../domain/fleet";
 import { identiName } from "../../../domain/map/identiname";
 import type { MapNode } from "../../../domain/map/model";
 import type { NodeBox } from "../../../domain/map/layout";
@@ -18,7 +20,6 @@ import {
   TEXT_SUBTLE,
   TONE_COLOR,
 } from "./colors";
-import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import { SandSparkline } from "./sand-sparkline";
 import styles from "./topology-map.module.css";
@@ -142,7 +143,8 @@ export function MapNodeCard({
         />
       ) : null}
 
-      {/* provider chip (top-left) - colour DERIVED from the provider label */}
+      {/* provider chip (top-left) - colour DERIVED from the provider label
+          (brand hue for known public clouds, hash hue otherwise) */}
       {chip && node.provider ? (
         <g>
           <rect
@@ -166,15 +168,30 @@ export function MapNodeCard({
         </g>
       ) : null}
 
-      {/* gateway donut (top-centre) */}
-      <g fill={TEXT_COLOR}>
-        <GatewayDonut
-          counts={node.gateways}
-          cx={x + w / 2}
-          cy={y + 22}
-          radius={15}
-        />
-      </g>
+      {/* hub/spoke role indicator, right of the provider chip - fill DERIVED from
+          the role label (no fleet role list baked in) */}
+      {node.role ? (
+        <g>
+          <rect
+            x={x + 56}
+            y={y + 7}
+            width={node.role.length * 6.5 + 12}
+            height={16}
+            rx={4}
+            fill={roleBadgeFill(node.role)}
+          />
+          <text
+            x={x + 56 + (node.role.length * 6.5 + 12) / 2}
+            y={y + 19}
+            textAnchor="middle"
+            fontSize={9}
+            fontWeight={700}
+            fill="#10202f"
+          >
+            {node.role.toUpperCase()}
+          </text>
+        </g>
+      ) : null}
 
       {/* identicon (top-right) with promotion-state ring. Clickable: opens the
           release bundle it identifies (not the instance). */}
@@ -222,11 +239,6 @@ export function MapNodeCard({
           {node.version}
         </text>
       ) : null}
-      {node.digest ? (
-        <text x={x + 12} y={y + 94} fontSize={9} fill={TEXT_SUBTLE}>
-          {node.digest}
-        </text>
-      ) : null}
 
       {/* gateway-history sparkline (bottom strip) */}
       <SandSparkline
@@ -237,29 +249,28 @@ export function MapNodeCard({
         height={12}
       />
 
-      {/* role badge circle (bottom-right) - fill DERIVED from the role label */}
-      {node.role ? (
-        <g>
-          <circle
-            cx={x + w - 20}
-            cy={y + h - 20}
-            r={13}
-            fill={roleBadgeFill(node.role)}
-            stroke="rgba(0,0,0,0.25)"
-          />
-          <text
-            x={x + w - 20}
-            y={y + h - 20}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontSize={12}
-            fontWeight={700}
-            fill="#10202f"
-          >
-            {node.role.charAt(0).toUpperCase()}
-          </text>
-        </g>
-      ) : null}
+      {/* gateway count (bottom-right): total gateways on this instance. The sand
+          sparkline above carries the per-phase breakdown; this is just the tally. */}
+      <g>
+        <circle
+          cx={x + w - 20}
+          cy={y + h - 20}
+          r={13}
+          fill={CARD_BG}
+          stroke={CARD_STROKE}
+        />
+        <text
+          x={x + w - 20}
+          y={y + h - 20}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={12}
+          fontWeight={700}
+          fill={TEXT_COLOR}
+        >
+          {totalGateways(node.gateways)}
+        </text>
+      </g>
     </g>
   );
 }

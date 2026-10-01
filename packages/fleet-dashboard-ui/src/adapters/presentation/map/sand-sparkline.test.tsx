@@ -12,7 +12,7 @@ function sample(
 }
 
 describe("SandSparkline", () => {
-  it("renders one <path> band per phase plus a total outline", () => {
+  it("renders one <path> band per phase (no total outline)", () => {
     const { container } = render(
       <svg>
         <SandSparkline
@@ -24,9 +24,10 @@ describe("SandSparkline", () => {
         />
       </svg>,
     );
-    // running / provisioning / failed bands.
+    // running / provisioning / failed bands; no amber outline (it was confused
+    // with the provisioning-phase amber band).
     expect(container.querySelectorAll("path").length).toBe(3);
-    expect(container.querySelectorAll("polyline").length).toBe(1);
+    expect(container.querySelectorAll("polyline").length).toBe(0);
   });
 
   it("renders nothing when history is empty", () => {
@@ -36,7 +37,6 @@ describe("SandSparkline", () => {
       </svg>,
     );
     expect(container.querySelectorAll("path").length).toBe(0);
-    expect(container.querySelectorAll("polyline").length).toBe(0);
   });
 
   it("renders nothing when history has only one sample", () => {
@@ -52,7 +52,6 @@ describe("SandSparkline", () => {
       </svg>,
     );
     expect(container.querySelectorAll("path").length).toBe(0);
-    expect(container.querySelectorAll("polyline").length).toBe(0);
   });
 
   it("all-zero series renders bands with no NaN in the path data", () => {

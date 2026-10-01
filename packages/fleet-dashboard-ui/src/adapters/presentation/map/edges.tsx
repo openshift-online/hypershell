@@ -5,7 +5,7 @@
 // paired with the drawer's text label, never the sole signal). Purely geometric -
 // it consumes the model (column membership) and the computed layout (coordinates).
 
-import type { MapGate, MapModel } from "../../../domain/map/model";
+import type { MapModel } from "../../../domain/map/model";
 import type {
   GateLayout,
   MapLayout,
@@ -64,23 +64,25 @@ function GateGlyph({
     );
   }
   if (tone === "warning") {
+    // A dark disc with a white spinner, so it stays legible on the amber diamond
+    // (a tinted spinner on amber washed out - AAA contrast).
     return (
       <g transform={`translate(${f(cx)}, ${f(cy)})`} aria-hidden="true">
-        <circle r={7} fill="#ffffff" opacity={0.75} />
+        <circle r={8} fill="#10202f" />
         <circle
-          r={7}
+          r={5.5}
           fill="none"
-          stroke={TONE_COLOR.info}
-          strokeOpacity={0.25}
+          stroke="#ffffff"
+          strokeOpacity={0.3}
           strokeWidth={2}
         />
         <circle
-          r={7}
+          r={5.5}
           fill="none"
-          stroke={TONE_COLOR.info}
+          stroke="#ffffff"
           strokeWidth={2}
           strokeLinecap="round"
-          strokeDasharray="13 100"
+          strokeDasharray="9 100"
         >
           <animateTransform
             attributeName="transform"
@@ -126,44 +128,112 @@ export function MapEdges({
 
   return (
     <g>
+      <defs>
+        {/* Arrowheads for the promoting rails. The active (inbound) head inherits
+            the path's tone via context-stroke; the outbound head is fixed grey. */}
+        <marker
+          id="gate-arrow-active"
+          viewBox="0 0 10 10"
+          refX="8"
+          refY="5"
+          markerWidth="6"
+          markerHeight="6"
+          orient="auto"
+        >
+          <path d="M0 0 L10 5 L0 10 z" fill="context-stroke" />
+        </marker>
+        <marker
+          id="gate-arrow-grey"
+          viewBox="0 0 10 10"
+          refX="8"
+          refY="5"
+          markerWidth="6"
+          markerHeight="6"
+          orient="auto"
+        >
+          <path d="M0 0 L10 5 L0 10 z" fill={EDGE_STROKE} />
+        </marker>
+      </defs>
       {model.gates.map((gate) => {
         const gl = gateById.get(gate.id);
         if (!gl) {
           return null;
         }
-        const tone = gate.promoting ? TONE_COLOR[gate.badge.tone] : EDGE_STROKE;
+        // While a gate is promoting, dashed "marching ants" arrows (tinted by the
+        // gate tone) flow INTO it to show the condition being evaluated, and a static
+        // grey arrow points on to the next cluster (there is no real flow yet - it is
+        // blocked until the gate passes). Settled gates draw plain thin rails.
+        const promoting = gate.promoting;
+        const inTone = promoting ? TONE_COLOR[gate.badge.tone] : EDGE_STROKE;
         const fromIds = colNodeIds.get(gate.fromColumnKey) ?? [];
         const toIds = colNodeIds.get(gate.toColumnKey) ?? [];
         const edges: React.ReactElement[] = [];
         for (const id of fromIds) {
           const b = boxById.get(id);
-          if (b) {
-            edges.push(
+          if (!b) {
+            continue;
+          }
+          const d = hBezier(b.x + b.w, b.cy, gl.x, gl.y);
+          edges.push(
+            promoting ? (
               <path
                 key={`${gate.id}:in:${id}`}
-                d={hBezier(b.x + b.w, b.cy, gl.x, gl.y)}
+                d={d}
                 fill="none"
-                stroke={tone}
-                strokeWidth={gate.promoting ? 2 : 1.25}
+                stroke={inTone}
+                strokeWidth={2}
+                strokeOpacity={0.9}
+                strokeDasharray="6 5"
+                markerEnd="url(#gate-arrow-active)"
+              >
+                <animate
+                  attributeName="stroke-dashoffset"
+                  from="22"
+                  to="0"
+                  dur="0.8s"
+                  repeatCount="indefinite"
+                />
+              </path>
+            ) : (
+              <path
+                key={`${gate.id}:in:${id}`}
+                d={d}
+                fill="none"
+                stroke={EDGE_STROKE}
+                strokeWidth={1.25}
                 strokeOpacity={0.7}
-              />,
-            );
-          }
+              />
+            ),
+          );
         }
         for (const id of toIds) {
           const b = boxById.get(id);
-          if (b) {
-            edges.push(
+          if (!b) {
+            continue;
+          }
+          const d = hBezier(gl.x, gl.y, b.x, b.cy);
+          edges.push(
+            promoting ? (
               <path
                 key={`${gate.id}:out:${id}`}
-                d={hBezier(gl.x, gl.y, b.x, b.cy)}
+                d={d}
                 fill="none"
-                stroke={tone}
-                strokeWidth={gate.promoting ? 2 : 1.25}
+                stroke={EDGE_STROKE}
+                strokeWidth={1.5}
                 strokeOpacity={0.7}
-              />,
-            );
-          }
+                markerEnd="url(#gate-arrow-grey)"
+              />
+            ) : (
+              <path
+                key={`${gate.id}:out:${id}`}
+                d={d}
+                fill="none"
+                stroke={EDGE_STROKE}
+                strokeWidth={1.25}
+                strokeOpacity={0.7}
+              />
+            ),
+          );
         }
         return <g key={gate.id}>{edges}</g>;
       })}
@@ -219,26 +289,18 @@ export function MapEdges({
               fill={fill}
               stroke={selected ? "#ffffff" : "rgba(0,0,0,0.4)"}
               strokeWidth={selected ? 2.5 : 1}
-            >
-              {gate.promoting ? (
-                <animate
-                  attributeName="opacity"
-                  values="1;0.45;1"
-                  dur="1.4s"
-                  repeatCount="indefinite"
-                />
-              ) : null}
-            </polygon>
-            <GateGlyph tone={gate.badge.tone} cx={gl.x} cy={gl.y - 7} />
-            {/* gate name below the glyph, inside the diamond (server data) */}
+            />
+            <GateGlyph tone={gate.badge.tone} cx={gl.x} cy={gl.y} />
+            {/* gate name BELOW the diamond on the dark canvas (not cramped onto the
+                tinted fill, which failed AAA contrast and overflowed the glyph) */}
             {gate.name ? (
               <text
                 x={gl.x}
-                y={gl.y + 9}
+                y={gl.y + GATE_R + 14}
                 textAnchor="middle"
                 fontSize={10}
                 fontWeight={700}
-                fill={glyphLabelFill(gate)}
+                fill={TEXT_COLOR}
               >
                 {gate.name}
               </text>
@@ -248,11 +310,4 @@ export function MapEdges({
       })}
     </g>
   );
-}
-
-/** The gate-name text sits on the diamond's fill; pick a legible ink for it. */
-function glyphLabelFill(gate: MapGate): string {
-  return gate.badge.tone === "unknown" || gate.badge.tone === "info"
-    ? TEXT_COLOR
-    : "#10202f";
 }

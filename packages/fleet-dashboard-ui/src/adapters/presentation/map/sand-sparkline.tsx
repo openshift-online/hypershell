@@ -1,5 +1,5 @@
 import type { GatewayHistorySample } from "../../../domain/fleet";
-import { GATEWAY_COLOR, SAND_LINE } from "./colors";
+import { GATEWAY_COLOR } from "./colors";
 
 export interface SandSparklineProps {
   readonly history: readonly GatewayHistorySample[];
@@ -21,8 +21,7 @@ const LAYERS: readonly { key: keyof GatewayHistorySample; color: string }[] = [
  * Per-instance gateway history as a stacked area ("sand") chart: each phase is its
  * own filled band so a healthy fleet reads green, a provisioning wave rises amber,
  * and failures surface red on top. The y-scale is the max stacked total across the
- * window, so band heights are comparable within one node. A total outline traces
- * the summed height.
+ * window, so band heights are comparable within one node.
  */
 export function SandSparkline({
   history,
@@ -58,22 +57,9 @@ export function SandSparkline({
     lower = upper;
   }
 
-  const outline = totals
-    .map((v, i) => `${xAt(i).toFixed(2)},${yAt(v).toFixed(2)}`)
-    .join(" ");
-
   return (
     <g aria-hidden="true" pointerEvents="none">
       {bands}
-      <polyline
-        points={outline}
-        fill="none"
-        stroke={SAND_LINE}
-        strokeWidth={1}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        strokeOpacity={0.9}
-      />
     </g>
   );
 }
