@@ -44,6 +44,8 @@ export interface MapViewport {
   readonly zoomIn: () => void;
   readonly zoomOut: () => void;
   readonly fit: () => void;
+  /** Recenter the view on a world point (minimap click/drag navigation). */
+  readonly recenter: (wx: number, wy: number) => void;
   /** True once a drag has actually moved (so a click can be suppressed). */
   readonly didPan: () => boolean;
 }
@@ -81,6 +83,7 @@ export function useMapViewport(
   const rafRef = useRef(0);
   const draggingRef = useRef(false);
   const movedRef = useRef(false);
+  const capturedRef = useRef(false);
   const lastRef = useRef<Vec>({ x: 0, y: 0 });
   const svgRef = useRef<SVGSVGElement | null>(null);
   const stepRef = useRef<(() => void) | undefined>(undefined);
@@ -195,11 +198,15 @@ export function useMapViewport(
   );
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    // No eager setPointerCapture: capturing on press retargets the pointer to the
+    // svg, so a plain click on a child node <g> never reaches its onClick. We
+    // capture lazily on the first real move (onPointerMove) instead, so taps still
+    // select nodes while drags still pan.
     draggingRef.current = true;
     movedRef.current = false;
+    capturedRef.current = false;
     velRef.current = { x: 0, y: 0 };
     lastRef.current = { x: e.clientX, y: e.clientY };
-    e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
 
   const onPointerMove = useCallback(
@@ -217,6 +224,16 @@ export function useMapViewport(
       const dyScreen = e.clientY - lastRef.current.y;
       if (Math.abs(dxScreen) + Math.abs(dyScreen) > 2) {
         movedRef.current = true;
+        if (!capturedRef.current) {
+          // First real move: now claim the pointer so the drag keeps tracking even
+          // if it leaves the svg. (Deferred from onPointerDown to keep clicks live.)
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            capturedRef.current = true;
+          } catch {
+            // capture unsupported / element gone; drag still works via move events.
+          }
+        }
       }
       const dxWorld = (dxScreen / r.width) * v.w;
       const dyWorld = (dyScreen / r.height) * v.h;
@@ -236,10 +253,13 @@ export function useMapViewport(
         return;
       }
       draggingRef.current = false;
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        // capture may already be gone; ignore.
+      if (capturedRef.current) {
+        capturedRef.current = false;
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch {
+          // capture may already be gone; ignore.
+        }
       }
       if (prefersReducedMotion()) {
         velRef.current = { x: 0, y: 0 };
@@ -272,6 +292,16 @@ export function useMapViewport(
     ensureLoop();
   }, [baseW, baseH, ensureLoop]);
 
+  const recenter = useCallback(
+    (wx: number, wy: number) => {
+      const t = targetRef.current;
+      targetRef.current = { ...t, x: wx - t.w / 2, y: wy - t.h / 2 };
+      velRef.current = { x: 0, y: 0 };
+      ensureLoop();
+    },
+    [ensureLoop],
+  );
+
   const didPan = useCallback(() => movedRef.current, []);
 
   return {
@@ -285,6 +315,7 @@ export function useMapViewport(
     zoomIn,
     zoomOut,
     fit,
+    recenter,
     didPan,
   };
 }

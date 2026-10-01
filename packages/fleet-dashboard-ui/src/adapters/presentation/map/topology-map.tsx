@@ -55,6 +55,7 @@ export function TopologyMap({
     zoomIn,
     zoomOut,
     fit,
+    recenter,
     didPan,
   } = useMapViewport(layout.width, layout.height);
   const [selection, setSelection] = useState<MapSelection | null>(null);
@@ -177,18 +178,19 @@ export function TopologyMap({
             </g>
           ))}
 
-          {/* column headers: the promotion environment of each column (server data) */}
-          {layout.columns.map((col) => (
+          {/* env-type band headers: group the columns sharing an env-type (int /
+              stage / prod) into one label spanning them (server data) */}
+          {layout.bands.map((band) => (
             <text
-              key={col.key}
-              x={col.centerX}
+              key={`${band.label}@${f(band.x)}`}
+              x={band.centerX}
               y={headerY}
               textAnchor="middle"
               fontSize={13}
               fontWeight={700}
               fill={TEXT_COLOR}
             >
-              {col.key}
+              {band.label.toUpperCase()}
             </text>
           ))}
 
@@ -239,7 +241,7 @@ export function TopologyMap({
         </svg>
 
         <div className={styles.mini}>
-          <MiniMap layout={layout} viewport={viewport} />
+          <MiniMap layout={layout} viewport={viewport} onRecenter={recenter} />
         </div>
       </div>
 

@@ -66,7 +66,7 @@ function promotion(
 const emptyFleet: FleetData = { instances: [] };
 
 describe("buildMapModel - columns", () => {
-  it("groups nodes into columns by envLabel in server order", () => {
+  it("makes one column per promotion env (env.name) in server order", () => {
     const model = buildMapModel(
       promotion(["hub-int", "spoke-int", "hub-prod"], {
         "hub-int": env({ name: "hub-int", envLabel: "int", role: "hub" }),
@@ -79,17 +79,36 @@ describe("buildMapModel - columns", () => {
       }),
       emptyFleet,
     );
-    expect(model.columns.map((c) => c.key)).toEqual(["int", "prod"]);
-    expect(model.columns[0]?.nodeIds).toEqual(["hub-int", "spoke-int"]);
-    expect(model.columns[1]?.nodeIds).toEqual(["hub-prod"]);
+    // Each env is its own column (left -> right), so a cloud's sequential stages
+    // read across rather than stacking into one env-label column.
+    expect(model.columns.map((c) => c.key)).toEqual([
+      "hub-int",
+      "spoke-int",
+      "hub-prod",
+    ]);
+    expect(model.columns[0]?.nodeIds).toEqual(["hub-int"]);
+    expect(model.columns[1]?.nodeIds).toEqual(["spoke-int"]);
+    expect(model.columns[2]?.nodeIds).toEqual(["hub-prod"]);
   });
 
-  it("falls back to the instance key when envLabel is absent", () => {
+  it("carries the env-type label on each column for the header bands", () => {
+    const model = buildMapModel(
+      promotion(["hub-int", "hub-prod"], {
+        "hub-int": env({ name: "hub-int", envLabel: "int" }),
+        "hub-prod": env({ name: "hub-prod", envLabel: "prod" }),
+      }),
+      emptyFleet,
+    );
+    expect(model.columns.map((c) => c.envLabel)).toEqual(["int", "prod"]);
+  });
+
+  it("leaves envLabel null on a column when the server omits it", () => {
     const model = buildMapModel(
       promotion(["solo"], { solo: env({ name: "solo" }) }),
       emptyFleet,
     );
     expect(model.columns.map((c) => c.key)).toEqual(["solo"]);
+    expect(model.columns[0]?.envLabel).toBeNull();
   });
 });
 
@@ -187,8 +206,8 @@ describe("buildMapModel - gates", () => {
       emptyFleet,
     );
     expect(model.gates).toHaveLength(1);
-    expect(model.gates[0]?.fromColumnKey).toBe("int");
-    expect(model.gates[0]?.toColumnKey).toBe("prod");
+    expect(model.gates[0]?.fromColumnKey).toBe("hi");
+    expect(model.gates[0]?.toColumnKey).toBe("hp");
     expect(model.gates[0]?.badge.tone).toBe("danger");
   });
 

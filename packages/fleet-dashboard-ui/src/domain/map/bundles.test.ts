@@ -23,6 +23,7 @@ function bundle(overrides: Partial<ReleaseBundle>): ReleaseBundle {
 function node(overrides: Partial<MapNode> & { id: string }): MapNode {
   return {
     columnKey: "c",
+    envLabel: null,
     laneKey: "none",
     isHub: true,
     gateNames: [],

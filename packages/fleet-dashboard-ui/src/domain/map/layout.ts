@@ -49,9 +49,18 @@ export interface GateLayout {
   readonly toColumnKey: string;
 }
 
+/** An env-type header band spanning the consecutive columns that share a label. */
+export interface BandLayout {
+  readonly label: string;
+  readonly centerX: number;
+  readonly x: number;
+  readonly width: number;
+}
+
 export interface MapLayout {
   readonly nodes: readonly NodeBox[];
   readonly columns: readonly ColumnLayout[];
+  readonly bands: readonly BandLayout[];
   readonly lanes: readonly LaneLayout[];
   readonly gates: readonly GateLayout[];
   /** Y of the promotion spine (hub row): gates + the change diamond ride this. */
@@ -79,6 +88,40 @@ export function computeLayout(model: MapModel): MapLayout {
     return { key: c.key, index: c.index, x, centerX: x + NODE_W / 2 };
   });
   const colByKey = new Map(columns.map((c) => [c.key, c]));
+
+  // Env-type bands: merge runs of adjacent columns sharing an envLabel into one
+  // header span (so int/stage/prod read as grouped bands above their columns).
+  const bands: BandLayout[] = [];
+  model.columns.forEach((mc, i) => {
+    const col = columns[i];
+    if (!col) {
+      return;
+    }
+    const label = mc.envLabel;
+    if (label === null || label === "") {
+      return;
+    }
+    const left = col.x;
+    const right = col.x + NODE_W;
+    const prev = bands[bands.length - 1];
+    if (prev?.label === label) {
+      const newRight = right;
+      const newX = Math.min(prev.x, left);
+      bands[bands.length - 1] = {
+        label,
+        x: newX,
+        width: newRight - newX,
+        centerX: (newX + newRight) / 2,
+      };
+    } else {
+      bands.push({
+        label,
+        x: left,
+        width: right - left,
+        centerX: (left + right) / 2,
+      });
+    }
+  });
 
   // How many nodes land in each (lane, column) cell -> lane row heights.
   const nodesByLane = new Map<string, MapNode[]>();
@@ -171,6 +214,7 @@ export function computeLayout(model: MapModel): MapLayout {
   return {
     nodes,
     columns,
+    bands,
     lanes,
     gates,
     hubSpineY: gateY,

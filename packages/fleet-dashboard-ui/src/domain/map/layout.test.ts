@@ -2,14 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { FleetData } from "../fleet";
 import type { PromotionData, PromotionEnvironment } from "../promotion";
-import {
-  COL_GAP,
-  computeLayout,
-  MARGIN_X,
-  NODE_H,
-  NODE_W,
-  V_GAP,
-} from "./layout";
+import { COL_GAP, computeLayout, MARGIN_X, NODE_H, NODE_W } from "./layout";
 import { buildMapModel } from "./model";
 
 function env(
@@ -83,19 +76,41 @@ describe("computeLayout", () => {
     expect(box?.cy).toBe((box?.y ?? 0) + NODE_H / 2);
   });
 
-  it("stacks multiple nodes sharing a column+lane vertically", () => {
+  it("lays sequential promotion envs in one cloud left -> right, not stacked", () => {
+    // Two instances in the same cloud (lane) are distinct promotion envs, so they
+    // read across (one column each) instead of stacking in a single env column.
     const model = buildMapModel(
       promotion(["s1", "s2"], {
-        s1: env({ name: "s1", envLabel: "int", role: "spoke" }),
-        s2: env({ name: "s2", envLabel: "int", role: "spoke" }),
+        s1: env({ name: "s1", envLabel: "int", role: "hub", provider: "ibm" }),
+        s2: env({ name: "s2", envLabel: "int", role: "hub", provider: "ibm" }),
       }),
       noFleet,
     );
     const layout = computeLayout(model);
     expect(layout.nodes).toHaveLength(2);
     const [a, b] = layout.nodes;
-    expect(a?.x).toBe(b?.x); // same column
-    expect((b?.y ?? 0) - (a?.y ?? 0)).toBe(NODE_H + V_GAP); // stacked
+    expect(a?.y).toBe(b?.y); // same cloud lane -> same row
+    expect((b?.x ?? 0) - (a?.x ?? 0)).toBe(NODE_W + COL_GAP); // adjacent columns
+  });
+
+  it("groups consecutive columns sharing an env-type into one header band", () => {
+    const model = buildMapModel(
+      promotion(["a", "b", "c"], {
+        a: env({ name: "a", envLabel: "int", role: "hub" }),
+        b: env({ name: "b", envLabel: "int", role: "hub" }),
+        c: env({ name: "c", envLabel: "prod", role: "hub" }),
+      }),
+      noFleet,
+    );
+    const layout = computeLayout(model);
+    expect(layout.bands.map((x) => x.label)).toEqual(["int", "prod"]);
+    const [intBand, prodBand] = layout.bands;
+    const [colA, , colC] = layout.columns;
+    // int band spans columns a..b; prod band covers just column c.
+    expect(intBand?.x).toBe(colA?.x);
+    expect(intBand?.width).toBe(NODE_W + COL_GAP + NODE_W);
+    expect(prodBand?.x).toBe(colC?.x);
+    expect(prodBand?.width).toBe(NODE_W);
   });
 
   it("positions a gate midway between its two columns on the hub lane", () => {

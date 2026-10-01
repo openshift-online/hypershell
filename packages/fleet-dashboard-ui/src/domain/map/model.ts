@@ -2,11 +2,12 @@
 // metrics) into the nodes / columns / lanes / gates the interactive map draws.
 //
 // FIREWALL: this module hard-codes NOTHING about the fleet - no environment
-// names, no hub table, no provider list, no ordering. Columns come from the
-// server's `envLabel`, lanes from `role`/`provider`, order from `promotion.order`,
-// gates from the per-env gate data. A static ENV->HUB or provider table here would
-// bake the topology into public source; deriving it at runtime is the whole point
-// (data-architecture.spec §3.5 in the gitops repo).
+// names, no hub table, no provider list, no ordering. Columns are the promotion
+// environments in `promotion.order` (one column per env, left -> right), lanes come
+// from `role`/`provider`, the env-type (`envLabel`) only groups column headers, and
+// gates come from the per-env gate data. A static ENV->HUB or provider table here
+// would bake the topology into public source; deriving it at runtime is the whole
+// point (data-architecture.spec §3.5 in the gitops repo).
 
 import {
   findInstance,
@@ -48,8 +49,15 @@ export interface MapNodeMetrics {
 export interface MapNode {
   /** Instance key from the payload (runtime data, never compiled in). */
   readonly id: string;
-  /** Column this node belongs to (its `envLabel`, else its own key). */
+  /**
+   * Column this node belongs to: its promotion environment (the `promotion.order`
+   * identity). Each environment is one column, laid left -> right in promotion
+   * order, so a cloud's sequential stages read across, not stacked (the promoter
+   * model - every environment is a distinct promotion step).
+   */
   readonly columnKey: string;
+  /** Env-type grouping (int/stage/prod, server data) used for the header bands. */
+  readonly envLabel: string | null;
   /**
    * Lane key: one lane per cloud provider (the provider string, or "none" when
    * the server omits it). Hub-hosting providers sink to the bottom - geometry is
@@ -92,6 +100,8 @@ export interface MapColumn {
   readonly key: string;
   readonly index: number;
   readonly nodeIds: readonly string[];
+  /** Env-type (int/stage/prod) of this column's nodes, for the grouping bands. */
+  readonly envLabel: string | null;
 }
 
 /** A horizontal lane: one per cloud provider (rows are clouds, columns are envs). */
@@ -142,7 +152,8 @@ function buildNode(env: PromotionEnvironment, fleet: FleetData): MapNode {
   const gateways = fl?.gateways ?? {};
   return {
     id: env.name,
-    columnKey: nonEmpty(env.envLabel) ?? env.name,
+    columnKey: env.name,
+    envLabel: nonEmpty(env.envLabel),
     laneKey: laneKeyFor(provider),
     isHub: isHubRole(env.role),
     role: nonEmpty(env.role),
@@ -272,11 +283,13 @@ export function buildMapModel(
   // Columns in server order: first appearance of each columnKey wins.
   const columnOrder: string[] = [];
   const columnNodes = new Map<string, string[]>();
+  const columnEnvLabel = new Map<string, string | null>();
   for (const n of nodes) {
     let bucket = columnNodes.get(n.columnKey);
     if (!bucket) {
       bucket = [];
       columnNodes.set(n.columnKey, bucket);
+      columnEnvLabel.set(n.columnKey, n.envLabel);
       columnOrder.push(n.columnKey);
     }
     bucket.push(n.id);
@@ -285,6 +298,7 @@ export function buildMapModel(
     key,
     index,
     nodeIds: columnNodes.get(key) ?? [],
+    envLabel: columnEnvLabel.get(key) ?? null,
   }));
 
   return {
