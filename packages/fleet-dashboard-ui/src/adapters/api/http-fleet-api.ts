@@ -4,12 +4,8 @@
 
 import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
-import type { PromotionData } from "../../domain/promotion";
-import type {
-  FleetApi,
-  InstancesData,
-  TopologyData,
-} from "../../application/ports";
+import type { FleetApi, TopologyData } from "../../application/ports";
+import { mapInstances, mapPromotion } from "./wire";
 
 export interface HttpFleetApiOptions {
   /** BFF base path, e.g. "/api". No trailing slash. */
@@ -32,8 +28,12 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
   const base = options.basePath.replace(/\/$/, "");
 
+  // getPlane fetches an envelope and maps its `data` from the wire shape into the
+  // domain shape. The envelope fields (generatedAt/stale/error) are identical on
+  // both sides; only `data` needs projecting (see ./wire).
   async function getPlane<T>(
     path: string,
+    mapData: (raw: unknown) => T,
     signal?: AbortSignal,
   ): Promise<Plane<T>> {
     const url = `${base}${path}`;
@@ -44,13 +44,18 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
     if (!response.ok) {
       throw new HttpError(response.status, url);
     }
-    return (await response.json()) as Plane<T>;
+    const envelope = (await response.json()) as Plane<unknown>;
+    return { ...envelope, data: mapData(envelope.data) };
   }
 
+  // Fleet and topology are not yet surfaced in the UI; they pass through untouched
+  // until their views (and mappers) exist.
   return {
-    getFleet: (signal) => getPlane<FleetData>("/fleet", signal),
-    getPromotion: (signal) => getPlane<PromotionData>("/promotion", signal),
-    getTopology: (signal) => getPlane<TopologyData>("/topology", signal),
-    getInstances: (signal) => getPlane<InstancesData>("/instances", signal),
+    getFleet: (signal) =>
+      getPlane<FleetData>("/fleet", (raw) => raw as FleetData, signal),
+    getPromotion: (signal) => getPlane("/promotion", mapPromotion, signal),
+    getTopology: (signal) =>
+      getPlane<TopologyData>("/topology", (raw) => raw as TopologyData, signal),
+    getInstances: (signal) => getPlane("/instances", mapInstances, signal),
   };
 }

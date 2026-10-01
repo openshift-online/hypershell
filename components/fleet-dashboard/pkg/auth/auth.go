@@ -106,14 +106,23 @@ func (a *Authenticator) authorize(ctx context.Context, user authnv1.UserInfo) (b
 	return res.Status.Allowed, nil
 }
 
+// forwardedAccessTokenHeader is where the OpenShift oauth-proxy sidecar places
+// the user's OAuth access token when started with --pass-access-token. This is
+// the ONLY header that carries the token for browser (cookie-session) requests:
+// --pass-user-bearer-token re-emits an Authorization: Bearer header only when the
+// INCOMING request already carried one (i.e. programmatic bearer callers), which a
+// browser session never does. Reading Authorization alone therefore 401s every
+// browser user -- including cluster-admins -- which surfaced as every panel
+// showing "Could not load this view". Accept both: Authorization: Bearer for
+// direct bearer callers, X-Forwarded-Access-Token for proxied browser sessions.
+const forwardedAccessTokenHeader = "X-Forwarded-Access-Token"
+
 func bearerToken(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if h == "" {
-		return ""
+	if h := r.Header.Get("Authorization"); h != "" {
+		const prefix = "Bearer "
+		if len(h) > len(prefix) && strings.EqualFold(h[:len(prefix)], prefix) {
+			return strings.TrimSpace(h[len(prefix):])
+		}
 	}
-	const prefix = "Bearer "
-	if len(h) > len(prefix) && strings.EqualFold(h[:len(prefix)], prefix) {
-		return strings.TrimSpace(h[len(prefix):])
-	}
-	return ""
+	return strings.TrimSpace(r.Header.Get(forwardedAccessTokenHeader))
 }
