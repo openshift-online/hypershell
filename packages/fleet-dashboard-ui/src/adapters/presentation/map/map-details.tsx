@@ -604,6 +604,16 @@ function GateDetails({
           </Flex>
         </Row>
       ) : null}
+      {gate.argoUrl ? (
+        <Row term={<FormattedMessage {...messages.detailAnalysisLogs} />}>
+          <Flex spaceItems={{ default: "spaceItemsSm" }}>
+            <Link
+              href={gate.argoUrl}
+              label={<FormattedMessage {...messages.linkArgo} />}
+            />
+          </Flex>
+        </Row>
+      ) : null}
       <Row term={<FormattedMessage {...messages.detailPromoting} />}>
         {gate.promotingSeed !== null && promotingLabel !== null ? (
           <BundleChip

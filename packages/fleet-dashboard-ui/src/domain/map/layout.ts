@@ -200,9 +200,7 @@ export function computeLayout(model: MapModel): MapLayout {
     const to = colByKey.get(g.toColumnKey);
     // Normal gate: midway between its source and the next column. Terminal gate (no
     // downstream column): a half-column past the right edge of the final stage.
-    const x = to
-      ? (from.x + NODE_W + to.x) / 2
-      : from.x + NODE_W + COL_GAP / 2;
+    const x = to ? (from.x + NODE_W + to.x) / 2 : from.x + NODE_W + COL_GAP / 2;
     gates.push({
       id: g.id,
       x,
