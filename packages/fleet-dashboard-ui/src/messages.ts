@@ -74,6 +74,18 @@ export const messages = defineMessages({
     defaultMessage: "Alias",
     description: "Detail label for a release bundle's generated alias name.",
   },
+  detailAnalysisLogs: {
+    id: "fleet.map.detail.analysisLogs",
+    defaultMessage: "Analysis logs",
+    description:
+      "Detail label for the link to a gate's analysis logs, viewable in the Argo CD application tree.",
+  },
+  detailAnalysisRun: {
+    id: "fleet.map.detail.analysisRun",
+    defaultMessage: "Analysis run",
+    description:
+      "Detail label for the link to a gate's end-to-end analysis run status report.",
+  },
   detailCluster: {
     id: "fleet.map.detail.cluster",
     defaultMessage: "Cluster",
@@ -98,12 +110,6 @@ export const messages = defineMessages({
     id: "fleet.map.detail.digest",
     defaultMessage: "Digest",
     description: "Detail label for a release bundle's image digest.",
-  },
-  detailAnalysisRun: {
-    id: "fleet.map.detail.analysisRun",
-    defaultMessage: "Analysis run",
-    description:
-      "Detail label for the link to a gate's end-to-end analysis run (logs live there).",
   },
   detailFinalStage: {
     id: "fleet.map.detail.finalStage",

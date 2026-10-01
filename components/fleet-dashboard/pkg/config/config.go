@@ -42,6 +42,13 @@ type Config struct {
 	ArgoNamespaces []string // empty => all namespaces
 	ArgoGroup      string
 	ArgoVersion    string
+	// ArgoBaseURL is the external base URL of the Argo CD UI that aggregates the
+	// fleet's Applications (e.g. https://argocd.example). Empty => no argoUrl is
+	// emitted (firewall: the host reveals fleet structure, so it has no default
+	// and must be supplied at runtime). When set, each environment gets a deep
+	// link to its Argo CD Application tree, where the analysis AnalysisRun's
+	// Jobs/Pods - and their logs - surface.
+	ArgoBaseURL string
 
 	// Topology ConfigMaps
 	TopologyNamespace     string // empty => all namespaces
@@ -96,6 +103,7 @@ func Load() (*Config, error) {
 		ArgoNamespaces:        csv(env("FD_ARGO_NAMESPACES", "")),
 		ArgoGroup:             env("FD_ARGO_GROUP", "argoproj.io"),
 		ArgoVersion:           env("FD_ARGO_VERSION", "v1alpha1"),
+		ArgoBaseURL:           strings.TrimRight(env("FD_ARGO_BASE_URL", ""), "/"),
 		TopologyNamespace:     env("FD_TOPOLOGY_NAMESPACE", ""),
 		TopologyLabelSelector: env("FD_TOPOLOGY_LABEL_SELECTOR", "delivery.hypershell.app/topology=true"),
 		GatewayMetric:         env("FD_GATEWAY_METRIC", "hypershell_gateways_total"),

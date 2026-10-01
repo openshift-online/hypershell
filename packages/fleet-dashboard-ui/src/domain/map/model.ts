@@ -138,6 +138,12 @@ export interface MapGate {
   readonly name: string | null;
   /** Deep-link to the source env's analysis run, when the server provides one. */
   readonly analysisUrl: string | null;
+  /**
+   * Deep-link to the source env's Argo CD Application tree, where its analysis
+   * AnalysisRun and the Jobs/Pods it spawns surface - so the analysis logs are
+   * viewable there without piping. Null when the server provides no Argo URL.
+   */
+  readonly argoUrl: string | null;
   /** True when a release is actively promoting into the destination column. */
   readonly promoting: boolean;
   /**
@@ -333,11 +339,12 @@ function buildGates(
       badge: source.gateBadge,
       name: source.gateNames[0] ?? null,
       analysisUrl: source.links.analysis,
+      argoUrl: source.links.argo,
       promoting,
       // The bundle in flight is the destination's PROPOSED release (identicon seed
       // = its proposed digest, else the instance key). Null when nothing is moving.
-      promotingSeed: promoting && dest ? (dest.proposedDigest ?? dest.id) : null,
-      promotingVersion: promoting && dest ? dest.proposedVersion : null,
+      promotingSeed: promoting ? (dest.proposedDigest ?? dest.id) : null,
+      promotingVersion: promoting ? dest.proposedVersion : null,
     });
   }
   return gates;

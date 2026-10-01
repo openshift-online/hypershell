@@ -248,6 +248,7 @@ describe("buildMapModel - gates", () => {
           role: "hub",
           gates: [{ name: "g", phase: "failed", governingInstance: null }],
           analysisUrl: "https://ci/hi",
+          argoUrl: "https://argo/hi",
         }),
         hp: env({ name: "hp", envLabel: "prod", role: "hub" }),
       }),
@@ -261,6 +262,7 @@ describe("buildMapModel - gates", () => {
     expect(model.gates[0]?.terminal).toBe(false);
     expect(model.gates[0]?.badge.tone).toBe("danger");
     expect(model.gates[0]?.analysisUrl).toBe("https://ci/hi");
+    expect(model.gates[0]?.argoUrl).toBe("https://argo/hi");
     expect(model.gates[1]?.fromColumnKey).toBe("hp");
     expect(model.gates[1]?.toColumnKey).toBe("");
     expect(model.gates[1]?.terminal).toBe(true);
