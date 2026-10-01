@@ -111,6 +111,12 @@ export const messages = defineMessages({
     defaultMessage: "Digest",
     description: "Detail label for a release bundle's image digest.",
   },
+  detailDrift: {
+    id: "fleet.map.detail.drift",
+    defaultMessage: "Version drift",
+    description:
+      "Detail label flagging that an instance runs a different release than its environment's hub.",
+  },
   detailFinalStage: {
     id: "fleet.map.detail.finalStage",
     defaultMessage: "final stage",
@@ -178,6 +184,12 @@ export const messages = defineMessages({
     defaultMessage: "Close details",
     description: "Accessible label for the detail panel's close button.",
   },
+  driftFromHub: {
+    id: "fleet.map.drift.fromHub",
+    defaultMessage: "Differs from hub",
+    description:
+      "Badge value shown when an instance runs a different release bundle than its environment's hub.",
+  },
   emptyPlane: {
     id: "fleet.plane.empty",
     defaultMessage: "No data reported.",
@@ -208,6 +220,56 @@ export const messages = defineMessages({
     defaultMessage: "Stale - showing last known values",
     description:
       "Freshness indicator when the server is serving a last-good value.",
+  },
+  infoDigest: {
+    id: "fleet.map.info.digest",
+    defaultMessage:
+      "Content digest of the release bundle this instance is running - the exact value the identicon and identiname are derived from. One digest per instance; when instances in an environment run different digests, that environment is flagged as version drift.",
+    description: "Help tooltip for the Digest field in the detail panel.",
+  },
+  infoDrift: {
+    id: "fleet.map.info.drift",
+    defaultMessage:
+      "This instance runs a different active release bundle than its environment's hub, so the environment is internally inconsistent. Spokes should track their hub; a drift usually means a promotion did not reach this instance or it was pinned by hand.",
+    description:
+      "Help tooltip for the Version drift field in the detail panel.",
+  },
+  infoHealth: {
+    id: "fleet.map.info.health",
+    defaultMessage:
+      "Argo CD health roll-up for this instance's workloads: Healthy, Progressing, or Degraded.",
+    description: "Help tooltip for the Health field in the detail panel.",
+  },
+  infoIncoming: {
+    id: "fleet.map.info.incoming",
+    defaultMessage:
+      "A newer bundle being promoted into this environment: the bundle in the open promotion PR, NOT yet deployed. It becomes the deployed release only once that PR merges and Argo CD syncs it.",
+    description:
+      "Help tooltip for the Proposed (incoming) release field in the detail panel.",
+  },
+  infoPromotion: {
+    id: "fleet.map.info.promotion",
+    defaultMessage:
+      "Where this instance sits in the release flow: up-to-date (running the frontier bundle), promoting (a newer bundle is rolling out), or behind.",
+    description: "Help tooltip for the Promotion field in the detail panel.",
+  },
+  infoRelease: {
+    id: "fleet.map.info.release",
+    defaultMessage:
+      "The release-bundle version this instance is currently running. The chip is the bundle's identiname, a stable two-word alias so a bundle is easy to refer to instead of a long tag.",
+    description: "Help tooltip for the Release field in the detail panel.",
+  },
+  infoRole: {
+    id: "fleet.map.info.role",
+    defaultMessage:
+      "Whether this instance is a HUB (a management cluster that runs the control plane and drives promotion) or a SPOKE (a managed cluster whose workloads the hub reconciles).",
+    description: "Help tooltip for the Role field in the detail panel.",
+  },
+  infoSync: {
+    id: "fleet.map.info.sync",
+    defaultMessage:
+      "Argo CD sync state of this instance's Application. Synced = the live cluster matches the desired Git manifests; OutOfSync = it has drifted or a change is pending.",
+    description: "Help tooltip for the Sync field in the detail panel.",
   },
   legendFailed: {
     id: "fleet.map.legend.failed",
@@ -281,6 +343,11 @@ export const messages = defineMessages({
     defaultMessage: "Zoom out",
     description: "Accessible label for the map's zoom-out control.",
   },
+  moreInfo: {
+    id: "fleet.map.info.more",
+    defaultMessage: "More info",
+    description: "Accessible label for a detail field's info tooltip button.",
+  },
   pendingPromotion: {
     id: "fleet.promotion.pending",
     defaultMessage: "Promotion pending",
@@ -314,6 +381,12 @@ export const messages = defineMessages({
     defaultMessage: "Deployed on",
     description:
       "Heading above the list of instances running a release bundle.",
+  },
+  sectionGateways: {
+    id: "fleet.section.gateways",
+    defaultMessage: "Gateways",
+    description:
+      "Heading above the gateway donut + phase breakdown in an instance's detail panel.",
   },
   sectionInBundle: {
     id: "fleet.section.inBundle",

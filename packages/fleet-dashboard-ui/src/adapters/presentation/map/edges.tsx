@@ -63,9 +63,9 @@ function GateGlyph({
       </g>
     );
   }
-  if (tone === "warning") {
-    // A dark disc with a white spinner, so it stays legible on the amber diamond
-    // (a tinted spinner on amber washed out - AAA contrast).
+  if (tone === "info") {
+    // In-progress (pending/running analysis): a dark disc with a white spinner, so
+    // it stays legible on the blue diamond (a tinted spinner washed out - AAA).
     return (
       <g transform={`translate(${f(cx)}, ${f(cy)})`} aria-hidden="true">
         <circle r={8} fill="#10202f" />

@@ -120,7 +120,19 @@ describe("environmentGateBadge", () => {
     expect(environmentGateBadge(e).tone).toBe("danger");
   });
 
-  it("treats an unknown phase as worse than success but not danger", () => {
+  it("shows the spinner (info) when any gate is pending, even beside a passed gate", () => {
+    const e = env({
+      name: "x",
+      gates: [
+        { name: "argocd-health", phase: "succeeded", governingInstance: null },
+        { name: "analysis", phase: "pending", governingInstance: null },
+      ],
+    });
+    // Roll-up: pending (info) beats good (success), so an in-flight gate surfaces.
+    expect(environmentGateBadge(e).tone).toBe("info");
+  });
+
+  it("lets a good gate outrank an unknown one (unknown never masks a result)", () => {
     const e = env({
       name: "x",
       gates: [
@@ -128,7 +140,18 @@ describe("environmentGateBadge", () => {
         { name: "mystery", phase: "weird", governingInstance: null },
       ],
     });
-    expect(environmentGateBadge(e).tone).toBe("unknown");
+    expect(environmentGateBadge(e).tone).toBe("success");
+  });
+
+  it("still lets a failure dominate a pending gate", () => {
+    const e = env({
+      name: "x",
+      gates: [
+        { name: "analysis", phase: "pending", governingInstance: null },
+        { name: "bad", phase: "failed", governingInstance: null },
+      ],
+    });
+    expect(environmentGateBadge(e).tone).toBe("danger");
   });
 });
 

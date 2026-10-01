@@ -17,13 +17,21 @@ import {
 import { useFleetApi } from "./api-context";
 import { queryKeys } from "./keys";
 
+// DEV-only fast cadence: the local mock server can set VITE_FAST_POLL_MS to speed up
+// the fleet + promotion refetch so value-change animations can be watched without
+// waiting out the real intervals. Parsed to a positive number or ignored; unset in
+// normal and production builds, where the cadence below applies unchanged.
+const fastPollRaw = Number(import.meta.env.VITE_FAST_POLL_MS);
+const FAST_POLL_MS =
+  Number.isFinite(fastPollRaw) && fastPollRaw > 0 ? fastPollRaw : null;
+
 /** Per-plane refetch cadence (ms). Fleet/promotion move fastest; topology rarely. */
 const REFETCH_MS = {
-  fleet: 15_000,
-  promotion: 20_000,
+  fleet: FAST_POLL_MS ?? 15_000,
+  promotion: FAST_POLL_MS ?? 20_000,
   instances: 30_000,
   topology: 60_000,
-} as const;
+};
 
 export function useFleet(): UseQueryResult<Plane<FleetData>> {
   const api = useFleetApi();

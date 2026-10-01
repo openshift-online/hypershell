@@ -6,10 +6,18 @@ describe("gatePhaseBadge", () => {
   it("maps passing phases to success", () => {
     expect(gatePhaseBadge("success").tone).toBe("success");
     expect(gatePhaseBadge("passed").tone).toBe("success");
+    // Argo/Tekton spell a passed analysis "Succeeded"/"Successful".
+    expect(gatePhaseBadge("Succeeded").tone).toBe("success");
+    expect(gatePhaseBadge("Successful").tone).toBe("success");
   });
 
   it("maps failing phases to danger, never brand red", () => {
     expect(gatePhaseBadge("failed").tone).toBe("danger");
+  });
+
+  it("maps in-flight phases to info (blue), not warning", () => {
+    expect(gatePhaseBadge("pending").tone).toBe("info");
+    expect(gatePhaseBadge("running").tone).toBe("info");
   });
 
   it("never infers success from an unrecognized or absent phase", () => {

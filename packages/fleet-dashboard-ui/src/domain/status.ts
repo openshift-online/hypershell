@@ -20,6 +20,8 @@ export interface StatusBadge {
 export function gatePhaseBadge(phase: string | null | undefined): StatusBadge {
   switch ((phase ?? "").toLowerCase()) {
     case "success":
+    case "succeeded":
+    case "successful":
     case "passed":
       return { tone: "success", labelKey: "passed" };
     case "failure":
@@ -27,7 +29,9 @@ export function gatePhaseBadge(phase: string | null | undefined): StatusBadge {
       return { tone: "danger", labelKey: "failed" };
     case "pending":
     case "running":
-      return { tone: "warning", labelKey: "pending" };
+      // In-flight, not a caution: blue (info), matching the "Promoting" state - an
+      // analysis still evaluating is progress, not a warning.
+      return { tone: "info", labelKey: "pending" };
     default:
       return { tone: "unknown", labelKey: "unknown" };
   }

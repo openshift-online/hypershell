@@ -18,6 +18,7 @@ import {
   type LabelProps,
   List,
   ListItem,
+  Spinner,
   Tab,
   Tabs,
   TabTitleText,
@@ -25,6 +26,7 @@ import {
   Tooltip,
 } from "@patternfly/react-core";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
+import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
 import LongArrowAltRightIcon from "@patternfly/react-icons/dist/esm/icons/long-arrow-alt-right-icon";
 import TimesIcon from "@patternfly/react-icons/dist/esm/icons/times-icon";
 import { useState } from "react";
@@ -47,7 +49,7 @@ import type {
 import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
 import { StatusLabel } from "../status-label";
-import { TEXT_COLOR } from "./colors";
+import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import styles from "./map-details.module.css";
@@ -165,6 +167,8 @@ export interface MapDetailsProps {
   readonly onClose: () => void;
   /** Opens a release bundle's details (from any identicon in the panel). */
   readonly onSelectBundle: (seed: string) => void;
+  /** Selects an instance node (from a "Deployed on" chip in the bundle panel). */
+  readonly onSelectNode: (id: string) => void;
 }
 
 const PROMO_LABEL: Record<
@@ -172,7 +176,9 @@ const PROMO_LABEL: Record<
   { readonly msg: MessageDescriptor; readonly status: LabelProps["status"] }
 > = {
   "up-to-date": { msg: messages.promoUpToDate, status: "success" },
-  promoting: { msg: messages.promoPromoting, status: "warning" },
+  // Promoting is in-flight, not a problem: blue (info) with a live spinner, not an
+  // amber warning.
+  promoting: { msg: messages.promoPromoting, status: "info" },
   behind: { msg: messages.promoBehind, status: undefined },
 };
 
@@ -188,6 +194,33 @@ function Row({
       <DescriptionListTerm>{term}</DescriptionListTerm>
       <DescriptionListDescription>{children}</DescriptionListDescription>
     </DescriptionListGroup>
+  );
+}
+
+/** A field label paired with a PatternFly info tooltip: hovering/focusing the
+ *  small "i" shows contextual help (matching the prototype's per-field help). */
+function TermWithInfo({
+  label,
+  info,
+}: {
+  label: React.ReactNode;
+  info: MessageDescriptor;
+}): React.ReactElement {
+  const intl = useIntl();
+  return (
+    <span className={styles.termWithInfo}>
+      {label}
+      <Tooltip content={<FormattedMessage {...info} />}>
+        <span
+          className={styles.infoTip}
+          role="button"
+          tabIndex={0}
+          aria-label={intl.formatMessage(messages.moreInfo)}
+        >
+          <InfoAltIcon />
+        </span>
+      </Tooltip>
+    </span>
   );
 }
 
@@ -300,6 +333,7 @@ function BundleContents({
       <Flex
         alignItems={{ default: "alignItemsCenter" }}
         spaceItems={{ default: "spaceItemsSm" }}
+        className="pf-v6-u-mb-sm"
       >
         {seed ? (
           <FlexItem>
@@ -307,7 +341,7 @@ function BundleContents({
           </FlexItem>
         ) : null}
         <FlexItem>
-          <Title headingLevel="h4" size="md">
+          <h4 className={styles.sectionTitle}>
             <FormattedMessage {...messages.sectionInBundle} />
             {prs.length > 0 ? (
               <Content component="small" className="pf-v6-u-ml-sm">
@@ -317,7 +351,7 @@ function BundleContents({
                 />
               </Content>
             ) : null}
-          </Title>
+          </h4>
         </FlexItem>
       </Flex>
       <PrList prs={prs} />
@@ -340,42 +374,63 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
     provisioning,
     failed,
   });
+  // Donut on the left, a compact chart legend (swatch · label · count) on the right.
+  // A chart legend - not a horizontal DescriptionList - so the three phase rows stay
+  // tight beside the donut in the narrow drawer instead of wrapping below it.
+  const legend: { color: string; term: MessageDescriptor; value: number }[] = [
+    {
+      color: GATEWAY_COLOR.running,
+      term: messages.legendRunning,
+      value: running,
+    },
+    {
+      color: GATEWAY_COLOR.provisioning,
+      term: messages.legendProvisioning,
+      value: provisioning,
+    },
+    { color: GATEWAY_COLOR.failed, term: messages.legendFailed, value: failed },
+  ];
+  if (other > 0) {
+    legend.push({
+      color: GATEWAY_COLOR.idle,
+      term: messages.legendOther,
+      value: other,
+    });
+  }
   return (
-    <Flex
-      alignItems={{ default: "alignItemsCenter" }}
-      spaceItems={{ default: "spaceItemsLg" }}
-    >
-      <FlexItem>
+    <div className={styles.gatewayBody}>
+      <div className={styles.gatewayDonutCol}>
+        <h4 className={styles.gatewayDonutTitle}>
+          <FormattedMessage {...messages.sectionGateways} />
+        </h4>
         <svg
-          width={120}
-          height={120}
-          viewBox="0 0 120 120"
+          className={styles.gatewayDonut}
+          width={96}
+          height={96}
+          viewBox="0 0 96 96"
           role="img"
           aria-label={label}
           style={{ color: TEXT_COLOR }}
         >
-          <GatewayDonut counts={g} cx={60} cy={60} radius={50} />
+          <GatewayDonut counts={g} cx={48} cy={48} radius={44} />
         </svg>
-      </FlexItem>
-      <FlexItem>
-        <DescriptionList isCompact isHorizontal>
-          <Row term={<FormattedMessage {...messages.legendRunning} />}>
-            {running}
-          </Row>
-          <Row term={<FormattedMessage {...messages.legendProvisioning} />}>
-            {provisioning}
-          </Row>
-          <Row term={<FormattedMessage {...messages.legendFailed} />}>
-            {failed}
-          </Row>
-          {other > 0 ? (
-            <Row term={<FormattedMessage {...messages.legendOther} />}>
-              {other}
-            </Row>
-          ) : null}
-        </DescriptionList>
-      </FlexItem>
-    </Flex>
+      </div>
+      <ul className={styles.gatewayLegend}>
+        {legend.map((row) => (
+          <li key={row.term.id} className={styles.gatewayLegendRow}>
+            <span
+              className={styles.gatewaySwatch}
+              style={{ background: row.color }}
+              aria-hidden="true"
+            />
+            <span className={styles.gatewayLegendLabel}>
+              <FormattedMessage {...row.term} />
+            </span>
+            <span className={styles.gatewayLegendCount}>{row.value}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -403,13 +458,34 @@ function NodeFields({
       <Row term={<FormattedMessage {...messages.columnEnvironment} />}>
         {node.columnKey}
       </Row>
-      <Row term={<FormattedMessage {...messages.columnRole} />}>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.columnRole} />}
+            info={messages.infoRole}
+          />
+        }
+      >
         {node.role ?? <FormattedMessage {...messages.valueNone} />}
       </Row>
-      <Row term={<FormattedMessage {...messages.detailSync} />}>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.detailSync} />}
+            info={messages.infoSync}
+          />
+        }
+      >
         <StatusLabel badge={syncBadge(node.argoSync)} />
       </Row>
-      <Row term={<FormattedMessage {...messages.columnHealth} />}>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.columnHealth} />}
+            info={messages.infoHealth}
+          />
+        }
+      >
         {node.links.argo ? (
           <Button
             component="a"
@@ -427,12 +503,38 @@ function NodeFields({
           <StatusLabel badge={healthBadge(node.argoHealth)} />
         )}
       </Row>
-      <Row term={<FormattedMessage {...messages.detailPromotion} />}>
-        <Label status={promo.status} variant="outline" isCompact>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.detailPromotion} />}
+            info={messages.infoPromotion}
+          />
+        }
+      >
+        <Label
+          status={promo.status}
+          className={
+            node.state === "promoting" ? styles.spinnerLabel : undefined
+          }
+          icon={
+            node.state === "promoting" ? (
+              <Spinner size="sm" aria-hidden />
+            ) : undefined
+          }
+          variant="outline"
+          isCompact
+        >
           <FormattedMessage {...promo.msg} />
         </Label>
       </Row>
-      <Row term={<FormattedMessage {...messages.columnRelease} />}>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.columnRelease} />}
+            info={messages.infoRelease}
+          />
+        }
+      >
         {releaseLabel ? (
           <BundleChip
             seed={node.seed}
@@ -444,7 +546,14 @@ function NodeFields({
         )}
       </Row>
       {node.proposedVersion ? (
-        <Row term={<FormattedMessage {...messages.detailProposed} />}>
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailProposed} />}
+              info={messages.infoIncoming}
+            />
+          }
+        >
           <BundleChip
             seed={node.proposedDigest ?? node.proposedVersion}
             label={node.proposedVersion}
@@ -453,12 +562,33 @@ function NodeFields({
         </Row>
       ) : null}
       {node.digest ? (
-        <Row term={<FormattedMessage {...messages.detailDigest} />}>
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailDigest} />}
+              info={messages.infoDigest}
+            />
+          }
+        >
           <BundleChip
             seed={node.seed}
             label={<code>{node.digest}</code>}
             onSelect={onSelectBundle}
           />
+        </Row>
+      ) : null}
+      {node.driftsFromColumn ? (
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailDrift} />}
+              info={messages.infoDrift}
+            />
+          }
+        >
+          <Label color="orange" isCompact icon={<InfoAltIcon />}>
+            <FormattedMessage {...messages.driftFromHub} />
+          </Label>
         </Row>
       ) : null}
       {node.managedClusters !== null ? (
@@ -525,7 +655,6 @@ function NodeDetails({
       onSelect={(_event, key) => {
         setActiveKey(key);
       }}
-      isBox
     >
       <Tab
         eventKey="details"
@@ -536,7 +665,9 @@ function NodeDetails({
         }
       >
         <div className="pf-v6-u-mt-md">
-          <GatewaySummary node={node} />
+          <div className={styles.gatewayWidget}>
+            <GatewaySummary node={node} />
+          </div>
           <div className="pf-v6-u-mt-md">
             <NodeFields node={node} onSelectBundle={onSelectBundle} />
           </div>
@@ -616,7 +747,30 @@ function GateDetails({
         </Flex>
       </Row>
       <Row term={<FormattedMessage {...messages.columnGates} />}>
-        <StatusLabel badge={gate.badge} />
+        {gate.checks.length > 0 ? (
+          <Flex
+            direction={{ default: "column" }}
+            spaceItems={{ default: "spaceItemsXs" }}
+          >
+            {gate.checks.map((check) => (
+              <Flex
+                key={check.name}
+                spaceItems={{ default: "spaceItemsSm" }}
+                alignItems={{ default: "alignItemsCenter" }}
+                flexWrap={{ default: "nowrap" }}
+              >
+                <FlexItem className={styles.gateCheckName}>
+                  {check.name}
+                </FlexItem>
+                <FlexItem>
+                  <StatusLabel badge={check.badge} />
+                </FlexItem>
+              </Flex>
+            ))}
+          </Flex>
+        ) : (
+          <StatusLabel badge={gate.badge} />
+        )}
       </Row>
       {gate.analysisUrl ? (
         <Row term={<FormattedMessage {...messages.detailAnalysisRun} />}>
@@ -657,10 +811,12 @@ function BundleDetails({
   seed,
   model,
   releaseByDigest,
+  onSelectNode,
 }: {
   seed: string;
   model: MapModel;
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
+  onSelectNode: (id: string) => void;
 }): React.ReactElement | null {
   const bundle = bundleList(releaseByDigest).find(
     (b) => seedForBundle(b) === seed,
@@ -690,26 +846,34 @@ function BundleDetails({
         ) : null}
       </DescriptionList>
 
-      <Title headingLevel="h4" size="md" className="pf-v6-u-mt-md">
-        <FormattedMessage {...messages.sectionDeployedOn} />
-      </Title>
-      {deployed.length > 0 ? (
-        <Flex spaceItems={{ default: "spaceItemsXs" }}>
-          {deployed.map((n) => (
-            <FlexItem key={n.id}>
-              <Label variant="outline" isCompact>
-                {n.id}
-              </Label>
-            </FlexItem>
-          ))}
-        </Flex>
-      ) : (
-        <Content component="small">
-          <FormattedMessage {...messages.valueNone} />
-        </Content>
-      )}
+      <div className={styles.section}>
+        <h4 className={styles.sectionTitle}>
+          <FormattedMessage {...messages.sectionDeployedOn} />
+        </h4>
+        {deployed.length > 0 ? (
+          <Flex spaceItems={{ default: "spaceItemsXs" }}>
+            {deployed.map((n) => (
+              <FlexItem key={n.id}>
+                <Label
+                  variant="outline"
+                  isCompact
+                  onClick={() => {
+                    onSelectNode(n.id);
+                  }}
+                >
+                  {n.id}
+                </Label>
+              </FlexItem>
+            ))}
+          </Flex>
+        ) : (
+          <Content component="small">
+            <FormattedMessage {...messages.valueNone} />
+          </Content>
+        )}
+      </div>
 
-      <div className="pf-v6-u-mt-md">
+      <div className={styles.section}>
         <BundleContents bundle={bundle} />
       </div>
     </>
@@ -722,6 +886,7 @@ export function MapDetails({
   selection,
   onClose,
   onSelectBundle,
+  onSelectNode,
 }: MapDetailsProps): React.ReactElement {
   const intl = useIntl();
   const node =
@@ -748,7 +913,7 @@ export function MapDetails({
               </FlexItem>
             ) : null}
             <FlexItem>
-              <Title headingLevel="h3" size="md">
+              <Title headingLevel="h3" size="lg">
                 {title}
               </Title>
             </FlexItem>
@@ -782,6 +947,7 @@ export function MapDetails({
           seed={selection.id}
           model={model}
           releaseByDigest={releaseByDigest}
+          onSelectNode={onSelectNode}
         />
       ) : null}
     </div>

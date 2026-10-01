@@ -18,6 +18,7 @@ import type { ReleaseBundle } from "../../../domain/promotion";
 import { messages } from "../../../messages";
 import { CARD_BG, CARD_STROKE, TONE_COLOR } from "./colors";
 import { Identicon } from "./identicon";
+import styles from "./topology-map.module.css";
 
 const ICON = 34;
 
@@ -60,7 +61,12 @@ export function FreightBar({
           }
         };
         return (
-          <FlexItem key={seed}>
+          <FlexItem key={seed} className={styles.freightSlot}>
+            {/* key={seed} on the FlexItem means React mounts a fresh node only for a
+                NEWLY-arrived bundle, so the entry animation plays just for the new card -
+                existing cards keep their DOM and don't replay. The slot opens first
+                (.freightSlot, sliding siblings right), then the card drops into it
+                (.freightDrop). */}
             <div
               role="button"
               tabIndex={0}
@@ -68,6 +74,7 @@ export function FreightBar({
               aria-label={bundle.version}
               onClick={select}
               onKeyDown={onKeyDown}
+              className={styles.freightDrop}
               style={{
                 display: "flex",
                 alignItems: "center",

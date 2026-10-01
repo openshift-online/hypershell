@@ -268,6 +268,60 @@ describe("buildMapModel - gates", () => {
     expect(model.gates[1]?.terminal).toBe(true);
   });
 
+  it("surfaces EVERY source gate as its own check, not just the worst-case", () => {
+    const model = buildMapModel(
+      promotion(["hi", "hp"], {
+        hi: env({
+          name: "hi",
+          envLabel: "int",
+          role: "hub",
+          gates: [
+            { name: "argocd-health", phase: "passed", governingInstance: null },
+            {
+              name: "hypershell-analysis",
+              phase: "pending",
+              governingInstance: null,
+            },
+          ],
+        }),
+        hp: env({ name: "hp", envLabel: "prod", role: "hub" }),
+      }),
+      emptyFleet,
+    );
+    // Both gates appear, each with its own tone - no gate name is hard-coded, and
+    // the display no longer collapses to the single worst-case badge.
+    expect(model.gates[0]?.checks).toEqual([
+      { name: "argocd-health", badge: { tone: "success", labelKey: "passed" } },
+      {
+        name: "hypershell-analysis",
+        badge: { tone: "info", labelKey: "pending" },
+      },
+    ]);
+    // The summary badge still reflects the worst in-flight gate (info beats success).
+    expect(model.gates[0]?.badge.tone).toBe("info");
+  });
+
+  it("drops empty-named gates from the per-gate checks", () => {
+    const model = buildMapModel(
+      promotion(["hi", "hp"], {
+        hi: env({
+          name: "hi",
+          envLabel: "int",
+          role: "hub",
+          gates: [
+            { name: "", phase: "passed", governingInstance: null },
+            { name: "analysis", phase: "passed", governingInstance: null },
+          ],
+        }),
+        hp: env({ name: "hp", envLabel: "prod", role: "hub" }),
+      }),
+      emptyFleet,
+    );
+    expect(model.gates[0]?.checks).toEqual([
+      { name: "analysis", badge: { tone: "success", labelKey: "passed" } },
+    ]);
+  });
+
   it("marks a gate promoting when its DESTINATION has an open PR", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
@@ -335,6 +389,49 @@ describe("buildMapModel - gates", () => {
     expect(model.gates).toHaveLength(1);
     expect(model.gates[0]?.terminal).toBe(true);
     expect(model.gates[0]?.toColumnKey).toBe("");
+  });
+});
+
+describe("buildMapModel - version drift", () => {
+  // A spoke stacks into its hub's column (name extends the hub's), so the two share
+  // an environment and their active digests are directly comparable.
+  function intColumn(hubDigest: string, spokeDigest: string): PromotionData {
+    return promotion(["int"], {
+      int: env({
+        name: "int",
+        role: "hub",
+        envLabel: "int",
+        activeDigest: hubDigest,
+      }),
+      "int-edge": env({
+        name: "int-edge",
+        role: "spoke",
+        envLabel: "int",
+        activeDigest: spokeDigest,
+      }),
+    });
+  }
+
+  it("flags a spoke running a different digest than its hub", () => {
+    const model = buildMapModel(intColumn("sha-A", "sha-B"), emptyFleet);
+    const hub = model.nodes.find((n) => n.id === "int");
+    const spoke = model.nodes.find((n) => n.id === "int-edge");
+    expect(hub?.driftsFromColumn).toBe(false);
+    expect(spoke?.driftsFromColumn).toBe(true);
+  });
+
+  it("does not flag a spoke that matches its hub's digest", () => {
+    const model = buildMapModel(intColumn("sha-A", "sha-A"), emptyFleet);
+    expect(model.nodes.find((n) => n.id === "int-edge")?.driftsFromColumn).toBe(
+      false,
+    );
+  });
+
+  it("never asserts drift when a digest is missing (unknowable)", () => {
+    const model = buildMapModel(intColumn("sha-A", ""), emptyFleet);
+    expect(model.nodes.find((n) => n.id === "int-edge")?.driftsFromColumn).toBe(
+      false,
+    );
   });
 });
 

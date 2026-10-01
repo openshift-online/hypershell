@@ -168,12 +168,18 @@ export function governingInstance(env: PromotionEnvironment): string | null {
 
 /** Worst-case badge across an environment's gates (danger > warning > unknown > success). */
 export function environmentGateBadge(env: PromotionEnvironment): StatusBadge {
+  // Roll-up precedence (highest wins the single summary badge/diamond):
+  //   failed > (warning) > pending > good > unknown.
+  // A failure always surfaces; otherwise an in-flight gate (pending/running ->
+  // info, the spinner) beats a settled "good", so ANY pending gate shows the
+  // spinner rather than being hidden behind a passed peer; unknown ranks lowest
+  // so a missing phase never masks a real pending or good result.
   const rank: Record<StatusBadge["tone"], number> = {
     danger: 4,
     warning: 3,
-    unknown: 2,
-    info: 1,
-    success: 0,
+    info: 2,
+    success: 1,
+    unknown: 0,
   };
   let worst: StatusBadge = { tone: "success", labelKey: "passed" };
   let worstRank = -1;

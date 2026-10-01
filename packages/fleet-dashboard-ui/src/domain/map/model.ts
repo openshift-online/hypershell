@@ -31,7 +31,7 @@ import {
   type PromotionState,
   type ReleaseBundle,
 } from "../promotion";
-import type { StatusBadge } from "../status";
+import { gatePhaseBadge, type StatusBadge } from "../status";
 
 /** External deep-links the server attaches to a node (all optional). */
 export interface MapNodeLinks {
@@ -81,6 +81,14 @@ export interface MapNode {
   readonly proposedDigest: string | null;
   readonly state: PromotionState;
   readonly upToDate: boolean;
+  /**
+   * True when this node runs a DIFFERENT active release digest than its column's
+   * governing (hub) node - i.e. a spoke that has drifted off the bundle its hub is
+   * running, so the environment is internally inconsistent. Derived per column from
+   * the active digests alone; false for the governing node itself and whenever a
+   * digest is missing on either side (drift is then unknowable, not asserted).
+   */
+  readonly driftsFromColumn: boolean;
   readonly argoHealth: string | null;
   readonly argoSync: string | null;
   readonly prState: string | null;
@@ -88,6 +96,14 @@ export interface MapNode {
   readonly gateBadge: StatusBadge;
   /** Names of this node's promotion gates, in server order (opaque data). */
   readonly gateNames: readonly string[];
+  /**
+   * Every promotion gate on this node, in server order: its opaque name paired
+   * with its own phase badge. The full per-gate breakdown (e.g. argocd-health +
+   * hypershell-analysis), so the detail panel can list each gate individually
+   * rather than collapsing to the worst-case {@link gateBadge}. Gate names are
+   * data, never inferred; empty-named gates are dropped.
+   */
+  readonly gateChecks: readonly GateCheck[];
   readonly gateways: GatewayPhaseCounts;
   readonly gatewaysTotal: number;
   readonly gatewayTone: StatusBadge["tone"];
@@ -125,6 +141,12 @@ export interface MapLane {
  * (no downstream column): it sits past the final column and reports that stage's
  * own analysis.
  */
+/** One promotion gate's opaque name paired with its own phase badge. */
+export interface GateCheck {
+  readonly name: string;
+  readonly badge: StatusBadge;
+}
+
 export interface MapGate {
   readonly id: string;
   /** The SOURCE column: the env whose analysis this gate reports. */
@@ -136,6 +158,13 @@ export interface MapGate {
   readonly badge: StatusBadge;
   /** Gate display name, from the SOURCE env's governing gates (opaque data). */
   readonly name: string | null;
+  /**
+   * The SOURCE env's full set of gates (each with its own badge), so the detail
+   * panel lists every gate - e.g. argocd-health AND hypershell-analysis - instead
+   * of only the worst-case summary {@link badge}. Derived from runtime gate data;
+   * no gate name is hard-coded.
+   */
+  readonly checks: readonly GateCheck[];
   /** Deep-link to the source env's analysis run, when the server provides one. */
   readonly analysisUrl: string | null;
   /**
@@ -202,11 +231,17 @@ function buildNode(
     proposedDigest: env.proposedDigest,
     state: promotionState(env),
     upToDate: env.upToDate,
+    // Filled in by a post-pass in buildMapModel, once columns + their governing
+    // nodes are known (a node cannot see its column-mates at build time).
+    driftsFromColumn: false,
     argoHealth: env.argoHealth,
     argoSync: env.argoSync,
     prState: env.prState,
     gateBadge: environmentGateBadge(env),
     gateNames: env.gates.map((g) => g.name).filter((n) => n !== ""),
+    gateChecks: env.gates
+      .filter((g) => g.name !== "")
+      .map((g) => ({ name: g.name, badge: gatePhaseBadge(g.phase) })),
     gateways,
     gatewaysTotal: fl?.gatewaysTotal ?? totalGateways(gateways),
     gatewayTone: gatewayTone(gateways),
@@ -338,6 +373,7 @@ function buildGates(
       terminal: to === null,
       badge: source.gateBadge,
       name: source.gateNames[0] ?? null,
+      checks: source.gateChecks,
       analysisUrl: source.links.analysis,
       argoUrl: source.links.argo,
       promoting,
@@ -362,9 +398,30 @@ export function buildMapModel(
 ): MapModel {
   const envs = orderedEnvironments(promotion);
   const columnKeyByName = assignColumns(envs);
-  const nodes = envs.map((env) =>
+  const built = envs.map((env) =>
     buildNode(env, fleet, columnKeyByName.get(env.name) ?? env.name),
   );
+
+  // Version-drift post-pass: a node drifts when it runs a different active digest
+  // than its column's governing (hub) node. Needs the whole column, so it runs here
+  // rather than in buildNode. Group by columnKey, pick the governing digest (hub's,
+  // else the first node's), and flag every node whose digest differs. Missing
+  // digests are never asserted as drift (unknowable, not divergent).
+  const columnGoverningDigest = new Map<string, string | null>();
+  for (const n of built) {
+    const cur = columnGoverningDigest.get(n.columnKey);
+    // Hub wins; otherwise the first node seen seeds the column's reference digest.
+    if (cur === undefined || n.isHub) {
+      columnGoverningDigest.set(n.columnKey, nonEmpty(n.digest));
+    }
+  }
+  const nodes = built.map((n) => {
+    const ref = columnGoverningDigest.get(n.columnKey) ?? null;
+    const own = nonEmpty(n.digest);
+    const driftsFromColumn =
+      own !== null && ref !== null && !n.isHub && own !== ref;
+    return driftsFromColumn ? { ...n, driftsFromColumn } : n;
+  });
   const byId = new Map(nodes.map((n) => [n.id, n]));
 
   // Columns in server order: first appearance of each columnKey wins.

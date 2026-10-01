@@ -25,14 +25,22 @@ import { buildMapModel } from "../../../domain/map/model";
 import type { FleetData } from "../../../domain/fleet";
 import type { PromotionData } from "../../../domain/promotion";
 import { messages } from "../../../messages";
-import { EDGE_STROKE, LANE_STROKE, TEXT_COLOR, TEXT_SUBTLE } from "./colors";
+import {
+  EDGE_STROKE,
+  LANE_STROKE,
+  promotionRing,
+  TEXT_COLOR,
+  TEXT_SUBTLE,
+} from "./colors";
 import { MapEdges } from "./edges";
+import { MapFlights } from "./flights";
 import { FreightBar } from "./freight-bar";
 import { MapDetails, type MapSelection } from "./map-details";
 import { MapNodeCard } from "./map-node";
 import { MiniMap } from "./minimap";
 import { f } from "./svg";
 import styles from "./topology-map.module.css";
+import { useFlights } from "./use-flights";
 import { useMapViewport } from "./use-map-viewport";
 
 export interface TopologyMapProps {
@@ -94,6 +102,18 @@ export function TopologyMap({
     didPan,
   } = useMapViewport(layout.width, layout.height, containerAspect);
   const [selection, setSelection] = useState<MapSelection | null>(null);
+
+  // Promotion fly-ins: identicons arc from the promoting-FROM node to the node they
+  // land on, and each landing jolts the whole canvas (screen shake). Both collapse to
+  // nothing under prefers-reduced-motion (handled in useFlights + CSS).
+  const { flights, holdSeedById } = useFlights(model);
+
+  // Promotion-state ring colour per node, so a flying copy's outline matches the ring the
+  // card will show at rest (no colour jump when the copy lands and the card takes over).
+  const ringByNodeId = useMemo(
+    () => new Map(model.nodes.map((n) => [n.id, promotionRing(n.state)])),
+    [model.nodes],
+  );
 
   const selectedBundleSeed = selection?.kind === "bundle" ? selection.id : null;
 
@@ -198,6 +218,11 @@ export function TopologyMap({
                         setSelection(null);
                       }}
                       onSelectBundle={selectBundle}
+                      onSelectNode={(id) => {
+                        // From a "Deployed on" chip: always jump to that node (not a
+                        // map click, so skip the pan guard and the toggle-off).
+                        setSelection({ kind: "node", id });
+                      }}
                     />
                   ) : null}
                 </DrawerPanelBody>
@@ -337,9 +362,20 @@ export function TopologyMap({
                         highlighted={highlighted.has(box.id)}
                         onSelect={selectNode}
                         onSelectBundle={selectBundleOnMap}
+                        displaySeed={holdSeedById.get(box.id)}
                       />
                     );
                   })}
+
+                  {/* promotion fly-ins ride ABOVE the cards so the bundle visibly
+                      travels over the map before slotting into its landing node. A
+                      brand-new bundle flies in from the CHANGE diamond's right tip. */}
+                  <MapFlights
+                    flights={flights}
+                    boxById={boxById}
+                    ringByNodeId={ringByNodeId}
+                    changeAnchor={{ x: changeX + 34, y: changeY }}
+                  />
                 </svg>
 
                 <div className={styles.mini}>

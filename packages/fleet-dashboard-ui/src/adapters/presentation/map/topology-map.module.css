@@ -4,18 +4,17 @@
   gap: 12px;
 }
 
-/* The map + detail drawer occupy a slice of the viewport sized to the CONTENT's
-   own aspect ratio (--stage-aspect = layout.width / layout.height), so a wide,
-   short scene gets a short stage instead of being letterboxed into a tall box
-   (empty bands above/below that you could pan into) and the whole dashboard fits
-   the viewport without a page scrollbar. The height is capped at 82vh (a tall
-   scene letterboxes horizontally instead of overflowing the screen) and floored
-   so it never collapses. Both the canvas and the panel fill this height; the
-   panel scrolls WITHIN itself instead of growing the page. */
+/* The map + detail drawer fill a tall slab of the viewport (82vh), floored so it
+   never collapses on short screens. The stage height is deliberately DECOUPLED from
+   the content's own aspect ratio: a wide, short scene used to drive a short stage
+   (height = width / --stage-aspect), which left a band of dead black space below the
+   map inside the card. Now the gray container always fills the available height and
+   the SVG viewBox is re-fit to the canvas's live box (see use-map-viewport) so the
+   content scales up to fill it, centered. Both the canvas and the panel fill this
+   height; the panel scrolls WITHIN itself instead of growing the page. */
 .stage {
   width: 100%;
-  aspect-ratio: var(--stage-aspect, 2.2);
-  max-height: 82vh;
+  height: 82vh;
   min-height: 460px;
 }
 
@@ -110,5 +109,239 @@
   .attention {
     animation: none;
     stroke-opacity: 1;
+  }
+}
+
+/* --- value-change animations ---------------------------------------------
+   Each is applied to an SVG <g> that React remounts (via a value-derived key)
+   ONLY when the underlying datum changes, so the keyframes replay exactly on a
+   change and never on an unchanged poll. transform-box:fill-box anchors the
+   transform origin to each group's own bounding box so scales/rotations pivot in
+   place. All collapse to no-op under prefers-reduced-motion. */
+
+/* Gateway count: a quick swell then settle when the tally changes. */
+.countPulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: count-pulse 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes count-pulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.45);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Identicon: a short lateral shake when the deployed bundle (seed) changes. */
+.identShake {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ident-shake 0.5s ease-in-out both;
+}
+
+@keyframes ident-shake {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  15% {
+    transform: translateX(-2.5px) rotate(-4deg);
+  }
+  35% {
+    transform: translateX(2.5px) rotate(4deg);
+  }
+  55% {
+    transform: translateX(-1.8px) rotate(-2.5deg);
+  }
+  75% {
+    transform: translateX(1.8px) rotate(2.5deg);
+  }
+}
+
+/* Sand sparkline: a CONVEYOR. On each new history sample the whole series slides one
+   slot to the LEFT (newest band entering from the right, oldest leaving) rather than
+   re-filling in place. The chart is drawn one phantom slot wider on the left and the
+   group starts shifted right by exactly one slot (--sand-step, set per-node), easing
+   back to 0 - so it reads as a smooth leftward march. A clip window (in the SVG) keeps
+   the overshoot from spilling past the chart edges. */
+.sandShift {
+  animation: sand-shift 0.6s ease-out both;
+}
+
+@keyframes sand-shift {
+  from {
+    transform: translateX(var(--sand-step, 0));
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Freight bar: when a new release bundle arrives it enters at the LEFT in two beats.
+   First the slot opens - its max-width animates 0 -> full, which (via flex reflow) slides
+   every existing card to the RIGHT to make room. Then, once the gap is open, the new card
+   DROPS IN from above into it. Only freshly-mounted cards animate (keyed by seed), so
+   existing cards never replay. While the slot opens the dropping card is held at opacity 0
+   (freight-drop's backwards fill), so it stays hidden until there's room for it. */
+.freightSlot {
+  animation: freight-make-room 0.32s ease-out both;
+}
+
+@keyframes freight-make-room {
+  from {
+    max-width: 0;
+  }
+  to {
+    max-width: 600px;
+  }
+}
+
+.freightDrop {
+  /* delayed to start as the slot finishes opening - the "drop in" after room is made */
+  animation: freight-drop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 0.28s both;
+}
+
+@keyframes freight-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-28px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* --- promotion fly-in (headliner) ----------------------------------------
+   A copy of a promoted bundle's identicon arcs from the source node to the node it
+   lands on, then a puff of dust bursts at the landing site and the whole canvas gives
+   a short screen shake. */
+
+/* Flight TRAVEL: carries the bundle along the sampled bezier (11 points --f0..--f10
+   supplied by the overlay). Timing is LINEAR so the dense samples don't stutter; the
+   acceleration into the landing is baked into the samples' spacing. `both` freezes it on
+   the dest card until the overlay removes it. CSS-driven (not SMIL) so it starts on
+   mount. */
+.flightTravel {
+  animation: fly 0.9s linear both;
+}
+
+@keyframes fly {
+  0% {
+    transform: translate(var(--f0x), var(--f0y));
+  }
+  10% {
+    transform: translate(var(--f1x), var(--f1y));
+  }
+  20% {
+    transform: translate(var(--f2x), var(--f2y));
+  }
+  30% {
+    transform: translate(var(--f3x), var(--f3y));
+  }
+  40% {
+    transform: translate(var(--f4x), var(--f4y));
+  }
+  50% {
+    transform: translate(var(--f5x), var(--f5y));
+  }
+  60% {
+    transform: translate(var(--f6x), var(--f6y));
+  }
+  70% {
+    transform: translate(var(--f7x), var(--f7y));
+  }
+  80% {
+    transform: translate(var(--f8x), var(--f8y));
+  }
+  90% {
+    transform: translate(var(--f9x), var(--f9y));
+  }
+  100% {
+    transform: translate(var(--f10x), var(--f10y));
+  }
+}
+
+/* Flight SCALE: the bundle swells larger mid-arc (reads as nearer/airborne) then settles
+   to 1:1 as it lands on the dest card. Separate element from the travel so the two
+   transforms don't collide. The glow rides here so it grows with the glyph. */
+.flightScale {
+  transform-box: fill-box;
+  transform-origin: center;
+  filter: drop-shadow(0 3px 7px rgba(0, 0, 0, 0.6));
+  animation: fly-scale 0.9s ease-in-out both;
+}
+
+@keyframes fly-scale {
+  0% {
+    transform: scale(0.8);
+  }
+  45% {
+    transform: scale(1.55);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Impact ring: a quick shockwave expanding from the landing point as the bundle hits. */
+.impactRing {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: impact-ring 0.5s ease-out 0.88s both;
+}
+
+@keyframes impact-ring {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.2);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+
+/* Dust specks: fired outward from the landing point as the bundle hits (delay ~matches
+   the flight duration). Direction per speck via --dust-dx/--dust-dy. */
+.dust {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: dust-burst 0.65s ease-out 0.88s both;
+}
+
+@keyframes dust-burst {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.3);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dust-dx, 0), var(--dust-dy, 0)) scale(1.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .countPulse,
+  .identShake,
+  .sandShift,
+  .dust,
+  .impactRing,
+  .flightTravel,
+  .flightScale,
+  .freightSlot,
+  .freightDrop {
+    animation: none;
   }
 }
