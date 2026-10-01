@@ -133,24 +133,20 @@ function BundleChip({
   if (!onSelect) {
     return content;
   }
+  // A PatternFly inline link button: standard link colour + hover/focus underline
+  // (PF link affordance), so a clickable bundle reference reads as a link. The
+  // identicon is an SVG with its own fills, unaffected by the link text colour.
   return (
-    <span
-      role="button"
-      tabIndex={0}
+    <Button
+      variant="link"
+      isInline
       aria-label={identiName(seed)}
       onClick={() => {
         onSelect(seed);
       }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect(seed);
-        }
-      }}
-      style={{ cursor: "pointer", display: "inline-flex", borderRadius: 4 }}
     >
       {content}
-    </span>
+    </Button>
   );
 }
 
@@ -584,12 +580,30 @@ function GateDetails({
           <FlexItem>
             <LongArrowAltRightIcon />
           </FlexItem>
-          <FlexItem>{gate.toColumnKey}</FlexItem>
+          <FlexItem>
+            {gate.terminal ? (
+              <em>
+                <FormattedMessage {...messages.detailFinalStage} />
+              </em>
+            ) : (
+              gate.toColumnKey
+            )}
+          </FlexItem>
         </Flex>
       </Row>
       <Row term={<FormattedMessage {...messages.columnGates} />}>
         <StatusLabel badge={gate.badge} />
       </Row>
+      {gate.analysisUrl ? (
+        <Row term={<FormattedMessage {...messages.detailAnalysisRun} />}>
+          <Flex spaceItems={{ default: "spaceItemsSm" }}>
+            <Link
+              href={gate.analysisUrl}
+              label={<FormattedMessage {...messages.linkAnalysis} />}
+            />
+          </Flex>
+        </Row>
+      ) : null}
       <Row term={<FormattedMessage {...messages.detailPromoting} />}>
         {gate.promotingSeed !== null && promotingLabel !== null ? (
           <BundleChip

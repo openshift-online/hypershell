@@ -130,11 +130,15 @@ describe("buildMapModel - columns", () => {
     // column rather than forming its own.
     expect(model.columns.map((c) => c.key)).toEqual(["env0", "env1"]);
     expect(model.columns[0]?.nodeIds).toEqual(["env0mc", "env0"]);
-    // A hub and its managed-cluster spoke share one stage: no gate between them,
-    // only between the two hub stages.
-    expect(model.gates).toHaveLength(1);
+    // A hub and its managed-cluster spoke share one stage (no gate between them).
+    // Each stage gets its own source gate to its right: env0's (-> env1) and env1's
+    // terminal gate past the last stage.
+    expect(model.gates).toHaveLength(2);
     expect(model.gates[0]?.fromColumnKey).toBe("env0");
     expect(model.gates[0]?.toColumnKey).toBe("env1");
+    expect(model.gates[0]?.terminal).toBe(false);
+    expect(model.gates[1]?.fromColumnKey).toBe("env1");
+    expect(model.gates[1]?.terminal).toBe(true);
   });
 
   it("leaves envLabel null on a column when the server omits it", () => {
@@ -235,26 +239,34 @@ describe("buildMapModel - nodes", () => {
 });
 
 describe("buildMapModel - gates", () => {
-  it("bridges adjacent columns using the destination column's hub gate badge", () => {
+  it("reports each SOURCE column's own gate badge on the gate to its right", () => {
     const model = buildMapModel(
       promotion(["hi", "hp"], {
-        hi: env({ name: "hi", envLabel: "int", role: "hub" }),
-        hp: env({
-          name: "hp",
-          envLabel: "prod",
+        hi: env({
+          name: "hi",
+          envLabel: "int",
           role: "hub",
           gates: [{ name: "g", phase: "failed", governingInstance: null }],
+          analysisUrl: "https://ci/hi",
         }),
+        hp: env({ name: "hp", envLabel: "prod", role: "hub" }),
       }),
       emptyFleet,
     );
-    expect(model.gates).toHaveLength(1);
+    // One gate per column: hi's (-> hp) carries hi's failed badge + analysis link;
+    // hp's is the terminal gate past the last stage.
+    expect(model.gates).toHaveLength(2);
     expect(model.gates[0]?.fromColumnKey).toBe("hi");
     expect(model.gates[0]?.toColumnKey).toBe("hp");
+    expect(model.gates[0]?.terminal).toBe(false);
     expect(model.gates[0]?.badge.tone).toBe("danger");
+    expect(model.gates[0]?.analysisUrl).toBe("https://ci/hi");
+    expect(model.gates[1]?.fromColumnKey).toBe("hp");
+    expect(model.gates[1]?.toColumnKey).toBe("");
+    expect(model.gates[1]?.terminal).toBe(true);
   });
 
-  it("marks a gate promoting when the destination has an open PR", () => {
+  it("marks a gate promoting when its DESTINATION has an open PR", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
         a: env({ name: "a", envLabel: "a", role: "hub" }),
@@ -262,10 +274,13 @@ describe("buildMapModel - gates", () => {
       }),
       emptyFleet,
     );
+    // a's gate feeds b (which is receiving) -> promoting; the terminal gate never is.
     expect(model.gates[0]?.promoting).toBe(true);
+    expect(model.gates[1]?.terminal).toBe(true);
+    expect(model.gates[1]?.promoting).toBe(false);
   });
 
-  it("carries the proposed bundle seed + version on a promoting gate", () => {
+  it("carries the destination's proposed bundle seed + version on a promoting gate", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
         a: env({ name: "a", envLabel: "a", role: "hub" }),
@@ -297,7 +312,7 @@ describe("buildMapModel - gates", () => {
     expect(model.gates[0]?.promotingVersion).toBeNull();
   });
 
-  it("uses the first node when a column has no hub", () => {
+  it("uses the first node's gate when a source column has no hub", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
         a: env({ name: "a", envLabel: "a", role: "spoke" }),
@@ -305,16 +320,19 @@ describe("buildMapModel - gates", () => {
       }),
       emptyFleet,
     );
-    expect(model.gates).toHaveLength(1);
+    // a's gate (no gates -> unknown) + b's terminal gate.
+    expect(model.gates).toHaveLength(2);
     expect(model.gates[0]?.badge.tone).toBe("unknown");
   });
 
-  it("produces no gates for a single column", () => {
+  it("produces a single terminal gate for a single column", () => {
     const model = buildMapModel(
       promotion(["a"], { a: env({ name: "a" }) }),
       emptyFleet,
     );
-    expect(model.gates).toHaveLength(0);
+    expect(model.gates).toHaveLength(1);
+    expect(model.gates[0]?.terminal).toBe(true);
+    expect(model.gates[0]?.toColumnKey).toBe("");
   });
 });
 
