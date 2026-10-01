@@ -470,6 +470,14 @@ spec:
         value: $(tasks.build-image-index.results.IMAGE_URL)
       - name: IMAGE_DIGEST
         value: $(tasks.build-image-index.results.IMAGE_DIGEST)
+      # Stamp a floating "main" tag on every push build so the infra operational
+      # dashboard can ride its OWN Renovate auto-pin track (NOT the release bundle):
+      # Renovate pins this tag's digest into the gitops deployment. Per-commit SHA
+      # tags alone give Renovate nothing orderable to follow. Push-only on purpose -
+      # the PR/merge-queue pipelines must never move "main".
+      - name: ADDITIONAL_TAGS
+        value:
+        - main
       runAfter:
       - build-image-index
       taskRef:
