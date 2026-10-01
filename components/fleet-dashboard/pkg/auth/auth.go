@@ -79,9 +79,23 @@ func (a *Authenticator) review(ctx context.Context, token string) (authnv1.UserI
 	return res.Status.User, res.Status.Authenticated, nil
 }
 
+// scopesExtraKey is the UserInfo.Extra key OpenShift uses to carry an OAuth
+// token's scopes. It must NOT be forwarded into the SubjectAccessReview: the
+// oauth-proxy sidecar mints a minimal-scope token (e.g. user:info) purely to
+// identify the browser user, and OpenShift's scope authorizer rejects any SAR
+// that carries a restricting scope with "scopes [user:info] prevent this
+// action" -- 403-ing every dashboard pane even for cluster-admins. The gate is
+// an authorization question about the *user's* standing RBAC (can they get the
+// configured resource), not about what the identifying token is scoped to do, so
+// we drop scopes and let the SAR evaluate the user's real permissions.
+const scopesExtraKey = "scopes.authorization.openshift.io"
+
 func (a *Authenticator) authorize(ctx context.Context, user authnv1.UserInfo) (bool, error) {
 	extra := map[string]authzv1.ExtraValue{}
 	for k, v := range user.Extra {
+		if k == scopesExtraKey {
+			continue
+		}
 		extra[k] = authzv1.ExtraValue(v)
 	}
 	sar := &authzv1.SubjectAccessReview{
