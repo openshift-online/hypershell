@@ -4,11 +4,18 @@
   gap: 12px;
 }
 
-/* The map + detail drawer occupy a fixed slice of the viewport height. Both the
-   canvas and the panel fill this height; the panel scrolls WITHIN itself instead
-   of growing the page (which previously pushed the canvas up). */
+/* The map + detail drawer occupy a slice of the viewport sized to the CONTENT's
+   own aspect ratio (--stage-aspect = layout.width / layout.height), so a wide,
+   short scene gets a short stage instead of being letterboxed into a tall box
+   (empty bands above/below that you could pan into) and the whole dashboard fits
+   the viewport without a page scrollbar. The height is capped at 82vh (a tall
+   scene letterboxes horizontally instead of overflowing the screen) and floored
+   so it never collapses. Both the canvas and the panel fill this height; the
+   panel scrolls WITHIN itself instead of growing the page. */
 .stage {
-  height: 82vh;
+  width: 100%;
+  aspect-ratio: var(--stage-aspect, 2.2);
+  max-height: 82vh;
   min-height: 460px;
 }
 

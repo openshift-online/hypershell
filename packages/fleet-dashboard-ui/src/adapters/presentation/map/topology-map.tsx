@@ -172,7 +172,14 @@ export function TopologyMap({
         onSelectBundle={selectBundle}
       />
 
-      <div className={styles.stage}>
+      <div
+        className={styles.stage}
+        style={
+          {
+            "--stage-aspect": String(layout.width / Math.max(1, layout.height)),
+          } as React.CSSProperties
+        }
+      >
         <Drawer isExpanded={selection !== null} isInline position="end">
           <DrawerContent
             panelContent={
