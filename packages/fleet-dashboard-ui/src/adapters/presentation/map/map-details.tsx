@@ -22,6 +22,7 @@ import {
   Tabs,
   TabTitleText,
   Title,
+  Tooltip,
 } from "@patternfly/react-core";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
 import LongArrowAltRightIcon from "@patternfly/react-icons/dist/esm/icons/long-arrow-alt-right-icon";
@@ -49,6 +50,7 @@ import { StatusLabel } from "../status-label";
 import { TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
+import styles from "./map-details.module.css";
 
 /**
  * The release-bundle identicon, inline. A release bundle is always identified by
@@ -217,10 +219,16 @@ function Link({
   );
 }
 
-/** The pull requests in a release bundle. Each row links to the PR (new tab);
- *  the author shows on hover. Empty/absent -> a graceful empty state. */
+/** How many trailing title characters the middle-truncation pins on the right,
+ *  so the end of the title stays legible when the row is clipped. */
+const PR_TITLE_TAIL = 8;
+
+/** The pull requests in a release bundle. Each row rides a single line that grows
+ *  with the drawer: the "#<number>" is pinned and the title truncates in the
+ *  middle (CSS flexbox, no JS). Hovering shows a card with the full title and the
+ *  author; the row links to the PR in a new tab. Empty/absent -> a graceful
+ *  empty state. */
 function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
-  const intl = useIntl();
   if (prs.length === 0) {
     return (
       <Content component="small">
@@ -231,26 +239,42 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
   return (
     <List isPlain>
       {prs.map((pr) => {
-        const label = `#${String(pr.number)} ${pr.title}`;
+        const num = `#${String(pr.number)}`;
+        // Split the title so the tail survives mid-truncation. Clamp so short
+        // titles (shorter than the tail) don't split oddly.
+        const tailLen = Math.min(PR_TITLE_TAIL, pr.title.length);
+        const head = pr.title.slice(0, pr.title.length - tailLen);
+        const tail = pr.title.slice(pr.title.length - tailLen);
+        const hover = (
+          <>
+            {`${num} ${pr.title}`}
+            {pr.author ? (
+              <>
+                <br />
+                <FormattedMessage
+                  {...messages.prAuthoredBy}
+                  values={{ author: pr.author }}
+                />
+              </>
+            ) : null}
+          </>
+        );
         return (
           <ListItem key={pr.number}>
-            <Button
-              component="a"
-              href={pr.url}
-              target="_blank"
-              rel="noreferrer noopener"
-              variant="link"
-              isInline
-              title={
-                pr.author
-                  ? intl.formatMessage(messages.prAuthoredBy, {
-                      author: pr.author,
-                    })
-                  : undefined
-              }
-            >
-              {label}
-            </Button>
+            <Tooltip content={hover} position="top-start">
+              <a
+                href={pr.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className={styles.prLink}
+              >
+                <span className={styles.prNum}>{num}</span>
+                <span className={styles.prTitle}>
+                  <span className={styles.prHead}>{head}</span>
+                  <span className={styles.prTail}>{tail}</span>
+                </span>
+              </a>
+            </Tooltip>
           </ListItem>
         );
       })}

@@ -1,0 +1,46 @@
+/* PR rows in the bundle tab. Each row rides a single line that grows with the
+ * drawer; the title truncates in the MIDDLE so both its start and its tail stay
+ * legible, while the "#<number>" prefix is pinned and never clipped. The middle
+ * ellipsis is pure CSS flexbox (no JS measuring): the head span shrinks and
+ * ellipsises, the tail span is pinned at its natural width to the right. */
+
+.prLink {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pf-t--global--spacer--xs, 0.25rem);
+  max-width: 100%;
+  min-width: 0;
+  color: var(--pf-t--global--text--color--link--default, #0066cc);
+  text-decoration: none;
+}
+
+.prLink:hover,
+.prLink:focus-visible {
+  color: var(--pf-t--global--text--color--link--hover, #004d99);
+  text-decoration: underline;
+}
+
+/* Pinned issue number: fixed width, tabular figures so rows align. */
+.prNum {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The title's middle-truncation container. min-width:0 lets it shrink below its
+ * content width so the head span can actually clip. */
+.prTitle {
+  display: flex;
+  min-width: 0;
+}
+
+.prHead {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.prTail {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
