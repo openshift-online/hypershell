@@ -70,6 +70,7 @@ function Choice({
   value,
   selected,
   icon,
+  iconPadding,
   isDisabled,
   name,
   onChoose,
@@ -80,6 +81,7 @@ function Choice({
   value: string;
   selected?: boolean;
   icon?: string;
+  iconPadding?: string;
   isDisabled?: boolean;
   name: string;
   onChoose: () => void;
@@ -129,7 +131,12 @@ function Choice({
           ) : null}
           {icon ? (
             <span className={styles.providerContent}>
-              <img className={styles.providerLogo} src={icon} alt="" />
+              <img
+                className={styles.providerLogo}
+                src={icon}
+                alt=""
+                style={iconPadding ? { padding: iconPadding } : undefined}
+              />
               <span>{description}</span>
             </span>
           ) : descriptionLabel ? (
@@ -394,7 +401,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
           </p>
         </Content>
       </PageSection>
-      <PageSection hasBodyWrapper={false} isFilled variant="secondary">
+      <PageSection hasBodyWrapper={false} isFilled variant="default">
         <Form
           aria-label={intl.formatMessage(messages.provisionGateway)}
           isWidthLimited
@@ -549,9 +556,10 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                               ],
                             ),
                           })
-                        : undefined
+                        : intl.formatMessage(messages.awsProviderDescription)
                     }
                     icon={awsLogo}
+                    iconPadding="0.5rem 0"
                     isDisabled={
                       availability.data
                         ? !(network === "vpn"
@@ -579,11 +587,13 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                               reason: intl.formatMessage(
                                 placementReasonMessages[
                                   availability.data.ibmReason ??
-                                    "no-eligible-cluster"
+                                  "no-eligible-cluster"
                                 ],
                               ),
                             })
-                          : undefined
+                          : intl.formatMessage(
+                              messages.ibmCloudProviderDescription,
+                            )
                     }
                     icon={ibmCloudLogo}
                     isDisabled={

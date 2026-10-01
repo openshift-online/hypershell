@@ -18,6 +18,14 @@ const placementAvailability = {
   localKind: true,
 } as const;
 
+const localDevelopmentAvailability = {
+  awsPublic: false,
+  awsVpn: false,
+  ibmPublic: false,
+  ibmVpn: false,
+  localKind: true,
+} as const;
+
 const previewGateway: GatewayRecord = {
   clusterId: "preview-cluster",
   id: "preview-gateway",
@@ -38,9 +46,20 @@ const navigation: GatewayUiNavigation = {
   navigate: () => undefined,
 };
 
-function GatewayCreatePreview() {
+function GatewayCreatePreview({
+  availability = placementAvailability,
+}: {
+  availability?: typeof placementAvailability;
+}) {
+  const operationsForStory = {
+    ...gatewayOperations,
+    getGatewayPlacementAvailability: () => Promise.resolve(availability),
+  } as GatewayOperations;
   return (
-    <GatewayUiProvider gateways={gatewayOperations} navigation={navigation}>
+    <GatewayUiProvider
+      gateways={operationsForStory}
+      navigation={navigation}
+    >
       <GatewayCreatePage />
     </GatewayUiProvider>
   );
@@ -67,13 +86,36 @@ export const ManagedPlacementsAvailable: Story = {
     ).toBeNull();
     await expect(canvas.getByRole("radio", { name: "Public" })).toBeVisible();
     await expect(canvas.getByRole("radio", { name: "VPN" })).toBeVisible();
-    await expect(canvas.queryByRole("radio", { name: "AWS" })).toBeNull();
+    await expect(
+      canvas.queryByRole("radio", { name: "Amazon Web Services" }),
+    ).toBeNull();
     await expect(canvas.queryByRole("radio", { name: "IBM Cloud" })).toBeNull();
 
     await userEvent.click(canvas.getByRole("radio", { name: "Public" }));
-    await expect(canvas.getByRole("radio", { name: "AWS" })).toBeVisible();
+    await expect(
+      canvas.getByRole("radio", { name: "Amazon Web Services" }),
+    ).toBeVisible();
     await expect(
       canvas.getByRole("radio", { name: "IBM Cloud" }),
     ).toBeVisible();
+  },
+};
+
+export const LocalDevelopmentOnly: Story = {
+  render: () => (
+    <GatewayCreatePreview availability={localDevelopmentAvailability} />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(
+      canvas.getByRole("radio", { name: "Use local-kind" }),
+    ).toBeVisible();
+    await expect(canvas.queryByRole("radio", { name: "Public" })).toBeNull();
+    await expect(canvas.queryByRole("radio", { name: "VPN" })).toBeNull();
+    await expect(
+      canvas.queryByRole("radio", { name: "Amazon Web Services" }),
+    ).toBeNull();
+    await expect(canvas.queryByRole("radio", { name: "IBM Cloud" })).toBeNull();
   },
 };

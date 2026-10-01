@@ -92,7 +92,7 @@ describe("GatewayCreatePage", () => {
     await enterNameAndSelectPublic(user);
 
     expect(radio("IBM Cloud").checked).toBe(true);
-    expect(radio("AWS").checked).toBe(false);
+    expect(radio("Amazon Web Services").checked).toBe(false);
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
 
     await waitFor(() => {
@@ -112,7 +112,7 @@ describe("GatewayCreatePage", () => {
     );
     await user.click(screen.getByRole("radio", { name: "VPN" }));
 
-    expect(radio("AWS").checked).toBe(true);
+    expect(radio("Amazon Web Services").checked).toBe(true);
     expect(radio("IBM Cloud").disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "Provision gateway" }));
 

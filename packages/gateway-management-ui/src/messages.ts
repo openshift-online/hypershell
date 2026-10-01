@@ -535,18 +535,29 @@ export const messages = defineMessages({
   vpnNetworkDescription: {
     id: "app.page.gatewayProvision.vpnNetworkDescription",
     defaultMessage:
-      "For gateways that need to reach GitLab and other Red Hat internal services.",
+      "For gateways that need to reach GitLab and other internal Red Hat services.",
     description: "Description of VPN placement.",
   },
   awsProvider: {
     id: "app.page.gatewayProvision.awsProvider",
-    defaultMessage: "AWS",
+    defaultMessage: "Amazon Web Services",
     description: "AWS cloud provider option.",
+  },
+  awsProviderDescription: {
+    id: "app.page.gatewayProvision.awsProviderDescription",
+    defaultMessage: "For workloads that rely heavily on AWS services or data.",
+    description: "Description of the AWS provider option.",
   },
   ibmCloudProvider: {
     id: "app.page.gatewayProvision.ibmCloudProvider",
     defaultMessage: "IBM Cloud",
     description: "IBM Cloud provider option.",
+  },
+  ibmCloudProviderDescription: {
+    id: "app.page.gatewayProvision.ibmCloudProviderDescription",
+    defaultMessage:
+      "The default home for gateways. General-purpose workloads with no special network or data needs.",
+    description: "Description of the IBM Cloud provider option.",
   },
   unavailableProvider: {
     id: "app.page.gatewayProvision.unavailableProvider",

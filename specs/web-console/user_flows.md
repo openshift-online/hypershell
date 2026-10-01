@@ -153,7 +153,8 @@ flowchart LR
 | Gateway name | All users with create permission | Required and validated before submission |
 | Intended use - personal or team | All users with create permission | Proposed; needed only if personal and team ownership become different product concepts |
 | Network visibility - VPN or Public | All users with create permission | Required; unavailable choices explain why they can't be selected |
-| Cloud provider - AWS or IBM Cloud | All users with create permission | Required; available providers depend on network visibility and placement availability |
+| Cloud provider - Amazon Web Services or IBM Cloud | All users with create permission | Required for managed placement; available providers depend on network visibility and placement availability |
+| Local development - Use local-kind | Kind development users with no managed placement available | Replaces network and cloud-provider selection when the connected local-kind cluster is available |
 | Placement availability | All users with create permission | Shows whether a matching cluster is available without exposing the selected cluster ID |
 | Team owner | Team users | Proposed; current authorization is based on individual creator and gateway bindings |
 | Initial team members | Team users | Proposed; group access and team membership are not yet defined |
@@ -170,9 +171,12 @@ flowchart LR
     login --> list["View my gateways"]
     list --> start["Select Create gateway"]
     start --> name["Enter gateway name"]
-    name --> network["Select VPN or Public"]
+    name --> placement{"Managed placement available?"}
+    placement -- Yes --> network["Select VPN or Public"]
     network --> provider["Select cloud provider"]
     provider --> submit["Submit gateway"]
+    placement -- No, Kind local-kind available --> local["Select Use local-kind"]
+    local --> submit
     submit --> valid{"Form valid?"}
     valid -- No --> errors["Show field errors"]
     errors --> name

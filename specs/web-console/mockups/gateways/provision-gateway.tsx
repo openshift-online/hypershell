@@ -28,6 +28,7 @@ function Choice({
   value,
   selected,
   icon,
+  iconPadding,
   isDisabled,
   name,
   onChoose,
@@ -38,6 +39,7 @@ function Choice({
   value: string;
   selected?: boolean;
   icon?: string;
+  iconPadding?: string;
   isDisabled?: boolean;
   name: string;
   onChoose: () => void;
@@ -78,7 +80,11 @@ function Choice({
                 alt=""
                 height="40"
                 src={icon}
-                style={{ display: "block", margin: "0 auto 0.75rem" }}
+                style={{
+                  display: "block",
+                  margin: "0 auto 0.75rem",
+                  padding: iconPadding,
+                }}
                 width="96"
               />
               {description}
@@ -102,19 +108,23 @@ export function ProvisionGatewayMockup({
   showLocalDevelopment?: boolean;
 }) {
   const [name, setName] = useState("");
-  const [network, setNetwork] = useState<"public" | "vpn">("public");
-  const [provider, setProvider] = useState<"aws" | "ibm">("ibm");
+  const [network, setNetwork] = useState<"public" | "vpn" | null>(
+    showLocalDevelopment ? null : "public",
+  );
+  const [provider, setProvider] = useState<"aws" | "ibm" | null>(
+    showLocalDevelopment ? null : "ibm",
+  );
   const [localKind, setLocalKind] = useState(showLocalDevelopment);
 
   return (
     <MockupTemplate
       breadcrumbs={["OpenShell Gateways", "Provision gateway"]}
-      contentVariant="secondary"
+      contentVariant="default"
       description="Configure a new OpenShell gateway."
       showRefresh={false}
       title="Provision gateway"
     >
-      <PageSection hasBodyWrapper={false} isFilled variant="secondary">
+      <PageSection hasBodyWrapper={false} isFilled variant="default">
         <Form aria-label="Provision gateway" isWidthLimited>
           <FormGroup isRequired label="Gateway name" fieldId="gateway-name">
             <TextInput
@@ -137,24 +147,13 @@ export function ProvisionGatewayMockup({
               </FormHelperText>
             ) : null}
           </FormGroup>
-          <FormGroup isRequired label="Network access" fieldId="network-access">
+          {!showLocalDevelopment ? (
+            <FormGroup isRequired label="Network access" fieldId="network-access">
             <Gallery
               hasGutter
               minWidths={{ default: "250px", md: "300px" }}
               role="radiogroup"
             >
-              {showLocalDevelopment ? (
-                <Choice
-                  name="placement"
-                  value="local-kind"
-                  selected={localKind}
-                  title="Local development"
-                  description="Run the gateway on the local Kind cluster."
-                  onChoose={() => {
-                    setLocalKind(true);
-                  }}
-                />
-              ) : null}
               <Choice
                 name="placement"
                 value="public"
@@ -171,7 +170,7 @@ export function ProvisionGatewayMockup({
                 value="vpn"
                 selected={!localKind && network === "vpn"}
                 title="VPN"
-                description="For gateways that need to reach GitLab and other Red Hat internal services."
+                description="For gateways that need to reach GitLab and other internal Red Hat services."
                 descriptionLabel="Red Hat VPN required"
                 onChoose={() => {
                   setLocalKind(false);
@@ -194,7 +193,25 @@ export function ProvisionGatewayMockup({
                 </HelperTextItem>
               </HelperText>
             </FormHelperText>
-          </FormGroup>
+            </FormGroup>
+          ) : (
+            <FormGroup isRequired label="Local development" fieldId="local-development">
+              <Gallery
+                hasGutter
+                minWidths={{ default: "250px", md: "300px" }}
+                role="radiogroup"
+              >
+                <Choice
+                  name="placement"
+                  value="local-kind"
+                  selected={localKind}
+                  title="Use local-kind"
+                  description="Use the local Kind cluster for development."
+                  onChoose={() => setLocalKind(true)}
+                />
+              </Gallery>
+            </FormGroup>
+          )}
           {network ? (
             <FormGroup
               isRequired
@@ -213,6 +230,7 @@ export function ProvisionGatewayMockup({
                   title="Amazon Web Services"
                   description="For workloads that rely heavily on AWS services or data."
                   icon={awsLogo}
+                  iconPadding="1rem 0"
                   onChoose={() => setProvider("aws")}
                 />
                 <Choice
@@ -229,8 +247,9 @@ export function ProvisionGatewayMockup({
             </FormGroup>
           ) : null}
           <p>
-            A matching managed cluster is selected at random for the chosen
-            network and provider.
+            {showLocalDevelopment
+              ? "The local Kind cluster is used for development."
+              : "A matching managed cluster is selected at random for the chosen network and provider."}
           </p>
           <ActionGroup>
             <Button type="submit" variant="primary">
