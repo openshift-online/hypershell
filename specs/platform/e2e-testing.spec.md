@@ -340,7 +340,7 @@ The e2e test suite SHALL validate the following 14 areas. Areas 1--11 match the 
 9. **Developer user RBAC verification** -- authenticate as the `developer` user (the `openshell-user` tier) and confirm it MAY create a sandbox but MAY NOT create a gateway via the HyperShell API (see Developer RBAC Enforcement)
 10. **Platform-admin RBAC verification** -- authenticate as a platform-admin user and confirm the elevated permissions the developer tier is denied, including deleting a gateway through the HyperShell API (see Developer RBAC Enforcement)
 11. **Gateway deletion + namespace garbage collection** -- validate both garbage-collection paths from `openshell-gateway-namespace-gc.spec.md`: (a) seed a synthetic orphaned managed namespace after gateway provisioning and validate periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event (while the earlier areas run in parallel with the reaper); (b) delete-driven reap of the gateway's managed namespace (see Gateway Deletion and Namespace GC)
-12. **ManagedCluster registration and multi-cluster fleet** -- validate that the co-located control plane registered itself (a `ManagedCluster` with a non-empty `oidc_subject` and a fresh `last_seen_at`), that `/registration` is idempotent, that the registrar role and name-collision rules are enforced, and that a gateway create rejects an empty or unregistered `cluster_id`; under `E2E_MULTICLUSTER=1`, that a second registered cluster appears in the fleet and can be independently targeted (see ManagedCluster Registration Coverage and Multi-Cluster Fleet Coverage)
+12. **ManagedCluster registration and multi-cluster fleet** -- validate that the co-located control plane registered itself (a `ManagedCluster` with a non-empty `oidc_subject` and a fresh `last_seen_at`), that `/registration` is idempotent, that the registrar role and name-collision rules are enforced, and that a gateway create rejects an empty or unregistered `cluster_id`; under `E2E_MULTICLUSTER=1`, that a second registered cluster appears in the fleet and can be independently targeted; and the controller lifecycle -- connect-time snapshot, disconnect/reconnect convergence, and rejection of unauthorized or revoked gRPC identities (HYPERSHELL-241) (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane Reconnect and Identity Rejection Coverage)
 13. **Gateway release promotion** -- repoint a gateway's `release_id` (or update a referenced release's image) and validate a revision-aware, last-good-preserving rollout, with the gateway reporting the `observed_release_id` actually serving and a failed rollout surfaced as `Degraded`; under `E2E_MULTICLUSTER=1`, promote a release across both clusters (see Gateway Release Promotion Coverage and Reconciled Status Assertions)
 14. **Admin inventory and API validation** -- confirm the admin-only `/v1/users` inventory boundary (non-admin receives 403, singleton Get is an opaque 404) and that the API rejects an unknown gateway phase write (see Admin Inventory and API Validation Coverage)
 
@@ -676,6 +676,28 @@ the assertions.
 - WHEN the suite creates a gateway with the second cluster's `cluster_id`
 - THEN the gateway SHALL reach `Running`, reconciled by the second control plane
 - AND the first control plane SHALL NOT reconcile it (the suite confirms placement by the managed namespace the owning control plane created)
+
+### Requirement: Control-Plane Reconnect and Identity Rejection Coverage
+
+The suite SHALL validate the controller lifecycle in HYPERSHELL-241 as part of
+area 12: connect-time snapshot delivery, convergence after a watch disconnect, and
+rejection of unauthorized or revoked gRPC identities. These assertions act against
+the same public gRPC boundary a supported deployment uses, with no management-plane
+access to the cluster API. Long only.
+
+#### Scenario: Reconnect converges on the current desired state
+
+- GIVEN a running control plane watching its cluster's gateways
+- WHEN its watch stream is interrupted (the control-plane pod is restarted or the stream is severed), desired state changes while it is disconnected (a gateway is created and another deleted via the API), and it reconnects
+- THEN on reconnect it SHALL receive a snapshot reflecting the current desired state and SHALL converge the cluster to it within `E2E_PROVISION_TIMEOUT` seconds: the new gateway reaches `Running` and the deleted gateway's managed namespace is reaped
+- AND no stale resource SHALL be left behind from the pre-disconnect state (cleanup driven by the delete snapshot, `watch-delete-events.spec.md`)
+
+#### Scenario: Unauthorized or revoked gRPC identity is rejected
+
+- GIVEN the gRPC watch RPCs require a valid JWT and bind a registered caller to its own cluster (`managed-cluster-registration.spec.md`, Watch Stream Caller Binding)
+- WHEN a client opens a `Watch*` RPC with no token, with a revoked or expired token, or with a `cluster_id` other than its registered cluster
+- THEN the api-server SHALL return `UNAUTHENTICATED` for the missing or revoked token, `PERMISSION_DENIED` for the wrong `cluster_id`, and `INVALID_ARGUMENT` when the required filter is omitted
+- AND no events SHALL be delivered to the rejected stream
 
 ### Requirement: Gateway Release Promotion Coverage
 
