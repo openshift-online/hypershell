@@ -144,6 +144,19 @@ func sampleValue(v []any) float64 {
 	return f
 }
 
+// sampleTime returns a range sample's unix timestamp (v[0]) as an int64, or 0 if
+// absent. Prometheus encodes it as a JSON number (float seconds); we floor to the
+// second so matching phase series land on the same step key.
+func sampleTime(v []any) int64 {
+	if len(v) < 1 {
+		return 0
+	}
+	if f, ok := v[0].(float64); ok {
+		return int64(f)
+	}
+	return 0
+}
+
 // DiscoverInstances returns the sorted set of instance keys emitting the gateway
 // metric - the dynamic replacement for a hard-coded instance list.
 func (p *Prometheus) DiscoverInstances(ctx context.Context) ([]string, error) {
@@ -189,9 +202,9 @@ type InstanceFleet struct {
 	Reconcile      RateStats      `json:"reconcile"`
 	BFF            RateStats      `json:"bff"`
 	ProvisionP95Ms float64        `json:"provisionP95Ms"`
-	// GatewayHistory is the total-gateway count sampled oldest->newest over the
-	// last day, feeding the per-instance "sand" sparkline on the map.
-	GatewayHistory []float64 `json:"gatewayHistory"`
+	// GatewayHistory is per-phase gateway counts sampled oldest->newest over the
+	// last day, feeding the per-instance stacked "sand" sparkline on the map.
+	GatewayHistory []GatewayHistorySample `json:"gatewayHistory"`
 }
 
 // RateStats is a rate + error% + p95 latency triple.
@@ -199,6 +212,16 @@ type RateStats struct {
 	Rate     float64 `json:"rate"`
 	ErrorPct float64 `json:"errorPct"`
 	P95Ms    float64 `json:"p95Ms"`
+}
+
+// GatewayHistorySample is one time-step of the stacked "sand" sparkline: gateway
+// counts split into the three phases the UI layers (running/provisioning/failed).
+// Phases the controller reports outside these three are not plotted, mirroring the
+// prototype's three-layer stack.
+type GatewayHistorySample struct {
+	Running      float64 `json:"running"`
+	Provisioning float64 `json:"provisioning"`
+	Failed       float64 `json:"failed"`
 }
 
 // Fleet builds the /api/fleet payload: per-instance gateway phase counts and
@@ -263,17 +286,53 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 		const histSamples = 32
 		now := time.Now()
 		subTotal++
-		expr := fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE)
+		// Split history by phase so the sand chart can stack running/provisioning/
+		// failed over time (parity with the prototype). Range series come back one
+		// per (instance, phase); align them on the shared step grid by timestamp,
+		// since a phase that only appeared mid-window yields a shorter series.
+		expr := fmt.Sprintf("sum by (%s,phase) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE)
 		if res, err := p.queryRange(ctx, expr, now.Add(-histWindow), now, histWindow/histSamples); err != nil {
 			subErrs = append(subErrs, err)
 		} else {
+			// instance -> (timestamp -> stacked sample)
+			byTS := map[string]map[int64]*GatewayHistorySample{}
 			for _, r := range res {
-				f := get(r.Metric[p.instLabel])
-				hist := make([]float64, 0, len(r.Values))
-				for _, v := range r.Values {
-					hist = append(hist, sampleValue(v))
+				inst := r.Metric[p.instLabel]
+				phase := strings.ToLower(r.Metric["phase"])
+				steps, ok := byTS[inst]
+				if !ok {
+					steps = map[int64]*GatewayHistorySample{}
+					byTS[inst] = steps
 				}
-				f.GatewayHistory = hist
+				for _, v := range r.Values {
+					ts := sampleTime(v)
+					s, ok := steps[ts]
+					if !ok {
+						s = &GatewayHistorySample{}
+						steps[ts] = s
+					}
+					val := sampleValue(v)
+					switch phase {
+					case "running":
+						s.Running += val
+					case "provisioning":
+						s.Provisioning += val
+					case "failed":
+						s.Failed += val
+					}
+				}
+			}
+			for inst, steps := range byTS {
+				tss := make([]int64, 0, len(steps))
+				for ts := range steps {
+					tss = append(tss, ts)
+				}
+				sort.Slice(tss, func(i, j int) bool { return tss[i] < tss[j] })
+				hist := make([]GatewayHistorySample, 0, len(tss))
+				for _, ts := range tss {
+					hist = append(hist, *steps[ts])
+				}
+				get(inst).GatewayHistory = hist
 			}
 		}
 	}

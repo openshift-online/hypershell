@@ -17,6 +17,7 @@ import {
   totalGateways,
   ZERO_RATE,
   type FleetData,
+  type GatewayHistorySample,
   type GatewayPhaseCounts,
   type RateStats,
 } from "../fleet";
@@ -89,8 +90,8 @@ export interface MapNode {
   readonly gateways: GatewayPhaseCounts;
   readonly gatewaysTotal: number;
   readonly gatewayTone: StatusBadge["tone"];
-  /** Total-gateway samples oldest -> newest for the sand spark (may be empty). */
-  readonly gatewayHistory: readonly number[];
+  /** Per-phase samples oldest -> newest for the stacked sand spark (may be empty). */
+  readonly gatewayHistory: readonly GatewayHistorySample[];
   readonly managedClusters: number | null;
   readonly users: number | null;
   readonly metrics: MapNodeMetrics;

@@ -198,7 +198,11 @@ describe("buildMapModel - nodes", () => {
             instance: "x",
             gateways: { running: 5, failed: 1 },
             gatewaysTotal: 6,
-            gatewayHistory: [1, 2, 6],
+            gatewayHistory: [
+              { running: 1, provisioning: 0, failed: 0 },
+              { running: 2, provisioning: 0, failed: 0 },
+              { running: 5, provisioning: 0, failed: 1 },
+            ],
             users: 10,
             rpc: { rate: 3, errorPct: 0.1, p95Ms: 42 },
           }),
@@ -209,7 +213,11 @@ describe("buildMapModel - nodes", () => {
     expect(node?.seed).toBe("sha256:abc");
     expect(node?.gatewaysTotal).toBe(6);
     expect(node?.gatewayTone).toBe("danger");
-    expect(node?.gatewayHistory).toEqual([1, 2, 6]);
+    expect(node?.gatewayHistory).toEqual([
+      { running: 1, provisioning: 0, failed: 0 },
+      { running: 2, provisioning: 0, failed: 0 },
+      { running: 5, provisioning: 0, failed: 1 },
+    ]);
     expect(node?.users).toBe(10);
     expect(node?.metrics.rpc.p95Ms).toBe(42);
     expect(node?.links.console).toBe("https://console");

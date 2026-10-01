@@ -111,7 +111,11 @@ describe("mapFleet", () => {
         users: 12,
         rpc: { rate: 2, errorPct: 0.5, p95Ms: 40 },
         provisionP95Ms: 120,
-        gatewayHistory: [1, 2, 4],
+        gatewayHistory: [
+          { running: 1 },
+          { running: 2, provisioning: 1 },
+          { failed: 4 },
+        ],
       },
     });
     const inst = data.instances[0];
@@ -119,7 +123,12 @@ describe("mapFleet", () => {
     expect(inst?.users).toBe(12);
     expect(inst?.rpc.p95Ms).toBe(40);
     expect(inst?.provisionP95Ms).toBe(120);
-    expect(inst?.gatewayHistory).toEqual([1, 2, 4]);
+    // Missing phase fields default to 0 (num()), so every sample is fully shaped.
+    expect(inst?.gatewayHistory).toEqual([
+      { running: 1, provisioning: 0, failed: 0 },
+      { running: 2, provisioning: 1, failed: 0 },
+      { running: 0, provisioning: 0, failed: 4 },
+    ]);
   });
 
   it("tolerates a null/empty payload", () => {
