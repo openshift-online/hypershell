@@ -47,6 +47,31 @@ import { messages } from "../../../messages";
 import { StatusLabel } from "../status-label";
 import { TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
+import { Identicon } from "./identicon";
+
+/**
+ * The release-bundle identicon, inline. A release bundle is always identified by
+ * its identicon (+ identiname) wherever it appears, matching the node cards and
+ * freight bar, so a bundle is recognisable at a glance across every view.
+ */
+function BundleIdenticon({
+  seed,
+  size = 28,
+}: {
+  seed: string;
+  size?: number;
+}): React.ReactElement {
+  return (
+    <svg
+      width={size}
+      height={size}
+      aria-hidden="true"
+      style={{ flexShrink: 0, display: "block" }}
+    >
+      <Identicon seed={seed} x={0} y={0} size={size} />
+    </svg>
+  );
+}
 
 /** What the map currently has selected. `id` is a node id, gate id or bundle seed. */
 export interface MapSelection {
@@ -154,26 +179,42 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
   );
 }
 
-/** Section heading + optional PR-count summary, then the PR list for `bundle`. */
+/** Section heading + optional PR-count summary, then the PR list for `bundle`.
+ *  When `seed` is given, the bundle's identicon sits beside the heading so the
+ *  tab's bundle is identifiable on its own. */
 function BundleContents({
   bundle,
+  seed,
 }: {
   bundle: ReleaseBundle | undefined;
+  seed?: string;
 }): React.ReactElement {
   const prs = bundle?.prs ?? [];
   return (
     <>
-      <Title headingLevel="h4" size="md">
-        <FormattedMessage {...messages.sectionInBundle} />
-        {prs.length > 0 ? (
-          <Content component="small" className="pf-v6-u-ml-sm">
-            <FormattedMessage
-              {...messages.bundlePrSummary}
-              values={{ count: prs.length }}
-            />
-          </Content>
+      <Flex
+        alignItems={{ default: "alignItemsCenter" }}
+        spaceItems={{ default: "spaceItemsSm" }}
+      >
+        {seed ? (
+          <FlexItem>
+            <BundleIdenticon seed={seed} size={20} />
+          </FlexItem>
         ) : null}
-      </Title>
+        <FlexItem>
+          <Title headingLevel="h4" size="md">
+            <FormattedMessage {...messages.sectionInBundle} />
+            {prs.length > 0 ? (
+              <Content component="small" className="pf-v6-u-ml-sm">
+                <FormattedMessage
+                  {...messages.bundlePrSummary}
+                  values={{ count: prs.length }}
+                />
+              </Content>
+            ) : null}
+          </Title>
+        </FlexItem>
+      </Flex>
       <PrList prs={prs} />
     </>
   );
@@ -273,7 +314,19 @@ function NodeFields({ node }: { node: MapNode }): React.ReactElement {
         </Label>
       </Row>
       <Row term={<FormattedMessage {...messages.columnRelease} />}>
-        {releaseLabel ?? <FormattedMessage {...messages.valueNone} />}
+        {releaseLabel ? (
+          <Flex
+            alignItems={{ default: "alignItemsCenter" }}
+            spaceItems={{ default: "spaceItemsSm" }}
+          >
+            <FlexItem>
+              <BundleIdenticon seed={node.seed} size={20} />
+            </FlexItem>
+            <FlexItem>{releaseLabel}</FlexItem>
+          </Flex>
+        ) : (
+          <FormattedMessage {...messages.valueNone} />
+        )}
       </Row>
       {node.proposedVersion ? (
         <Row term={<FormattedMessage {...messages.detailProposed} />}>
@@ -373,7 +426,7 @@ function NodeDetails({
         }
       >
         <div className="pf-v6-u-mt-md">
-          <BundleContents bundle={bundle} />
+          <BundleContents bundle={bundle} seed={node.seed} />
         </div>
       </Tab>
       <Tab
@@ -515,9 +568,21 @@ export function MapDetails({
         alignItems={{ default: "alignItemsCenter" }}
       >
         <FlexItem>
-          <Title headingLevel="h3" size="md">
-            {title}
-          </Title>
+          <Flex
+            alignItems={{ default: "alignItemsCenter" }}
+            spaceItems={{ default: "spaceItemsSm" }}
+          >
+            {selection.kind === "bundle" ? (
+              <FlexItem>
+                <BundleIdenticon seed={selection.id} />
+              </FlexItem>
+            ) : null}
+            <FlexItem>
+              <Title headingLevel="h3" size="md">
+                {title}
+              </Title>
+            </FlexItem>
+          </Flex>
         </FlexItem>
         <FlexItem>
           <Button
