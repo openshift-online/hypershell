@@ -13,6 +13,7 @@ import {
   FormHelperText,
   HelperText,
   HelperTextItem,
+  Label,
   PageSection,
   Stack,
   StackItem,
@@ -65,6 +66,7 @@ interface GatewayTextFieldProps {
 function Choice({
   title,
   description,
+  descriptionLabel,
   value,
   selected,
   icon,
@@ -74,6 +76,7 @@ function Choice({
 }: {
   title: string;
   description?: string;
+  descriptionLabel?: string;
   value: string;
   selected?: boolean;
   icon?: string;
@@ -113,9 +116,6 @@ function Choice({
       >
         <CardTitle>
           <span className={styles.choiceHeading}>
-            {icon ? (
-              <img className={styles.providerLogo} src={icon} alt="" />
-            ) : null}
             <span className={styles.choiceTitle} id={labelId}>
               {title}
             </span>
@@ -123,7 +123,23 @@ function Choice({
         </CardTitle>
       </CardHeader>
       {description ? (
-        <CardBody id={descriptionId}>{description}</CardBody>
+        <CardBody>
+          {descriptionLabel ? (
+            <Label isCompact>{descriptionLabel}</Label>
+          ) : null}
+          {icon ? (
+            <span className={styles.providerContent}>
+              <img className={styles.providerLogo} src={icon} alt="" />
+              <span>{description}</span>
+            </span>
+          ) : descriptionLabel ? (
+            <span id={descriptionId} className={styles.descriptionAfterLabel}>
+              {description}
+            </span>
+          ) : (
+            description
+          )}
+        </CardBody>
       ) : null}
     </Card>
   );
@@ -475,6 +491,9 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                   value="vpn"
                   selected={!localKind && field.value === "vpn"}
                   title={intl.formatMessage(messages.vpnNetwork)}
+                  descriptionLabel={intl.formatMessage(
+                    messages.vpnRequiresLabel,
+                  )}
                   description={
                     availability.data && !vpnPlacementAvailable
                       ? intl.formatMessage(messages.unavailableNetwork, {

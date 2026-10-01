@@ -11,6 +11,7 @@ import {
   FormHelperText,
   HelperText,
   HelperTextItem,
+  Label,
   PageSection,
   TextInput,
 } from "@patternfly/react-core";
@@ -23,6 +24,7 @@ import { MockupTemplate } from "../shell/mockup-template";
 function Choice({
   title,
   description,
+  descriptionLabel,
   value,
   selected,
   icon,
@@ -32,6 +34,7 @@ function Choice({
 }: {
   title: string;
   description?: string;
+  descriptionLabel?: string;
   value: string;
   selected?: boolean;
   icon?: string;
@@ -61,11 +64,32 @@ function Choice({
         }}
       >
         <CardTitle>
-          {icon ? <img alt="" height="24" src={icon} width="24" /> : null}{" "}
           <span id={labelId}>{title}</span>
         </CardTitle>
       </CardHeader>
-      {description ? <CardBody>{description}</CardBody> : null}
+      {description ? (
+        <CardBody>
+          {descriptionLabel ? (
+            <Label isCompact>{descriptionLabel}</Label>
+          ) : null}
+          {icon ? (
+            <span style={{ display: "block", textAlign: "center" }}>
+              <img
+                alt=""
+                height="40"
+                src={icon}
+                style={{ display: "block", margin: "0 auto 0.75rem" }}
+                width="96"
+              />
+              {description}
+            </span>
+          ) : (
+            <span style={{ display: "block", marginTop: "0.25rem" }}>
+              {description}
+            </span>
+          )}
+        </CardBody>
+      ) : null}
     </Card>
   );
 }
@@ -136,7 +160,7 @@ export function ProvisionGatewayMockup({
                 value="public"
                 selected={!localKind && network === "public"}
                 title="Public"
-                description="Accessible through a public endpoint. Choose a cloud provider below."
+                description="Accessible through a public endpoint."
                 onChoose={() => {
                   setLocalKind(false);
                   setNetwork("public");
@@ -147,7 +171,8 @@ export function ProvisionGatewayMockup({
                 value="vpn"
                 selected={!localKind && network === "vpn"}
                 title="VPN"
-                description="Private network access. AWS is required for VPN placement."
+                description="For gateways that need to reach GitLab and other Red Hat internal services."
+                descriptionLabel="Red Hat VPN required"
                 onChoose={() => {
                   setLocalKind(false);
                   setNetwork("vpn");
@@ -186,6 +211,7 @@ export function ProvisionGatewayMockup({
                   value="aws"
                   selected={provider === "aws"}
                   title="Amazon Web Services"
+                  description="For workloads that rely heavily on AWS services or data."
                   icon={awsLogo}
                   onChoose={() => setProvider("aws")}
                 />
@@ -194,6 +220,7 @@ export function ProvisionGatewayMockup({
                   value="ibm"
                   selected={provider === "ibm"}
                   title="IBM Cloud"
+                  description="The default home for gateways. General-purpose workloads with no special network or data needs."
                   icon={ibmCloudLogo}
                   isDisabled={network === "vpn"}
                   onChoose={() => setProvider("ibm")}

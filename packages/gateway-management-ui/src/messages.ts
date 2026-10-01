@@ -524,8 +524,7 @@ export const messages = defineMessages({
   },
   publicNetworkDescription: {
     id: "app.page.gatewayProvision.publicNetworkDescription",
-    defaultMessage:
-      "Accessible through a public endpoint. Choose a cloud provider below.",
+    defaultMessage: "Accessible through a public endpoint.",
     description: "Description of public network placement.",
   },
   vpnNetwork: {
@@ -536,7 +535,7 @@ export const messages = defineMessages({
   vpnNetworkDescription: {
     id: "app.page.gatewayProvision.vpnNetworkDescription",
     defaultMessage:
-      "Private network access. AWS is required for VPN placement.",
+      "For gateways that need to reach GitLab and other Red Hat internal services.",
     description: "Description of VPN placement.",
   },
   awsProvider: {
@@ -577,6 +576,11 @@ export const messages = defineMessages({
     id: "app.page.gatewayProvision.vpnRequiresAws",
     defaultMessage: "VPN placement requires AWS.",
     description: "Explanation shown when IBM Cloud is disabled for VPN.",
+  },
+  vpnRequiresLabel: {
+    id: "app.page.gatewayProvision.vpnRequiresLabel",
+    defaultMessage: "Red Hat VPN required",
+    description: "Label shown above the VPN placement guidance.",
   },
   localKindPlacement: {
     id: "app.page.gatewayProvision.localKindPlacement",

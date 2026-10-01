@@ -58,6 +58,13 @@ The form SHALL NOT present the former cluster selector.
 
 The provision form SHALL present AWS and IBM Cloud as mutually exclusive choices. The form SHALL require exactly one provider before submission.
 
+The provider choices SHALL include the following user guidance:
+
+- IBM Cloud: "The default home for gateways. General-purpose workloads with no special network or data needs."
+- AWS: "For workloads that rely heavily on AWS services or data."
+
+The VPN network choice SHALL display the label "Red Hat VPN required" above the guidance "For gateways that need to reach GitLab and other Red Hat internal services."
+
 IBM Cloud SHALL be selected by default when Public becomes active. When VPN becomes active, AWS SHALL be selected and IBM Cloud SHALL be disabled. The user SHALL NOT be able to submit VPN placement with IBM Cloud.
 
 #### Scenario: Public defaults to IBM Cloud
