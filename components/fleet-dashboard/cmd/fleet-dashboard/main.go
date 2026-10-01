@@ -58,7 +58,15 @@ func run(logger *slog.Logger) error {
 		analyzer = gh
 		logger.Info("github analysis enrichment enabled", "repo", cfg.GitHubRepo)
 	}
-	promotion := sources.NewPromotion(cfg, kube.Dynamic, nil, analyzer)
+	// Release-bundle enrichment (dates + "in this bundle" PR lists) is opt-in on
+	// the same FD_GITHUB_REPO: NewGitHubBundles returns nil when disabled, which
+	// NewPromotion treats as the no-op enricher.
+	var bundler sources.BundleEnricher
+	if gb := sources.NewGitHubBundles(cfg); gb != nil {
+		bundler = gb
+		logger.Info("github bundle enrichment enabled", "repo", cfg.GitHubRepo)
+	}
+	promotion := sources.NewPromotion(cfg, kube.Dynamic, nil, analyzer, bundler)
 	topology := sources.NewTopology(cfg, kube.Clientset)
 
 	fleetSrc := cache.NewSource("fleet", cfg.RefreshFleet, prom.Fleet, metrics.Observe)

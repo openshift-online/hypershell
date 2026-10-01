@@ -28,6 +28,7 @@ type Promotion struct {
 	appGVR    schema.GroupVersionResource
 	versioner VersionResolver
 	analyzer  AnalysisResolver
+	bundler   BundleEnricher
 }
 
 // VersionResolver maps a gitops commit SHA to a release version. Implementations
@@ -43,6 +44,10 @@ type Release struct {
 	Tag     string `json:"tag,omitempty"`
 	Date    string `json:"date,omitempty"`
 	SHA     string `json:"sha,omitempty"`
+	// PRs is the set of pull requests this build introduced since the previous
+	// build (Bundle tab). Populated by a BundleEnricher; nil when GitHub
+	// enrichment is disabled or there is no prior build to diff against.
+	PRs []PR `json:"prs,omitempty"`
 }
 
 // ShortSHAResolver is the default resolver: version == first 8 chars of the SHA.
@@ -62,13 +67,17 @@ func (ShortSHAResolver) Resolve(_ context.Context, sha string) *Release {
 
 // NewPromotion builds a Promotion source from config. A nil versioner defaults
 // to ShortSHAResolver; a nil analyzer defaults to the no-op resolver (GitHub
-// enrichment disabled), so analysisUrl is simply omitted.
-func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionResolver, analyzer AnalysisResolver) *Promotion {
+// enrichment disabled), so analysisUrl is simply omitted; a nil bundler defaults
+// to the no-op enricher, so release dates/PRs are simply omitted.
+func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionResolver, analyzer AnalysisResolver, bundler BundleEnricher) *Promotion {
 	if versioner == nil {
 		versioner = ShortSHAResolver{}
 	}
 	if analyzer == nil {
 		analyzer = noopAnalysis{}
+	}
+	if bundler == nil {
+		bundler = noopBundles{}
 	}
 	return &Promotion{
 		dyn:       dyn,
@@ -80,6 +89,7 @@ func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionReso
 		appGVR:    schema.GroupVersionResource{Group: c.ArgoGroup, Version: c.ArgoVersion, Resource: "applications"},
 		versioner: versioner,
 		analyzer:  analyzer,
+		bundler:   bundler,
 	}
 }
 
@@ -155,14 +165,12 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 		activeSHA := drySHA(active)
 		proposedSHA := drySHA(proposed)
 
-		av := p.versioner.Resolve(ctx, activeSHA)
-		pv := p.versioner.Resolve(ctx, proposedSHA)
-		if av != nil {
-			payload.Releases[av.SHA] = av
-		}
-		if pv != nil {
-			payload.Releases[pv.SHA] = pv
-		}
+		// Resolve releases through the map so every environment that shares a SHA
+		// points at the SAME *Release. The bundler enriches the map in place
+		// (dates + PRs); sharing the pointer means env.active/proposed see that
+		// enrichment too, with no second pass.
+		av := p.canonicalRelease(ctx, activeSHA, payload.Releases)
+		pv := p.canonicalRelease(ctx, proposedSHA, payload.Releases)
 
 		// analysisUrl is keyed on the active HYDRATED sha (the promoted,
 		// rendered commit the analysis check-run actually ran against), matching
@@ -196,6 +204,10 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 		payload.Environments[key] = env
 	}
 
+	// Enrich release bundles (dates + PR lists) best-effort before frontier
+	// selection, which depends on the date the enricher fills in.
+	p.bundler.Enrich(ctx, payload.Releases)
+
 	// Frontier = newest release by bundle date across all envs.
 	for _, r := range payload.Releases {
 		if r.Date == "" {
@@ -206,6 +218,21 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 		}
 	}
 	return payload, nil
+}
+
+// canonicalRelease resolves sha to a release, deduplicating by SHA into the
+// shared map: the first resolution for a SHA wins and is stored, later callers
+// get that same pointer. Returns nil for an empty/unresolvable SHA.
+func (p *Promotion) canonicalRelease(ctx context.Context, sha string, releases map[string]*Release) *Release {
+	r := p.versioner.Resolve(ctx, sha)
+	if r == nil {
+		return nil
+	}
+	if existing, ok := releases[r.SHA]; ok {
+		return existing
+	}
+	releases[r.SHA] = r
+	return r
 }
 
 type prInfo struct{ state, url string }
