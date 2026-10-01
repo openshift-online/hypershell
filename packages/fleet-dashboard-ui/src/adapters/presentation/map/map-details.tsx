@@ -425,12 +425,20 @@ function NodeFields({
       </Row>
       {node.proposedVersion ? (
         <Row term={<FormattedMessage {...messages.detailProposed} />}>
-          {node.proposedVersion}
+          <BundleChip
+            seed={node.proposedDigest ?? node.proposedVersion}
+            label={node.proposedVersion}
+            onSelect={onSelectBundle}
+          />
         </Row>
       ) : null}
       {node.digest ? (
         <Row term={<FormattedMessage {...messages.detailDigest} />}>
-          <code>{node.digest}</code>
+          <BundleChip
+            seed={node.seed}
+            label={<code>{node.digest}</code>}
+            onSelect={onSelectBundle}
+          />
         </Row>
       ) : null}
       {node.managedClusters !== null ? (
