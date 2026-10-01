@@ -159,28 +159,57 @@ export function MapEdges({
         if (!gl) {
           return null;
         }
-        // While a gate is promoting, dashed "marching ants" arrows (tinted by the
-        // gate tone) flow INTO it to show the condition being evaluated, and a static
-        // grey arrow points on to the next cluster (there is no real flow yet - it is
-        // blocked until the gate passes). Settled gates draw plain thin rails.
-        const promoting = gate.promoting;
-        const inTone = promoting ? TONE_COLOR[gate.badge.tone] : EDGE_STROKE;
+        // Three rail states, in priority order:
+        //  - passed  (gate tone success): promotion completed, so BOTH sides are
+        //    solid green with arrowheads - the flow has carried through to the next
+        //    cluster. No dashes, no animation.
+        //  - promoting: dashed "marching ants" arrows (tinted by the gate tone) flow
+        //    INTO the gate to show the condition being evaluated, and a static grey
+        //    arrow points on to the next cluster (no real flow yet - it is blocked
+        //    until the gate passes).
+        //  - settled/other: plain thin rails.
+        const passed = gate.badge.tone === "success";
+        const promoting = gate.promoting && !passed;
         const fromIds = colNodeIds.get(gate.fromColumnKey) ?? [];
         const toIds = colNodeIds.get(gate.toColumnKey) ?? [];
         const edges: React.ReactElement[] = [];
+        const passedRail = (key: string, d: string): React.ReactElement => (
+          <path
+            key={key}
+            d={d}
+            fill="none"
+            stroke={TONE_COLOR.success}
+            strokeWidth={2}
+            strokeOpacity={0.9}
+            markerEnd="url(#gate-arrow-active)"
+          />
+        );
+        const plainRail = (key: string, d: string): React.ReactElement => (
+          <path
+            key={key}
+            d={d}
+            fill="none"
+            stroke={EDGE_STROKE}
+            strokeWidth={1.25}
+            strokeOpacity={0.7}
+          />
+        );
         for (const id of fromIds) {
           const b = boxById.get(id);
           if (!b) {
             continue;
           }
           const d = hBezier(b.x + b.w, b.cy, gl.x, gl.y);
-          edges.push(
-            promoting ? (
+          const key = `${gate.id}:in:${id}`;
+          if (passed) {
+            edges.push(passedRail(key, d));
+          } else if (promoting) {
+            edges.push(
               <path
-                key={`${gate.id}:in:${id}`}
+                key={key}
                 d={d}
                 fill="none"
-                stroke={inTone}
+                stroke={TONE_COLOR[gate.badge.tone]}
                 strokeWidth={2}
                 strokeOpacity={0.9}
                 strokeDasharray="6 5"
@@ -193,18 +222,11 @@ export function MapEdges({
                   dur="0.8s"
                   repeatCount="indefinite"
                 />
-              </path>
-            ) : (
-              <path
-                key={`${gate.id}:in:${id}`}
-                d={d}
-                fill="none"
-                stroke={EDGE_STROKE}
-                strokeWidth={1.25}
-                strokeOpacity={0.7}
-              />
-            ),
-          );
+              </path>,
+            );
+          } else {
+            edges.push(plainRail(key, d));
+          }
         }
         for (const id of toIds) {
           const b = boxById.get(id);
@@ -212,28 +234,24 @@ export function MapEdges({
             continue;
           }
           const d = hBezier(gl.x, gl.y, b.x, b.cy);
-          edges.push(
-            promoting ? (
+          const key = `${gate.id}:out:${id}`;
+          if (passed) {
+            edges.push(passedRail(key, d));
+          } else if (promoting) {
+            edges.push(
               <path
-                key={`${gate.id}:out:${id}`}
+                key={key}
                 d={d}
                 fill="none"
                 stroke={EDGE_STROKE}
                 strokeWidth={1.5}
                 strokeOpacity={0.7}
                 markerEnd="url(#gate-arrow-grey)"
-              />
-            ) : (
-              <path
-                key={`${gate.id}:out:${id}`}
-                d={d}
-                fill="none"
-                stroke={EDGE_STROKE}
-                strokeWidth={1.25}
-                strokeOpacity={0.7}
-              />
-            ),
-          );
+              />,
+            );
+          } else {
+            edges.push(plainRail(key, d));
+          }
         }
         return <g key={gate.id}>{edges}</g>;
       })}

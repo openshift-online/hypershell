@@ -19,15 +19,26 @@
   min-height: 460px;
 }
 
-/* Make the drawer and its two columns fill the fixed stage height. min-height:0
-   lets these flex children actually shrink, which is what enables the panel's own
-   overflow scrolling rather than overflowing the page. */
+/* Make the drawer and its columns fill the fixed stage height. min-height:0 lets
+   these flex children actually shrink, which is what enables the panel's own
+   overflow scrolling rather than overflowing the page. __body (DrawerContentBody,
+   the canvas's direct parent) MUST be in this list: without min-height:0 it refuses
+   to shrink below the SVG's intrinsic size, so it overflows and grows an internal
+   scrollbar. That scrollbar steals width from the canvas, which re-fits the viewBox
+   to a now-wrong aspect - so "reset view" appeared to throw the scene off-screen. */
 .stage :global(.pf-v6-c-drawer),
 .stage :global(.pf-v6-c-drawer__main),
 .stage :global(.pf-v6-c-drawer__content),
+.stage :global(.pf-v6-c-drawer__body),
 .stage :global(.pf-v6-c-drawer__panel) {
   height: 100%;
   min-height: 0;
+}
+
+/* The canvas's parent never scrolls: the canvas clips its own overflow instead, so
+   no stray scrollbar can resize it out from under the viewBox fit. */
+.stage :global(.pf-v6-c-drawer__body) {
+  overflow: hidden;
 }
 
 .canvas {
