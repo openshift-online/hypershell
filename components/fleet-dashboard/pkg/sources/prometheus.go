@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -28,6 +29,7 @@ type Prometheus struct {
 	metric    string
 	instLabel string
 	client    *http.Client
+	logger    *slog.Logger
 }
 
 // NewPrometheus builds a Prometheus source from config.
@@ -42,6 +44,7 @@ func NewPrometheus(c *config.Config) *Prometheus {
 		metric:    c.GatewayMetric,
 		instLabel: c.InstanceLabel,
 		client:    &http.Client{Timeout: 20 * time.Second, Transport: tr},
+		logger:    slog.Default(),
 	}
 }
 
@@ -191,8 +194,24 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 		return f
 	}
 
+	// Each sub-query below is best-effort: a partially-failing Prometheus must
+	// still yield a usable snapshot (data-architecture.spec §5.2). But we must
+	// not silently swallow those failures (CLAUDE.md), so collect them and
+	// surface the degradation via a single Warn once the snapshot is assembled.
+	var subErrs []error
+	var subTotal int
+	runInstant := func(expr string) ([]promResultItem, bool) {
+		subTotal++
+		res, err := p.instant(ctx, expr)
+		if err != nil {
+			subErrs = append(subErrs, err)
+			return nil, false
+		}
+		return res, true
+	}
+
 	// Gateways by phase.
-	if res, err := p.instant(ctx, fmt.Sprintf("sum by (%s,phase) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE)); err == nil {
+	if res, ok := runInstant(fmt.Sprintf("sum by (%s,phase) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE)); ok {
 		for _, r := range res {
 			f := get(r.Metric[p.instLabel])
 			phase := strings.ToLower(r.Metric["phase"])
@@ -204,7 +223,7 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 
 	// Simple by-namespace gauges.
 	byNS := func(expr string, set func(f *InstanceFleet, v float64)) {
-		if res, err := p.instant(ctx, expr); err == nil {
+		if res, ok := runInstant(expr); ok {
 			for _, r := range res {
 				set(get(r.Metric[p.instLabel]), sampleValue(r.Value))
 			}
@@ -219,7 +238,7 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 
 	// Rate/error/p95 triples keyed by k8s_namespace_name.
 	byK := func(expr string, set func(f *InstanceFleet, v float64)) {
-		if res, err := p.instant(ctx, expr); err == nil {
+		if res, ok := runInstant(expr); ok {
 			for _, r := range res {
 				set(get(r.Metric[k]), sampleValue(r.Value))
 			}
@@ -246,6 +265,15 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 		func(f *InstanceFleet, v float64) { f.BFF.ErrorPct = v })
 	byK(fmt.Sprintf("histogram_quantile(0.95, sum by (%s,le) (rate(traces_span_metrics_duration_milliseconds_bucket{%s,%s=~%q}[10m])))", k, bff, k, nsRE),
 		func(f *InstanceFleet, v float64) { f.BFF.P95Ms = v })
+
+	if len(subErrs) > 0 {
+		// Degraded, not failed: the snapshot is still returned (best-effort), but
+		// the partial failure is now visible rather than silently swallowed.
+		p.logger.WarnContext(ctx, "fleet snapshot built with partial Prometheus failures",
+			"failedSubqueries", len(subErrs),
+			"totalSubqueries", subTotal,
+			"firstError", subErrs[0].Error())
+	}
 
 	out := make(map[string]InstanceFleet, len(byInst))
 	for key, f := range byInst {
