@@ -56,7 +56,7 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 	}()
 
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedCluster", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
-	defer func() { endSpan(nil) }()
+	defer func() { endSpan(cpotel.OutcomeSuccess, "", nil) }()
 
 	log.Printf("INFO reconciling ManagedCluster %s (event=%d)", event.ResourceID, event.Type)
 	return nil
@@ -138,7 +138,10 @@ func (r *GatewayReleaseReconciler) Handle(ctx context.Context, event watcher.Eve
 	// masking a dropped reconcile from the queue's retry/backoff.
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayRelease", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	var reconcileErr error
-	defer func() { endSpan(reconcileErr) }()
+	defer func() {
+		outcome, reason := cpotel.ClassifyReconcileOutcome(reconcileErr)
+		endSpan(outcome, reason, reconcileErr)
+	}()
 
 	// A release owns no cluster resources, so a delete is a terminal, idempotent
 	// no-op with respect to Kubernetes: running gateways deployed from the release
@@ -451,7 +454,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("hypershell.resource_id", event.ResourceID))
 	var reconcileErr error
-	defer func() { endSpan(reconcileErr) }()
+	var outcome, reason string
+	defer func() {
+		// If outcome not explicitly set, classify from error
+		if outcome == "" {
+			outcome, reason = cpotel.ClassifyReconcileOutcome(reconcileErr)
+		}
+		endSpan(outcome, reason, reconcileErr)
+	}()
 
 	if event.Type == watcher.EventDeleted {
 		forgetGatewayProvisionObservation(event.ResourceID)
@@ -574,14 +584,21 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				// transient Keycloak outage. Publish a fixed marker once and stop retrying;
 				// retry only when the status write itself fails.
 				if gw.GetStatus() == gatewayKeycloakClientInvalidStatus {
+					outcome = cpotel.OutcomeFailed
+					reason = cpotel.ReasonIdentityInvalid
 					return nil
 				}
 				if statusErr := r.updateGatewayStatus(ctx, event.ResourceID, gatewayKeycloakClientInvalidStatus); statusErr != nil {
-					return watcher.PreservePayloadForRetry(errors.Join(
+					outcome = cpotel.OutcomeRetryable
+					reason = cpotel.ReasonGRPCUnavailable
+					reconcileErr = errors.Join(
 						fmt.Errorf("validate existing Keycloak client identity: %w", err),
 						fmt.Errorf("publish invalid Keycloak client configuration status: %w", statusErr),
-					))
+					)
+					return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 				}
+				outcome = cpotel.OutcomeFailed
+				reason = cpotel.ReasonIdentityInvalid
 				return nil
 			}
 			if errors.Is(err, errGatewayKeycloakClientMissing) && gw.GetStatus() != gatewayKeycloakClientMissingStatus {
@@ -594,19 +611,31 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			// transient Keycloak failure into a full Kubernetes reconciliation. The
 			// fixed status write above generates another watch event, but the queue's
 			// per-key backoff floor prevents that self-event from creating a hot loop.
-			return watcher.PreservePayloadForRetry(fmt.Errorf("reconcile Keycloak client for gateway %q: %w", gw.Name, err))
+			outcome = cpotel.OutcomeRetryable
+			reason = cpotel.ReasonKeycloakTransient
+			if errors.Is(err, errGatewayKeycloakClientMissing) {
+				reason = cpotel.ReasonDependencyNotReady
+			}
+			reconcileErr = fmt.Errorf("reconcile Keycloak client for gateway %q: %w", gw.Name, err)
+			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 		}
 		if r.keycloakClient != nil && isGatewayKeycloakClientStatus(gw.GetStatus()) {
 			if err := r.updateGatewayStatus(ctx, event.ResourceID, ""); err != nil {
-				return watcher.PreservePayloadForRetry(fmt.Errorf("clear Keycloak client status for gateway %q: %w", gw.Name, err))
+				outcome = cpotel.OutcomeRetryable
+				reason = cpotel.ReasonGRPCUnavailable
+				reconcileErr = fmt.Errorf("clear Keycloak client status for gateway %q: %w", gw.Name, err)
+				return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 			}
 		}
 		log.Printf("DEBUG gateway %s converged at generation %d, skipping reconciliation", event.ResourceID, gw.Generation)
+		outcome = cpotel.OutcomeNoop
 		return nil
 	}
 
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
+		outcome = cpotel.OutcomeFailed
+		reason = cpotel.ReasonInvalidConfig
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
 	}
@@ -720,13 +749,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, r.helmClient, nsConfig, opts); err != nil {
 		var renderErr *gateway.RenderedConfigValidationError
 		if errors.As(err, &renderErr) {
-			reason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
-			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), reason); failedGateway != nil {
+			failReason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
+			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), failReason); failedGateway != nil {
 				observeGatewayProvisionFailure(ctx, event.ResourceID)
 			}
 			log.Printf("ERROR gateway %s generated configuration invalid in namespace %s: %v", gw.Name, namespace, renderErr.Err)
+			outcome = cpotel.OutcomeFailed
+			reason = cpotel.ReasonInvalidConfig
 		} else if r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed)) {
 			observeGatewayProvisionFailure(ctx, event.ResourceID)
+			outcome = cpotel.OutcomeFailed
+			reason = cpotel.ReasonUnknown
 		}
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
@@ -1565,7 +1598,10 @@ func (r *GatewayNetworkReconciler) Handle(ctx context.Context, event watcher.Eve
 
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "GatewayNetwork", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	var reconcileErr error
-	defer func() { endSpan(reconcileErr) }()
+	defer func() {
+		outcome, reason := cpotel.ClassifyReconcileOutcome(reconcileErr)
+		endSpan(outcome, reason, reconcileErr)
+	}()
 
 	// A network owns no cluster resources, so a delete is a terminal, idempotent
 	// no-op with respect to Kubernetes: gateways designated by the network are

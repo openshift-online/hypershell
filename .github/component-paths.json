@@ -88,6 +88,36 @@
     ],
     "unit_tested": true
   },
+  "fleet_dashboard": {
+    "directory": "components/fleet-dashboard",
+    "lint_job": "lint-fleet-dashboard",
+    "paths": [
+      "components/fleet-dashboard/**",
+      "packages/fleet-dashboard-ui/**",
+      "scripts/check_fleet_dashboard_firewall.sh",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/checks.yml"
+    ],
+    "unit_tested": false
+  },
+  "fleet_dashboard_ui": {
+    "directory": "packages/fleet-dashboard-ui",
+    "lint_job": "lint-fleet-dashboard-ui",
+    "paths": [
+      "packages/fleet-dashboard-ui/**",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "scripts/check_fleet_dashboard_firewall.sh",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/checks.yml"
+    ],
+    "unit_tested": false
+  },
   "e2e": {
     "directory": "tests/e2e",
     "paths": [

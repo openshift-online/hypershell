@@ -15,6 +15,7 @@ import {
 } from "@patternfly/react-core";
 import {
   ChartLineIcon,
+  CheckCircleIcon,
   ExclamationCircleIcon,
   OutlinedClockIcon,
   SyncAltIcon,
@@ -49,6 +50,7 @@ import {
   RELIABILITY_SUMMARY_WIDGET_HEIGHT,
   RELIABILITY_TREND_WIDGET_HEIGHT,
 } from "../dashboard/reliability-dashboard-layout-template";
+import { ReconciliationOverTimeChart } from "../dashboard/reconciliation-over-time-chart";
 import {
   ApiReliabilityTrendCard,
   ReliabilitySummaryCard,
@@ -224,6 +226,23 @@ function createWidgetMapping(
           messages.widgetReconciliationFailures,
         ),
     },
+    "reconciliation-successes": {
+      defaults: {
+        h: RELIABILITY_TREND_WIDGET_HEIGHT,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <CheckCircleIcon />,
+        title: intl.formatMessage(messages.widgetReconciliationSuccesses),
+      },
+      renderWidget: () =>
+        renderTrend(
+          "reconciliation-successes",
+          messages.widgetReconciliationSuccesses,
+        ),
+    },
     "reconciliation-retries": {
       defaults: {
         h: RELIABILITY_TREND_WIDGET_HEIGHT,
@@ -271,6 +290,25 @@ function createWidgetMapping(
           "stale-resource-status-count",
           messages.widgetStaleResourceStatus,
         ),
+    },
+    "reconciliation-over-time": {
+      defaults: {
+        h: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
+        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 4,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: RELIABILITY_DASHBOARD_COLUMN_COUNT,
+      },
+      config: {
+        icon: <ChartLineIcon />,
+        title: intl.formatMessage(messages.widgetReconciliationOverTime),
+      },
+      renderWidget: () => (
+        <ReconciliationOverTimeChart
+          failures={metricById.get("reconciliation-failures")}
+          retries={metricById.get("reconciliation-retries")}
+          successes={metricById.get("reconciliation-successes")}
+        />
+      ),
     },
   };
 }

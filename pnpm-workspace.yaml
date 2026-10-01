@@ -1,6 +1,7 @@
 packages:
   - tools/architecture-site
   - components/sdk-typescript
+  - packages/fleet-dashboard-ui
   - packages/gateway-management-ui
   - packages/operational-dashboard-ui
   - components/web-console

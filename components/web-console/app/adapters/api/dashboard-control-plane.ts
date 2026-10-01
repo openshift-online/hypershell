@@ -586,10 +586,14 @@ interface ControlPlaneReconciliationPoint {
 interface ControlPlaneReconciliationResponse {
   reconciliation_failures_count: number;
   reconciliation_retries_count: number;
+  reconciliation_successes_count: number;
   reconciliation_lag_p50_seconds?: number;
   stale_resource_status_count: number;
+  reconciliation_failures_by_reason?: Record<string, number>;
+  reconciliation_retries_by_reason?: Record<string, number>;
   hourly_reconciliation_failures_count?: ControlPlaneReconciliationPoint[];
   hourly_reconciliation_retries_count?: ControlPlaneReconciliationPoint[];
+  hourly_reconciliation_successes_count?: ControlPlaneReconciliationPoint[];
   hourly_reconciliation_lag_p50_seconds?: ControlPlaneReconciliationPoint[];
   hourly_stale_resource_status_count?: ControlPlaneReconciliationPoint[];
 }
@@ -675,6 +679,7 @@ export function mapControlPlaneReconciliationResponse(
   const values = [
     body.reconciliation_failures_count,
     body.reconciliation_retries_count,
+    body.reconciliation_successes_count,
     body.stale_resource_status_count,
   ];
   if (values.some((value) => !isFiniteNumber(value))) {
@@ -687,6 +692,9 @@ export function mapControlPlaneReconciliationResponse(
     body.hourly_reconciliation_failures_count,
   );
   const retriesTrend = mapHourlyTrend(body.hourly_reconciliation_retries_count);
+  const successesTrend = mapHourlyTrend(
+    body.hourly_reconciliation_successes_count,
+  );
   const lagTrend = mapHourlyTrend(body.hourly_reconciliation_lag_p50_seconds);
   const staleTrend = mapHourlyTrend(body.hourly_stale_resource_status_count);
   const metrics: OperationalMetric[] = [
@@ -694,13 +702,25 @@ export function mapControlPlaneReconciliationResponse(
       id: "reconciliation-failures",
       unit: "count",
       value: body.reconciliation_failures_count.toFixed(0),
+      ...(body.reconciliation_failures_by_reason
+        ? { reasonBreakdown: body.reconciliation_failures_by_reason }
+        : {}),
       ...(failuresTrend ? { hourlyTrend: failuresTrend } : {}),
     },
     {
       id: "reconciliation-retries",
       unit: "count",
       value: body.reconciliation_retries_count.toFixed(0),
+      ...(body.reconciliation_retries_by_reason
+        ? { reasonBreakdown: body.reconciliation_retries_by_reason }
+        : {}),
       ...(retriesTrend ? { hourlyTrend: retriesTrend } : {}),
+    },
+    {
+      id: "reconciliation-successes",
+      unit: "count",
+      value: body.reconciliation_successes_count.toFixed(0),
+      ...(successesTrend ? { hourlyTrend: successesTrend } : {}),
     },
     ...(isFiniteNumber(body.reconciliation_lag_p50_seconds)
       ? [

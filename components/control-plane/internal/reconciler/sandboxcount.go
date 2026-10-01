@@ -271,9 +271,12 @@ func (r *SandboxCountReconciler) lockNamespace(namespace string) func() {
 // write. Each set RPC is bounded by sandboxCountRPCTimeout so a single hung call
 // cannot stall the rest of the pass.
 func (r *SandboxCountReconciler) selfHeal(ctx context.Context, lister corelisters.PodLister) {
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "sandbox-count", "reconcile", "")
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", "reconcile", "")
 	var tickErr error
-	defer func() { endSpan(tickErr) }()
+	defer func() {
+		outcome, reason := cpotel.ClassifyReconcileOutcome(tickErr)
+		endSpan(outcome, reason, tickErr)
+	}()
 
 	listCtx, cancel := context.WithTimeout(ctx, sandboxCountGatewayListTimeout)
 	namespaces, err := r.namespaces(listCtx)

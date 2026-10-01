@@ -23,10 +23,7 @@ import { TrendDownIcon, TrendUpIcon } from "@patternfly/react-icons";
 import type { PropsWithChildren, ReactNode } from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
-import type {
-  OperationalMetric,
-  ReliabilityMetricId,
-} from "../application/dashboard-types";
+import type { OperationalMetric } from "../application/dashboard-types";
 import {
   getMetricTrendChange,
   type MetricTrendChange,
@@ -83,7 +80,9 @@ function formatMetricWithUnit(
       ? "failures"
       : metric.id === "reconciliation-retries"
         ? "retries"
-        : metric.unit;
+        : metric.id === "reconciliation-successes"
+          ? "successes"
+          : metric.unit;
   if (
     !isDisplayableOperationalMetricValue(metric.value) ||
     unit === undefined ||
@@ -98,35 +97,42 @@ function formatMetricWithUnit(
   });
 }
 
-const RELIABILITY_SUMMARY_METRIC_IDS = [
-  "api-request-rate",
-  "api-error-rate",
-  "api-latency",
-  "reconciliation-failures",
-  "reconciliation-retries",
-  "reconciliation-lag",
-  "stale-resource-status-count",
-] as const satisfies readonly ReliabilityMetricId[];
-
 type ReliabilitySummaryMetricId =
-  (typeof RELIABILITY_SUMMARY_METRIC_IDS)[number];
+  | "api-request-rate"
+  | "api-error-rate"
+  | "api-latency"
+  | "reconciliation-failures"
+  | "reconciliation-retries"
+  | "reconciliation-successes"
+  | "reconciliation-lag"
+  | "stale-resource-status-count";
 
-const RELIABILITY_SUMMARY_LABELS = {
+const RELIABILITY_SUMMARY_LABELS: Record<
+  ReliabilitySummaryMetricId,
+  (typeof messages)[keyof typeof messages]
+> = {
   "api-request-rate": messages.reliabilitySummaryRequestRate,
   "api-error-rate": messages.reliabilitySummaryErrorRate,
   "api-latency": messages.reliabilitySummaryLatency,
   "reconciliation-failures": messages.reliabilitySummaryReconciliationFailures,
   "reconciliation-retries": messages.reliabilitySummaryReconciliationRetries,
+  "reconciliation-successes":
+    messages.reliabilitySummaryReconciliationSuccesses,
   "reconciliation-lag": messages.reliabilitySummaryReconciliationLag,
   "stale-resource-status-count": messages.reliabilitySummaryStaleResourceStatus,
-} as const;
+};
 
-const API_RELIABILITY_SUMMARY_METRIC_IDS = RELIABILITY_SUMMARY_METRIC_IDS.slice(
-  0,
-  3,
-);
-const RECONCILIATION_SUMMARY_METRIC_IDS =
-  RELIABILITY_SUMMARY_METRIC_IDS.slice(3);
+const API_RELIABILITY_SUMMARY_METRIC_IDS: readonly ReliabilitySummaryMetricId[] =
+  ["api-request-rate", "api-error-rate", "api-latency"];
+
+const RECONCILIATION_SUMMARY_METRIC_IDS: readonly ReliabilitySummaryMetricId[] =
+  [
+    "reconciliation-failures",
+    "reconciliation-retries",
+    "reconciliation-successes",
+    "reconciliation-lag",
+    "stale-resource-status-count",
+  ];
 
 function reliabilitySummaryTrendSubject(
   metricId: ReliabilitySummaryMetricId,
@@ -248,6 +254,36 @@ export function ReliabilitySummaryCard({
   );
 }
 
+function formatReasonCode(reason: string): string {
+  return reason
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function ReasonBreakdown({
+  breakdown,
+}: Readonly<{ breakdown: Record<string, number> }>) {
+  const entries = Object.entries(breakdown).sort(([, a], [, b]) => b - a);
+
+  return (
+    <DescriptionList
+      className="hypershell-dashboard-reason-breakdown"
+      isCompact
+      isHorizontal
+    >
+      {entries.map(([reason, count]) => (
+        <DescriptionListGroup key={reason}>
+          <DescriptionListTerm>{formatReasonCode(reason)}</DescriptionListTerm>
+          <DescriptionListDescription>
+            {Math.round(count)}
+          </DescriptionListDescription>
+        </DescriptionListGroup>
+      ))}
+    </DescriptionList>
+  );
+}
+
 export function ApiReliabilityTrendCard({
   metric,
   title,
@@ -267,7 +303,8 @@ export function ApiReliabilityTrendCard({
 
   const isCount =
     metric.id === "reconciliation-failures" ||
-    metric.id === "reconciliation-retries";
+    metric.id === "reconciliation-retries" ||
+    metric.id === "reconciliation-successes";
   const displayValue = formatMetricWithUnit(metric, intl);
   const helpMessage = getDashboardHelpMessage(metric.id);
 
@@ -300,10 +337,19 @@ export function ApiReliabilityTrendCard({
               </FlexItem>
             </Flex>
           </StackItem>
+          {metric.reasonBreakdown ? (
+            <StackItem>
+              <ReasonBreakdown breakdown={metric.reasonBreakdown} />
+            </StackItem>
+          ) : null}
           {metric.hourlyTrend && metric.hourlyTrend.points.length >= 2 ? (
             <StackItem>
               <TrendSparklineChart
-                caption={intl.formatMessage(messages.trendLast24Hours)}
+                caption={intl.formatMessage(
+                  isCount
+                    ? messages.trendLast2Hours
+                    : messages.trendLast24Hours,
+                )}
                 title={title}
                 trend={metric.hourlyTrend}
                 valueFormatter={(value) => value.toFixed(3)}

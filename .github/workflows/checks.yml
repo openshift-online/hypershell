@@ -58,6 +58,8 @@ jobs:
       api_server: ${{ steps.detect.outputs.api_server }}
       cli: ${{ steps.detect.outputs.cli }}
       control_plane: ${{ steps.detect.outputs.control_plane }}
+      fleet_dashboard: ${{ steps.detect.outputs.fleet_dashboard }}
+      fleet_dashboard_ui: ${{ steps.detect.outputs.fleet_dashboard_ui }}
       gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
       operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
       pr_test: ${{ steps.detect.outputs.pr_test }}
@@ -386,6 +388,84 @@ jobs:
       - name: Run critical Chromium journey
         run: pnpm test:e2e:chromium
 
+  # Fleet-identity firewall (data-architecture.spec §3.5). The fleet-dashboard
+  # image is public, so its sources must reveal nothing about fleet structure.
+  # Runs when either the BFF or the UI package changes; scans both.
+  fleet-dashboard-firewall:
+    name: Fleet dashboard identity firewall
+    needs: detect-changes
+    if: needs.detect-changes.outputs.fleet_dashboard == 'true' || needs.detect-changes.outputs.fleet_dashboard_ui == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run fleet-identity firewall scan
+        run: bash scripts/check_fleet_dashboard_firewall.sh
+
+  # Go BFF. unit_tested is false in component-paths.json (fleet-dashboard has no
+  # unit-tests.yml wiring); its Go unit tests therefore run here alongside lint.
+  lint-fleet-dashboard:
+    name: Go - fleet dashboard
+    needs: detect-changes
+    if: needs.detect-changes.outputs.fleet_dashboard == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/fleet-dashboard/go.mod
+          cache-dependency-path: components/fleet-dashboard/go.sum
+      - name: Check formatting
+        working-directory: components/fleet-dashboard
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "${unformatted}" ]]; then
+            echo "The following Go files are not formatted:"
+            echo "${unformatted}"
+            echo "Run 'gofmt -w .' in components/fleet-dashboard and commit the result."
+            exit 1
+          fi
+      - name: Run go vet
+        working-directory: components/fleet-dashboard
+        run: go vet ./...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          install-mode: goinstall
+          working-directory: components/fleet-dashboard
+          args: --timeout=5m
+      - name: Run Go unit tests
+        working-directory: components/fleet-dashboard
+        run: go test -count=1 ./...
+
+  # Fleet dashboard UI package. unit_tested is false in component-paths.json, so
+  # its Vitest suite runs here alongside the static quality gates.
+  lint-fleet-dashboard-ui:
+    name: Fleet dashboard UI package quality gates
+    needs: detect-changes
+    if: needs.detect-changes.outputs.fleet_dashboard_ui == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned pnpm
+        run: bash scripts/bootstrap_pnpm.sh
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run fleet dashboard UI quality gates
+        run: |
+          pnpm --filter @openshift-online/hypershell-fleet-dashboard-ui run format:check
+          pnpm --filter @openshift-online/hypershell-fleet-dashboard-ui run lint
+          pnpm --filter @openshift-online/hypershell-fleet-dashboard-ui run typecheck
+          pnpm --filter @openshift-online/hypershell-fleet-dashboard-ui run test:run
+
   # Stable rollup check for branch protection. Always runs, so a
   # path-filtered job that is skipped never leaves a required check pending.
   # A job that was skipped passes the gate; only an actual failure/cancel --
@@ -401,6 +481,9 @@ jobs:
       - lint-api-server
       - lint-cli
       - lint-control-plane
+      - lint-fleet-dashboard
+      - lint-fleet-dashboard-ui
+      - fleet-dashboard-firewall
       - lint-sdk-typescript
       - lint-gateway-management-ui
       - lint-operational-dashboard-ui

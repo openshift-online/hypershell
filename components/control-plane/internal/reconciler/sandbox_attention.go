@@ -91,9 +91,12 @@ func (r *SandboxAttentionReconciler) Run(ctx context.Context) error {
 }
 
 func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "sandbox-attention", "reconcile", "")
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", "reconcile", "")
 	var tickErr error
-	defer func() { endSpan(tickErr) }()
+	defer func() {
+		outcome, reason := cpotel.ClassifyReconcileOutcome(tickErr)
+		endSpan(outcome, reason, tickErr)
+	}()
 
 	listCtx, cancel := context.WithTimeout(ctx, sandboxAttentionListTimeout)
 	defer cancel()

@@ -31,6 +31,7 @@ export const RELIABILITY_METRIC_SOURCE_METRIC_IDS: Readonly<
   "control-plane-reconciliation": [
     "reconciliation-failures",
     "reconciliation-retries",
+    "reconciliation-successes",
     "reconciliation-lag",
     "stale-resource-status-count",
   ],

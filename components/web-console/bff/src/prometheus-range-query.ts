@@ -4,6 +4,8 @@ export const dailyRangeStepSeconds = 86_400;
 export const hourlyRangeStepSeconds = 3_600;
 export const hourlyRangeLookbackSeconds = 86_400;
 export const dailyRangeLookbackDays = 7;
+export const fiveMinuteRangeStepSeconds = 300;
+export const fiveMinuteRangeLookbackSeconds = 7_200;
 
 interface PrometheusRangeQueryResponse {
   status: string;
@@ -75,6 +77,26 @@ export function rollingHourlyRange(): { end: number; start: number } {
     end,
     start: end - hourlyRangeLookbackSeconds,
   };
+}
+
+export function rollingFiveMinuteRange(): { end: number; start: number } {
+  const end = Math.floor(Date.now() / 1000);
+
+  return {
+    end,
+    start: end - fiveMinuteRangeLookbackSeconds,
+  };
+}
+
+export function formatMinuteLabel(unixSeconds: number): string {
+  const date = new Date(unixSeconds * 1000);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+
+  return `${String(year)}-${month}-${day}T${hour}:${minute}`;
 }
 
 export async function queryPrometheusRangeScalarSamples(

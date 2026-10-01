@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"k8s.io/client-go/util/workqueue"
 )
 
@@ -1048,6 +1049,58 @@ func TestReconcileQueue_DuplicateDeleteRetainsPayload(t *testing.T) {
 	if got != "del-second" {
 		t.Fatalf("reprocessed delete saw %q, want the duplicate's full payload %q", got, "del-second")
 	}
+}
+
+// WithRetryableReason attaches a CRM-007 reason code that retryableReasonFromErr
+// can extract; both wrappers must compose transparently with PreservePayloadForRetry.
+func TestWithRetryableReason(t *testing.T) {
+	base := errors.New("base")
+
+	t.Run("nil returns nil", func(t *testing.T) {
+		if got := WithRetryableReason(nil, "grpc_unavailable"); got != nil {
+			t.Fatalf("WithRetryableReason(nil) = %v, want nil", got)
+		}
+	})
+
+	t.Run("extracts attached reason", func(t *testing.T) {
+		err := WithRetryableReason(base, "keycloak_transient")
+		if got := retryableReasonFromErr(err); got != "keycloak_transient" {
+			t.Fatalf("retryableReasonFromErr = %q, want %q", got, "keycloak_transient")
+		}
+	})
+
+	t.Run("falls back to unknown when no reason attached", func(t *testing.T) {
+		if got := retryableReasonFromErr(base); got != cpotel.ReasonUnknown {
+			t.Fatalf("retryableReasonFromErr(plain) = %q, want %q", got, cpotel.ReasonUnknown)
+		}
+	})
+
+	t.Run("composes with PreservePayloadForRetry outer", func(t *testing.T) {
+		err := WithRetryableReason(PreservePayloadForRetry(base), "dependency_not_ready")
+		if !PreservesPayloadForRetry(err) {
+			t.Fatal("PreservesPayloadForRetry must be true when composed")
+		}
+		if got := retryableReasonFromErr(err); got != "dependency_not_ready" {
+			t.Fatalf("retryableReasonFromErr = %q, want %q", got, "dependency_not_ready")
+		}
+	})
+
+	t.Run("composes with PreservePayloadForRetry inner", func(t *testing.T) {
+		err := PreservePayloadForRetry(WithRetryableReason(base, "grpc_unavailable"))
+		if !PreservesPayloadForRetry(err) {
+			t.Fatal("PreservesPayloadForRetry must be true when composed")
+		}
+		if got := retryableReasonFromErr(err); got != "grpc_unavailable" {
+			t.Fatalf("retryableReasonFromErr = %q, want %q", got, "grpc_unavailable")
+		}
+	})
+
+	t.Run("preserves original error message", func(t *testing.T) {
+		err := WithRetryableReason(base, "k8s_conflict")
+		if err.Error() != base.Error() {
+			t.Fatalf("error message = %q, want %q", err.Error(), base.Error())
+		}
+	})
 }
 
 // gatewayWorkerCount clamps a non-positive configured count to the default so the

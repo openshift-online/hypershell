@@ -142,7 +142,7 @@ describe("ReliabilitySummaryCard", () => {
   it("shows metric unavailable when a summary metric is omitted", () => {
     renderWithIntl(<ReliabilitySummaryCard metrics={[requestRateMetric]} />);
 
-    expect(screen.getAllByText("Metric unavailable")).toHaveLength(6);
+    expect(screen.getAllByText("Metric unavailable")).toHaveLength(7);
   });
 });
 
