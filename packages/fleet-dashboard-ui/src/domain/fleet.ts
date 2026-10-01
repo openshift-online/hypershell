@@ -7,6 +7,17 @@
 
 export type GatewayPhaseCounts = Readonly<Record<string, number>>;
 
+/**
+ * One time-step of the stacked "sand" sparkline: gateway counts split into the
+ * three phases the chart layers. The server reports oldest-first samples already
+ * bucketed into these three; any other phase it tracks is not plotted.
+ */
+export interface GatewayHistorySample {
+  readonly running: number;
+  readonly provisioning: number;
+  readonly failed: number;
+}
+
 /** A rate + error% + p95-latency triple, as the BFF reports per control-plane. */
 export interface RateStats {
   readonly rate: number;
@@ -36,10 +47,10 @@ export interface InstanceFleet {
   /** p95 gateway-provision latency in ms, or null when unknown. */
   readonly provisionP95Ms: number | null;
   /**
-   * Total-gateway samples oldest -> newest, for the "sand" sparkline. Empty when
-   * the server reports no history (the UI degrades to a flat/absent spark).
+   * Per-phase gateway samples oldest -> newest, for the stacked "sand" sparkline.
+   * Empty when the server reports no history (the UI degrades to an absent spark).
    */
-  readonly gatewayHistory: readonly number[];
+  readonly gatewayHistory: readonly GatewayHistorySample[];
 }
 
 export interface FleetData {

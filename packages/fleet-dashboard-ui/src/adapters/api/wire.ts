@@ -182,7 +182,13 @@ interface WireInstanceFleet {
   readonly reconcile?: WireRateStats | null;
   readonly bff?: WireRateStats | null;
   readonly provisionP95Ms?: number;
-  readonly gatewayHistory?: readonly number[] | null;
+  readonly gatewayHistory?: readonly WireGatewayHistorySample[] | null;
+}
+
+interface WireGatewayHistorySample {
+  readonly running?: number;
+  readonly provisioning?: number;
+  readonly failed?: number;
 }
 
 /** `/api/fleet` is a map keyed by instance name; the domain uses a flat list. */
@@ -219,7 +225,11 @@ function mapInstanceFleet(key: string, raw: WireInstanceFleet): InstanceFleet {
     bff: mapRate(raw.bff),
     provisionP95Ms:
       typeof raw.provisionP95Ms === "number" ? raw.provisionP95Ms : null,
-    gatewayHistory: (raw.gatewayHistory ?? []).map(num),
+    gatewayHistory: (raw.gatewayHistory ?? []).map((s) => ({
+      running: num(s.running),
+      provisioning: num(s.provisioning),
+      failed: num(s.failed),
+    })),
   };
 }
 

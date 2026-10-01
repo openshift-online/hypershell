@@ -31,12 +31,11 @@ export const GATEWAY_COLOR = {
   idle: TONE_COLOR.unknown,
 } as const;
 
-/** The "sand" sparkline accent (warm amber), fill + line. */
+/**
+ * The "sand" sparkline total-outline accent (warm amber). The stacked bands below
+ * it use the per-phase GATEWAY_COLOR palette; this only traces the summed height.
+ */
 export const SAND_LINE = token(
-  "--pf-t--global--color--status--warning--default",
-  "#dca614",
-);
-export const SAND_FILL = token(
   "--pf-t--global--color--status--warning--default",
   "#dca614",
 );
