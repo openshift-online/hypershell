@@ -50,7 +50,7 @@ func TestServeEncodeErrorIsVisible(t *testing.T) {
 
 // TestServeHealthy confirms a marshalable payload is returned 200 with its body.
 func TestServeHealthy(t *testing.T) {
-	src := oneShotSource(t, map[string]any{"instances": []string{"hyp0", "hyp1"}})
+	src := oneShotSource(t, map[string]any{"instances": []string{"alpha", "beta"}})
 	h := &Handlers{Instances: src}
 
 	mux := http.NewServeMux()
