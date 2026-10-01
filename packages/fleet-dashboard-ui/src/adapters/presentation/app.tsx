@@ -21,6 +21,7 @@ import { messages } from "../../messages";
 import { TopologyMap } from "./map/topology-map";
 import { PlaneSection } from "./plane-section";
 import { PromotionTable } from "./promotion-table";
+import styles from "./app.module.css";
 
 const EMPTY_FLEET: FleetData = { instances: [] };
 
@@ -60,9 +61,9 @@ export function App(): React.ReactElement {
 
   return (
     <Page masthead={masthead}>
-      <PageSection>
-        <Stack hasGutter>
-          <StackItem>
+      <PageSection isFilled>
+        <Stack hasGutter className={styles.stack}>
+          <StackItem isFilled className={styles.mapItem}>
             <PlaneSection titleMessage={messages.sectionMap} query={promotion}>
               {(data) => <TopologyMap promotion={data} fleet={fleetData} />}
             </PlaneSection>

@@ -2,20 +2,29 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* Fill the card body (which fills the page section) so the stage below can flex to
+     consume the leftover height rather than adding a fixed viewport height on top of
+     the masthead + card chrome. min-height:0 lets it shrink inside the flex column. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-/* The map + detail drawer fill a tall slab of the viewport (82vh), floored so it
-   never collapses on short screens. The stage height is deliberately DECOUPLED from
-   the content's own aspect ratio: a wide, short scene used to drive a short stage
-   (height = width / --stage-aspect), which left a band of dead black space below the
-   map inside the card. Now the gray container always fills the available height and
-   the SVG viewBox is re-fit to the canvas's live box (see use-map-viewport) so the
-   content scales up to fill it, centered. Both the canvas and the panel fill this
-   height; the panel scrolls WITHIN itself instead of growing the page. */
+/* The map + detail drawer fill the leftover height of the single-screen view. The stage
+   FLEX-FILLS its parent chain (page section isFilled -> stack -> map StackItem isFilled ->
+   card -> card body -> .wrap) instead of taking a fixed slab of the viewport (was 82vh):
+   82vh was ADDITIVE on top of the masthead + card title + freight bar + paddings, so the
+   total exceeded 100vh and <main> scrolled. flex:1 + min-height:0 makes it consume exactly
+   the space that remains, with a modest floor so it never fully collapses on short screens.
+   The stage height is deliberately DECOUPLED from the content's own aspect ratio: a wide,
+   short scene used to drive a short stage (height = width / --stage-aspect), which left a
+   band of dead black space below the map inside the card. Now the gray container always
+   fills the available height and the SVG viewBox is re-fit to the canvas's live box (see
+   use-map-viewport) so the content scales up to fill it, centered. Both the canvas and the
+   panel fill this height; the panel scrolls WITHIN itself instead of growing the page. */
 .stage {
   width: 100%;
-  height: 82vh;
-  min-height: 460px;
+  flex: 1 1 auto;
+  min-height: 360px;
 }
 
 /* Make the drawer and its columns fill the fixed stage height. min-height:0 lets

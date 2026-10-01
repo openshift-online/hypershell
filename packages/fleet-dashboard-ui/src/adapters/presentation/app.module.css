@@ -1,0 +1,30 @@
+/* The dashboard is a single-screen view: the promotion map fills the area below the
+   masthead with no page scroll. PF's Page makes <main> a definite-height scroll region;
+   we build a flex-fill chain down to the map's stage so it consumes exactly the leftover
+   height instead of the stage adding a fixed viewport slab (82vh) on top of the masthead
+   + card chrome, which overflowed <main> and scrolled. PageSection and the map StackItem
+   use PF's isFilled; these rules carry the fill through the Stack and the map's Card. */
+
+/* Stack is already a flex column; make it grow to fill the (isFilled) page section and
+   allow its children to shrink. */
+.stack {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Only the map's StackItem (not the sr-only table item) drives the fill. Its Card and
+   CardBody become a flex column so the stage's flex:1 resolves to the leftover height. */
+.mapItem {
+  min-height: 0;
+}
+.mapItem :global(.pf-v6-c-card) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.mapItem :global(.pf-v6-c-card__body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
