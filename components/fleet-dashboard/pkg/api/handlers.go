@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/cache"
@@ -34,9 +35,20 @@ func (h *Handlers) serve(s *cache.Source) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		snap := s.Get()
 		w.Header().Set("Content-Type", "application/json")
+		// Marshal BEFORE writing the status: a json encode failure (e.g. a
+		// NaN/Inf that slipped into the payload) must not leave the client with a
+		// silent empty 200 body -- that blanked the dashboard panels. Surface it
+		// as a 500 so the failure is visible in logs and to the UI.
+		body, err := json.Marshal(snap)
+		if err != nil {
+			slog.Default().ErrorContext(r.Context(), "encode snapshot failed", "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"failed to encode snapshot"}`))
+			return
+		}
 		if snap.GeneratedAt.IsZero() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
-		_ = json.NewEncoder(w).Encode(snap)
+		_, _ = w.Write(body)
 	}
 }

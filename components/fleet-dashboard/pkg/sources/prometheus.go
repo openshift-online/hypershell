@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -109,6 +110,15 @@ func sampleValue(v []any) float64 {
 	}
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
+		return 0
+	}
+	// PromQL legitimately yields non-finite results -- 0/0 -> NaN, x/0 -> +Inf,
+	// histogram_quantile over empty buckets -> NaN (e.g. an instance with no BFF
+	// traffic). encoding/json CANNOT marshal NaN/Inf: a single one makes the
+	// whole /api/fleet payload fail to encode, which surfaced as an empty 200
+	// body and a blank "Could not load this view" panel. Treat a non-finite
+	// sample as 0 (an absent rate/quantile is zero for display purposes).
+	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0
 	}
 	return f
