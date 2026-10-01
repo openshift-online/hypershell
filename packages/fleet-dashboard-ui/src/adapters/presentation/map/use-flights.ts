@@ -42,8 +42,11 @@ export interface FlightsState {
 export function useFlights(model: MapModel): FlightsState {
   const prevRef = useRef<MapModel | null>(null);
   const [flights, setFlights] = useState<readonly ActiveFlight[]>([]);
-  // Pending flight-cull timers, held in a ref so they survive model re-renders.
-  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Pending flight-cull timers, held in a ref so they survive model re-renders. Browser
+  // timer handles are numbers (window.setTimeout); typed explicitly as number rather than
+  // ReturnType<typeof setTimeout>, which resolves to Node's Timeout when @types/node is in
+  // scope and clashes with the number the DOM setTimeout actually returns.
+  const timers = useRef<Set<number>>(new Set());
 
   // Clear timers ONLY on unmount - never on each model change. The map model is a
   // fresh object every poll (fleet refetches even when seeds are unchanged), so tying
@@ -55,7 +58,7 @@ export function useFlights(model: MapModel): FlightsState {
     const pending = timers.current;
     return () => {
       pending.forEach((t) => {
-        clearTimeout(t);
+        window.clearTimeout(t);
       });
       pending.clear();
     };
