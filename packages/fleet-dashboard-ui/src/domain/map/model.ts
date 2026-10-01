@@ -124,6 +124,14 @@ export interface MapGate {
   readonly name: string | null;
   /** True when a release is actively promoting into the destination column. */
   readonly promoting: boolean;
+  /**
+   * Identicon/identiname seed of the release promoting into the destination, when
+   * one is (the destination's proposed digest, else its key). Null when nothing is
+   * promoting. Lets the gate sidebar name WHICH bundle it is carrying.
+   */
+  readonly promotingSeed: string | null;
+  /** Version string of the promoting release, when one is. Null otherwise. */
+  readonly promotingVersion: string | null;
 }
 
 export interface MapModel {
@@ -294,13 +302,20 @@ function buildGates(
     if (!governing) {
       continue;
     }
+    const promoting = governing.state === "promoting";
     gates.push({
       id: `${from.key}->${to.key}`,
       fromColumnKey: from.key,
       toColumnKey: to.key,
       badge: governing.gateBadge,
       name: governing.gateNames[0] ?? null,
-      promoting: governing.state === "promoting",
+      promoting,
+      // The bundle in flight is the destination's PROPOSED release (identicon seed
+      // = its proposed digest, else the instance key). Null when nothing is moving.
+      promotingSeed: promoting
+        ? (governing.proposedDigest ?? governing.id)
+        : null,
+      promotingVersion: promoting ? governing.proposedVersion : null,
     });
   }
   return gates;

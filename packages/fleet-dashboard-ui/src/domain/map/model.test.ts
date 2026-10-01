@@ -257,6 +257,38 @@ describe("buildMapModel - gates", () => {
     expect(model.gates[0]?.promoting).toBe(true);
   });
 
+  it("carries the proposed bundle seed + version on a promoting gate", () => {
+    const model = buildMapModel(
+      promotion(["a", "b"], {
+        a: env({ name: "a", envLabel: "a", role: "hub" }),
+        b: env({
+          name: "b",
+          envLabel: "b",
+          role: "hub",
+          prState: "open",
+          proposedDigest: "sha256:next",
+          proposedRelease: "v2",
+        }),
+      }),
+      emptyFleet,
+    );
+    expect(model.gates[0]?.promotingSeed).toBe("sha256:next");
+    expect(model.gates[0]?.promotingVersion).toBe("v2");
+  });
+
+  it("leaves the promoting bundle null when nothing is in flight", () => {
+    const model = buildMapModel(
+      promotion(["a", "b"], {
+        a: env({ name: "a", envLabel: "a", role: "hub" }),
+        b: env({ name: "b", envLabel: "b", role: "hub", upToDate: true }),
+      }),
+      emptyFleet,
+    );
+    expect(model.gates[0]?.promoting).toBe(false);
+    expect(model.gates[0]?.promotingSeed).toBeNull();
+    expect(model.gates[0]?.promotingVersion).toBeNull();
+  });
+
   it("uses the first node when a column has no hub", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
