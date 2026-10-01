@@ -23,7 +23,7 @@ func controlPlaneContext(h *test.Helper, subject string) context.Context {
 
 func register(client *openapi.APIClient, ctx context.Context, name string) (*openapi.ManagedClusterRegistrationResponse, *http.Response, error) {
 	return client.DefaultAPI.RegisterManagedCluster(ctx).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name, Provider: "aws", Visibility: "public"}).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name, Provider: openapi.PtrString("aws"), Visibility: openapi.PtrString("public")}).
 		Execute()
 }
 
@@ -58,6 +58,55 @@ func TestManagedClusterRegistrationIdempotent(t *testing.T) {
 	Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 }
 
+func TestManagedClusterRegistrationAcceptsLegacyHeartbeatWithoutErasingPlacement(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	ctx := controlPlaneContext(h, uniqueName("cp"))
+	name := uniqueName("hyp0-mc")
+
+	legacy := openapi.ManagedClusterRegistrationRequest{Name: name}
+	first, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(legacy).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{
+			Name:       name,
+			Provider:   openapi.PtrString("ibm"),
+			Visibility: openapi.PtrString("public"),
+		}).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+	_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(legacy).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+	cluster, _, err := client.DefaultAPI.GetManagedCluster(ctx, first.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cluster.Provider).To(Equal("ibm"))
+	Expect(cluster.GetVisibility()).To(Equal("public"))
+
+	resp, err = client.DefaultAPI.DeleteManagedCluster(ctx, first.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+	_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(legacy).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	cluster, _, err = client.DefaultAPI.GetManagedCluster(ctx, first.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cluster.Provider).To(Equal("ibm"))
+	Expect(cluster.GetVisibility()).To(Equal("public"))
+}
+
 // Re-registration restores placement metadata from the current registration,
 // rather than retaining the provider and visibility from the deleted record.
 func TestManagedClusterRegistrationRestoreRefreshesPlacementMetadata(t *testing.T) {
@@ -76,8 +125,8 @@ func TestManagedClusterRegistrationRestoreRefreshesPlacementMetadata(t *testing.
 	restored, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
 		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{
 			Name:       name,
-			Provider:   "ibm",
-			Visibility: "public",
+			Provider:   openapi.PtrString("ibm"),
+			Visibility: openapi.PtrString("public"),
 		}).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))

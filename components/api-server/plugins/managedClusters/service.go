@@ -187,8 +187,12 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 		}
 		now := time.Now()
 		existing.LastSeenAt = &now
-		existing.Provider = provider
-		existing.Visibility = visibility
+		// A legacy control plane omits placement metadata. Its heartbeat must
+		// refresh connectivity without erasing values from a newer registration.
+		if provider != "" {
+			existing.Provider = provider
+			existing.Visibility = visibility
+		}
 		updated, replaceErr := s.managedClusterDao.Replace(ctx, existing)
 		if replaceErr != nil {
 			return nil, false, services.HandleUpdateError("ManagedCluster", replaceErr)
@@ -221,6 +225,10 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 		return nil, false, errors.GeneralError("registration lookup failed: %s", delErr)
 	}
 	if deleted != nil {
+		if provider == "" {
+			provider = deleted.Provider
+			visibility = deleted.Visibility
+		}
 		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, provider, visibility, now)
 		if restoreErr != nil {
 			if isUniqueViolation(restoreErr) {

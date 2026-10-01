@@ -328,8 +328,6 @@ components:
       type: object
       required:
         - name
-        - provider
-        - visibility
       properties:
         name:
           type: string

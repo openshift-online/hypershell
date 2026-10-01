@@ -2998,8 +2998,6 @@ components:
           type: string
       required:
       - name
-      - provider
-      - visibility
       type: object
     ManagedClusterRegistrationResponse:
       example:

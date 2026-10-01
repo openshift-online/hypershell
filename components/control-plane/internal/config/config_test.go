@@ -25,6 +25,8 @@ func setRequiredEnv(t *testing.T) {
 func TestLoadRequiresClusterIdentity(t *testing.T) {
 	for _, name := range []string{
 		"HYPERSHELL_MANAGED_CLUSTER_NAME",
+		"HYPERSHELL_MANAGED_CLUSTER_PROVIDER",
+		"HYPERSHELL_MANAGED_CLUSTER_VISIBILITY",
 		"OIDC_ISSUER",
 		"OIDC_CLIENT_ID",
 		"OIDC_CLIENT_SECRET",

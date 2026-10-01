@@ -218,10 +218,11 @@ describe("GatewayCreatePage", () => {
     expect(radio("VPN").checked).toBe(false);
   });
 
-  it("fails closed when placement availability cannot be loaded", async () => {
-    operations.getGatewayPlacementAvailability.mockRejectedValue(
-      new Error("unavailable"),
-    );
+  it("fails closed and retries when placement availability cannot be loaded", async () => {
+    const user = userEvent.setup();
+    operations.getGatewayPlacementAvailability
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockResolvedValue(availablePlacement);
     renderPage();
 
     expect(
@@ -231,6 +232,14 @@ describe("GatewayCreatePage", () => {
     ).toBeTruthy();
     expect(radio("Public").disabled).toBe(true);
     expect(radio("VPN").disabled).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(radio("Public").disabled).toBe(false);
+      expect(radio("VPN").disabled).toBe(false);
+    });
+    expect(operations.getGatewayPlacementAvailability).toHaveBeenCalledTimes(2);
   });
 
   it("uses network-specific availability and explains the backend reason", async () => {

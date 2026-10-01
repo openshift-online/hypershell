@@ -26,9 +26,9 @@ type ManagedClusterRegistrationRequest struct {
 	// Optional description of the spoke.
 	Description *string `json:"description,omitempty"`
 	// Cloud provider hosting this control plane.
-	Provider string `json:"provider"`
+	Provider *string `json:"provider,omitempty"`
 	// Network visibility supported for gateways on this control plane.
-	Visibility string `json:"visibility"`
+	Visibility *string `json:"visibility,omitempty"`
 }
 
 type _ManagedClusterRegistrationRequest ManagedClusterRegistrationRequest
@@ -37,11 +37,9 @@ type _ManagedClusterRegistrationRequest ManagedClusterRegistrationRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewManagedClusterRegistrationRequest(name string, provider string, visibility string) *ManagedClusterRegistrationRequest {
+func NewManagedClusterRegistrationRequest(name string) *ManagedClusterRegistrationRequest {
 	this := ManagedClusterRegistrationRequest{}
 	this.Name = name
-	this.Provider = provider
-	this.Visibility = visibility
 	return &this
 }
 
@@ -109,52 +107,68 @@ func (o *ManagedClusterRegistrationRequest) SetDescription(v string) {
 	o.Description = &v
 }
 
-// GetProvider returns the Provider field value
+// GetProvider returns the Provider field value if set, zero value otherwise.
 func (o *ManagedClusterRegistrationRequest) GetProvider() string {
-	if o == nil {
+	if o == nil || IsNil(o.Provider) {
 		var ret string
 		return ret
 	}
-
-	return o.Provider
+	return *o.Provider
 }
 
-// GetProviderOk returns a tuple with the Provider field value
+// GetProviderOk returns a tuple with the Provider field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *ManagedClusterRegistrationRequest) GetProviderOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.Provider) {
 		return nil, false
 	}
-	return &o.Provider, true
+	return o.Provider, true
 }
 
-// SetProvider sets field value
+// HasProvider returns a boolean if a field has been set.
+func (o *ManagedClusterRegistrationRequest) HasProvider() bool {
+	if o != nil && !IsNil(o.Provider) {
+		return true
+	}
+
+	return false
+}
+
+// SetProvider gets a reference to the given string and assigns it to the Provider field.
 func (o *ManagedClusterRegistrationRequest) SetProvider(v string) {
-	o.Provider = v
+	o.Provider = &v
 }
 
-// GetVisibility returns the Visibility field value
+// GetVisibility returns the Visibility field value if set, zero value otherwise.
 func (o *ManagedClusterRegistrationRequest) GetVisibility() string {
-	if o == nil {
+	if o == nil || IsNil(o.Visibility) {
 		var ret string
 		return ret
 	}
-
-	return o.Visibility
+	return *o.Visibility
 }
 
-// GetVisibilityOk returns a tuple with the Visibility field value
+// GetVisibilityOk returns a tuple with the Visibility field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *ManagedClusterRegistrationRequest) GetVisibilityOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.Visibility) {
 		return nil, false
 	}
-	return &o.Visibility, true
+	return o.Visibility, true
 }
 
-// SetVisibility sets field value
+// HasVisibility returns a boolean if a field has been set.
+func (o *ManagedClusterRegistrationRequest) HasVisibility() bool {
+	if o != nil && !IsNil(o.Visibility) {
+		return true
+	}
+
+	return false
+}
+
+// SetVisibility gets a reference to the given string and assigns it to the Visibility field.
 func (o *ManagedClusterRegistrationRequest) SetVisibility(v string) {
-	o.Visibility = v
+	o.Visibility = &v
 }
 
 func (o ManagedClusterRegistrationRequest) MarshalJSON() ([]byte, error) {
@@ -171,8 +185,12 @@ func (o ManagedClusterRegistrationRequest) ToMap() (map[string]interface{}, erro
 	if !IsNil(o.Description) {
 		toSerialize["description"] = o.Description
 	}
-	toSerialize["provider"] = o.Provider
-	toSerialize["visibility"] = o.Visibility
+	if !IsNil(o.Provider) {
+		toSerialize["provider"] = o.Provider
+	}
+	if !IsNil(o.Visibility) {
+		toSerialize["visibility"] = o.Visibility
+	}
 	return toSerialize, nil
 }
 
@@ -182,8 +200,6 @@ func (o *ManagedClusterRegistrationRequest) UnmarshalJSON(data []byte) (err erro
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"provider",
-		"visibility",
 	}
 
 	allProperties := make(map[string]interface{})

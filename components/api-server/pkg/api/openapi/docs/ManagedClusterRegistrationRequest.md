@@ -6,14 +6,14 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** | Human-readable spoke name, unique per fleet (e.g. hyp0-mc1). Must match on every subsequent call. | 
 **Description** | Pointer to **string** | Optional description of the spoke. | [optional] 
-**Provider** | **string** | Cloud provider hosting this control plane. | 
-**Visibility** | **string** | Network visibility supported for gateways on this control plane. | 
+**Provider** | Pointer to **string** | Cloud provider hosting this control plane. | [optional] 
+**Visibility** | Pointer to **string** | Network visibility supported for gateways on this control plane. | [optional] 
 
 ## Methods
 
 ### NewManagedClusterRegistrationRequest
 
-`func NewManagedClusterRegistrationRequest(name string, provider string, visibility string, ) *ManagedClusterRegistrationRequest`
+`func NewManagedClusterRegistrationRequest(name string, ) *ManagedClusterRegistrationRequest`
 
 NewManagedClusterRegistrationRequest instantiates a new ManagedClusterRegistrationRequest object
 This constructor will assign default values to properties that have it defined,
@@ -92,6 +92,11 @@ and a boolean to check if the value has been set.
 
 SetProvider sets Provider field to given value.
 
+### HasProvider
+
+`func (o *ManagedClusterRegistrationRequest) HasProvider() bool`
+
+HasProvider returns a boolean if a field has been set.
 
 ### GetVisibility
 
@@ -112,6 +117,11 @@ and a boolean to check if the value has been set.
 
 SetVisibility sets Visibility field to given value.
 
+### HasVisibility
+
+`func (o *ManagedClusterRegistrationRequest) HasVisibility() bool`
+
+HasVisibility returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

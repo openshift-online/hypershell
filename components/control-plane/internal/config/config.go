@@ -144,16 +144,16 @@ func Load() (*Config, error) {
 		{"OIDC_CLIENT_ID", cfg.OIDCClientID},
 		{"OIDC_CLIENT_SECRET", cfg.OIDCClientSecret},
 	}
+	for _, r := range required {
+		if strings.TrimSpace(r.value) == "" {
+			return nil, fmt.Errorf("%s is required: every control plane registers with the hub as a managed cluster (specs/platform/control-plane.spec.md, Mandatory Cluster Identity)", r.name)
+		}
+	}
 	if (cfg.ManagedClusterProvider != "aws" && cfg.ManagedClusterProvider != "ibm" && cfg.ManagedClusterProvider != "kind") ||
 		(cfg.ManagedClusterVisibility != "public" && cfg.ManagedClusterVisibility != "vpn") ||
 		(cfg.ManagedClusterProvider == "ibm" && cfg.ManagedClusterVisibility == "vpn") ||
 		(cfg.ManagedClusterProvider == "kind" && cfg.ManagedClusterVisibility != "public") {
 		return nil, fmt.Errorf("invalid managed cluster placement: provider=%q visibility=%q", cfg.ManagedClusterProvider, cfg.ManagedClusterVisibility)
-	}
-	for _, r := range required {
-		if strings.TrimSpace(r.value) == "" {
-			return nil, fmt.Errorf("%s is required: every control plane registers with the hub as a managed cluster (specs/platform/control-plane.spec.md, Mandatory Cluster Identity)", r.name)
-		}
 	}
 
 	// An invalid GATEWAY_RESOURCES fails startup rather than falling back to the

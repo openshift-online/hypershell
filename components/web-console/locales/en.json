@@ -1615,13 +1615,13 @@
     "defaultMessage": "For gateways that need to reach GitLab and other internal Red Hat services.",
     "description": "Description of VPN placement."
   },
-  "app.page.gatewayProvision.vpnRequiresLabel": {
-    "defaultMessage": "Red Hat VPN required",
-    "description": "Label shown above the VPN placement guidance."
-  },
   "app.page.gatewayProvision.vpnRequiresAws": {
     "defaultMessage": "VPN placement requires AWS.",
     "description": "Explanation shown when IBM Cloud is disabled for VPN."
+  },
+  "app.page.gatewayProvision.vpnRequiresLabel": {
+    "defaultMessage": "Red Hat VPN required",
+    "description": "Label shown above the VPN placement guidance."
   },
   "app.page.gateways.description": {
     "defaultMessage": "HyperShell gateways.",

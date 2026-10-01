@@ -81,6 +81,13 @@ func TestParseSpecProjectsGatewayCreateRequestFromOperationSchema(t *testing.T) 
 		if resource.Name != "Gateway" {
 			continue
 		}
+		responseFields := make(map[string]Field, len(resource.Fields))
+		for _, field := range resource.Fields {
+			responseFields[field.Name] = field
+		}
+		if responseFields["generation"].Name == "" || responseFields["observed_generation"].Name == "" {
+			t.Fatal("gateway response fields must retain generation and observed_generation")
+		}
 		if len(resource.CreateFields) == 0 {
 			t.Fatal("gateway create fields are missing")
 		}

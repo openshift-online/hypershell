@@ -2,10 +2,13 @@ package gateways
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 	"time"
 )
+
+var errNoEligiblePlacement = errors.New("no eligible placement is available")
 
 // PlacementIntent is the client-facing placement request. Cluster IDs are
 // deliberately absent: they are selected by the API server at create time.
@@ -67,7 +70,7 @@ func resolvePlacement(intent PlacementIntent, candidates []PlacementCandidate, s
 	}
 	eligible := eligiblePlacementCandidates(intent, candidates)
 	if len(eligible) == 0 {
-		return "", fmt.Errorf("no eligible placement is available")
+		return "", errNoEligiblePlacement
 	}
 	index, err := selectIndex(len(eligible))
 	if err != nil {

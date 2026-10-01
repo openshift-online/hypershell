@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. The provision form SHALL let a user choose exactly one network visibility—VPN or public. Public placement SHALL support AWS and IBM Cloud. VPN placement SHALL support AWS only. The client SHALL submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway.
+Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. The provision form SHALL let a user choose exactly one network visibility: VPN or public. Public placement SHALL support AWS and IBM Cloud. VPN placement SHALL support AWS only. The client SHALL submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway.
 
 ## Requirements
 

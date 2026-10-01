@@ -1,6 +1,7 @@
 import {
   ActionGroup,
   Alert,
+  AlertActionLink,
   Button,
   Card,
   CardBody,
@@ -587,7 +588,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                               reason: intl.formatMessage(
                                 placementReasonMessages[
                                   availability.data.ibmReason ??
-                                  "no-eligible-cluster"
+                                    "no-eligible-cluster"
                                 ],
                               ),
                             })
@@ -617,6 +618,15 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
           ) : null}
           {availability.isError ? (
             <Alert
+              actionLinks={
+                <AlertActionLink
+                  onClick={() => {
+                    void availability.refetch();
+                  }}
+                >
+                  {intl.formatMessage(messages.retry)}
+                </AlertActionLink>
+              }
               isInline
               title={intl.formatMessage(messages.placementAvailabilityError)}
               variant="warning"

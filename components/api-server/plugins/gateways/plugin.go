@@ -2,12 +2,14 @@ package gateways
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
@@ -212,7 +214,11 @@ func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi
 	}
 	selected, err := p.selectManaged(snapshot, *intent.Network, *intent.Provider)
 	if err != nil {
-		return "", errors.Validation("no eligible managed cluster is available for the requested placement")
+		if stderrors.Is(err, errNoEligiblePlacement) {
+			return "", errors.Validation("no eligible managed cluster is available for the requested placement")
+		}
+		glog.Errorf("failed to resolve managed cluster placement provider=%s network=%s: %v", *intent.Provider, *intent.Network, err)
+		return "", errors.GeneralError("failed to resolve managed cluster placement")
 	}
 	return selected, nil
 }

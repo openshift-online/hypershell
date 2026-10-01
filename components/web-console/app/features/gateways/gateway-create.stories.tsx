@@ -1,5 +1,6 @@
 import type {
   GatewayOperations,
+  GatewayPlacementAvailability,
   GatewayRecord,
   GatewayUiNavigation,
 } from "@openshift-online/hypershell-gateway-management-ui";
@@ -10,7 +11,7 @@ import {
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, within } from "storybook/test";
 
-const placementAvailability = {
+const placementAvailability: GatewayPlacementAvailability = {
   awsPublic: true,
   awsVpn: true,
   ibmPublic: true,
@@ -18,7 +19,7 @@ const placementAvailability = {
   localKind: true,
 } as const;
 
-const localDevelopmentAvailability = {
+const localDevelopmentAvailability: GatewayPlacementAvailability = {
   awsPublic: false,
   awsVpn: false,
   ibmPublic: false,
@@ -49,17 +50,14 @@ const navigation: GatewayUiNavigation = {
 function GatewayCreatePreview({
   availability = placementAvailability,
 }: {
-  availability?: typeof placementAvailability;
+  availability?: GatewayPlacementAvailability;
 }) {
   const operationsForStory = {
     ...gatewayOperations,
     getGatewayPlacementAvailability: () => Promise.resolve(availability),
   } as GatewayOperations;
   return (
-    <GatewayUiProvider
-      gateways={operationsForStory}
-      navigation={navigation}
-    >
+    <GatewayUiProvider gateways={operationsForStory} navigation={navigation}>
       <GatewayCreatePage />
     </GatewayUiProvider>
   );
