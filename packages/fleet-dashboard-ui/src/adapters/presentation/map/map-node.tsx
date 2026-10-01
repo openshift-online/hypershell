@@ -39,6 +39,8 @@ export interface MapNodeCardProps {
   /** Runs the selected release bundle - gets a dashed accent ring. */
   readonly highlighted: boolean;
   readonly onSelect: (id: string) => void;
+  /** Selects the node's active release bundle (clicking its identicon). */
+  readonly onSelectBundle: (seed: string) => void;
 }
 
 const ICON = 30;
@@ -49,6 +51,7 @@ export function MapNodeCard({
   selected,
   highlighted,
   onSelect,
+  onSelectBundle,
 }: MapNodeCardProps): React.ReactElement {
   const { x, y, w, h } = box;
   const issues = hasIssues(node);
@@ -60,6 +63,18 @@ export function MapNodeCard({
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       select();
+    }
+  };
+  // The identicon is a nested target: it opens the release bundle it stands for,
+  // rather than the instance. stopPropagation keeps the click off the card button.
+  const selectBundle = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+    onSelectBundle(node.seed);
+  };
+  const onIconKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      selectBundle(e);
     }
   };
 
@@ -161,18 +176,33 @@ export function MapNodeCard({
         />
       </g>
 
-      {/* identicon (top-right) with promotion-state ring */}
-      <rect
-        x={x + w - ICON - 11}
-        y={y + 5}
-        width={ICON + 6}
-        height={ICON + 6}
-        rx={6}
-        fill="none"
-        stroke={promotionRing(node.state)}
-        strokeWidth={3}
-      />
-      <Identicon seed={node.seed} x={x + w - ICON - 8} y={y + 8} size={ICON} />
+      {/* identicon (top-right) with promotion-state ring. Clickable: opens the
+          release bundle it identifies (not the instance). */}
+      <g
+        role="button"
+        tabIndex={0}
+        aria-label={identiName(node.seed)}
+        onClick={selectBundle}
+        onKeyDown={onIconKeyDown}
+        style={{ cursor: "pointer" }}
+      >
+        <rect
+          x={x + w - ICON - 11}
+          y={y + 5}
+          width={ICON + 6}
+          height={ICON + 6}
+          rx={6}
+          fill="none"
+          stroke={promotionRing(node.state)}
+          strokeWidth={3}
+        />
+        <Identicon
+          seed={node.seed}
+          x={x + w - ICON - 8}
+          y={y + 8}
+          size={ICON}
+        />
+      </g>
 
       {/* identity block (left) */}
       <text

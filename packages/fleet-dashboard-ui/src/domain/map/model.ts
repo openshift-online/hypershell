@@ -3,11 +3,13 @@
 //
 // FIREWALL: this module hard-codes NOTHING about the fleet - no environment
 // names, no hub table, no provider list, no ordering. Columns are the promotion
-// environments in `promotion.order` (one column per env, left -> right), lanes come
-// from `role`/`provider`, the env-type (`envLabel`) only groups column headers, and
-// gates come from the per-env gate data. A static ENV->HUB or provider table here
-// would bake the topology into public source; deriving it at runtime is the whole
-// point (data-architecture.spec §3.5 in the gitops repo).
+// STAGES - the hubs in `promotion.order`, left -> right - and a spoke (a hub's
+// managed cluster) stacks into its hub's column rather than forming its own stage,
+// so a hub and its managed clusters share one column with no gate between them.
+// Lanes come from `role`/`provider`, the env-type (`envLabel`) only groups column
+// headers, and gates bridge consecutive hub columns. A static ENV->HUB or provider
+// table here would bake the topology into public source; deriving it at runtime is
+// the whole point (data-architecture.spec §3.5 in the gitops repo).
 
 import {
   findInstance,
@@ -50,10 +52,10 @@ export interface MapNode {
   /** Instance key from the payload (runtime data, never compiled in). */
   readonly id: string;
   /**
-   * Column this node belongs to: its promotion environment (the `promotion.order`
-   * identity). Each environment is one column, laid left -> right in promotion
-   * order, so a cloud's sequential stages read across, not stacked (the promoter
-   * model - every environment is a distinct promotion step).
+   * Column (promotion stage) this node belongs to. A hub is its own column, laid
+   * left -> right in promotion order. A spoke (a hub's managed cluster) carries its
+   * hub's key, so it stacks into the hub's column instead of forming a separate
+   * stage - a hub and its managed clusters move together, with no gate between them.
    */
   readonly columnKey: string;
   /** Env-type grouping (int/stage/prod, server data) used for the header bands. */
@@ -146,13 +148,17 @@ function laneKeyFor(provider: string | null): string {
   return provider ?? "none";
 }
 
-function buildNode(env: PromotionEnvironment, fleet: FleetData): MapNode {
+function buildNode(
+  env: PromotionEnvironment,
+  fleet: FleetData,
+  columnKey: string,
+): MapNode {
   const provider = nonEmpty(env.provider);
   const fl = findInstance(fleet.instances, env.name);
   const gateways = fl?.gateways ?? {};
   return {
     id: env.name,
-    columnKey: env.name,
+    columnKey,
     envLabel: nonEmpty(env.envLabel),
     laneKey: laneKeyFor(provider),
     isHub: isHubRole(env.role),
@@ -190,6 +196,40 @@ function buildNode(env: PromotionEnvironment, fleet: FleetData): MapNode {
       analysis: env.analysisUrl,
     },
   };
+}
+
+/**
+ * Assign each environment to a promotion COLUMN (stage). Hubs are the stages, one
+ * column each. A spoke (non-hub) joins the column of the hub it belongs to: the hub
+ * whose name is the longest prefix of the spoke's name (a managed cluster's name
+ * extends its hub's name), so a hub and its managed clusters share one stage and get
+ * no gate between them. A spoke that matches no hub keeps its own column. FIREWALL:
+ * the pairing is derived from the runtime role + name data alone - no fleet names,
+ * hub table or ordering are baked in.
+ */
+function assignColumns(
+  envs: readonly PromotionEnvironment[],
+): Map<string, string> {
+  const hubNames = envs.filter((e) => isHubRole(e.role)).map((e) => e.name);
+  const columnKey = new Map<string, string>();
+  for (const e of envs) {
+    if (isHubRole(e.role)) {
+      columnKey.set(e.name, e.name);
+      continue;
+    }
+    let hub: string | null = null;
+    for (const h of hubNames) {
+      if (
+        e.name !== h &&
+        e.name.startsWith(h) &&
+        (hub === null || h.length > hub.length)
+      ) {
+        hub = h;
+      }
+    }
+    columnKey.set(e.name, hub ?? e.name);
+  }
+  return columnKey;
 }
 
 /**
@@ -267,16 +307,19 @@ function buildGates(
 }
 
 /**
- * Project the promotion plane (+ fleet metrics) into the map model. Columns follow
- * the server's promotion order; nodes carry their merged promotion + fleet state;
- * gates bridge adjacent columns using the destination column's governing node.
+ * Project the promotion plane (+ fleet metrics) into the map model. Columns are the
+ * hub stages in the server's promotion order (spokes stack into their hub's column);
+ * nodes carry their merged promotion + fleet state; gates bridge adjacent columns
+ * using the destination column's governing node.
  */
 export function buildMapModel(
   promotion: PromotionData,
   fleet: FleetData,
 ): MapModel {
-  const nodes = orderedEnvironments(promotion).map((env) =>
-    buildNode(env, fleet),
+  const envs = orderedEnvironments(promotion);
+  const columnKeyByName = assignColumns(envs);
+  const nodes = envs.map((env) =>
+    buildNode(env, fleet, columnKeyByName.get(env.name) ?? env.name),
   );
   const byId = new Map(nodes.map((n) => [n.id, n]));
 
