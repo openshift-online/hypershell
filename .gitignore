@@ -22,6 +22,10 @@ build/
 !skills/build/
 coverage/
 dist/
+# Keep the fleet-dashboard embed placeholder: web/embed.go has //go:embed all:dist,
+# so the Go build (and Konflux) needs a committed dist/ even before the UI is built.
+!components/fleet-dashboard/web/dist/
+!components/fleet-dashboard/web/dist/index.html
 playwright-report/
 storybook-static/
 test-results/
