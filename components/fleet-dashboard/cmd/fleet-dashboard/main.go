@@ -49,7 +49,16 @@ func run(logger *slog.Logger) error {
 	}
 
 	prom := sources.NewPrometheus(cfg)
-	promotion := sources.NewPromotion(cfg, kube.Dynamic, nil)
+	// GitHub check-run enrichment is opt-in (FD_GITHUB_REPO): NewGitHubAnalysis
+	// returns nil when disabled, which NewPromotion treats as the no-op resolver.
+	// Assign through the interface var so a nil *GitHubAnalysis does not become a
+	// non-nil interface holding a nil pointer.
+	var analyzer sources.AnalysisResolver
+	if gh := sources.NewGitHubAnalysis(cfg); gh != nil {
+		analyzer = gh
+		logger.Info("github analysis enrichment enabled", "repo", cfg.GitHubRepo)
+	}
+	promotion := sources.NewPromotion(cfg, kube.Dynamic, nil, analyzer)
 	topology := sources.NewTopology(cfg, kube.Clientset)
 
 	fleetSrc := cache.NewSource("fleet", cfg.RefreshFleet, prom.Fleet, metrics.Observe)

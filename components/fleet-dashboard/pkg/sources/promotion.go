@@ -27,6 +27,7 @@ type Promotion struct {
 	ctpGVR    schema.GroupVersionResource
 	appGVR    schema.GroupVersionResource
 	versioner VersionResolver
+	analyzer  AnalysisResolver
 }
 
 // VersionResolver maps a gitops commit SHA to a release version. Implementations
@@ -59,10 +60,15 @@ func (ShortSHAResolver) Resolve(_ context.Context, sha string) *Release {
 	return &Release{Version: v, SHA: shortSHA(sha)}
 }
 
-// NewPromotion builds a Promotion source from config.
-func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionResolver) *Promotion {
+// NewPromotion builds a Promotion source from config. A nil versioner defaults
+// to ShortSHAResolver; a nil analyzer defaults to the no-op resolver (GitHub
+// enrichment disabled), so analysisUrl is simply omitted.
+func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionResolver, analyzer AnalysisResolver) *Promotion {
 	if versioner == nil {
 		versioner = ShortSHAResolver{}
+	}
+	if analyzer == nil {
+		analyzer = noopAnalysis{}
 	}
 	return &Promotion{
 		dyn:       dyn,
@@ -73,6 +79,7 @@ func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionReso
 		ctpGVR:    schema.GroupVersionResource{Group: c.PromoterGroup, Version: c.PromoterVersion, Resource: "changetransferpolicies"},
 		appGVR:    schema.GroupVersionResource{Group: c.ArgoGroup, Version: c.ArgoVersion, Resource: "applications"},
 		versioner: versioner,
+		analyzer:  analyzer,
 	}
 }
 
@@ -91,11 +98,15 @@ type Environment struct {
 	Active         *Release `json:"active"`
 	Proposed       *Release `json:"proposed"`
 	ActiveHydrated string   `json:"activeHydrated"`
-	UpToDate       bool     `json:"upToDate"`
-	PRState        string   `json:"prState,omitempty"`
-	PRURL          string   `json:"prUrl,omitempty"`
-	ActiveGates    []Gate   `json:"activeGates"`
-	ProposedGates  []Gate   `json:"proposedGates"`
+	// AnalysisURL links to the hypershell-analysis GitHub check-run for the
+	// active hydrated commit (nullable -- spec §5). Empty/omitted when GitHub
+	// enrichment is disabled or the run is absent/unreachable.
+	AnalysisURL   string `json:"analysisUrl,omitempty"`
+	UpToDate      bool   `json:"upToDate"`
+	PRState       string `json:"prState,omitempty"`
+	PRURL         string `json:"prUrl,omitempty"`
+	ActiveGates   []Gate `json:"activeGates"`
+	ProposedGates []Gate `json:"proposedGates"`
 	// Argo + delivery labels (present when a matching Application is found).
 	ArgoApp    string `json:"argoApp,omitempty"`
 	ArgoNS     string `json:"argoNs,omitempty"`
@@ -153,11 +164,16 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			payload.Releases[pv.SHA] = pv
 		}
 
+		// analysisUrl is keyed on the active HYDRATED sha (the promoted,
+		// rendered commit the analysis check-run actually ran against), matching
+		// the prototype's analysis_checkrun_url(hydrated_of(act)).
+		activeHydrated := hydratedSHA(active)
 		env := Environment{
 			Branch:         branch,
 			Active:         av,
 			Proposed:       pv,
-			ActiveHydrated: shortSHA(hydratedSHA(active)),
+			ActiveHydrated: shortSHA(activeHydrated),
+			AnalysisURL:    p.analyzer.AnalysisURL(ctx, activeHydrated),
 			UpToDate:       activeSHA == proposedSHA && activeSHA != "",
 			ActiveGates:    gatesOf(active),
 			ProposedGates:  gatesOf(proposed),

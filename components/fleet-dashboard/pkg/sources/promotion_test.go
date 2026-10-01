@@ -82,7 +82,7 @@ func TestPromotionDerivation(t *testing.T) {
 		ArgoGroup:             "argoproj.io",
 		ArgoVersion:           "v1alpha1",
 	}
-	p := NewPromotion(c, dyn, nil)
+	p := NewPromotion(c, dyn, nil, nil)
 
 	got, err := p.Promotion(context.Background())
 	if err != nil {
