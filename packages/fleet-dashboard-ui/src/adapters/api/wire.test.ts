@@ -7,43 +7,47 @@ import {
 } from "../../domain/promotion";
 import { mapInstances, mapPromotion } from "./wire";
 
+// Fixtures use deliberately fictional environment/instance names (alpha/beta/
+// gamma) and a fake release id. The fleet-dashboard source is public, so real
+// fleet identifiers must never appear in it -- not even in tests
+// (data-architecture.spec §3.5, enforced by scripts/check_fleet_dashboard_firewall.sh).
 describe("mapPromotion", () => {
   // A payload shaped exactly like the BFF/promotion.json wire contract (§5).
   const wire = {
-    order: ["hyp0mc0", "hyp0"],
+    order: ["alpha", "beta"],
     environments: {
-      hyp0: {
-        active: { version: "c2bdf68d", sha: "c2bdf68dc5" },
-        proposed: { version: "c2bdf68d", sha: "c2bdf68dc5" },
+      beta: {
+        active: { version: "abc1234", sha: "abc1234def" },
+        proposed: { version: "abc1234", sha: "abc1234def" },
         activeGates: [
           { key: "hypershell-analysis", phase: "success" },
           { key: "argocd-health", phase: "success" },
         ],
         proposedGates: [{ key: "dependents-successful", phase: "success" }],
       },
-      hyp0mc0: {
-        active: { version: "c2bdf68d" },
-        proposed: { version: "c2bdf68d" },
+      alpha: {
+        active: { version: "abc1234" },
+        proposed: { version: "abc1234" },
         activeGates: [{ key: "argocd-health", phase: "success" }],
         proposedGates: [],
       },
     },
-    releases: { c2bdf68d: { version: "c2bdf68d" } },
-    frontier: { version: "c2bdf68d" },
+    releases: { abc1234: { version: "abc1234" } },
+    frontier: { version: "abc1234" },
   };
 
   it("projects the wire shape into the domain model", () => {
     const data = mapPromotion(wire);
-    expect(data.order).toEqual(["hyp0mc0", "hyp0"]);
-    const hyp0 = data.environments.hyp0;
-    if (!hyp0) throw new Error("expected hyp0 environment");
-    expect(hyp0.name).toBe("hyp0");
-    expect(hyp0.activeRelease).toBe("c2bdf68d");
-    expect(hyp0.gates.map((g) => g.name)).toEqual([
+    expect(data.order).toEqual(["alpha", "beta"]);
+    const beta = data.environments.beta;
+    if (!beta) throw new Error("expected beta environment");
+    expect(beta.name).toBe("beta");
+    expect(beta.activeRelease).toBe("abc1234");
+    expect(beta.gates.map((g) => g.name)).toEqual([
       "hypershell-analysis",
       "argocd-health",
     ]);
-    expect(data.releases).toEqual(["c2bdf68d"]);
+    expect(data.releases).toEqual(["abc1234"]);
   });
 
   it("produces a model the domain helpers consume without throwing", () => {
@@ -55,8 +59,8 @@ describe("mapPromotion", () => {
       expect(() => environmentGateBadge(env)).not.toThrow();
     }
     expect(orderedEnvironments(data).map((e) => e.name)).toEqual([
-      "hyp0mc0",
-      "hyp0",
+      "alpha",
+      "beta",
     ]);
   });
 
@@ -69,23 +73,23 @@ describe("mapPromotion", () => {
 
   it("maps absent release versions to null", () => {
     const data = mapPromotion({
-      order: ["x"],
-      environments: { x: { activeGates: [] } },
+      order: ["gamma"],
+      environments: { gamma: { activeGates: [] } },
     });
-    const x = data.environments.x;
-    if (!x) throw new Error("expected x environment");
-    expect(x.activeRelease).toBeNull();
-    expect(x.proposedRelease).toBeNull();
-    expect(x.gates).toEqual([]);
+    const gamma = data.environments.gamma;
+    if (!gamma) throw new Error("expected gamma environment");
+    expect(gamma.activeRelease).toBeNull();
+    expect(gamma.proposedRelease).toBeNull();
+    expect(gamma.gates).toEqual([]);
   });
 });
 
 describe("mapInstances", () => {
   it("expands bare instance names into summaries", () => {
-    const data = mapInstances({ instances: ["hyp0", "hyp1"] });
-    expect(data.instances.map((i) => i.name)).toEqual(["hyp0", "hyp1"]);
+    const data = mapInstances({ instances: ["alpha", "beta"] });
+    expect(data.instances.map((i) => i.name)).toEqual(["alpha", "beta"]);
     expect(data.instances[0]).toMatchObject({
-      name: "hyp0",
+      name: "alpha",
       role: null,
       provider: null,
       region: null,
