@@ -69,7 +69,7 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
 
 These thresholds are informational and may be tuned per deployment. The `status` field on `ManagedCluster` continues to reflect the control-plane reconciler's view of cluster state; `last_seen_at` is a separate, spoke-reported liveness signal.
 
-**Manually created records.** `POST /api/hypershell/v1/managed_clusters` still creates a record with an empty `oidc_subject`. No control plane serves such a record: gateways assigned to it are never reconciled, and the control plane that later wants that name receives 409 until an operator deletes the manual record. Manual creation is therefore an inert placeholder, not a way to add a cluster to the fleet; the fleet grows only through registration.
+**Manually created records.** `POST /api/hypershell/v1/managed_clusters` still creates a record with an empty `oidc_subject`. No control plane serves such a record, and a gateway cannot be assigned to one: a gateway create (or a `PATCH` that sets `cluster_id`) referencing a record with an empty `oidc_subject` is rejected with 400 (see "Requirement: Gateways Reference a Registered Cluster"), so the placeholder never holds gateways and never has any to reconcile. The control plane that later wants that name receives 409 until an operator deletes the manual record. Manual creation is therefore an inert placeholder, not a way to add a cluster to the fleet; the fleet grows only through registration.
 
 ---
 
