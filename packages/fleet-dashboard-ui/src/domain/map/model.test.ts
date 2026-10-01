@@ -102,6 +102,41 @@ describe("buildMapModel - columns", () => {
     expect(model.columns.map((c) => c.envLabel)).toEqual(["int", "prod"]);
   });
 
+  it("stacks a managed-cluster spoke into its hub's column (name prefix)", () => {
+    const model = buildMapModel(
+      promotion(["env0mc", "env0", "env1"], {
+        env0mc: env({
+          name: "env0mc",
+          role: "spoke",
+          provider: "aws",
+          envLabel: "int",
+        }),
+        env0: env({
+          name: "env0",
+          role: "hub",
+          provider: "ibm",
+          envLabel: "int",
+        }),
+        env1: env({
+          name: "env1",
+          role: "hub",
+          provider: "ibm",
+          envLabel: "int",
+        }),
+      }),
+      emptyFleet,
+    );
+    // Hubs are the stages; the spoke (its name extends its hub's) joins the hub's
+    // column rather than forming its own.
+    expect(model.columns.map((c) => c.key)).toEqual(["env0", "env1"]);
+    expect(model.columns[0]?.nodeIds).toEqual(["env0mc", "env0"]);
+    // A hub and its managed-cluster spoke share one stage: no gate between them,
+    // only between the two hub stages.
+    expect(model.gates).toHaveLength(1);
+    expect(model.gates[0]?.fromColumnKey).toBe("env0");
+    expect(model.gates[0]?.toColumnKey).toBe("env1");
+  });
+
   it("leaves envLabel null on a column when the server omits it", () => {
     const model = buildMapModel(
       promotion(["solo"], { solo: env({ name: "solo" }) }),

@@ -52,16 +52,19 @@ import { Identicon } from "./identicon";
 /**
  * The release-bundle identicon, inline. A release bundle is always identified by
  * its identicon (+ identiname) wherever it appears, matching the node cards and
- * freight bar, so a bundle is recognisable at a glance across every view.
+ * freight bar, so a bundle is recognisable at a glance across every view. When
+ * `onSelect` is given, the identicon is clickable and opens that bundle's details.
  */
 function BundleIdenticon({
   seed,
   size = 28,
+  onSelect,
 }: {
   seed: string;
   size?: number;
+  onSelect?: (seed: string) => void;
 }): React.ReactElement {
-  return (
+  const icon = (
     <svg
       width={size}
       height={size}
@@ -70,6 +73,32 @@ function BundleIdenticon({
     >
       <Identicon seed={seed} x={0} y={0} size={size} />
     </svg>
+  );
+  if (!onSelect) {
+    return icon;
+  }
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={identiName(seed)}
+      onClick={() => {
+        onSelect(seed);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(seed);
+        }
+      }}
+      style={{
+        cursor: "pointer",
+        display: "inline-flex",
+        borderRadius: 4,
+      }}
+    >
+      {icon}
+    </span>
   );
 }
 
@@ -84,6 +113,8 @@ export interface MapDetailsProps {
   readonly releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   readonly selection: MapSelection;
   readonly onClose: () => void;
+  /** Opens a release bundle's details (from any identicon in the panel). */
+  readonly onSelectBundle: (seed: string) => void;
 }
 
 const PROMO_LABEL: Record<
@@ -185,9 +216,11 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
 function BundleContents({
   bundle,
   seed,
+  onSelectBundle,
 }: {
   bundle: ReleaseBundle | undefined;
   seed?: string;
+  onSelectBundle?: (seed: string) => void;
 }): React.ReactElement {
   const prs = bundle?.prs ?? [];
   return (
@@ -198,7 +231,7 @@ function BundleContents({
       >
         {seed ? (
           <FlexItem>
-            <BundleIdenticon seed={seed} size={20} />
+            <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
           </FlexItem>
         ) : null}
         <FlexItem>
@@ -266,7 +299,13 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
   );
 }
 
-function NodeFields({ node }: { node: MapNode }): React.ReactElement {
+function NodeFields({
+  node,
+  onSelectBundle,
+}: {
+  node: MapNode;
+  onSelectBundle: (seed: string) => void;
+}): React.ReactElement {
   const promo = PROMO_LABEL[node.state];
   const releaseLabel = node.version
     ? `${node.version} · ${identiName(node.seed)}`
@@ -320,7 +359,11 @@ function NodeFields({ node }: { node: MapNode }): React.ReactElement {
             spaceItems={{ default: "spaceItemsSm" }}
           >
             <FlexItem>
-              <BundleIdenticon seed={node.seed} size={20} />
+              <BundleIdenticon
+                seed={node.seed}
+                size={20}
+                onSelect={onSelectBundle}
+              />
             </FlexItem>
             <FlexItem>{releaseLabel}</FlexItem>
           </Flex>
@@ -388,9 +431,11 @@ function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
 function NodeDetails({
   node,
   releaseByDigest,
+  onSelectBundle,
 }: {
   node: MapNode;
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
+  onSelectBundle: (seed: string) => void;
 }): React.ReactElement {
   const [activeKey, setActiveKey] = useState<string | number>("details");
   const bundle = node.digest ? releaseByDigest[node.digest] : undefined;
@@ -413,7 +458,7 @@ function NodeDetails({
         <div className="pf-v6-u-mt-md">
           <GatewaySummary node={node} />
           <div className="pf-v6-u-mt-md">
-            <NodeFields node={node} />
+            <NodeFields node={node} onSelectBundle={onSelectBundle} />
           </div>
         </div>
       </Tab>
@@ -426,7 +471,11 @@ function NodeDetails({
         }
       >
         <div className="pf-v6-u-mt-md">
-          <BundleContents bundle={bundle} seed={node.seed} />
+          <BundleContents
+            bundle={bundle}
+            seed={node.seed}
+            onSelectBundle={onSelectBundle}
+          />
         </div>
       </Tab>
       <Tab
@@ -552,6 +601,7 @@ export function MapDetails({
   releaseByDigest,
   selection,
   onClose,
+  onSelectBundle,
 }: MapDetailsProps): React.ReactElement {
   const intl = useIntl();
   const node =
@@ -594,7 +644,11 @@ export function MapDetails({
         </FlexItem>
       </Flex>
       {selection.kind === "node" && node ? (
-        <NodeDetails node={node} releaseByDigest={releaseByDigest} />
+        <NodeDetails
+          node={node}
+          releaseByDigest={releaseByDigest}
+          onSelectBundle={onSelectBundle}
+        />
       ) : null}
       {selection.kind === "gate" ? (
         <GateDetails gateId={selection.id} model={model} />

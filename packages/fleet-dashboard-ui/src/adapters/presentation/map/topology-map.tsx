@@ -105,6 +105,13 @@ export function TopologyMap({
         : { kind: "bundle", id: seed },
     );
   };
+  // From a node-card identicon: suppress when the press was actually a pan.
+  const selectBundleOnMap = (seed: string) => {
+    if (didPan()) {
+      return;
+    }
+    selectBundle(seed);
+  };
 
   const firstCol = layout.columns[0];
   const changeX = firstCol ? firstCol.x - 90 : 40;
@@ -140,6 +147,7 @@ export function TopologyMap({
                     onClose={() => {
                       setSelection(null);
                     }}
+                    onSelectBundle={selectBundle}
                   />
                 ) : null}
               </DrawerPanelBody>
@@ -147,7 +155,12 @@ export function TopologyMap({
           }
         >
           <DrawerContentBody>
-            <div className={styles.canvas}>
+            <div
+              className={styles.canvas}
+              style={{
+                aspectRatio: `${f(layout.width)} / ${f(layout.height)}`,
+              }}
+            >
               <div className={styles.toolbar}>
                 <Button
                   variant="control"
@@ -266,6 +279,7 @@ export function TopologyMap({
                       }
                       highlighted={highlighted.has(box.id)}
                       onSelect={selectNode}
+                      onSelectBundle={selectBundleOnMap}
                     />
                   );
                 })}
