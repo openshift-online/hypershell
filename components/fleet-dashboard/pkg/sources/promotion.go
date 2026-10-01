@@ -268,17 +268,23 @@ func (p *Promotion) pullRequestsByBranch(ctx context.Context) map[string]prInfo 
 }
 
 // argoResourceFilter narrows the Application tree to the resources that carry
-// the analysis e2e logs: the AnalysisRun, its Pods, and the e2e Job. These are
-// generic Kubernetes/Argo Rollouts kinds, not fleet-identifying values, so they
-// are safe to compile in (data-architecture firewall). The value is the
-// pre-encoded form of ?resource=kind:AnalysisRun,kind:Pod,kind:Job.
-const argoResourceFilter = "?resource=kind%3AAnalysisRun%2Ckind%3APod%2Ckind%3AJob"
+// the analysis e2e logs: the AnalysisRun and the Pods its Jobs spawn. The run is
+// named "<instance>-release-<revision>", so its children match the name globs
+// *hyp*-release* (the whole analysis family) and *e2e* (the e2e metric's Job and
+// Pods specifically), filtering out the env's unrelated workload pods.
+//
+// These are generic Kubernetes/Argo Rollouts kinds plus wildcard name globs, not
+// fleet-identifying values: the *hyp* glob carries no concrete instance number
+// (the firewall bans hyp<N>, not the product prefix), so it is safe to compile in
+// (data-architecture firewall). The value is the pre-encoded form of
+// ?resource=kind:AnalysisRun,kind:Pod,name:*e2e*,name:*hyp*-release*.
+const argoResourceFilter = "?resource=kind%3AAnalysisRun%2Ckind%3APod%2Cname%3A*e2e*%2Cname%3A*hyp*-release*"
 
 // argoAppURL builds a deep link to an Argo CD Application tree. Modern Argo CD
 // routes Applications as /applications/<appNamespace>/<appName>. A resource
-// filter is appended so the tree lands pre-scoped to the analysis run, its pods,
-// and the e2e job. Returns "" when no base URL is configured (firewall) or the
-// app is unknown, so the field is simply omitted.
+// filter is appended so the tree lands pre-scoped to the analysis run and its
+// pods. Returns "" when no base URL is configured (firewall) or the app is
+// unknown, so the field is simply omitted.
 func (p *Promotion) argoAppURL(ns, app string) string {
 	if p.argoBase == "" || app == "" {
 		return ""
