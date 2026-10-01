@@ -1,4 +1,5 @@
 import {
+  otherGateways,
   phaseCount,
   totalGateways,
   type GatewayPhaseCounts,
@@ -57,6 +58,9 @@ export function GatewayDonut({
       color: GATEWAY_COLOR.provisioning,
     },
     { count: phaseCount(counts, "failed"), color: GATEWAY_COLOR.failed },
+    // Any phase the controller reports beyond the three above, so the ring closes
+    // and the centre total always equals the sum of the drawn segments.
+    { count: otherGateways(counts), color: GATEWAY_COLOR.idle },
   ];
 
   let cumulative = 0;

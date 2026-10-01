@@ -4,6 +4,7 @@ import {
   findInstance,
   gatewayTone,
   orderedInstances,
+  otherGateways,
   phaseCount,
   totalGateways,
   ZERO_RATE,
@@ -36,6 +37,21 @@ describe("totalGateways", () => {
 
   it("is zero for an empty map", () => {
     expect(totalGateways({})).toBe(0);
+  });
+});
+
+describe("otherGateways", () => {
+  it("counts gateways in phases beyond running/provisioning/failed", () => {
+    // total 2, only 1 running -> 1 gateway in some other phase (e.g. deleting).
+    expect(otherGateways({ running: 1, deleting: 1 })).toBe(1);
+  });
+
+  it("is zero when every gateway is in a named phase", () => {
+    expect(otherGateways({ running: 2, provisioning: 1, failed: 1 })).toBe(0);
+  });
+
+  it("never goes negative", () => {
+    expect(otherGateways({})).toBe(0);
   });
 });
 

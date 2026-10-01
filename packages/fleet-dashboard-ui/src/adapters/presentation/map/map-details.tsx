@@ -35,6 +35,7 @@ import {
   deployedFor,
   seedForBundle,
 } from "../../../domain/map/bundles";
+import { otherGateways } from "../../../domain/fleet";
 import { identiName } from "../../../domain/map/identiname";
 import type { MapModel, MapNode } from "../../../domain/map/model";
 import type {
@@ -310,6 +311,9 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
   const running = g.running ?? 0;
   const provisioning = g.provisioning ?? 0;
   const failed = g.failed ?? 0;
+  // Gateways in any phase beyond the three named rows, so the legend sums to the
+  // donut's centre total instead of under-counting it.
+  const other = otherGateways(g);
   const label = intl.formatMessage(messages.detailGatewayBreakdown, {
     total: node.gatewaysTotal,
     running,
@@ -344,6 +348,11 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
           <Row term={<FormattedMessage {...messages.legendFailed} />}>
             {failed}
           </Row>
+          {other > 0 ? (
+            <Row term={<FormattedMessage {...messages.legendOther} />}>
+              {other}
+            </Row>
+          ) : null}
         </DescriptionList>
       </FlexItem>
     </Flex>
