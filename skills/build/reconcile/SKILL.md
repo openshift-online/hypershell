@@ -76,7 +76,7 @@ For each spec in topological order, check every requirement at field level:
 | gRPC | Proto definitions, handlers, presenters | `components/api-server/proto/`, `plugins/*/grpc_*` |
 | CP | Watcher, reconciler logic | `components/control-plane/` |
 | CLI | Commands per spec CLI table | `components/cli/` |
-| FE | Service layer, hooks, components | `components/web-console/app/` |
+| FE | Service layer, hooks, components, and consistency with an approved mockup when one exists | `components/web-console/app/` and `specs/web-console/mockups/` |
 
 Check three directions: Spec→Code, Code→Spec, OpenAPI→Spec.
 

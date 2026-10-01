@@ -1,0 +1,49 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "typeRoots": [
+      "../../../components/web-console/node_modules/@types",
+      "../../../node_modules/@types"
+    ],
+    "paths": {
+      "react": [
+        "../../../components/web-console/node_modules/@types/react/index.d.ts"
+      ],
+      "react/*": ["../../../components/web-console/node_modules/@types/react/*"],
+      "react/jsx-runtime": [
+        "../../../components/web-console/node_modules/@types/react/jsx-runtime.d.ts"
+      ],
+      "@storybook/react-vite": [
+        "../../../components/web-console/node_modules/@storybook/react-vite/dist/index.d.ts"
+      ],
+      "@storybook/react-vite/*": [
+        "../../../components/web-console/node_modules/@storybook/react-vite/*"
+      ],
+      "@patternfly/react-core": [
+        "../../../components/web-console/node_modules/@patternfly/react-core"
+      ],
+      "@patternfly/react-core/*": [
+        "../../../components/web-console/node_modules/@patternfly/react-core/*"
+      ],
+      "@patternfly/react-icons": [
+        "../../../components/web-console/node_modules/@patternfly/react-icons"
+      ],
+      "@patternfly/react-icons/*": [
+        "../../../components/web-console/node_modules/@patternfly/react-icons/*"
+      ],
+      "@patternfly/react-table": [
+        "../../../components/web-console/node_modules/@patternfly/react-table"
+      ],
+      "@patternfly/react-table/*": [
+        "../../../components/web-console/node_modules/@patternfly/react-table/*"
+      ]
+    }
+  },
+  "include": ["./**/*.ts", "./**/*.tsx"]
+}

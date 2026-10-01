@@ -44,6 +44,18 @@ Read the relevant spec in full. Extract:
 - All relationships and API routes
 - Design decisions
 
+For any spec that includes a web-console UI component, check
+`specs/web-console/mockups/` for the corresponding approved mockup and read
+its stories and relevant shared components before implementing the UI. Treat
+the mockup as the visual and interaction reference: the browser experience
+SHOULD remain recognizably consistent with it. Mockup code is not production
+code to copy verbatim. The implementer MAY refine the structure, component
+selection, responsive behavior, accessibility, localization, and application
+integration to fit the production application's needs. PatternFly components
+shown in the mockup are recommendations; production implementation SHALL
+follow the repository's UI standards and the application's technical
+boundaries.
+
 This is the **desired state**. Everything else is measured against it.
 
 ### Step 2 -- Gap Analysis
