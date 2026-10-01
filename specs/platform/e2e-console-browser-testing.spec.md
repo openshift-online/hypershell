@@ -367,6 +367,59 @@ SHALL pin the `agent-browser` npm version.
 The OpenShift job SHALL NOT run the console suite (see
 [OpenShift Constraints](#openshift-constraints)).
 
+### Requirement CON-E2E-13: Fleet Dashboard Promotion
+
+Validates the browser half of the promotions gap: the fleet-dashboard promotion
+map (`packages/fleet-dashboard-ui`) rendering from the BFF `/api/promotion`
+pipeline. The promotion topology is server-derived (the dashboard hard-codes no
+environment/hub mapping - it arrives in the payload), so the suite SHALL assert
+the map renders from live payload data, never from a baked-in topology. This area
+is gated on the fleet dashboard being reachable in the target environment
+(`E2E_FLEET_DASHBOARD_URL`); where it is not deployed the suite SHALL record a
+skip, not a pass. Long only. This complements the cross-cluster release promotion
+exercised by the bash suite (see `e2e-testing.spec.md`, Gateway Release Promotion
+Coverage).
+
+#### Scenario: Promotion map renders from the pipeline
+
+- GIVEN the fleet dashboard is reachable and an authenticated session
+- WHEN the suite opens the promotion view and reads `/api/promotion` through the BFF
+- THEN the promotion map SHALL render the environments and release bundles the payload reports, and SHALL NOT error
+- AND when `/api/promotion` returns an empty or unavailable payload, the view SHALL show its empty/degraded state rather than crash
+
+#### Scenario: Fleet dashboard not deployed
+
+- GIVEN `E2E_FLEET_DASHBOARD_URL` is unset or unreachable
+- WHEN the suite reaches the promotion area
+- THEN it SHALL record a skip and continue, not report a false pass
+
+### Requirement CON-E2E-14: Cluster Typeahead and Install-Docs Link
+
+Two small browser boundaries (the console minor gaps).
+
+The cluster typeahead on `/gateways/new` SHALL list every registered
+`ManagedCluster` as a selectable target. Under `E2E_MULTICLUSTER=1` both
+registered clusters SHALL appear and either SHALL be selectable, tying the browser
+path to area 12 / Multi-Cluster Fleet Coverage in `e2e-testing.spec.md`.
+
+The gateway connection tab SHALL show an "Install the OpenShell CLI" link to the
+external OpenShell CLI install docs, opening in a new tab, closing the
+`openshell-install-docs-link.spec.md` gap.
+
+#### Scenario: Registered clusters appear in the typeahead
+
+- GIVEN the gateway create form
+- WHEN the suite opens the "Cluster" typeahead
+- THEN the seeded managed cluster SHALL be listed and selectable
+- AND under `E2E_MULTICLUSTER=1` the second registered cluster SHALL also be listed and selectable
+
+#### Scenario: Install-docs link present
+
+- GIVEN a gateway detail / connection tab
+- WHEN the suite inspects the "Install the OpenShell CLI" control
+- THEN it SHALL be a link to the external OpenShell CLI install docs that opens in a new tab (`target=_blank` with a safe `rel`)
+- AND the accessibility report SHALL cover it
+
 ---
 
 ## Implementation Plan
@@ -677,6 +730,8 @@ The oauth2-proxy sidecar runs with `skip-provider-button`, so the first hit on
 | `E2E_BROWSER_INSECURE` | `0` | `1` = `--ignore-https-errors` instead of `--ca-cert` (warned) |
 | `E2E_BROWSER_HEADED` | `0` | `1` = `--headed` for local debugging |
 | `E2E_CONSOLE_URL` | discovered | Override the web console origin (matches the Playwright live config) |
+| `E2E_FLEET_DASHBOARD_URL` | unset | Fleet dashboard origin for CON-E2E-13; unset means the promotion area is skipped |
+| `E2E_MULTICLUSTER`, `E2E_SEED_CLUSTER_NAME_2` | as in `e2e-testing.spec.md` | `1` plus the second cluster name enables the second-cluster typeahead assertion (CON-E2E-14) |
 
 ### Kind constraints (DNS, ports, TLS)
 

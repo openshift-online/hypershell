@@ -376,6 +376,24 @@ The exceptions are the non-retryable responses. On 403 Forbidden the control pla
 - THEN it SHALL NOT retry
 - AND it SHALL log the API's conflict message and exit
 
+### Requirement: E2E Coverage
+
+The e2e suite SHALL directly validate this spec's behavior as area 12 of
+`e2e-testing.spec.md` (ManagedCluster Registration Coverage and Multi-Cluster
+Fleet Coverage), rather than only consuming the registered cluster for gateway
+placement: the co-located control plane's self-registration (non-empty
+`oidc_subject`, fresh `last_seen_at`), idempotent `/registration`, the
+`managed-cluster-registrar` 403 and name-collision 409 paths, and the gateway
+create 400 for an empty or unregistered `cluster_id`. Under `E2E_MULTICLUSTER=1`
+a second registered cluster SHALL be exercised for cross-cluster placement and
+release promotion.
+
+#### Scenario: Registration behavior is exercised end to end
+
+- GIVEN a running environment
+- WHEN the e2e suite runs area 12
+- THEN it SHALL assert the registration, idempotency, RBAC, and collision behavior above against the live API
+
 ---
 
 ## Design Decisions

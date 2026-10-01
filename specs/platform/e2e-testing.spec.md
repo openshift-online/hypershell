@@ -327,7 +327,7 @@ Each target SHALL auto-detect the driver from the current KUBECONFIG context (se
 
 ### Requirement: E2E Test Suite Coverage
 
-The e2e test suite SHALL validate the following 11 areas, matching the 11 numbered sections of the live `tests/e2e/e2e-openshell.sh` and extending the original test structure from `components/pr-test/e2e-openshell.sh`. All test areas SHALL be infrastructure-agnostic -- they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection.
+The e2e test suite SHALL validate the following 14 areas. Areas 1--11 match the numbered sections of the live `tests/e2e/e2e-openshell.sh` and extend the original test structure from `components/pr-test/e2e-openshell.sh`; areas 12--14 extend it further (ManagedCluster registration and multi-cluster, release promotion, and admin inventory + API validation) and SHALL be added as numbered sections. All test areas SHALL be infrastructure-agnostic -- they call driver functions for infra-specific operations and use the Kubernetes API for resource inspection. Areas 12--14 are long-only (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)).
 
 1. **OIDC authentication** -- acquire an admin OIDC access token via `acquire_oidc_token`, the credential every subsequent API call carries through `api_curl` (see OIDC Authentication in E2E Tests)
 2. **Gateway provisioning via HyperShell API** -- create a gateway via the REST API and wait for the control plane to reconcile it to `Running` phase
@@ -340,14 +340,17 @@ The e2e test suite SHALL validate the following 11 areas, matching the 11 number
 9. **Developer user RBAC verification** -- authenticate as the `developer` user (the `openshell-user` tier) and confirm it MAY create a sandbox but MAY NOT create a gateway via the HyperShell API (see Developer RBAC Enforcement)
 10. **Platform-admin RBAC verification** -- authenticate as a platform-admin user and confirm the elevated permissions the developer tier is denied, including deleting a gateway through the HyperShell API (see Developer RBAC Enforcement)
 11. **Gateway deletion + namespace garbage collection** -- validate both garbage-collection paths from `openshell-gateway-namespace-gc.spec.md`: (a) seed a synthetic orphaned managed namespace after gateway provisioning and validate periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event (while the earlier areas run in parallel with the reaper); (b) delete-driven reap of the gateway's managed namespace (see Gateway Deletion and Namespace GC)
+12. **ManagedCluster registration and multi-cluster fleet** -- validate that the co-located control plane registered itself (a `ManagedCluster` with a non-empty `oidc_subject` and a fresh `last_seen_at`), that `/registration` is idempotent, that the registrar role and name-collision rules are enforced, and that a gateway create rejects an empty or unregistered `cluster_id`; under `E2E_MULTICLUSTER=1`, that a second registered cluster appears in the fleet and can be independently targeted (see ManagedCluster Registration Coverage and Multi-Cluster Fleet Coverage)
+13. **Gateway release promotion** -- repoint a gateway's `release_id` (or update a referenced release's image) and validate a revision-aware, last-good-preserving rollout, with the gateway reporting the `observed_release_id` actually serving and a failed rollout surfaced as `Degraded`; under `E2E_MULTICLUSTER=1`, promote a release across both clusters (see Gateway Release Promotion Coverage and Reconciled Status Assertions)
+14. **Admin inventory and API validation** -- confirm the admin-only `/v1/users` inventory boundary (non-admin receives 403, singleton Get is an opaque 404) and that the API rejects an unknown gateway phase write (see Admin Inventory and API Validation Coverage)
 
-The admin OIDC token from area 1 authenticates the API calls in areas 2--8 and 11; the developer and platform-admin areas (9 and 10) each acquire their own token via `acquire_oidc_token` for their user (see OIDC Authentication in E2E Tests).
+The admin OIDC token from area 1 authenticates the API calls in areas 2--8, 11, 13, and 14; the developer and platform-admin areas (9 and 10) each acquire their own token via `acquire_oidc_token` for their user (see OIDC Authentication in E2E Tests). Area 12 additionally exercises the control-plane `managed-cluster-registrar` client-credentials identity.
 
 #### Scenario: Full Suite Execution
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all 11 test areas SHALL be executed in sequence
+- THEN all 14 test areas SHALL be executed in sequence in long mode (short and perf run the `short`-tagged subset and skip the long-only areas 12--14)
 - AND results SHALL be reported as pass/fail counts with per-test detail
 
 #### Scenario: Gateway Provisioning
@@ -371,6 +374,13 @@ The admin OIDC token from area 1 authenticates the API calls in areas 2--8 and 1
 - GIVEN a gateway has reached `Running` phase
 - WHEN the test verifies infrastructure
 - THEN it SHALL confirm: deployment `openshell-gateway` exists and has at least 1 ready replica, service `openshell-gateway` exists with a ClusterIP, TLS secret `openshell-server-tls` exists, certgen job `openshell-gateway-certgen` has succeeded
+
+#### Scenario: Deployment image matches the referenced release
+
+- GIVEN a gateway created with a `release_id` (not a direct `image`)
+- WHEN area 3 reads the `openshell-gateway` deployment's container image
+- THEN it SHALL equal the `image` of the referenced `GatewayRelease` (`gateway-version-selection.spec.md`), not a stale image or the platform default
+- AND when a gateway sets both `release_id` and a direct `image`, the resolved release image SHALL take precedence
 
 #### Scenario: Sandbox Lifecycle
 
@@ -561,6 +571,19 @@ removal of the in-namespace sandbox resources (see
 - THEN the namespace SHALL be gone within `E2E_GC_TIMEOUT` seconds
 - AND a namespace still present after the timeout SHALL be reported as a failure with GC diagnostics (namespace state and control-plane logs)
 
+#### Scenario: Out-of-namespace resources are reclaimed
+
+Validates the complete-teardown classes in `gateway-deletion-finalization.spec.md`
+that do not live in the managed namespace, so the namespace disappearing is not
+mistaken for full finalization. Long-only.
+
+- GIVEN a deleted gateway whose managed namespace has been reaped
+- WHEN the suite inspects the resource classes that live outside that namespace
+- THEN the gateway's ClusterRoleBinding SHALL be gone
+- AND the per-gateway Keycloak clients (gateway, console, and any service-account clients) SHALL be deleted, where the suite can reach the Keycloak admin API (always on Kind; on OpenShift via the Keycloak admin helpers)
+- AND the per-gateway PostgreSQL database and login role (`gw_<id>`) SHALL be dropped, where the suite can reach the gateway database server (`openshell-gateway-database.spec.md`)
+- AND no `IncompleteFinalization` / no-silent-orphan Warning Event SHALL have been recorded for the gateway
+
 ### Requirement: Gateway TLS Trust (No Insecure Bypass)
 
 The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT disable certificate verification. The `OPENSHELL_GATEWAY_INSECURE=true` bypass SHALL NOT be used. Instead, the suite SHALL trust the cluster's self-signed CA: it extracts the CA certificate issued by cert-manager (the same CA that signs the gateway's serving certificate and the `*.gw.localhost` wildcard listener cert) and points the openshell CLI at it via `SSL_CERT_FILE`. This ensures the e2e path exercises the same TLS trust chain a real client uses, rather than skipping validation.
@@ -578,6 +601,212 @@ The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT d
 - GIVEN the e2e test scripts (`tests/e2e/e2e-openshell.sh`, `components/pr-test/e2e-openshell.sh`)
 - WHEN they establish a gateway connection
 - THEN they SHALL NOT set `OPENSHELL_GATEWAY_INSECURE=true`
+
+### Requirement: ManagedCluster Registration Coverage
+
+The e2e test suite SHALL directly validate the self-registration behavior in
+`managed-cluster-registration.spec.md`, not only consume the already-registered
+cluster for gateway placement. These assertions are area 12. The registration
+calls SHALL use the control plane's `managed-cluster-registrar` client-credentials
+identity (`E2E_REGISTRAR_CLIENT_ID` / `E2E_REGISTRAR_CLIENT_SECRET`, defaulting to
+the development `hypershell-control-plane` client); inventory reads use the admin
+token. Area 12 is long-only (it mutates fleet records and acts as a second
+identity), so `short` and `perf` runs skip it.
+
+#### Scenario: Co-located control plane is registered
+
+- GIVEN a running environment whose control plane has started
+- WHEN the suite lists `GET /api/hypershell/v1/managed_clusters`
+- THEN the record named by `E2E_SEED_CLUSTER_NAME` SHALL have a non-empty `oidc_subject`
+- AND its `last_seen_at` SHALL be within the healthy window (`< 5 min`), proving the heartbeat loop runs
+
+#### Scenario: Registration is idempotent
+
+- GIVEN the control-plane registrar identity
+- WHEN the suite calls `POST /managed_clusters/registration` with the registered name
+- THEN the response SHALL be 200 with the existing `cluster_id` (the control plane already created the record at startup)
+- AND a second call SHALL return the same `cluster_id` and advance `last_seen_at`
+
+#### Scenario: Missing registrar role rejected
+
+- GIVEN an OIDC client without `managed-cluster-registrar` (the suite reuses the admin or developer client, which lacks it)
+- WHEN it calls `POST /managed_clusters/registration`
+- THEN the API SHALL return 403 Forbidden
+- AND no `ManagedCluster` record SHALL be created
+
+#### Scenario: Name collision rejected
+
+- GIVEN the registered cluster name already belongs to the control plane
+- WHEN the registrar calls `POST /managed_clusters/registration` with a different name under the same subject
+- THEN the API SHALL return 409 Conflict
+- AND no record SHALL be created or modified
+
+#### Scenario: Gateway create rejects an unregistered cluster
+
+- GIVEN an empty `cluster_id`, and a `ManagedCluster` created via `POST /managed_clusters` (empty `oidc_subject`)
+- WHEN the suite submits a gateway create referencing each
+- THEN the API SHALL return 400 Bad Request in both cases, naming `cluster_id`
+- AND no Gateway SHALL be created
+- AND the suite SHALL delete the inert placeholder record to leave a clean state
+
+### Requirement: Multi-Cluster Fleet Coverage
+
+When `E2E_MULTICLUSTER=1`, the suite SHALL exercise a two-cluster fleet so
+cross-cluster placement and promotion are validated (area 12, multi-cluster
+steps, and area 13). A second `ManagedCluster` SHALL be established by a second
+control-plane deployment reconciling into the same physical cluster under a
+distinct `HYPERSHELL_MANAGED_CLUSTER_NAME` (`E2E_SEED_CLUSTER_NAME_2`) and its own
+registrar OIDC client, so each control plane filters only its own `cluster_id`.
+The two-cluster harness is opt-in: when `E2E_MULTICLUSTER` is unset or `0`, area
+12 runs only the single-cluster registration assertions above and area 13 runs
+its single-cluster rollout path. Deploying the second control plane is owned by
+`local-development.spec.md` / `openshift-development.spec.md`; this spec owns only
+the assertions.
+
+#### Scenario: Second cluster registers and is selectable
+
+- GIVEN `E2E_MULTICLUSTER=1` and a second control plane deployed as `E2E_SEED_CLUSTER_NAME_2`
+- WHEN the suite lists `GET /managed_clusters`
+- THEN both clusters SHALL appear, each with a non-empty `oidc_subject` and a fresh `last_seen_at`
+- AND both SHALL be selectable targets for gateway placement (the same list the web console cluster typeahead renders, see `e2e-console-browser-testing.spec.md`)
+
+#### Scenario: Gateway targeted to the second cluster is reconciled only by it
+
+- GIVEN `E2E_MULTICLUSTER=1`
+- WHEN the suite creates a gateway with the second cluster's `cluster_id`
+- THEN the gateway SHALL reach `Running`, reconciled by the second control plane
+- AND the first control plane SHALL NOT reconcile it (the suite confirms placement by the managed namespace the owning control plane created)
+
+### Requirement: Gateway Release Promotion Coverage
+
+The suite SHALL validate release promotion as area 13, closing the
+`gateway-release-rollout.spec.md` gap. Promotion is a release-version change
+applied to a running gateway: repoint the gateway's `release_id` to a second
+`GatewayRelease`, or update the referenced release's image, and confirm a safe,
+revision-aware rollout that preserves the last-good workload. Area 13 is long-only.
+
+#### Scenario: Rollout reports the serving release
+
+- GIVEN a `Running` gateway on release A and a second release B with a valid image
+- WHEN the suite repoints the gateway to release B
+- THEN the control plane SHALL roll the workload to B, keeping the last-good workload until B passes its health gates
+- AND the gateway SHALL report `observed_release_id` equal to B within `E2E_PROVISION_TIMEOUT` seconds (`gateway-release-rollout.spec.md`)
+
+#### Scenario: Failed rollout is Degraded and recovers on repoint
+
+- GIVEN a gateway repointed to a bad release (an image whose pods never become Ready)
+- WHEN the rollout does not converge within `E2E_PROVISION_TIMEOUT` seconds
+- THEN the gateway SHALL be reported `Degraded`, never as a successful move to the bad release, and the last-good revision SHALL keep serving
+- AND WHEN the suite repoints the gateway back to the last-good release
+- THEN the gateway SHALL return to `Running` and report `observed_release_id` equal to the last-good release
+
+#### Scenario: Promotion across clusters (multi-cluster)
+
+- GIVEN `E2E_MULTICLUSTER=1` and a gateway on each cluster referencing release A
+- WHEN the suite promotes A to B (updates the release image, or repoints both gateways)
+- THEN each cluster's control plane SHALL roll its own gateway to B independently
+- AND each gateway SHALL report `observed_release_id` equal to B
+
+The fleet-dashboard promotion pipeline (`/api/promotion`, rendered by the
+promotion map) is validated in the browser suite (see
+`e2e-console-browser-testing.spec.md`, "Fleet Dashboard Promotion").
+
+### Requirement: Reconciled Status Assertions
+
+The suite SHALL assert the reconciled `status` of resources it creates, not only
+that they were accepted. Today the suite creates `GatewayRelease` and
+`GatewayNetwork` records but never waits on the control plane's status write-back,
+leaving `gateway-release-reconciliation.spec.md` and
+`gateway-network-reconciliation.spec.md` under-verified. These assertions run
+alongside the resource lifecycle steps (area 13 and the hsctl resource coverage)
+and are long-only.
+
+#### Scenario: Release settles to Available
+
+- GIVEN a `GatewayRelease` created with a valid image
+- WHEN the suite polls `GET /gateway_releases/<id>`
+- THEN its `status` SHALL settle to `Available` within `E2E_PROVISION_TIMEOUT` seconds
+- AND a release created with a malformed image reference SHALL settle to `Invalid` and SHALL NOT be served to referencing gateways
+
+#### Scenario: Network validity is reported
+
+- GIVEN a `GatewayNetwork` created with a coherent topology
+- WHEN the suite polls `GET /gateway_networks/<id>`
+- THEN its `status` SHALL settle to `Valid`
+- AND a network with an incoherent topology (for example a dangling hub) SHALL settle to `Invalid`
+
+### Requirement: Admin Inventory and API Validation Coverage
+
+The suite SHALL validate two boundaries as area 14: the admin-only user inventory
+and unknown-phase rejection. Area 14 is long-only.
+
+#### Scenario: User inventory is admin-only
+
+- GIVEN the `/v1/users` inventory requires `platform:admin` (`registered-users.spec.md`)
+- WHEN the developer (`openshell-user`) calls `GET /api/hypershell/v1/users`
+- THEN the API SHALL return 403 Forbidden
+- AND a Get by id for a non-admin caller SHALL return an opaque 404, not a 403 that reveals existence
+- AND the platform-admin SHALL receive 200 with an accurate `total` when `size=1`
+
+#### Scenario: Unknown gateway phase rejected
+
+- GIVEN the canonical phase vocabulary (`gateway-phase-vocabulary.spec.md`)
+- WHEN a status write sets a gateway phase outside the canonical set
+- THEN the API SHALL reject it (gRPC `INVALID_ARGUMENT` / HTTP 400)
+- AND the gateway's stored phase SHALL be unchanged
+
+### Requirement: Extended Platform Qualification
+
+Beyond the core functional areas, the platform has extended qualification
+scenarios tracked under HYPERSHELL-291. They run on specific infrastructure and
+are slower than the core suite, so each SHALL be opt-in behind its own flag and
+SHALL NOT run in the Kind merge-queue gate. Where an item needs infrastructure
+the project does not yet operate, this spec records the prerequisite, and the
+item SHALL NOT be reported as covered until that infrastructure exists.
+HYPERSHELL-243 (Gateway API ingress on AWS) is already covered by the
+`e2e-openshift` job on the ROSA cluster and is not restated here; HYPERSHELL-246
+(service-account authentication) is covered by `tests/e2e/gateway_service_account.{py,sh}`
+wired into areas 2 and 11.
+
+ROKS Route-mode ingress (HYPERSHELL-244) is intentionally NOT specified here. The
+project does not currently operate a ROKS (or any Route-ingress) environment, and
+standing up that infrastructure plus a ROKS driver and `roks-up` lifecycle is a
+prerequisite. That work is tracked in HYPERSHELL-363; the ROKS route-mode scenario
+SHALL be added back to this section once that infrastructure exists.
+
+#### Scenario: Trusted DNS and TLS renewal (HYPERSHELL-245)
+
+- GIVEN `E2E_QUALIFY_DNS_TLS_RENEWAL=1` on a cluster with a cert-manager-issued wildcard certificate (the AWS Cloud Hub bootstrap)
+- WHEN the suite forces a certificate renewal (or waits out a shortened renewal window) on the gateway's serving certificate
+- THEN DNS SHALL continue to resolve the assigned hostname, the reissued certificate SHALL cover that hostname and chain to the expected trust root, and the gateway SHALL stay reachable across the rotation without a prolonged outage
+- AND certificate verification SHALL NOT be disabled at any point
+
+#### Scenario: Database credential rotation (HYPERSHELL-247)
+
+- GIVEN `E2E_QUALIFY_DB_ROTATION=1` on an environment whose gateway databases support credential rotation
+- WHEN the per-gateway database credential is rotated
+- THEN the gateway SHALL stay available before, during, and after rotation within the stated availability objective, and the previous credential SHALL stop working after retirement
+- AND no database password SHALL appear in any logged or collected artifact
+
+#### Scenario: Database backup and restore (HYPERSHELL-248)
+
+- GIVEN `E2E_QUALIFY_DB_BACKUP_RESTORE=1` on a CNPG-backed environment and a gateway with known seeded data
+- WHEN the suite records a completed backup, then restores it into an isolated test database
+- THEN the restored data SHALL match the known pre-backup state, and the gateway SHALL reconnect and report healthy
+- AND the restore SHALL NOT run against shared production data
+
+#### Scenario: Restricted-registry and image mirroring (HYPERSHELL-249)
+
+- GIVEN `E2E_QUALIFY_RESTRICTED_REGISTRY=1` in a network-restricted environment with all required images mirrored by immutable reference
+- WHEN the platform installs and provisions a gateway with no public registry access
+- THEN installation and gateway provisioning SHALL complete using only the mirrored references, and a missing mirrored image SHALL produce actionable diagnostics rather than a silent fallback to a public registry
+
+#### Scenario: Recurring-test reporting integration (HYPERSHELL-270)
+
+- GIVEN the recurring e2e jobs produce machine-readable results (JUnit/JSON)
+- WHEN a scheduled run completes
+- THEN its results SHALL be exported to the recurring-test reporting system (Sippy) so pass/fail trends are tracked over time
+- AND a run that fails to publish results SHALL surface that as a reporting failure, not a silent drop
 
 ### Requirement: CI Checks Workflow
 
@@ -1006,13 +1235,21 @@ deploy/
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in step 11) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
-| `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--8 and 11 |
+| `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--8, 11, 13, and 14 |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (developer-owned default). Unused when `E2E_OIDC_GRANT=client_credentials`. A password-grant run against a CI-owned `pr-*` environment SHALL read Secret `hypershell-e2e-test-users` instead of this default (`ephemeral-test-credentials.spec.md`) |
 | `E2E_OIDC_GRANT` | `password` | Token grant for `acquire_oidc_token` and `acquire_gateway_token_with_role`: `password` (Kind and manual OpenShift) or `client_credentials` (GitHub-brokered pull-request environments, see `ephemeral-pr-environments.spec.md`) |
 | `E2E_SEED_CLUSTER_NAME` | `local-kind` on kind; `local-openshift` on openshift; unset otherwise | Pin seed discovery to this managed-cluster name. Unset means the first list item |
 | `E2E_SEED_RELEASE_NAME` | `dev-release` on kind and openshift; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
 | `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
 | `E2E_DEV_PASSWORD` | `developer` | Password for the developer OIDC user (local dev only) |
+| `E2E_MULTICLUSTER` | `0` | `1` enables the two-cluster fleet (area 12 multi-cluster steps and area 13 cross-cluster promotion); requires a second control plane deployed as `E2E_SEED_CLUSTER_NAME_2` |
+| `E2E_SEED_CLUSTER_NAME_2` | (unset) | Name of the second registered ManagedCluster when `E2E_MULTICLUSTER=1` |
+| `E2E_REGISTRAR_CLIENT_ID` | `hypershell-control-plane` | OIDC client (holding `managed-cluster-registrar`) the suite uses for the area-12 `/registration` calls |
+| `E2E_REGISTRAR_CLIENT_SECRET` | (dev client secret) | Secret for `E2E_REGISTRAR_CLIENT_ID` |
+| `E2E_QUALIFY_DNS_TLS_RENEWAL` | `0` | `1` runs the trusted DNS/TLS renewal qualification (HYPERSHELL-245); opt-in, not in the Kind gate |
+| `E2E_QUALIFY_DB_ROTATION` | `0` | `1` runs the database credential rotation qualification (HYPERSHELL-247) |
+| `E2E_QUALIFY_DB_BACKUP_RESTORE` | `0` | `1` runs the CNPG backup/restore qualification (HYPERSHELL-248) |
+| `E2E_QUALIFY_RESTRICTED_REGISTRY` | `0` | `1` runs the restricted-registry / image-mirroring qualification (HYPERSHELL-249) |
 | `OPENSHELL_BIN` | `openshell` | Path to the openshell CLI binary |
 | `SSL_CERT_FILE` | (set by the suite) | Path to the extracted cluster CA so the openshell CLI trusts the gateway's TLS cert (replaces the removed `OPENSHELL_GATEWAY_INSECURE` bypass) |
 | `E2E_CONSOLE_URL` | `https://console.hypershell.localhost` | Base URL of the deployed web console for the browser trace verification |
@@ -1205,7 +1442,7 @@ The harness SHALL wait until each gateway reaches `Running` phase, or until `E2E
 
 The harness SHALL validate the platform incrementally as the fleet grows, so a scale problem is caught as it appears rather than only at the end. It SHALL provision the fleet in batches of `E2E_PERF_BATCH_SIZE` (default 5; a value of 5--10 is recommended). After each batch reaches `Running` (or times out), the harness SHALL run a checkpoint mini test and SHALL append one checkpoint record to the run results before starting the next batch. This means the results file is written incrementally across the run, not only at teardown.
 
-The checkpoint mini test SHALL be the e2e suite run in **perf mode** (`E2E_MODE=perf`, see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), not the full suite (running every step of all 11 areas after every batch would dominate the run). Perf mode runs the essential (`short`-tagged) steps of every area -- so the checkpoint touches a slice of each portion of the test -- while long mode (the default, used for the final run) runs all steps. This reuses the suite's real assertions and driver code; the harness adds no separate probe.
+The checkpoint mini test SHALL be the e2e suite run in **perf mode** (`E2E_MODE=perf`, see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), not the full suite (running every step of all 14 areas after every batch would dominate the run). Perf mode runs the essential (`short`-tagged) steps of every area -- so the checkpoint touches a slice of each portion of the test -- while long mode (the default, used for the final run) runs all steps. This reuses the suite's real assertions and driver code; the harness adds no separate probe.
 
 The mini test SHALL run against a dedicated **canary** gateway that the harness provisions once during preflight and whose per-gateway OIDC role it grants once (through the driver's `acquire_gateway_token_with_role` helper, so the harness still calls only driver interface functions), so no batch pays repeated Keycloak setup or gateway provisioning. The canary is separate from the counted fleet and is named `<E2E_PERF_GATEWAY_PREFIX>-canary`. The checkpoint SHALL invoke perf mode with `E2E_GATEWAY_NAME=<prefix>-canary` and `E2E_SKIP_CLEANUP=1` so the suite reuses the canary and does not tear it down between batches. These two variables SHALL be set only on the child suite invocation (for example prefixed on the command line), NOT exported into the harness environment; the harness's own `EXIT` trap therefore still runs and deletes the canary and the whole fleet at teardown (see [Performance Test Cleanup](#requirement-performance-test-cleanup)).
 
@@ -1261,7 +1498,7 @@ When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so existing 
 
 `perf` runs the same `short`-tagged step subset but is tailored to the performance harness (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)) and SHALL be used only from `e2e-performance.sh`. It differs from `short` in two ways: it follows the harness's reuse-or-preserve pattern -- it may reuse a supplied long-lived canary gateway and SHALL NOT tear it down, so the canary survives repeated checkpoints -- and it exercises the multi-identity developer RBAC path (area 9). It is not a live-environment gate; it assumes the harness owns the canary's lifecycle.
 
-Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every one of the 11 areas (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only steps:
+Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every one of the 14 areas (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only steps; areas 12--14 are long-only and run in neither short nor perf:
 
 | Area | Short (essential steps) | Long-only (deep / slow steps) |
 |------|-------------------------|-------------------------------|
@@ -1276,6 +1513,9 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | 9. Developer RBAC | short: skipped (single-identity; no impersonation). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix |
 | 10. Platform-admin RBAC | n/a; skipped in short and perf (its assertion deletes a gateway) | full platform-admin matrix, including gateway deletion |
 | 11. Namespace GC | short: delete-driven GC of the run's own gateway. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
+| 12. ManagedCluster registration + multi-cluster | skipped (mutates fleet records; acts as a second identity) | registration assertions; second-cluster placement under `E2E_MULTICLUSTER=1` |
+| 13. Release promotion | skipped | repoint + revision-aware rollout, `observed_release_id`, Degraded-and-recover; cross-cluster promotion under `E2E_MULTICLUSTER=1` |
+| 14. Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
 
 `short` mode SHALL own the gateway it provisions: it SHALL delete that gateway at the end and assert its namespace is garbage collected (the same delete-driven GC path area 11 runs for a long run's own gateway), and its cleanup path SHALL also delete the gateway on any exit, so a short run leaves nothing behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace (that periodic-reaper assertion is long-only) and SHALL NOT mutate shared controller state (namespace-GC timing is adjusted only for long runs). Any long-only step that deletes the run's own gateway as part of the RBAC matrix SHALL NOT run in short or perf mode; area 11's own-gateway deletion, being the assertion itself, SHALL run in short and long but not perf.
 
@@ -1320,7 +1560,7 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 
 ### Requirement: Functional Validation Under Load
 
-After the fleet is fully provisioned, the harness SHALL run the functional e2e suite (`tests/e2e/e2e-openshell.sh`) against the target cluster as the final, comprehensive gate. Where the per-batch checkpoint runs the suite in perf mode (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), this phase runs it in long mode -- every step of all 11 areas -- to confirm the platform still works correctly while the large gateway fleet runs. The functional suite SHALL use a dedicated gateway name (`E2E_PERF_FUNCTIONAL_GATEWAY_NAME`, default `perf-e2e-gw`) so it does not collide with the perf fleet or the canary. The functional suite SHALL use the same `E2E_INFRA_DRIVER`. The functional suite exits non-zero when any of its checks fail. The harness SHALL treat that non-zero exit as a performance test failure.
+After the fleet is fully provisioned, the harness SHALL run the functional e2e suite (`tests/e2e/e2e-openshell.sh`) against the target cluster as the final, comprehensive gate. Where the per-batch checkpoint runs the suite in perf mode (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), this phase runs it in long mode -- every step of all 14 areas -- to confirm the platform still works correctly while the large gateway fleet runs. The functional suite SHALL use a dedicated gateway name (`E2E_PERF_FUNCTIONAL_GATEWAY_NAME`, default `perf-e2e-gw`) so it does not collide with the perf fleet or the canary. The functional suite SHALL use the same `E2E_INFRA_DRIVER`. The functional suite exits non-zero when any of its checks fail. The harness SHALL treat that non-zero exit as a performance test failure.
 
 A user SHALL be able to skip the functional phase by setting `E2E_PERF_RUN_FUNCTIONAL=0`. This supports pure load measurement without the functional gate.
 
