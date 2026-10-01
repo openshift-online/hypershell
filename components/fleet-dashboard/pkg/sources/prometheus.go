@@ -100,6 +100,26 @@ func (p *Prometheus) instant(ctx context.Context, expr string) ([]promResultItem
 	return pr.Data.Result, nil
 }
 
+// queryRange runs a range query over [start, end] at the given step, returning one
+// result item per series (each carrying a Values time-series). Stateless: the full
+// history is recomputed from Prometheus on every call (no in-process buffer).
+func (p *Prometheus) queryRange(ctx context.Context, expr string, start, end time.Time, step time.Duration) ([]promResultItem, error) {
+	secs := int(step.Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	pr, err := p.do(ctx, "/api/v1/query_range", url.Values{
+		"query": {expr},
+		"start": {strconv.FormatInt(start.Unix(), 10)},
+		"end":   {strconv.FormatInt(end.Unix(), 10)},
+		"step":  {strconv.Itoa(secs) + "s"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pr.Data.Result, nil
+}
+
 func sampleValue(v []any) float64 {
 	if len(v) < 2 {
 		return 0
@@ -169,6 +189,9 @@ type InstanceFleet struct {
 	Reconcile      RateStats      `json:"reconcile"`
 	BFF            RateStats      `json:"bff"`
 	ProvisionP95Ms float64        `json:"provisionP95Ms"`
+	// GatewayHistory is the total-gateway count sampled oldest->newest over the
+	// last day, feeding the per-instance "sand" sparkline on the map.
+	GatewayHistory []float64 `json:"gatewayHistory"`
 }
 
 // RateStats is a rate + error% + p95 latency triple.
@@ -228,6 +251,30 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 			n := int(sampleValue(r.Value))
 			f.Gateways[phase] += n
 			f.GatewaysTotal += n
+		}
+	}
+
+	// Gateway-count history (newest sample last) for the per-instance "sand"
+	// sparkline. Option A: stateless - the full window is recomputed from
+	// Prometheus on every snapshot, so no history is buffered in-process.
+	// Best-effort like the instant sub-queries above.
+	{
+		const histWindow = 24 * time.Hour
+		const histSamples = 32
+		now := time.Now()
+		subTotal++
+		expr := fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE)
+		if res, err := p.queryRange(ctx, expr, now.Add(-histWindow), now, histWindow/histSamples); err != nil {
+			subErrs = append(subErrs, err)
+		} else {
+			for _, r := range res {
+				f := get(r.Metric[p.instLabel])
+				hist := make([]float64, 0, len(r.Values))
+				for _, v := range r.Values {
+					hist = append(hist, sampleValue(v))
+				}
+				f.GatewayHistory = hist
+			}
 		}
 	}
 

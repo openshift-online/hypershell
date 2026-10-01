@@ -16,6 +16,20 @@ function env(
     activeRelease: null,
     proposedRelease: null,
     gates: [],
+    activeDigest: null,
+    proposedDigest: null,
+    role: null,
+    provider: null,
+    envLabel: null,
+    cluster: null,
+    argoHealth: null,
+    argoSync: null,
+    consoleUrl: null,
+    argoUrl: null,
+    prState: null,
+    prUrl: null,
+    analysisUrl: null,
+    upToDate: false,
     ...overrides,
   };
 }
@@ -30,6 +44,8 @@ describe("orderedEnvironments", () => {
         c: env({ name: "c" }),
       },
       releases: [],
+      releaseByDigest: {},
+      frontier: null,
     };
     expect(orderedEnvironments(promotion).map((e) => e.name)).toEqual([
       "c",
@@ -43,6 +59,8 @@ describe("orderedEnvironments", () => {
       order: ["a", "ghost", "b"],
       environments: { a: env({ name: "a" }), b: env({ name: "b" }) },
       releases: [],
+      releaseByDigest: {},
+      frontier: null,
     };
     expect(orderedEnvironments(promotion).map((e) => e.name)).toEqual([
       "a",
@@ -55,6 +73,8 @@ describe("orderedEnvironments", () => {
       order: ["a"],
       environments: { a: env({ name: "a" }), extra: env({ name: "extra" }) },
       releases: [],
+      releaseByDigest: {},
+      frontier: null,
     };
     expect(orderedEnvironments(promotion).map((e) => e.name)).toEqual([
       "a",

@@ -5,7 +5,7 @@ import {
   governingInstance,
   orderedEnvironments,
 } from "../../domain/promotion";
-import { mapInstances, mapPromotion } from "./wire";
+import { mapFleet, mapInstances, mapPromotion } from "./wire";
 
 // Fixtures use deliberately fictional environment/instance names (alpha/beta/
 // gamma) and a fake release id. The fleet-dashboard source is public, so real
@@ -81,6 +81,50 @@ describe("mapPromotion", () => {
     expect(gamma.activeRelease).toBeNull();
     expect(gamma.proposedRelease).toBeNull();
     expect(gamma.gates).toEqual([]);
+  });
+});
+
+describe("mapFleet", () => {
+  it("flattens the keyed wire map into a sorted instance list", () => {
+    const data = mapFleet({
+      zeta: { gateways: { running: 2 }, gatewaysTotal: 2 },
+      alpha: { instance: "alpha", gatewaysTotal: 5 },
+    });
+    expect(data.instances.map((i) => i.instance)).toEqual(["alpha", "zeta"]);
+  });
+
+  it("defaults rate triples, history and nullable gauges", () => {
+    const data = mapFleet({ a: {} });
+    const inst = data.instances[0];
+    expect(inst?.instance).toBe("a");
+    expect(inst?.rpc).toEqual({ rate: 0, errorPct: 0, p95Ms: 0 });
+    expect(inst?.gatewayHistory).toEqual([]);
+    expect(inst?.managedClusters).toBeNull();
+    expect(inst?.role).toBeNull();
+  });
+
+  it("carries metrics, totals and history through", () => {
+    const data = mapFleet({
+      a: {
+        gateways: { running: 3, failed: 1 },
+        gatewaysTotal: 4,
+        users: 12,
+        rpc: { rate: 2, errorPct: 0.5, p95Ms: 40 },
+        provisionP95Ms: 120,
+        gatewayHistory: [1, 2, 4],
+      },
+    });
+    const inst = data.instances[0];
+    expect(inst?.gatewaysTotal).toBe(4);
+    expect(inst?.users).toBe(12);
+    expect(inst?.rpc.p95Ms).toBe(40);
+    expect(inst?.provisionP95Ms).toBe(120);
+    expect(inst?.gatewayHistory).toEqual([1, 2, 4]);
+  });
+
+  it("tolerates a null/empty payload", () => {
+    expect(mapFleet({}).instances).toEqual([]);
+    expect(mapFleet(null).instances).toEqual([]);
   });
 });
 

@@ -15,6 +15,11 @@ deployment GitOps repository rather than here. The specs are the source of truth
 for the API surface, the data model, and the deployment topology; this repository
 holds only the generic, deployment-agnostic implementation.
 
+The interactive promotion-topology canvas is the one sanctioned custom UI
+component (every other surface is stock PatternFly); its UI-PF-06 decision record
+lives at
+[`packages/fleet-dashboard-ui/docs/decisions/UI-PF-06-topology-canvas.md`](../../packages/fleet-dashboard-ui/docs/decisions/UI-PF-06-topology-canvas.md).
+
 ## Fleet-identity firewall
 
 This image is public. Per the data-architecture spec (§3.5, "the fleet-identity

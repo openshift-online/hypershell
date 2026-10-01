@@ -13,15 +13,25 @@ import {
 } from "@patternfly/react-core";
 import { FormattedMessage } from "react-intl";
 
-import { useInstances, usePromotion } from "../query/hooks";
+import { useFleet, useInstances, usePromotion } from "../query/hooks";
+import type { FleetData } from "../../domain/fleet";
 import { messages } from "../../messages";
 import { InstancesTable } from "./instances-table";
+import { TopologyMap } from "./map/topology-map";
 import { PlaneSection } from "./plane-section";
 import { PromotionTable } from "./promotion-table";
 
+const EMPTY_FLEET: FleetData = { instances: [] };
+
 export function App(): React.ReactElement {
   const promotion = usePromotion();
+  const fleet = useFleet();
   const instances = useInstances();
+
+  // The map needs promotion + fleet together; it is driven by the promotion plane
+  // (its backbone) and enriches with fleet metrics opportunistically, so a lagging
+  // or failed fleet plane degrades the cards' metrics without blanking the map.
+  const fleetData = fleet.data?.data ?? EMPTY_FLEET;
 
   const masthead = (
     <Masthead>
@@ -39,6 +49,11 @@ export function App(): React.ReactElement {
     <Page masthead={masthead}>
       <PageSection>
         <Stack hasGutter>
+          <StackItem>
+            <PlaneSection titleMessage={messages.sectionMap} query={promotion}>
+              {(data) => <TopologyMap promotion={data} fleet={fleetData} />}
+            </PlaneSection>
+          </StackItem>
           <StackItem>
             <PlaneSection
               titleMessage={messages.sectionPromotion}

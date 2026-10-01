@@ -21,7 +21,26 @@ export interface PromotionGate {
   readonly governingInstance: string | null;
 }
 
-/** One environment column on the promotion path. */
+/**
+ * A release bundle as reported by the server. `digest` is the image/commit sha
+ * the server attributes to the release; it is the stable seed the map uses for
+ * the instance identicon + identiname so a bundle always draws the same way. All
+ * fields are opaque data - none are parsed for fleet structure.
+ */
+export interface ReleaseBundle {
+  readonly version: string;
+  readonly digest: string | null;
+  readonly tag: string | null;
+  readonly date: string | null;
+}
+
+/**
+ * One environment entry on the promotion path. In the live payload each entry is
+ * a managed instance carrying its delivery labels (role/provider/env/cluster) and
+ * Argo status - all DATA from the server, never inferred from the key. The map
+ * derives columns from `envLabel` and lanes from `provider`; both degrade to the
+ * key when the server omits them.
+ */
 export interface PromotionEnvironment {
   readonly name: string;
   /** Release currently active in this environment (opaque version string). */
@@ -29,6 +48,32 @@ export interface PromotionEnvironment {
   /** Release proposed/in-flight toward this environment, if any. */
   readonly proposedRelease: string | null;
   readonly gates: readonly PromotionGate[];
+  /** Image/commit digest of the active release (identicon/identiname seed). */
+  readonly activeDigest: string | null;
+  /** Image/commit digest of the proposed release, if any. */
+  readonly proposedDigest: string | null;
+  /** hub | spoke, from delivery labels at runtime. Null when unlabeled. */
+  readonly role: string | null;
+  /** Cloud provider, from delivery labels. Lanes group by this. Null when absent. */
+  readonly provider: string | null;
+  /** Promotion environment (e.g. the column this node sits in). Null => own column. */
+  readonly envLabel: string | null;
+  /** Cluster the instance runs on, from delivery labels. */
+  readonly cluster: string | null;
+  readonly argoHealth: string | null;
+  readonly argoSync: string | null;
+  /** Deep link to the instance's console, when the server supplies one. */
+  readonly consoleUrl: string | null;
+  /** Deep link to the Argo CD application, when the server supplies one. */
+  readonly argoUrl: string | null;
+  /** Open/closed/merged state of the promotion PR into this env, if any. */
+  readonly prState: string | null;
+  /** Deep link to the promotion PR, when present. */
+  readonly prUrl: string | null;
+  /** Deep link to the analysis check-run for the active hydrated commit. */
+  readonly analysisUrl: string | null;
+  /** True when active == proposed (nothing in flight toward this env). */
+  readonly upToDate: boolean;
 }
 
 export interface PromotionData {
@@ -38,8 +83,30 @@ export interface PromotionData {
    */
   readonly order: readonly string[];
   readonly environments: Readonly<Record<string, PromotionEnvironment>>;
-  /** Known releases, newest first as ordered by the server. */
+  /** Known release version strings, newest first as ordered by the server. */
   readonly releases: readonly string[];
+  /** Full release bundles keyed by digest, for the freight-bar cards. */
+  readonly releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
+  /** Newest release across all envs, as the server computes it. Null when unknown. */
+  readonly frontier: ReleaseBundle | null;
+}
+
+/** Coarse promotion state of an environment (mirrors the prototype's tri-state). */
+export type PromotionState = "up-to-date" | "promoting" | "behind";
+
+/**
+ * Promotion state of an environment: up-to-date when active == proposed, else
+ * promoting when a PR is open toward it, else behind. Derived only from
+ * server-reported fields - no env/instance table.
+ */
+export function promotionState(env: PromotionEnvironment): PromotionState {
+  if (env.upToDate) {
+    return "up-to-date";
+  }
+  if ((env.prState ?? "").toLowerCase() === "open") {
+    return "promoting";
+  }
+  return "behind";
 }
 
 /**

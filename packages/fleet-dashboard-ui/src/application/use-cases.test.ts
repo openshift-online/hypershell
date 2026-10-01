@@ -21,6 +21,8 @@ function fakeApi(overrides: Partial<FleetApi> = {}): FleetApi {
     order: [],
     environments: {},
     releases: [],
+    releaseByDigest: {},
+    frontier: null,
   };
   const topology: TopologyData = { nodes: [], edges: [] };
   const instances: InstancesData = { instances: [] };
@@ -59,8 +61,14 @@ describe("use cases", () => {
           role: null,
           provider: null,
           gateways: { Ready: 1 },
+          gatewaysTotal: 1,
           managedClusters: null,
           users: null,
+          rpc: { rate: 0, errorPct: 0, p95Ms: 0 },
+          reconcile: { rate: 0, errorPct: 0, p95Ms: 0 },
+          bff: { rate: 0, errorPct: 0, p95Ms: 0 },
+          provisionP95Ms: null,
+          gatewayHistory: [],
         },
       ],
     });

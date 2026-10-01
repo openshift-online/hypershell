@@ -11,9 +11,11 @@ function okResponse(body: unknown): Response {
 
 describe("createHttpFleetApi", () => {
   it("requests the fleet route under the injected base path", async () => {
+    // /api/fleet is a map keyed by instance name on the wire; the mapper flattens
+    // it to a sorted list.
     const fetchImpl = vi.fn().mockResolvedValue(
       okResponse({
-        data: { instances: [] },
+        data: {},
         generatedAt: "2026-01-01T00:00:00Z",
         stale: false,
         error: null,

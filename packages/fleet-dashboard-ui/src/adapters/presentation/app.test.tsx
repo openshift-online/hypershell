@@ -23,6 +23,25 @@ function plane<T>(data: T): Plane<T> {
   };
 }
 
+// Server-supplied delivery/Argo fields every PromotionEnvironment now carries;
+// these tests only exercise order/gates, so they default to absent.
+const envExtras = {
+  activeDigest: null,
+  proposedDigest: null,
+  role: null,
+  provider: null,
+  envLabel: null,
+  cluster: null,
+  argoHealth: null,
+  argoSync: null,
+  consoleUrl: null,
+  argoUrl: null,
+  prState: null,
+  prUrl: null,
+  analysisUrl: null,
+  upToDate: false,
+} as const;
+
 function renderApp(api: FleetApi): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -50,15 +69,19 @@ describe("App", () => {
           gates: [
             { name: "g", phase: "success", governingInstance: "gov-from-data" },
           ],
+          ...envExtras,
         },
         staging: {
           name: "staging",
           activeRelease: "v2025",
           proposedRelease: null,
           gates: [],
+          ...envExtras,
         },
       },
       releases: ["v2026", "v2025"],
+      releaseByDigest: {},
+      frontier: null,
     };
     const empty = {
       getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
@@ -71,9 +94,10 @@ describe("App", () => {
 
     renderApp(empty);
 
-    // Server-defined order: staging before canary.
-    expect(await screen.findByText("staging")).toBeDefined();
-    expect(await screen.findByText("canary")).toBeDefined();
+    // Server-defined order: staging before canary. The names now appear in both
+    // the topology map and the promotion table, so match all occurrences.
+    expect((await screen.findAllByText("staging")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("canary")).length).toBeGreaterThan(0);
     // Governing instance came from gate data, not any hard-coded mapping.
     expect(await screen.findByText("gov-from-data")).toBeDefined();
   });
@@ -83,7 +107,13 @@ describe("App", () => {
       getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
       getPromotion: () =>
         Promise.resolve(
-          plane<PromotionData>({ order: [], environments: {}, releases: [] }),
+          plane<PromotionData>({
+            order: [],
+            environments: {},
+            releases: [],
+            releaseByDigest: {},
+            frontier: null,
+          }),
         ),
       getTopology: () =>
         Promise.resolve(plane<TopologyData>({ nodes: [], edges: [] })),

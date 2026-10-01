@@ -57,6 +57,82 @@ export const messages = defineMessages({
     defaultMessage: "Role",
     description: "Instances table column header for the instance role.",
   },
+  detailAlias: {
+    id: "fleet.map.detail.alias",
+    defaultMessage: "Alias",
+    description: "Detail label for a release bundle's generated alias name.",
+  },
+  detailCluster: {
+    id: "fleet.map.detail.cluster",
+    defaultMessage: "Cluster",
+    description: "Detail label for the cluster backing an instance.",
+  },
+  detailClusters: {
+    id: "fleet.map.detail.clusters",
+    defaultMessage: "Managed clusters",
+    description: "Detail label for the number of clusters an instance manages.",
+  },
+  detailDate: {
+    id: "fleet.map.detail.date",
+    defaultMessage: "Released",
+    description: "Detail label for a release bundle's release date.",
+  },
+  detailDeployments: {
+    id: "fleet.map.detail.deployments",
+    defaultMessage: "Deployed to",
+    description: "Detail label listing the instances running a release bundle.",
+  },
+  detailDigest: {
+    id: "fleet.map.detail.digest",
+    defaultMessage: "Digest",
+    description: "Detail label for a release bundle's image digest.",
+  },
+  detailFlow: {
+    id: "fleet.map.detail.flow",
+    defaultMessage: "Flow",
+    description: "Detail label for a promotion gate's source and destination.",
+  },
+  detailGatewayBreakdown: {
+    id: "fleet.map.detail.gatewayBreakdown",
+    defaultMessage:
+      "{total} total · {running} running · {provisioning} provisioning · {failed} failed",
+    description: "Breakdown of an instance's gateway counts by phase.",
+  },
+  detailLinks: {
+    id: "fleet.map.detail.links",
+    defaultMessage: "Links",
+    description: "Detail label for an instance's external deep links.",
+  },
+  detailMetrics: {
+    id: "fleet.map.detail.metrics",
+    defaultMessage: "Latency (p95)",
+    description: "Detail label for an instance's p95 latency metrics.",
+  },
+  detailMetricTriple: {
+    id: "fleet.map.detail.metricTriple",
+    defaultMessage: "RPC {rpc}ms · reconcile {reconcile}ms · BFF {bff}ms",
+    description: "The three p95 latency figures for an instance.",
+  },
+  detailPromoting: {
+    id: "fleet.map.detail.promoting",
+    defaultMessage: "Promoting",
+    description: "Detail label indicating a gate is actively promoting.",
+  },
+  detailProposed: {
+    id: "fleet.map.detail.proposed",
+    defaultMessage: "Proposed release",
+    description: "Detail label for the release proposed for an instance.",
+  },
+  detailUsers: {
+    id: "fleet.map.detail.users",
+    defaultMessage: "Users",
+    description: "Detail label for the number of users on an instance.",
+  },
+  drawerClose: {
+    id: "fleet.map.drawer.close",
+    defaultMessage: "Close details",
+    description: "Accessible label for the detail panel's close button.",
+  },
   emptyPlane: {
     id: "fleet.plane.empty",
     defaultMessage: "No data reported.",
@@ -66,6 +142,11 @@ export const messages = defineMessages({
     id: "fleet.plane.error",
     defaultMessage: "Could not load this view.",
     description: "Shown when a data source fails to load.",
+  },
+  freightDeployed: {
+    id: "fleet.map.freight.deployed",
+    defaultMessage: "{count, plural, one {# deployment} other {# deployments}}",
+    description: "Count of instances currently running a release bundle.",
   },
   freshnessAging: {
     id: "fleet.freshness.aging",
@@ -83,10 +164,50 @@ export const messages = defineMessages({
     description:
       "Freshness indicator when the server is serving a last-good value.",
   },
+  linkAnalysis: {
+    id: "fleet.map.link.analysis",
+    defaultMessage: "Analysis",
+    description: "Link label for an instance's release analysis report.",
+  },
+  linkArgo: {
+    id: "fleet.map.link.argo",
+    defaultMessage: "Argo CD",
+    description: "Link label for an instance's Argo CD application.",
+  },
+  linkConsole: {
+    id: "fleet.map.link.console",
+    defaultMessage: "Console",
+    description: "Link label for an instance's web console.",
+  },
+  linkPr: {
+    id: "fleet.map.link.pr",
+    defaultMessage: "Pull request",
+    description: "Link label for an instance's open promotion pull request.",
+  },
   loadingPlane: {
     id: "fleet.plane.loading",
     defaultMessage: "Loading…",
     description: "Shown while a data source is loading.",
+  },
+  mapFit: {
+    id: "fleet.map.control.fit",
+    defaultMessage: "Fit to view",
+    description: "Accessible label for the map's fit-to-view control.",
+  },
+  mapRegion: {
+    id: "fleet.map.region",
+    defaultMessage: "Promotion topology map",
+    description: "Accessible label for the interactive map canvas region.",
+  },
+  mapZoomIn: {
+    id: "fleet.map.control.zoomIn",
+    defaultMessage: "Zoom in",
+    description: "Accessible label for the map's zoom-in control.",
+  },
+  mapZoomOut: {
+    id: "fleet.map.control.zoomOut",
+    defaultMessage: "Zoom out",
+    description: "Accessible label for the map's zoom-out control.",
   },
   pendingPromotion: {
     id: "fleet.promotion.pending",
@@ -99,10 +220,20 @@ export const messages = defineMessages({
     defaultMessage: "Instances",
     description: "Heading for the managed instances section.",
   },
+  sectionMap: {
+    id: "fleet.section.map",
+    defaultMessage: "Promotion topology",
+    description: "Heading for the interactive promotion topology map section.",
+  },
   sectionPromotion: {
     id: "fleet.section.promotion",
     defaultMessage: "Promotion path",
     description: "Heading for the promotion path section.",
+  },
+  sectionReleases: {
+    id: "fleet.section.releases",
+    defaultMessage: "Release bundles",
+    description: "Accessible label for the release freight bar.",
   },
   statusDegraded: {
     id: "fleet.status.degraded",

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  findInstance,
+  gatewayTone,
   orderedInstances,
   phaseCount,
   totalGateways,
+  ZERO_RATE,
   type InstanceFleet,
 } from "./fleet";
 
@@ -14,8 +17,14 @@ function inst(
     role: null,
     provider: null,
     gateways: {},
+    gatewaysTotal: 0,
     managedClusters: null,
     users: null,
+    rpc: ZERO_RATE,
+    reconcile: ZERO_RATE,
+    bff: ZERO_RATE,
+    provisionP95Ms: null,
+    gatewayHistory: [],
     ...overrides,
   };
 }
@@ -37,6 +46,37 @@ describe("phaseCount", () => {
 
   it("returns zero for an absent phase", () => {
     expect(phaseCount({ Ready: 5 }, "failed")).toBe(0);
+  });
+});
+
+describe("gatewayTone", () => {
+  it("is unknown when there are no gateways", () => {
+    expect(gatewayTone({})).toBe("unknown");
+  });
+
+  it("is danger when any gateway has failed", () => {
+    expect(gatewayTone({ running: 4, provisioning: 1, failed: 2 })).toBe(
+      "danger",
+    );
+  });
+
+  it("is warning when provisioning but none failed", () => {
+    expect(gatewayTone({ running: 4, provisioning: 1 })).toBe("warning");
+  });
+
+  it("is success when all gateways are settled", () => {
+    expect(gatewayTone({ running: 4 })).toBe("success");
+  });
+});
+
+describe("findInstance", () => {
+  it("returns the matching instance record", () => {
+    const list = [inst({ instance: "a" }), inst({ instance: "b" })];
+    expect(findInstance(list, "b")?.instance).toBe("b");
+  });
+
+  it("returns null when no instance matches", () => {
+    expect(findInstance([inst({ instance: "a" })], "missing")).toBeNull();
   });
 });
 

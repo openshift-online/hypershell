@@ -2,10 +2,9 @@
 // The base path is injected (never hard-coded to a host); everything about the
 // fleet's identity comes back inside the JSON payloads, not the URLs.
 
-import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
 import type { FleetApi, TopologyData } from "../../application/ports";
-import { mapInstances, mapPromotion } from "./wire";
+import { mapFleet, mapInstances, mapPromotion } from "./wire";
 
 export interface HttpFleetApiOptions {
   /** BFF base path, e.g. "/api". No trailing slash. */
@@ -48,11 +47,10 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
     return { ...envelope, data: mapData(envelope.data) };
   }
 
-  // Fleet and topology are not yet surfaced in the UI; they pass through untouched
-  // until their views (and mappers) exist.
+  // Topology is not yet surfaced in the UI; it passes through untouched until its
+  // view (and mapper) exists.
   return {
-    getFleet: (signal) =>
-      getPlane<FleetData>("/fleet", (raw) => raw as FleetData, signal),
+    getFleet: (signal) => getPlane("/fleet", mapFleet, signal),
     getPromotion: (signal) => getPlane("/promotion", mapPromotion, signal),
     getTopology: (signal) =>
       getPlane<TopologyData>("/topology", (raw) => raw as TopologyData, signal),
