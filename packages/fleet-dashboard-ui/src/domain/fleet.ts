@@ -62,6 +62,21 @@ export function phaseCount(counts: GatewayPhaseCounts, phase: string): number {
 }
 
 /**
+ * Gateways in a phase outside the three the UI buckets by name
+ * (running/provisioning/failed): the server's total minus those three, floored at
+ * zero. Controllers report other phases (e.g. deleting/pending/unknown); folding
+ * them into one "other" bucket keeps the donut ring + legend summing to the total
+ * instead of silently dropping them (which made the centre count exceed the rows).
+ */
+export function otherGateways(counts: GatewayPhaseCounts): number {
+  const known =
+    phaseCount(counts, "running") +
+    phaseCount(counts, "provisioning") +
+    phaseCount(counts, "failed");
+  return Math.max(0, totalGateways(counts) - known);
+}
+
+/**
  * Coarse health of a gateway population, from phase counts alone: any failed is
  * danger, any provisioning is warning, otherwise success; no gateways at all is
  * unknown. Mirrors the prototype's gwSummary kind.

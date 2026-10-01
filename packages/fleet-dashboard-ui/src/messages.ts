@@ -196,6 +196,12 @@ export const messages = defineMessages({
     defaultMessage: "Failed",
     description: "Gateway-donut legend row for failed gateways.",
   },
+  legendOther: {
+    id: "fleet.map.legend.other",
+    defaultMessage: "Other",
+    description:
+      "Gateway-donut legend row for gateways in a phase outside running/provisioning/failed.",
+  },
   legendProvisioning: {
     id: "fleet.map.legend.provisioning",
     defaultMessage: "Provisioning",
