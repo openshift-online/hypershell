@@ -98,44 +98,8 @@ describe("App", () => {
     // the topology map and the promotion table, so match all occurrences.
     expect((await screen.findAllByText("staging")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("canary")).length).toBeGreaterThan(0);
-    // Governing instance came from gate data, not any hard-coded mapping.
+    // Governing instance came from gate data, not any hard-coded mapping. It is
+    // only in the (visually hidden, still accessible) promotion table now.
     expect(await screen.findByText("gov-from-data")).toBeDefined();
-  });
-
-  it("renders instance rows from the payload", async () => {
-    const api = {
-      getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
-      getPromotion: () =>
-        Promise.resolve(
-          plane<PromotionData>({
-            order: [],
-            environments: {},
-            releases: [],
-            releaseByDigest: {},
-            frontier: null,
-          }),
-        ),
-      getTopology: () =>
-        Promise.resolve(plane<TopologyData>({ nodes: [], edges: [] })),
-      getInstances: () =>
-        Promise.resolve(
-          plane<InstancesData>({
-            instances: [
-              {
-                name: "inst-alpha",
-                role: "spoke",
-                provider: "example-cloud",
-                region: "somewhere-1",
-                health: "Healthy",
-              },
-            ],
-          }),
-        ),
-    } satisfies FleetApi;
-
-    renderApp(api);
-
-    expect(await screen.findByText("inst-alpha")).toBeDefined();
-    expect(await screen.findByText("example-cloud")).toBeDefined();
   });
 });

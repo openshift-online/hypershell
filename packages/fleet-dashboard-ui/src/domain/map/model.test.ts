@@ -94,22 +94,22 @@ describe("buildMapModel - columns", () => {
 });
 
 describe("buildMapModel - lanes", () => {
-  it("places the hub lane between split spoke lanes", () => {
+  it("lays one lane per provider, sinking hub-hosting clouds to the bottom", () => {
     const model = buildMapModel(
       promotion(["a", "h", "b"], {
         a: env({ name: "a", role: "spoke", provider: "aws" }),
-        h: env({ name: "h", role: "hub" }),
-        b: env({ name: "b", role: "spoke", provider: "ibm" }),
+        h: env({ name: "h", role: "hub", provider: "ibm" }),
+        b: env({ name: "b", role: "spoke", provider: "gcp" }),
       }),
       emptyFleet,
     );
-    const kinds = model.lanes.map((l) => l.kind);
-    expect(kinds).toEqual(["spoke", "hub", "spoke"]);
-    expect(model.lanes[0]?.provider).toBe("aws");
-    expect(model.lanes[2]?.provider).toBe("ibm");
+    // spoke-only clouds first (alpha), the hub-hosting cloud last
+    expect(model.lanes.map((l) => l.key)).toEqual(["aws", "gcp", "ibm"]);
+    expect(model.lanes.map((l) => l.hostsHub)).toEqual([false, false, true]);
+    expect(model.lanes.map((l) => l.provider)).toEqual(["aws", "gcp", "ibm"]);
   });
 
-  it("groups spokes without a provider under a single lane key", () => {
+  it("groups instances without a provider under a single lane key", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
         a: env({ name: "a", role: "spoke" }),
@@ -118,7 +118,8 @@ describe("buildMapModel - lanes", () => {
       emptyFleet,
     );
     expect(model.lanes).toHaveLength(1);
-    expect(model.lanes[0]?.key).toBe("spoke:none");
+    expect(model.lanes[0]?.key).toBe("none");
+    expect(model.lanes[0]?.provider).toBeNull();
   });
 });
 
@@ -230,6 +231,7 @@ describe("buildMapModel - frontier", () => {
       digest: "sha256:f",
       tag: null,
       date: null,
+      prs: [],
     };
     const model = buildMapModel(
       promotion(["a"], { a: env({ name: "a" }) }, { frontier }),

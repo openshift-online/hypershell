@@ -28,9 +28,6 @@ import {
 } from "../promotion";
 import type { StatusBadge } from "../status";
 
-/** The lane a node sits in: the hub spine, or a provider-grouped spoke lane. */
-export type LaneKind = "hub" | "spoke";
-
 /** External deep-links the server attaches to a node (all optional). */
 export interface MapNodeLinks {
   readonly console: string | null;
@@ -53,9 +50,14 @@ export interface MapNode {
   readonly id: string;
   /** Column this node belongs to (its `envLabel`, else its own key). */
   readonly columnKey: string;
-  /** Lane key: "hub" or `spoke:<provider>` - geometry is layout's job. */
+  /**
+   * Lane key: one lane per cloud provider (the provider string, or "none" when
+   * the server omits it). Hub-hosting providers sink to the bottom - geometry is
+   * layout's job.
+   */
   readonly laneKey: string;
-  readonly laneKind: LaneKind;
+  /** True when the server labels this node's role "hub" (case-insensitive). */
+  readonly isHub: boolean;
   readonly role: string | null;
   readonly provider: string | null;
   readonly cluster: string | null;
@@ -72,6 +74,8 @@ export interface MapNode {
   readonly prState: string | null;
   /** Worst-case gate badge for this node's active gates. */
   readonly gateBadge: StatusBadge;
+  /** Names of this node's promotion gates, in server order (opaque data). */
+  readonly gateNames: readonly string[];
   readonly gateways: GatewayPhaseCounts;
   readonly gatewaysTotal: number;
   readonly gatewayTone: StatusBadge["tone"];
@@ -90,11 +94,12 @@ export interface MapColumn {
   readonly nodeIds: readonly string[];
 }
 
-/** A horizontal lane (the hub spine, or one provider's spoke row). */
+/** A horizontal lane: one per cloud provider (rows are clouds, columns are envs). */
 export interface MapLane {
   readonly key: string;
-  readonly kind: LaneKind;
   readonly provider: string | null;
+  /** True when any hub-role node lives in this provider's lane. */
+  readonly hostsHub: boolean;
 }
 
 /** A promotion gate sitting between two adjacent columns on the hub spine. */
@@ -103,6 +108,8 @@ export interface MapGate {
   readonly fromColumnKey: string;
   readonly toColumnKey: string;
   readonly badge: StatusBadge;
+  /** Gate display name, from the destination's governing gates (opaque data). */
+  readonly name: string | null;
   /** True when a release is actively promoting into the destination column. */
   readonly promoting: boolean;
 }
@@ -119,29 +126,27 @@ function nonEmpty(v: string | null): string | null {
   return v !== null && v !== "" ? v : null;
 }
 
-function laneKeyFor(env: PromotionEnvironment): {
-  key: string;
-  kind: LaneKind;
-  provider: string | null;
-} {
-  if ((env.role ?? "").toLowerCase() === "hub") {
-    return { key: "hub", kind: "hub", provider: null };
-  }
-  const provider = nonEmpty(env.provider);
-  return { key: `spoke:${provider ?? "none"}`, kind: "spoke", provider };
+/** Whether the server-reported role is "hub" (case-insensitive). */
+function isHubRole(role: string | null): boolean {
+  return (role ?? "").toLowerCase() === "hub";
+}
+
+/** The lane key for a node: its cloud provider, or "none" when unlabeled. */
+function laneKeyFor(provider: string | null): string {
+  return provider ?? "none";
 }
 
 function buildNode(env: PromotionEnvironment, fleet: FleetData): MapNode {
-  const lane = laneKeyFor(env);
+  const provider = nonEmpty(env.provider);
   const fl = findInstance(fleet.instances, env.name);
   const gateways = fl?.gateways ?? {};
   return {
     id: env.name,
     columnKey: nonEmpty(env.envLabel) ?? env.name,
-    laneKey: lane.key,
-    laneKind: lane.kind,
+    laneKey: laneKeyFor(provider),
+    isHub: isHubRole(env.role),
     role: nonEmpty(env.role),
-    provider: nonEmpty(env.provider),
+    provider,
     cluster: nonEmpty(env.cluster),
     seed: nonEmpty(env.activeDigest) ?? env.name,
     version: env.activeRelease,
@@ -154,6 +159,7 @@ function buildNode(env: PromotionEnvironment, fleet: FleetData): MapNode {
     argoSync: env.argoSync,
     prState: env.prState,
     gateBadge: environmentGateBadge(env),
+    gateNames: env.gates.map((g) => g.name).filter((n) => n !== ""),
     gateways,
     gatewaysTotal: fl?.gatewaysTotal ?? totalGateways(gateways),
     gatewayTone: gatewayTone(gateways),
@@ -176,25 +182,31 @@ function buildNode(env: PromotionEnvironment, fleet: FleetData): MapNode {
 }
 
 /**
- * Order lanes top -> bottom with the hub spine in the middle: spoke lanes split
- * evenly above and below it, each in first-seen order so layout is stable. With
- * no hub the spokes simply stack in order.
+ * Order lanes top -> bottom, one per cloud provider: spoke-only clouds on top,
+ * hub-hosting clouds sink to the bottom (so the promotion spine reads left->right
+ * along the hubs), then stable alphabetical within each group. This mirrors the
+ * prototype's per-cloud lanes and is fully derived - no provider list is baked in.
  */
 function orderLanes(nodes: readonly MapNode[]): MapLane[] {
-  const seen = new Map<string, MapLane>();
+  const hostsHub = new Map<string, boolean>();
+  const providerOf = new Map<string, string | null>();
   for (const n of nodes) {
-    if (!seen.has(n.laneKey)) {
-      seen.set(n.laneKey, {
-        key: n.laneKey,
-        kind: n.laneKind,
-        provider: n.provider,
-      });
-    }
+    providerOf.set(n.laneKey, n.provider);
+    hostsHub.set(n.laneKey, (hostsHub.get(n.laneKey) ?? false) || n.isHub);
   }
-  const hub = [...seen.values()].filter((l) => l.kind === "hub");
-  const spokes = [...seen.values()].filter((l) => l.kind === "spoke");
-  const half = Math.ceil(spokes.length / 2);
-  return [...spokes.slice(0, half), ...hub, ...spokes.slice(half)];
+  const keys = [...hostsHub.keys()].sort((a, b) => {
+    const ha = hostsHub.get(a) ?? false;
+    const hb = hostsHub.get(b) ?? false;
+    if (ha !== hb) {
+      return ha ? 1 : -1; // hub clouds later => lower
+    }
+    return a < b ? -1 : a > b ? 1 : 0; // stable alpha
+  });
+  return keys.map((key) => ({
+    key,
+    provider: providerOf.get(key) ?? null,
+    hostsHub: hostsHub.get(key) ?? false,
+  }));
 }
 
 /** The node that governs a column: its hub if present, else its first node. */
@@ -209,7 +221,7 @@ function governingNode(
       continue;
     }
     first ??= node;
-    if (node.laneKind === "hub") {
+    if (node.isHub) {
       return node;
     }
   }
@@ -236,6 +248,7 @@ function buildGates(
       fromColumnKey: from.key,
       toColumnKey: to.key,
       badge: governing.gateBadge,
+      name: governing.gateNames[0] ?? null,
       promoting: governing.state === "promoting",
     });
   }

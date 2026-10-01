@@ -15,6 +15,7 @@ function bundle(overrides: Partial<ReleaseBundle>): ReleaseBundle {
     digest: null,
     tag: null,
     date: null,
+    prs: [],
     ...overrides,
   };
 }
@@ -22,8 +23,9 @@ function bundle(overrides: Partial<ReleaseBundle>): ReleaseBundle {
 function node(overrides: Partial<MapNode> & { id: string }): MapNode {
   return {
     columnKey: "c",
-    laneKey: "hub",
-    laneKind: "hub",
+    laneKey: "none",
+    isHub: true,
+    gateNames: [],
     role: null,
     provider: null,
     cluster: null,

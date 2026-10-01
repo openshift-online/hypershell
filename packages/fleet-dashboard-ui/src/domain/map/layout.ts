@@ -3,7 +3,7 @@
 // coordinates. No DOM, no measurement - deterministic from the model alone so it
 // is unit-testable and the presentation layer just renders the boxes it returns.
 
-import type { MapColumn, MapLane, MapModel, MapNode } from "./model";
+import type { MapColumn, MapModel, MapNode } from "./model";
 
 /** Fixed card + spacing constants (SVG user units). Tuned to the prototype. */
 export const NODE_W = 150;
@@ -34,7 +34,7 @@ export interface ColumnLayout {
 
 export interface LaneLayout {
   readonly key: string;
-  readonly kind: MapLane["kind"];
+  readonly hostsHub: boolean;
   readonly provider: string | null;
   readonly y: number;
   readonly height: number;
@@ -54,6 +54,8 @@ export interface MapLayout {
   readonly columns: readonly ColumnLayout[];
   readonly lanes: readonly LaneLayout[];
   readonly gates: readonly GateLayout[];
+  /** Y of the promotion spine (hub row): gates + the change diamond ride this. */
+  readonly hubSpineY: number;
   readonly width: number;
   readonly height: number;
   readonly nodeW: number;
@@ -104,7 +106,7 @@ export function computeLayout(model: MapModel): MapLayout {
     const h = laneHeight(maxStackPerLane.get(lane.key) ?? 1);
     lanes.push({
       key: lane.key,
-      kind: lane.kind,
+      hostsHub: lane.hostsHub,
       provider: lane.provider,
       y: runningY,
       height: h,
@@ -139,10 +141,12 @@ export function computeLayout(model: MapModel): MapLayout {
     });
   }
 
-  // Gates sit between adjacent columns, on the hub lane (fallback: vertical mid).
-  const hubLane = lanes.find((l) => l.kind === "hub");
+  // Gates ride the promotion spine = the hub row, which sits at the TOP of the
+  // hub-hosting cloud's lane (one hub per env, sub-stacked at index 0). Fallback
+  // to the vertical midpoint when no lane hosts a hub.
+  const hubLane = lanes.find((l) => l.hostsHub);
   const gateY = hubLane
-    ? hubLane.centerY
+    ? hubLane.y + NODE_H / 2
     : (MARGIN_TOP + Math.max(runningY - LANE_GAP, MARGIN_TOP)) / 2;
   const gates: GateLayout[] = [];
   for (const g of model.gates) {
@@ -169,6 +173,7 @@ export function computeLayout(model: MapModel): MapLayout {
     columns,
     lanes,
     gates,
+    hubSpineY: gateY,
     width,
     height,
     nodeW: NODE_W,

@@ -4,6 +4,7 @@
 // State is ALWAYS paired with text/!shape elsewhere, so colour is never the sole
 // signal (brand spec UI-BRAND-03).
 
+import { fnv1a } from "../../../domain/map/hash";
 import type { SemanticTone } from "../../../domain/status";
 
 /** A CSS colour value usable as an SVG fill/stroke. */
@@ -66,6 +67,32 @@ export const TEXT_SUBTLE = token(
   "#9a9da0",
 );
 export const ICON_BG = "#ffffff";
+
+/**
+ * A deterministic hue (0-359) for an opaque label string. Derived from a visual
+ * hash so a given provider/role always draws the same colour WITHOUT baking any
+ * provider or role list into source (firewall - data-architecture.spec §3.5).
+ */
+function hueFor(label: string): number {
+  return fnv1a(`hue:${label}`) % 360;
+}
+
+/** Chip colours (dark fill + bright same-hue text) for a cloud provider label. */
+export function providerChip(provider: string): {
+  readonly bg: SvgColor;
+  readonly fg: SvgColor;
+} {
+  const h = hueFor(provider);
+  return {
+    bg: `hsl(${String(h)}, 55%, 20%)`,
+    fg: `hsl(${String(h)}, 85%, 75%)`,
+  };
+}
+
+/** Role-badge fill (light, same-hue family) for an opaque role label. */
+export function roleBadgeFill(role: string): SvgColor {
+  return `hsl(${String(hueFor(role))}, 68%, 66%)`;
+}
 
 /** Promotion-state ring colour for a node's identicon. */
 export function promotionRing(

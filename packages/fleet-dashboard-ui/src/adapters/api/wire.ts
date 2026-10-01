@@ -13,8 +13,18 @@ import type {
   PromotionData,
   PromotionEnvironment,
   PromotionGate,
+  PullRequest,
   ReleaseBundle,
 } from "../../domain/promotion";
+
+/** A pull request within a release bundle, as the delivery GitHub App reports it. */
+interface WirePR {
+  readonly number?: number;
+  readonly title?: string;
+  readonly url?: string;
+  readonly author?: string;
+  readonly mergedAt?: string;
+}
 
 /** A release as the BFF reports it (opaque to the UI beyond its version string). */
 interface WireRelease {
@@ -22,6 +32,7 @@ interface WireRelease {
   readonly tag?: string;
   readonly date?: string;
   readonly sha?: string;
+  readonly prs?: readonly WirePR[] | null;
 }
 
 /** A promotion gate on the wire: `{key, phase}` (the domain renames key -> name). */
@@ -106,12 +117,24 @@ function mapEnvironment(
   };
 }
 
+function mapPR(raw: WirePR): PullRequest {
+  return {
+    number: typeof raw.number === "number" ? raw.number : 0,
+    title: raw.title ?? "",
+    url: raw.url ?? "",
+    author: raw.author ?? "",
+    mergedAt: nullableString(raw.mergedAt),
+  };
+}
+
 function mapRelease(raw: WireRelease): ReleaseBundle {
   return {
     version: raw.version ?? "",
     digest: nullableString(raw.sha),
     tag: nullableString(raw.tag),
     date: nullableString(raw.date),
+    // PRs "since the previous build"; absent/null on older servers -> empty.
+    prs: (raw.prs ?? []).map(mapPR),
   };
 }
 

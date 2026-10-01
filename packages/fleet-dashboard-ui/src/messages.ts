@@ -11,6 +11,18 @@ export const messages = defineMessages({
     defaultMessage: "HyperShell Operational Status",
     description: "Dashboard page and masthead title.",
   },
+  bundleNoPrs: {
+    id: "fleet.map.bundle.noPrs",
+    defaultMessage: "No pull requests in this build.",
+    description:
+      "Shown in the Bundle tab when a release has no associated PRs.",
+  },
+  bundlePrSummary: {
+    id: "fleet.map.bundle.prSummary",
+    defaultMessage:
+      "{count, plural, one {# PR} other {# PRs}} · since previous build",
+    description: "Count of pull requests included in a release bundle.",
+  },
   columnEnvironment: {
     id: "fleet.promotion.column.environment",
     defaultMessage: "Environment",
@@ -118,10 +130,25 @@ export const messages = defineMessages({
     defaultMessage: "Promoting",
     description: "Detail label indicating a gate is actively promoting.",
   },
+  detailPromotion: {
+    id: "fleet.map.detail.promotion",
+    defaultMessage: "Promotion",
+    description: "Detail label for an instance's promotion state.",
+  },
   detailProposed: {
     id: "fleet.map.detail.proposed",
     defaultMessage: "Proposed release",
     description: "Detail label for the release proposed for an instance.",
+  },
+  detailRelease: {
+    id: "fleet.map.detail.release",
+    defaultMessage: "Release",
+    description: "Detail label for a release bundle's version.",
+  },
+  detailSync: {
+    id: "fleet.map.detail.sync",
+    defaultMessage: "Sync status",
+    description: "Detail label for an instance's Argo CD sync status.",
   },
   detailUsers: {
     id: "fleet.map.detail.users",
@@ -164,6 +191,21 @@ export const messages = defineMessages({
     description:
       "Freshness indicator when the server is serving a last-good value.",
   },
+  legendFailed: {
+    id: "fleet.map.legend.failed",
+    defaultMessage: "Failed",
+    description: "Gateway-donut legend row for failed gateways.",
+  },
+  legendProvisioning: {
+    id: "fleet.map.legend.provisioning",
+    defaultMessage: "Provisioning",
+    description: "Gateway-donut legend row for provisioning gateways.",
+  },
+  legendRunning: {
+    id: "fleet.map.legend.running",
+    defaultMessage: "Running",
+    description: "Gateway-donut legend row for running gateways.",
+  },
   linkAnalysis: {
     id: "fleet.map.link.analysis",
     defaultMessage: "Analysis",
@@ -188,6 +230,12 @@ export const messages = defineMessages({
     id: "fleet.plane.loading",
     defaultMessage: "Loading…",
     description: "Shown while a data source is loading.",
+  },
+  mapChange: {
+    id: "fleet.map.change",
+    defaultMessage: "change",
+    description:
+      "Label on the diamond at the head of the promotion spine, where a change enters the flow.",
   },
   mapFit: {
     id: "fleet.map.control.fit",
@@ -214,6 +262,39 @@ export const messages = defineMessages({
     defaultMessage: "Promotion pending",
     description:
       "Marker shown when a newer release is proposed for an environment.",
+  },
+  prAuthoredBy: {
+    id: "fleet.map.bundle.prAuthoredBy",
+    defaultMessage: "by {author}",
+    description: "Hover tooltip on a pull-request link naming its author.",
+  },
+  promoBehind: {
+    id: "fleet.promotion.state.behind",
+    defaultMessage: "Behind",
+    description:
+      "Promotion-state label when an instance is behind the frontier.",
+  },
+  promoPromoting: {
+    id: "fleet.promotion.state.promoting",
+    defaultMessage: "Promoting",
+    description: "Promotion-state label when a newer bundle is rolling out.",
+  },
+  promoUpToDate: {
+    id: "fleet.promotion.state.upToDate",
+    defaultMessage: "Up to date",
+    description:
+      "Promotion-state label when an instance runs the frontier bundle.",
+  },
+  sectionDeployedOn: {
+    id: "fleet.section.deployedOn",
+    defaultMessage: "Deployed on",
+    description:
+      "Heading above the list of instances running a release bundle.",
+  },
+  sectionInBundle: {
+    id: "fleet.section.inBundle",
+    defaultMessage: "In this bundle",
+    description: "Heading above the pull-request list in a release bundle.",
   },
   sectionInstances: {
     id: "fleet.section.instances",
@@ -284,6 +365,23 @@ export const messages = defineMessages({
     id: "fleet.status.unknown",
     defaultMessage: "Unknown",
     description: "Status label for an unknown or unrecognized state.",
+  },
+  tabBundle: {
+    id: "fleet.map.tab.bundle",
+    defaultMessage: "Bundle",
+    description:
+      "Detail-panel tab showing the selected instance's release bundle.",
+  },
+  tabDetails: {
+    id: "fleet.map.tab.details",
+    defaultMessage: "Details",
+    description:
+      "Detail-panel tab showing the selected instance's full record.",
+  },
+  tabLinks: {
+    id: "fleet.map.tab.links",
+    defaultMessage: "Links",
+    description: "Detail-panel tab showing the selected instance's deep links.",
   },
   valueNone: {
     id: "fleet.value.none",

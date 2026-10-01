@@ -22,16 +22,32 @@ export interface PromotionGate {
 }
 
 /**
+ * One pull request included in a release bundle, as the server reports it (sourced
+ * from the delivery GitHub App). Every field is opaque data: `url` is an absolute
+ * link the server supplies, `author`/`title`/`number` are shown verbatim. No fleet
+ * identity here - these are upstream PRs on the public product repo.
+ */
+export interface PullRequest {
+  readonly number: number;
+  readonly title: string;
+  readonly url: string;
+  readonly author: string;
+  readonly mergedAt: string | null;
+}
+
+/**
  * A release bundle as reported by the server. `digest` is the image/commit sha
  * the server attributes to the release; it is the stable seed the map uses for
  * the instance identicon + identiname so a bundle always draws the same way. All
- * fields are opaque data - none are parsed for fleet structure.
+ * fields are opaque data - none are parsed for fleet structure. `prs` is the set
+ * of pull requests in this build "since the previous build" (may be empty).
  */
 export interface ReleaseBundle {
   readonly version: string;
   readonly digest: string | null;
   readonly tag: string | null;
   readonly date: string | null;
+  readonly prs: readonly PullRequest[];
 }
 
 /**

@@ -18,12 +18,13 @@ import { buildMapModel } from "../../../domain/map/model";
 import type { FleetData } from "../../../domain/fleet";
 import type { PromotionData } from "../../../domain/promotion";
 import { messages } from "../../../messages";
-import { LANE_STROKE, TEXT_SUBTLE } from "./colors";
+import { EDGE_STROKE, LANE_STROKE, TEXT_COLOR, TEXT_SUBTLE } from "./colors";
 import { MapEdges } from "./edges";
 import { FreightBar } from "./freight-bar";
 import { MapDetails, type MapSelection } from "./map-details";
 import { MapNodeCard } from "./map-node";
 import { MiniMap } from "./minimap";
+import { f } from "./svg";
 import styles from "./topology-map.module.css";
 import { useMapViewport } from "./use-map-viewport";
 
@@ -97,8 +98,27 @@ export function TopologyMap({
     );
   };
 
+  const firstCol = layout.columns[0];
+  const changeX = firstCol ? firstCol.x - 90 : 40;
+  const changeY = layout.hubSpineY;
+  // Column headers sit in the top margin, above the first lane band.
+  const headerY = Math.max((layout.lanes[0]?.y ?? 96) - 40, 24);
+  const changePts = [
+    `${f(changeX)},${f(changeY - 28)}`,
+    `${f(changeX + 34)},${f(changeY)}`,
+    `${f(changeX)},${f(changeY + 28)}`,
+    `${f(changeX - 34)},${f(changeY)}`,
+  ].join(" ");
+
   return (
     <div className={styles.wrap}>
+      <FreightBar
+        releaseByDigest={promotion.releaseByDigest}
+        nodes={model.nodes}
+        selectedSeed={selectedBundleSeed}
+        onSelectBundle={selectBundle}
+      />
+
       <div className={styles.canvas}>
         <div className={styles.toolbar}>
           <Button
@@ -133,7 +153,7 @@ export function TopologyMap({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
-          {/* lane bands + labels (behind everything) */}
+          {/* lane bands + labels (behind everything); one lane per cloud provider */}
           {layout.lanes.map((lane) => (
             <g key={lane.key}>
               <rect
@@ -152,10 +172,46 @@ export function TopologyMap({
                 fontWeight={700}
                 fill={TEXT_SUBTLE}
               >
-                {lane.provider ?? lane.kind}
+                {(lane.provider ?? lane.key).toUpperCase()}
               </text>
             </g>
           ))}
+
+          {/* column headers: the promotion environment of each column (server data) */}
+          {layout.columns.map((col) => (
+            <text
+              key={col.key}
+              x={col.centerX}
+              y={headerY}
+              textAnchor="middle"
+              fontSize={13}
+              fontWeight={700}
+              fill={TEXT_COLOR}
+            >
+              {col.key}
+            </text>
+          ))}
+
+          {/* change diamond: head of the promotion spine, left of the root column */}
+          <g>
+            <polygon
+              points={changePts}
+              fill="none"
+              stroke={EDGE_STROKE}
+              strokeWidth={1.5}
+            />
+            <text
+              x={changeX}
+              y={changeY}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={12}
+              fontWeight={700}
+              fill={TEXT_SUBTLE}
+            >
+              {intl.formatMessage(messages.mapChange)}
+            </text>
+          </g>
 
           <MapEdges
             model={model}
@@ -186,13 +242,6 @@ export function TopologyMap({
           <MiniMap layout={layout} viewport={viewport} />
         </div>
       </div>
-
-      <FreightBar
-        releaseByDigest={promotion.releaseByDigest}
-        nodes={model.nodes}
-        selectedSeed={selectedBundleSeed}
-        onSelectBundle={selectBundle}
-      />
 
       {selection ? (
         <div className={styles.details}>

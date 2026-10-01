@@ -1,5 +1,7 @@
-// Composition of the dashboard shell. Wires each plane's query hook to a section;
-// holds no fleet knowledge itself.
+// Composition of the dashboard shell. The interactive promotion-topology map is
+// the single visible view; the promotion-path table is still rendered, but only
+// for assistive tech (visually hidden) so the graph's content stays available to
+// screen readers (data-architecture.spec §3.5 a11y). Holds no fleet knowledge.
 
 import {
   Masthead,
@@ -13,20 +15,31 @@ import {
 } from "@patternfly/react-core";
 import { FormattedMessage } from "react-intl";
 
-import { useFleet, useInstances, usePromotion } from "../query/hooks";
+import { useFleet, usePromotion } from "../query/hooks";
 import type { FleetData } from "../../domain/fleet";
 import { messages } from "../../messages";
-import { InstancesTable } from "./instances-table";
 import { TopologyMap } from "./map/topology-map";
 import { PlaneSection } from "./plane-section";
 import { PromotionTable } from "./promotion-table";
 
 const EMPTY_FLEET: FleetData = { instances: [] };
 
+/** Visually hidden, but present in the accessibility tree (sr-only pattern). */
+const srOnly: React.CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export function App(): React.ReactElement {
   const promotion = usePromotion();
   const fleet = useFleet();
-  const instances = useInstances();
 
   // The map needs promotion + fleet together; it is driven by the promotion plane
   // (its backbone) and enriches with fleet metrics opportunistically, so a lagging
@@ -55,20 +68,14 @@ export function App(): React.ReactElement {
             </PlaneSection>
           </StackItem>
           <StackItem>
-            <PlaneSection
-              titleMessage={messages.sectionPromotion}
-              query={promotion}
-            >
-              {(data) => <PromotionTable promotion={data} />}
-            </PlaneSection>
-          </StackItem>
-          <StackItem>
-            <PlaneSection
-              titleMessage={messages.sectionInstances}
-              query={instances}
-            >
-              {(data) => <InstancesTable instances={data} />}
-            </PlaneSection>
+            <div style={srOnly}>
+              <PlaneSection
+                titleMessage={messages.sectionPromotion}
+                query={promotion}
+              >
+                {(data) => <PromotionTable promotion={data} />}
+              </PlaneSection>
+            </div>
           </StackItem>
         </Stack>
       </PageSection>

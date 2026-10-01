@@ -107,7 +107,7 @@ describe("computeLayout", () => {
       noFleet,
     );
     const layout = computeLayout(model);
-    const hub = layout.lanes.find((l) => l.kind === "hub");
+    const hub = layout.lanes.find((l) => l.hostsHub);
     const [colA, colB] = layout.columns;
     expect(layout.gates).toHaveLength(1);
     expect(layout.gates[0]?.x).toBe(
