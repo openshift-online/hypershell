@@ -267,18 +267,26 @@ func (p *Promotion) pullRequestsByBranch(ctx context.Context) map[string]prInfo 
 	return out
 }
 
+// argoResourceFilter narrows the Application tree to the resources that carry
+// the analysis e2e logs: the AnalysisRun, its Pods, and the e2e Job. These are
+// generic Kubernetes/Argo Rollouts kinds, not fleet-identifying values, so they
+// are safe to compile in (data-architecture firewall). The value is the
+// pre-encoded form of ?resource=kind:AnalysisRun,kind:Pod,kind:Job.
+const argoResourceFilter = "?resource=kind%3AAnalysisRun%2Ckind%3APod%2Ckind%3AJob"
+
 // argoAppURL builds a deep link to an Argo CD Application tree. Modern Argo CD
-// routes Applications as /applications/<appNamespace>/<appName>. Returns "" when
-// no base URL is configured (firewall) or the app is unknown, so the field is
-// simply omitted.
+// routes Applications as /applications/<appNamespace>/<appName>. A resource
+// filter is appended so the tree lands pre-scoped to the analysis run, its pods,
+// and the e2e job. Returns "" when no base URL is configured (firewall) or the
+// app is unknown, so the field is simply omitted.
 func (p *Promotion) argoAppURL(ns, app string) string {
 	if p.argoBase == "" || app == "" {
 		return ""
 	}
 	if ns == "" {
-		return fmt.Sprintf("%s/applications/%s", p.argoBase, app)
+		return fmt.Sprintf("%s/applications/%s%s", p.argoBase, app, argoResourceFilter)
 	}
-	return fmt.Sprintf("%s/applications/%s/%s", p.argoBase, ns, app)
+	return fmt.Sprintf("%s/applications/%s/%s%s", p.argoBase, ns, app, argoResourceFilter)
 }
 
 type argoInfo struct {
