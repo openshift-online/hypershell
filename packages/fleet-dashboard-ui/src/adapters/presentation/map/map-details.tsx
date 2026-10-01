@@ -42,7 +42,7 @@ import type {
   PullRequest,
   ReleaseBundle,
 } from "../../../domain/promotion";
-import { gatePhaseBadge, healthBadge, syncBadge } from "../../../domain/status";
+import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
 import { StatusLabel } from "../status-label";
 import { TEXT_COLOR } from "./colors";
@@ -98,6 +98,57 @@ function BundleIdenticon({
       }}
     >
       {icon}
+    </span>
+  );
+}
+
+/**
+ * A bundle as a whole clickable "chip": its identicon beside a label (version +
+ * identiname), the ENTIRE chip opening the bundle's details - not just the small
+ * identicon. Matches the prototype's compact "Promoting [icon] vX" chip. When no
+ * `onSelect` is given it is inert (plain icon + label).
+ */
+function BundleChip({
+  seed,
+  label,
+  onSelect,
+}: {
+  seed: string;
+  label: React.ReactNode;
+  onSelect?: (seed: string) => void;
+}): React.ReactElement {
+  const content = (
+    <Flex
+      alignItems={{ default: "alignItemsCenter" }}
+      spaceItems={{ default: "spaceItemsSm" }}
+      flexWrap={{ default: "nowrap" }}
+    >
+      <FlexItem>
+        <BundleIdenticon seed={seed} size={20} />
+      </FlexItem>
+      <FlexItem>{label}</FlexItem>
+    </Flex>
+  );
+  if (!onSelect) {
+    return content;
+  }
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={identiName(seed)}
+      onClick={() => {
+        onSelect(seed);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(seed);
+        }
+      }}
+      style={{ cursor: "pointer", display: "inline-flex", borderRadius: 4 }}
+    >
+      {content}
     </span>
   );
 }
@@ -354,19 +405,11 @@ function NodeFields({
       </Row>
       <Row term={<FormattedMessage {...messages.columnRelease} />}>
         {releaseLabel ? (
-          <Flex
-            alignItems={{ default: "alignItemsCenter" }}
-            spaceItems={{ default: "spaceItemsSm" }}
-          >
-            <FlexItem>
-              <BundleIdenticon
-                seed={node.seed}
-                size={20}
-                onSelect={onSelectBundle}
-              />
-            </FlexItem>
-            <FlexItem>{releaseLabel}</FlexItem>
-          </Flex>
+          <BundleChip
+            seed={node.seed}
+            label={releaseLabel}
+            onSelect={onSelectBundle}
+          />
         ) : (
           <FormattedMessage {...messages.valueNone} />
         )}
@@ -497,14 +540,22 @@ function NodeDetails({
 function GateDetails({
   gateId,
   model,
+  onSelectBundle,
 }: {
   gateId: string;
   model: MapModel;
+  onSelectBundle: (seed: string) => void;
 }): React.ReactElement | null {
   const gate = model.gates.find((x) => x.id === gateId);
   if (!gate) {
     return null;
   }
+  const promotingLabel =
+    gate.promotingSeed !== null
+      ? gate.promotingVersion
+        ? `${gate.promotingVersion} · ${identiName(gate.promotingSeed)}`
+        : identiName(gate.promotingSeed)
+      : null;
   return (
     <DescriptionList isCompact>
       <Row term={<FormattedMessage {...messages.detailFlow} />}>
@@ -523,8 +574,12 @@ function GateDetails({
         <StatusLabel badge={gate.badge} />
       </Row>
       <Row term={<FormattedMessage {...messages.detailPromoting} />}>
-        {gate.promoting ? (
-          <StatusLabel badge={gatePhaseBadge("pending")} />
+        {gate.promotingSeed !== null && promotingLabel !== null ? (
+          <BundleChip
+            seed={gate.promotingSeed}
+            label={promotingLabel}
+            onSelect={onSelectBundle}
+          />
         ) : (
           <FormattedMessage {...messages.valueNone} />
         )}
@@ -651,7 +706,11 @@ export function MapDetails({
         />
       ) : null}
       {selection.kind === "gate" ? (
-        <GateDetails gateId={selection.id} model={model} />
+        <GateDetails
+          gateId={selection.id}
+          model={model}
+          onSelectBundle={onSelectBundle}
+        />
       ) : null}
       {selection.kind === "bundle" ? (
         <BundleDetails

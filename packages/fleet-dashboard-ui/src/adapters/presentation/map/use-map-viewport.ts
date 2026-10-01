@@ -55,6 +55,36 @@ interface Vec {
   y: number;
 }
 
+/**
+ * The smallest viewBox with the CONTAINER's pixel aspect ratio that still contains
+ * the whole `cw x ch` content, centred. Matching the viewBox aspect to the box means
+ * the SVG (preserveAspectRatio "meet") fills the box edge-to-edge with no letterbox,
+ * and pointer<->world mapping stays linear across the whole surface. When the box is
+ * taller than the content (wide scene, tall canvas), the content centres vertically
+ * with symmetric world-space padding.
+ */
+function containFit(cw: number, ch: number, aspect: number): Viewport {
+  const a =
+    Number.isFinite(aspect) && aspect > 0 ? aspect : cw / Math.max(1, ch);
+  let w = cw;
+  let h = w / a;
+  if (h < ch) {
+    h = ch;
+    w = h * a;
+  }
+  return { x: (cw - w) / 2, y: (ch - h) / 2, w, h };
+}
+
+/** True when two viewports are within a pixel of each other on every axis. */
+function viewsClose(a: Viewport, b: Viewport): boolean {
+  return (
+    Math.abs(a.x - b.x) < 1 &&
+    Math.abs(a.y - b.y) < 1 &&
+    Math.abs(a.w - b.w) < 1 &&
+    Math.abs(a.h - b.h) < 1
+  );
+}
+
 function prefersReducedMotion(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -66,19 +96,21 @@ function prefersReducedMotion(): boolean {
 export function useMapViewport(
   contentWidth: number,
   contentHeight: number,
+  containerAspect: number,
 ): MapViewport {
   const baseW = Math.max(1, contentWidth);
   const baseH = Math.max(1, contentHeight);
 
-  const [view, setView] = useState<Viewport>(() => ({
-    x: 0,
-    y: 0,
-    w: baseW,
-    h: baseH,
-  }));
+  const [view, setView] = useState<Viewport>(() =>
+    containFit(baseW, baseH, containerAspect),
+  );
 
   const viewRef = useRef<Viewport>(view);
   const targetRef = useRef<Viewport>(view);
+  // Live container aspect (updated each render) + the last fit we snapped to, so a
+  // resize only re-fits when the user has not manually panned/zoomed since.
+  const aspectRef = useRef(containerAspect);
+  const fittedRef = useRef<Viewport>(view);
   const velRef = useRef<Vec>({ x: 0, y: 0 });
   const rafRef = useRef(0);
   const draggingRef = useRef(false);
@@ -287,10 +319,26 @@ export function useMapViewport(
   }, [centerZoom]);
 
   const fit = useCallback(() => {
-    targetRef.current = { x: 0, y: 0, w: baseW, h: baseH };
+    const next = containFit(baseW, baseH, aspectRef.current);
+    targetRef.current = next;
+    fittedRef.current = next;
     velRef.current = { x: 0, y: 0 };
     ensureLoop();
   }, [baseW, baseH, ensureLoop]);
+
+  // Re-fit when the container's aspect changes (e.g. the drawer opens and narrows
+  // the box, or the window resizes) - but only while the view is still the last fit,
+  // so a user's own pan/zoom is never yanked away under them. Snaps without momentum.
+  useEffect(() => {
+    aspectRef.current = containerAspect;
+    if (viewsClose(viewRef.current, fittedRef.current)) {
+      const next = containFit(baseW, baseH, containerAspect);
+      fittedRef.current = next;
+      targetRef.current = next;
+      velRef.current = { x: 0, y: 0 };
+      commit(next);
+    }
+  }, [containerAspect, baseW, baseH, commit]);
 
   const recenter = useCallback(
     (wx: number, wy: number) => {

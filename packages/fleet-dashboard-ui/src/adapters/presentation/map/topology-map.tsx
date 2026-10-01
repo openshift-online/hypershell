@@ -16,11 +16,11 @@ import {
 import CompressArrowsAltIcon from "@patternfly/react-icons/dist/esm/icons/compress-arrows-alt-icon";
 import SearchMinusIcon from "@patternfly/react-icons/dist/esm/icons/search-minus-icon";
 import SearchPlusIcon from "@patternfly/react-icons/dist/esm/icons/search-plus-icon";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useIntl } from "react-intl";
 
 import { deployedFor, seedForBundle } from "../../../domain/map/bundles";
-import { computeLayout } from "../../../domain/map/layout";
+import { computeLayout, type NodeBox } from "../../../domain/map/layout";
 import { buildMapModel } from "../../../domain/map/model";
 import type { FleetData } from "../../../domain/fleet";
 import type { PromotionData } from "../../../domain/promotion";
@@ -40,6 +40,12 @@ export interface TopologyMapProps {
   readonly fleet: FleetData;
 }
 
+/** Cubic bezier with horizontal control handles, from (x1,y1) to (x2,y2). */
+function hBezier(x1: number, y1: number, x2: number, y2: number): string {
+  const midX = (x1 + x2) / 2;
+  return `M ${f(x1)} ${f(y1)} C ${f(midX)} ${f(y1)}, ${f(midX)} ${f(y2)}, ${f(x2)} ${f(y2)}`;
+}
+
 export function TopologyMap({
   promotion,
   fleet,
@@ -50,6 +56,28 @@ export function TopologyMap({
     [promotion, fleet],
   );
   const layout = useMemo(() => computeLayout(model), [model]);
+
+  // Track the canvas box's live pixel aspect ratio so the viewBox can be re-fit to
+  // it: the box fills the screen height (constant) while its width flexes when the
+  // drawer opens, and the content fills that box edge-to-edge at any width.
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const [containerAspect, setContainerAspect] = useState(0);
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const ro = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (box && box.width > 0 && box.height > 0) {
+        setContainerAspect(box.width / box.height);
+      }
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+    };
+  }, []);
 
   const {
     svgRef,
@@ -64,7 +92,7 @@ export function TopologyMap({
     fit,
     recenter,
     didPan,
-  } = useMapViewport(layout.width, layout.height);
+  } = useMapViewport(layout.width, layout.height, containerAspect);
   const [selection, setSelection] = useState<MapSelection | null>(null);
 
   const selectedBundleSeed = selection?.kind === "bundle" ? selection.id : null;
@@ -124,6 +152,16 @@ export function TopologyMap({
     `${f(changeX)},${f(changeY + 28)}`,
     `${f(changeX - 34)},${f(changeY)}`,
   ].join(" ");
+  // Rails from the change diamond into the first column's node(s): the spine starts
+  // at the change, so it visibly feeds the root stage like every later gate does.
+  const boxById = new Map<string, NodeBox>(layout.nodes.map((b) => [b.id, b]));
+  const changeEdges = (model.columns[0]?.nodeIds ?? [])
+    .map((id) => boxById.get(id))
+    .filter((b): b is NodeBox => b !== undefined)
+    .map((b) => ({
+      id: b.id,
+      d: hBezier(changeX + 34, changeY, b.x, b.cy),
+    }));
 
   return (
     <div className={styles.wrap}>
@@ -155,12 +193,7 @@ export function TopologyMap({
           }
         >
           <DrawerContentBody>
-            <div
-              className={styles.canvas}
-              style={{
-                aspectRatio: `${f(layout.width)} / ${f(layout.height)}`,
-              }}
-            >
+            <div ref={canvasRef} className={styles.canvas}>
               <div className={styles.toolbar}>
                 <Button
                   variant="control"
@@ -232,6 +265,18 @@ export function TopologyMap({
                   >
                     {band.label.toUpperCase()}
                   </text>
+                ))}
+
+                {/* rails from the change diamond into the first column's nodes */}
+                {changeEdges.map((e) => (
+                  <path
+                    key={`change:${e.id}`}
+                    d={e.d}
+                    fill="none"
+                    stroke={EDGE_STROKE}
+                    strokeWidth={1.25}
+                    strokeOpacity={0.7}
+                  />
                 ))}
 
                 {/* change diamond: head of the promotion spine, left of the root column */}

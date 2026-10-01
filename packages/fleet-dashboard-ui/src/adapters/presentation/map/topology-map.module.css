@@ -7,12 +7,13 @@
 .canvas {
   position: relative;
   width: 100%;
-  /* aspect-ratio is set inline from the content's own width/height, so the SVG
-     (preserveAspectRatio "meet") fills the box edge-to-edge instead of
-     letterboxing. Height then follows the available width, including when the
-     detail drawer narrows the canvas. The clamp keeps it sane on extreme viewports. */
-  min-height: 320px;
-  max-height: 82vh;
+  /* The canvas fills the screen HEIGHT and keeps that height constant: opening the
+     detail drawer only narrows its WIDTH, never its height. Height is therefore a
+     fixed fraction of the viewport (not derived from width/aspect-ratio). The SVG
+     viewBox is re-fit to the box's live pixel aspect ratio (see use-map-viewport),
+     so content fills edge-to-edge without letterboxing at any width. */
+  height: 82vh;
+  min-height: 460px;
   overflow: hidden;
   border: 1px solid var(--pf-t--global--border--color--default, #444548);
   border-radius: 8px;
