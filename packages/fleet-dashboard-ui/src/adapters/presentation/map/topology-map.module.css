@@ -66,13 +66,3 @@
     stroke-opacity: 1;
   }
 }
-
-.details {
-  padding: 12px 16px;
-  border: 1px solid var(--pf-t--global--border--color--default, #444548);
-  border-radius: 8px;
-  background: var(
-    --pf-t--global--background--color--secondary--default,
-    #1b1d21
-  );
-}

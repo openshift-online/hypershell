@@ -5,7 +5,14 @@
 // panel. It holds ZERO fleet knowledge: everything is derived from the promotion +
 // fleet payloads at runtime (firewall - data-architecture.spec §3.5).
 
-import { Button } from "@patternfly/react-core";
+import {
+  Button,
+  Drawer,
+  DrawerContent,
+  DrawerContentBody,
+  DrawerPanelBody,
+  DrawerPanelContent,
+} from "@patternfly/react-core";
 import CompressArrowsAltIcon from "@patternfly/react-icons/dist/esm/icons/compress-arrows-alt-icon";
 import SearchMinusIcon from "@patternfly/react-icons/dist/esm/icons/search-minus-icon";
 import SearchPlusIcon from "@patternfly/react-icons/dist/esm/icons/search-plus-icon";
@@ -120,143 +127,161 @@ export function TopologyMap({
         onSelectBundle={selectBundle}
       />
 
-      <div className={styles.canvas}>
-        <div className={styles.toolbar}>
-          <Button
-            variant="control"
-            aria-label={intl.formatMessage(messages.mapZoomIn)}
-            onClick={zoomIn}
-            icon={<SearchPlusIcon />}
-          />
-          <Button
-            variant="control"
-            aria-label={intl.formatMessage(messages.mapZoomOut)}
-            onClick={zoomOut}
-            icon={<SearchMinusIcon />}
-          />
-          <Button
-            variant="control"
-            aria-label={intl.formatMessage(messages.mapFit)}
-            onClick={fit}
-            icon={<CompressArrowsAltIcon />}
-          />
-        </div>
-
-        <svg
-          ref={svgRef}
-          className={styles.svg}
-          viewBox={viewBox}
-          role="application"
-          aria-label={intl.formatMessage(messages.mapRegion)}
-          onWheel={onWheel}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+      <Drawer isExpanded={selection !== null} isInline position="end">
+        <DrawerContent
+          panelContent={
+            <DrawerPanelContent isResizable defaultSize="420px" minSize="320px">
+              <DrawerPanelBody>
+                {selection ? (
+                  <MapDetails
+                    model={model}
+                    releaseByDigest={promotion.releaseByDigest}
+                    selection={selection}
+                    onClose={() => {
+                      setSelection(null);
+                    }}
+                  />
+                ) : null}
+              </DrawerPanelBody>
+            </DrawerPanelContent>
+          }
         >
-          {/* lane bands + labels (behind everything); one lane per cloud provider */}
-          {layout.lanes.map((lane) => (
-            <g key={lane.key}>
-              <rect
-                x={0}
-                y={lane.y - 8}
-                width={layout.width}
-                height={lane.height + 16}
-                fill="none"
-                stroke={LANE_STROKE}
-                strokeDasharray="2 6"
-              />
-              <text
-                x={14}
-                y={lane.centerY}
-                fontSize={12}
-                fontWeight={700}
-                fill={TEXT_SUBTLE}
+          <DrawerContentBody>
+            <div className={styles.canvas}>
+              <div className={styles.toolbar}>
+                <Button
+                  variant="control"
+                  aria-label={intl.formatMessage(messages.mapZoomIn)}
+                  onClick={zoomIn}
+                  icon={<SearchPlusIcon />}
+                />
+                <Button
+                  variant="control"
+                  aria-label={intl.formatMessage(messages.mapZoomOut)}
+                  onClick={zoomOut}
+                  icon={<SearchMinusIcon />}
+                />
+                <Button
+                  variant="control"
+                  aria-label={intl.formatMessage(messages.mapFit)}
+                  onClick={fit}
+                  icon={<CompressArrowsAltIcon />}
+                />
+              </div>
+
+              <svg
+                ref={svgRef}
+                className={styles.svg}
+                viewBox={viewBox}
+                role="application"
+                aria-label={intl.formatMessage(messages.mapRegion)}
+                onWheel={onWheel}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
               >
-                {(lane.provider ?? lane.key).toUpperCase()}
-              </text>
-            </g>
-          ))}
+                {/* lane bands + labels (behind everything); one lane per cloud provider */}
+                {layout.lanes.map((lane) => (
+                  <g key={lane.key}>
+                    <rect
+                      x={0}
+                      y={lane.y - 8}
+                      width={layout.width}
+                      height={lane.height + 16}
+                      fill="none"
+                      stroke={LANE_STROKE}
+                      strokeDasharray="2 6"
+                    />
+                    <text
+                      x={14}
+                      y={lane.centerY}
+                      fontSize={12}
+                      fontWeight={700}
+                      fill={TEXT_SUBTLE}
+                    >
+                      {(lane.provider ?? lane.key).toUpperCase()}
+                    </text>
+                  </g>
+                ))}
 
-          {/* env-type band headers: group the columns sharing an env-type (int /
+                {/* env-type band headers: group the columns sharing an env-type (int /
               stage / prod) into one label spanning them (server data) */}
-          {layout.bands.map((band) => (
-            <text
-              key={`${band.label}@${f(band.x)}`}
-              x={band.centerX}
-              y={headerY}
-              textAnchor="middle"
-              fontSize={13}
-              fontWeight={700}
-              fill={TEXT_COLOR}
-            >
-              {band.label.toUpperCase()}
-            </text>
-          ))}
+                {layout.bands.map((band) => (
+                  <text
+                    key={`${band.label}@${f(band.x)}`}
+                    x={band.centerX}
+                    y={headerY}
+                    textAnchor="middle"
+                    fontSize={13}
+                    fontWeight={700}
+                    fill={TEXT_COLOR}
+                  >
+                    {band.label.toUpperCase()}
+                  </text>
+                ))}
 
-          {/* change diamond: head of the promotion spine, left of the root column */}
-          <g>
-            <polygon
-              points={changePts}
-              fill="none"
-              stroke={EDGE_STROKE}
-              strokeWidth={1.5}
-            />
-            <text
-              x={changeX}
-              y={changeY}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fontSize={12}
-              fontWeight={700}
-              fill={TEXT_SUBTLE}
-            >
-              {intl.formatMessage(messages.mapChange)}
-            </text>
-          </g>
+                {/* change diamond: head of the promotion spine, left of the root column */}
+                <g>
+                  <polygon
+                    points={changePts}
+                    fill="none"
+                    stroke={EDGE_STROKE}
+                    strokeWidth={1.5}
+                  />
+                  <text
+                    x={changeX}
+                    y={changeY}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={12}
+                    fontWeight={700}
+                    fill={TEXT_SUBTLE}
+                  >
+                    {intl.formatMessage(messages.mapChange)}
+                  </text>
+                </g>
 
-          <MapEdges
-            model={model}
-            layout={layout}
-            selectedGateId={selection?.kind === "gate" ? selection.id : null}
-            onSelectGate={selectGate}
-          />
+                <MapEdges
+                  model={model}
+                  layout={layout}
+                  selectedGateId={
+                    selection?.kind === "gate" ? selection.id : null
+                  }
+                  onSelectGate={selectGate}
+                />
 
-          {layout.nodes.map((box) => {
-            const node = model.nodes.find((n) => n.id === box.id);
-            if (!node) {
-              return null;
-            }
-            return (
-              <MapNodeCard
-                key={box.id}
-                node={node}
-                box={box}
-                selected={selection?.kind === "node" && selection.id === box.id}
-                highlighted={highlighted.has(box.id)}
-                onSelect={selectNode}
-              />
-            );
-          })}
-        </svg>
+                {layout.nodes.map((box) => {
+                  const node = model.nodes.find((n) => n.id === box.id);
+                  if (!node) {
+                    return null;
+                  }
+                  return (
+                    <MapNodeCard
+                      key={box.id}
+                      node={node}
+                      box={box}
+                      selected={
+                        selection?.kind === "node" && selection.id === box.id
+                      }
+                      highlighted={highlighted.has(box.id)}
+                      onSelect={selectNode}
+                    />
+                  );
+                })}
+              </svg>
 
-        <div className={styles.mini}>
-          <MiniMap layout={layout} viewport={viewport} onRecenter={recenter} />
-        </div>
-      </div>
-
-      {selection ? (
-        <div className={styles.details}>
-          <MapDetails
-            model={model}
-            releaseByDigest={promotion.releaseByDigest}
-            selection={selection}
-            onClose={() => {
-              setSelection(null);
-            }}
-          />
-        </div>
-      ) : null}
+              <div className={styles.mini}>
+                <MiniMap
+                  layout={layout}
+                  viewport={viewport}
+                  onRecenter={recenter}
+                />
+              </div>
+            </div>
+          </DrawerContentBody>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
