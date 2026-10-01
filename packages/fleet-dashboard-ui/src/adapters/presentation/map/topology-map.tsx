@@ -172,26 +172,27 @@ export function TopologyMap({
         onSelectBundle={selectBundle}
       />
 
-      <Drawer isExpanded={selection !== null} isInline position="end">
-        <DrawerContent
-          panelContent={
-            <DrawerPanelContent isResizable defaultSize="420px" minSize="320px">
-              <DrawerPanelBody>
-                {selection ? (
-                  <MapDetails
-                    model={model}
-                    releaseByDigest={promotion.releaseByDigest}
-                    selection={selection}
-                    onClose={() => {
-                      setSelection(null);
-                    }}
-                    onSelectBundle={selectBundle}
-                  />
-                ) : null}
-              </DrawerPanelBody>
-            </DrawerPanelContent>
-          }
-        >
+      <div className={styles.stage}>
+        <Drawer isExpanded={selection !== null} isInline position="end">
+          <DrawerContent
+            panelContent={
+              <DrawerPanelContent isResizable defaultSize="420px" minSize="320px">
+                <DrawerPanelBody className={styles.panelBody}>
+                  {selection ? (
+                    <MapDetails
+                      model={model}
+                      releaseByDigest={promotion.releaseByDigest}
+                      selection={selection}
+                      onClose={() => {
+                        setSelection(null);
+                      }}
+                      onSelectBundle={selectBundle}
+                    />
+                  ) : null}
+                </DrawerPanelBody>
+              </DrawerPanelContent>
+            }
+          >
           <DrawerContentBody>
             <div ref={canvasRef} className={styles.canvas}>
               <div className={styles.toolbar}>
@@ -339,8 +340,9 @@ export function TopologyMap({
               </div>
             </div>
           </DrawerContentBody>
-        </DrawerContent>
-      </Drawer>
+          </DrawerContent>
+        </Drawer>
+      </div>
     </div>
   );
 }

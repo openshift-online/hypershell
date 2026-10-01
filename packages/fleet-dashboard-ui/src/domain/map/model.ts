@@ -7,7 +7,8 @@
 // managed cluster) stacks into its hub's column rather than forming its own stage,
 // so a hub and its managed clusters share one column with no gate between them.
 // Lanes come from `role`/`provider`, the env-type (`envLabel`) only groups column
-// headers, and gates bridge consecutive hub columns. A static ENV->HUB or provider
+// headers, and each column gets a gate to its right reporting that env's own
+// analysis (the condition to promote out of it). A static ENV->HUB or provider
 // table here would bake the topology into public source; deriving it at runtime is
 // the whole point (data-architecture.spec §3.5 in the gitops repo).
 
@@ -115,14 +116,28 @@ export interface MapLane {
   readonly hostsHub: boolean;
 }
 
-/** A promotion gate sitting between two adjacent columns on the hub spine. */
+/**
+ * A promotion gate on the hub spine. It rides to the RIGHT of its SOURCE column
+ * (`fromColumnKey`) because a gate reports the source environment's own health
+ * (its analysis commit-status, name from runtime data), which is what must pass to
+ * promote OUT of it into the next stage - a GitOps-Promoter env only advances once
+ * its upstream dependency's checks are green. The last stage's gate is `terminal`
+ * (no downstream column): it sits past the final column and reports that stage's
+ * own analysis.
+ */
 export interface MapGate {
   readonly id: string;
+  /** The SOURCE column: the env whose analysis this gate reports. */
   readonly fromColumnKey: string;
+  /** The destination column fed when this gate passes; "" for the terminal gate. */
   readonly toColumnKey: string;
+  /** True for the final stage's gate: it has no downstream column. */
+  readonly terminal: boolean;
   readonly badge: StatusBadge;
-  /** Gate display name, from the destination's governing gates (opaque data). */
+  /** Gate display name, from the SOURCE env's governing gates (opaque data). */
   readonly name: string | null;
+  /** Deep-link to the source env's analysis run, when the server provides one. */
+  readonly analysisUrl: string | null;
   /** True when a release is actively promoting into the destination column. */
   readonly promoting: boolean;
   /**
@@ -293,30 +308,36 @@ function buildGates(
   byId: ReadonlyMap<string, MapNode>,
 ): MapGate[] {
   const gates: MapGate[] = [];
-  for (let i = 1; i < columns.length; i++) {
-    const to = columns[i];
-    const from = columns[i - 1];
-    if (!to || !from) {
+  // One gate per column, riding to its RIGHT and reporting THAT column's (source)
+  // analysis - the condition to promote out of it. The last column's gate is
+  // terminal (no downstream env), reporting the final stage's own analysis.
+  for (let i = 0; i < columns.length; i++) {
+    const from = columns[i];
+    if (!from) {
       continue;
     }
-    const governing = governingNode(to, byId);
-    if (!governing) {
+    const source = governingNode(from, byId);
+    if (!source) {
       continue;
     }
-    const promoting = governing.state === "promoting";
+    const to = columns[i + 1] ?? null;
+    const dest = to ? governingNode(to, byId) : null;
+    // A release is crossing this gate only when the DESTINATION is receiving one;
+    // the terminal gate (no destination) never animates.
+    const promoting = dest?.state === "promoting";
     gates.push({
-      id: `${from.key}->${to.key}`,
+      id: to ? `${from.key}->${to.key}` : `${from.key}->end`,
       fromColumnKey: from.key,
-      toColumnKey: to.key,
-      badge: governing.gateBadge,
-      name: governing.gateNames[0] ?? null,
+      toColumnKey: to?.key ?? "",
+      terminal: to === null,
+      badge: source.gateBadge,
+      name: source.gateNames[0] ?? null,
+      analysisUrl: source.links.analysis,
       promoting,
       // The bundle in flight is the destination's PROPOSED release (identicon seed
       // = its proposed digest, else the instance key). Null when nothing is moving.
-      promotingSeed: promoting
-        ? (governing.proposedDigest ?? governing.id)
-        : null,
-      promotingVersion: promoting ? governing.proposedVersion : null,
+      promotingSeed: promoting && dest ? (dest.proposedDigest ?? dest.id) : null,
+      promotingVersion: promoting && dest ? dest.proposedVersion : null,
     });
   }
   return gates;
@@ -325,8 +346,8 @@ function buildGates(
 /**
  * Project the promotion plane (+ fleet metrics) into the map model. Columns are the
  * hub stages in the server's promotion order (spokes stack into their hub's column);
- * nodes carry their merged promotion + fleet state; gates bridge adjacent columns
- * using the destination column's governing node.
+ * nodes carry their merged promotion + fleet state; each column gets a gate to its
+ * right reporting that (source) column's governing node's analysis.
  */
 export function buildMapModel(
   promotion: PromotionData,

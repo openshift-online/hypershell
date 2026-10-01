@@ -124,11 +124,14 @@ describe("computeLayout", () => {
     const layout = computeLayout(model);
     const hub = layout.lanes.find((l) => l.hostsHub);
     const [colA, colB] = layout.columns;
-    expect(layout.gates).toHaveLength(1);
+    // One gate per column: a's midway to b, plus b's terminal gate a half-column
+    // past the final column.
+    expect(layout.gates).toHaveLength(2);
     expect(layout.gates[0]?.x).toBe(
       ((colA?.x ?? 0) + NODE_W + (colB?.x ?? 0)) / 2,
     );
     expect(layout.gates[0]?.y).toBe(hub?.centerY);
+    expect(layout.gates[1]?.x).toBe((colB?.x ?? 0) + NODE_W + COL_GAP / 2);
   });
 
   it("falls back to the vertical midpoint for gates when there is no hub lane", () => {
@@ -140,7 +143,7 @@ describe("computeLayout", () => {
       noFleet,
     );
     const layout = computeLayout(model);
-    expect(layout.gates).toHaveLength(1);
+    expect(layout.gates).toHaveLength(2);
     expect(layout.gates[0]?.y).toBeGreaterThan(0);
   });
 

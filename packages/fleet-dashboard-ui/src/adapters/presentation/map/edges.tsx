@@ -1,6 +1,7 @@
 // The promotion "rails": cubic-bezier edges that funnel every node in a column
-// into the gate diamond between it and the next column, then fan back out into the
-// next column's nodes. Gates are diamonds tinted by their badge tone (color is
+// into that column's gate diamond (to its right), then fan back out into the next
+// column's nodes. The terminal gate (final stage) only funnels in - there is no
+// downstream column. Gates are diamonds tinted by their badge tone (color is
 // paired with the drawer's text label, never the sole signal). Purely geometric -
 // it consumes the model (column membership) and the computed layout (coordinates).
 
@@ -190,8 +191,9 @@ export function MapEdges({
           pt(gl.x, gl.y + GATE_R),
           pt(gl.x - GATE_R, gl.y),
         ].join(" ");
-        // promote label above the diamond: "-> <destination column>" (data)
-        const promoteLabel = `→ ${gate.toColumnKey}`;
+        // Label above the diamond: the SOURCE env whose analysis this gate reports
+        // (the condition to promote out of it). Data-derived, no fleet knowledge.
+        const promoteLabel = gate.fromColumnKey;
         return (
           <g
             key={gate.id}

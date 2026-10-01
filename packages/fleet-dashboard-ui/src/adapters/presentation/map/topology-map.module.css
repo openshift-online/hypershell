@@ -4,20 +4,43 @@
   gap: 12px;
 }
 
+/* The map + detail drawer occupy a fixed slice of the viewport height. Both the
+   canvas and the panel fill this height; the panel scrolls WITHIN itself instead
+   of growing the page (which previously pushed the canvas up). */
+.stage {
+  height: 82vh;
+  min-height: 460px;
+}
+
+/* Make the drawer and its two columns fill the fixed stage height. min-height:0
+   lets these flex children actually shrink, which is what enables the panel's own
+   overflow scrolling rather than overflowing the page. */
+.stage :global(.pf-v6-c-drawer),
+.stage :global(.pf-v6-c-drawer__main),
+.stage :global(.pf-v6-c-drawer__content),
+.stage :global(.pf-v6-c-drawer__panel) {
+  height: 100%;
+  min-height: 0;
+}
+
 .canvas {
   position: relative;
   width: 100%;
-  /* The canvas fills the screen HEIGHT and keeps that height constant: opening the
-     detail drawer only narrows its WIDTH, never its height. Height is therefore a
-     fixed fraction of the viewport (not derived from width/aspect-ratio). The SVG
-     viewBox is re-fit to the box's live pixel aspect ratio (see use-map-viewport),
-     so content fills edge-to-edge without letterboxing at any width. */
-  height: 82vh;
-  min-height: 460px;
+  /* The canvas fills the stage height and keeps it constant: opening the detail
+     drawer only narrows its WIDTH, never its height. The SVG viewBox is re-fit to
+     the box's live pixel aspect ratio (see use-map-viewport), so content fills
+     edge-to-edge without letterboxing at any width. */
+  height: 100%;
   overflow: hidden;
   border: 1px solid var(--pf-t--global--border--color--default, #444548);
   border-radius: 8px;
   background: var(--pf-t--global--background--color--primary--default, #0f1011);
+}
+
+/* The detail panel scrolls within the stage height instead of growing the page. */
+.panelBody {
+  height: 100%;
+  overflow-y: auto;
 }
 
 .svg {

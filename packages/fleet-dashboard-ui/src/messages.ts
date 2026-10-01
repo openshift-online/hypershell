@@ -99,6 +99,18 @@ export const messages = defineMessages({
     defaultMessage: "Digest",
     description: "Detail label for a release bundle's image digest.",
   },
+  detailAnalysisRun: {
+    id: "fleet.map.detail.analysisRun",
+    defaultMessage: "Analysis run",
+    description:
+      "Detail label for the link to a gate's end-to-end analysis run (logs live there).",
+  },
+  detailFinalStage: {
+    id: "fleet.map.detail.finalStage",
+    defaultMessage: "final stage",
+    description:
+      "Shown as a promotion gate's destination when it is the last stage (nothing downstream).",
+  },
   detailFlow: {
     id: "fleet.map.detail.flow",
     defaultMessage: "Flow",
