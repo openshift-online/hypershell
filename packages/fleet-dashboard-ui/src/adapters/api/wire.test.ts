@@ -151,6 +151,8 @@ describe("mapFleet", () => {
     expect(inst?.gatewayHistory).toEqual([]);
     expect(inst?.managedClusters).toBeNull();
     expect(inst?.role).toBeNull();
+    expect(inst?.sandboxes).toBe(0);
+    expect(inst?.sandboxesByCluster).toEqual([]);
   });
 
   it("carries metrics, totals and history through", () => {
@@ -166,6 +168,13 @@ describe("mapFleet", () => {
           { running: 2, provisioning: 1 },
           { failed: 4 },
         ],
+        sandboxes: 9,
+        sandboxesByCluster: [
+          { cluster: "c2", count: 6 },
+          { cluster: "c1", count: 3 },
+          // A row with no cluster label is dropped (identity-less, unplottable).
+          { count: 2 },
+        ],
       },
     });
     const inst = data.instances[0];
@@ -173,6 +182,11 @@ describe("mapFleet", () => {
     expect(inst?.users).toBe(12);
     expect(inst?.rpc.p95Ms).toBe(40);
     expect(inst?.provisionP95Ms).toBe(120);
+    expect(inst?.sandboxes).toBe(9);
+    expect(inst?.sandboxesByCluster).toEqual([
+      { cluster: "c2", count: 6 },
+      { cluster: "c1", count: 3 },
+    ]);
     // Missing phase fields default to 0 (num()), so every sample is fully shaped.
     expect(inst?.gatewayHistory).toEqual([
       { running: 1, provisioning: 0, failed: 0 },

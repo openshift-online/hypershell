@@ -21,6 +21,7 @@ import {
   type GatewayHistorySample,
   type GatewayPhaseCounts,
   type RateStats,
+  type SandboxClusterCount,
 } from "../fleet";
 import {
   environmentGateBadge,
@@ -109,6 +110,10 @@ export interface MapNode {
   readonly gatewayTone: StatusBadge["tone"];
   /** Per-phase samples oldest -> newest for the stacked sand spark (may be empty). */
   readonly gatewayHistory: readonly GatewayHistorySample[];
+  /** Total active agent sandboxes across this instance's gateways. */
+  readonly sandboxes: number;
+  /** Active sandboxes per managed cluster, busiest-first (may be empty). */
+  readonly sandboxesByCluster: readonly SandboxClusterCount[];
   readonly managedClusters: number | null;
   readonly users: number | null;
   readonly metrics: MapNodeMetrics;
@@ -246,6 +251,8 @@ function buildNode(
     gatewaysTotal: fl?.gatewaysTotal ?? totalGateways(gateways),
     gatewayTone: gatewayTone(gateways),
     gatewayHistory: fl?.gatewayHistory ?? [],
+    sandboxes: fl?.sandboxes ?? 0,
+    sandboxesByCluster: fl?.sandboxesByCluster ?? [],
     managedClusters: fl?.managedClusters ?? null,
     users: fl?.users ?? null,
     metrics: {

@@ -244,6 +244,109 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Sandbox widget: same inset card as .gatewayWidget so the two bands read as a pair,
+ * stacked gateways-then-sandboxes. Its own top margin is dropped because the
+ * gatewayWidget below it already supplies the separating gap. */
+.sandboxWidget {
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.sandboxBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Headline row: "Sandboxes" eyebrow on the left, the big total on the right. */
+.sandboxHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sandboxTitle {
+  margin: 0;
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+.sandboxCount {
+  font-size: var(--pf-t--global--font--size--xl, 1.5rem);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* "Sandboxes by cluster" caption above the chin bars. */
+.sandboxChinTitle {
+  margin: 0;
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  font-weight: 600;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+/* The chin: one bar row per cluster, tight stack. */
+.sandboxChin {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* cluster label | proportional bar | count, counts right-aligned into a column. */
+.sandboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sandboxRowName {
+  flex: 0 0 auto;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+.sandboxRowTrack {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sandboxRowBar {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  min-width: 2px;
+}
+
+.sandboxRowCount {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Honest empty state when the instance reports no active sandboxes. */
+.sandboxEmpty {
+  margin: 0;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
 /* --- Links tab ------------------------------------------------------------
  * A stacked list of link "cards" with a clear primary/secondary hierarchy. The
  * instance (its live front door) is the headline action; Argo CD / pull request /

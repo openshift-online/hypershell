@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -96,6 +97,73 @@ func TestQueryRange(t *testing.T) {
 	for i, v := range res[0].Values {
 		if got := sampleValue(v); got != want[i] {
 			t.Errorf("sample[%d] = %v, want %v", i, got, want[i])
+		}
+	}
+}
+
+// TestFleetSandboxesByCluster covers the sandbox sub-query: the per-gateway active
+// sandbox gauge must be deduped+summed into per-cluster rows, the per-instance total
+// summed from those rows in Go, and the rows ordered busiest-first (ties by name).
+// Every other sub-query is stubbed empty so a partial snapshot still assembles.
+func TestFleetSandboxesByCluster(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		case r.URL.Path == "/api/v1/query_range":
+			// Gateway-history range query: no history in this test.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+		case strings.Contains(q, "group by"):
+			// Instance discovery.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
+				`]}}`))
+		case strings.Contains(q, "active_sandboxes_total"):
+			// Two clusters, listed count-ascending on the wire to prove we re-sort
+			// busiest-first; "c-tie" shares c1's count to prove the name tie-break.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a","cluster":"c1"},"value":[1,"3"]},` +
+				`{"metric":{"namespace":"inst-a","cluster":"c-tie"},"value":[1,"3"]},` +
+				`{"metric":{"namespace":"inst-a","cluster":"c2"},"value":[1,"7"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:          srv.URL,
+		metric:        "hypershell_gateways_total",
+		instLabel:     "namespace",
+		sandboxMetric: "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:  "cluster",
+		client:        srv.Client(),
+		logger:        slog.Default(),
+	}
+
+	out, err := p.Fleet(context.Background())
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	fleet, ok := out.(map[string]InstanceFleet)
+	if !ok {
+		t.Fatalf("Fleet returned %T, want map[string]InstanceFleet", out)
+	}
+	f, ok := fleet["inst-a"]
+	if !ok {
+		t.Fatalf("no inst-a in fleet: %+v", fleet)
+	}
+	if f.Sandboxes != 13 {
+		t.Errorf("Sandboxes total = %d, want 13", f.Sandboxes)
+	}
+	want := []SandboxClusterCount{{"c2", 7}, {"c-tie", 3}, {"c1", 3}}
+	if len(f.SandboxesByCluster) != len(want) {
+		t.Fatalf("SandboxesByCluster = %+v, want %+v", f.SandboxesByCluster, want)
+	}
+	for i, w := range want {
+		if f.SandboxesByCluster[i] != w {
+			t.Errorf("SandboxesByCluster[%d] = %+v, want %+v", i, f.SandboxesByCluster[i], w)
 		}
 	}
 }

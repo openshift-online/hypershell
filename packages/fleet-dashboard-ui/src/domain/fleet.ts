@@ -18,6 +18,15 @@ export interface GatewayHistorySample {
   readonly failed: number;
 }
 
+/**
+ * One managed cluster's active-sandbox count within an instance. `cluster` is the
+ * opaque server-reported cluster label; no cluster identity is baked in here.
+ */
+export interface SandboxClusterCount {
+  readonly cluster: string;
+  readonly count: number;
+}
+
 /** A rate + error% + p95-latency triple, as the BFF reports per control-plane. */
 export interface RateStats {
   readonly rate: number;
@@ -51,6 +60,13 @@ export interface InstanceFleet {
    * Empty when the server reports no history (the UI degrades to an absent spark).
    */
   readonly gatewayHistory: readonly GatewayHistorySample[];
+  /** Total active agent sandboxes across the instance's gateways. */
+  readonly sandboxes: number;
+  /**
+   * Active sandboxes broken down per managed cluster, busiest-first as the server
+   * orders them. Empty when the server reports none (the UI degrades gracefully).
+   */
+  readonly sandboxesByCluster: readonly SandboxClusterCount[];
 }
 
 export interface FleetData {

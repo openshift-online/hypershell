@@ -31,6 +31,21 @@ export const GATEWAY_COLOR = {
   idle: TONE_COLOR.unknown,
 } as const;
 
+/**
+ * Sandbox accent: a teal distinct from the gateway phase palette (success green /
+ * warning amber / danger red) so the sandbox widget + per-cluster "chin" chart read
+ * as their own population, not another gateway phase. A dimmer track pairs with it
+ * for the unfilled part of each cluster's bar.
+ */
+export const SANDBOX_COLOR = token(
+  "--pf-t--global--color--nonstatus--teal--default",
+  "#009596",
+);
+export const SANDBOX_TRACK = token(
+  "--pf-t--global--background--color--secondary--default",
+  "#26292d",
+);
+
 /** Surfaces/strokes for cards, lanes and edges on the dark canvas. */
 export const CARD_BG = token(
   "--pf-t--global--background--color--secondary--default",

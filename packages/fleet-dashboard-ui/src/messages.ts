@@ -169,6 +169,13 @@ export const messages = defineMessages({
     defaultMessage: "Release",
     description: "Detail label for a release bundle's version.",
   },
+  detailSandboxBreakdown: {
+    id: "fleet.map.detail.sandboxBreakdown",
+    defaultMessage:
+      "{total, plural, one {# active sandbox} other {# active sandboxes}} across {clusters, number} clusters",
+    description:
+      "Accessible summary of an instance's active sandbox total and cluster spread.",
+  },
   detailSync: {
     id: "fleet.map.detail.sync",
     defaultMessage: "Sync status",
@@ -403,6 +410,24 @@ export const messages = defineMessages({
     description:
       "Promotion-state label when an instance runs the frontier bundle.",
   },
+  sandboxByCluster: {
+    id: "fleet.map.sandbox.byCluster",
+    defaultMessage: "Sandboxes by cluster",
+    description:
+      "Eyebrow heading above the per-cluster active-sandbox bar chart.",
+  },
+  sandboxClusterRow: {
+    id: "fleet.map.sandbox.clusterRow",
+    defaultMessage:
+      "{cluster}: {count, plural, one {# sandbox} other {# sandboxes}}",
+    description:
+      "Accessible label for one cluster's row in the sandbox bar chart.",
+  },
+  sandboxNone: {
+    id: "fleet.map.sandbox.none",
+    defaultMessage: "No active sandboxes",
+    description: "Empty state when an instance has no active sandboxes.",
+  },
   sectionDeployedOn: {
     id: "fleet.section.deployedOn",
     defaultMessage: "Deployed on",
@@ -439,6 +464,11 @@ export const messages = defineMessages({
     id: "fleet.section.releases",
     defaultMessage: "Release bundles",
     description: "Accessible label for the release freight bar.",
+  },
+  sectionSandboxes: {
+    id: "fleet.section.sandboxes",
+    defaultMessage: "Sandboxes",
+    description: "Heading for the active-sandbox widget in the detail panel.",
   },
   statusDegraded: {
     id: "fleet.status.degraded",

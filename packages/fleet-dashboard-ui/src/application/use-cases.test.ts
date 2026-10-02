@@ -69,6 +69,8 @@ describe("use cases", () => {
           bff: { rate: 0, errorPct: 0, p95Ms: 0 },
           provisionP95Ms: null,
           gatewayHistory: [],
+          sandboxes: 0,
+          sandboxesByCluster: [],
         },
       ],
     });

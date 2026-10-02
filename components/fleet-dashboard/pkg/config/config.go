@@ -57,6 +57,11 @@ type Config struct {
 	// Metric conventions (product-level; safe defaults)
 	GatewayMetric string
 	InstanceLabel string
+	// SandboxMetric is the per-gateway active-sandbox gauge; ClusterLabel is the
+	// scrape-injected label carrying the managed-cluster identity, used to break
+	// the sandbox count down per cluster.
+	SandboxMetric string
+	ClusterLabel  string
 
 	// Auth (backend defense-in-depth gate, §3.4)
 	AuthEnabled bool
@@ -112,6 +117,8 @@ func Load() (*Config, error) {
 		TopologyLabelSelector: env("FD_TOPOLOGY_LABEL_SELECTOR", "delivery.hypershell.app/topology=true"),
 		GatewayMetric:         env("FD_GATEWAY_METRIC", "hypershell_gateways_total"),
 		InstanceLabel:         env("FD_INSTANCE_LABEL", "namespace"),
+		SandboxMetric:         env("FD_SANDBOX_METRIC", "hypershell_gateways_active_sandboxes_total"),
+		ClusterLabel:          env("FD_CLUSTER_LABEL", "cluster"),
 		AuthEnabled:           envBool("FD_AUTH_ENABLED", true),
 		SAR: SubjectAccessReview{
 			Verb:      env("FD_SAR_VERB", "get"),

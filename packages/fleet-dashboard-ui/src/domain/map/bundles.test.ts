@@ -47,6 +47,8 @@ function node(overrides: Partial<MapNode> & { id: string }): MapNode {
     gatewaysTotal: 0,
     gatewayTone: "unknown",
     gatewayHistory: [],
+    sandboxes: 0,
+    sandboxesByCluster: [],
     managedClusters: null,
     users: null,
     metrics: {
