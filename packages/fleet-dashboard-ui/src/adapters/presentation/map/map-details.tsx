@@ -281,19 +281,26 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
         const tailLen = Math.min(PR_TITLE_TAIL, pr.title.length);
         const head = pr.title.slice(0, pr.title.length - tailLen);
         const tail = pr.title.slice(pr.title.length - tailLen);
+        // The card separates the PR identity (number + full title) from its
+        // authorship: the title is the headline line, the author sits beneath it
+        // as a distinct, muted byline with the handle emphasised.
+        const tipTitle = `${num} ${pr.title}`;
         const hover = (
-          <>
-            {`${num} ${pr.title}`}
+          <span className={styles.prTip}>
+            <span className={styles.prTipTitle}>{tipTitle}</span>
             {pr.author ? (
-              <>
-                <br />
+              <span className={styles.prTipAuthor}>
                 <FormattedMessage
                   {...messages.prAuthoredBy}
-                  values={{ author: pr.author }}
+                  values={{
+                    author: (
+                      <span className={styles.prTipHandle}>{pr.author}</span>
+                    ),
+                  }}
                 />
-              </>
+              </span>
             ) : null}
-          </>
+          </span>
         );
         return (
           <ListItem key={pr.number}>

@@ -20,30 +20,41 @@
 .prLink {
   display: flex;
   align-items: baseline;
-  gap: var(--pf-t--global--spacer--xs, 0.25rem);
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
   max-width: 100%;
   min-width: 0;
-  color: var(--pf-t--global--text--color--link--default, #0066cc);
   text-decoration: none;
 }
 
-.prLink:hover,
-.prLink:focus-visible {
-  color: var(--pf-t--global--text--color--link--hover, #004d99);
-  text-decoration: underline;
-}
-
-/* Pinned issue number: fixed width, tabular figures so rows align. */
+/* Pinned issue number: the secondary half of the row. Muted, lighter-weight and
+ * tabular (so rows align), it reads as a quiet reference beside the title rather
+ * than competing with it. */
 .prNum {
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
 }
 
-/* The title's middle-truncation container. min-width:0 lets it shrink below its
- * content width so the head span can actually clip. */
+/* The title is the row's headline AND its middle-truncation container: regular
+ * (bright) text carrying the link affordance, laid out as a flex row so the head
+ * span can clip and the tail stays pinned. min-width:0 lets it shrink below its
+ * content width. Hovering the whole row underlines and brand-colours the title;
+ * the muted number stays put, keeping the hierarchy intact. */
 .prTitle {
   display: flex;
   min-width: 0;
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
+}
+
+.prLink:hover .prTitle,
+.prLink:focus-visible .prTitle {
+  color: var(--pf-t--global--text--color--link--hover, #73bcf7);
+  text-decoration: underline;
+}
+
+.prLink:focus-visible {
+  outline: none;
 }
 
 .prHead {
@@ -56,6 +67,34 @@
 .prTail {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+/* The PR hover card: the full title stacked above a clearly separate byline, so
+ * the two bits of information read as distinct lines rather than one run-on. */
+.prTip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.prTipTitle {
+  font-weight: 600;
+}
+
+/* The byline: a muted "by" that recedes, setting off the author handle. A hairline
+ * rule and a little top padding separate it from the title line above. */
+.prTipAuthor {
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--pf-t--global--border--color--default, #3d3d3d);
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  color: var(--pf-t--global--text--color--subtle, #b8bbbe);
+}
+
+/* The author handle itself: brighter and bolder than the surrounding "by", so the
+ * name is the part of the byline the eye lands on. */
+.prTipHandle {
+  font-weight: 600;
+  color: var(--pf-t--global--text--color--regular, #f0f0f0);
 }
 
 /* A section zone inside the detail panel (Deployed on / In this bundle): clear
