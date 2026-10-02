@@ -5,6 +5,14 @@
    + card chrome, which overflowed <main> and scrolled. PageSection and the map StackItem
    use PF's isFilled; these rules carry the fill through the Stack and the map's Card. */
 
+/* The filled PageSection (.pf-v6-c-page__main-section.pf-m-fill) is already a flex
+   column that grows (PF). We render with hasBodyWrapper={false} so the Stack is a
+   direct child of it (PF 6.6.1's PageBody wrapper has no flex/grow and would sever
+   the chain). min-height:0 lets the Stack shrink so the map consumes leftover height. */
+.section {
+  min-height: 0;
+}
+
 /* Stack is already a flex column; make it grow to fill the (isFilled) page section and
    allow its children to shrink. */
 .stack {

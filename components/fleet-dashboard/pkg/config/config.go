@@ -66,6 +66,10 @@ type Config struct {
 	GitHubRepo      string // owner/repo - REQUIRED to enable; no default (firewall)
 	GitHubTokenFile string
 	GitHubAPIBase   string
+	// ReleaseHistoryLimit caps how many distinct release bundles the freight bar
+	// shows (currently-deployed plus previously-deployed history cards). Reuses the
+	// release-lock resolver, so it only takes effect when GitHubRepo is set.
+	ReleaseHistoryLimit int
 
 	// Refresh intervals (§5.1)
 	RefreshFleet     time.Duration
@@ -116,13 +120,15 @@ func Load() (*Config, error) {
 			Namespace: env("FD_SAR_NAMESPACE", ""),
 			Name:      env("FD_SAR_NAME", ""),
 		},
-		GitHubRepo:       env("FD_GITHUB_REPO", ""),
-		GitHubTokenFile:  env("FD_GITHUB_TOKEN_FILE", ""),
-		GitHubAPIBase:    env("FD_GITHUB_API_BASE", "https://api.github.com"),
-		RefreshFleet:     envDuration("FD_REFRESH_FLEET", 15*time.Second),
-		RefreshPromotion: envDuration("FD_REFRESH_PROMOTION", 30*time.Second),
-		RefreshTopology:  envDuration("FD_REFRESH_TOPOLOGY", 30*time.Second),
-		RefreshInstances: envDuration("FD_REFRESH_INSTANCES", 60*time.Second),
+		GitHubRepo:      env("FD_GITHUB_REPO", ""),
+		GitHubTokenFile: env("FD_GITHUB_TOKEN_FILE", ""),
+		GitHubAPIBase:   env("FD_GITHUB_API_BASE", "https://api.github.com"),
+
+		ReleaseHistoryLimit: envInt("FD_RELEASE_HISTORY_LIMIT", 10),
+		RefreshFleet:        envDuration("FD_REFRESH_FLEET", 15*time.Second),
+		RefreshPromotion:    envDuration("FD_REFRESH_PROMOTION", 30*time.Second),
+		RefreshTopology:     envDuration("FD_REFRESH_TOPOLOGY", 30*time.Second),
+		RefreshInstances:    envDuration("FD_REFRESH_INSTANCES", 60*time.Second),
 	}
 
 	if c.PromURL == "" {
@@ -154,6 +160,18 @@ func envBool(key string, def bool) bool {
 		return def
 	}
 	return b
+}
+
+func envInt(key string, def int) int {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return def
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 func envDuration(key string, def time.Duration) time.Duration {

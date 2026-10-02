@@ -70,12 +70,17 @@ func run(logger *slog.Logger) error {
 	// (reference tag + digest) rather than the gitops dry-commit SHA, so envs on
 	// the same bundle collapse and only a genuinely older bundle reads "behind".
 	// Opt-in on the same FD_GITHUB_REPO; nil falls back to the short-SHA resolver.
+	// The lock resolver doubles as the release-history source: it already caches
+	// per-commit bundle resolutions, so walking the lock's commit history for the
+	// previously-deployed freight cards reuses that cache.
 	var versioner sources.VersionResolver
+	var history sources.ReleaseHistory
 	if lr := sources.NewGitHubLockResolver(cfg); lr != nil {
 		versioner = lr
-		logger.Info("github release-lock version resolution enabled", "repo", cfg.GitHubRepo)
+		history = lr
+		logger.Info("github release-lock version resolution enabled", "repo", cfg.GitHubRepo, "historyLimit", cfg.ReleaseHistoryLimit)
 	}
-	promotion := sources.NewPromotion(cfg, kube.Dynamic, versioner, analyzer, bundler)
+	promotion := sources.NewPromotion(cfg, kube.Dynamic, versioner, analyzer, bundler, history)
 	topology := sources.NewTopology(cfg, kube.Clientset)
 
 	fleetSrc := cache.NewSource("fleet", cfg.RefreshFleet, prom.Fleet, metrics.Observe)

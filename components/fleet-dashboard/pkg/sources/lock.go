@@ -175,6 +175,56 @@ func (g *GitHubLockResolver) resolveUncached(ctx context.Context, sha string) *R
 	}
 }
 
+// commitRef is the subset of GET /repos/{repo}/commits we read: just the SHA of
+// each commit that touched the lock file.
+type commitRef struct {
+	SHA string `json:"sha"`
+}
+
+// Recent implements ReleaseHistory. It walks the default branch's commit history
+// for lockPath (newest first) and resolves each commit to the bundle it rendered,
+// returning the most recent `limit` DISTINCT release bundles. This surfaces
+// previously-deployed bundles (every lock change was promoted through the fleet)
+// as history cards even once no environment still runs them.
+//
+// Each distinct commit SHA is resolved through the same per-SHA cache Resolve
+// uses, so after the first refresh warms it the history costs no GitHub calls.
+// We over-fetch commits (2x limit) so that lock commits which do not change the
+// bundle digest (rare delivery-plumbing touches) still leave `limit` distinct
+// bundles after dedup. Best-effort: a GitHub failure returns nil and the caller
+// simply omits history.
+func (g *GitHubLockResolver) Recent(ctx context.Context, limit int) []*Release {
+	if limit <= 0 {
+		return nil
+	}
+	var commits []commitRef
+	u := fmt.Sprintf("%s/repos/%s/commits?path=%s&per_page=%d", g.base, g.repo, lockPath, limit*2)
+	if !getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, u, &commits) {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]*Release, 0, limit)
+	for _, c := range commits {
+		r := g.Resolve(ctx, c.SHA)
+		// Only genuine bundle resolutions (digest present) count as history; a
+		// fallback would key on the commit SHA and pollute the timeline with a
+		// pseudo-bundle. Resolve already declined to cache those.
+		if r == nil || r.Digest == "" {
+			continue
+		}
+		k := releaseKey(r)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, r)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
 // versionFromTag derives a human release version ("v20260930") from a bundle tag
 // like "release-bundle-20260930T165529000000Z-2d94439429ed22de", matching the
 // "Update HyperShell release bundle to vYYYYMMDD" convention. Falls back to the

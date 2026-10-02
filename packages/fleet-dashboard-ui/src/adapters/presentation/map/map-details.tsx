@@ -39,6 +39,7 @@ import {
   seedForBundle,
 } from "../../../domain/map/bundles";
 import { otherGateways } from "../../../domain/fleet";
+import { shortDigest } from "../../../domain/map/digest";
 import { identiName } from "../../../domain/map/identiname";
 import type { MapModel, MapNode } from "../../../domain/map/model";
 import type {
@@ -572,7 +573,7 @@ function NodeFields({
         >
           <BundleChip
             seed={node.seed}
-            label={<code>{node.digest}</code>}
+            label={<code title={node.digest}>{shortDigest(node.digest)}</code>}
             onSelect={onSelectBundle}
           />
         </Row>
@@ -836,7 +837,7 @@ function BundleDetails({
         </Row>
         {bundle.digest ? (
           <Row term={<FormattedMessage {...messages.detailDigest} />}>
-            <code>{bundle.digest}</code>
+            <code title={bundle.digest}>{shortDigest(bundle.digest)}</code>
           </Row>
         ) : null}
         {bundle.date ? (

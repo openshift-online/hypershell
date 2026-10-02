@@ -129,6 +129,65 @@ func TestGitHubLockResolverResolve(t *testing.T) {
 	}
 }
 
+// lockForDigest builds a release-lock JSON for a given build timestamp + digest.
+func lockForDigest(ts, digest string) string {
+	return `{"reference":{"tag":"release-bundle-` + ts + `000000Z-abc","digest":"` + digest + `"}}`
+}
+
+// TestGitHubLockResolverRecent walks the lock's commit history and returns the
+// most recent DISTINCT bundles, newest first, capped at the limit, deduped by
+// digest (consecutive lock commits that did not change the digest collapse).
+func TestGitHubLockResolverRecent(t *testing.T) {
+	// Commit history newest-first. c3/c2 share a digest (a delivery-plumbing lock
+	// touch that didn't rebuild the bundle) -> they must collapse to one entry.
+	lockBySHA := map[string]string{
+		"c4": lockForDigest("20260930T120000", "sha256:dddd"),
+		"c3": lockForDigest("20260929T120000", "sha256:cccc"),
+		"c2": lockForDigest("20260929T110000", "sha256:cccc"),
+		"c1": lockForDigest("20260928T120000", "sha256:bbbb"),
+		"c0": lockForDigest("20260927T120000", "sha256:aaaa"),
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/acme/gitops/commits" {
+			if r.URL.Query().Get("path") != lockPath {
+				t.Errorf("commits path filter = %q, want %q", r.URL.Query().Get("path"), lockPath)
+			}
+			_, _ = w.Write([]byte(`[{"sha":"c4"},{"sha":"c3"},{"sha":"c2"},{"sha":"c1"},{"sha":"c0"}]`))
+			return
+		}
+		if r.URL.Path == "/repos/acme/gitops/contents/"+lockPath {
+			if lj, ok := lockBySHA[r.URL.Query().Get("ref")]; ok {
+				_, _ = w.Write([]byte(contentsBody(t, lj)))
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	lr := NewGitHubLockResolver(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL})
+
+	got := lr.Recent(context.Background(), 3)
+	gotDigests := make([]string, len(got))
+	for i, r := range got {
+		gotDigests[i] = r.Digest
+	}
+	// Newest-first, c3/c2 collapsed, capped at 3.
+	want := []string{"sha256:dddd", "sha256:cccc", "sha256:bbbb"}
+	if len(gotDigests) != len(want) {
+		t.Fatalf("Recent(3) returned %v, want %v", gotDigests, want)
+	}
+	for i := range want {
+		if gotDigests[i] != want[i] {
+			t.Errorf("Recent(3)[%d] = %q, want %q", i, gotDigests[i], want[i])
+		}
+	}
+	// limit <= 0 is a no-op.
+	if r := lr.Recent(context.Background(), 0); r != nil {
+		t.Errorf("Recent(0) = %v, want nil", r)
+	}
+}
+
 // TestGitHubLockResolverFallback confirms an unreadable lock degrades to the
 // short-SHA identity (no digest) rather than failing, so the env still renders.
 func TestGitHubLockResolverFallback(t *testing.T) {

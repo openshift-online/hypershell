@@ -30,6 +30,18 @@ type Promotion struct {
 	versioner VersionResolver
 	analyzer  AnalysisResolver
 	bundler   BundleEnricher
+	history   ReleaseHistory
+	// historyLimit caps the total number of release bundles in the payload (the
+	// currently-deployed ones plus previously-deployed history cards). 0 disables
+	// history entirely.
+	historyLimit int
+}
+
+// ReleaseHistory lists the most recent DISTINCT release bundles the fleet has
+// deployed, newest first, so previously-deployed bundles still render as history
+// cards once no environment runs them. nil disables the feature.
+type ReleaseHistory interface {
+	Recent(ctx context.Context, limit int) []*Release
 }
 
 // VersionResolver maps a gitops commit SHA to a release version. Implementations
@@ -76,7 +88,7 @@ func (ShortSHAResolver) Resolve(_ context.Context, sha string) *Release {
 // to ShortSHAResolver; a nil analyzer defaults to the no-op resolver (GitHub
 // enrichment disabled), so analysisUrl is simply omitted; a nil bundler defaults
 // to the no-op enricher, so release dates/PRs are simply omitted.
-func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionResolver, analyzer AnalysisResolver, bundler BundleEnricher) *Promotion {
+func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionResolver, analyzer AnalysisResolver, bundler BundleEnricher, history ReleaseHistory) *Promotion {
 	if versioner == nil {
 		versioner = ShortSHAResolver{}
 	}
@@ -87,17 +99,19 @@ func NewPromotion(c *config.Config, dyn dynamic.Interface, versioner VersionReso
 		bundler = noopBundles{}
 	}
 	return &Promotion{
-		dyn:       dyn,
-		ns:        c.PromoterNamespace,
-		strategy:  c.PromotionStrategyName,
-		argoNS:    c.ArgoNamespaces,
-		argoBase:  c.ArgoBaseURL,
-		psGVR:     schema.GroupVersionResource{Group: c.PromoterGroup, Version: c.PromoterVersion, Resource: "promotionstrategies"},
-		ctpGVR:    schema.GroupVersionResource{Group: c.PromoterGroup, Version: c.PromoterVersion, Resource: "changetransferpolicies"},
-		appGVR:    schema.GroupVersionResource{Group: c.ArgoGroup, Version: c.ArgoVersion, Resource: "applications"},
-		versioner: versioner,
-		analyzer:  analyzer,
-		bundler:   bundler,
+		dyn:          dyn,
+		ns:           c.PromoterNamespace,
+		strategy:     c.PromotionStrategyName,
+		argoNS:       c.ArgoNamespaces,
+		argoBase:     c.ArgoBaseURL,
+		psGVR:        schema.GroupVersionResource{Group: c.PromoterGroup, Version: c.PromoterVersion, Resource: "promotionstrategies"},
+		ctpGVR:       schema.GroupVersionResource{Group: c.PromoterGroup, Version: c.PromoterVersion, Resource: "changetransferpolicies"},
+		appGVR:       schema.GroupVersionResource{Group: c.ArgoGroup, Version: c.ArgoVersion, Resource: "applications"},
+		versioner:    versioner,
+		analyzer:     analyzer,
+		bundler:      bundler,
+		history:      history,
+		historyLimit: c.ReleaseHistoryLimit,
 	}
 }
 
@@ -228,7 +242,9 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 	// selection, which depends on the date the enricher fills in.
 	p.bundler.Enrich(ctx, payload.Releases)
 
-	// Frontier = newest release by bundle date across all envs.
+	// Frontier = newest release by bundle date across the DEPLOYED envs (computed
+	// before history is merged, so a dimmed previously-deployed card never becomes
+	// the frontier).
 	for _, r := range payload.Releases {
 		if r.Date == "" {
 			continue
@@ -237,7 +253,50 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			payload.Frontier = r
 		}
 	}
+
+	// Merge previously-deployed bundles so the freight bar shows release history,
+	// not just what is live right now. These arrive with no environment pointing
+	// at them, so the UI renders them as dimmed, zero-deployment cards.
+	p.mergeHistory(ctx, &payload)
 	return payload, nil
+}
+
+// mergeHistory adds previously-deployed release bundles to payload.Releases so the
+// timeline shows history. It is a no-op when the history source is disabled.
+//
+// Only bundles no newer than the frontier are added: a lock commit on the default
+// branch that is newer than every deployed env is a bundle not yet promoted
+// anywhere (a pending/future release), which is not "previously deployed" and
+// would otherwise appear as a stray dimmed card ahead of the fleet. Currently
+// deployed bundles are already in the map (added by canonicalRelease) and keep
+// their shared pointer. The total distinct bundle count is capped at historyLimit.
+func (p *Promotion) mergeHistory(ctx context.Context, payload *PromotionPayload) {
+	if p.history == nil || p.historyLimit <= 0 {
+		return
+	}
+	// Ceiling for "previously deployed": the newest bundle any env actually runs.
+	// Empty when nothing resolved to a dated bundle, in which case we add nothing
+	// rather than guess which history entries were deployed.
+	frontierDate := ""
+	if payload.Frontier != nil {
+		frontierDate = payload.Frontier.Date
+	}
+	if frontierDate == "" {
+		return
+	}
+	for _, r := range p.history.Recent(ctx, p.historyLimit) {
+		if len(payload.Releases) >= p.historyLimit {
+			break
+		}
+		if r.Date == "" || r.Date > frontierDate {
+			continue // undated or not-yet-deployed-anywhere (ahead of the fleet)
+		}
+		key := releaseKey(r)
+		if _, ok := payload.Releases[key]; ok {
+			continue // already present as a currently-deployed bundle
+		}
+		payload.Releases[key] = r
+	}
 }
 
 // canonicalRelease resolves sha to a release, deduplicating into the shared map
