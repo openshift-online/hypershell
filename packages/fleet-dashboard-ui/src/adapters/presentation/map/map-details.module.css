@@ -81,20 +81,23 @@
   font-weight: 600;
 }
 
-/* The byline: a muted "by" that recedes, setting off the author handle. A hairline
- * rule and a little top padding separate it from the title line above. */
+/* The byline, set off from the title by a hairline rule and a little top padding.
+ * No colour override: a PatternFly tooltip renders on the INVERSE surface (light in
+ * the dark theme), so the canvas `text--color--subtle`/`regular` tokens used here
+ * before were light-on-light and failed contrast. Inheriting the tooltip's own
+ * foreground keeps the whole byline AAA-legible; the smaller font-size lets the "by"
+ * recede without lowering its contrast. */
 .prTipAuthor {
   padding-top: 0.25rem;
   border-top: 1px solid var(--pf-t--global--border--color--default, #3d3d3d);
   font-size: var(--pf-t--global--font--size--xs, 0.75rem);
-  color: var(--pf-t--global--text--color--subtle, #b8bbbe);
 }
 
-/* The author handle itself: brighter and bolder than the surrounding "by", so the
- * name is the part of the byline the eye lands on. */
+/* The author handle: bolder than the surrounding "by" so the name is where the eye
+ * lands. Weight alone carries the emphasis - no colour change, so it stays at the
+ * tooltip's full-contrast foreground. */
 .prTipHandle {
   font-weight: 600;
-  color: var(--pf-t--global--text--color--regular, #f0f0f0);
 }
 
 /* A section zone inside the detail panel (Deployed on / In this bundle): clear
@@ -383,13 +386,22 @@
   outline: none;
 }
 
-/* The primary (instance) card leads the list: brand-tinted and a touch heavier. */
+/* The primary (instance) card leads the list: brand-tinted and a touch heavier.
+ * A translucent BRAND-BLUE tint over the dark drawer - NOT the PF `highlight`
+ * background token, which resolves to a bright amber that fails text contrast
+ * (AAA, and AA for the sub-label) under the light label/desc colours. The blue
+ * tint composites to a dark blue-grey, so the light text keeps > 7:1 contrast,
+ * while the brand border + larger label still make this card lead the list. */
 .linkCardPrimary {
-  background: var(
-    --pf-t--global--background--color--highlight--default,
-    rgba(0, 102, 204, 0.12)
-  );
+  background: rgba(0, 102, 204, 0.16);
   border-color: var(--pf-t--global--border--color--brand--default, #0066cc);
+}
+
+/* On the tinted primary card the muted sub-label would only reach ~5.6:1; lift it
+ * to the regular (bright) text colour so it clears AAA (hierarchy is still carried
+ * by the label's heavier weight and larger size). */
+.linkCardPrimary .linkCardDesc {
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
 }
 
 .linkCardIcon {
