@@ -334,6 +334,9 @@ function BundleContents({
   const prs = bundle?.prs ?? [];
   // The heading reads as one band: identicon, "In this bundle" eyebrow, then the
   // PR count pinned to the right as a badge so the tab's size is legible at a glance.
+  const prCountSummary = intl.formatMessage(messages.bundlePrSummary, {
+    count: prs.length,
+  });
   return (
     <>
       <div className={styles.bundleHead}>
@@ -344,12 +347,14 @@ function BundleContents({
           <FormattedMessage {...messages.sectionInBundle} />
         </h4>
         {prs.length > 0 ? (
+          // The badge's visible text is the bare count; aria-label gives it the
+          // full "N pull requests" accessible name (title alone is not reliably
+          // announced on a non-interactive element).
           <Badge
             isRead
             className={styles.bundleCount}
-            title={intl.formatMessage(messages.bundlePrSummary, {
-              count: prs.length,
-            })}
+            aria-label={prCountSummary}
+            title={prCountSummary}
           >
             {prs.length}
           </Badge>
