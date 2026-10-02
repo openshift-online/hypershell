@@ -83,7 +83,7 @@ func TestPromotionDerivation(t *testing.T) {
 		ArgoVersion:           "v1alpha1",
 		ArgoBaseURL:           "https://argo.example",
 	}
-	p := NewPromotion(c, dyn, nil, nil, nil)
+	p := NewPromotion(c, dyn, nil, nil, nil, nil)
 
 	got, err := p.Promotion(context.Background())
 	if err != nil {
@@ -225,6 +225,83 @@ func TestSameRelease(t *testing.T) {
 				t.Errorf("sameRelease = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// fakeHistory returns a fixed, newest-first list of previously-deployed bundles.
+type fakeHistory []*Release
+
+func (f fakeHistory) Recent(_ context.Context, limit int) []*Release {
+	if limit <= 0 || limit >= len(f) {
+		return f
+	}
+	return f[:limit]
+}
+
+// TestMergeHistory proves the release-history merge: previously-deployed bundles
+// older than the frontier become dimmed cards, the currently-deployed one keeps
+// its shared pointer, the total distinct bundle count is capped at historyLimit,
+// and the frontier is left untouched.
+func TestMergeHistory(t *testing.T) {
+	ctx := context.Background()
+	// Currently deployed bundle, at the frontier date (the common case: the newest
+	// bundle is the one the fleet runs).
+	deployed := &Release{Version: "v20260930", Digest: "sha256:dddd", Date: "2026-09-30T12:00:00Z"}
+
+	// History newest-first: the deployed bundle plus three older ones. With a cap
+	// of 3, Recent(3) yields the three newest (dddd, cccc, bbbb); aaaa is never
+	// fetched.
+	hist := fakeHistory{
+		{Version: "v20260930", Digest: "sha256:dddd", Date: "2026-09-30T12:00:00Z"}, // == deployed -> dedup
+		{Version: "v20260929", Digest: "sha256:cccc", Date: "2026-09-29T12:00:00Z"}, // older -> added
+		{Version: "v20260928", Digest: "sha256:bbbb", Date: "2026-09-28T12:00:00Z"}, // older -> added
+		{Version: "v20260927", Digest: "sha256:aaaa", Date: "2026-09-27T12:00:00Z"}, // over cap -> dropped
+	}
+
+	p := &Promotion{history: hist, historyLimit: 3}
+	payload := &PromotionPayload{
+		Releases: map[string]*Release{"sha256:dddd": deployed},
+		Frontier: deployed,
+	}
+	p.mergeHistory(ctx, payload)
+
+	wantKeys := map[string]bool{"sha256:dddd": true, "sha256:cccc": true, "sha256:bbbb": true}
+	if len(payload.Releases) != len(wantKeys) {
+		t.Fatalf("mergeHistory -> %d releases %v, want %v", len(payload.Releases), keysOf(payload.Releases), wantKeys)
+	}
+	for k := range wantKeys {
+		if _, ok := payload.Releases[k]; !ok {
+			t.Errorf("missing expected release %q; have %v", k, keysOf(payload.Releases))
+		}
+	}
+	if payload.Releases["sha256:dddd"] != deployed {
+		t.Error("currently-deployed bundle must keep its shared pointer, not be overwritten by history")
+	}
+	if payload.Frontier != deployed {
+		t.Error("mergeHistory must not change the frontier")
+	}
+
+	// Filter: a bundle NEWER than the frontier is not "previously deployed" (it is
+	// a pending release not yet promoted anywhere) and must be excluded.
+	pPend := &Promotion{history: fakeHistory{
+		{Version: "v20261001", Digest: "sha256:eeee", Date: "2026-10-01T12:00:00Z"}, // newer than frontier
+		{Version: "v20260929", Digest: "sha256:cccc", Date: "2026-09-29T12:00:00Z"}, // older
+	}, historyLimit: 10}
+	pend := &PromotionPayload{Releases: map[string]*Release{"sha256:dddd": deployed}, Frontier: deployed}
+	pPend.mergeHistory(ctx, pend)
+	if _, ok := pend.Releases["sha256:eeee"]; ok {
+		t.Error("a bundle newer than the frontier must not be added (not previously deployed)")
+	}
+	if _, ok := pend.Releases["sha256:cccc"]; !ok {
+		t.Error("an older previously-deployed bundle should still be added alongside the filtered pending one")
+	}
+
+	// Disabled: nil history is a no-op.
+	pOff := &Promotion{history: nil, historyLimit: 10}
+	off := &PromotionPayload{Releases: map[string]*Release{"sha256:dddd": deployed}, Frontier: deployed}
+	pOff.mergeHistory(ctx, off)
+	if len(off.Releases) != 1 {
+		t.Errorf("nil history must be a no-op, got %d releases", len(off.Releases))
 	}
 }
 

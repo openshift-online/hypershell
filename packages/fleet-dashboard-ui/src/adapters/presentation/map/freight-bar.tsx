@@ -12,6 +12,7 @@ import {
   deployedCount,
   seedForBundle,
 } from "../../../domain/map/bundles";
+import { shortDigest } from "../../../domain/map/digest";
 import { identiName } from "../../../domain/map/identiname";
 import type { MapNode } from "../../../domain/map/model";
 import type { ReleaseBundle } from "../../../domain/promotion";
@@ -98,8 +99,11 @@ export function FreightBar({
                   {identiName(seed)}
                 </div>
                 {bundle.digest ? (
-                  <div style={{ fontSize: 10, opacity: 0.55 }}>
-                    {bundle.digest}
+                  <div
+                    style={{ fontSize: 10, opacity: 0.55 }}
+                    title={bundle.digest}
+                  >
+                    {shortDigest(bundle.digest)}
                   </div>
                 ) : null}
               </div>
