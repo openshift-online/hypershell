@@ -315,7 +315,8 @@ export const messages = defineMessages({
   linkConsole: {
     id: "fleet.map.link.console",
     defaultMessage: "HyperShell Instance",
-    description: "Link label for an instance's web console (its live front door).",
+    description:
+      "Link label for an instance's web console (its live front door).",
   },
   linkConsoleDesc: {
     id: "fleet.map.link.console.desc",
