@@ -305,6 +305,87 @@ func TestMergeHistory(t *testing.T) {
 	}
 }
 
+// recordingBundler records how many releases Enrich is given and, mimicking the
+// real enricher, assigns a PR to every release once there is a prior bundle to
+// diff against (len >= 2). It lets a test assert both call ordering and effect.
+type recordingBundler struct{ enrichSizes []int }
+
+func (b *recordingBundler) ResolveDates(context.Context, map[string]*Release) {}
+
+func (b *recordingBundler) Enrich(_ context.Context, releases map[string]*Release) {
+	b.enrichSizes = append(b.enrichSizes, len(releases))
+	if len(releases) < 2 {
+		return
+	}
+	for _, r := range releases {
+		r.PRs = []PR{{Number: 1, Title: "example"}}
+	}
+}
+
+// TestFrontierEnrichedAfterHistoryMerge proves the "in this bundle" fix: when the
+// whole fleet is converged on one bundle, PR enrichment still runs against the
+// previous bundle because Enrich is called over the full set AFTER history is
+// merged. Before the fix Enrich ran first and saw only the single deployed
+// bundle, leaving the frontier with no PRs.
+func TestFrontierEnrichedAfterHistoryMerge(t *testing.T) {
+	psGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "promotionstrategies"}
+	ctpGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "changetransferpolicies"}
+	appGVR := schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
+
+	// Single environment; the whole (one-env) fleet is converged on one bundle.
+	ps := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "promoter.argoproj.io/v1alpha1",
+		"kind":       "PromotionStrategy",
+		"metadata":   map[string]any{"name": "hypershell", "namespace": "promoter-ns"},
+		"status": map[string]any{"environments": []any{
+			map[string]any{
+				"branch":   "env/prod",
+				"active":   map[string]any{"dry": map[string]any{"sha": "aaaaaaaaaaaa"}},
+				"proposed": map[string]any{"dry": map[string]any{"sha": "aaaaaaaaaaaa"}},
+			},
+		}},
+	}}
+	scheme := runtime.NewScheme()
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, map[schema.GroupVersionResource]string{
+		psGVR:  "PromotionStrategyList",
+		ctpGVR: "ChangeTransferPolicyList",
+		appGVR: "ApplicationList",
+	}, ps)
+
+	deployed := &Release{Version: "v20261002", Digest: "sha256:dddd", Date: "2026-10-02T12:00:00Z", SHA: "aaaaaaaaaaaa"}
+	older := &Release{Version: "v20260930", Digest: "sha256:cccc", Date: "2026-09-30T12:00:00Z", SHA: "cccccccccccc"}
+
+	rec := &recordingBundler{}
+	p := &Promotion{
+		dyn:          dyn,
+		ns:           "promoter-ns",
+		strategy:     "hypershell",
+		psGVR:        psGVR,
+		ctpGVR:       ctpGVR,
+		appGVR:       appGVR,
+		versioner:    fakeResolver{"aaaaaaaaaaaa": deployed},
+		analyzer:     noopAnalysis{},
+		bundler:      rec,
+		history:      fakeHistory{deployed, older},
+		historyLimit: 10,
+	}
+
+	got, err := p.Promotion(context.Background())
+	if err != nil {
+		t.Fatalf("Promotion: %v", err)
+	}
+	payload := got.(PromotionPayload)
+
+	// Enrich must have been called exactly once, over BOTH bundles (deployed +
+	// merged history), not just the single deployed one.
+	if len(rec.enrichSizes) != 1 || rec.enrichSizes[0] != 2 {
+		t.Fatalf("Enrich call sizes = %v, want [2] (deployed + history, after merge)", rec.enrichSizes)
+	}
+	if payload.Frontier == nil || len(payload.Frontier.PRs) == 0 {
+		t.Errorf("frontier should be PR-enriched when a prior bundle exists; got %+v", payload.Frontier)
+	}
+}
+
 func keysOf(m map[string]*Release) []string {
 	ks := make([]string, 0, len(m))
 	for k := range m {

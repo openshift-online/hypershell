@@ -238,9 +238,12 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 		payload.Environments[key] = env
 	}
 
-	// Enrich release bundles (dates + PR lists) best-effort before frontier
-	// selection, which depends on the date the enricher fills in.
-	p.bundler.Enrich(ctx, payload.Releases)
+	// Resolve bundle dates best-effort before frontier selection, which depends on
+	// the date. (A lock resolver already fills Date from the bundle tag; this only
+	// matters in the short-SHA fallback.) PR lists are diffed later, after history
+	// is merged, so a fleet converged on one bundle still has a prior bundle to
+	// diff the frontier against.
+	p.bundler.ResolveDates(ctx, payload.Releases)
 
 	// Frontier = newest release by bundle date across the DEPLOYED envs (computed
 	// before history is merged, so a dimmed previously-deployed card never becomes
@@ -258,6 +261,12 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 	// not just what is live right now. These arrive with no environment pointing
 	// at them, so the UI renders them as dimmed, zero-deployment cards.
 	p.mergeHistory(ctx, &payload)
+
+	// Diff PR lists over the full set (deployed + history), so the frontier's "in
+	// this bundle" list is populated even when every environment runs the same
+	// bundle (the single-deployed-bundle case has no peer to diff against until
+	// history is present).
+	p.bundler.Enrich(ctx, payload.Releases)
 	return payload, nil
 }
 
