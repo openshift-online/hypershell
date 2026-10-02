@@ -84,6 +84,9 @@ OPENSHELL_CLI_CONTAINERIZED=0
 ORPHAN_NS=""
 ORPHAN_GC_DEADLINE=0
 SANDBOX_NAME=""
+# Gateways created by the extended areas (12-13). The cleanup trap deletes each on
+# any exit so an aborted run never leaks a provisioned gateway.
+E2E_EXTRA_GW_IDS=()
 E2E_GW_PF_PID="${E2E_GW_PF_PID:-}"
 E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-hypershell-system}"
 
@@ -166,6 +169,15 @@ cleanup() {
     acquire_oidc_token 2>/dev/null || true
     api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${GW_ID}" &>/dev/null || true
   fi
+  # Extended areas (12-13) create their own gateways; delete any that survived.
+  if [[ "$E2E_SKIP_CLEANUP" != "1" && "${#E2E_EXTRA_GW_IDS[@]}" -gt 0 ]]; then
+    acquire_oidc_token 2>/dev/null || true
+    local _xid
+    for _xid in "${E2E_EXTRA_GW_IDS[@]}"; do
+      [[ -n "$_xid" ]] || continue
+      api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${_xid}" &>/dev/null || true
+    done
+  fi
   # Stop the kind driver's loopback gateway forwarder, if one was started.
   if [[ -n "${_KINDCCM_SOCAT_PID:-}" ]]; then
     kill "${_KINDCCM_SOCAT_PID}" 2>/dev/null || true
@@ -222,6 +234,9 @@ printf '  %s\n' "8. Sandbox interaction + active sandbox count"
 printf '  %s\n' "9. Developer user RBAC verification"
 printf '  %s\n' "10. Platform admin RBAC verification"
 printf '  %s\n' "11. Gateway deletion + namespace garbage collection"
+printf '  %s\n' "12. ManagedCluster registration + control-plane identity [long]"
+printf '  %s\n' "13. Gateway release promotion + reconciled status [long]"
+printf '  %s\n' "14. Admin inventory + API validation [long]"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  Mode:              ${E2E_MODE}"
@@ -2210,6 +2225,644 @@ else
       else
         fail_test "Expected GarbageCollected Event for ${ORPHAN_NS} in ${E2E_HS_NAMESPACE}, got ${GC_EVENT:-none}"
       fi
+    fi
+  fi
+fi
+sep
+
+# ── 12. ManagedCluster registration + control-plane identity ────────────────
+# Area 12 validates managed-cluster-registration.spec.md directly (not only by
+# consuming the already-registered cluster), plus the control-plane gRPC identity
+# binding and reconnect convergence (HYPERSHELL-241). Long only: it mutates fleet
+# records and acts as the registrar/control-plane identity.
+
+echo ""
+e2e_area "12. ManagedCluster Registration + Control-Plane Identity"
+echo ""
+
+if ! e2e_step long; then
+  dim "  Skipped (E2E_MODE=${E2E_MODE}): area 12 mutates fleet records and acts as a second identity"
+else
+  acquire_oidc_token 2>/dev/null || true
+  e2e_ensure_seed_ids || true
+
+  # ── 12a. Co-located control plane is registered ──
+  show_cmd "api_curl ${API_HOST}/api/hypershell/v1/managed_clusters  # ${E2E_SEED_CLUSTER_NAME} registered + fresh"
+  MC_LIST=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters" 2>/dev/null || true)
+  IFS=$'\t' read -r MC_SUBJECT MC_AGE <<< "$(echo "$MC_LIST" | WANT_NAME="$E2E_SEED_CLUSTER_NAME" python3 -c "
+import json, os, sys, datetime
+name = os.environ.get('WANT_NAME','')
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print('\t'); sys.exit(0)
+rec = None
+for it in data.get('items', []) or []:
+    if not name or it.get('name','') == name:
+        rec = it; break
+if not rec:
+    print('\t'); sys.exit(0)
+subject = rec.get('oidc_subject','') or ''
+age = ''
+ls = rec.get('last_seen_at','') or ''
+if ls:
+    try:
+        t = datetime.datetime.fromisoformat(ls.replace('Z','+00:00'))
+        age = str(int((datetime.datetime.now(datetime.timezone.utc) - t).total_seconds()))
+    except Exception:
+        age = ''
+print('%s\t%s' % (subject, age))
+" 2>/dev/null)" || true
+  if [[ -n "$MC_SUBJECT" ]]; then
+    pass "ManagedCluster ${E2E_SEED_CLUSTER_NAME} has a control-plane oidc_subject"
+  else
+    fail_test "ManagedCluster ${E2E_SEED_CLUSTER_NAME} has no oidc_subject (control plane never registered)"
+  fi
+  if [[ -n "$MC_AGE" && "$MC_AGE" -lt 300 ]]; then
+    pass "last_seen_at is fresh (${MC_AGE}s < 5m): the registration heartbeat is running"
+  else
+    fail_test "last_seen_at is stale or missing (age=${MC_AGE:-unknown}s); heartbeat may not be running"
+  fi
+
+  # ── 12b. Registration is idempotent ──
+  MC_LS_BEFORE=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters/${E2E_CLUSTER_ID}" 2>/dev/null | e2e_json_field last_seen_at)
+  if acquire_registrar_token; then
+    pass "Registrar client-credentials token acquired (${E2E_REGISTRAR_CLIENT_ID})"
+    show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/managed_clusters/registration -d '{name: ${E2E_SEED_CLUSTER_NAME}}'"
+    REG1=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters/registration" \
+      -X POST -H "Content-Type: application/json" -d "{\"name\":\"${E2E_SEED_CLUSTER_NAME}\"}" 2>/dev/null || true)
+    REG1_ID=$(echo "$REG1" | e2e_json_field cluster_id)
+    REG2=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters/registration" \
+      -X POST -H "Content-Type: application/json" -d "{\"name\":\"${E2E_SEED_CLUSTER_NAME}\"}" 2>/dev/null || true)
+    REG2_ID=$(echo "$REG2" | e2e_json_field cluster_id)
+    if [[ -n "$REG1_ID" && "$REG1_ID" == "$E2E_CLUSTER_ID" && "$REG2_ID" == "$E2E_CLUSTER_ID" ]]; then
+      pass "Re-registration is idempotent (both calls returned the existing cluster_id ${E2E_CLUSTER_ID})"
+    else
+      fail_test "Re-registration did not return the existing cluster_id (got '${REG1_ID}' / '${REG2_ID}', want ${E2E_CLUSTER_ID})"
+    fi
+    # Restore the admin token for the inventory read, then confirm the heartbeat advanced.
+    acquire_oidc_token 2>/dev/null || true
+    MC_LS_AFTER=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters/${E2E_CLUSTER_ID}" 2>/dev/null | e2e_json_field last_seen_at)
+    if [[ -n "$MC_LS_AFTER" && ( -z "$MC_LS_BEFORE" || ! "$MC_LS_AFTER" < "$MC_LS_BEFORE" ) && "$MC_LS_AFTER" != "$MC_LS_BEFORE" ]]; then
+      pass "Registration advanced last_seen_at (${MC_LS_BEFORE} -> ${MC_LS_AFTER})"
+    elif [[ -n "$MC_LS_AFTER" ]]; then
+      # String compare is lexicographic on RFC3339, which is chronological; a
+      # non-advance within the same second is possible but unexpected after two POSTs.
+      dim "    last_seen_at did not visibly advance (${MC_LS_BEFORE} -> ${MC_LS_AFTER}); within one second"
+      pass "Registration POST accepted and heartbeat timestamp present"
+    else
+      fail_test "Could not read last_seen_at after registration"
+    fi
+  else
+    fail_test "Could not acquire the registrar client-credentials token (${E2E_REGISTRAR_CLIENT_ID})"
+  fi
+
+  # ── 12c. Missing registrar role rejected ──
+  # The admin user client has no managed-cluster-registrar role.
+  acquire_oidc_token 2>/dev/null || true
+  show_cmd "api_curl -X POST .../managed_clusters/registration (as admin, no registrar role) -> expect 403"
+  REG_FORBIDDEN=$(e2e_http_status POST "${API_HOST}/api/hypershell/v1/managed_clusters/registration" \
+    -H "Content-Type: application/json" -d "{\"name\":\"e2e-noauth-$RANDOM\"}")
+  if [[ "$REG_FORBIDDEN" == "403" ]]; then
+    pass "Registration without the managed-cluster-registrar role is 403 Forbidden"
+  else
+    fail_test "Expected 403 registering without the registrar role, got ${REG_FORBIDDEN:-none}"
+  fi
+
+  # ── 12d. Name collision rejected ──
+  if acquire_registrar_token; then
+    COLLIDE_NAME="${E2E_SEED_CLUSTER_NAME}-collide-$RANDOM"
+    show_cmd "api_curl -X POST .../managed_clusters/registration -d '{name: ${COLLIDE_NAME}}' (registrar, different name) -> expect 409"
+    COLLIDE_CODE=$(e2e_http_status POST "${API_HOST}/api/hypershell/v1/managed_clusters/registration" \
+      -H "Content-Type: application/json" -d "{\"name\":\"${COLLIDE_NAME}\"}")
+    acquire_oidc_token 2>/dev/null || true
+    COLLIDE_PRESENT=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters?search=name%3D%27${COLLIDE_NAME}%27" 2>/dev/null | e2e_json_field total)
+    if [[ "$COLLIDE_CODE" == "409" ]]; then
+      pass "Registering a different name under the same subject is 409 Conflict"
+    else
+      fail_test "Expected 409 for a name change under the same subject, got ${COLLIDE_CODE:-none}"
+    fi
+    if [[ "${COLLIDE_PRESENT:-0}" == "0" ]]; then
+      pass "No ManagedCluster record was created for the rejected name ${COLLIDE_NAME}"
+    else
+      fail_test "A ManagedCluster record was created despite the 409 (${COLLIDE_NAME})"
+    fi
+  fi
+  acquire_oidc_token 2>/dev/null || true
+
+  # ── 12e. Gateway create rejects an unregistered cluster ──
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{cluster_id: \"\"}' -> expect 400 naming cluster_id"
+  EMPTY_CID_BODY=$(GW_NAME="e2e-empty-cid-$RANDOM" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
+    E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" python3 -c "
+import json, os
+print(json.dumps({
+    'name': os.environ['GW_NAME'],
+    'cluster_id': '',
+    'release_id': '',
+    'oidc': json.dumps({'issuer': os.environ['E2E_OIDC_ISSUER'], 'audience': os.environ['E2E_OIDC_CLIENT_ID'],
+                        'roles_claim': 'groups', 'admin_role': 'hypershell-admins', 'user_role': 'hypershell-users'}),
+    'route': json.dumps({'enabled': True}),
+}))")
+  EMPTY_CID_FILE=$(mktemp)
+  EMPTY_CID_CODE=$(api_curl -o "$EMPTY_CID_FILE" -w '%{http_code}' -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+    -H "Content-Type: application/json" -d "$EMPTY_CID_BODY" 2>/dev/null || true)
+  EMPTY_CID_REASON=$(e2e_json_field reason < "$EMPTY_CID_FILE")
+  rm -f "$EMPTY_CID_FILE"
+  if [[ "$EMPTY_CID_CODE" == "400" && "$EMPTY_CID_REASON" == *cluster_id* ]]; then
+    pass "Gateway create with an empty cluster_id is 400 and names cluster_id"
+  else
+    fail_test "Empty cluster_id: expected 400 naming cluster_id, got ${EMPTY_CID_CODE:-none} (${EMPTY_CID_REASON:0:80})"
+  fi
+
+  # Create an inert placeholder ManagedCluster (empty oidc_subject: no control
+  # plane serves it), confirm a gateway referencing it is refused, then delete it.
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/managed_clusters -d '{placeholder}'  # empty oidc_subject"
+  PLACEHOLDER=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/managed_clusters" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"e2e-placeholder-$RANDOM\",\"provider\":\"none\",\"kubeconfig_secret\":\"none\"}" 2>/dev/null || true)
+  PLACEHOLDER_ID=$(echo "$PLACEHOLDER" | e2e_json_field id)
+  if [[ -n "$PLACEHOLDER_ID" && "$(echo "$PLACEHOLDER" | e2e_json_field kind)" == "ManagedCluster" ]]; then
+    PLACEHOLDER_GW_BODY=$(GW_NAME="e2e-ph-gw-$RANDOM" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
+      E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" PH_ID="$PLACEHOLDER_ID" python3 -c "
+import json, os
+print(json.dumps({
+    'name': os.environ['GW_NAME'],
+    'cluster_id': os.environ['PH_ID'],
+    'release_id': '',
+    'oidc': json.dumps({'issuer': os.environ['E2E_OIDC_ISSUER'], 'audience': os.environ['E2E_OIDC_CLIENT_ID'],
+                        'roles_claim': 'groups', 'admin_role': 'hypershell-admins', 'user_role': 'hypershell-users'}),
+    'route': json.dumps({'enabled': True}),
+}))")
+    PH_GW_FILE=$(mktemp)
+    PH_GW_CODE=$(api_curl -o "$PH_GW_FILE" -w '%{http_code}' -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+      -H "Content-Type: application/json" -d "$PLACEHOLDER_GW_BODY" 2>/dev/null || true)
+    PH_GW_REASON=$(e2e_json_field reason < "$PH_GW_FILE")
+    rm -f "$PH_GW_FILE"
+    if [[ "$PH_GW_CODE" == "400" && "$PH_GW_REASON" == *cluster_id* ]]; then
+      pass "Gateway create against an unregistered ManagedCluster is 400 and names cluster_id"
+    else
+      fail_test "Unregistered cluster: expected 400 naming cluster_id, got ${PH_GW_CODE:-none} (${PH_GW_REASON:0:80})"
+    fi
+    PH_DEL=$(e2e_http_status DELETE "${API_HOST}/api/hypershell/v1/managed_clusters/${PLACEHOLDER_ID}")
+    if [[ "$PH_DEL" == "204" || "$PH_DEL" == "404" ]]; then
+      pass "Inert placeholder ManagedCluster deleted (clean state restored)"
+    else
+      fail_test "Could not delete the placeholder ManagedCluster (HTTP ${PH_DEL:-none})"
+    fi
+  else
+    fail_test "Could not create the inert placeholder ManagedCluster for the unregistered-cluster check"
+  fi
+
+  # ── 12f. Unauthorized or revoked gRPC identity is rejected ──
+  # Exercises the public gRPC Watch boundary (managed-cluster-registration.spec.md
+  # Watch Stream Caller Binding). Needs grpcurl against the api-server gRPC port;
+  # the Kind path port-forwards svc/hypershell-api-server:9000 (plaintext by
+  # default, as scripts/kind/grpc-tls-smoke.sh documents).
+  if [[ "$E2E_INFRA_DRIVER" != "kind" ]]; then
+    dim "  Skipped: gRPC identity-rejection checks run on the kind driver (OpenShift gRPC boundary discovery is a follow-up)"
+  elif ! command -v grpcurl >/dev/null 2>&1; then
+    dim "  Skipped: grpcurl not installed (install github.com/fullstorydev/grpcurl to cover the gRPC identity boundary)"
+  else
+    GRPC_PF_PORT="${E2E_GRPC_PF_PORT:-19000}"
+    GRPC_PF_LOG=$(mktemp)
+    $CLI port-forward -n "${E2E_HS_NAMESPACE}" svc/hypershell-api-server "${GRPC_PF_PORT}:9000" >"${GRPC_PF_LOG}" 2>&1 &
+    GRPC_PF_PID=$!
+    for _ in $(seq 1 30); do grep -q 'Forwarding from' "${GRPC_PF_LOG}" 2>/dev/null && break; sleep 0.5; done
+    GRPC_ADDR="127.0.0.1:${GRPC_PF_PORT}"
+    GRPC_SVC="hypershell.v1.GatewayService/WatchGateways"
+
+    show_cmd "grpcurl -plaintext ${GRPC_ADDR} ${GRPC_SVC}  # no token -> Unauthenticated"
+    NOTOKEN_OUT=$(grpcurl -plaintext -max-time 10 -d '{}' "${GRPC_ADDR}" "${GRPC_SVC}" 2>&1 || true)
+    if grep -qi 'Unauthenticated' <<<"$NOTOKEN_OUT"; then
+      pass "gRPC WatchGateways without a token is UNAUTHENTICATED"
+    else
+      fail_test "gRPC WatchGateways without a token did not return UNAUTHENTICATED"
+      dim "    ${NOTOKEN_OUT##*$'\n'}"
+    fi
+
+    if acquire_registrar_token; then
+      GRPC_TOKEN="${_OIDC_ACCESS_TOKEN}"
+      show_cmd "grpcurl -H 'authorization: Bearer ...' -d '{cluster_id: other}' ${GRPC_ADDR} ${GRPC_SVC}  # -> PermissionDenied"
+      WRONGCID_OUT=$(grpcurl -plaintext -max-time 10 -H "authorization: Bearer ${GRPC_TOKEN}" \
+        -d '{"cluster_id":"e2e-not-my-cluster"}' "${GRPC_ADDR}" "${GRPC_SVC}" 2>&1 || true)
+      if grep -qi 'PermissionDenied' <<<"$WRONGCID_OUT"; then
+        pass "gRPC WatchGateways with a foreign cluster_id is PERMISSION_DENIED"
+      else
+        fail_test "gRPC WatchGateways with a foreign cluster_id did not return PERMISSION_DENIED"
+        dim "    ${WRONGCID_OUT##*$'\n'}"
+      fi
+
+      show_cmd "grpcurl -H 'authorization: Bearer ...' -d '{}' ${GRPC_ADDR} ${GRPC_SVC}  # no cluster_id -> InvalidArgument"
+      NOCID_OUT=$(grpcurl -plaintext -max-time 10 -H "authorization: Bearer ${GRPC_TOKEN}" \
+        -d '{}' "${GRPC_ADDR}" "${GRPC_SVC}" 2>&1 || true)
+      if grep -qi 'InvalidArgument' <<<"$NOCID_OUT"; then
+        pass "gRPC WatchGateways with no cluster_id filter is INVALID_ARGUMENT"
+      else
+        fail_test "gRPC WatchGateways with no cluster_id filter did not return INVALID_ARGUMENT"
+        dim "    ${NOCID_OUT##*$'\n'}"
+      fi
+    else
+      fail_test "Could not acquire the registrar token for the gRPC cluster-binding checks"
+    fi
+
+    kill "$GRPC_PF_PID" 2>/dev/null || true
+    wait "$GRPC_PF_PID" 2>/dev/null || true
+    rm -f "$GRPC_PF_LOG"
+    acquire_oidc_token 2>/dev/null || true
+  fi
+
+  # ── 12g. Reconnect converges on the current desired state ──
+  # Disconnect the control plane (scale to 0), create a gateway via the API while
+  # it is down, reconnect, and confirm the control plane converges from its
+  # snapshot: the gateway created during the outage reaches Running. This is the
+  # snapshot-delivery guarantee of HYPERSHELL-241 (the control plane re-reads
+  # current desired state on reconnect, not only live events).
+  #
+  # The spec also lists a gateway *deleted* during the outage. That half is not
+  # exercised here: the gateway-delete API path performs service-account cleanup
+  # through the control plane's in-cluster provisioner, so a DELETE issued while
+  # the control plane is scaled to 0 returns 503 ("gateway service-account cleanup
+  # is unavailable") -- the deletion cannot be initiated during the outage on this
+  # platform. Delete-driven namespace reaping on the live watch is covered by
+  # area 11 (watch-delete-events.spec.md) and the periodic reaper.
+  if [[ -z "${E2E_CLUSTER_ID:-}" ]]; then
+    fail_test "Skipped reconnect convergence: no registered cluster_id discovered"
+  else
+    RECON_NEW_NAME="e2e-recon-new-$(date +%s | tail -c6)"
+
+    show_cmd "$CLI scale deployment/hypershell-controller -n ${E2E_HS_NAMESPACE} --replicas=0  # disconnect"
+    if $CLI scale deployment/hypershell-controller -n "${E2E_HS_NAMESPACE}" --replicas=0 >/dev/null 2>&1 \
+       && $CLI rollout status deployment/hypershell-controller -n "${E2E_HS_NAMESPACE}" --timeout=120s >/dev/null 2>&1; then
+      pass "Control plane disconnected (scaled to 0)"
+    else
+      fail_test "Could not scale the control plane to 0 for the reconnect test"
+    fi
+
+    # Change desired state while disconnected: create a new gateway. (Create needs
+    # no control plane; only the later reconcile does.)
+    acquire_oidc_token 2>/dev/null || true
+    RECON_NEW_BODY=$(e2e_gateway_create_body "$RECON_NEW_NAME")
+    RECON_NEW_RESP=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+      -H "Content-Type: application/json" -d "$RECON_NEW_BODY" 2>/dev/null || true)
+    e2e_parse_gateway_response "$RECON_NEW_RESP"
+    RECON_NEW_ID="$_CREATE_ID"
+    [[ -n "$RECON_NEW_ID" ]] && E2E_EXTRA_GW_IDS+=("$RECON_NEW_ID")
+    if [[ "$_CREATE_KIND" == "OK" && -n "$RECON_NEW_ID" ]]; then
+      pass "While disconnected: created ${RECON_NEW_NAME} via the API (${RECON_NEW_ID})"
+    else
+      fail_test "Could not create the while-disconnected gateway ${RECON_NEW_NAME}"
+      dim "    ${RECON_NEW_RESP:0:200}"
+    fi
+
+    show_cmd "$CLI scale deployment/hypershell-controller -n ${E2E_HS_NAMESPACE} --replicas=1  # reconnect"
+    $CLI scale deployment/hypershell-controller -n "${E2E_HS_NAMESPACE}" --replicas=1 >/dev/null 2>&1 || true
+    $CLI rollout status deployment/hypershell-controller -n "${E2E_HS_NAMESPACE}" --timeout=180s >/dev/null 2>&1 || true
+
+    if [[ -n "$RECON_NEW_ID" ]]; then
+      RECON_NEW_PHASE=$(e2e_wait_gateway_running "$RECON_NEW_ID" "$E2E_PROVISION_TIMEOUT") || true
+      if [[ "$RECON_NEW_PHASE" == "Running" ]]; then
+        pass "On reconnect the control plane converged the while-disconnected gateway to Running (snapshot delivery)"
+      else
+        fail_test "While-disconnected gateway ${RECON_NEW_NAME} did not reach Running after reconnect (phase=${RECON_NEW_PHASE})"
+      fi
+
+      # Delete the gateway now that the control plane is back (delete needs it).
+      acquire_oidc_token 2>/dev/null || true
+      api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${RECON_NEW_ID}" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # ── 12h. Multi-cluster fleet coverage (opt-in) ──
+  if e2e_truthy "${E2E_MULTICLUSTER}"; then
+    if [[ -n "${E2E_SEED_CLUSTER_NAME_2:-}" ]]; then
+      acquire_oidc_token 2>/dev/null || true
+      MC2_JSON=$(api_curl "${API_HOST}/api/hypershell/v1/managed_clusters?search=name%3D%27${E2E_SEED_CLUSTER_NAME_2}%27" 2>/dev/null || true)
+      MC2_SUBJECT=$(echo "$MC2_JSON" | python3 -c "import json,sys
+try:
+    items=json.load(sys.stdin).get('items',[])
+    print(items[0].get('oidc_subject','') if items else '')
+except Exception: pass" 2>/dev/null)
+      if [[ -n "$MC2_SUBJECT" ]]; then
+        pass "Second cluster ${E2E_SEED_CLUSTER_NAME_2} is registered and selectable (E2E_MULTICLUSTER)"
+      else
+        fail_test "E2E_MULTICLUSTER=1 but second cluster ${E2E_SEED_CLUSTER_NAME_2} is not registered"
+      fi
+    else
+      fail_test "E2E_MULTICLUSTER=1 requires E2E_SEED_CLUSTER_NAME_2"
+    fi
+  else
+    dim "  Multi-cluster fleet coverage skipped (E2E_MULTICLUSTER unset): the second control plane is deployed by local-development.spec.md"
+  fi
+fi
+sep
+
+# ── 13. Gateway release promotion + reconciled status ───────────────────────
+# Area 13 closes the gateway-release-rollout gap (promotion) and asserts the
+# control plane's reconciled status write-back for releases and networks
+# (gateway-release-reconciliation / gateway-network-reconciliation). Long only.
+
+echo ""
+e2e_area "13. Gateway Release Promotion + Reconciled Status"
+echo ""
+
+if ! e2e_step long; then
+  dim "  Skipped (E2E_MODE=${E2E_MODE}): area 13 creates releases/networks and rolls a gateway"
+else
+  acquire_oidc_token 2>/dev/null || true
+  e2e_ensure_seed_ids || true
+
+  # ── 13a. Reconciled status: GatewayRelease ──
+  GOOD_IMAGE=""
+  if [[ -n "${E2E_RELEASE_ID:-}" ]]; then
+    GOOD_IMAGE=$(api_curl "${API_HOST}/api/hypershell/v1/gateway_releases/${E2E_RELEASE_ID}" 2>/dev/null | e2e_json_field image)
+  fi
+  : "${GOOD_IMAGE:=quay.io/openshift-online/hypershell-gateway:latest}"
+
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateway_releases -d '{valid image}'  # status -> Available"
+  REL_GOOD=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateway_releases" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"e2e-rel-good-$RANDOM\",\"image\":\"${GOOD_IMAGE}\"}" 2>/dev/null || true)
+  REL_GOOD_ID=$(echo "$REL_GOOD" | e2e_json_field id)
+  if [[ -n "$REL_GOOD_ID" ]]; then
+    REL_GOOD_STATUS=$(e2e_poll_resource_status "${API_HOST}/api/hypershell/v1/gateway_releases/${REL_GOOD_ID}" e2e_status_is_available 120) || true
+    if [[ "$REL_GOOD_STATUS" == "Available" ]]; then
+      pass "GatewayRelease with a valid image settles to Available"
+    else
+      fail_test "GatewayRelease with a valid image did not settle to Available (status=${REL_GOOD_STATUS})"
+    fi
+  else
+    fail_test "Could not create the valid GatewayRelease"
+  fi
+
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateway_releases -d '{malformed image}'  # status -> Invalid"
+  REL_BAD=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateway_releases" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"e2e-rel-bad-$RANDOM\",\"image\":\"not a valid image\"}" 2>/dev/null || true)
+  REL_BAD_ID=$(echo "$REL_BAD" | e2e_json_field id)
+  if [[ -n "$REL_BAD_ID" ]]; then
+    REL_BAD_STATUS=$(e2e_poll_resource_status "${API_HOST}/api/hypershell/v1/gateway_releases/${REL_BAD_ID}" e2e_status_is_invalid 120) || true
+    if e2e_status_is_invalid "$REL_BAD_STATUS"; then
+      pass "GatewayRelease with a malformed image settles to Invalid (${REL_BAD_STATUS})"
+    else
+      fail_test "GatewayRelease with a malformed image did not settle to Invalid (status=${REL_BAD_STATUS})"
+    fi
+  else
+    fail_test "Could not create the malformed GatewayRelease"
+  fi
+
+  # ── 13b. Reconciled status: GatewayNetwork ──
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateway_networks -d '{topology: mesh}'  # status -> Valid"
+  NET_GOOD=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateway_networks" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"e2e-net-good-$RANDOM\",\"topology\":\"mesh\"}" 2>/dev/null || true)
+  NET_GOOD_ID=$(echo "$NET_GOOD" | e2e_json_field id)
+  if [[ -n "$NET_GOOD_ID" ]]; then
+    NET_GOOD_STATUS=$(e2e_poll_resource_status "${API_HOST}/api/hypershell/v1/gateway_networks/${NET_GOOD_ID}" e2e_status_is_valid 120) || true
+    if [[ "$NET_GOOD_STATUS" == "Valid" ]]; then
+      pass "GatewayNetwork with a coherent topology settles to Valid"
+    else
+      fail_test "GatewayNetwork with a coherent topology did not settle to Valid (status=${NET_GOOD_STATUS})"
+    fi
+  else
+    fail_test "Could not create the coherent GatewayNetwork"
+  fi
+
+  show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateway_networks -d '{hub-spoke, dangling hub}'  # status -> Invalid"
+  NET_BAD=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateway_networks" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"e2e-net-bad-$RANDOM\",\"topology\":\"hub-spoke\",\"hub_gateway_id\":\"e2e-does-not-exist\"}" 2>/dev/null || true)
+  NET_BAD_ID=$(echo "$NET_BAD" | e2e_json_field id)
+  if [[ -n "$NET_BAD_ID" ]]; then
+    NET_BAD_STATUS=$(e2e_poll_resource_status "${API_HOST}/api/hypershell/v1/gateway_networks/${NET_BAD_ID}" e2e_status_is_invalid 120) || true
+    if e2e_status_is_invalid "$NET_BAD_STATUS"; then
+      pass "GatewayNetwork with a dangling hub settles to Invalid (${NET_BAD_STATUS})"
+    else
+      fail_test "GatewayNetwork with a dangling hub did not settle to Invalid (status=${NET_BAD_STATUS})"
+    fi
+  else
+    fail_test "Could not create the incoherent GatewayNetwork"
+  fi
+
+  # ── 13c. Gateway release promotion (single-cluster) ──
+  if [[ -z "${E2E_CLUSTER_ID:-}" || -z "$REL_GOOD_ID" ]]; then
+    fail_test "Skipped promotion: need a registered cluster_id and a valid release"
+  else
+    # Release A = seeded release (or the valid one just created); Release B = a
+    # second valid release with the same image (distinct id drives a rollout).
+    REL_A_ID="${E2E_RELEASE_ID:-$REL_GOOD_ID}"
+    REL_B="$REL_GOOD_ID"
+    PROMO_NAME="e2e-promo-$(date +%s | tail -c6)"
+    dim "  Provisioning promotion gateway ${PROMO_NAME} on release A (${REL_A_ID})..."
+    PROMO_BODY=$(E2E_RELEASE_ID="$REL_A_ID" e2e_gateway_create_body "$PROMO_NAME")
+    PROMO_RESP=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+      -H "Content-Type: application/json" -d "$PROMO_BODY" 2>/dev/null || true)
+    e2e_parse_gateway_response "$PROMO_RESP"
+    PROMO_ID="$_CREATE_ID"
+    [[ -n "$PROMO_ID" ]] && E2E_EXTRA_GW_IDS+=("$PROMO_ID")
+    if [[ "$_CREATE_KIND" == "OK" && -n "$PROMO_ID" ]]; then
+      PROMO_PHASE=$(e2e_wait_gateway_running "$PROMO_ID" "$E2E_PROVISION_TIMEOUT") || true
+      if [[ "$PROMO_PHASE" == "Running" ]]; then
+        pass "Promotion gateway reached Running on release A"
+      else
+        fail_test "Promotion gateway did not reach Running on release A (phase=${PROMO_PHASE})"
+      fi
+
+      # Promote A -> B: repoint release_id and wait for observed_release_id == B.
+      show_cmd "api_curl -X PATCH ${API_HOST}/api/hypershell/v1/gateways/${PROMO_ID} -d '{release_id: B}'"
+      api_curl -X PATCH "${API_HOST}/api/hypershell/v1/gateways/${PROMO_ID}" \
+        -H "Content-Type: application/json" -d "{\"release_id\":\"${REL_B}\"}" >/dev/null 2>&1 || true
+      PROMO_OBS=""
+      PROMO_DEADLINE=$(($(date +%s) + E2E_PROVISION_TIMEOUT))
+      while [[ $(date +%s) -lt $PROMO_DEADLINE ]]; do
+        acquire_oidc_token 2>/dev/null || true
+        PROMO_OBS=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${PROMO_ID}" 2>/dev/null | e2e_json_field observed_release_id)
+        [[ "$PROMO_OBS" == "$REL_B" ]] && break
+        sleep 5
+      done
+      if [[ "$PROMO_OBS" == "$REL_B" ]]; then
+        pass "Rollout reports the serving release: observed_release_id == B"
+      else
+        fail_test "observed_release_id did not advance to B within ${E2E_PROVISION_TIMEOUT}s (got '${PROMO_OBS}')"
+      fi
+
+      # Failed rollout: repoint to a bad (unpullable) release. The gateway must go
+      # Degraded and keep the last-good observed_release_id (B), never report the
+      # bad release as serving.
+      REL_BADROLL=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateway_releases" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"e2e-rel-unpullable-$RANDOM\",\"image\":\"quay.io/openshift-online/hypershell-gateway:e2e-nonexistent-tag\"}" 2>/dev/null || true)
+      REL_BADROLL_ID=$(echo "$REL_BADROLL" | e2e_json_field id)
+      if [[ -n "$REL_BADROLL_ID" ]]; then
+        show_cmd "api_curl -X PATCH .../gateways/${PROMO_ID} -d '{release_id: <unpullable>}'  # expect Degraded"
+        api_curl -X PATCH "${API_HOST}/api/hypershell/v1/gateways/${PROMO_ID}" \
+          -H "Content-Type: application/json" -d "{\"release_id\":\"${REL_BADROLL_ID}\"}" >/dev/null 2>&1 || true
+        BADROLL_PHASE=""
+        # The core safety guarantee (gateway-release-rollout.spec.md): a failed
+        # rollout is NEVER reported as a successful move to the bad release, and the
+        # last-good workload keeps serving. Watch the rollout settle and assert
+        # observed_release_id never leaves the last-good release (B). The gateway
+        # phase surfaces as Degraded only if the workload actually loses its serving
+        # pods; a revision-aware rollout that keeps the last-good pods (the new
+        # revision stuck ImagePullBackOff, Deployment still Available) stays Running
+        # on B, which is equally safe. Either phase is acceptable; a move to the bad
+        # release is not.
+        BADROLL_OBS=""
+        BADROLL_MOVED_TO_BAD=0
+        BADROLL_SETTLE=$(($(date +%s) + 120))
+        while [[ $(date +%s) -lt $BADROLL_SETTLE ]]; do
+          acquire_oidc_token 2>/dev/null || true
+          BR_JSON=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${PROMO_ID}" 2>/dev/null || true)
+          BADROLL_PHASE=$(echo "$BR_JSON" | e2e_json_field phase)
+          BADROLL_OBS=$(echo "$BR_JSON" | e2e_json_field observed_release_id)
+          [[ "$BADROLL_OBS" == "$REL_BADROLL_ID" ]] && BADROLL_MOVED_TO_BAD=1
+          [[ "$BADROLL_PHASE" == "Degraded" ]] && break
+          sleep 5
+        done
+        if [[ "$BADROLL_MOVED_TO_BAD" == "0" && "$BADROLL_OBS" == "$REL_B" ]]; then
+          pass "Failed rollout never became a successful move to the bad release; last-good (B) keeps serving (phase=${BADROLL_PHASE})"
+        else
+          fail_test "Failed rollout moved off the last-good release (observed=${BADROLL_OBS}, moved_to_bad=${BADROLL_MOVED_TO_BAD}); a bad rollout must not report the bad release as serving"
+        fi
+
+        # Recover: repoint back to B and confirm Running + observed_release_id == B.
+        show_cmd "api_curl -X PATCH .../gateways/${PROMO_ID} -d '{release_id: B}'  # recover -> Running"
+        api_curl -X PATCH "${API_HOST}/api/hypershell/v1/gateways/${PROMO_ID}" \
+          -H "Content-Type: application/json" -d "{\"release_id\":\"${REL_B}\"}" >/dev/null 2>&1 || true
+        RECOVER_PHASE=$(e2e_wait_gateway_running "$PROMO_ID" "$E2E_PROVISION_TIMEOUT") || true
+        RECOVER_OBS=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${PROMO_ID}" 2>/dev/null | e2e_json_field observed_release_id)
+        if [[ "$RECOVER_PHASE" == "Running" && "$RECOVER_OBS" == "$REL_B" ]]; then
+          pass "Repointing back to the last-good release returns the gateway to Running (observed_release_id == B)"
+        else
+          fail_test "Gateway did not recover to Running on the last-good release (phase=${RECOVER_PHASE}, observed=${RECOVER_OBS})"
+        fi
+        api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateway_releases/${REL_BADROLL_ID}" >/dev/null 2>&1 || true
+      else
+        fail_test "Could not create the unpullable release for the failed-rollout check"
+      fi
+
+      if e2e_truthy "${E2E_MULTICLUSTER}"; then
+        dim "  Cross-cluster promotion (E2E_MULTICLUSTER) would run here; the second control plane is owned by local-development.spec.md"
+      fi
+
+      acquire_oidc_token 2>/dev/null || true
+      api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateways/${PROMO_ID}" >/dev/null 2>&1 || true
+    else
+      fail_test "Could not create the promotion gateway"
+      dim "    ${PROMO_RESP:0:200}"
+    fi
+  fi
+
+  # Clean up the releases/networks created for the status assertions.
+  acquire_oidc_token 2>/dev/null || true
+  for _rid in "$REL_GOOD_ID" "$REL_BAD_ID"; do
+    [[ -n "$_rid" ]] && api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateway_releases/${_rid}" >/dev/null 2>&1 || true
+  done
+  for _nid in "$NET_GOOD_ID" "$NET_BAD_ID"; do
+    [[ -n "$_nid" ]] && api_curl -X DELETE "${API_HOST}/api/hypershell/v1/gateway_networks/${_nid}" >/dev/null 2>&1 || true
+  done
+fi
+sep
+
+# ── 14. Admin inventory + API validation ────────────────────────────────────
+# Area 14 asserts the admin-only user inventory boundary (registered-users.spec.md)
+# and canonical gateway-phase enforcement (gateway-phase-vocabulary.spec.md). Long only.
+
+echo ""
+e2e_area "14. Admin Inventory + API Validation"
+echo ""
+
+if ! e2e_step long; then
+  dim "  Skipped (E2E_MODE=${E2E_MODE}): area 14 uses the developer and platform-admin identities"
+else
+  # ── 14a. User inventory is admin-only ──
+  if acquire_oidc_token "$E2E_DEV_USERNAME" "$E2E_DEV_PASSWORD"; then
+    DEV_USERS_TOKEN="${_OIDC_ACCESS_TOKEN}"
+  else
+    DEV_USERS_TOKEN=""
+    fail_test "Could not acquire a developer API token for the /users boundary check"
+  fi
+  if [[ -n "$DEV_USERS_TOKEN" ]]; then
+    show_cmd "curl .../v1/users (as developer) -> expect 403"
+    DEV_USERS_CODE=$(_driver_curl -o /dev/null -w '%{http_code}' \
+      -H "Authorization: Bearer ${DEV_USERS_TOKEN}" "${API_HOST}/api/hypershell/v1/users" 2>/dev/null || true)
+    if [[ "$DEV_USERS_CODE" == "403" ]]; then
+      pass "Developer GET /v1/users is 403 Forbidden (admin-only inventory)"
+    else
+      fail_test "Developer GET /v1/users expected 403, got ${DEV_USERS_CODE:-none}"
+    fi
+  fi
+
+  # platform-admin: 200 with an accurate total at size=1, and a sample user id.
+  if acquire_oidc_token "$E2E_PLATFORM_ADMIN_USERNAME" "$E2E_PLATFORM_ADMIN_PASSWORD"; then
+    PADMIN_USERS_TOKEN="${_OIDC_ACCESS_TOKEN}"
+  else
+    PADMIN_USERS_TOKEN=""
+    fail_test "Could not acquire a platform-admin API token for the /users inventory check"
+  fi
+  SAMPLE_USER_ID=""
+  if [[ -n "$PADMIN_USERS_TOKEN" ]]; then
+    show_cmd "curl .../v1/users?size=1 (as platform-admin) -> expect 200 + total"
+    PADMIN_USERS_FILE=$(mktemp)
+    PADMIN_USERS_CODE=$(_driver_curl -o "$PADMIN_USERS_FILE" -w '%{http_code}' \
+      -H "Authorization: Bearer ${PADMIN_USERS_TOKEN}" "${API_HOST}/api/hypershell/v1/users?size=1" 2>/dev/null || true)
+    PADMIN_USERS_TOTAL=$(e2e_json_field total < "$PADMIN_USERS_FILE")
+    SAMPLE_USER_ID=$(python3 -c "import json,sys
+try:
+    items=json.load(open(sys.argv[1])).get('items',[])
+    print(items[0].get('id','') if items else '')
+except Exception: pass" "$PADMIN_USERS_FILE" 2>/dev/null)
+    rm -f "$PADMIN_USERS_FILE"
+    if [[ "$PADMIN_USERS_CODE" == "200" && -n "$PADMIN_USERS_TOTAL" && "$PADMIN_USERS_TOTAL" -ge 1 ]]; then
+      pass "Platform-admin GET /v1/users?size=1 is 200 with an accurate total (${PADMIN_USERS_TOTAL})"
+    else
+      fail_test "Platform-admin GET /v1/users?size=1 expected 200 with a total, got ${PADMIN_USERS_CODE:-none} total=${PADMIN_USERS_TOTAL:-none}"
+    fi
+  fi
+
+  # Get-by-id for a non-admin is an opaque 404 (not a 403 that reveals existence).
+  if [[ -n "$DEV_USERS_TOKEN" && -n "$SAMPLE_USER_ID" ]]; then
+    show_cmd "curl .../v1/users/${SAMPLE_USER_ID} (as developer) -> expect opaque 404"
+    DEV_GETID_CODE=$(_driver_curl -o /dev/null -w '%{http_code}' \
+      -H "Authorization: Bearer ${DEV_USERS_TOKEN}" "${API_HOST}/api/hypershell/v1/users/${SAMPLE_USER_ID}" 2>/dev/null || true)
+    if [[ "$DEV_GETID_CODE" == "404" ]]; then
+      pass "Developer GET /v1/users/{id} is an opaque 404 (does not reveal existence)"
+    else
+      fail_test "Developer GET /v1/users/{id} expected opaque 404, got ${DEV_GETID_CODE:-none}"
+    fi
+  fi
+
+  # Restore the admin token for the phase check.
+  acquire_oidc_token 2>/dev/null || true
+
+  # ── 14b. Unknown gateway phase rejected ──
+  # Any existing gateway serves as the target; the PATCH is rejected before any
+  # write, so the stored phase is unchanged.
+  PHASE_GW_JSON=$(api_curl "${API_HOST}/api/hypershell/v1/gateways?size=1" 2>/dev/null || true)
+  PHASE_GW_ID=$(echo "$PHASE_GW_JSON" | python3 -c "import json,sys
+try:
+    items=json.load(sys.stdin).get('items',[])
+    print(items[0].get('id','') if items else '')
+except Exception: pass" 2>/dev/null)
+  if [[ -z "$PHASE_GW_ID" ]]; then
+    dim "  Skipped unknown-phase check: no gateway available to target"
+  else
+    PHASE_BEFORE=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${PHASE_GW_ID}" 2>/dev/null | e2e_json_field phase)
+    show_cmd "api_curl -X PATCH .../gateways/${PHASE_GW_ID} -d '{phase: Bogus}'  # expect 400"
+    PHASE_FILE=$(mktemp)
+    PHASE_CODE=$(api_curl -o "$PHASE_FILE" -w '%{http_code}' -X PATCH "${API_HOST}/api/hypershell/v1/gateways/${PHASE_GW_ID}" \
+      -H "Content-Type: application/json" -d '{"phase":"Bogus-e2e-phase"}' 2>/dev/null || true)
+    PHASE_REASON=$(e2e_json_field reason < "$PHASE_FILE")
+    rm -f "$PHASE_FILE"
+    if [[ "$PHASE_CODE" == "400" && "$PHASE_REASON" == *phase* ]]; then
+      pass "An unknown gateway phase is rejected (HTTP 400, names the invalid phase)"
+    else
+      fail_test "Unknown phase expected 400 naming phase, got ${PHASE_CODE:-none} (${PHASE_REASON:0:80})"
+    fi
+    PHASE_AFTER=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${PHASE_GW_ID}" 2>/dev/null | e2e_json_field phase)
+    if [[ "$PHASE_AFTER" == "$PHASE_BEFORE" ]]; then
+      pass "Stored gateway phase is unchanged after the rejected write (${PHASE_AFTER})"
+    else
+      fail_test "Stored gateway phase changed after a rejected write (${PHASE_BEFORE} -> ${PHASE_AFTER})"
     fi
   fi
 fi

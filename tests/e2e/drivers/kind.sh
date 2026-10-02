@@ -404,6 +404,28 @@ acquire_oidc_token() {
   _driver_acquire_oidc_token "$@"
 }
 
+# acquire_registrar_token - mint a client-credentials token for the control
+# plane's managed-cluster-registrar identity (managed-cluster-registration.spec.md).
+# Sets _OIDC_ACCESS_TOKEN. Area 12 uses it to exercise self-registration and the
+# cluster-bound gRPC watch as the registered control-plane subject, rather than
+# the admin user. Defaults to E2E_REGISTRAR_CLIENT_ID / E2E_REGISTRAR_CLIENT_SECRET
+# (the development hypershell-control-plane client on Kind). Shared with the
+# OpenShift driver, which sources this file.
+# Usage: acquire_registrar_token [client_id] [client_secret]
+acquire_registrar_token() {
+  local client_id="${1:-${E2E_REGISTRAR_CLIENT_ID}}"
+  local client_secret="${2:-${E2E_REGISTRAR_CLIENT_SECRET}}"
+  if [[ -z "${client_secret}" ]]; then
+    dim "  No registrar client secret (E2E_REGISTRAR_CLIENT_SECRET) available"
+    _OIDC_ACCESS_TOKEN=""
+    return 1
+  fi
+  _driver_token_request \
+    -d "grant_type=client_credentials" \
+    -d "client_id=${client_id}" \
+    -d "client_secret=${client_secret}"
+}
+
 # Kind and CI-owned OpenShift users must not be deleted by a test run
 # (ephemeral-test-credentials.spec.md). They last until the environment does.
 de_seed_test_users() {
