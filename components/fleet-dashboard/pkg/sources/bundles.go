@@ -259,10 +259,16 @@ func (g *GitHubBundles) comparePRs(ctx context.Context, base, head string) []PR 
 		}
 		prs = append(prs, pr)
 	}
-	// compare returns oldest-first; present newest-first (most recent PR on top).
-	for i, j := 0, len(prs)-1; i < j; i, j = i+1, j-1 {
-		prs[i], prs[j] = prs[j], prs[i]
-	}
+	// Present newest-first (most recently merged PR on top). Sort explicitly by
+	// merge time rather than trusting the compare API's commit order: MergedAt is the
+	// squash-merge commit date (RFC3339, same Z offset, so lexical sort == chronological).
+	// Tie-break on PR number desc so same-timestamp merges stay in a stable order.
+	sort.SliceStable(prs, func(i, j int) bool {
+		if prs[i].MergedAt != prs[j].MergedAt {
+			return prs[i].MergedAt > prs[j].MergedAt
+		}
+		return prs[i].Number > prs[j].Number
+	})
 
 	g.mu.Lock()
 	g.prs[key] = prs
