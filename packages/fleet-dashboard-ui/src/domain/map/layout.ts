@@ -7,7 +7,10 @@ import type { MapColumn, MapModel, MapNode } from "./model";
 
 /** Fixed card + spacing constants (SVG user units). Tuned to the prototype. */
 export const NODE_W = 150;
-export const NODE_H = 106;
+// Tall enough for TWO bottom "chins": the gateway-history sand sparkline and, below
+// it, the per-cluster sandbox strip (see map-node). Raised from 106 when the second
+// chin was added.
+export const NODE_H = 124;
 export const COL_GAP = 190;
 export const V_GAP = 46;
 export const LANE_GAP = 46;
