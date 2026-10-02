@@ -20,8 +20,10 @@ import {
   TEXT_SUBTLE,
   TONE_COLOR,
 } from "./colors";
+import { SANDBOX_COLOR } from "./colors";
 import { Identicon } from "./identicon";
 import { SandSparkline } from "./sand-sparkline";
+import { SandboxStrip } from "./sandbox-strip";
 import styles from "./topology-map.module.css";
 
 /** True when the node warrants the red "attention" ring: degraded Argo health or
@@ -294,33 +296,33 @@ export function MapNodeCard({
           full digest reads as clutter here. It remains available in the detail
           drawer and the release "freight" bar. */}
 
-      {/* gateway-history sparkline (bottom strip). key={historySig}: remounts the
+      {/* gateway-history sparkline (upper chin). key={historySig}: remounts the
           subtree only when a new history sample lands, which replays the conveyor's
           left-shift (the slide itself lives inside SandSparkline). */}
       <g key={historySig}>
         <SandSparkline
           history={node.gatewayHistory}
           x={x + 10}
-          y={y + h - 20}
+          y={y + h - 38}
           width={w - 56}
           height={12}
         />
       </g>
 
-      {/* gateway count (bottom-right): total gateways on this instance. The sand
-          sparkline above carries the per-phase breakdown; this is just the tally.
+      {/* gateway count (right of the upper chin): total gateways on this instance.
+          The sand sparkline carries the per-phase breakdown; this is just the tally.
           key={total}: remounts + replays the pulse only when the tally changes. */}
       <g key={total} className={styles.countPulse}>
         <circle
           cx={x + w - 20}
-          cy={y + h - 20}
+          cy={y + h - 38}
           r={13}
           fill={CARD_BG}
           stroke={CARD_STROKE}
         />
         <text
           x={x + w - 20}
-          y={y + h - 20}
+          y={y + h - 38}
           textAnchor="middle"
           dominantBaseline="central"
           fontSize={12}
@@ -330,6 +332,29 @@ export function MapNodeCard({
           {total}
         </text>
       </g>
+
+      {/* sandbox population (lower chin): per-cluster active-sandbox bars directly
+          below the gateway sand sparkline, with the instance-wide total as a teal
+          tally on the right. Sandboxes are a distinct population from gateways, so
+          they get their own chin rather than sharing the gateway strip. */}
+      <SandboxStrip
+        clusters={node.sandboxesByCluster}
+        x={x + 10}
+        y={y + h - 18}
+        width={w - 40}
+        height={11}
+      />
+      <text
+        x={x + w - 12}
+        y={y + h - 12}
+        textAnchor="end"
+        dominantBaseline="central"
+        fontSize={11}
+        fontWeight={700}
+        fill={SANDBOX_COLOR}
+      >
+        {node.sandboxes}
+      </text>
     </g>
   );
 }
