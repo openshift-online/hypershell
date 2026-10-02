@@ -134,7 +134,8 @@ Gateway         CLI         partial     get/list implemented, delete missing
 - Verify CRUD on all affected Kinds via both API and CLI
 - Run e2e test suite: `E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-openshell.sh`
   (OpenShift: `E2E_INFRA_DRIVER=openshift`; pull-request CI is the ephemeral
-  PR environment workflow. `components/pr-test/e2e-openshell.sh` is deprecated.)
+  PR environment workflow. The legacy `components/pr-test/e2e-openshell.sh`
+  script has been removed.)
 
 Each wave is a gate. Do not start downstream work against an unstable upstream.
 
