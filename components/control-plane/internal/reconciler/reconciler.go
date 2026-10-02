@@ -350,6 +350,9 @@ type GatewayReconciler struct {
 	// gatewayResources overrides the gateway container requests and limits
 	// (GATEWAY_RESOURCES); nil uses the chart-values default.
 	gatewayResources *corev1.ResourceRequirements
+	// sandboxRuntimeClass is the Kubernetes RuntimeClass name applied to every
+	// sandbox pod (GATEWAY_SANDBOX_RUNTIME_CLASS); empty uses the cluster default.
+	sandboxRuntimeClass string
 }
 
 func NewGatewayReconciler(
@@ -365,6 +368,7 @@ func NewGatewayReconciler(
 	database gateway.DatabaseConfig,
 	clusterID string,
 	gatewayResources *corev1.ResourceRequirements,
+	sandboxRuntimeClass string,
 ) (*GatewayReconciler, error) {
 	if database.AdminCredentialsDir == "" {
 		return nil, fmt.Errorf("gateway database admin credentials directory is required")
@@ -421,6 +425,7 @@ func NewGatewayReconciler(
 		database:              database,
 		clusterID:             clusterID,
 		gatewayResources:      gatewayResources,
+		sandboxRuntimeClass:   sandboxRuntimeClass,
 	}, nil
 }
 
@@ -734,6 +739,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ExternalCAIssuerKind:  r.externalCAIssuerKind,
 		IngressBaseDomain:     r.ingressBaseDomain,
 		GatewayResources:      r.gatewayResources,
+		SandboxRuntimeClass:   r.sandboxRuntimeClass,
 	}
 
 	conditions := gateway.InitConditions(r.keycloakConfig != nil)

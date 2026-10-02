@@ -56,6 +56,7 @@ func deployGatewayViaHelm(
 		ExternalCAIssuerKind:       opts.ExternalCAIssuerKind,
 		HasTrustedCA:               hasTrustedCA,
 		Resources:                  opts.GatewayResources,
+		SandboxRuntimeClass:        opts.SandboxRuntimeClass,
 	}
 
 	values, err := valuesBuilder.Build()
