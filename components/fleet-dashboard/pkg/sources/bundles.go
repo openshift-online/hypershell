@@ -32,6 +32,9 @@ type PR struct {
 // the releases untouched (empty date / nil PRs) and never fails the promotion
 // plane (data-architecture spec §5.2, mirroring AnalysisResolver).
 type BundleEnricher interface {
+	// ResolveDates fills each release's build Date (best-effort) so the caller can
+	// order bundles and select the frontier before PRs are diffed.
+	ResolveDates(ctx context.Context, releases map[string]*Release)
 	Enrich(ctx context.Context, releases map[string]*Release)
 }
 
@@ -41,6 +44,9 @@ type noopBundles struct{}
 
 // Enrich implements BundleEnricher.
 func (noopBundles) Enrich(context.Context, map[string]*Release) {}
+
+// ResolveDates implements BundleEnricher.
+func (noopBundles) ResolveDates(context.Context, map[string]*Release) {}
 
 // prSuffix matches the "(#1234)" trailer GitHub appends to a squash-merge commit
 // subject. We derive the PR number/title from the commit subject rather than the
@@ -102,20 +108,37 @@ func htmlBaseFrom(apiBase string) string {
 	}
 }
 
-// Enrich implements BundleEnricher. It resolves each release's commit date,
-// orders the releases oldest-first, and attaches to each release the PRs merged
-// since the previous build (compare prev...cur). The oldest release keeps nil
-// PRs (there is no prior build to diff against).
+// ResolveDates implements BundleEnricher. It fills each release's build Date
+// (best-effort) from its gitops commit so the caller can order bundles and
+// select the frontier before PRs are diffed. A lock resolver already fills Date
+// from the bundle's build timestamp; this only fills the short-SHA fallback case,
+// where the gitops commit date is the only signal. Cached forever (immutable).
+func (g *GitHubBundles) ResolveDates(ctx context.Context, releases map[string]*Release) {
+	for _, r := range releases {
+		if r == nil || r.SHA == "" || r.Date != "" {
+			continue
+		}
+		r.Date = g.commitDate(ctx, r.SHA)
+	}
+}
+
+// Enrich implements BundleEnricher. It orders the releases oldest-first and
+// attaches to each the PRs merged since the previous build (compare prev...cur).
+// The oldest release keeps nil PRs (there is no prior build to diff against).
+//
+// Callers run this over the FULL release set (currently-deployed bundles plus
+// merged-in history), AFTER history is merged, so a fleet fully converged on a
+// single bundle still diffs the frontier against the immediately-previous bundle
+// rather than finding only one deployed release and bailing out.
 func (g *GitHubBundles) Enrich(ctx context.Context, releases map[string]*Release) {
 	if len(releases) == 0 {
 		return
 	}
+	g.ResolveDates(ctx, releases)
 
-	// Resolve dates and keep only releases we could place on the timeline. The
-	// map is keyed by release identity (bundle digest when resolved, else SHA),
-	// so we diff on each release's own gitops commit (r.SHA), not the key. A
-	// lock resolver already fills Date from the bundle's build timestamp; keep it
-	// and only fall back to the commit date when it is absent (short-SHA mode).
+	// Keep only releases we could place on the timeline. The map is keyed by
+	// release identity (bundle digest when resolved, else SHA), so we diff on each
+	// release's own gitops commit (r.SHA), not the key.
 	type dated struct {
 		sha  string
 		date string
@@ -123,13 +146,7 @@ func (g *GitHubBundles) Enrich(ctx context.Context, releases map[string]*Release
 	}
 	var ordered []dated
 	for _, r := range releases {
-		if r == nil || r.SHA == "" {
-			continue
-		}
-		if r.Date == "" {
-			r.Date = g.commitDate(ctx, r.SHA)
-		}
-		if r.Date == "" {
+		if r == nil || r.SHA == "" || r.Date == "" {
 			continue
 		}
 		ordered = append(ordered, dated{sha: r.SHA, date: r.Date, rel: r})
