@@ -60,7 +60,11 @@ export function App(): React.ReactElement {
   );
 
   return (
-    <Page masthead={masthead}>
+    // isContentFilled: without it PF 6.6.1 gives .pf-v6-c-page__main-container
+    // align-self:start, so the main area collapses to content height and a void
+    // opens below the panel. isContentFilled applies .pf-m-fill (align-self:stretch),
+    // stretching the grid's "main" row to the full viewport (top of the fill chain).
+    <Page masthead={masthead} isContentFilled>
       {/* hasBodyWrapper={false}: PF 6.6.1's PageSection wraps children in a
           .pf-v6-c-page__main-body div that has no flex/grow rule, which severs the
           fill chain (the filled section grows, but the inert body wrapper collapses
