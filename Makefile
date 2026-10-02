@@ -234,7 +234,6 @@ test-deploy-orphans-policy:
 
 .PHONY: check-deploy-orphans
 check-deploy-orphans: test-deploy-orphans-policy
-
 	python3 scripts/check_deploy_orphans.py
 
 .PHONY: test-dependency-age-policy
