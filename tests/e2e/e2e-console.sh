@@ -169,9 +169,11 @@ printf '  %s\n' "3. Gateway provisioning from the web console"
 printf '  %s\n' "4. Console address published and linked"
 printf '  %s\n' "5. OpenShell console login + gateway visibility"
 printf '  %s\n' "6. Sandboxes from the OpenShell console"
-printf '  %s\n' "7. Developer RBAC boundary [long]"
-printf '  %s\n' "8. Gateway deletion from the web console + namespace GC"
-printf '  %s\n' "9. Accessibility report + logout [long]"
+printf '  %s\n' "7. Cluster typeahead + CLI install docs"
+printf '  %s\n' "8. Developer RBAC boundary [long]"
+printf '  %s\n' "9. Gateway deletion from the web console + namespace GC"
+printf '  %s\n' "10. Accessibility report + logout [long]"
+printf '  %s\n' "11. Fleet dashboard promotion [long, gated on E2E_FLEET_DASHBOARD_URL]"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
 dim  "  Mode:              ${E2E_MODE}"
@@ -735,10 +737,88 @@ if [[ -n "$WORKSPACE" ]] && e2e_step long; then
 fi
 sep
 
-# ── 7. Developer RBAC boundary ───────────────────────────────────────────
+# ── 7. Cluster typeahead + CLI install docs ──────────────────────────────
+# CON-E2E-14: the gateway create form lists every registered ManagedCluster as a
+# selectable target, and the connection tab links to the external OpenShell CLI
+# install docs (opens in a new tab with a safe rel).
 
 echo ""
-e2e_area "7. Developer RBAC Boundary"
+e2e_area "7. Cluster Typeahead and CLI Install Docs"
+echo ""
+
+ab_use "$ADMIN_SESSION"
+
+# Cluster typeahead: the seeded cluster is listed and selectable. (Area 3 already
+# selects it to provision; here we assert the listing explicitly, and both
+# clusters under E2E_MULTICLUSTER.)
+if ab_open "${CONSOLE_HOST}/gateways/new" \
+    && ab_wait_ref textbox "$NAME_TEXTBOX" "$PAGE_TIMEOUT_S" >/dev/null; then
+  TA_TOGGLE=$(ab_ref button '^Select a cluster$' || true)
+  TA_OPTION=""
+  if [[ -n "$TA_TOGGLE" ]] && ab_ok click "$TA_TOGGLE"; then
+    TA_OPTION=$(ab_wait_ref option "^$(ab_regex_escape "$SEED_CLUSTER_NAME")( |\$)" 15 || true)
+  fi
+  if [[ -n "$TA_OPTION" ]]; then
+    pass "Cluster typeahead lists the registered cluster ${SEED_CLUSTER_NAME} as selectable"
+  else
+    ab_fail "Cluster typeahead did not list ${SEED_CLUSTER_NAME}"
+  fi
+  if e2e_truthy "${E2E_MULTICLUSTER}" && [[ -n "${E2E_SEED_CLUSTER_NAME_2:-}" ]]; then
+    TA_OPTION2=$(ab_wait_ref option "^$(ab_regex_escape "$E2E_SEED_CLUSTER_NAME_2")( |\$)" 15 || true)
+    if [[ -n "$TA_OPTION2" ]]; then
+      pass "Cluster typeahead also lists the second cluster ${E2E_SEED_CLUSTER_NAME_2} (E2E_MULTICLUSTER)"
+    else
+      ab_fail "Cluster typeahead did not list the second cluster ${E2E_SEED_CLUSTER_NAME_2}"
+    fi
+  else
+    dim "  Second-cluster typeahead check skipped (E2E_MULTICLUSTER unset)"
+  fi
+else
+  ab_fail "Could not open the gateway create form for the cluster typeahead check"
+fi
+
+# Install-docs link on the gateway detail (connection) view. It renders once the
+# gateway has a runtime version (installCommand); areas 3-5 provisioned it.
+if [[ -z "$GW_ID" ]]; then
+  fail_test "Skipped install-docs link check: no gateway available"
+else
+  INSTALL_LINK_RE='^View installation documentation'
+  if ab_open "$(gateway_detail_url)"; then
+    INSTALL_REF=$(ab_wait_ref link "$INSTALL_LINK_RE" "$PAGE_TIMEOUT_S" || true)
+  else
+    INSTALL_REF=""
+  fi
+  if [[ -n "$INSTALL_REF" ]]; then
+    show_cmd "agent-browser get attr ${INSTALL_REF} href/target/rel  # Install the OpenShell CLI"
+    INSTALL_HREF=$(ab_json get attr "$INSTALL_REF" href | _ab_json_get value 2>/dev/null || true)
+    INSTALL_TARGET=$(ab_json get attr "$INSTALL_REF" target | _ab_json_get value 2>/dev/null || true)
+    INSTALL_REL=$(ab_json get attr "$INSTALL_REF" rel | _ab_json_get value 2>/dev/null || true)
+    if [[ "$INSTALL_HREF" == https://* ]]; then
+      pass "Connection tab links to the external OpenShell CLI install docs (${INSTALL_HREF})"
+    else
+      ab_fail "Install-docs link href is not an external https URL: '${INSTALL_HREF}'"
+    fi
+    if [[ "$INSTALL_TARGET" == "_blank" ]]; then
+      pass "Install-docs link opens in a new tab (target=_blank)"
+    else
+      ab_fail "Install-docs link target is '${INSTALL_TARGET}', expected _blank"
+    fi
+    if [[ "$INSTALL_REL" == *noopener* ]]; then
+      pass "Install-docs link uses a safe rel (${INSTALL_REL})"
+    else
+      ab_fail "Install-docs link rel '${INSTALL_REL}' does not include noopener"
+    fi
+  else
+    ab_fail "Connection tab did not show the 'Install the OpenShell CLI' docs link"
+  fi
+  ab_shot "07-install-docs-link"
+fi
+sep
+
+# ── 8. Developer RBAC boundary ───────────────────────────────────────────
+
+echo ""
+e2e_area "8. Developer RBAC Boundary"
 echo ""
 
 if ! e2e_step long || ! e2e_multi_identity; then
@@ -793,7 +873,7 @@ sep
 # ── 8. Delete gateway ────────────────────────────────────────────────────
 
 echo ""
-e2e_area "8. Gateway Deletion From the Web Console + Namespace GC"
+e2e_area "9. Gateway Deletion From the Web Console + Namespace GC"
 echo ""
 
 if [[ "$E2E_SKIP_CLEANUP" == "1" ]]; then
@@ -863,7 +943,7 @@ sep
 # ── 9. Accessibility report + logout ─────────────────────────────────────
 
 echo ""
-e2e_area "9. Accessibility Report + Logout"
+e2e_area "10. Accessibility Report + Logout"
 echo ""
 
 if ! e2e_step long; then
@@ -913,6 +993,49 @@ except Exception:
     fi
   else
     ab_fail "Could not reopen the gateway list for the accessibility report"
+  fi
+fi
+sep
+
+# ── 11. Fleet dashboard promotion ─────────────────────────────────────────
+# CON-E2E-13: the fleet-dashboard promotion map renders from the live BFF
+# /api/promotion payload (never a baked-in topology). Gated on the dashboard being
+# reachable (E2E_FLEET_DASHBOARD_URL); where it is not deployed we record a skip,
+# never a false pass. Long only.
+
+echo ""
+e2e_area "11. Fleet Dashboard Promotion"
+echo ""
+
+if ! e2e_step long; then
+  dim "  Skipped (E2E_MODE=${E2E_MODE})"
+elif [[ -z "${E2E_FLEET_DASHBOARD_URL:-}" ]]; then
+  dim "  Skipped: E2E_FLEET_DASHBOARD_URL unset; the fleet dashboard is not deployed in this environment (recorded as a skip, not a pass)"
+else
+  FLEET_URL="${E2E_FLEET_DASHBOARD_URL%/}"
+  FLEET_HOSTNAME="$(ab_url_host "$FLEET_URL")"
+  show_cmd "curl -sk --ipv4 -o /dev/null -w '%{http_code}' ${FLEET_URL}  # reachability"
+  FLEET_CODE=$(curl -sk --ipv4 --connect-timeout 5 -o /dev/null -w '%{http_code}' "$FLEET_URL" 2>/dev/null || true)
+  if [[ -z "$FLEET_CODE" || "$FLEET_CODE" == "000" ]]; then
+    dim "  Skipped: ${FLEET_HOSTNAME} did not answer (recorded as a skip, not a pass)"
+  else
+    ab_use "$ADMIN_SESSION"
+    if ab_open "${FLEET_URL}/" && ab_on_keycloak_form; then
+      ab_keycloak_login "$E2E_OIDC_USERNAME" "$E2E_OIDC_PASSWORD" || true
+      ab_wait_url "${FLEET_URL}/**" "$E2E_BROWSER_PAGE_TIMEOUT_MS" || true
+    fi
+    if ab_wait_text "Promotion topology" "$E2E_BROWSER_PAGE_TIMEOUT_MS"; then
+      pass "Fleet dashboard renders the promotion topology section from the live pipeline"
+    else
+      ab_fail "Fleet dashboard did not render the 'Promotion topology' section"
+    fi
+    # The map must not surface the plane error state when the pipeline is healthy.
+    if ab_wait_text "Could not load this view." 4000; then
+      ab_fail "Promotion view shows the error state ('Could not load this view.')"
+    else
+      pass "Promotion view renders without the error state"
+    fi
+    ab_shot "11-fleet-promotion"
   fi
 fi
 sep

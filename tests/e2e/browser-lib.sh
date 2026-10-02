@@ -197,26 +197,7 @@ ab_regex_escape() {
   python3 -c 'import re, sys; print(re.escape(sys.argv[1]))' "$1"
 }
 
-# e2e_json_field <key> - print a top-level field of a JSON object on stdin
-# (strings raw, lists comma-joined, null/absent as empty).
-e2e_json_field() {
-  WANT_KEY="$1" python3 -c '
-import json, os, sys
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-v = d.get(os.environ["WANT_KEY"]) if isinstance(d, dict) else None
-if v is None:
-    print("")
-elif isinstance(v, list):
-    print(",".join(str(x) for x in v))
-elif isinstance(v, bool):
-    print("true" if v else "false")
-else:
-    print(v)
-'
-}
+# e2e_json_field is defined in lib.sh (shared by the API and browser suites).
 
 # e2e_console_session_fields - read the BFF /auth/session JSON on stdin and
 # print "<authenticated true|false>\t<preferred_username>\t<display name>".

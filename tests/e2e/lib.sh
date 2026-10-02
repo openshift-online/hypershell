@@ -214,6 +214,45 @@ source "${_E2E_REPO_ROOT}/OPENSHELL_VERSION"
 : "${E2E_OIDC_SA_CLIENT_ID:=hypershell-e2e}"
 : "${E2E_OIDC_SA_CLIENT_SECRET:=}"
 
+# Control-plane registrar identity (managed-cluster-registration.spec.md). Area 12
+# exercises self-registration directly, acting as the control plane's
+# client-credentials identity rather than the admin user. Defaults to the
+# development hypershell-control-plane client and its well-known dev realm secret
+# (deploy/base/keycloak/keycloak.yaml); override for OpenShift/CI, where the
+# secret is read from the deployed Keycloak namespace.
+: "${E2E_REGISTRAR_CLIENT_ID:=hypershell-control-plane}"
+: "${E2E_REGISTRAR_CLIENT_SECRET:=control-plane-secret}"
+
+# Multi-cluster fleet coverage (e2e-testing.spec.md Multi-Cluster Fleet Coverage).
+# Opt-in: when E2E_MULTICLUSTER is unset or 0, area 12 runs only the single-cluster
+# registration assertions and area 13 runs its single-cluster rollout path. The
+# second control plane (E2E_SEED_CLUSTER_NAME_2) is deployed by
+# local-development.spec.md / openshift-development.spec.md; this suite owns only
+# the assertions.
+: "${E2E_MULTICLUSTER:=0}"
+: "${E2E_SEED_CLUSTER_NAME_2:=}"
+
+# Fleet dashboard promotion browser coverage (e2e-console-browser-testing.spec.md
+# CON-E2E-13). Gated on the fleet dashboard being reachable; unset means the suite
+# records a skip, never a false pass.
+: "${E2E_FLEET_DASHBOARD_URL:=}"
+
+# Extended platform qualification (e2e-testing.spec.md, HYPERSHELL-291). Each item
+# is opt-in behind its own flag and never runs in the Kind merge-queue gate; an
+# item stays uncovered until the infrastructure it needs exists.
+: "${E2E_QUALIFY_DNS_TLS_RENEWAL:=0}"
+: "${E2E_QUALIFY_DB_ROTATION:=0}"
+: "${E2E_QUALIFY_DB_BACKUP_RESTORE:=0}"
+: "${E2E_QUALIFY_RESTRICTED_REGISTRY:=0}"
+
+# e2e_truthy - shared 1/true/yes/on gate for opt-in flags above.
+e2e_truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # RFC3339 timestamp N minutes in the past (macOS BSD date and GNU date).
 e2e_gc_eligible_since_backdate() {
   local minutes="${1:-3}"
@@ -345,6 +384,63 @@ e2e_select_infra_driver() {
     dim "  Detected infra driver: ${E2E_INFRA_DRIVER} (from KUBECONFIG context; set E2E_INFRA_DRIVER to override)"
   fi
 }
+
+# e2e_json_field <key> - print a top-level field of a JSON object on stdin
+# (strings raw, lists comma-joined, booleans as true/false, null/absent as empty).
+# Shared by the API suite (e2e-openshell.sh) and the browser suite (e2e-console.sh).
+e2e_json_field() {
+  WANT_KEY="$1" python3 -c '
+import json, os, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+v = d.get(os.environ["WANT_KEY"]) if isinstance(d, dict) else None
+if v is None:
+    print("")
+elif isinstance(v, list):
+    print(",".join(str(x) for x in v))
+elif isinstance(v, bool):
+    print("true" if v else "false")
+else:
+    print(v)
+'
+}
+
+# e2e_http_status <method> <url> [curl args...] - issue an authenticated request
+# and print only the HTTP status code. Body is discarded. Requires api_curl.
+e2e_http_status() {
+  local method="$1" url="$2"; shift 2
+  api_curl -o /dev/null -w '%{http_code}' -X "$method" "$url" "$@" 2>/dev/null || true
+}
+
+# e2e_poll_resource_status <url> <predicate> [timeout] - poll a HyperShell
+# resource GET until its `status` field satisfies <predicate>, a bash function
+# taking the status string and returning 0 on match. Refreshes the admin token
+# each iteration (api_curl reads _OIDC_ACCESS_TOKEN). Echoes the last observed
+# status; returns 0 on match, 1 on timeout. Requires api_curl and acquire_oidc_token.
+e2e_poll_resource_status() {
+  local url="${1:?url required}" predicate="${2:?predicate required}"
+  local timeout="${3:-${E2E_PROVISION_TIMEOUT}}"
+  local deadline=$(($(date +%s) + timeout)) status=""
+  while [[ $(date +%s) -lt $deadline ]]; do
+    acquire_oidc_token 2>/dev/null || true
+    status=$(api_curl "$url" 2>/dev/null | e2e_json_field status)
+    if "$predicate" "$status"; then
+      echo "$status"
+      return 0
+    fi
+    sleep 5
+  done
+  echo "${status:-<unset>}"
+  return 1
+}
+
+# Status predicates for e2e_poll_resource_status. The control plane writes an
+# invalid status as "Invalid: <reason>" (not the bare word), so match a prefix.
+e2e_status_is_available() { [[ "$1" == "Available" ]]; }
+e2e_status_is_invalid()   { [[ "$1" == Invalid* ]]; }
+e2e_status_is_valid()     { [[ "$1" == "Valid" ]]; }
 
 # First item id from a HyperShell list JSON on stdin. Optional name match.
 # Usage: echo "$json" | e2e_json_first_id [name]
