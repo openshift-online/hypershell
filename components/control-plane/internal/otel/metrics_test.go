@@ -2,6 +2,7 @@ package otel
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -29,6 +30,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousReconciliationLag := reconciliationLag
 	previousStaleResourceStatusCount := staleResourceStatusCount
 	previousWatchReconnects := watchReconnects
+	previousReconcileOutcomes := reconcileOutcomes
+	previousReconcileFailed := reconcileFailed
 
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -47,6 +50,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	reconciliationLag = nil
 	staleResourceStatusCount = nil
 	watchReconnects = nil
+	reconcileOutcomes = nil
+	reconcileFailed = nil
 	t.Cleanup(func() {
 		otel.SetMeterProvider(previousProvider)
 		reconcileDuration = previousReconcileDuration
@@ -63,6 +68,8 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		reconciliationLag = previousReconciliationLag
 		staleResourceStatusCount = previousStaleResourceStatusCount
 		watchReconnects = previousWatchReconnects
+		reconcileOutcomes = previousReconcileOutcomes
+		reconcileFailed = previousReconcileFailed
 		_ = provider.Shutdown(context.Background())
 	})
 
@@ -75,7 +82,7 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 func TestReconciliationMetrics(t *testing.T) {
 	reader := testMetricsReader(t)
 	RecordReconcileError(context.Background(), "Gateway")
-	RecordReconciliationRetry(context.Background(), "Gateway")
+	RecordReconciliationRetry(context.Background(), "Gateway", ReasonK8sConflict)
 	RecordReconciliationLag(context.Background(), "Gateway", 2*time.Second)
 	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", true)
 	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", true)
@@ -369,5 +376,177 @@ func assertResourceKindAttribute(t *testing.T, attributes attribute.Set, want st
 	got, ok := attributes.Value(attribute.Key("resource.kind"))
 	if !ok || got.AsString() != want {
 		t.Fatalf("resource.kind = %v, %v; want %q, true", got, ok, want)
+	}
+}
+
+func TestReconcileOutcomeMetrics(t *testing.T) {
+	reader := testMetricsReader(t)
+
+	// CRM-013 scenarios
+	RecordReconcileOutcome(context.Background(), "Gateway", OutcomeSuccess)
+	RecordReconcileOutcome(context.Background(), "Gateway", OutcomeNoop)
+	RecordReconcileOutcome(context.Background(), "Gateway", OutcomeRetryable)
+	RecordReconcileOutcome(context.Background(), "Gateway", OutcomeFailed)
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect() returned an error: %v", err)
+	}
+
+	var found bool
+	for _, scope := range collected.ScopeMetrics {
+		for _, gotMetric := range scope.Metrics {
+			if gotMetric.Name != "reconcile.outcomes" {
+				continue
+			}
+			found = true
+			counter, ok := gotMetric.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("metric data type = %T, want int64 sum", gotMetric.Data)
+			}
+
+			outcomes := make(map[string]int64)
+			for _, point := range counter.DataPoints {
+				outcome, ok := point.Attributes.Value(attribute.Key("outcome"))
+				if !ok {
+					t.Fatalf("missing outcome attribute on %v", point.Attributes)
+				}
+				outcomes[outcome.AsString()] = point.Value
+			}
+
+			want := map[string]int64{
+				OutcomeSuccess:   1,
+				OutcomeNoop:      1,
+				OutcomeRetryable: 1,
+				OutcomeFailed:    1,
+			}
+			for outcome, wantCount := range want {
+				if got := outcomes[outcome]; got != wantCount {
+					t.Errorf("outcome %q count = %d, want %d", outcome, got, wantCount)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("reconcile.outcomes metric was not collected")
+	}
+}
+
+func TestReconcileFailedWithReason(t *testing.T) {
+	reader := testMetricsReader(t)
+
+	RecordReconcileFailedWithReason(context.Background(), "Gateway", ReasonInvalidConfig)
+	RecordReconcileFailedWithReason(context.Background(), "Gateway", ReasonMissingPrerequisite)
+	RecordReconcileFailedWithReason(context.Background(), "Gateway", ReasonIdentityInvalid)
+	RecordReconcileFailedWithReason(context.Background(), "Gateway", ReasonUnknown)
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect() returned an error: %v", err)
+	}
+
+	var found bool
+	for _, scope := range collected.ScopeMetrics {
+		for _, gotMetric := range scope.Metrics {
+			if gotMetric.Name != "reconcile.failed" {
+				continue
+			}
+			found = true
+			counter, ok := gotMetric.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("metric data type = %T, want int64 sum", gotMetric.Data)
+			}
+
+			reasons := make(map[string]int64)
+			for _, point := range counter.DataPoints {
+				reason, ok := point.Attributes.Value(attribute.Key("reason"))
+				if !ok {
+					t.Fatalf("missing reason attribute on %v", point.Attributes)
+				}
+				reasons[reason.AsString()] = point.Value
+			}
+
+			want := map[string]int64{
+				ReasonInvalidConfig:       1,
+				ReasonMissingPrerequisite: 1,
+				ReasonIdentityInvalid:     1,
+				ReasonUnknown:             1,
+			}
+			for reason, wantCount := range want {
+				if got := reasons[reason]; got != wantCount {
+					t.Errorf("reason %q count = %d, want %d", reason, got, wantCount)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("reconcile.failed metric was not collected")
+	}
+}
+
+func TestInvalidOutcomeRejected(t *testing.T) {
+	reader := testMetricsReader(t)
+
+	RecordReconcileOutcome(context.Background(), "Gateway", "invalid-outcome")
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &collected); err != nil {
+		t.Fatalf("Collect() returned an error: %v", err)
+	}
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, gotMetric := range scope.Metrics {
+			if gotMetric.Name == "reconcile.outcomes" {
+				t.Fatal("invalid outcome should not have recorded a metric")
+			}
+		}
+	}
+}
+
+func TestValidateReasonFallback(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		validate func(string) string
+		want     string
+	}{
+		{"valid retryable", ReasonK8sConflict, validateRetryableReason, ReasonK8sConflict},
+		{"invalid retryable falls back", "bad-reason", validateRetryableReason, ReasonUnknown},
+		{"valid failed", ReasonInvalidConfig, validateFailedReason, ReasonInvalidConfig},
+		{"invalid failed falls back", "bad-reason", validateFailedReason, ReasonUnknown},
+		{"unknown is valid", ReasonUnknown, validateRetryableReason, ReasonUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.validate(tt.input)
+			if got != tt.want {
+				t.Errorf("validate(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassifyReconcileOutcome(t *testing.T) {
+	tests := []struct {
+		name        string
+		err         error
+		wantOutcome string
+		wantReason  string
+	}{
+		{"nil error is success", nil, OutcomeSuccess, ""},
+		{"non-nil error is retryable", fmt.Errorf("some error"), OutcomeRetryable, ReasonUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			outcome, reason := ClassifyReconcileOutcome(tt.err)
+			if outcome != tt.wantOutcome {
+				t.Errorf("outcome = %q, want %q", outcome, tt.wantOutcome)
+			}
+			if reason != tt.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tt.wantReason)
+			}
+		})
 	}
 }

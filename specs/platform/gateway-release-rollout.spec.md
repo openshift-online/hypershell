@@ -231,3 +231,21 @@ success.
 - THEN the control plane SHALL return an error so the write is retried
 - AND it SHALL NOT leave the Gateway reporting the new release as rolled out until
   the write succeeds
+
+### Requirement: E2E Coverage
+
+The e2e suite SHALL validate this rollout behavior as area 13 of
+`e2e-testing.spec.md` (Gateway Release Promotion Coverage): repointing a running
+gateway's `release_id` to a second release and asserting the gateway reports
+`observed_release_id` equal to the new release only after it passes its health
+gates, that a rollout whose new pods never become Ready is surfaced as `Degraded`
+with the last-good revision still serving, and that repointing back to the
+last-good release recovers the gateway to `Running`. Under `E2E_MULTICLUSTER=1`
+the promotion SHALL be exercised across both clusters, each control plane rolling
+its own gateway independently.
+
+#### Scenario: Rollout and recovery are exercised end to end
+
+- GIVEN a `Running` gateway on a known-good release
+- WHEN the e2e suite runs area 13
+- THEN it SHALL assert the serving-release, Degraded-on-failure, and recover-on-repoint behavior above against the live platform

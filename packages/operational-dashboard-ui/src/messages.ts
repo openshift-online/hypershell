@@ -469,6 +469,36 @@ export const messages = defineMessages({
     defaultMessage: "Gateway provision time",
     description: "Title for the gateway provision time dashboard widget.",
   },
+  reconciliationChartAccumulating: {
+    id: "app.dashboard.reconciliationChart.accumulating",
+    defaultMessage: "Trend data is accumulating - check back in a few minutes",
+    description:
+      "Shown in the reconciliation over-time chart when 5-minute data exists but there are too few points to draw a line.",
+  },
+  reconciliationChartLegendFailures: {
+    id: "app.dashboard.reconciliationChart.legend.failures",
+    defaultMessage: "Failures",
+    description:
+      "Legend label for the failures series in the reconciliation over-time chart.",
+  },
+  reconciliationChartLegendRetries: {
+    id: "app.dashboard.reconciliationChart.legend.retries",
+    defaultMessage: "Retries",
+    description:
+      "Legend label for the retries series in the reconciliation over-time chart.",
+  },
+  reconciliationChartLegendSuccesses: {
+    id: "app.dashboard.reconciliationChart.legend.successes",
+    defaultMessage: "Successes",
+    description:
+      "Legend label for the successes series in the reconciliation over-time chart.",
+  },
+  reconciliationChartNoData: {
+    id: "app.dashboard.reconciliationChart.noData",
+    defaultMessage: "No trend data available",
+    description:
+      "Shown in the reconciliation over-time chart when no hourly trend data is available.",
+  },
   reconciliationFailuresLast24Hours: {
     id: "app.dashboard.reconciliationFailures.last24Hours",
     defaultMessage: "(last 24 hours)",
@@ -611,6 +641,11 @@ export const messages = defineMessages({
     id: "app.dashboard.reliability.summary.reconciliationRetries",
     defaultMessage: "Reconciliation retries",
     description: "Summary row label for reconciliation retries.",
+  },
+  reliabilitySummaryReconciliationSuccesses: {
+    id: "app.dashboard.reliability.summary.reconciliationSuccesses",
+    defaultMessage: "Reconciliation successes",
+    description: "Summary row label for successful reconciliations.",
   },
   reliabilitySummaryRequestRate: {
     id: "app.dashboard.reliability.summary.requestRate",
@@ -777,6 +812,12 @@ export const messages = defineMessages({
     defaultMessage: "Operational",
     description: "Main heading on the operational dashboard page.",
   },
+  trendLast2Hours: {
+    id: "app.dashboard.trend.last2Hours",
+    defaultMessage: "Last 2 hours",
+    description:
+      "Caption below a two-hour trend sparkline on the operational dashboard.",
+  },
   trendLast7Days: {
     id: "app.dashboard.trend.last7Days",
     defaultMessage: "Last 7 days",
@@ -871,10 +912,21 @@ export const messages = defineMessages({
     defaultMessage: "Reconciliation lag",
     description: "Title for the reconciliation lag dashboard widget.",
   },
+  widgetReconciliationOverTime: {
+    id: "app.dashboard.widget.reconciliationOverTime",
+    defaultMessage: "Reconciliations over time",
+    description:
+      "Title for the reconciliation over-time multi-line chart widget.",
+  },
   widgetReconciliationRetries: {
     id: "app.dashboard.widget.reconciliationRetries",
     defaultMessage: "Reconciliation retries",
     description: "Title for the reconciliation retries dashboard widget.",
+  },
+  widgetReconciliationSuccesses: {
+    id: "app.dashboard.widget.reconciliationSuccesses",
+    defaultMessage: "Reconciliation successes",
+    description: "Title for the reconciliation successes dashboard widget.",
   },
   widgetSandboxes: {
     id: "app.dashboard.summary.sandboxes",

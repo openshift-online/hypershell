@@ -1,0 +1,955 @@
+// The map's detail panel. Selecting a node opens a tabbed record (Details /
+// Bundle / Links): Details carries a gateway donut + legend and a field grid;
+// Bundle lists the pull requests in the instance's deployed release; Links holds
+// the deep links. Selecting a gate shows its flow + badge; selecting a release
+// bundle shows its facts, where it is deployed, and the PRs it contains. All copy
+// is translated; all values are opaque server data.
+
+import {
+  Button,
+  Content,
+  DescriptionList,
+  DescriptionListDescription,
+  DescriptionListGroup,
+  DescriptionListTerm,
+  Flex,
+  FlexItem,
+  Label,
+  type LabelProps,
+  List,
+  ListItem,
+  Spinner,
+  Tab,
+  Tabs,
+  TabTitleText,
+  Title,
+  Tooltip,
+} from "@patternfly/react-core";
+import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
+import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
+import LongArrowAltRightIcon from "@patternfly/react-icons/dist/esm/icons/long-arrow-alt-right-icon";
+import TimesIcon from "@patternfly/react-icons/dist/esm/icons/times-icon";
+import { useState } from "react";
+import type { MessageDescriptor } from "react-intl";
+import { FormattedMessage, useIntl } from "react-intl";
+
+import {
+  bundleList,
+  deployedFor,
+  seedForBundle,
+} from "../../../domain/map/bundles";
+import { otherGateways } from "../../../domain/fleet";
+import { identiName } from "../../../domain/map/identiname";
+import type { MapModel, MapNode } from "../../../domain/map/model";
+import type {
+  PromotionState,
+  PullRequest,
+  ReleaseBundle,
+} from "../../../domain/promotion";
+import { healthBadge, syncBadge } from "../../../domain/status";
+import { messages } from "../../../messages";
+import { StatusLabel } from "../status-label";
+import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
+import { GatewayDonut } from "./gateway-donut";
+import { Identicon } from "./identicon";
+import styles from "./map-details.module.css";
+
+/**
+ * The release-bundle identicon, inline. A release bundle is always identified by
+ * its identicon (+ identiname) wherever it appears, matching the node cards and
+ * freight bar, so a bundle is recognisable at a glance across every view. When
+ * `onSelect` is given, the identicon is clickable and opens that bundle's details.
+ */
+function BundleIdenticon({
+  seed,
+  size = 28,
+  onSelect,
+}: {
+  seed: string;
+  size?: number;
+  onSelect?: (seed: string) => void;
+}): React.ReactElement {
+  const icon = (
+    <svg
+      width={size}
+      height={size}
+      aria-hidden="true"
+      style={{ flexShrink: 0, display: "block" }}
+    >
+      <Identicon seed={seed} x={0} y={0} size={size} />
+    </svg>
+  );
+  if (!onSelect) {
+    return icon;
+  }
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={identiName(seed)}
+      onClick={() => {
+        onSelect(seed);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(seed);
+        }
+      }}
+      style={{
+        cursor: "pointer",
+        display: "inline-flex",
+        borderRadius: 4,
+      }}
+    >
+      {icon}
+    </span>
+  );
+}
+
+/**
+ * A bundle as a whole clickable "chip": its identicon beside a label (version +
+ * identiname), the ENTIRE chip opening the bundle's details - not just the small
+ * identicon. Matches the prototype's compact "Promoting [icon] vX" chip. When no
+ * `onSelect` is given it is inert (plain icon + label).
+ */
+function BundleChip({
+  seed,
+  label,
+  onSelect,
+}: {
+  seed: string;
+  label: React.ReactNode;
+  onSelect?: (seed: string) => void;
+}): React.ReactElement {
+  const content = (
+    <Flex
+      alignItems={{ default: "alignItemsCenter" }}
+      spaceItems={{ default: "spaceItemsSm" }}
+      flexWrap={{ default: "nowrap" }}
+    >
+      <FlexItem>
+        <BundleIdenticon seed={seed} size={20} />
+      </FlexItem>
+      <FlexItem>{label}</FlexItem>
+    </Flex>
+  );
+  if (!onSelect) {
+    return content;
+  }
+  // A PatternFly inline link button: standard link colour + hover/focus underline
+  // (PF link affordance), so a clickable bundle reference reads as a link. The
+  // identicon is an SVG with its own fills, unaffected by the link text colour.
+  return (
+    <Button
+      variant="link"
+      isInline
+      aria-label={identiName(seed)}
+      onClick={() => {
+        onSelect(seed);
+      }}
+    >
+      {content}
+    </Button>
+  );
+}
+
+/** What the map currently has selected. `id` is a node id, gate id or bundle seed. */
+export interface MapSelection {
+  readonly kind: "node" | "gate" | "bundle";
+  readonly id: string;
+}
+
+export interface MapDetailsProps {
+  readonly model: MapModel;
+  readonly releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
+  readonly selection: MapSelection;
+  readonly onClose: () => void;
+  /** Opens a release bundle's details (from any identicon in the panel). */
+  readonly onSelectBundle: (seed: string) => void;
+  /** Selects an instance node (from a "Deployed on" chip in the bundle panel). */
+  readonly onSelectNode: (id: string) => void;
+}
+
+const PROMO_LABEL: Record<
+  PromotionState,
+  { readonly msg: MessageDescriptor; readonly status: LabelProps["status"] }
+> = {
+  "up-to-date": { msg: messages.promoUpToDate, status: "success" },
+  // Promoting is in-flight, not a problem: blue (info) with a live spinner, not an
+  // amber warning.
+  promoting: { msg: messages.promoPromoting, status: "info" },
+  behind: { msg: messages.promoBehind, status: undefined },
+};
+
+function Row({
+  term,
+  children,
+}: {
+  term: React.ReactNode;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <DescriptionListGroup>
+      <DescriptionListTerm>{term}</DescriptionListTerm>
+      <DescriptionListDescription>{children}</DescriptionListDescription>
+    </DescriptionListGroup>
+  );
+}
+
+/** A field label paired with a PatternFly info tooltip: hovering/focusing the
+ *  small "i" shows contextual help (matching the prototype's per-field help). */
+function TermWithInfo({
+  label,
+  info,
+}: {
+  label: React.ReactNode;
+  info: MessageDescriptor;
+}): React.ReactElement {
+  const intl = useIntl();
+  return (
+    <span className={styles.termWithInfo}>
+      {label}
+      <Tooltip content={<FormattedMessage {...info} />}>
+        <span
+          className={styles.infoTip}
+          role="button"
+          tabIndex={0}
+          aria-label={intl.formatMessage(messages.moreInfo)}
+        >
+          <InfoAltIcon />
+        </span>
+      </Tooltip>
+    </span>
+  );
+}
+
+function Link({
+  href,
+  label,
+}: {
+  href: string | null;
+  label: React.ReactNode;
+}): React.ReactElement | null {
+  if (!href) {
+    return null;
+  }
+  return (
+    <FlexItem>
+      <Button
+        component="a"
+        href={href}
+        target="_blank"
+        rel="noreferrer noopener"
+        variant="link"
+        isInline
+        icon={<ExternalLinkAltIcon />}
+        iconPosition="end"
+      >
+        {label}
+      </Button>
+    </FlexItem>
+  );
+}
+
+/** How many trailing title characters the middle-truncation pins on the right,
+ *  so the end of the title stays legible when the row is clipped. */
+const PR_TITLE_TAIL = 8;
+
+/** The pull requests in a release bundle. Each row rides a single line that grows
+ *  with the drawer: the "#<number>" is pinned and the title truncates in the
+ *  middle (CSS flexbox, no JS). Hovering shows a card with the full title and the
+ *  author; the row links to the PR in a new tab. Empty/absent -> a graceful
+ *  empty state. */
+function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
+  if (prs.length === 0) {
+    return (
+      <Content component="small">
+        <FormattedMessage {...messages.bundleNoPrs} />
+      </Content>
+    );
+  }
+  return (
+    <List isPlain>
+      {prs.map((pr) => {
+        const num = `#${String(pr.number)}`;
+        // Split the title so the tail survives mid-truncation. Clamp so short
+        // titles (shorter than the tail) don't split oddly.
+        const tailLen = Math.min(PR_TITLE_TAIL, pr.title.length);
+        const head = pr.title.slice(0, pr.title.length - tailLen);
+        const tail = pr.title.slice(pr.title.length - tailLen);
+        const hover = (
+          <>
+            {`${num} ${pr.title}`}
+            {pr.author ? (
+              <>
+                <br />
+                <FormattedMessage
+                  {...messages.prAuthoredBy}
+                  values={{ author: pr.author }}
+                />
+              </>
+            ) : null}
+          </>
+        );
+        return (
+          <ListItem key={pr.number}>
+            <Tooltip content={hover} position="top-start">
+              <a
+                href={pr.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className={styles.prLink}
+              >
+                <span className={styles.prNum}>{num}</span>
+                <span className={styles.prTitle}>
+                  <span className={styles.prHead}>{head}</span>
+                  <span className={styles.prTail}>{tail}</span>
+                </span>
+              </a>
+            </Tooltip>
+          </ListItem>
+        );
+      })}
+    </List>
+  );
+}
+
+/** Section heading + optional PR-count summary, then the PR list for `bundle`.
+ *  When `seed` is given, the bundle's identicon sits beside the heading so the
+ *  tab's bundle is identifiable on its own. */
+function BundleContents({
+  bundle,
+  seed,
+  onSelectBundle,
+}: {
+  bundle: ReleaseBundle | undefined;
+  seed?: string;
+  onSelectBundle?: (seed: string) => void;
+}): React.ReactElement {
+  const prs = bundle?.prs ?? [];
+  return (
+    <>
+      <Flex
+        alignItems={{ default: "alignItemsCenter" }}
+        spaceItems={{ default: "spaceItemsSm" }}
+        className="pf-v6-u-mb-sm"
+      >
+        {seed ? (
+          <FlexItem>
+            <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
+          </FlexItem>
+        ) : null}
+        <FlexItem>
+          <h4 className={styles.sectionTitle}>
+            <FormattedMessage {...messages.sectionInBundle} />
+            {prs.length > 0 ? (
+              <Content component="small" className="pf-v6-u-ml-sm">
+                <FormattedMessage
+                  {...messages.bundlePrSummary}
+                  values={{ count: prs.length }}
+                />
+              </Content>
+            ) : null}
+          </h4>
+        </FlexItem>
+      </Flex>
+      <PrList prs={prs} />
+    </>
+  );
+}
+
+function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
+  const intl = useIntl();
+  const g = node.gateways;
+  const running = g.running ?? 0;
+  const provisioning = g.provisioning ?? 0;
+  const failed = g.failed ?? 0;
+  // Gateways in any phase beyond the three named rows, so the legend sums to the
+  // donut's centre total instead of under-counting it.
+  const other = otherGateways(g);
+  const label = intl.formatMessage(messages.detailGatewayBreakdown, {
+    total: node.gatewaysTotal,
+    running,
+    provisioning,
+    failed,
+  });
+  // Donut on the left, a compact chart legend (swatch · label · count) on the right.
+  // A chart legend - not a horizontal DescriptionList - so the three phase rows stay
+  // tight beside the donut in the narrow drawer instead of wrapping below it.
+  const legend: { color: string; term: MessageDescriptor; value: number }[] = [
+    {
+      color: GATEWAY_COLOR.running,
+      term: messages.legendRunning,
+      value: running,
+    },
+    {
+      color: GATEWAY_COLOR.provisioning,
+      term: messages.legendProvisioning,
+      value: provisioning,
+    },
+    { color: GATEWAY_COLOR.failed, term: messages.legendFailed, value: failed },
+  ];
+  if (other > 0) {
+    legend.push({
+      color: GATEWAY_COLOR.idle,
+      term: messages.legendOther,
+      value: other,
+    });
+  }
+  return (
+    <div className={styles.gatewayBody}>
+      <div className={styles.gatewayDonutCol}>
+        <h4 className={styles.gatewayDonutTitle}>
+          <FormattedMessage {...messages.sectionGateways} />
+        </h4>
+        <svg
+          className={styles.gatewayDonut}
+          width={96}
+          height={96}
+          viewBox="0 0 96 96"
+          role="img"
+          aria-label={label}
+          style={{ color: TEXT_COLOR }}
+        >
+          <GatewayDonut counts={g} cx={48} cy={48} radius={44} />
+        </svg>
+      </div>
+      <ul className={styles.gatewayLegend}>
+        {legend.map((row) => (
+          <li key={row.term.id} className={styles.gatewayLegendRow}>
+            <span
+              className={styles.gatewaySwatch}
+              style={{ background: row.color }}
+              aria-hidden="true"
+            />
+            <span className={styles.gatewayLegendLabel}>
+              <FormattedMessage {...row.term} />
+            </span>
+            <span className={styles.gatewayLegendCount}>{row.value}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function NodeFields({
+  node,
+  onSelectBundle,
+}: {
+  node: MapNode;
+  onSelectBundle: (seed: string) => void;
+}): React.ReactElement {
+  const promo = PROMO_LABEL[node.state];
+  const releaseLabel = node.version
+    ? `${node.version} · ${identiName(node.seed)}`
+    : null;
+  return (
+    <DescriptionList isCompact isHorizontal>
+      {node.cluster ? (
+        <Row term={<FormattedMessage {...messages.detailCluster} />}>
+          {node.cluster}
+        </Row>
+      ) : null}
+      <Row term={<FormattedMessage {...messages.columnProvider} />}>
+        {node.provider ?? <FormattedMessage {...messages.valueNone} />}
+      </Row>
+      <Row term={<FormattedMessage {...messages.columnEnvironment} />}>
+        {node.columnKey}
+      </Row>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.columnRole} />}
+            info={messages.infoRole}
+          />
+        }
+      >
+        {node.role ?? <FormattedMessage {...messages.valueNone} />}
+      </Row>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.detailSync} />}
+            info={messages.infoSync}
+          />
+        }
+      >
+        <StatusLabel badge={syncBadge(node.argoSync)} />
+      </Row>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.columnHealth} />}
+            info={messages.infoHealth}
+          />
+        }
+      >
+        {node.links.argo ? (
+          <Button
+            component="a"
+            href={node.links.argo}
+            target="_blank"
+            rel="noreferrer noopener"
+            variant="link"
+            isInline
+            icon={<ExternalLinkAltIcon />}
+            iconPosition="end"
+          >
+            <StatusLabel badge={healthBadge(node.argoHealth)} />
+          </Button>
+        ) : (
+          <StatusLabel badge={healthBadge(node.argoHealth)} />
+        )}
+      </Row>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.detailPromotion} />}
+            info={messages.infoPromotion}
+          />
+        }
+      >
+        <Label
+          status={promo.status}
+          className={
+            node.state === "promoting" ? styles.spinnerLabel : undefined
+          }
+          icon={
+            node.state === "promoting" ? (
+              <Spinner size="sm" aria-hidden />
+            ) : undefined
+          }
+          variant="outline"
+          isCompact
+        >
+          <FormattedMessage {...promo.msg} />
+        </Label>
+      </Row>
+      <Row
+        term={
+          <TermWithInfo
+            label={<FormattedMessage {...messages.columnRelease} />}
+            info={messages.infoRelease}
+          />
+        }
+      >
+        {releaseLabel ? (
+          <BundleChip
+            seed={node.seed}
+            label={releaseLabel}
+            onSelect={onSelectBundle}
+          />
+        ) : (
+          <FormattedMessage {...messages.valueNone} />
+        )}
+      </Row>
+      {node.proposedVersion ? (
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailProposed} />}
+              info={messages.infoIncoming}
+            />
+          }
+        >
+          <BundleChip
+            seed={node.proposedDigest ?? node.proposedVersion}
+            label={node.proposedVersion}
+            onSelect={onSelectBundle}
+          />
+        </Row>
+      ) : null}
+      {node.digest ? (
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailDigest} />}
+              info={messages.infoDigest}
+            />
+          }
+        >
+          <BundleChip
+            seed={node.seed}
+            label={<code>{node.digest}</code>}
+            onSelect={onSelectBundle}
+          />
+        </Row>
+      ) : null}
+      {node.driftsFromColumn ? (
+        <Row
+          term={
+            <TermWithInfo
+              label={<FormattedMessage {...messages.detailDrift} />}
+              info={messages.infoDrift}
+            />
+          }
+        >
+          <Label color="orange" isCompact icon={<InfoAltIcon />}>
+            <FormattedMessage {...messages.driftFromHub} />
+          </Label>
+        </Row>
+      ) : null}
+      {node.managedClusters !== null ? (
+        <Row term={<FormattedMessage {...messages.detailClusters} />}>
+          {node.managedClusters}
+        </Row>
+      ) : null}
+      {node.users !== null ? (
+        <Row term={<FormattedMessage {...messages.detailUsers} />}>
+          {node.users}
+        </Row>
+      ) : null}
+      <Row term={<FormattedMessage {...messages.detailMetrics} />}>
+        <FormattedMessage
+          {...messages.detailMetricTriple}
+          values={{
+            rpc: node.metrics.rpc.p95Ms,
+            reconcile: node.metrics.reconcile.p95Ms,
+            bff: node.metrics.bff.p95Ms,
+          }}
+        />
+      </Row>
+    </DescriptionList>
+  );
+}
+
+function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
+  return (
+    <Flex spaceItems={{ default: "spaceItemsSm" }}>
+      <Link
+        href={node.links.console}
+        label={<FormattedMessage {...messages.linkConsole} />}
+      />
+      <Link
+        href={node.links.argo}
+        label={<FormattedMessage {...messages.linkArgo} />}
+      />
+      <Link
+        href={node.links.pr}
+        label={<FormattedMessage {...messages.linkPr} />}
+      />
+      <Link
+        href={node.links.analysis}
+        label={<FormattedMessage {...messages.linkAnalysis} />}
+      />
+    </Flex>
+  );
+}
+
+function NodeDetails({
+  node,
+  releaseByDigest,
+  onSelectBundle,
+}: {
+  node: MapNode;
+  releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
+  onSelectBundle: (seed: string) => void;
+}): React.ReactElement {
+  const [activeKey, setActiveKey] = useState<string | number>("details");
+  const bundle = node.digest ? releaseByDigest[node.digest] : undefined;
+  return (
+    <Tabs
+      activeKey={activeKey}
+      onSelect={(_event, key) => {
+        setActiveKey(key);
+      }}
+    >
+      <Tab
+        eventKey="details"
+        title={
+          <TabTitleText>
+            <FormattedMessage {...messages.tabDetails} />
+          </TabTitleText>
+        }
+      >
+        <div className="pf-v6-u-mt-md">
+          <div className={styles.gatewayWidget}>
+            <GatewaySummary node={node} />
+          </div>
+          <div className="pf-v6-u-mt-md">
+            <NodeFields node={node} onSelectBundle={onSelectBundle} />
+          </div>
+        </div>
+      </Tab>
+      <Tab
+        eventKey="bundle"
+        title={
+          <TabTitleText>
+            <FormattedMessage {...messages.tabBundle} />
+          </TabTitleText>
+        }
+      >
+        <div className="pf-v6-u-mt-md">
+          <BundleContents
+            bundle={bundle}
+            seed={node.seed}
+            onSelectBundle={onSelectBundle}
+          />
+        </div>
+      </Tab>
+      <Tab
+        eventKey="links"
+        title={
+          <TabTitleText>
+            <FormattedMessage {...messages.tabLinks} />
+          </TabTitleText>
+        }
+      >
+        <div className="pf-v6-u-mt-md">
+          <NodeLinks node={node} />
+        </div>
+      </Tab>
+    </Tabs>
+  );
+}
+
+function GateDetails({
+  gateId,
+  model,
+  onSelectBundle,
+}: {
+  gateId: string;
+  model: MapModel;
+  onSelectBundle: (seed: string) => void;
+}): React.ReactElement | null {
+  const gate = model.gates.find((x) => x.id === gateId);
+  if (!gate) {
+    return null;
+  }
+  const promotingLabel =
+    gate.promotingSeed !== null
+      ? gate.promotingVersion
+        ? `${gate.promotingVersion} · ${identiName(gate.promotingSeed)}`
+        : identiName(gate.promotingSeed)
+      : null;
+  return (
+    <DescriptionList isCompact>
+      <Row term={<FormattedMessage {...messages.detailFlow} />}>
+        <Flex
+          spaceItems={{ default: "spaceItemsXs" }}
+          alignItems={{ default: "alignItemsCenter" }}
+        >
+          <FlexItem>{gate.fromColumnKey}</FlexItem>
+          <FlexItem>
+            <LongArrowAltRightIcon />
+          </FlexItem>
+          <FlexItem>
+            {gate.terminal ? (
+              <em>
+                <FormattedMessage {...messages.detailFinalStage} />
+              </em>
+            ) : (
+              gate.toColumnKey
+            )}
+          </FlexItem>
+        </Flex>
+      </Row>
+      <Row term={<FormattedMessage {...messages.columnGates} />}>
+        {gate.checks.length > 0 ? (
+          <Flex
+            direction={{ default: "column" }}
+            spaceItems={{ default: "spaceItemsXs" }}
+          >
+            {gate.checks.map((check) => (
+              <Flex
+                key={check.name}
+                spaceItems={{ default: "spaceItemsSm" }}
+                alignItems={{ default: "alignItemsCenter" }}
+                flexWrap={{ default: "nowrap" }}
+              >
+                <FlexItem className={styles.gateCheckName}>
+                  {check.name}
+                </FlexItem>
+                <FlexItem>
+                  <StatusLabel badge={check.badge} />
+                </FlexItem>
+              </Flex>
+            ))}
+          </Flex>
+        ) : (
+          <StatusLabel badge={gate.badge} />
+        )}
+      </Row>
+      {gate.analysisUrl ? (
+        <Row term={<FormattedMessage {...messages.detailAnalysisRun} />}>
+          <Flex spaceItems={{ default: "spaceItemsSm" }}>
+            <Link
+              href={gate.analysisUrl}
+              label={<FormattedMessage {...messages.linkAnalysis} />}
+            />
+          </Flex>
+        </Row>
+      ) : null}
+      {gate.argoUrl ? (
+        <Row term={<FormattedMessage {...messages.detailAnalysisLogs} />}>
+          <Flex spaceItems={{ default: "spaceItemsSm" }}>
+            <Link
+              href={gate.argoUrl}
+              label={<FormattedMessage {...messages.linkArgo} />}
+            />
+          </Flex>
+        </Row>
+      ) : null}
+      <Row term={<FormattedMessage {...messages.detailPromoting} />}>
+        {gate.promotingSeed !== null && promotingLabel !== null ? (
+          <BundleChip
+            seed={gate.promotingSeed}
+            label={promotingLabel}
+            onSelect={onSelectBundle}
+          />
+        ) : (
+          <FormattedMessage {...messages.valueNone} />
+        )}
+      </Row>
+    </DescriptionList>
+  );
+}
+
+function BundleDetails({
+  seed,
+  model,
+  releaseByDigest,
+  onSelectNode,
+}: {
+  seed: string;
+  model: MapModel;
+  releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
+  onSelectNode: (id: string) => void;
+}): React.ReactElement | null {
+  const bundle = bundleList(releaseByDigest).find(
+    (b) => seedForBundle(b) === seed,
+  );
+  if (!bundle) {
+    return null;
+  }
+  const deployed = deployedFor(bundle, model.nodes);
+  return (
+    <>
+      <DescriptionList isCompact isHorizontal>
+        <Row term={<FormattedMessage {...messages.detailRelease} />}>
+          {bundle.version}
+        </Row>
+        <Row term={<FormattedMessage {...messages.detailAlias} />}>
+          {identiName(seed)}
+        </Row>
+        {bundle.digest ? (
+          <Row term={<FormattedMessage {...messages.detailDigest} />}>
+            <code>{bundle.digest}</code>
+          </Row>
+        ) : null}
+        {bundle.date ? (
+          <Row term={<FormattedMessage {...messages.detailDate} />}>
+            {bundle.date}
+          </Row>
+        ) : null}
+      </DescriptionList>
+
+      <div className={styles.section}>
+        <h4 className={styles.sectionTitle}>
+          <FormattedMessage {...messages.sectionDeployedOn} />
+        </h4>
+        {deployed.length > 0 ? (
+          <Flex spaceItems={{ default: "spaceItemsXs" }}>
+            {deployed.map((n) => (
+              <FlexItem key={n.id}>
+                <Label
+                  variant="outline"
+                  isCompact
+                  onClick={() => {
+                    onSelectNode(n.id);
+                  }}
+                >
+                  {n.id}
+                </Label>
+              </FlexItem>
+            ))}
+          </Flex>
+        ) : (
+          <Content component="small">
+            <FormattedMessage {...messages.valueNone} />
+          </Content>
+        )}
+      </div>
+
+      <div className={styles.section}>
+        <BundleContents bundle={bundle} />
+      </div>
+    </>
+  );
+}
+
+export function MapDetails({
+  model,
+  releaseByDigest,
+  selection,
+  onClose,
+  onSelectBundle,
+  onSelectNode,
+}: MapDetailsProps): React.ReactElement {
+  const intl = useIntl();
+  const node =
+    selection.kind === "node"
+      ? model.nodes.find((n) => n.id === selection.id)
+      : undefined;
+  const title =
+    selection.kind === "node" ? (node?.id ?? selection.id) : selection.id;
+
+  return (
+    <div>
+      <Flex
+        justifyContent={{ default: "justifyContentSpaceBetween" }}
+        alignItems={{ default: "alignItemsCenter" }}
+      >
+        <FlexItem>
+          <Flex
+            alignItems={{ default: "alignItemsCenter" }}
+            spaceItems={{ default: "spaceItemsSm" }}
+          >
+            {selection.kind === "bundle" ? (
+              <FlexItem>
+                <BundleIdenticon seed={selection.id} />
+              </FlexItem>
+            ) : null}
+            <FlexItem>
+              <Title headingLevel="h3" size="lg">
+                {title}
+              </Title>
+            </FlexItem>
+          </Flex>
+        </FlexItem>
+        <FlexItem>
+          <Button
+            variant="plain"
+            aria-label={intl.formatMessage(messages.drawerClose)}
+            onClick={onClose}
+            icon={<TimesIcon />}
+          />
+        </FlexItem>
+      </Flex>
+      {selection.kind === "node" && node ? (
+        <NodeDetails
+          node={node}
+          releaseByDigest={releaseByDigest}
+          onSelectBundle={onSelectBundle}
+        />
+      ) : null}
+      {selection.kind === "gate" ? (
+        <GateDetails
+          gateId={selection.id}
+          model={model}
+          onSelectBundle={onSelectBundle}
+        />
+      ) : null}
+      {selection.kind === "bundle" ? (
+        <BundleDetails
+          seed={selection.id}
+          model={model}
+          releaseByDigest={releaseByDigest}
+          onSelectNode={onSelectNode}
+        />
+      ) : null}
+    </div>
+  );
+}

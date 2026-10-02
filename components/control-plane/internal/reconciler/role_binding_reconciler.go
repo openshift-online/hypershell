@@ -73,7 +73,10 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "RoleBinding", event.Type.String(), rb.GetMetadata().GetTraceparent())
 	var reconcileErr error
-	defer func() { endSpan(reconcileErr) }()
+	defer func() {
+		outcome, reason := cpotel.ClassifyReconcileOutcome(reconcileErr)
+		endSpan(outcome, reason, reconcileErr)
+	}()
 
 	if rb.GatewayId == nil || *rb.GatewayId == "" {
 		log.Printf("DEBUG role binding %s: no gateway_id (global scope), skipping keycloak sync", event.ResourceID)

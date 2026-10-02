@@ -7,6 +7,7 @@ import {
   reconciliationFailureCountPromql,
   reconciliationLagP50SecondsPromql,
   reconciliationRetryCountPromql,
+  reconciliationSuccessCountPromql,
   staleResourceStatusCountPromql,
 } from "../src/metrics-control-plane-reconciliation.js";
 
@@ -52,11 +53,13 @@ describe("queryControlPlaneReconciliation", () => {
     expect(metrics).toMatchObject({
       reconciliation_failures_count: 0,
       reconciliation_retries_count: 0,
+      reconciliation_successes_count: 0,
       stale_resource_status_count: 0,
     });
     expect(metrics.reconciliation_lag_p50_seconds).toBeUndefined();
     expect(reconciliationFailureCountPromql).toContain("increase");
     expect(reconciliationRetryCountPromql).toContain("increase");
+    expect(reconciliationSuccessCountPromql).toContain("increase");
     expect(staleResourceStatusCountPromql).toContain("stale");
   });
 });

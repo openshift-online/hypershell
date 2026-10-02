@@ -121,9 +121,12 @@ func (r *NamespaceGCReconciler) Run(ctx context.Context) error {
 }
 
 func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
-	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "namespace-gc", "reconcile", "")
+	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", "reconcile", "")
 	var tickErr error
-	defer func() { endSpan(tickErr) }()
+	defer func() {
+		outcome, reason := cpotel.ClassifyReconcileOutcome(tickErr)
+		endSpan(outcome, reason, tickErr)
+	}()
 
 	// An empty instance identity would list every HyperShell-managed namespace
 	// on the cluster. Abort rather than treat another instance's gateways as

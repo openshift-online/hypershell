@@ -3,6 +3,7 @@ package otel
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -26,7 +27,37 @@ var (
 	reconciliationLag          metric.Float64Histogram
 	staleResourceStatusCount   metric.Int64Gauge
 	watchReconnects            metric.Int64Counter
+	reconcileOutcomes          metric.Int64Counter
+	reconcileFailed            metric.Int64Counter
 )
+
+// Reconciliation outcome taxonomy (CRM-006). These are the single source of
+// truth for all reconciliation outcome metrics.
+const (
+	OutcomeNoop      = "noop"
+	OutcomeSuccess   = "success"
+	OutcomeRetryable = "retryable"
+	OutcomeFailed    = "failed"
+)
+
+// Retryable reason codes (CRM-007).
+const (
+	ReasonGRPCUnavailable    = "grpc_unavailable"
+	ReasonK8sConflict        = "k8s_conflict"
+	ReasonK8sUnavailable     = "k8s_unavailable"
+	ReasonDependencyNotReady = "dependency_not_ready"
+	ReasonKeycloakTransient  = "keycloak_transient"
+)
+
+// Failed reason codes (CRM-007).
+const (
+	ReasonInvalidConfig       = "invalid_config"
+	ReasonMissingPrerequisite = "missing_prerequisite"
+	ReasonIdentityInvalid     = "identity_invalid"
+)
+
+// ReasonUnknown is the fallback when a failure doesn't match a recognized code.
+const ReasonUnknown = "unknown"
 
 var staleResources sync.Map
 var staleResourcesMu sync.Mutex
@@ -164,6 +195,24 @@ func registerMetrics() error {
 		metric.WithUnit("{reconnect}"),
 		metric.WithDescription("Count of watch stream reconnections"),
 	)
+	if err != nil {
+		return err
+	}
+
+	reconcileOutcomes, err = meter.Int64Counter(
+		"reconcile.outcomes",
+		metric.WithUnit("{outcome}"),
+		metric.WithDescription("Count of reconciliation attempts by outcome"),
+	)
+	if err != nil {
+		return err
+	}
+
+	reconcileFailed, err = meter.Int64Counter(
+		"reconcile.failed",
+		metric.WithUnit("{failure}"),
+		metric.WithDescription("Count of reconciliation attempts that reached a non-recoverable state"),
+	)
 	return err
 }
 
@@ -199,14 +248,21 @@ func RecordReconcileQueueWaitDuration(ctx context.Context, kind string, duration
 	))
 }
 
-// RecordReconcileDuration records the duration of a reconcile operation.
-func RecordReconcileDuration(ctx context.Context, kind, eventType string, start time.Time) {
+// RecordReconcileDuration records the duration of a reconcile operation with
+// an outcome label (CRM-008). The outcome must be one of the constants from
+// CRM-006; unrecognized values are rejected and logged.
+func RecordReconcileDuration(ctx context.Context, kind, eventType, outcome string, start time.Time) {
 	if reconcileDuration == nil {
+		return
+	}
+	if !isValidOutcome(outcome) {
+		log.Printf("WARN invalid reconcile outcome %q for duration metric (kind=%s); metric not recorded", outcome, kind)
 		return
 	}
 	reconcileDuration.Record(ctx, time.Since(start).Milliseconds(), metric.WithAttributes(
 		attribute.String("resource.kind", kind),
 		attribute.String("event.type", eventType),
+		attribute.String("outcome", outcome),
 	))
 }
 
@@ -277,13 +333,20 @@ func RecordReconcileError(ctx context.Context, kind string) {
 	}
 }
 
-// RecordReconciliationRetry records a retry scheduled for a reconciliation.
-func RecordReconciliationRetry(ctx context.Context, kind string) {
+// RecordReconciliationRetry records a retry scheduled for a reconciliation with
+// a reason code (CRM-010). The reason must be a retryable code from CRM-007 or
+// ReasonUnknown; unrecognized values fall back to ReasonUnknown and are logged.
+func RecordReconciliationRetry(ctx context.Context, kind, reason string) {
 	if reconciliationRetries == nil {
 		return
 	}
+	validatedReason := validateRetryableReason(reason)
+	if validatedReason != reason {
+		log.Printf("WARN unrecognized retryable reason %q for kind %s; using %q", reason, kind, validatedReason)
+	}
 	reconciliationRetries.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("resource.kind", kind),
+		attribute.String("reason", validatedReason),
 	))
 }
 
@@ -327,4 +390,72 @@ func RecordWatchReconnect(ctx context.Context, kind string) {
 	watchReconnects.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("resource.kind", kind),
 	))
+}
+
+// RecordReconcileOutcome increments the reconcile outcomes counter with the
+// given outcome (CRM-009). The outcome must be one of the constants from
+// CRM-006; unrecognized values are rejected and logged.
+func RecordReconcileOutcome(ctx context.Context, kind, outcome string) {
+	if reconcileOutcomes == nil {
+		return
+	}
+	if !isValidOutcome(outcome) {
+		log.Printf("WARN invalid reconcile outcome %q for kind %s; metric not recorded", outcome, kind)
+		return
+	}
+	reconcileOutcomes.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("resource.kind", kind),
+		attribute.String("outcome", outcome),
+	))
+}
+
+// RecordReconcileFailedWithReason increments the reconcile.failed counter with
+// the given reason code (CRM-011). The reason must be a failed code from
+// CRM-007 or ReasonUnknown; unrecognized values fall back to ReasonUnknown and
+// are logged at WARN.
+func RecordReconcileFailedWithReason(ctx context.Context, kind, reason string) {
+	if reconcileFailed == nil {
+		return
+	}
+	validatedReason := validateFailedReason(reason)
+	if validatedReason != reason {
+		log.Printf("WARN unrecognized failed reason %q for kind %s; using %q", reason, kind, validatedReason)
+	}
+	reconcileFailed.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("resource.kind", kind),
+		attribute.String("reason", validatedReason),
+	))
+}
+
+// isValidOutcome returns true if outcome is one of the CRM-006 constants.
+func isValidOutcome(outcome string) bool {
+	switch outcome {
+	case OutcomeNoop, OutcomeSuccess, OutcomeRetryable, OutcomeFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+// validateRetryableReason returns the reason if it is a valid retryable code
+// from CRM-007, otherwise returns ReasonUnknown.
+func validateRetryableReason(reason string) string {
+	switch reason {
+	case ReasonGRPCUnavailable, ReasonK8sConflict, ReasonK8sUnavailable,
+		ReasonDependencyNotReady, ReasonKeycloakTransient, ReasonUnknown:
+		return reason
+	default:
+		return ReasonUnknown
+	}
+}
+
+// validateFailedReason returns the reason if it is a valid failed code from
+// CRM-007, otherwise returns ReasonUnknown.
+func validateFailedReason(reason string) string {
+	switch reason {
+	case ReasonInvalidConfig, ReasonMissingPrerequisite, ReasonIdentityInvalid, ReasonUnknown:
+		return reason
+	default:
+		return ReasonUnknown
+	}
 }

@@ -1,0 +1,193 @@
+/* PR rows in the bundle tab. Each row rides a single line that grows with the
+ * drawer; the title truncates in the MIDDLE so both its start and its tail stay
+ * legible, while the "#<number>" prefix is pinned and never clipped. The middle
+ * ellipsis is pure CSS flexbox (no JS measuring): the head span shrinks and
+ * ellipsises, the tail span is pinned at its natural width to the right. */
+
+.prLink {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pf-t--global--spacer--xs, 0.25rem);
+  max-width: 100%;
+  min-width: 0;
+  color: var(--pf-t--global--text--color--link--default, #0066cc);
+  text-decoration: none;
+}
+
+.prLink:hover,
+.prLink:focus-visible {
+  color: var(--pf-t--global--text--color--link--hover, #004d99);
+  text-decoration: underline;
+}
+
+/* Pinned issue number: fixed width, tabular figures so rows align. */
+.prNum {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The title's middle-truncation container. min-width:0 lets it shrink below its
+ * content width so the head span can actually clip. */
+.prTitle {
+  display: flex;
+  min-width: 0;
+}
+
+.prHead {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.prTail {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* A section zone inside the detail panel (Deployed on / In this bundle): clear
+ * air above it, and a hairline rule so it reads as a new band rather than one more
+ * field row. No rule at the very top of a tab (the tab underline already divides). */
+.section {
+  margin-top: var(--pf-t--global--spacer--lg, 1.5rem);
+  padding-top: var(--pf-t--global--spacer--md, 1rem);
+  border-top: 1px solid var(--pf-t--global--border--color--default, #3d3d3d);
+}
+
+/* Section heading as a muted, uppercase "eyebrow" - deliberately LIGHTER than the
+ * bold white field-term labels, so the eye reads it as a section marker, not a
+ * field. A small gap separates it from its content. */
+.sectionTitle {
+  margin: 0 0 var(--pf-t--global--spacer--sm, 0.5rem) 0;
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+/* One gate's name in the gate detail list (argocd-health, hypershell-analysis).
+ * The name shares a row with its status label; it takes the slack and truncates so
+ * a long opaque gate name never shoves the status label off the row. */
+.gateCheckName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The "Promoting" label carries a Spinner in its icon slot; vertically centre the
+ * icon + text so the spinner sits on the text's midline instead of riding high. */
+.spinnerLabel :global(.pf-v6-c-label__content) {
+  align-items: center;
+}
+
+/* A field label paired inline with its info "i". The icon sits on the label
+ * baseline with a small gap and never wraps away from its term. */
+.termWithInfo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--xs, 0.25rem);
+}
+
+/* The info "i": subtle until hovered/focused, with a help cursor. It is keyboard
+ * focusable (the PatternFly Tooltip shows on focus) and sized to the label text. */
+.infoTip {
+  display: inline-flex;
+  align-items: center;
+  color: var(--pf-t--global--icon--color--subtle, #8a8d90);
+  cursor: help;
+  font-size: 0.8em;
+  line-height: 1;
+}
+
+.infoTip:hover,
+.infoTip:focus-visible {
+  color: var(--pf-t--global--icon--color--brand--default, #0066cc);
+  outline: none;
+}
+
+/* The gateway donut + phase breakdown as a self-contained "widget" at the top of
+ * the detail panel: a softly darker, rounded panel with NO hard border, so it
+ * reads as one grouped unit distinct from the field grid beneath it. */
+.gatewayWidget {
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 10px;
+  padding: 14px 16px;
+  /* Breathing room from the tabs above, and separation from the field grid below. */
+  margin-top: var(--pf-t--global--spacer--md, 1rem);
+  margin-bottom: var(--pf-t--global--spacer--md, 1rem);
+}
+
+/* Donut (left) + legend (right), vertically centred, held side by side even in the
+ * narrow drawer so the legend never wraps beneath the donut. */
+.gatewayBody {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Donut with its "Gateways" caption centred above it, as one left-hand unit. */
+.gatewayDonutCol {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The "Gateways" caption: the same muted eyebrow style as .sectionTitle, but
+ * centred over the donut with no bottom gap (the column's own gap spaces it). */
+.gatewayDonutTitle {
+  margin: 0;
+  text-align: center;
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+.gatewayDonut {
+  flex: 0 0 auto;
+}
+
+/* Chart legend: one row per phase, tight rows, counts right-aligned so they form a
+ * column regardless of label width. */
+.gatewayLegend {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gatewayLegendRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gatewaySwatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.gatewayLegendLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gatewayLegendCount {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
