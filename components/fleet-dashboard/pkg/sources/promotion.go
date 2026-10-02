@@ -201,9 +201,9 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			// -plumbing commit) share a digest, so the env is up to date even though
 			// the SHAs differ. Falls back to SHA identity when the lock is
 			// unreadable (releaseKey), matching canonicalRelease.
-			UpToDate: sameRelease(av, pv),
-			ActiveGates:    gatesOf(active),
-			ProposedGates:  gatesOf(proposed),
+			UpToDate:      sameRelease(av, pv),
+			ActiveGates:   gatesOf(active),
+			ProposedGates: gatesOf(proposed),
 		}
 		if pr, ok := prByBranch[branch]; ok {
 			env.PRState = pr.state
