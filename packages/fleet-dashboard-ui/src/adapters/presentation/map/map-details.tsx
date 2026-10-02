@@ -56,6 +56,7 @@ import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import styles from "./map-details.module.css";
+import { SandboxChin } from "./sandbox-chin";
 
 /**
  * The release-bundle identicon, inline. A release bundle is always identified by
@@ -447,6 +448,50 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
   );
 }
 
+/**
+ * Active agent-sandbox population for an instance: a headline count plus the
+ * per-cluster "chin" (SandboxChin) showing how those sandboxes spread across the
+ * instance's managed clusters. Mirrors the gateways widget's shape so the two read
+ * as a pair in the drawer. Sandboxes are a distinct population from gateways (an
+ * instance with idle gateways can still host sandboxes), so they get their own band.
+ */
+function SandboxSummary({ node }: { node: MapNode }): React.ReactElement {
+  const intl = useIntl();
+  const total = node.sandboxes;
+  const clusters = node.sandboxesByCluster;
+  const summary = intl.formatMessage(messages.detailSandboxBreakdown, {
+    total,
+    clusters: clusters.length,
+  });
+  const noneLabel = intl.formatMessage(messages.sandboxNone);
+  return (
+    <div className={styles.sandboxBody}>
+      <div className={styles.sandboxHead}>
+        <h4 className={styles.sandboxTitle}>
+          <FormattedMessage {...messages.sectionSandboxes} />
+        </h4>
+        <span
+          className={styles.sandboxCount}
+          aria-label={summary}
+          title={summary}
+        >
+          {total}
+        </span>
+      </div>
+      {clusters.length > 0 ? (
+        <>
+          <h5 className={styles.sandboxChinTitle}>
+            <FormattedMessage {...messages.sandboxByCluster} />
+          </h5>
+          <SandboxChin clusters={clusters} />
+        </>
+      ) : (
+        <p className={styles.sandboxEmpty}>{noneLabel}</p>
+      )}
+    </div>
+  );
+}
+
 function NodeFields({
   node,
   onSelectBundle,
@@ -744,6 +789,9 @@ function NodeDetails({
         <div className="pf-v6-u-mt-md">
           <div className={styles.gatewayWidget}>
             <GatewaySummary node={node} />
+          </div>
+          <div className={[styles.sandboxWidget, "pf-v6-u-mt-md"].join(" ")}>
+            <SandboxSummary node={node} />
           </div>
           <div className="pf-v6-u-mt-md">
             <NodeFields node={node} onSelectBundle={onSelectBundle} />

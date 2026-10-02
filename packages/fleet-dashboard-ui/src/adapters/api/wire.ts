@@ -193,12 +193,19 @@ interface WireInstanceFleet {
   readonly bff?: WireRateStats | null;
   readonly provisionP95Ms?: number;
   readonly gatewayHistory?: readonly WireGatewayHistorySample[] | null;
+  readonly sandboxes?: number;
+  readonly sandboxesByCluster?: readonly WireSandboxClusterCount[] | null;
 }
 
 interface WireGatewayHistorySample {
   readonly running?: number;
   readonly provisioning?: number;
   readonly failed?: number;
+}
+
+interface WireSandboxClusterCount {
+  readonly cluster?: string;
+  readonly count?: number;
 }
 
 /** `/api/fleet` is a map keyed by instance name; the domain uses a flat list. */
@@ -240,6 +247,10 @@ function mapInstanceFleet(key: string, raw: WireInstanceFleet): InstanceFleet {
       provisioning: num(s.provisioning),
       failed: num(s.failed),
     })),
+    sandboxes: num(raw.sandboxes),
+    sandboxesByCluster: (raw.sandboxesByCluster ?? [])
+      .map((s) => ({ cluster: s.cluster ?? "", count: num(s.count) }))
+      .filter((s) => s.cluster !== ""),
   };
 }
 

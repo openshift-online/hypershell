@@ -44,6 +44,8 @@ function inst(
     bff: ZERO_RATE,
     provisionP95Ms: null,
     gatewayHistory: [],
+    sandboxes: 0,
+    sandboxesByCluster: [],
     ...overrides,
   };
 }

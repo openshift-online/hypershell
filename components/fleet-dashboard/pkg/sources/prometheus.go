@@ -25,12 +25,14 @@ import (
 // Prometheus queries the metrics receiver over its HTTP API. The instance
 // filter is built from discovery, never hard-coded.
 type Prometheus struct {
-	base      string
-	tokenFile string
-	metric    string
-	instLabel string
-	client    *http.Client
-	logger    *slog.Logger
+	base          string
+	tokenFile     string
+	metric        string
+	instLabel     string
+	sandboxMetric string
+	clusterLabel  string
+	client        *http.Client
+	logger        *slog.Logger
 }
 
 // NewPrometheus builds a Prometheus source from config.
@@ -40,12 +42,14 @@ func NewPrometheus(c *config.Config) *Prometheus {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // opt-in for self-signed in-cluster endpoints
 	}
 	return &Prometheus{
-		base:      strings.TrimRight(c.PromURL, "/"),
-		tokenFile: c.PromTokenFile,
-		metric:    c.GatewayMetric,
-		instLabel: c.InstanceLabel,
-		client:    &http.Client{Timeout: 20 * time.Second, Transport: tr},
-		logger:    slog.Default(),
+		base:          strings.TrimRight(c.PromURL, "/"),
+		tokenFile:     c.PromTokenFile,
+		metric:        c.GatewayMetric,
+		instLabel:     c.InstanceLabel,
+		sandboxMetric: c.SandboxMetric,
+		clusterLabel:  c.ClusterLabel,
+		client:        &http.Client{Timeout: 20 * time.Second, Transport: tr},
+		logger:        slog.Default(),
 	}
 }
 
@@ -205,6 +209,18 @@ type InstanceFleet struct {
 	// GatewayHistory is per-phase gateway counts sampled oldest->newest over the
 	// last day, feeding the per-instance stacked "sand" sparkline on the map.
 	GatewayHistory []GatewayHistorySample `json:"gatewayHistory"`
+	// Sandboxes is the instance's total active agent-sandbox count across all its
+	// gateways; SandboxesByCluster breaks that total down per managed cluster, for
+	// the detail panel's sandbox widget + per-cluster "chin" chart.
+	Sandboxes          int                   `json:"sandboxes"`
+	SandboxesByCluster []SandboxClusterCount `json:"sandboxesByCluster"`
+}
+
+// SandboxClusterCount is one managed cluster's active-sandbox count within an
+// instance. Cluster is the opaque scrape-injected cluster label value.
+type SandboxClusterCount struct {
+	Cluster string `json:"cluster"`
+	Count   int    `json:"count"`
 }
 
 // RateStats is a rate + error% + p95 latency triple.
@@ -351,6 +367,36 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 		func(f *InstanceFleet, v float64) { f.Users = v })
 	byNS(fmt.Sprintf("1000 * histogram_quantile(0.95, sum by (%s,le) (rate(gateway_provision_duration_seconds_bucket{%s=~%q}[30m])))", p.instLabel, p.instLabel, nsRE),
 		func(f *InstanceFleet, v float64) { f.ProvisionP95Ms = v })
+
+	// Active sandboxes, broken down per managed cluster. The gauge is reported
+	// per-gateway (the cluster/gateway labels are scrape-injected, not emitted by
+	// the metric), so dedupe scrape series with an inner max by (cluster,instance,
+	// gateway) then sum the gateways within each cluster - mirroring the fleet
+	// Grafana "Sandboxes by cluster" panel. The per-instance total is summed in Go
+	// from the per-cluster rows (one query instead of two). Best-effort.
+	if res, ok := runInstant(fmt.Sprintf(
+		"sum by (%s,%s) (max by (%s,%s,gateway) (%s{%s=~%q}))",
+		p.instLabel, p.clusterLabel, p.clusterLabel, p.instLabel, p.sandboxMetric, p.instLabel, nsRE,
+	)); ok {
+		for _, r := range res {
+			f := get(r.Metric[p.instLabel])
+			cluster := r.Metric[p.clusterLabel]
+			n := int(sampleValue(r.Value))
+			f.SandboxesByCluster = append(f.SandboxesByCluster, SandboxClusterCount{Cluster: cluster, Count: n})
+			f.Sandboxes += n
+		}
+		// Stable, meaningful order: busiest cluster first, ties broken by name so a
+		// given snapshot always renders the rows the same way.
+		for _, f := range byInst {
+			sort.Slice(f.SandboxesByCluster, func(i, j int) bool {
+				a, b := f.SandboxesByCluster[i], f.SandboxesByCluster[j]
+				if a.Count != b.Count {
+					return a.Count > b.Count
+				}
+				return a.Cluster < b.Cluster
+			})
+		}
+	}
 
 	// Rate/error/p95 triples keyed by k8s_namespace_name.
 	byK := func(expr string, set func(f *InstanceFleet, v float64)) {
