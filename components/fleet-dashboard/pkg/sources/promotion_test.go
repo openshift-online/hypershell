@@ -181,6 +181,53 @@ func TestCanonicalReleaseDedupByDigest(t *testing.T) {
 	}
 }
 
+// TestSameRelease proves UpToDate's identity test: two releases match by bundle
+// digest (so differing gitops SHAs on the same bundle are up-to-date), fall back
+// to SHA when no digest, and a nil (unresolvable) side is never up-to-date.
+func TestSameRelease(t *testing.T) {
+	const digest = "sha256:6145e7f19d28d502b57f21aac8a60d4b07049390810264078e9bbc3e7aebd608"
+	cases := []struct {
+		name             string
+		active, proposed *Release
+		want             bool
+	}{
+		{
+			name:     "same digest, different gitops SHA -> up to date",
+			active:   &Release{Digest: digest, SHA: "aaaaaaaa"},
+			proposed: &Release{Digest: digest, SHA: "bbbbbbbb"},
+			want:     true,
+		},
+		{
+			name:     "different digest -> behind",
+			active:   &Release{Digest: digest, SHA: "aaaaaaaa"},
+			proposed: &Release{Digest: "sha256:other", SHA: "bbbbbbbb"},
+			want:     false,
+		},
+		{
+			name:     "no digest, same SHA -> up to date (short-SHA fallback)",
+			active:   &Release{SHA: "cccccccc"},
+			proposed: &Release{SHA: "cccccccc"},
+			want:     true,
+		},
+		{
+			name:     "no digest, different SHA -> behind",
+			active:   &Release{SHA: "cccccccc"},
+			proposed: &Release{SHA: "dddddddd"},
+			want:     false,
+		},
+		{name: "nil proposed -> behind", active: &Release{Digest: digest}, proposed: nil, want: false},
+		{name: "nil active -> behind", active: nil, proposed: &Release{Digest: digest}, want: false},
+		{name: "both nil -> behind", active: nil, proposed: nil, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sameRelease(tc.active, tc.proposed); got != tc.want {
+				t.Errorf("sameRelease = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func keysOf(m map[string]*Release) []string {
 	ks := make([]string, 0, len(m))
 	for k := range m {

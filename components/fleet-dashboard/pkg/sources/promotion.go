@@ -195,7 +195,13 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			Proposed:       pv,
 			ActiveHydrated: shortSHA(activeHydrated),
 			AnalysisURL:    p.analyzer.AnalysisURL(ctx, activeHydrated),
-			UpToDate:       activeSHA == proposedSHA && activeSHA != "",
+			// Up-to-date means active and proposed run the SAME release bundle, by
+			// the digest identity the release cards dedup on -- NOT by raw gitops
+			// dry SHA. Two dry commits that render the same bundle (e.g. a delivery
+			// -plumbing commit) share a digest, so the env is up to date even though
+			// the SHAs differ. Falls back to SHA identity when the lock is
+			// unreadable (releaseKey), matching canonicalRelease.
+			UpToDate: sameRelease(av, pv),
 			ActiveGates:    gatesOf(active),
 			ProposedGates:  gatesOf(proposed),
 		}
@@ -262,6 +268,17 @@ func releaseKey(r *Release) string {
 		return r.Digest
 	}
 	return r.SHA
+}
+
+// sameRelease reports whether active and proposed resolve to the same release
+// bundle, by the same identity canonicalRelease dedups on (digest, else SHA).
+// Two nil releases (both unresolvable) are not "the same" -- an env with no
+// resolvable active bundle is not meaningfully up to date.
+func sameRelease(active, proposed *Release) bool {
+	if active == nil || proposed == nil {
+		return false
+	}
+	return releaseKey(active) == releaseKey(proposed)
 }
 
 type prInfo struct{ state, url string }
