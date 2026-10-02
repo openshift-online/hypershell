@@ -24,6 +24,7 @@ import {
   TabTitleText,
   Title,
   Tooltip,
+  Truncate,
 } from "@patternfly/react-core";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
 import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
@@ -902,20 +903,31 @@ export function MapDetails({
       <Flex
         justifyContent={{ default: "justifyContentSpaceBetween" }}
         alignItems={{ default: "alignItemsCenter" }}
+        spaceItems={{ default: "spaceItemsSm" }}
+        flexWrap={{ default: "nowrap" }}
       >
-        <FlexItem>
+        <FlexItem grow={{ default: "grow" }} className={styles.headerMain}>
           <Flex
             alignItems={{ default: "alignItemsCenter" }}
             spaceItems={{ default: "spaceItemsSm" }}
+            flexWrap={{ default: "nowrap" }}
           >
             {selection.kind === "bundle" ? (
               <FlexItem>
                 <BundleIdenticon seed={selection.id} />
               </FlexItem>
             ) : null}
-            <FlexItem>
+            <FlexItem grow={{ default: "grow" }} className={styles.headerTitle}>
+              {/* The title (a node id or a long bundle digest) always fits the
+                  available width on one line: PatternFly Truncate keeps the head
+                  and a fixed tail and drops a middle ellipsis in between, scaling
+                  responsively as the drawer resizes. Short titles show in full. */}
               <Title headingLevel="h3" size="lg">
-                {title}
+                <Truncate
+                  content={title}
+                  position="middle"
+                  trailingNumChars={12}
+                />
               </Title>
             </FlexItem>
           </Flex>

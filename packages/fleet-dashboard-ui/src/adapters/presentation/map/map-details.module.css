@@ -1,3 +1,16 @@
+/* The detail-panel header: a flexing title column beside a fixed close button.
+ * Both the left group and the title item must carry min-width:0 so the title can
+ * shrink below its content width and let PatternFly Truncate drop its middle
+ * ellipsis; without this the long bundle digest would wrap or shove the close
+ * button off the row instead of truncating. */
+.headerMain {
+  min-width: 0;
+}
+
+.headerTitle {
+  min-width: 0;
+}
+
 /* PR rows in the bundle tab. Each row rides a single line that grows with the
  * drawer; the title truncates in the MIDDLE so both its start and its tail stay
  * legible, while the "#<number>" prefix is pinned and never clipped. The middle
