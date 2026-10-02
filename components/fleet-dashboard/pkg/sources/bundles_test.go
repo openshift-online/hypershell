@@ -127,6 +127,51 @@ func TestGitHubBundlesEnrich(t *testing.T) {
 	}
 }
 
+// TestComparePRsSortedByMergeTime confirms the PR list is ordered by merge time
+// (newest first) rather than by the compare API's raw commit order. The fake
+// returns commits whose "(#n)" trailers are OUT of chronological order, so a plain
+// reverse of the API order would mis-sort them; only an explicit MergedAt sort
+// yields the expected newest-first result.
+func TestComparePRsSortedByMergeTime(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/acme/gitops/compare/base...head" {
+			// Deliberately scrambled: dates do not increase with position, and the
+			// PR number order does not match the merge-time order either.
+			_, _ = w.Write([]byte(`{"commits":[
+				{"commit":{"message":"Middle (#200)","author":{"date":"2026-09-05T12:00:00Z"}},"author":{"login":"a"}},
+				{"commit":{"message":"Newest (#150)","author":{"date":"2026-09-09T12:00:00Z"}},"author":{"login":"b"}},
+				{"commit":{"message":"Oldest (#300)","author":{"date":"2026-09-01T12:00:00Z"}},"author":{"login":"c"}}
+			]}`))
+			return
+		}
+		t.Errorf("unexpected call to %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL})
+	prs := g.comparePRs(context.Background(), "base", "head")
+
+	wantNums := []int{150, 200, 300} // newest merge time first
+	if len(prs) != len(wantNums) {
+		t.Fatalf("want %d PRs, got %d: %+v", len(wantNums), len(prs), prs)
+	}
+	for i, want := range wantNums {
+		if prs[i].Number != want {
+			t.Errorf("position %d: got #%d, want #%d (order: %v)", i, prs[i].Number, want, prNums(prs))
+		}
+	}
+}
+
+// prNums is a tiny helper for readable order assertions.
+func prNums(prs []PR) []int {
+	out := make([]int, len(prs))
+	for i, p := range prs {
+		out[i] = p.Number
+	}
+	return out
+}
+
 // TestGitHubBundlesSingleRelease confirms a lone release (no prior build) does
 // no compare call and gets no PRs.
 func TestGitHubBundlesSingleRelease(t *testing.T) {

@@ -33,19 +33,26 @@
    the canvas's direct parent) MUST be in this list: without min-height:0 it refuses
    to shrink below the SVG's intrinsic size, so it overflows and grows an internal
    scrollbar. That scrollbar steals width from the canvas, which re-fits the viewBox
-   to a now-wrong aspect - so "reset view" appeared to throw the scene off-screen. */
+   to a now-wrong aspect - so "reset view" appeared to throw the scene off-screen.
+   __panel-main is the inner wrapper PatternFly 6.6 inserts between __panel and the
+   panel __body; WITHOUT it in this height chain the panel body's height:100% resolves
+   against an auto-height parent, so the panel grows to its (tall) content instead of
+   scrolling - stretching the whole stage past the viewport. It must be here too. */
 .stage :global(.pf-v6-c-drawer),
 .stage :global(.pf-v6-c-drawer__main),
 .stage :global(.pf-v6-c-drawer__content),
 .stage :global(.pf-v6-c-drawer__body),
-.stage :global(.pf-v6-c-drawer__panel) {
+.stage :global(.pf-v6-c-drawer__panel),
+.stage :global(.pf-v6-c-drawer__panel-main) {
   height: 100%;
   min-height: 0;
 }
 
 /* The canvas's parent never scrolls: the canvas clips its own overflow instead, so
-   no stray scrollbar can resize it out from under the viewBox fit. */
-.stage :global(.pf-v6-c-drawer__body) {
+   no stray scrollbar can resize it out from under the viewBox fit. Scoped to the
+   CONTENT body (canvas) via the direct-child selector so it never lands on the panel
+   body - which also carries .pf-v6-c-drawer__body and must stay scrollable. */
+.stage :global(.pf-v6-c-drawer__content > .pf-v6-c-drawer__body) {
   overflow: hidden;
 }
 
