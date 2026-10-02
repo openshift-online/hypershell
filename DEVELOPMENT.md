@@ -530,14 +530,14 @@ port). Keycloak embeds this URL as the `iss` claim in tokens, so the issuer
 passed to `openshell gateway add` must match exactly. This requires host port
 443 to be forwarded -- if it isn't, run `make kind-fix-ports` first.
 
-The legacy OpenShift e2e script (`components/pr-test/e2e-openshell.sh`) uses the
-same port-forward fallback when no passthrough route is available. That script is
-**deprecated** (see `specs/platform/ephemeral-pr-environments.spec.md`): the
-canonical pull-request OpenShift e2e path is the shared harness
+The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) uses the same
+port-forward fallback when no passthrough route is available. The canonical
+pull-request OpenShift e2e path is the shared harness
 `tests/e2e/e2e-openshell.sh` run with `E2E_INFRA_DRIVER=openshift`, driven
 automatically by the ephemeral pull-request environment workflow (see
 [Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)).
-Prefer the shared harness for new work; the IBM ROKS variant
+The legacy `components/pr-test/e2e-openshell.sh` script this superseded has
+been removed (HYPERSHELL-250); the IBM ROKS variant
 (`e2e-openshell-roks.sh`) is unaffected.
 
 ### OpenShift (automatic)

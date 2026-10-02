@@ -26,7 +26,7 @@ cluster bootstrap, and the OpenShift side of the e2e driver contract.
 `tests/e2e/drivers/openshift.sh` file that implements the OpenShift side of that
 contract. Automated pull-request CI on OpenShift -- namespace naming, continuous
 deployment, timebox, access comment, GitHub-brokered Keycloak, and the
-deprecation of `components/pr-test/e2e-openshell.sh` -- is owned by
+removal of `components/pr-test/e2e-openshell.sh` -- is owned by
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). This spec supplies the
 lifecycle that workflow runs (`make openshift-up` / `make openshift-down`, the
 overlay, and the OpenShift e2e driver) so a local deployment and a CI
@@ -943,33 +943,30 @@ NOT use the internal image registry (`oc registry`, `oc start-build`).
 
 ### Requirement: E2E Script Consolidation
 
-The legacy `components/pr-test/e2e-openshell.sh` script SHALL be superseded by the
+The legacy `components/pr-test/e2e-openshell.sh` script has been superseded by the
 shared e2e harness and the pull-request workflow in
-`ephemeral-pr-environments.spec.md`. That spec owns the deprecation window:
-the script SHALL stay present and runnable, SHALL carry a deprecation notice,
-and SHALL be removed only after manual usage has migrated. The ROKS variant
-`components/pr-test/e2e-openshell-roks.sh` is out of scope there and SHALL remain.
-The `pr_test` component and its CI wiring SHALL remain until both scripts are
-gone.
+`ephemeral-pr-environments.spec.md`, which owns the record of its removal
+(HYPERSHELL-250). The ROKS variant `components/pr-test/e2e-openshell-roks.sh` was
+out of scope for that removal and remains. The `pr_test` component and its CI
+wiring remain, rescoped to the ROKS script, until it is also retired or rehomed.
 
 The eventual end state is unchanged: OpenShift-specific logic lives in
 `tests/e2e/drivers/openshift.sh`, infrastructure-agnostic tests live in
 `tests/e2e/e2e-openshell.sh`, and no OpenShift e2e logic remains hardcoded
-outside the driver model. This spec SHALL NOT require the script or the
+outside the driver model. This spec SHALL NOT require the ROKS script or the
 `pr_test` component to already be removed.
 
-#### Scenario: Legacy script is deprecated, not yet removed
+#### Scenario: Legacy OpenShift script has been removed
 
-- GIVEN `components/pr-test/e2e-openshell.sh` still has manual users
+- GIVEN `components/pr-test/e2e-openshell.sh` predated the shared harness
 - WHEN this spec is in effect
-- THEN the script remains present and runnable
-- AND `ephemeral-pr-environments.spec.md` is the contract for when it is removed
+- THEN the script SHALL NOT be present in the repository
+- AND `ephemeral-pr-environments.spec.md` is the contract that recorded its removal
 - AND `components/pr-test/` is not removed while the ROKS variant still lives there
 
-#### Scenario: No dangling references after eventual removal
+#### Scenario: No dangling references after eventual ROKS retirement
 
-- GIVEN `e2e-openshell.sh` has been removed after the deprecation window
-- AND the ROKS variant has been retired or rehomed
+- GIVEN the ROKS variant has been retired or rehomed in the future
 - WHEN a maintainer inspects CI configuration and component registration
 - THEN no workflow references the removed path
 - AND `.github/component-paths.json` no longer contains a `pr_test` entry that
