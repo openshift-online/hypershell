@@ -6,6 +6,7 @@
 // is translated; all values are opaque server data.
 
 import {
+  Badge,
   Button,
   Content,
   DescriptionList,
@@ -280,19 +281,26 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
         const tailLen = Math.min(PR_TITLE_TAIL, pr.title.length);
         const head = pr.title.slice(0, pr.title.length - tailLen);
         const tail = pr.title.slice(pr.title.length - tailLen);
+        // The card separates the PR identity (number + full title) from its
+        // authorship: the title is the headline line, the author sits beneath it
+        // as a distinct, muted byline with the handle emphasised.
+        const tipTitle = `${num} ${pr.title}`;
         const hover = (
-          <>
-            {`${num} ${pr.title}`}
+          <span className={styles.prTip}>
+            <span className={styles.prTipTitle}>{tipTitle}</span>
             {pr.author ? (
-              <>
-                <br />
+              <span className={styles.prTipAuthor}>
                 <FormattedMessage
                   {...messages.prAuthoredBy}
-                  values={{ author: pr.author }}
+                  values={{
+                    author: (
+                      <span className={styles.prTipHandle}>{pr.author}</span>
+                    ),
+                  }}
                 />
-              </>
+              </span>
             ) : null}
-          </>
+          </span>
         );
         return (
           <ListItem key={pr.number}>
@@ -329,33 +337,36 @@ function BundleContents({
   seed?: string;
   onSelectBundle?: (seed: string) => void;
 }): React.ReactElement {
+  const intl = useIntl();
   const prs = bundle?.prs ?? [];
+  // The heading reads as one band: identicon, "In this bundle" eyebrow, then the
+  // PR count pinned to the right as a badge so the tab's size is legible at a glance.
+  const prCountSummary = intl.formatMessage(messages.bundlePrSummary, {
+    count: prs.length,
+  });
   return (
     <>
-      <Flex
-        alignItems={{ default: "alignItemsCenter" }}
-        spaceItems={{ default: "spaceItemsSm" }}
-        className="pf-v6-u-mb-sm"
-      >
+      <div className={styles.bundleHead}>
         {seed ? (
-          <FlexItem>
-            <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
-          </FlexItem>
+          <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
         ) : null}
-        <FlexItem>
-          <h4 className={styles.sectionTitle}>
-            <FormattedMessage {...messages.sectionInBundle} />
-            {prs.length > 0 ? (
-              <Content component="small" className="pf-v6-u-ml-sm">
-                <FormattedMessage
-                  {...messages.bundlePrSummary}
-                  values={{ count: prs.length }}
-                />
-              </Content>
-            ) : null}
-          </h4>
-        </FlexItem>
-      </Flex>
+        <h4 className={styles.sectionTitle}>
+          <FormattedMessage {...messages.sectionInBundle} />
+        </h4>
+        {prs.length > 0 ? (
+          // The badge's visible text is the bare count; aria-label gives it the
+          // full "N pull requests" accessible name (title alone is not reliably
+          // announced on a non-interactive element).
+          <Badge
+            isRead
+            className={styles.bundleCount}
+            aria-label={prCountSummary}
+            title={prCountSummary}
+          >
+            {prs.length}
+          </Badge>
+        ) : null}
+      </div>
       <PrList prs={prs} />
     </>
   );
@@ -617,26 +628,90 @@ function NodeFields({
   );
 }
 
-function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
+/** One link as a full-width "card" row: an icon, a bold label with a muted
+ *  sub-label beneath it, and a trailing external-link glyph. `primary` gives the
+ *  main instance link a brand-tinted, heavier treatment so it sits visually above
+ *  the operational links. Renders nothing when the href is absent. */
+function LinkCard({
+  href,
+  icon,
+  label,
+  desc,
+  primary = false,
+}: {
+  href: string | null;
+  icon: React.ReactNode;
+  label: React.ReactNode;
+  desc: React.ReactNode;
+  primary?: boolean;
+}): React.ReactElement | null {
+  if (!href) {
+    return null;
+  }
   return (
-    <Flex spaceItems={{ default: "spaceItemsSm" }}>
-      <Link
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className={[styles.linkCard, primary ? styles.linkCardPrimary : null]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <span className={styles.linkCardIcon} aria-hidden="true">
+        {icon}
+      </span>
+      <span className={styles.linkCardBody}>
+        <span className={styles.linkCardLabel}>{label}</span>
+        <span className={styles.linkCardDesc}>{desc}</span>
+      </span>
+      <span className={styles.linkCardChevron} aria-hidden="true">
+        <ExternalLinkAltIcon />
+      </span>
+    </a>
+  );
+}
+
+function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
+  // The instance's own front door is the headline action; Argo/PR/analysis are
+  // operational follow-ups, grouped under their own eyebrow below it. The group
+  // heading only shows when at least one operational link is present.
+  const hasOps =
+    Boolean(node.links.argo) ||
+    Boolean(node.links.pr) ||
+    Boolean(node.links.analysis);
+  return (
+    <div className={styles.linkList}>
+      <LinkCard
         href={node.links.console}
+        primary
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkConsole} />}
+        desc={<FormattedMessage {...messages.linkConsoleDesc} />}
       />
-      <Link
+      {hasOps ? (
+        <h4 className={[styles.sectionTitle, styles.linkGroupTitle].join(" ")}>
+          <FormattedMessage {...messages.linksOperations} />
+        </h4>
+      ) : null}
+      <LinkCard
         href={node.links.argo}
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkArgo} />}
+        desc={<FormattedMessage {...messages.linkArgoDesc} />}
       />
-      <Link
+      <LinkCard
         href={node.links.pr}
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkPr} />}
+        desc={<FormattedMessage {...messages.linkPrDesc} />}
       />
-      <Link
+      <LinkCard
         href={node.links.analysis}
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkAnalysis} />}
+        desc={<FormattedMessage {...messages.linkAnalysisDesc} />}
       />
-    </Flex>
+    </div>
   );
 }
 
