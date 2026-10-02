@@ -71,6 +71,56 @@ describe("mapPromotion", () => {
     expect(data.releases).toEqual([]);
   });
 
+  it("prefers the bundle digest over the gitops SHA for release identity", () => {
+    const data = mapPromotion({
+      order: ["delta"],
+      environments: {
+        delta: {
+          active: {
+            version: "v20260930",
+            sha: "aaaaaaaa",
+            digest: "sha256:dig",
+          },
+          proposed: {
+            version: "v20260930",
+            sha: "bbbbbbbb",
+            digest: "sha256:dig",
+          },
+          activeGates: [],
+        },
+      },
+      releases: {
+        "sha256:dig": {
+          version: "v20260930",
+          sha: "aaaaaaaa",
+          digest: "sha256:dig",
+        },
+      },
+    });
+    const delta = data.environments.delta;
+    if (!delta) throw new Error("expected delta environment");
+    // Two envs on the same bundle collapse: active/proposed point at the digest,
+    // not the differing per-env gitops SHAs.
+    expect(delta.activeDigest).toBe("sha256:dig");
+    expect(delta.proposedDigest).toBe("sha256:dig");
+    expect(data.releaseByDigest["sha256:dig"]?.digest).toBe("sha256:dig");
+  });
+
+  it("falls back to the SHA as digest when no bundle digest is present", () => {
+    const data = mapPromotion({
+      order: ["epsilon"],
+      environments: {
+        epsilon: {
+          active: { version: "shortsha", sha: "cccccccc" },
+          activeGates: [],
+        },
+      },
+    });
+    const epsilon = data.environments.epsilon;
+    if (!epsilon) throw new Error("expected epsilon environment");
+    expect(epsilon.activeDigest).toBe("cccccccc");
+  });
+
   it("maps absent release versions to null", () => {
     const data = mapPromotion({
       order: ["gamma"],

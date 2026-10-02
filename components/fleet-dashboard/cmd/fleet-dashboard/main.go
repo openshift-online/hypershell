@@ -66,7 +66,16 @@ func run(logger *slog.Logger) error {
 		bundler = gb
 		logger.Info("github bundle enrichment enabled", "repo", cfg.GitHubRepo)
 	}
-	promotion := sources.NewPromotion(cfg, kube.Dynamic, nil, analyzer, bundler)
+	// Resolve each environment's release by the versions-lock bundle it renders
+	// (reference tag + digest) rather than the gitops dry-commit SHA, so envs on
+	// the same bundle collapse and only a genuinely older bundle reads "behind".
+	// Opt-in on the same FD_GITHUB_REPO; nil falls back to the short-SHA resolver.
+	var versioner sources.VersionResolver
+	if lr := sources.NewGitHubLockResolver(cfg); lr != nil {
+		versioner = lr
+		logger.Info("github release-lock version resolution enabled", "repo", cfg.GitHubRepo)
+	}
+	promotion := sources.NewPromotion(cfg, kube.Dynamic, versioner, analyzer, bundler)
 	topology := sources.NewTopology(cfg, kube.Clientset)
 
 	fleetSrc := cache.NewSource("fleet", cfg.RefreshFleet, prom.Fleet, metrics.Observe)

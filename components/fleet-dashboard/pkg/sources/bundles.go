@@ -2,11 +2,9 @@ package sources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -113,22 +111,28 @@ func (g *GitHubBundles) Enrich(ctx context.Context, releases map[string]*Release
 		return
 	}
 
-	// Resolve dates and keep only releases we could place on the timeline.
+	// Resolve dates and keep only releases we could place on the timeline. The
+	// map is keyed by release identity (bundle digest when resolved, else SHA),
+	// so we diff on each release's own gitops commit (r.SHA), not the key. A
+	// lock resolver already fills Date from the bundle's build timestamp; keep it
+	// and only fall back to the commit date when it is absent (short-SHA mode).
 	type dated struct {
 		sha  string
 		date string
+		rel  *Release
 	}
 	var ordered []dated
-	for sha, r := range releases {
-		if r == nil || sha == "" {
+	for _, r := range releases {
+		if r == nil || r.SHA == "" {
 			continue
 		}
-		date := g.commitDate(ctx, sha)
-		if date == "" {
+		if r.Date == "" {
+			r.Date = g.commitDate(ctx, r.SHA)
+		}
+		if r.Date == "" {
 			continue
 		}
-		r.Date = date
-		ordered = append(ordered, dated{sha: sha, date: date})
+		ordered = append(ordered, dated{sha: r.SHA, date: r.Date, rel: r})
 	}
 	if len(ordered) < 2 {
 		return
@@ -144,9 +148,7 @@ func (g *GitHubBundles) Enrich(ctx context.Context, releases map[string]*Release
 
 	for i := 1; i < len(ordered); i++ {
 		prev, cur := ordered[i-1].sha, ordered[i].sha
-		if r := releases[cur]; r != nil {
-			r.PRs = g.comparePRs(ctx, prev, cur)
-		}
+		ordered[i].rel.PRs = g.comparePRs(ctx, prev, cur)
 	}
 }
 
@@ -254,35 +256,5 @@ func (g *GitHubBundles) comparePRs(ctx context.Context, base, head string) []PR 
 // getJSON performs an authenticated GET and decodes the body into v. It returns
 // false (and logs at Debug) on any failure, so callers degrade gracefully.
 func (g *GitHubBundles) getJSON(ctx context.Context, url string, v any) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		g.logger.DebugContext(ctx, "github bundles: build request", "err", err)
-		return false
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	if g.tokenFile != "" {
-		tok, err := os.ReadFile(g.tokenFile)
-		if err != nil {
-			g.logger.DebugContext(ctx, "github bundles: read token", "err", err)
-			return false
-		}
-		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(tok)))
-	}
-
-	resp, err := g.client.Do(req)
-	if err != nil {
-		g.logger.DebugContext(ctx, "github bundles: request failed", "err", err)
-		return false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		g.logger.DebugContext(ctx, "github bundles: non-200", "status", resp.StatusCode, "url", url)
-		return false
-	}
-	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
-		g.logger.DebugContext(ctx, "github bundles: decode", "err", err)
-		return false
-	}
-	return true
+	return getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, url, v)
 }

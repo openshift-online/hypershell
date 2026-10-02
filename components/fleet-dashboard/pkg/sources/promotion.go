@@ -45,6 +45,12 @@ type Release struct {
 	Tag     string `json:"tag,omitempty"`
 	Date    string `json:"date,omitempty"`
 	SHA     string `json:"sha,omitempty"`
+	// Digest is the release bundle's stable identity (the versions lock's
+	// reference.digest), when a lock resolver supplied it. It, not the gitops
+	// SHA, is how environments on the same bundle are collapsed: two dry SHAs
+	// that render the same bundle share one Release. Empty under the short-SHA
+	// fallback, where SHA is the only identity.
+	Digest string `json:"digest,omitempty"`
 	// PRs is the set of pull requests this build introduced since the previous
 	// build (Bundle tab). Populated by a BundleEnricher; nil when GitHub
 	// enrichment is disabled or there is no prior build to diff against.
@@ -228,19 +234,34 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 	return payload, nil
 }
 
-// canonicalRelease resolves sha to a release, deduplicating by SHA into the
-// shared map: the first resolution for a SHA wins and is stored, later callers
-// get that same pointer. Returns nil for an empty/unresolvable SHA.
+// canonicalRelease resolves sha to a release, deduplicating into the shared map
+// by release identity: the bundle digest when the resolver supplied one, else
+// the SHA. Keying on the digest collapses two gitops SHAs that render the same
+// bundle onto one shared *Release (and one map entry, which the UI consumes as
+// releaseByDigest), so an env is only "behind" when it runs a genuinely older
+// bundle. The first resolution for an identity wins; later callers get that same
+// pointer. Returns nil for an empty/unresolvable SHA.
 func (p *Promotion) canonicalRelease(ctx context.Context, sha string, releases map[string]*Release) *Release {
 	r := p.versioner.Resolve(ctx, sha)
 	if r == nil {
 		return nil
 	}
-	if existing, ok := releases[r.SHA]; ok {
+	key := releaseKey(r)
+	if existing, ok := releases[key]; ok {
 		return existing
 	}
-	releases[r.SHA] = r
+	releases[key] = r
 	return r
+}
+
+// releaseKey is a release's identity for deduplication and for the wire
+// `releases` map the UI keys by digest: the bundle digest when present, else the
+// SHA (short-SHA fallback, where the gitops commit is the only identity).
+func releaseKey(r *Release) string {
+	if r.Digest != "" {
+		return r.Digest
+	}
+	return r.SHA
 }
 
 type prInfo struct{ state, url string }

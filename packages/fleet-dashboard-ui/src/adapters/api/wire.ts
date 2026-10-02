@@ -32,6 +32,12 @@ interface WireRelease {
   readonly tag?: string;
   readonly date?: string;
   readonly sha?: string;
+  /**
+   * Bundle identity: the versions-lock digest shared by every env rendering the
+   * same release. Absent in short-SHA fallback mode, where `sha` is the only
+   * identity. The server also keys the `releases` map by this value.
+   */
+  readonly digest?: string;
   readonly prs?: readonly WirePR[] | null;
 }
 
@@ -100,8 +106,10 @@ function mapEnvironment(
     proposedRelease: env.proposed?.version ?? null,
     // The "Gates" column reflects the gates governing what is currently active.
     gates: (env.activeGates ?? []).map(mapGate),
-    activeDigest: nullableString(env.active?.sha),
-    proposedDigest: nullableString(env.proposed?.sha),
+    activeDigest:
+      nullableString(env.active?.digest) ?? nullableString(env.active?.sha),
+    proposedDigest:
+      nullableString(env.proposed?.digest) ?? nullableString(env.proposed?.sha),
     role: nullableString(env.role),
     provider: nullableString(env.provider),
     envLabel: nullableString(env.env),
@@ -130,7 +138,9 @@ function mapPR(raw: WirePR): PullRequest {
 function mapRelease(raw: WireRelease): ReleaseBundle {
   return {
     version: raw.version ?? "",
-    digest: nullableString(raw.sha),
+    // Prefer the bundle digest (shared identity); fall back to the gitops SHA in
+    // short-SHA mode so a bundle is still addressable.
+    digest: nullableString(raw.digest) ?? nullableString(raw.sha),
     tag: nullableString(raw.tag),
     date: nullableString(raw.date),
     // PRs "since the previous build"; absent/null on older servers -> empty.
