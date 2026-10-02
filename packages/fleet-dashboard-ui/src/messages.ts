@@ -297,20 +297,46 @@ export const messages = defineMessages({
     defaultMessage: "Analysis",
     description: "Link label for an instance's release analysis report.",
   },
+  linkAnalysisDesc: {
+    id: "fleet.map.link.analysis.desc",
+    defaultMessage: "Release analysis report",
+    description: "Sub-label describing the release-analysis link.",
+  },
   linkArgo: {
     id: "fleet.map.link.argo",
     defaultMessage: "Argo CD",
     description: "Link label for an instance's Argo CD application.",
   },
+  linkArgoDesc: {
+    id: "fleet.map.link.argo.desc",
+    defaultMessage: "Application sync and health",
+    description: "Sub-label describing the Argo CD link.",
+  },
   linkConsole: {
     id: "fleet.map.link.console",
-    defaultMessage: "Console",
-    description: "Link label for an instance's web console.",
+    defaultMessage: "HyperShell Instance",
+    description: "Link label for an instance's web console (its live front door).",
+  },
+  linkConsoleDesc: {
+    id: "fleet.map.link.console.desc",
+    defaultMessage: "Open the deployed web console",
+    description: "Sub-label describing the HyperShell Instance link.",
   },
   linkPr: {
     id: "fleet.map.link.pr",
     defaultMessage: "Pull request",
     description: "Link label for an instance's open promotion pull request.",
+  },
+  linkPrDesc: {
+    id: "fleet.map.link.pr.desc",
+    defaultMessage: "Open promotion pull request",
+    description: "Sub-label describing the promotion pull-request link.",
+  },
+  linksOperations: {
+    id: "fleet.map.links.operations",
+    defaultMessage: "Operations",
+    description:
+      "Group heading above the operational (Argo, PR, analysis) links, below the primary instance link.",
   },
   loadingPlane: {
     id: "fleet.plane.loading",

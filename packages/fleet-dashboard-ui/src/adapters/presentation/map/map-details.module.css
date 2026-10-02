@@ -204,3 +204,105 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+
+/* --- Links tab ------------------------------------------------------------
+ * A stacked list of link "cards" with a clear primary/secondary hierarchy. The
+ * instance (its live front door) is the headline action; Argo CD / pull request /
+ * analysis are operational follow-ups grouped under an "Operations" eyebrow below
+ * it. Each card shows an icon, a bold label with a muted sub-label, and a trailing
+ * external-link glyph, so the row reads as one obvious click target. */
+.linkList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
+}
+
+.linkCard {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--md, 1rem);
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--pf-t--global--border--color--default, #3d3d3d);
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.linkCard:hover,
+.linkCard:focus-visible {
+  background: var(
+    --pf-t--global--background--color--secondary--default,
+    rgba(255, 255, 255, 0.04)
+  );
+  border-color: var(--pf-t--global--border--color--brand--default, #0066cc);
+  outline: none;
+}
+
+/* The primary (instance) card leads the list: brand-tinted and a touch heavier. */
+.linkCardPrimary {
+  background: var(
+    --pf-t--global--background--color--highlight--default,
+    rgba(0, 102, 204, 0.12)
+  );
+  border-color: var(--pf-t--global--border--color--brand--default, #0066cc);
+}
+
+.linkCardIcon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--pf-t--global--icon--color--brand--default, #0066cc);
+}
+
+.linkCardBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.linkCardLabel {
+  font-weight: 600;
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
+}
+
+.linkCardPrimary .linkCardLabel {
+  font-size: var(--pf-t--global--font--size--md, 1rem);
+}
+
+.linkCardDesc {
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+.linkCardChevron {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--pf-t--global--icon--color--subtle, #8a8d90);
+}
+
+/* The "Operations" eyebrow sits between the primary link and the operational group. */
+.linkGroupTitle {
+  margin-top: var(--pf-t--global--spacer--sm, 0.5rem);
+  margin-bottom: 0;
+}
+
+/* --- Bundle tab heading ---------------------------------------------------
+ * One band: identicon, the "In this bundle" eyebrow, and the PR count pinned to
+ * the right as a badge so the bundle's size reads at a glance. */
+.bundleHead {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
+  margin-bottom: var(--pf-t--global--spacer--sm, 0.5rem);
+}
+
+.bundleHead .sectionTitle {
+  margin: 0;
+}
+
+.bundleCount {
+  margin-left: auto;
+}
