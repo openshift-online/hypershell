@@ -61,7 +61,13 @@ export function App(): React.ReactElement {
 
   return (
     <Page masthead={masthead}>
-      <PageSection isFilled>
+      {/* hasBodyWrapper={false}: PF 6.6.1's PageSection wraps children in a
+          .pf-v6-c-page__main-body div that has no flex/grow rule, which severs the
+          fill chain (the filled section grows, but the inert body wrapper collapses
+          to content height, so Stack's flex:1 has no tall parent to resolve against).
+          Rendering the Stack as a direct child of the flex-column .pf-m-fill section
+          restores the fill chain down to the canvas. */}
+      <PageSection isFilled hasBodyWrapper={false} className={styles.section}>
         <Stack hasGutter className={styles.stack}>
           <StackItem isFilled className={styles.mapItem}>
             <PlaneSection titleMessage={messages.sectionMap} query={promotion}>
