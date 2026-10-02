@@ -59,6 +59,21 @@ class ReleaseBundleTests(unittest.TestCase):
         release["status"]["artifacts"]["images"] = release["status"]["artifacts"]["images"][:1]
         self.assertEqual(expected, bundle.make_bundle(release, snapshot))
 
+    def test_excluded_components_are_ignored_not_rejected(self):
+        # The hypershell-main application also builds the fleet-dashboard, which
+        # ships on its own image pin. Its presence in the Snapshot and release
+        # artifacts must not change the bundle or stop publication.
+        release, snapshot = fixtures()
+        expected = bundle.make_bundle(release, snapshot)
+        for name in bundle.EXCLUDED_COMPONENTS:
+            digest = "sha256:" + "f" * 64
+            snapshot["spec"]["components"].append({
+                "name": name, "containerImage": bundle.BUILD_PREFIX + name + "@" + digest,
+                "source": {"git": {"url": bundle.SOURCE_URL, "revision": "f" * 40}}})
+            release["status"]["artifacts"]["images"].append({
+                "name": name, "shasum": digest, "urls": [bundle.RELEASE_PREFIX + name + ":latest"]})
+        self.assertEqual(expected, bundle.make_bundle(release, snapshot))
+
     def test_incomplete_snapshot_and_invalid_artifact_lists_fail(self):
         mutations = (
             lambda r, s: s["spec"]["components"].pop(),

@@ -97,6 +97,11 @@ spec:
                   "hypershell-control-plane-main",
                   "hypershell-web-console-main",
               )
+              # Components built by the hypershell-main Konflux application that ship on their
+              # own rather than through the release bundle. The fleet-dashboard is pinned by its
+              # own :main image digest (not the bundle), so it is tolerated in a Snapshot or the
+              # release artifacts and excluded here instead of rejected as unexpected.
+              EXCLUDED_COMPONENTS = ("hypershell-fleet-dashboard-main",)
               BUNDLE_REPOSITORY = BUILD_PREFIX + COMPONENTS[0]
               MANIFEST_PATHS = (
                   "deploy/hub",
@@ -112,6 +117,7 @@ spec:
 
 
               def indexed(items, *, require_all=True):
+                  items = [item for item in items if item["name"] not in EXCLUDED_COMPONENTS]
                   result = {item["name"]: item for item in items}
                   require(len(result) == len(items), "Duplicate component names")
                   require(set(result) <= set(COMPONENTS), "Unexpected component names: " + ", ".join(sorted(set(result) - set(COMPONENTS))))
