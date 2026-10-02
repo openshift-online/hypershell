@@ -106,10 +106,26 @@ func TestGitHubLockResolverResolve(t *testing.T) {
 		t.Errorf("SHA = %q, want %q", rel.SHA, shortSHA(sha))
 	}
 
-	// Second resolution is served from cache: no new HTTP call.
-	_ = lr.Resolve(context.Background(), sha)
+	// Second resolution is served from cache: no new HTTP call...
+	rel2 := lr.Resolve(context.Background(), sha)
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Errorf("expected 1 HTTP call (cached), got %d", got)
+	}
+	// ...but each call returns a *distinct* pointer (a fresh copy), so a later
+	// in-place Enrich on one snapshot cannot race a concurrently-served one.
+	if rel2 == rel {
+		t.Error("Resolve must return a fresh copy per call, not the shared cached pointer")
+	}
+	if rel2 == nil || rel2.Digest != rel.Digest || rel2.Version != rel.Version || rel2.SHA != rel.SHA {
+		t.Errorf("cached copy content diverged: %+v vs %+v", rel2, rel)
+	}
+	// Mutating one copy (as Enrich would) must not touch the other or the cache.
+	rel.PRs = []PR{{Number: 1}}
+	if len(rel2.PRs) != 0 {
+		t.Error("mutating one copy leaked into another copy")
+	}
+	if rel3 := lr.Resolve(context.Background(), sha); len(rel3.PRs) != 0 {
+		t.Error("mutating a copy leaked into the cached original")
 	}
 }
 
@@ -133,8 +149,9 @@ func TestGitHubLockResolverFallback(t *testing.T) {
 	if rel.Digest != "" {
 		t.Errorf("fallback must carry no digest, got %q", rel.Digest)
 	}
-	if rel.Version != shortSHA(sha) || rel.SHA != shortSHA(sha) {
-		t.Errorf("fallback identity = %q/%q, want short-sha %q", rel.Version, rel.SHA, shortSHA(sha))
+	// Fallback mirrors ShortSHAResolver exactly: 8-char Version, 10-char SHA.
+	if want := (ShortSHAResolver{}).Resolve(context.Background(), sha); rel.Version != want.Version || rel.SHA != want.SHA {
+		t.Errorf("fallback identity = %q/%q, want %q/%q (ShortSHAResolver)", rel.Version, rel.SHA, want.Version, want.SHA)
 	}
 
 	// Empty SHA resolves to nil (no environment).

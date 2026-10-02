@@ -82,16 +82,24 @@ type releaseLock struct {
 
 // Resolve implements VersionResolver. It returns the release bundle sha deploys,
 // or the short-SHA fallback when the lock cannot be read/parsed.
+//
+// The cached entry is immutable and shared, so every return value is a fresh
+// shallow copy: downstream (canonicalRelease -> payload.Releases -> the cached
+// snapshot the HTTP handler serializes) and GitHubBundles.Enrich mutate the
+// returned *Release in place each refresh. Handing out the cached pointer itself
+// would let refresh N+1's Enrich write a struct that a concurrently-served
+// snapshot from refresh N still references -- a data race. A per-call copy gives
+// each refresh its own mutable instance while the cached original stays pristine.
 func (g *GitHubLockResolver) Resolve(ctx context.Context, sha string) *Release {
 	if sha == "" {
 		return nil
 	}
 	g.mu.Lock()
-	if r, ok := g.resolved[sha]; ok {
-		g.mu.Unlock()
-		return r
-	}
+	cached, ok := g.resolved[sha]
 	g.mu.Unlock()
+	if ok {
+		return copyRelease(cached)
+	}
 
 	r := g.resolveUncached(ctx, sha)
 
@@ -105,14 +113,30 @@ func (g *GitHubLockResolver) Resolve(ctx context.Context, sha string) *Release {
 		g.mu.Lock()
 		g.resolved[sha] = r
 		g.mu.Unlock()
+		return copyRelease(r)
 	}
+	// Fallback releases are already fresh per call (resolveUncached allocates a
+	// new one each time) and never cached, so they are safe to return directly.
 	return r
 }
 
-// fallback is the short-SHA identity used when the lock is unavailable: it
-// mirrors ShortSHAResolver so an unresolvable env still renders (uncollapsed).
+// copyRelease returns a shallow copy of r. The only slice field, PRs, is
+// reassigned wholesale by GitHubBundles.Enrich (never appended to in place), so
+// a shallow copy is sufficient to give each caller an independently-mutable
+// Release without sharing backing storage.
+func copyRelease(r *Release) *Release {
+	if r == nil {
+		return nil
+	}
+	c := *r
+	return &c
+}
+
+// fallback is the short-SHA identity used when the lock is unavailable so an
+// unresolvable env still renders (uncollapsed). It delegates to ShortSHAResolver
+// so the two can never drift (8-char Version, 10-char SHA).
 func fallback(sha string) *Release {
-	return &Release{Version: shortSHA(sha), SHA: shortSHA(sha)}
+	return ShortSHAResolver{}.Resolve(context.Background(), sha)
 }
 
 func (g *GitHubLockResolver) resolveUncached(ctx context.Context, sha string) *Release {
