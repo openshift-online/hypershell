@@ -1707,6 +1707,7 @@ except Exception:
 
   # sandbox create blocks (interactive), so background it and poll for the pod.
   DEV_POD_CREATED=false
+  DEV_SB_EARLY_EXIT=false
   DEV_DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
   while [[ $(date +%s) -lt $DEV_DEADLINE ]]; do
     if $CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -qi "default--${DEV_SANDBOX}"; then
@@ -1714,6 +1715,7 @@ except Exception:
       break
     fi
     if ! kill -0 "$DEV_SB_PID" 2>/dev/null; then
+      DEV_SB_EARLY_EXIT=true
       break
     fi
     sleep 5
@@ -1736,7 +1738,11 @@ except Exception:
   else
     # Neither created nor a recognizable denial -- surface output so infra
     # failures are not mistaken for an authz result.
-    fail_test "Developer user: sandbox not created within ${E2E_SANDBOX_TIMEOUT}s"
+    if [[ "$DEV_SB_EARLY_EXIT" == "true" ]]; then
+      fail_test "Developer user: sandbox create exited before a pod appeared"
+    else
+      fail_test "Developer user: sandbox not created within ${E2E_SANDBOX_TIMEOUT}s"
+    fi
     dim "    ${DEV_SB_ERR:0:200}"
   fi
   fi
