@@ -301,6 +301,12 @@ components:
               type: string
             provider:
               type: string
+              description: Cloud provider capability used for gateway placement.
+            visibility:
+              type: string
+              enum: [public, vpn]
+              readOnly: true
+              description: Network visibility supported by this control plane for gateway placement.
             region:
               type: string
             kubeconfig_secret:
@@ -329,6 +335,14 @@ components:
         description:
           type: string
           description: Optional description of the spoke.
+        provider:
+          type: string
+          enum: [aws, ibm, kind]
+          description: Cloud provider hosting this control plane.
+        visibility:
+          type: string
+          enum: [public, vpn]
+          description: Network visibility supported for gateways on this control plane.
     ManagedClusterRegistrationResponse:
       type: object
       required:

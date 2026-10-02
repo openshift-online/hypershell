@@ -5,6 +5,7 @@ import type {
   GatewayInvocationContext,
   GatewayListRequest,
   GatewayPlacement,
+  GatewayPlacementAvailability,
   GatewayRecord,
   OpenShellGatewayServiceAccountCapabilities,
   OpenShellGatewayServiceAccountConnection,
@@ -34,7 +35,8 @@ import {
 type GatewayApi = Pick<
   SDKClient["gateways"],
   "create" | "delete" | "get" | "list" | "update"
->;
+> &
+  Partial<Pick<SDKClient["gateways"], "placementAvailability">>;
 type ManagedClusterApi = Pick<SDKClient["managedClusters"], "get" | "list">;
 type ServiceAccountApi = Pick<
   SDKClient["openShellGatewayServiceAccounts"],
@@ -396,6 +398,26 @@ export function createGatewayControlPlaneAdapter(
         };
       });
     },
+    async getGatewayPlacementAvailability(context) {
+      return mapFailure(async () => {
+        const gatewaysApi = apiClient(apiFactory, context).gateways;
+        if (!gatewaysApi.placementAvailability) {
+          throw new Error("placement availability API is unavailable");
+        }
+        const availability = await gatewaysApi.placementAvailability({
+          signal: context.signal,
+        });
+        return {
+          awsPublic: availability.aws_public,
+          awsVpn: availability.aws_vpn,
+          awsReason: availability.aws_reason,
+          ibmPublic: availability.ibm_public,
+          ibmVpn: availability.ibm_vpn,
+          ibmReason: availability.ibm_reason,
+          localKind: availability.local_kind,
+        } satisfies GatewayPlacementAvailability;
+      });
+    },
     async getGatewayPlacement(clusterId, context) {
       return mapFailure(async () =>
         toGatewayPlacement(
@@ -542,12 +564,18 @@ export function createGatewayControlPlaneAdapter(
       });
     },
     async provisionGateway(input, context) {
+      if (input.placement === undefined) {
+        throw new GatewayOperationError("unknown", {
+          cause: new Error("gateway placement intent is required"),
+        });
+      }
+      const placement = input.placement;
       return mapFailure(async () =>
         toGatewayRecord(
           await apiClient(apiFactory, context).gateways.create(
             {
-              cluster_id: input.clusterId,
               name: input.name,
+              placement,
               release_id: "",
               route: JSON.stringify({ enabled: true }),
             },

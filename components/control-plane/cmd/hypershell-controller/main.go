@@ -292,7 +292,7 @@ func main() {
 	// service-account provisioner above is not cluster-scoped and is already
 	// serving, so the pod's probes stay green while registration retries (for
 	// example while the hub API server is still starting).
-	regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, tokenProvider)
+	regClient := registration.NewClientWithPlacement(cfg.APIServerURL, cfg.ManagedClusterName, cfg.ManagedClusterProvider, cfg.ManagedClusterVisibility, tokenProvider)
 	clusterID, regErr := registerWithBackoff(ctx, regClient, time.Second)
 	if regErr != nil {
 		if ctx.Err() != nil {

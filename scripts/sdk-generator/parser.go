@@ -335,10 +335,13 @@ func projectedTypes(document *ir.Document, reference *ir.SchemaReference, requir
 		return "", "", "any", "unknown", ""
 	}
 	openAPIType, format := schemaType(schema)
+	if strings.HasSuffix(reference.Ref, "GatewayPlacementIntent") {
+		return openAPIType, format, "GatewayPlacementIntent", "GatewayPlacementIntent", "GatewayPlacementIntent"
+	}
 	modelRef := ""
 	goType := ""
 	tsType := ""
-	if schema.Name != "" && (len(schema.Enum) > 0 || len(schema.Properties) > 0 || len(schema.AllOf) > 0) {
+	if schema.Name != "" && (len(schema.Enum) > 0 || len(document.EffectiveProperties(reference.Ref)) > 0 || len(schema.AllOf) > 0) {
 		modelRef = schema.Name
 		goType = schema.Name
 		tsType = schema.Name
@@ -426,12 +429,34 @@ func tsPathExpression(path string, scope []PathParameter, item *PathParameter) s
 
 func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.ResourceView) (Resource, error) {
 	fields, required := projectFields(document, schema.Ref, true)
+	createFields, _ := fieldsForCreate(document, schema.Name, collection.Path)
+	var roots []string
+	if createSchema := createRequestSchema(document, collection.Path); createSchema != "" {
+		roots = append(roots, createSchema)
+	}
+	if schema.Name == "Gateway" && document.Schema("GatewayPlacementAvailability") != nil {
+		roots = append(roots, "GatewayPlacementAvailability")
+	}
+	models := projectModels(document, roots)
+	createSchemaName := ""
+	if createSchema := createRequestSchema(document, collection.Path); createSchema != "" {
+		if createSchemaModel := document.Schema(createSchema); createSchemaModel != nil {
+			createSchemaName = createSchemaModel.Name
+		}
+	}
+	filtered := models[:0]
+	for _, model := range models {
+		if model.Name != schema.Name && model.Name != createSchemaName {
+			filtered = append(filtered, model)
+		}
+	}
+	models = filtered
 	patchFields, _ := projectFieldsByName(document, schema.Name+"PatchRequest", false)
 	statusPatchFields, _ := projectFieldsByName(document, schema.Name+"StatusPatchRequest", false)
 
 	resource := Resource{
 		Name: schema.Name, Plural: resourcePlural(schema.Name), PathSegment: lastLiteralSegment(collection.Path),
-		Fields: fields, RequiredFields: required, PatchFields: patchFields,
+		Fields: fields, RequiredFields: required, CreateFields: createFields, Models: models, PatchFields: patchFields,
 		StatusPatchFields: statusPatchFields, HasStatusPatch: len(statusPatchFields) > 0,
 	}
 	for _, view := range document.ResourceViews {
@@ -455,6 +480,76 @@ func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.Re
 	}
 	sort.Strings(resource.Actions)
 	return resource, nil
+}
+
+func fieldsForCreate(document *ir.Document, resourceName, path string) ([]Field, []string) {
+	if resourceName != "Gateway" {
+		return writableResourceFields(document, resourceName)
+	}
+	ref := createRequestSchema(document, path)
+	if ref == "" {
+		return writableResourceFields(document, resourceName)
+	}
+	fields, required := projectFields(document, ref, false)
+	// cluster_id remains accepted by the server only as a deprecated
+	// compatibility path for legacy internal callers. Generated create clients
+	// must not expose it as a placement decision; placement is represented by
+	// the intent field instead.
+	filtered := fields[:0]
+	for _, field := range fields {
+		if field.Name != "cluster_id" {
+			filtered = append(filtered, field)
+		}
+	}
+	fields = filtered
+	filteredRequired := required[:0]
+	for _, name := range required {
+		if name != "cluster_id" {
+			filteredRequired = append(filteredRequired, name)
+		}
+	}
+	required = filteredRequired
+	for index := range fields {
+		if fields[index].Name == "name" || fields[index].Name == "placement" || fields[index].Name == "release_id" {
+			fields[index].Required = true
+		}
+		if fields[index].Name == "placement" {
+			fields[index].GoType = "GatewayPlacementIntent"
+			fields[index].TSType = "GatewayPlacementIntent"
+			fields[index].ModelRef = "GatewayPlacementIntent"
+		}
+	}
+	return fields, required
+}
+
+func writableResourceFields(document *ir.Document, resourceName string) ([]Field, []string) {
+	fields, required := projectFieldsByName(document, resourceName, true)
+	writable := make([]Field, 0, len(fields))
+	writableRequired := make([]string, 0, len(required))
+	for _, field := range fields {
+		if field.ReadOnly {
+			continue
+		}
+		writable = append(writable, field)
+		if field.Required {
+			writableRequired = append(writableRequired, field.Name)
+		}
+	}
+	return writable, writableRequired
+}
+
+func createRequestSchema(document *ir.Document, path string) string {
+	operation := operationAt(document, path, "POST")
+	if operation == nil || operation.RequestBody == nil {
+		return ""
+	}
+	for _, content := range operation.RequestBody.Content {
+		if content.Schema == nil || content.Schema.Ref == "" {
+			continue
+		}
+		return content.Schema.Ref
+	}
+	return ""
 }
 
 func projectFieldsByName(document *ir.Document, name string, includeReadOnly bool) ([]Field, []string) {

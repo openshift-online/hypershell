@@ -8,6 +8,14 @@ web-console mockup or shared component.
 
 - Use `gateway` when describing the gateway that connects to OpenShell.
 - Use a lowercase `g` in `gateway` unless it begins a sentence or is a label.
+- Always write `Red Hat` with both words capitalized and separated by a space.
+  Do not use `RH`, `red hat`, or `RedHat`.
+- Always write `HyperShell` as one word with a capital `H` and capital `S`.
+- Always write `OpenShell` as one word with a capital `O` and capital `S`.
+- Use `Red Hat Internal` only when referring to a data security level. For
+  systems restricted to Red Hat employees or requiring VPN access, use
+  `internal Red Hat` or `internal to Red Hat`, whichever fits the sentence.
+  Capitalize `Internal` only when it begins a sentence or label.
 
 ## Alerts and errors
 

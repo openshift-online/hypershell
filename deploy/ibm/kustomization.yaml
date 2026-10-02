@@ -64,6 +64,10 @@ patches:
             containers:
               - name: controller
                 env:
+                  - name: HYPERSHELL_MANAGED_CLUSTER_PROVIDER
+                    value: "ibm"
+                  - name: HYPERSHELL_MANAGED_CLUSTER_VISIBILITY
+                    value: "public"
                   - name: GATEWAY_INGRESS_MODE
                     value: route
                   - name: GATEWAY_API_BASE_DOMAIN

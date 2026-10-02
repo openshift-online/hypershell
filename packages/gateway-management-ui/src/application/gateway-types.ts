@@ -82,8 +82,29 @@ export interface GatewayInvocationContext {
 }
 
 export interface GatewayProvisionInput {
-  clusterId: string;
   name: string;
+  placement?: GatewayPlacementIntent;
+  /** @deprecated Kept only for source compatibility with older adapters. */
+  clusterId?: string;
+}
+
+export type GatewayProvider = "aws" | "ibm";
+
+export type GatewayPlacementIntent =
+  | { mode: "local-kind" }
+  | { network: "public"; provider: GatewayProvider }
+  | { network: "vpn"; provider: "aws" };
+
+export type GatewayPlacementUnavailableReason = "no-eligible-cluster";
+
+export interface GatewayPlacementAvailability {
+  awsPublic: boolean;
+  awsVpn: boolean;
+  awsReason?: GatewayPlacementUnavailableReason;
+  ibmPublic: boolean;
+  ibmVpn: boolean;
+  ibmReason?: GatewayPlacementUnavailableReason;
+  localKind: boolean;
 }
 
 export type OpenShellGatewayServiceAccountRole =
@@ -234,6 +255,9 @@ export interface GatewayControlPlane {
     search: string,
     context: GatewayInvocationContext,
   ): Promise<GatewayPlacementOptions>;
+  getGatewayPlacementAvailability?(
+    context: GatewayInvocationContext,
+  ): Promise<GatewayPlacementAvailability>;
   getGatewayPlacement(
     clusterId: string,
     context: GatewayInvocationContext,
@@ -296,6 +320,9 @@ export interface GatewayOperations {
     search: string,
     signal?: AbortSignal,
   ): Promise<GatewayPlacementOptions>;
+  getGatewayPlacementAvailability?(
+    signal?: AbortSignal,
+  ): Promise<GatewayPlacementAvailability>;
   getGatewayPlacement(
     clusterId: string,
     signal?: AbortSignal,

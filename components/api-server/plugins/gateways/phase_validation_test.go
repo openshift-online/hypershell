@@ -123,12 +123,11 @@ func TestRESTGatewayRejectsUnknownPhase(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name:      "reject-rest-create",
-		ClusterId: registerTestCluster(t),
-		ReleaseId: "test-release_id",
-		Phase:     openapi.PtrString("Booting"),
-	}).Execute()
+	registerTestCluster(t)
+	request := managedGatewayCreateRequest("reject-rest-create")
+	request.ReleaseId = "test-release_id"
+	request.Phase = openapi.PtrString("Booting")
+	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(request).Execute()
 	Expect(err).To(HaveOccurred(), "REST create with an unknown phase must be rejected")
 	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 }

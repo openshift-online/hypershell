@@ -92,6 +92,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**DeleteRoleBinding**](docs/DefaultAPI.md#deleterolebinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 *DefaultAPI* | [**GetGateway**](docs/DefaultAPI.md#getgateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 *DefaultAPI* | [**GetGatewayNetwork**](docs/DefaultAPI.md#getgatewaynetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
+*DefaultAPI* | [**GetGatewayPlacementAvailability**](docs/DefaultAPI.md#getgatewayplacementavailability) | **Get** /api/hypershell/v1/gateways/placement-availability | Returns current provider placement eligibility
 *DefaultAPI* | [**GetGatewayRelease**](docs/DefaultAPI.md#getgatewayrelease) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
 *DefaultAPI* | [**GetGatewayServiceAccount**](docs/DefaultAPI.md#getgatewayserviceaccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 *DefaultAPI* | [**GetManagedCluster**](docs/DefaultAPI.md#getmanagedcluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
@@ -126,6 +127,8 @@ Class | Method | HTTP request | Description
  - [GatewayNetworkList](docs/GatewayNetworkList.md)
  - [GatewayNetworkPatchRequest](docs/GatewayNetworkPatchRequest.md)
  - [GatewayPatchRequest](docs/GatewayPatchRequest.md)
+ - [GatewayPlacementAvailability](docs/GatewayPlacementAvailability.md)
+ - [GatewayPlacementIntent](docs/GatewayPlacementIntent.md)
  - [GatewayRelease](docs/GatewayRelease.md)
  - [GatewayReleaseList](docs/GatewayReleaseList.md)
  - [GatewayReleasePatchRequest](docs/GatewayReleasePatchRequest.md)

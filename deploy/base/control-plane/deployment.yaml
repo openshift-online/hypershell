@@ -28,6 +28,10 @@ spec:
               value: "hypershell-api-server:9000"
             - name: HYPERSHELL_API_SERVER_URL
               value: "http://hypershell-api-server:8000"
+            - name: HYPERSHELL_MANAGED_CLUSTER_PROVIDER
+              value: "aws"
+            - name: HYPERSHELL_MANAGED_CLUSTER_VISIBILITY
+              value: "public"
             - name: HYPERSHELL_NAMESPACE
               value: "hypershell-stage"
             - name: HYPERSHELL_LOG_LEVEL

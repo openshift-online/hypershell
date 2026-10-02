@@ -65,6 +65,10 @@ patches:
                   # creating it (managed-cluster-registration.spec.md).
                   - name: HYPERSHELL_MANAGED_CLUSTER_NAME
                     value: "local-kind"
+                  - name: HYPERSHELL_MANAGED_CLUSTER_PROVIDER
+                    value: "kind"
+                  - name: HYPERSHELL_MANAGED_CLUSTER_VISIBILITY
+                    value: "public"
                   - name: OIDC_ISSUER
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
                   - name: OIDC_CLIENT_ID
@@ -211,6 +215,8 @@ patches:
                     value: "true"
                   - name: RBAC_SERVICE_ACCOUNTS
                     value: "service-account-hypershell-control-plane"
+                  - name: HYPERSHELL_PLATFORM_KIND
+                    value: "true"
   # --- Keycloak: fixed HTTPS issuer reachable in-cluster and from host ---
   # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
   # requiring config.issuer == discovery.issuer == token.iss, so the issuer

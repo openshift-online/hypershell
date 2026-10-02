@@ -2,12 +2,19 @@ package gateways
 
 import (
 	"context"
+	stderrors "errors"
+	"fmt"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 
+	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
@@ -110,6 +117,134 @@ func registeredClusterLookup(s *environments.Services) RegisteredClusterLookup {
 	}
 }
 
+type providerPlacementState struct {
+	candidates []PlacementCandidate
+}
+
+type placementSnapshot struct {
+	providers map[string]*providerPlacementState
+	localID   string
+}
+
+type registeredPlacementService struct {
+	services *environments.Services
+	now      func() time.Time
+}
+
+func newRegisteredPlacementService(s *environments.Services) *registeredPlacementService {
+	return &registeredPlacementService{services: s, now: time.Now}
+}
+
+func normalizePlacementProvider(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "ibm cloud" {
+		return "ibm"
+	}
+	return provider
+}
+
+func (p *registeredPlacementService) snapshot(ctx context.Context) (placementSnapshot, *errors.ServiceError) {
+	result := placementSnapshot{providers: map[string]*providerPlacementState{"aws": {}, "ibm": {}}}
+	svc := managedClusters.Service(p.services)
+	if svc == nil {
+		return result, errors.GeneralError("managed cluster service is not available")
+	}
+	clusters, svcErr := svc.All(ctx)
+	if svcErr != nil {
+		return result, svcErr
+	}
+	for _, cluster := range clusters {
+		if cluster == nil || cluster.OIDCSubject == "" || !PlacementControlPlaneConnected(cluster.LastSeenAt, p.now()) {
+			continue
+		}
+		provider := normalizePlacementProvider(cluster.Provider)
+		isLocal := cluster.Name == "local-kind"
+		if isLocal {
+			if os.Getenv("HYPERSHELL_PLATFORM_KIND") == "true" {
+				result.localID = cluster.ID
+			}
+			continue
+		}
+		state := result.providers[provider]
+		if state == nil {
+			continue
+		}
+		state.candidates = append(state.candidates, PlacementCandidate{ID: cluster.ID, Provider: provider, Visibility: cluster.Visibility, Connected: true})
+	}
+	return result, nil
+}
+
+func (p *registeredPlacementService) selectManaged(snapshot placementSnapshot, network, provider string) (string, error) {
+	state := snapshot.providers[provider]
+	if state == nil {
+		return "", fmt.Errorf("unsupported provider %q", provider)
+	}
+	return ResolvePlacement(PlacementIntent{Network: network, Provider: provider}, state.candidates)
+}
+
+func managedPlacementAvailable(snapshot placementSnapshot, network, provider string) bool {
+	state := snapshot.providers[provider]
+	if !PlacementSupported(network, provider) || state == nil {
+		return false
+	}
+	for _, candidate := range state.candidates {
+		if candidate.Visibility == network {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi.GatewayPlacementIntent) (string, *errors.ServiceError) {
+	snapshot, svcErr := p.snapshot(ctx)
+	if svcErr != nil {
+		return "", svcErr
+	}
+	if intent.Mode != nil && *intent.Mode == "local-kind" {
+		if os.Getenv("HYPERSHELL_PLATFORM_KIND") != "true" {
+			return "", errors.Validation("local-kind placement is only available in the Kind development environment")
+		}
+		if snapshot.localID == "" {
+			return "", errors.Validation("local-kind placement is unavailable")
+		}
+		return snapshot.localID, nil
+	}
+	if intent.Network == nil || intent.Provider == nil || !PlacementSupported(*intent.Network, *intent.Provider) {
+		return "", errors.Validation("the requested network and provider placement is unsupported")
+	}
+	selected, err := p.selectManaged(snapshot, *intent.Network, *intent.Provider)
+	if err != nil {
+		if stderrors.Is(err, errNoEligiblePlacement) {
+			return "", errors.Validation("no eligible managed cluster is available for the requested placement")
+		}
+		glog.Errorf("failed to resolve managed cluster placement provider=%s network=%s: %v", *intent.Provider, *intent.Network, err)
+		return "", errors.GeneralError("failed to resolve managed cluster placement")
+	}
+	return selected, nil
+}
+
+func (p *registeredPlacementService) Availability(ctx context.Context) (openapi.GatewayPlacementAvailability, *errors.ServiceError) {
+	snapshot, svcErr := p.snapshot(ctx)
+	if svcErr != nil {
+		return openapi.GatewayPlacementAvailability{}, svcErr
+	}
+	availability := openapi.GatewayPlacementAvailability{}
+	availability.AwsPublic = managedPlacementAvailable(snapshot, "public", "aws")
+	availability.AwsVpn = managedPlacementAvailable(snapshot, "vpn", "aws")
+	availability.IbmPublic = managedPlacementAvailable(snapshot, "public", "ibm")
+	availability.IbmVpn = false
+	if !availability.AwsPublic && !availability.AwsVpn {
+		reason := "no-eligible-cluster"
+		availability.AwsReason = &reason
+	}
+	if !availability.IbmPublic {
+		reason := "no-eligible-cluster"
+		availability.IbmReason = &reason
+	}
+	availability.LocalKind = os.Getenv("HYPERSHELL_PLATFORM_KIND") == "true" && snapshot.localID != ""
+	return availability, nil
+}
+
 func init() {
 	registry.RegisterService("Gateways", func(env interface{}) interface{} {
 		return NewServiceLocator(env.(*environments.Env))
@@ -132,10 +267,12 @@ func init() {
 			})
 			ownerLookup = rbService
 		}
-		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, registeredClusterLookup(envServices))
+		placement := newRegisteredPlacementService(envServices)
+		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, registeredClusterLookup(envServices), placement.Resolve, placement.Availability)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)
+		gatewaysRouter.HandleFunc("/placement-availability", gatewayHandler.GetPlacementAvailability).Methods(http.MethodGet)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Get).Methods(http.MethodGet)
 		gatewaysRouter.HandleFunc("", gatewayHandler.Create).Methods(http.MethodPost)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Patch).Methods(http.MethodPatch)
@@ -172,7 +309,8 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterGatewayServiceServer(grpcServer, NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices)))
+		placement := newRegisteredPlacementService(envServices)
+		pb.RegisterGatewayServiceServer(grpcServer, NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), placement.Resolve))
 	})
 
 	presenters.RegisterPath(Gateway{}, "gateways")

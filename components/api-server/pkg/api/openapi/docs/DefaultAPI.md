@@ -18,6 +18,7 @@ Method | HTTP request | Description
 [**DeleteRoleBinding**](DefaultAPI.md#DeleteRoleBinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 [**GetGateway**](DefaultAPI.md#GetGateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 [**GetGatewayNetwork**](DefaultAPI.md#GetGatewayNetwork) | **Get** /api/hypershell/v1/gateway_networks/{id} | Get an gatewayNetwork by id
+[**GetGatewayPlacementAvailability**](DefaultAPI.md#GetGatewayPlacementAvailability) | **Get** /api/hypershell/v1/gateways/placement-availability | Returns current provider placement eligibility
 [**GetGatewayRelease**](DefaultAPI.md#GetGatewayRelease) | **Get** /api/hypershell/v1/gateway_releases/{id} | Get an gatewayRelease by id
 [**GetGatewayServiceAccount**](DefaultAPI.md#GetGatewayServiceAccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 [**GetManagedCluster**](DefaultAPI.md#GetManagedCluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
@@ -61,7 +62,7 @@ import (
 )
 
 func main() {
-	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "ClusterId_example", "ReleaseId_example") // GatewayCreateRequest | Gateway data
+	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "TODO", "ReleaseId_example") // GatewayCreateRequest | Gateway data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -954,6 +955,65 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**GatewayNetwork**](GatewayNetwork.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## GetGatewayPlacementAvailability
+
+> GatewayPlacementAvailability GetGatewayPlacementAvailability(ctx).Execute()
+
+Returns current provider placement eligibility
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetGatewayPlacementAvailability(context.Background()).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetGatewayPlacementAvailability``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetGatewayPlacementAvailability`: GatewayPlacementAvailability
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetGatewayPlacementAvailability`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+This endpoint does not need any parameter.
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetGatewayPlacementAvailabilityRequest struct via the builder pattern
+
+
+### Return type
+
+[**GatewayPlacementAvailability**](GatewayPlacementAvailability.md)
 
 ### Authorization
 

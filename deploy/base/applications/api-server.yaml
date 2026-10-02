@@ -104,6 +104,8 @@ spec:
               value: "hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443"
             - name: DB_SSLMODE
               value: require
+            - name: HYPERSHELL_PLATFORM_KIND
+              value: "false"
           startupProbe:
             httpGet:
               path: /healthcheck

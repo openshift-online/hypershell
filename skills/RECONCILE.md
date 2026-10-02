@@ -49,9 +49,11 @@ skills/
 
 ## Reconciliation State
 
+**Scoped analysis (2026-09-29)**: `specs/web-console/gateway-provision-placement.spec.md` against `77feccc3` plus the current working tree: 10 Present. GP-W1 made REST creation intent-only and refreshed restored placement metadata; GP-W2 added localized, programmatically associated disabled-network reasons.
+
 **Last analyzed**: 2026-09-23 (HYPERSHELL-334 implementation rebased onto `b152182c`: standing CI secrets moved to AWS Secrets Manager + GitHub OIDC + ESO; test-tier principals seeded from ESO on CI-owned PR environments and kept until the environment is destroyed). Also 2026-09-23 (scoped reanalysis of specs/platform/ephemeral-pr-environments.spec.md after #342: PR-ENV-6 now also publishes the hypershell-realm Keycloak admin console URL with impersonation instructions; PR-ENV-8 hides the password form when the GitHub IdP is active; PR-ENV-9 adds the interactive admin console path via `view-users`/`query-users`/`impersonation` realm-management roles granted on first broker login - all implemented and Present). Also 2026-09-22 (scoped reanalysis + execution of specs/platform/e2e-console-browser-testing.spec.md: CON-W1 fully closed; 49/49 checks pass on Kind including sandbox create/delete via the PatternFly ActionsColumn row kebab + typed-name confirmation modal and TSL single-quote quoting fix in lib.sh; CI integration wired into `.github/workflows/e2e.yml`; spec added to coverage table as 100%). Prior 2026-09-22 (scoped reanalysis for commits since `464ec5e`: updated codebase commit to `5e14f29b` (external-db-only-redo HEAD: remove ManagedDatabase API); registered 6 new spec files (gateway-provision-outcomes, gateway-release-distribution, gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends, openshell-branch-build); updated E2E-9 for 3-mode E2E_MODE split (#332); added E2E-13 for macOS CLI container wrapper (#335); added DM-3g/h/i for new Gateway schema fields; added OS-14/OS-15 for openshift-seed and openshift-test requirements; full-corpus recount pending for new specs). Prior 2026-09-16 (scoped reanalysis + execution of specs/platform/ephemeral-pr-environments.spec.md for HYPERSHELL-240 after the spec moved from continuous-deploy-for-life-of-PR to ephemeral-by-default with `/pr-extend` / `/pr-destroy`; D-E2E-OIDC closed as Present via PR-ENV-10; the last full-corpus analysis remains 2026-08-31). Prior 2026-09-14 scoped analysis of specs/platform/gateway-deletion-finalization.spec.md for HYPERSHELL-182; closed the no-silent-orphan gap G1: best-effort deletion failures for gateway-owned resources with no automatic recovery path -- leaked ClusterRoleBinding, leaked Keycloak gateway/console clients, and Keycloak clients skipped when the stored identity is unresolvable or the provisioner is deconfigured -- now emit a durable IncompleteFinalization Warning Event in the control-plane namespace instead of only logging; in-namespace sweep G2 already satisfied. Prior 2026-09-09 scoped reanalysis of e2e-testing.spec.md + local-development.spec.md against HEAD `21f02a0` for the new OpenShift E2E CI content added by the HYPERSHELL-240 docs commit: OpenShift driver unification #232/#244, dynamic namespace-GC timing, and the merge-queue Kind CI gate are all implemented; D-E2E-OIDC was then still listed as a divergence pending HYPERSHELL-240 (closed 2026-09-16). Prior 2026-09-04 scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
-**Spec corpus**: 56 spec files; the coverage table tracks 48 analyzed feature/spec groups after adding Ephemeral CI Secrets, Ephemeral Test Credentials, Console Browser Testing, Gateway Provision Outcomes, Gateway Release Distribution, Gateway Fleet Total Trend, Gateway Sandbox Active Trends, Hub Cluster Utilization Trends, and OpenShell Branch Build (9 new specs from commits `85927b3c`/`be0bf2ea`/`630a5ed1`/`2bdeece6`; full per-requirement analysis pending for the last 6)
-**Codebase commit**: working tree (HYPERSHELL-334 standing CI secrets + test-tier credentials, rebased onto `b152182c`; prior `5e14f29b` feat: remove ManagedDatabase API), then e2e-console-browser-testing CON-W1 (`2bdeece6`), then #342 Keycloak admin-console impersonation (`d7f33594`)
+**Spec corpus**: 80 spec files; the coverage table tracks 49 analyzed feature/spec groups after this scoped Gateway Provision Placement analysis; a full-corpus recount remains pending
+**Codebase commit**: `77feccc3` plus current working-tree cleanup for Gateway Provision Placement
 
 ### Coverage Summary
 
@@ -86,6 +88,7 @@ skills/
 | Platform - Gateway Provision Time | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - Console Browser Testing | 1 | 12 | 12 | 0 | 0 | 0 | 100% |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
+| Web Console - Gateway Provision Placement | 1 | 10 | 10 | 0 | 0 | 0 | 100% |
 | Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
@@ -95,8 +98,8 @@ skills/
 | Platform - Gateway Sandbox Active Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - Hub Cluster Utilization Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - OpenShell Branch Build | 1 | ~12 | 0 | 0 | ~12 | 0 | 0% |
-| **TOTAL (analyzed rows)** | **42** | **364** | **310** | **22** | **27** | **5** | **85%** |
-| **TOTAL (all 48 groups)** | **48** | **~424** | **?** | **?** | **?** | **?** | **Pending** |
+| **TOTAL (analyzed rows)** | **43** | **374** | **320** | **22** | **27** | **5** | **86%** |
+| **TOTAL (all 49 groups)** | **49** | **~434** | **?** | **?** | **?** | **?** | **Pending** |
 
 ### Spec Dependency Order
 
@@ -174,6 +177,29 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 - OpenAPI to spec: The metric does not add a public API field. The existing `ObjectReference` contract supplies `created_at` and `updated_at`, and the gRPC presenter returns both fields after an update.
 
 The first gap analysis found a race between the event-driven reconciler and the health reconciler. Both paths could record the first `Running` transition. CP-OBS-GPD-W1 adds one process-wide claim per Gateway. The delete path removes the claim. A normal reconcile uses the stored phase before work starts. A forced retry keeps the phase that existed before the retry bypass. These checks prevent work on a `Running` or `Degraded` Gateway from producing a new observation.
+
+### gateway-provision-placement.spec.md (HYPERSHELL-354)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| GP-01 | Placement intent contract; clients do not submit a concrete cluster | Present | REST create accepts placement intent only and always resolves it; concrete `cluster_id` remains read/internal compatibility data | `openapi/openapi.gateways.yaml`, `plugins/gateways/handler.go` | GP-W1 |
+| GP-02 | Mutually exclusive, required VPN/Public selection; no cluster selector | Present | The new radio-card form replaces the former selector; the obsolete selector file is removed in the current working tree | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
+| GP-03 | Provider selection and VPN/AWS constraint | Present | Public prefers IBM when available; VPN forces AWS and disables IBM | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
+| GP-04 | Placement availability from connected registered clusters | Present | Eligibility, automatic refresh, restored provider/visibility/liveness, and localized disabled-network reasons are present | `plugins/gateways/plugin.go`, `plugins/managedClusters/{service.go,dao.go}`, `gateway-create.tsx` | GP-W1, GP-W2 |
+| GP-05 | Kind-only local placement fallback | Present | API-server Kind flag, connected `local-kind` registration, managed-placement suppression, default selection, and intent submission are implemented | `plugins/gateways/plugin.go`, `gateway-create.tsx`, `deploy/kind/kustomization.yaml` | - |
+| GP-06 | Submit-time form validation with enabled action | Present | Name and placement validate on activation; the action is disabled only while a request is pending | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
+| GP-07 | Random backend resolution without capacity scoring | Present | Cryptographic uniform index over provider/network/liveness-filtered candidates; no capacity input | `plugins/gateways/placement.go`, `placement_test.go` | - |
+| GP-08 | Typed local-kind resolution failures | Present | Kind mode and connected registration are rechecked server-side and failures use the standard client-visible validation error | `plugins/gateways/plugin.go` | - |
+| GP-09 | API, SDK, persistence, authorization, and read compatibility | Present | OpenAPI, Go/TS SDKs, registration data, resolver tests, and existing `cluster_id` reads are wired; gateway intent remains request-scoped | `openapi/`, `components/sdk-*`, `plugins/gateways/`, `plugins/managedClusters/` | - |
+| GP-10 | Accessibility and localization | Present | Localized native radio groups expose selected/disabled state, retain keyboard behavior, and associate each visible choice description with its input through `aria-describedby` | `gateway-create.tsx`, `messages.ts`, `components/web-console/locales/en.json` | GP-W2 |
+
+**Scoped coverage:** 10 of 10 requirements present after GP-W1 and GP-W2. The former cluster-selector component deletion already exists in the user's working tree and is preserved as part of the analyzed state.
+
+**Direction checks:**
+
+- Spec to code: all ten requirement areas have implementation and focused regression coverage.
+- Code to spec: REST creation is intent-only. Existing placement lookup operations remain necessary for rendering resolved cluster names on read surfaces.
+- OpenAPI to spec: placement is required and `cluster_id` is absent from the public REST create contract while remaining available on read models.
 
 ### openshell-gateway-console.spec.md
 
@@ -874,6 +900,33 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 
 ## Wave Plan
 
+### GP-W1: Enforce intent-only REST placement and restore placement capabilities
+
+**Scope:** GP-01, GP-04 (backend)
+
+**Dependency:** Existing placement OpenAPI, generated SDK, registration, and resolver implementation
+
+**Status:** Complete - source and generated contracts updated; affected packages compile. Runtime integration tests require a running Docker daemon for PostgreSQL testcontainers.
+
+1. Remove deprecated `cluster_id` from the public REST `GatewayCreateRequest` source contract and regenerate OpenAPI clients/SDKs.
+2. Make the REST create handler always validate and resolve `placement`; retain resolved `cluster_id` only on persisted/read models and internal update paths.
+3. Extend managed-cluster restore to atomically refresh provider, visibility, and `last_seen_at` from the current registration.
+4. Add regression tests for direct-cluster rejection/absence, intent resolution, and restored capability refresh.
+5. Verify generated artifacts, API build/vet, focused placement tests, and unchanged gateway read compatibility.
+
+### GP-W2: Explain disabled network placement to all users
+
+**Scope:** GP-04 (web), GP-10 verification
+
+**Dependency:** GP-W1
+
+**Status:** Complete - localized unavailability descriptions are visible and associated with each native radio input; reusable UI checks pass (200 tests).
+
+1. Give disabled Public/VPN controls a localized placement-specific reason when no provider is eligible.
+2. Associate choice descriptions with their semantic radio inputs so assistive technology receives the same reason as visual users.
+3. Add UI tests for disabled-network descriptions and accessible associations.
+4. Verify the reusable gateway UI package and web-console adapter/story checks.
+
 ### CGV-W1: Generated gateway configuration validation ✅
 
 **Scope:** CGV-1 through CGV-4 (HYPERSHELL-179) | **Status:** Complete
@@ -1443,6 +1496,7 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-09-29 | `77feccc3` + working tree | Reconciled `gateway-provision-placement.spec.md` | 10/10 Present | Completed GP-W1 intent-only REST create and restored registration capability refresh, then GP-W2 localized disabled-network reasons with `aria-describedby`. API/SDK builds, vet, generated artifacts, UI checks (200 tests), and i18n extraction pass. Runtime API integration tests remain environment-blocked because Docker is not running for PostgreSQL testcontainers. |
 | 2026-09-23 | working tree | HYPERSHELL-334: standing CI secrets + test-tier credentials | Ephemeral CI Secrets 5/5, Test Credentials 12/12, PR-ENV 100% | Moved cluster login and GitHub OAuth off Actions secrets onto AWS SM + GitHub OIDC + ESO. Realm no longer ships human test-tier passwords. CI-owned seed reads `hypershell-e2e-test-users`; seeded users last until namespace destroy; Kind/local keep admin/admin. Rebased onto `b152182c`. Ops must apply TF, put SM values, delete Actions secrets. |
 | 2026-09-22 | `5e14f29b` | RECONCILE.md checkpoint update: registered 6 new spec files, updated E2E-9 for 3-mode split, added E2E-13 (macOS CLI container), DM-3g/h/i (new Gateway fields), OS-14/OS-15 (openshift-seed/test) | 84% (analyzed rows unchanged; 6 new specs pending full analysis) | Codebase commit advanced from `464ec5e` to `5e14f29b`. New specs from commits: `85927b3c` (gateway-provision-outcomes, gateway-release-distribution), `be0bf2ea` (gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends), `630a5ed1` (openshell-branch-build - spec only, 0% implemented). |
 | 2026-09-22 | `5e14f29b` | Registered E2E-9 three-mode refactor (#332) and macOS CLI container wrapper (#335) | E2E Testing 100% (unchanged; new requirements Present) | E2E_MODE `perf` split from old `short`; `e2e-performance.sh` uses `perf`; `short` is now a safe standalone gate. macOS runs openshell CLI via socat container on Kind network. |
