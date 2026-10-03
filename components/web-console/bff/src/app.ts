@@ -23,6 +23,7 @@ import { hasDashboardAdminRole } from "./roles.js";
 import {
   browserRuntimeConfig,
   type BrowserRuntimeConfig,
+  DEFAULT_API_VERSION_REFRESH_INTERVAL_MS,
   type ServerConfig,
   shortSha,
 } from "./config.js";
@@ -132,9 +133,9 @@ function proxyBody(
 }
 
 const runtimeConfigMetaName = "hypershell-runtime-config";
-// Caps the startup version probe independently of apiTimeoutMs (30s by
-// default) so an API that accepts the socket but stalls cannot hold the BFF
-// back from listening.
+// Caps the version probe independently of apiTimeoutMs (30s by default) so an
+// API that accepts the socket but stalls cannot hold the BFF back from
+// listening (startup) or tie up the refresh timer.
 const API_VERSION_PROBE_TIMEOUT_MS = 2_000;
 
 function escapeHtmlAttribute(value: string): string {
@@ -175,15 +176,19 @@ interface ApiMetadata {
 
 /**
  * Fetches the API server's build version from its public metadata endpoint
- * (GET /api/hypershell) once at startup so it can be relayed to the browser
- * through the runtime config. Version display must never gate BFF readiness,
- * so any failure resolves to "unknown" (WEB-TRACE-06 best-effort precedent),
- * and the probe gets its own short timeout rather than the proxy timeout.
+ * (GET /api/hypershell) so it can be relayed to the browser through the runtime
+ * config. Called once at startup and then periodically to pick up api-server
+ * rollouts without a BFF restart. Version display must never gate BFF readiness,
+ * so this never throws; an indeterminate result (unreachable, non-OK, or no
+ * version field) resolves to `null` (WEB-TRACE-06 best-effort precedent) and the
+ * caller decides how to represent it -- "unknown" at startup, or keeping the
+ * last known value on a refresh so a transient blip cannot clobber a good
+ * display. The probe gets its own short timeout rather than the proxy timeout.
  */
 async function fetchApiVersion(
   config: ServerConfig,
   log: FastifyBaseLogger,
-): Promise<string> {
+): Promise<string | null> {
   try {
     const response = await fetch(`${config.apiOrigin}/api/hypershell`, {
       signal: AbortSignal.timeout(
@@ -193,24 +198,24 @@ async function fetchApiVersion(
     if (!response.ok) {
       log.warn(
         { apiOrigin: config.apiOrigin, statusCode: response.status },
-        "API metadata endpoint returned a non-OK status; reporting version as unknown",
+        "API metadata endpoint returned a non-OK status; could not determine API version",
       );
-      return "unknown";
+      return null;
     }
     const metadata = (await response.json()) as ApiMetadata;
     if (typeof metadata.version !== "string" || metadata.version.length === 0) {
       log.warn(
-        "API metadata response has no version field; reporting version as unknown",
+        "API metadata response has no version field; could not determine API version",
       );
-      return "unknown";
+      return null;
     }
     return shortSha(metadata.version);
   } catch (error) {
     log.warn(
       { apiOrigin: config.apiOrigin, err: error },
-      "API metadata endpoint unreachable; reporting version as unknown",
+      "API metadata endpoint unreachable; could not determine API version",
     );
-    return "unknown";
+    return null;
   }
 }
 
@@ -280,13 +285,49 @@ export async function buildApp(
     trustProxy: config.nodeEnv !== "development" || !!config.oidcIssuer,
   });
 
-  const apiVersion = await fetchApiVersion(config, app.log);
-  const indexDocument = injectRuntimeConfig(
-    await readFile(indexPath, "utf8"),
-    browserRuntimeConfig(config, apiVersion),
-  );
+  // The index template is read once; only the injected runtime-config meta tag
+  // (which carries the API build version) changes over the pod's lifetime.
+  const indexTemplate = await readFile(indexPath, "utf8");
+  const renderIndex = (version: string): string =>
+    injectRuntimeConfig(indexTemplate, browserRuntimeConfig(config, version));
+
+  // Probed once at startup; `null` (indeterminate) degrades to "unknown" here.
+  // A background timer re-probes every apiVersionRefreshIntervalMs and
+  // re-renders the served document in place when the build changes, so an
+  // api-server rollout is reflected within minutes without restarting the BFF.
+  let currentApiVersion = (await fetchApiVersion(config, app.log)) ?? "unknown";
+  let indexDocument = renderIndex(currentApiVersion);
+
+  // The runtime config rides in a <meta> tag, not an inline <script>, so the
+  // version value never affects the CSP script hashes -- compute them once from
+  // the initial render; later re-renders only swap the meta content.
   const scriptHashes = inlineScriptHashes(indexDocument);
   const styleHashes = inlineStyleHashes(AUTH_DENIED_PAGE_HTML);
+
+  const refreshApiVersion = async (): Promise<void> => {
+    const next = await fetchApiVersion(config, app.log);
+    // `null` means the probe could not determine a version this cycle; keep the
+    // last known value rather than regressing a good display to "unknown".
+    if (next === null || next === currentApiVersion) {
+      return;
+    }
+    app.log.info(
+      { previousVersion: currentApiVersion, currentVersion: next },
+      "API build version changed; refreshing runtime config",
+    );
+    currentApiVersion = next;
+    indexDocument = renderIndex(currentApiVersion);
+  };
+
+  const versionRefreshTimer = setInterval(() => {
+    void refreshApiVersion();
+  }, config.apiVersionRefreshIntervalMs ?? DEFAULT_API_VERSION_REFRESH_INTERVAL_MS);
+  // Do not let the refresh timer keep the event loop (or a test process) alive.
+  versionRefreshTimer.unref();
+  app.addHook("onClose", (_instance, done) => {
+    clearInterval(versionRefreshTimer);
+    done();
+  });
 
   app.decorateRequest("correlationId", "");
 
