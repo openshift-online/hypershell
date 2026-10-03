@@ -73,7 +73,7 @@ class GatewayServiceAccountTests(unittest.TestCase):
                 request.assert_not_called()
 
     def test_rejects_cross_gateway_and_overprivileged_tokens(self):
-        for change in [{"aud": "client-b"}, {"aud": ["client-a", "client-b"]}, {"aud": "hypershell-frontend"},
+        for change in [{"aud": "client-b"}, {"aud": ["client-a", "client-b"]}, {"aud": "hypershell-frontend"}, {"aud": "hypershell-api"},
                        {"sub": "another-machine"}, {"iss": "https://another-issuer"},
                        {"hypershell": {"roles": ["openshell-admin"]}},
                        {"hypershell": {"roles": ["openshell-admin", "openshell-user", "extra-role"]}},

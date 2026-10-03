@@ -60,17 +60,28 @@ The API server uses the upstream rh-trex-ai framework for JWT validation. When e
 | `--jwk-cert-url` | Red Hat SSO JWKS | JWKS endpoint URL(s) for JWT signature validation |
 | `--grpc-jwk-cert-url` | (inherits `--jwk-cert-url`) | Override JWKS URL for gRPC validation |
 | `--jwt-issuer` | empty | Exact expected `iss` claim; required by HyperShell OIDC deployments |
-| `--jwt-audience` | empty | Required `aud` value; HyperShell uses `hypershell-frontend` as the management API resource audience |
+| `--jwt-audience` | empty | Required `aud` value; HyperShell uses `hypershell-api` as the management API resource audience |
 | `--enable-authz` | `true` (framework default) | Enable authorization middleware |
 | `--auth-bypass-paths` | `/healthcheck`, `/metrics`, `/openapi` | HTTP paths exempt from JWT validation |
 | `--auth-bypass-methods` | Health, Reflection | gRPC methods exempt from JWT validation |
 
-`hypershell-frontend` identifies the management API as the token resource; it is
-not a restriction to the web-console OAuth client. First-party callers such as
-hsctl and the control plane receive that audience from dedicated Keycloak
-mappers and remain distinguishable through `azp`. Per-gateway clients receive
-only their gateway audience, so their tokens SHALL be rejected by management
-API endpoints.
+`hypershell-api` is the management API resource audience: `aud` names the
+resource server a token is intended for, and `azp` names the OAuth client that
+requested it. `hypershell-api` is a custom audience value, not an OAuth client;
+nobody logs in as `hypershell-api`. Every first-party caller of the management
+API (the web console through `hypershell-frontend`, hsctl through
+`hypershell-cli`, the control plane through `hypershell-control-plane`, and CI
+through `hypershell-e2e`) receives `hypershell-api` in `aud` from a dedicated
+audience mapper on its own client and remains distinguishable through `azp`.
+
+The API server accepts a token when `hypershell-api` is any element of its
+`aud` array (`jwt.MapClaims.VerifyAudience`), so a caller MAY carry additional
+audiences next to it. Because any correctly issued token carrying
+`hypershell-api` is accepted, the audience mapper SHALL be attached only to
+clients that are meant to call the management API. It SHALL NOT be attached to
+`hypershell-provisioner` (the API server's own Keycloak admin client) or to
+per-gateway clients. Per-gateway clients receive only their gateway audience,
+so their tokens SHALL be rejected by management API endpoints.
 
 ### Environment System
 
@@ -223,11 +234,11 @@ The `hypershell-frontend` client SHALL be used by the web console BFF for the au
 | `defaultClientScopes` | `openid`, `email`, `profile` | Standard OIDC scopes |
 
 Protocol mappers (retained as-is):
-- **Audience mapper**  -- includes `hypershell-frontend` in the `aud` claim of the access token
+- **Audience mapper**  -- includes the custom audience `hypershell-api` in the `aud` claim of the access token (`included.custom.audience`)
 - **Sub mapper**  -- includes `sub` in the access token
 - **Realm roles mapper**  -- maps realm roles to the `groups` claim in all token types
 
-The BFF validates the `aud` claim matches `OIDC_CLIENT_ID` (i.e., `hypershell-frontend`).
+The BFF validates that the ID token `aud` matches `OIDC_CLIENT_ID` (i.e., `hypershell-frontend`). The access token it forwards to the API server carries `azp=hypershell-frontend` and `aud` including `hypershell-api`.
 
 ### `hypershell-cli` Client
 
@@ -245,7 +256,7 @@ The `hypershell-cli` client is used by the `hsctl` CLI for interactive user auth
 | `defaultClientScopes` | `openid`, `email`, `profile` | Standard OIDC scopes |
 
 Protocol mappers (same as `hypershell-frontend`):
-- **Audience mapper** -- includes `hypershell-frontend` in the `aud` claim so the API server's JWT validator accepts CLI-issued tokens
+- **Audience mapper** -- includes `hypershell-api` in the `aud` claim so the API server's JWT validator accepts CLI-issued tokens
 - **Sub mapper** -- includes `sub` in the access token
 - **Realm roles mapper** -- maps realm roles to the `groups` claim
 
@@ -265,7 +276,7 @@ The `hypershell-provisioner` client is a confidential service account used for a
 
 | Component | Configuration |
 |-----------|--------------|
-| API server | `API_ENV=production`, `--enable-jwt=true`, `--jwk-cert-url=<production JWKS>`, `--jwt-issuer=<production issuer>`, `--jwt-audience=hypershell-frontend`, `--enable-authz=true` |
+| API server | `API_ENV=production`, `--enable-jwt=true`, `--jwk-cert-url=<production JWKS>`, `--jwt-issuer=<production issuer>`, `--jwt-audience=hypershell-api`, `--enable-authz=true` |
 | BFF | `OIDC_ISSUER=<production issuer>`, `OIDC_CLIENT_ID=hypershell-frontend`, `SESSION_SECRET=<managed secret>` |
 | Gateway | OIDC configured per `openshell-gateway-oidc.spec.md` |
 | Keycloak | Downstream Keycloak brokering to Red Hat SSO |
@@ -274,8 +285,12 @@ The `hypershell-provisioner` client is a confidential service account used for a
 **Rollout prerequisite:** issuer and audience validation fail closed. Before, or
 together with, the release that sets `--jwt-issuer` and `--jwt-audience`, the
 production SSO MUST issue tokens whose `iss` equals the configured issuer and
-whose `aud` includes `hypershell-frontend` for every first-party caller of the
-management API (web console, hsctl, control plane). Otherwise all authenticated HTTP and
+whose `aud` includes `hypershell-api` for every first-party caller of the
+management API (the `hypershell-frontend`, `hypershell-cli`, and
+`hypershell-control-plane` clients), typically through an audience mapper
+emitting the custom audience `hypershell-api` on each of those clients. The
+callers stay identified by `azp`; `hypershell-api` does not need to exist as an
+OAuth client. Otherwise all authenticated HTTP and
 gRPC calls from those clients are rejected with 401 immediately after the upgrade,
 including control-plane writes that `RBAC_SERVICE_ACCOUNTS` exempts from RBAC.
 
@@ -287,7 +302,7 @@ OIDC is always enabled in the Kind cluster. `make kind-up` configures all compon
 
 `make kind-up` SHALL:
 
-1. Deploy the API server with `--enable-jwt=true`, `--jwk-cert-url`, `--jwt-issuer=https://keycloak.hypershell.localhost/realms/hypershell`, `--jwt-audience=hypershell-frontend`, `--auth-bypass-paths`, and `--auth-bypass-methods` flags via Kustomize JSON patch (direct flag override avoids dependency on `API_ENV=development_oidc` which may not exist in baseline images)
+1. Deploy the API server with `--enable-jwt=true`, `--jwk-cert-url`, `--jwt-issuer=https://keycloak.hypershell.localhost/realms/hypershell`, `--jwt-audience=hypershell-api`, `--auth-bypass-paths`, and `--auth-bypass-methods` flags via Kustomize JSON patch (direct flag override avoids dependency on `API_ENV=development_oidc` which may not exist in baseline images)
 2. Deploy the web console BFF with:
    - `OIDC_ISSUER=https://keycloak.hypershell.localhost/realms/hypershell`
    - `OIDC_CLIENT_ID=hypershell-frontend`
@@ -336,13 +351,13 @@ The API server SHALL support JWT validation against a configurable JWKS endpoint
 - WHEN a request is made with `Authorization: Bearer <token>`
 - THEN the API server SHALL validate the JWT signature against the JWKS endpoint
 - AND the token `iss` SHALL exactly match the configured issuer
-- AND the token `aud` SHALL contain `hypershell-frontend`
+- AND the token `aud` SHALL contain `hypershell-api`
 - AND the request SHALL be processed normally
 
 #### Scenario: Token Issued for Another Resource Is Rejected
 - GIVEN the API server is started with issuer and audience validation enabled
 - AND a correctly signed token has a missing or different `iss`
-- OR its `aud` does not contain `hypershell-frontend`
+- OR its `aud` does not contain `hypershell-api`
 - WHEN the token is presented to an HTTP or gRPC management endpoint
 - THEN the API server SHALL reject the request as unauthenticated
 
@@ -599,9 +614,9 @@ The `hypershell-frontend` client SHALL be configured with deployment-appropriate
 | `@fastify/secure-session` for cookie encryption | Sodium-based secretbox (NaCl) is the gold standard for symmetric encryption. The library is maintained by the Fastify team and integrates natively. `iron-session` is an alternative but adds an extra dependency outside the Fastify ecosystem. |
 | RP-initiated logout (full IdP session termination) | Clearing the cookie alone leaves the IdP session alive  -- the user could re-authenticate without credentials until TTL expires. Full logout is the expected UX for an enterprise console. One extra redirect is negligible. |
 | Control plane authenticates with its own service account | The control plane obtains JWTs via `client_credentials` grant using a dedicated `hypershell-control-plane` Keycloak client. This is the standard pattern for service-to-service auth with the rh-trex-ai framework (the JWT interceptor validates tokens on all gRPC methods). The service account is least-privilege ready for future RBAC enforcement. |
-| Shared management API resource audience | Web-console, hsctl, and control-plane tokens carry `aud=hypershell-frontend` because they call the same management API; `azp` identifies the OAuth client. Gateway-specific tokens carry only their gateway audience and cannot be replayed against the management API. |
+| Dedicated `hypershell-api` management API audience | Web-console, hsctl, and control-plane tokens carry `hypershell-api` in `aud` because they call the same management API; `azp` identifies the OAuth client. Reusing a client ID such as `hypershell-frontend` as the API audience would make every non-browser caller look like it impersonates the web console. A custom audience (`included.custom.audience`) is used instead of a bearer-only `hypershell-api` client because no client representation, secret, or login surface is needed to name a resource server, and external SSOs express the same thing as a plain audience value. Gateway-specific tokens carry only their gateway audience and cannot be replayed against the management API. |
 | OIDC always-on in Kind | OIDC is the only supported authentication method. Running without it masks integration issues and diverges from production. |
-| `hypershell-frontend` client reused for BFF | The client already exists with the correct audience mapper and role claims. Creating a separate BFF client would duplicate configuration and require additional Keycloak provisioning. PKCE secures the public client adequately for a BFF. |
+| `hypershell-frontend` client reused for BFF | The client already exists with the `hypershell-api` audience mapper and role claims. Creating a separate BFF client would duplicate configuration and require additional Keycloak provisioning. PKCE secures the public client adequately for a BFF. |
 | Restrict `redirectUris` from wildcard | Wildcard redirect URIs are an OAuth security anti-pattern (open redirect). Restricting to the deployment's console origin prevents authorization code interception. |
 | `directAccessGrantsEnabled` retained on `hypershell-frontend` | Password grant is retained on the web console client for `curl`-based testing and E2E test token acquisition. The `hypershell-cli` client disables it -- the CLI now uses Authorization Code + PKCE or Device Authorization Grant. |
 | Separate `hypershell-cli` client instead of reusing `hypershell-frontend` | The CLI's redirect URI (`http://127.0.0.1:*`) and the BFF's redirect URIs (HTTPS console origin) are incompatible on a single client. A separate public client also lets device flow be enabled for CLI only, without exposing it on the BFF client. |

@@ -429,7 +429,8 @@ type authzPolicy struct {
 // EnsureE2ETokenExchange grants the hypershell-e2e client FGAP v1
 // token-exchange onto targetClientUUID and, when present, hypershell-frontend.
 // Area 4 exchanges onto the per-gateway client; area 9 exchanges onto the
-// frontend API audience. Skip unless that client exists and is enabled: a
+// hypershell-frontend client, whose audience mapper emits the hypershell-api
+// management API audience. Skip unless that client exists and is enabled: a
 // present-but-disabled representation (Kind, local OpenShift, hub) must not
 // enable admin-fine-grained-authz or attach token-exchange policies on the
 // gateway reconcile path.
