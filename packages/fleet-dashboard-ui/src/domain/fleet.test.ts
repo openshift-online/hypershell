@@ -28,6 +28,7 @@ function inst(
     gatewayHistory: [],
     sandboxes: 0,
     sandboxesByCluster: [],
+    sandboxHistory: [],
     ...overrides,
   };
 }

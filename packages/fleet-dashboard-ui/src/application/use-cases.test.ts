@@ -71,6 +71,7 @@ describe("use cases", () => {
           gatewayHistory: [],
           sandboxes: 0,
           sandboxesByCluster: [],
+          sandboxHistory: [],
         },
       ],
     });

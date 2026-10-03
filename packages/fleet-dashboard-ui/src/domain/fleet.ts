@@ -67,6 +67,12 @@ export interface InstanceFleet {
    * orders them. Empty when the server reports none (the UI degrades gracefully).
    */
   readonly sandboxesByCluster: readonly SandboxClusterCount[];
+  /**
+   * Total active-sandbox count over the last day, oldest-first, on the SAME grid as
+   * {@link gatewayHistory} so the two node-card sparklines share an x-axis. Drives the
+   * lower sandbox "sand" sparkline. May be empty when no history is available.
+   */
+  readonly sandboxHistory: readonly number[];
 }
 
 export interface FleetData {

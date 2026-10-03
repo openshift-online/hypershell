@@ -23,7 +23,7 @@ import {
 import { SANDBOX_COLOR } from "./colors";
 import { Identicon } from "./identicon";
 import { SandSparkline } from "./sand-sparkline";
-import { SandboxStrip } from "./sandbox-strip";
+import { SandboxSparkline } from "./sandbox-sparkline";
 import styles from "./topology-map.module.css";
 
 /** True when the node warrants the red "attention" ring: degraded Argo health or
@@ -80,6 +80,13 @@ export function MapNodeCard({
   const historySig = last
     ? [hist.length, last.running, last.provisioning, last.failed].join(":")
     : "none";
+  // Same idea for the sandbox sparkline: replay the conveyor slide only when a new
+  // sandbox sample actually lands.
+  const sbxHist = node.sandboxHistory;
+  const sbxSig =
+    sbxHist.length > 0
+      ? [sbxHist.length, sbxHist[sbxHist.length - 1]].join(":")
+      : "none";
   const chip = node.provider ? providerChip(node.provider) : null;
   const select = () => {
     onSelect(node.id);
@@ -333,21 +340,25 @@ export function MapNodeCard({
         </text>
       </g>
 
-      {/* sandbox population (lower chin): per-cluster active-sandbox bars directly
-          below the gateway sand sparkline, with the instance-wide total as a teal
-          tally on the right. Sandboxes are a distinct population from gateways, so
-          they get their own chin rather than sharing the gateway strip. */}
-      <SandboxStrip
-        clusters={node.sandboxesByCluster}
-        x={x + 10}
-        y={y + h - 18}
-        width={w - 40}
-        height={11}
-      />
+      {/* sandbox history (lower chin): total active-sandbox count over time, on the
+          EXACT same x-axis and width as the gateway sand sparkline above (x + 10,
+          w - 56), so the two chins line up and are directly comparable. Sandboxes are
+          one population, so this is a single teal band rather than a stack. The live
+          total sits on the right as a teal tally, mirroring the gateway count circle.
+          key={sbxSig}: remounts to replay the conveyor slide only on a new sample. */}
+      <g key={sbxSig}>
+        <SandboxSparkline
+          history={node.sandboxHistory}
+          x={x + 10}
+          y={y + h - 18}
+          width={w - 56}
+          height={11}
+        />
+      </g>
       <text
-        x={x + w - 12}
+        x={x + w - 20}
         y={y + h - 12}
-        textAnchor="end"
+        textAnchor="middle"
         dominantBaseline="central"
         fontSize={11}
         fontWeight={700}
