@@ -30,6 +30,13 @@ const httpOrigin = z
   }, "must be an HTTP(S) origin without credentials, path, query, or fragment")
   .transform((value) => new URL(value).origin);
 
+/**
+ * Default cadence for the BFF's background API build-version refresh (5 min).
+ * Shared between the config schema default and the app's fallback so there is a
+ * single source of truth.
+ */
+export const DEFAULT_API_VERSION_REFRESH_INTERVAL_MS = 300_000;
+
 const configSchema = z.object({
   HOST: z.string().trim().min(1).default("0.0.0.0"),
   HYPERSHELL_API_ORIGIN: httpOrigin.default("http://127.0.0.1:8000"),
@@ -39,6 +46,15 @@ const configSchema = z.object({
     .min(100)
     .max(120_000)
     .default(30_000),
+  // How often the BFF re-probes the API build version after startup and
+  // re-renders the served index when it changes, so an api-server rollout is
+  // reflected within minutes without restarting the BFF. Default 5 minutes.
+  HYPERSHELL_API_VERSION_REFRESH_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(3_600_000)
+    .default(DEFAULT_API_VERSION_REFRESH_INTERVAL_MS),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
@@ -118,6 +134,12 @@ export interface TracingConfig {
 export interface ServerConfig {
   apiOrigin: string;
   apiTimeoutMs: number;
+  /**
+   * Interval between background API build-version refreshes, in milliseconds.
+   * Always populated by loadConfig; optional so test fixtures may omit it and
+   * take DEFAULT_API_VERSION_REFRESH_INTERVAL_MS.
+   */
+  apiVersionRefreshIntervalMs?: number;
   githubApiOrigin?: string;
   githubOrgGate?: string;
   githubUsernameAllowlist?: string;
@@ -233,6 +255,8 @@ export function loadConfig(
   return {
     apiOrigin: result.data.HYPERSHELL_API_ORIGIN,
     apiTimeoutMs: result.data.HYPERSHELL_API_TIMEOUT_MS,
+    apiVersionRefreshIntervalMs:
+      result.data.HYPERSHELL_API_VERSION_REFRESH_INTERVAL_MS,
     githubApiOrigin: result.data.GITHUB_API_ORIGIN,
     githubOrgGate: result.data.GITHUB_ORG_GATE,
     githubUsernameAllowlist: result.data.GITHUB_USERNAME_ALLOWLIST,
