@@ -26,6 +26,11 @@ import (
 	_ "github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
+// Release-flow probe (2026-10-02, inert): a comment-only touch to mint a new
+// release bundle and verify the end-to-end path -- Konflux build -> Snapshot ->
+// Release -> Renovate bump in hypershell-gitops -> gated promotion through the
+// hyp0 -> hyp1 -> hyp2 DAG. No runtime behavior changes.
+
 // rh-trex-ai includes HTTP request headers and request and response bodies at
 // verbosity 10. HyperShell has endpoints that return one-time credentials, so
 // the API must never enable that logging mode. Keep metadata-only HTTP request
