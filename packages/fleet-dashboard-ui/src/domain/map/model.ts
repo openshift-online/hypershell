@@ -114,6 +114,9 @@ export interface MapNode {
   readonly sandboxes: number;
   /** Active sandboxes per managed cluster, busiest-first (may be empty). */
   readonly sandboxesByCluster: readonly SandboxClusterCount[];
+  /** Total active-sandbox count over the last day, oldest-first, on the gateway
+   *  sparkline's grid - drives the lower sandbox sparkline (may be empty). */
+  readonly sandboxHistory: readonly number[];
   readonly managedClusters: number | null;
   readonly users: number | null;
   readonly metrics: MapNodeMetrics;
@@ -253,6 +256,7 @@ function buildNode(
     gatewayHistory: fl?.gatewayHistory ?? [],
     sandboxes: fl?.sandboxes ?? 0,
     sandboxesByCluster: fl?.sandboxesByCluster ?? [],
+    sandboxHistory: fl?.sandboxHistory ?? [],
     managedClusters: fl?.managedClusters ?? null,
     users: fl?.users ?? null,
     metrics: {

@@ -214,6 +214,11 @@ type InstanceFleet struct {
 	// the detail panel's sandbox widget + per-cluster "chin" chart.
 	Sandboxes          int                   `json:"sandboxes"`
 	SandboxesByCluster []SandboxClusterCount `json:"sandboxesByCluster"`
+	// SandboxHistory is the instance's TOTAL active-sandbox count (summed across its
+	// clusters) sampled oldest->newest over the last day on the SAME 24h/32-sample grid
+	// as GatewayHistory, so the sandbox "sand" sparkline (the lower node-card chin)
+	// shares the gateway sparkline's x-axis exactly and the two chins are comparable.
+	SandboxHistory []float64 `json:"sandboxHistory"`
 }
 
 // SandboxClusterCount is one managed cluster's active-sandbox count within an
@@ -395,6 +400,37 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 				}
 				return a.Cluster < b.Cluster
 			})
+		}
+	}
+
+	// Sandbox-count history (newest sample last) for the per-instance sandbox "sand"
+	// sparkline - the lower node-card chin. Deliberately on the SAME 24h/32-sample grid
+	// as GatewayHistory above so the two chins share an x-axis exactly and are directly
+	// comparable. One series per instance: the TOTAL across clusters, deduping scrape
+	// replicas with the same inner max-by-(cluster,instance,gateway) the snapshot uses
+	// before summing the gateways. Best-effort like the other sub-queries.
+	{
+		const histWindow = 24 * time.Hour
+		const histSamples = 32
+		now := time.Now()
+		subTotal++
+		expr := fmt.Sprintf(
+			"sum by (%s) (max by (%s,%s,gateway) (%s{%s=~%q}))",
+			p.instLabel, p.clusterLabel, p.instLabel, p.sandboxMetric, p.instLabel, nsRE,
+		)
+		if res, err := p.queryRange(ctx, expr, now.Add(-histWindow), now, histWindow/histSamples); err != nil {
+			subErrs = append(subErrs, err)
+		} else {
+			for _, r := range res {
+				f := get(r.Metric[p.instLabel])
+				// One series per instance; Prometheus returns values in ascending time
+				// order, which is the oldest->newest order the sparkline expects.
+				hist := make([]float64, 0, len(r.Values))
+				for _, v := range r.Values {
+					hist = append(hist, sampleValue(v))
+				}
+				f.SandboxHistory = hist
+			}
 		}
 	}
 
