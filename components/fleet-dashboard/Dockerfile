@@ -14,8 +14,8 @@ ARG BUILD_TIME=unknown
 # ---------------------------------------------------------------------------
 # Stage 1 - build the React UI bundle (packages/fleet-dashboard-ui -> dist/)
 # ---------------------------------------------------------------------------
-FROM --platform=linux/amd64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:7d3b87dbb6bbf8fc85c865f8a00c5355961dae0e0e4ead15d530af3c8d6e3ebe AS ui-build-amd64
-FROM --platform=linux/arm64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:5034714f7a4bdd7423231f880b0863b8e69c5aa9b8f5ab69ed1cd1e76760f0e0 AS ui-build-arm64
+FROM --platform=linux/amd64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:76b9f45b0058783accf4aa383c962d51f7624acb4fb2d8368da1023e9c5ae0ea AS ui-build-amd64
+FROM --platform=linux/arm64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:1e1eba50cafc6a4ad8fa18ec1d308e93b82af0fe4b519719b5290e30736169e7 AS ui-build-arm64
 FROM --platform=linux/${BUILDARCH} ui-build-${BUILDARCH} AS ui-build
 
 USER root
