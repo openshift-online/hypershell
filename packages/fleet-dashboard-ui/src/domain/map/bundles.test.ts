@@ -58,7 +58,13 @@ function node(overrides: Partial<MapNode> & { id: string }): MapNode {
       bff: { rate: 0, errorPct: 0, p95Ms: 0 },
       provisionP95Ms: null,
     },
-    links: { console: null, argo: null, pr: null, analysis: null },
+    links: {
+      console: null,
+      grafana: null,
+      argo: null,
+      pr: null,
+      analysis: null,
+    },
     ...overrides,
   };
 }

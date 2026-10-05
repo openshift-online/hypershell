@@ -27,6 +27,7 @@ import {
   Tooltip,
   Truncate,
 } from "@patternfly/react-core";
+import ChartLineIcon from "@patternfly/react-icons/dist/esm/icons/chart-line-icon";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
 import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
 import LongArrowAltRightIcon from "@patternfly/react-icons/dist/esm/icons/long-arrow-alt-right-icon";
@@ -722,6 +723,7 @@ function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
   // operational follow-ups, grouped under their own eyebrow below it. The group
   // heading only shows when at least one operational link is present.
   const hasOps =
+    Boolean(node.links.grafana) ||
     Boolean(node.links.argo) ||
     Boolean(node.links.pr) ||
     Boolean(node.links.analysis);
@@ -739,6 +741,12 @@ function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
           <FormattedMessage {...messages.linksOperations} />
         </h4>
       ) : null}
+      <LinkCard
+        href={node.links.grafana}
+        icon={<ChartLineIcon />}
+        label={<FormattedMessage {...messages.linkGrafana} />}
+        desc={<FormattedMessage {...messages.linkGrafanaDesc} />}
+      />
       <LinkCard
         href={node.links.argo}
         icon={<ExternalLinkAltIcon />}

@@ -37,6 +37,7 @@ import { gatePhaseBadge, type StatusBadge } from "../status";
 /** External deep-links the server attaches to a node (all optional). */
 export interface MapNodeLinks {
   readonly console: string | null;
+  readonly grafana: string | null;
   readonly argo: string | null;
   readonly pr: string | null;
   readonly analysis: string | null;
@@ -267,6 +268,7 @@ function buildNode(
     },
     links: {
       console: env.consoleUrl,
+      grafana: env.grafanaUrl,
       argo: env.argoUrl,
       pr: env.prUrl,
       analysis: env.analysisUrl,

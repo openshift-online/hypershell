@@ -21,6 +21,7 @@ function env(
     argoHealth: null,
     argoSync: null,
     consoleUrl: null,
+    grafanaUrl: null,
     argoUrl: null,
     prState: null,
     prUrl: null,

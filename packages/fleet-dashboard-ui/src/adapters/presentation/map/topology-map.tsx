@@ -14,6 +14,7 @@ import {
   DrawerPanelContent,
 } from "@patternfly/react-core";
 import CompressArrowsAltIcon from "@patternfly/react-icons/dist/esm/icons/compress-arrows-alt-icon";
+import ExclamationCircleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-circle-icon";
 import SearchMinusIcon from "@patternfly/react-icons/dist/esm/icons/search-minus-icon";
 import SearchPlusIcon from "@patternfly/react-icons/dist/esm/icons/search-plus-icon";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +25,7 @@ import { computeLayout, type NodeBox } from "../../../domain/map/layout";
 import { buildMapModel } from "../../../domain/map/model";
 import type { FleetData } from "../../../domain/fleet";
 import type { PromotionData } from "../../../domain/promotion";
+import { isHealthUnavailable } from "../../../domain/status";
 import { messages } from "../../../messages";
 import {
   EDGE_STROKE,
@@ -31,6 +33,7 @@ import {
   promotionRing,
   TEXT_COLOR,
   TEXT_SUBTLE,
+  TONE_COLOR,
 } from "./colors";
 import { MapEdges } from "./edges";
 import { MapFlights } from "./flights";
@@ -64,6 +67,16 @@ export function TopologyMap({
     [promotion, fleet],
   );
   const layout = useMemo(() => computeLayout(model), [model]);
+
+  // Fleet-level severe signal: how many instances report NO Argo health at all (the
+  // "unknown" tone). Distinct from "Degraded" - absent health means the dashboard can't
+  // reach the cluster's Argo, so its state is genuinely unknown. Surfaced as a banner
+  // ONLY when there is at least one, because it's a loud "something may be unreachable"
+  // alert, not a routine status (per the node-level flashing ring in map-node).
+  const unavailableCount = useMemo(
+    () => model.nodes.filter((n) => isHealthUnavailable(n.argoHealth)).length,
+    [model.nodes],
+  );
 
   // Track the canvas box's live pixel aspect ratio so the viewBox can be re-fit to
   // it: the box fills the screen height (constant) while its width flexes when the
@@ -231,6 +244,21 @@ export function TopologyMap({
           >
             <DrawerContentBody>
               <div ref={canvasRef} className={styles.canvas}>
+                {unavailableCount > 0 ? (
+                  <div
+                    className={styles.healthAlert}
+                    role="status"
+                    style={{ background: TONE_COLOR.danger }}
+                  >
+                    <ExclamationCircleIcon />
+                    <span>
+                      {intl.formatMessage(messages.mapHealthUnavailable, {
+                        count: unavailableCount,
+                      })}
+                    </span>
+                  </div>
+                ) : null}
+
                 <div className={styles.toolbar}>
                   <Button
                     variant="control"
