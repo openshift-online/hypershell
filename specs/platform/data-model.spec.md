@@ -346,94 +346,96 @@ All routes under `/api/hypershell/v1/`:
 | GET/PATCH/DELETE | `/managed_clusters/{id}` | Get/Update/Delete |
 | POST | `/managed_clusters/registration` | Self-register spoke; idempotent on (oidc_subject, name); updates last_seen_at on every call |
 
-## CLI Reference (`hsctl`)
+## Client Reference (`hsctl`, Go SDK, TypeScript SDK)
 
-The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresponding command.
+The `hsctl` CLI mirrors the REST API 1-for-1. The Go SDK (`components/sdk-go`) and TypeScript SDK (`components/sdk-typescript`) are code-generated from `openapi.yaml` and expose the same operations. All three clients are kept in sync by the build (`make generate-sdk`).
 
-### API ↔ CLI Mapping
+### API ↔ CLI ↔ SDK Mapping
 
 #### Gateways
 
-| REST API | `hsctl` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
-| `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --cluster-id <c> --release-id <r> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
+| REST API | `hsctl` Command | Status | Go SDK | TypeScript SDK |
+|---|---|---|---|---|
+| `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented | `Gateways().List` | `gateways.list` |
+| `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented | `Gateways().Get` | `gateways.get` |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --cluster-id <c> --release-id <r> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented | `Gateways().Create` | `gateways.create` |
+| `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned | `Gateways().Update` | `gateways.update` |
+| `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented | `Gateways().Delete` | `gateways.delete` |
 
 #### OpenShellGatewayServiceAccounts
 
-| REST API | `hsctl` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/gateways/{gateway_id}/service_accounts` | `hsctl list serviceAccounts --gateway-id <gateway_id>` | ✅ implemented |
-| `GET /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}` | `hsctl get serviceAccount <id> --gateway-id <gateway_id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways/{gateway_id}/service_accounts` | `hsctl create serviceAccount --gateway-id <gateway_id> --name <n> --role <role> [--expires-in <duration>]` (`role`: `openshell-user` or `openshell-admin`) | ✅ implemented |
-| `POST /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}/revoke` | `hsctl revoke serviceAccount <id> --gateway-id <gateway_id>` | ✅ implemented |
-| `DELETE /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}` | `hsctl delete serviceAccount <id> --gateway-id <gateway_id>` | ✅ implemented |
+| REST API | `hsctl` Command | Status | Go SDK | TypeScript SDK |
+|---|---|---|---|---|
+| `GET /api/hypershell/v1/gateways/{gateway_id}/service_accounts` | `hsctl list serviceAccounts --gateway-id <gateway_id>` | ✅ implemented | `OpenShellGatewayServiceAccounts().List` | `openShellGatewayServiceAccounts.list` |
+| `GET /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}` | `hsctl get serviceAccount <id> --gateway-id <gateway_id>` | ✅ implemented | `OpenShellGatewayServiceAccounts().Get` | `openShellGatewayServiceAccounts.get` |
+| `POST /api/hypershell/v1/gateways/{gateway_id}/service_accounts` | `hsctl create serviceAccount --gateway-id <gateway_id> --name <n> --role <role> [--expires-in <duration>]` (`role`: `openshell-user` or `openshell-admin`) | ✅ implemented | `OpenShellGatewayServiceAccounts().Create` | `openShellGatewayServiceAccounts.create` |
+| `POST /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}/revoke` | `hsctl revoke serviceAccount <id> --gateway-id <gateway_id>` | ✅ implemented | `OpenShellGatewayServiceAccounts().Revoke` | `openShellGatewayServiceAccounts.revoke` |
+| `DELETE /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}` | `hsctl delete serviceAccount <id> --gateway-id <gateway_id>` | ✅ implemented | `OpenShellGatewayServiceAccounts().Delete` | `openShellGatewayServiceAccounts.delete` |
 
 #### Gateway Networks
 
-| REST API | `hsctl` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/gateway_networks` | `hsctl list gatewayNetworks` | ✅ implemented |
-| `GET /api/hypershell/v1/gateway_networks/{id}` | `hsctl get gatewayNetwork <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_networks` | `hsctl create gatewayNetwork --name <n> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateway_networks/{id}` | `hsctl update gatewayNetwork <id> [--topology <t>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateway_networks/{id}` | `hsctl delete gatewayNetwork <id>` | ✅ implemented |
+| REST API | `hsctl` Command | Status | Go SDK | TypeScript SDK |
+|---|---|---|---|---|
+| `GET /api/hypershell/v1/gateway_networks` | `hsctl list gatewayNetworks` | ✅ implemented | `GatewayNetworks().List` | `gatewayNetworks.list` |
+| `GET /api/hypershell/v1/gateway_networks/{id}` | `hsctl get gatewayNetwork <id>` | ✅ implemented | `GatewayNetworks().Get` | `gatewayNetworks.get` |
+| `POST /api/hypershell/v1/gateway_networks` | `hsctl create gatewayNetwork --name <n> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` | ✅ implemented | `GatewayNetworks().Create` | `gatewayNetworks.create` |
+| `PATCH /api/hypershell/v1/gateway_networks/{id}` | `hsctl update gatewayNetwork <id> [--topology <t>]` | 🔲 planned | `GatewayNetworks().Update` | `gatewayNetworks.update` |
+| `DELETE /api/hypershell/v1/gateway_networks/{id}` | `hsctl delete gatewayNetwork <id>` | ✅ implemented | `GatewayNetworks().Delete` | `gatewayNetworks.delete` |
 
 #### Gateway Releases
 
-| REST API | `hsctl` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/gateway_releases` | `hsctl list gatewayReleases` | ✅ implemented |
-| `GET /api/hypershell/v1/gateway_releases/{id}` | `hsctl get gatewayRelease <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_releases` | `hsctl create gatewayRelease --name <n> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateway_releases/{id}` | `hsctl update gatewayRelease <id> [--image <i>] [--rollout-strategy <s>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateway_releases/{id}` | `hsctl delete gatewayRelease <id>` | ✅ implemented |
+| REST API | `hsctl` Command | Status | Go SDK | TypeScript SDK |
+|---|---|---|---|---|
+| `GET /api/hypershell/v1/gateway_releases` | `hsctl list gatewayReleases` | ✅ implemented | `GatewayReleases().List` | `gatewayReleases.list` |
+| `GET /api/hypershell/v1/gateway_releases/{id}` | `hsctl get gatewayRelease <id>` | ✅ implemented | `GatewayReleases().Get` | `gatewayReleases.get` |
+| `POST /api/hypershell/v1/gateway_releases` | `hsctl create gatewayRelease --name <n> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` | ✅ implemented | `GatewayReleases().Create` | `gatewayReleases.create` |
+| `PATCH /api/hypershell/v1/gateway_releases/{id}` | `hsctl update gatewayRelease <id> [--image <i>] [--rollout-strategy <s>]` | 🔲 planned | `GatewayReleases().Update` | `gatewayReleases.update` |
+| `DELETE /api/hypershell/v1/gateway_releases/{id}` | `hsctl delete gatewayRelease <id>` | ✅ implemented | `GatewayReleases().Delete` | `gatewayReleases.delete` |
 
 #### Managed Clusters
 
-| REST API | `hsctl` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/managed_clusters` | `hsctl list managedClusters` | ✅ implemented |
-| `GET /api/hypershell/v1/managed_clusters/{id}` | `hsctl get managedCluster <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --provider <p> --region <r> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented (inert placeholder: no control plane serves a manually created record, and gateways may not reference it; see `managed-cluster-registration.spec.md`) |
-| `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hsctl update managedCluster <id> [--status <s>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hsctl delete managedCluster <id>` | ✅ implemented |
+| REST API | `hsctl` Command | Status | Go SDK | TypeScript SDK |
+|---|---|---|---|---|
+| `GET /api/hypershell/v1/managed_clusters` | `hsctl list managedClusters` | ✅ implemented | `ManagedClusters().List` | `managedClusters.list` |
+| `GET /api/hypershell/v1/managed_clusters/{id}` | `hsctl get managedCluster <id>` | ✅ implemented | `ManagedClusters().Get` | `managedClusters.get` |
+| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --provider <p> --region <r> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented (inert placeholder: no control plane serves a manually created record, and gateways may not reference it; see `managed-cluster-registration.spec.md`) | `ManagedClusters().Create` | `managedClusters.create` |
+| `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hsctl update managedCluster <id> [--status <s>]` | 🔲 planned | `ManagedClusters().Update` | `managedClusters.update` |
+| `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hsctl delete managedCluster <id>` | ✅ implemented | `ManagedClusters().Delete` | `managedClusters.delete` |
 
 #### RBAC
 
-| REST API | `hsctl` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/roles` | `hsctl list roles` | ✅ implemented |
-| `GET /api/hypershell/v1/roles/{id}` | `hsctl get role <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/roles` | `hsctl create role --name <n> [--permissions <json>]` | ✅ implemented |
-| `DELETE /api/hypershell/v1/roles/{id}` | `hsctl delete role <id>` | ✅ implemented |
-| `GET /api/hypershell/v1/role_bindings` | `hsctl list roleBindings` | ✅ implemented |
-| `GET /api/hypershell/v1/role_bindings/{id}` | `hsctl get roleBinding <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>]` | ✅ implemented |
-| `DELETE /api/hypershell/v1/role_bindings/{id}` | `hsctl delete roleBinding <id>` | ✅ implemented |
+Roles are read-only platform resources seeded by database migrations (`gateway:creator`, `platform:admin`, `gateway:owner`, `gateway:viewer`). There is no REST endpoint to create or delete roles; only listing and lookup are exposed.
+
+| REST API | `hsctl` Command | Status | Go SDK | TypeScript SDK |
+|---|---|---|---|---|
+| `GET /api/hypershell/v1/roles` | `hsctl list roles` | ✅ implemented | `Roles().List` | `roles.list` |
+| `GET /api/hypershell/v1/roles/{id}` | `hsctl get role <id>` | ✅ implemented | `Roles().Get` | `roles.get` |
+| `GET /api/hypershell/v1/role_bindings` | `hsctl list roleBindings` | ✅ implemented | `RoleBindings().List` | `roleBindings.list` |
+| `GET /api/hypershell/v1/role_bindings/{id}` | `hsctl get roleBinding <id>` | ✅ implemented | `RoleBindings().Get` | `roleBindings.get` |
+| `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>]` | ✅ implemented | `RoleBindings().Create` | `roleBindings.create` |
+| `DELETE /api/hypershell/v1/role_bindings/{id}` | `hsctl delete roleBinding <id>` | ✅ implemented | `RoleBindings().Delete` | `roleBindings.delete` |
 
 #### Users
 
-| REST API | `hsctl` Command | Status |
-|---|---|---|
-| `GET /api/hypershell/v1/users` | `hsctl list users` | ✅ implemented |
-| `GET /api/hypershell/v1/users/{id}` | `hsctl get user <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/users` | `hsctl create user --name <n> [--email <e>] [--external-id <id>]` | ✅ implemented |
+| REST API | `hsctl` Command | Status | Go SDK | TypeScript SDK |
+|---|---|---|---|---|
+| `GET /api/hypershell/v1/users` | `hsctl list users` | ✅ implemented | `Users().List` | `users.list` |
+| `GET /api/hypershell/v1/users/{id}` | `hsctl get user <id>` | ✅ implemented | `Users().Get` | `users.get` |
+| `POST /api/hypershell/v1/users` | `hsctl create user --name <n> [--email <e>] [--external-id <id>]` | ✅ implemented | `Users().Create` | `users.create` |
 
 #### Auth & Context
 
-| Operation | `hsctl` Command | Status |
-|---|---|---|
-| Authenticate (browser PKCE) | `hsctl login --url <url> --issuer-url <issuer>` | ✅ implemented |
-| Authenticate (device flow) | `hsctl login --no-browser --url <url> --issuer-url <issuer>` | ✅ implemented |
-| Authenticate (static token) | `hsctl login --token-file <path> --url <url>` | ✅ implemented |
-| Log out | `hsctl logout` | ✅ implemented |
-| Identity | `hsctl whoami` | ✅ implemented |
-| Config get | `hsctl config get <key>` | ✅ implemented |
-| Config set | `hsctl config set <key> <value>` | ✅ implemented |
+Auth operations are CLI-only; both SDKs use a static token or token-provider callback supplied at client construction - there is no login/logout/whoami in either SDK.
+
+| Operation | `hsctl` Command | Status | Go SDK | TypeScript SDK |
+|---|---|---|---|---|
+| Authenticate (browser PKCE) | `hsctl login --url <url> --issuer-url <issuer>` | ✅ implemented | N/A | N/A |
+| Authenticate (device flow) | `hsctl login --no-browser --url <url> --issuer-url <issuer>` | ✅ implemented | N/A | N/A |
+| Authenticate (static token) | `hsctl login --token-file <path> --url <url>` | ✅ implemented | N/A | N/A |
+| Log out | `hsctl logout` | ✅ implemented | N/A | N/A |
+| Identity | `hsctl whoami` | ✅ implemented | N/A | N/A |
+| Config get | `hsctl config get <key>` | ✅ implemented | N/A | N/A |
+| Config set | `hsctl config set <key> <value>` | ✅ implemented | N/A | N/A |
 
 ### `hsctl apply` - Declarative Resource Management
 
