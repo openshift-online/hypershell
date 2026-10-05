@@ -61,6 +61,7 @@ interface WirePromotionEnvironment {
   readonly argoHealth?: string;
   readonly argoSync?: string;
   readonly consoleUrl?: string;
+  readonly grafanaUrl?: string;
   readonly argoUrl?: string;
   readonly prState?: string;
   readonly prUrl?: string;
@@ -117,6 +118,7 @@ function mapEnvironment(
     argoHealth: nullableString(env.argoHealth),
     argoSync: nullableString(env.argoSync),
     consoleUrl: nullableString(env.consoleUrl),
+    grafanaUrl: nullableString(env.grafanaUrl),
     argoUrl: nullableString(env.argoUrl),
     prState: nullableString(env.prState),
     prUrl: nullableString(env.prUrl),

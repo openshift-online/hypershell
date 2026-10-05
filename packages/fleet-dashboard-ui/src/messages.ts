@@ -330,6 +330,16 @@ export const messages = defineMessages({
     defaultMessage: "Open the deployed web console",
     description: "Sub-label describing the HyperShell Instance link.",
   },
+  linkGrafana: {
+    id: "fleet.map.link.grafana",
+    defaultMessage: "Grafana",
+    description: "Link label for the cluster's own Grafana dashboards.",
+  },
+  linkGrafanaDesc: {
+    id: "fleet.map.link.grafana.desc",
+    defaultMessage: "Open observability dashboards",
+    description: "Sub-label describing the Grafana link.",
+  },
   linkPr: {
     id: "fleet.map.link.pr",
     defaultMessage: "Pull request",
@@ -361,6 +371,13 @@ export const messages = defineMessages({
     id: "fleet.map.control.fit",
     defaultMessage: "Fit to view",
     description: "Accessible label for the map's fit-to-view control.",
+  },
+  mapHealthUnavailable: {
+    id: "fleet.map.healthUnavailable",
+    defaultMessage:
+      "{count, plural, one {# cluster is not reporting health} other {# clusters are not reporting health}}",
+    description:
+      "Severe banner shown on the map only when one or more instances have no Argo health at all; the cluster may be unreachable.",
   },
   mapRegion: {
     id: "fleet.map.region",
@@ -469,6 +486,25 @@ export const messages = defineMessages({
     id: "fleet.section.sandboxes",
     defaultMessage: "Sandboxes",
     description: "Heading for the active-sandbox widget in the detail panel.",
+  },
+  sessionExpiredBody: {
+    id: "fleet.session.expired.body",
+    defaultMessage:
+      "Your session has expired or you are no longer authorized. Sign in again to continue.",
+    description:
+      "Body of the full-page takeover shown when the BFF returns 401/403 for API calls.",
+  },
+  sessionExpiredTitle: {
+    id: "fleet.session.expired.title",
+    defaultMessage: "Session expired",
+    description:
+      "Title of the full-page takeover shown when the user's session is stale.",
+  },
+  sessionSignIn: {
+    id: "fleet.session.signIn",
+    defaultMessage: "Sign in again",
+    description:
+      "Button that reloads the document to re-run the oauth-proxy sign-in flow.",
   },
   statusDegraded: {
     id: "fleet.status.degraded",

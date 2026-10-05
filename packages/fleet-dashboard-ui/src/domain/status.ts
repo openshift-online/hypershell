@@ -54,6 +54,17 @@ export function healthBadge(health: string | null | undefined): StatusBadge {
   }
 }
 
+/** True when Argo CD health is absent or unrecognized (resolves to the "unknown"
+ *  tone). This is a SEVERE signal, distinct from a reported "Degraded": the dashboard
+ *  has no health at all for the instance, so its cluster may be unreachable. Callers
+ *  surface it loudly (a flashing attention ring + a fleet-level count) rather than
+ *  letting it sit as a quiet gray badge. */
+export function isHealthUnavailable(
+  health: string | null | undefined,
+): boolean {
+  return healthBadge(health).tone === "unknown";
+}
+
 /** Argo CD sync string → badge. */
 export function syncBadge(sync: string | null | undefined): StatusBadge {
   switch ((sync ?? "").toLowerCase()) {

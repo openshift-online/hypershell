@@ -16,11 +16,13 @@ import {
 import { FormattedMessage } from "react-intl";
 
 import { useFleet, usePromotion } from "../query/hooks";
+import { useSessionExpired } from "../auth/session-expiry";
 import type { FleetData } from "../../domain/fleet";
 import { messages } from "../../messages";
 import { TopologyMap } from "./map/topology-map";
 import { PlaneSection } from "./plane-section";
 import { PromotionTable } from "./promotion-table";
+import { SessionExpired } from "./session-expired";
 import styles from "./app.module.css";
 
 const EMPTY_FLEET: FleetData = { instances: [] };
@@ -39,8 +41,16 @@ const srOnly: React.CSSProperties = {
 };
 
 export function App(): React.ReactElement {
+  const sessionExpired = useSessionExpired();
   const promotion = usePromotion();
   const fleet = useFleet();
+
+  // A stale/unauthorized session (any API 401/403, detected in the query cache) replaces
+  // the whole dashboard with a single sign-in prompt rather than a grid of generic error
+  // panels. Hooks above still run (rules of hooks); we just short-circuit the render.
+  if (sessionExpired) {
+    return <SessionExpired />;
+  }
 
   // The map needs promotion + fleet together; it is driven by the promotion plane
   // (its backbone) and enriches with fleet metrics opportunistically, so a lagging

@@ -8,8 +8,16 @@
 /* The filled PageSection (.pf-v6-c-page__main-section.pf-m-fill) is already a flex
    column that grows (PF). We render with hasBodyWrapper={false} so the Stack is a
    direct child of it (PF 6.6.1's PageBody wrapper has no flex/grow and would sever
-   the chain). min-height:0 lets the Stack shrink so the map consumes leftover height. */
-.section {
+   the chain). min-height:0 lets the Stack shrink so the map consumes leftover height.
+
+   Crucially, PF's own .pf-m-fill rule sets `flex: 1 0 auto` - flex-SHRINK 0 - so the
+   section refuses to shrink below its content height. With tall drawer content (a long
+   "in this bundle" PR list) that makes the section grow past <main> and scroll the whole
+   page instead of clipping the drawer panel to scroll internally. We restore shrink:1
+   (matching PF's selector specificity via the compound .section.pf-m-fill) so the section
+   stays bounded to <main>'s height and the fill chain actually clamps. */
+.section:global(.pf-m-fill) {
+  flex: 1 1 auto;
   min-height: 0;
 }
 
