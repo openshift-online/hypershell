@@ -2,7 +2,7 @@ module github.com/openshift-online/hypershell/components/cli
 
 go 1.26.4
 
-toolchain go1.26.7
+toolchain go1.27.1
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0
