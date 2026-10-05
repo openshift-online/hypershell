@@ -73,6 +73,16 @@ export interface InstanceFleet {
    * lower sandbox "sand" sparkline. May be empty when no history is available.
    */
   readonly sandboxHistory: readonly number[];
+  /** Rolling 7-day unique-login count, or null when unknown. */
+  readonly logins: number | null;
+  /**
+   * Registered-user total over the last day, oldest-first, on the SAME grid as
+   * {@link sandboxHistory}, driving the Users metric tile's mini sparkline. May be
+   * empty when no history is available.
+   */
+  readonly userHistory: readonly number[];
+  /** Rolling 7-day unique-login count over the last day, oldest-first, same grid. */
+  readonly loginsHistory: readonly number[];
 }
 
 export interface FleetData {

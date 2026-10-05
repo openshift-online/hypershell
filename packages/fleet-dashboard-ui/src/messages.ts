@@ -169,22 +169,10 @@ export const messages = defineMessages({
     defaultMessage: "Release",
     description: "Detail label for a release bundle's version.",
   },
-  detailSandboxBreakdown: {
-    id: "fleet.map.detail.sandboxBreakdown",
-    defaultMessage:
-      "{total, plural, one {# active sandbox} other {# active sandboxes}} across {clusters, number} clusters",
-    description:
-      "Accessible summary of an instance's active sandbox total and cluster spread.",
-  },
   detailSync: {
     id: "fleet.map.detail.sync",
     defaultMessage: "Sync status",
     description: "Detail label for an instance's Argo CD sync status.",
-  },
-  detailUsers: {
-    id: "fleet.map.detail.users",
-    defaultMessage: "Users",
-    description: "Detail label for the number of users on an instance.",
   },
   drawerClose: {
     id: "fleet.map.drawer.close",
@@ -394,6 +382,12 @@ export const messages = defineMessages({
     defaultMessage: "Zoom out",
     description: "Accessible label for the map's zoom-out control.",
   },
+  metricTileAria: {
+    id: "fleet.map.detail.metricTileAria",
+    defaultMessage: "{label}: {value}",
+    description:
+      "Accessible label pairing a population metric tile's name with its value.",
+  },
   moreInfo: {
     id: "fleet.map.info.more",
     defaultMessage: "More info",
@@ -427,24 +421,6 @@ export const messages = defineMessages({
     description:
       "Promotion-state label when an instance runs the frontier bundle.",
   },
-  sandboxByCluster: {
-    id: "fleet.map.sandbox.byCluster",
-    defaultMessage: "Sandboxes by cluster",
-    description:
-      "Eyebrow heading above the per-cluster active-sandbox bar chart.",
-  },
-  sandboxClusterRow: {
-    id: "fleet.map.sandbox.clusterRow",
-    defaultMessage:
-      "{cluster}: {count, plural, one {# sandbox} other {# sandboxes}}",
-    description:
-      "Accessible label for one cluster's row in the sandbox bar chart.",
-  },
-  sandboxNone: {
-    id: "fleet.map.sandbox.none",
-    defaultMessage: "No active sandboxes",
-    description: "Empty state when an instance has no active sandboxes.",
-  },
   sectionDeployedOn: {
     id: "fleet.section.deployedOn",
     defaultMessage: "Deployed on",
@@ -467,6 +443,12 @@ export const messages = defineMessages({
     defaultMessage: "Instances",
     description: "Heading for the managed instances section.",
   },
+  sectionLogins: {
+    id: "fleet.section.logins",
+    defaultMessage: "Logins 7d",
+    description:
+      "Label for the 7-day unique-login metric tile in the detail panel.",
+  },
   sectionMap: {
     id: "fleet.section.map",
     defaultMessage: "Promotion topology",
@@ -485,7 +467,14 @@ export const messages = defineMessages({
   sectionSandboxes: {
     id: "fleet.section.sandboxes",
     defaultMessage: "Sandboxes",
-    description: "Heading for the active-sandbox widget in the detail panel.",
+    description:
+      "Label for the active-sandbox metric tile in the detail panel.",
+  },
+  sectionUsers: {
+    id: "fleet.section.users",
+    defaultMessage: "Users",
+    description:
+      "Label for the registered-user metric tile in the detail panel.",
   },
   sessionExpiredBody: {
     id: "fleet.session.expired.body",

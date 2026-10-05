@@ -62,6 +62,11 @@ type Config struct {
 	// the sandbox count down per cluster.
 	SandboxMetric string
 	ClusterLabel  string
+	// UserMetric is the registered-user total gauge; UserLoginsMetric is the
+	// rolling 7-day unique-login count. Both carry the same instance label as the
+	// sandbox gauge, so they fold into the per-instance fleet record the same way.
+	UserMetric       string
+	UserLoginsMetric string
 
 	// Auth (backend defense-in-depth gate, §3.4)
 	AuthEnabled bool
@@ -119,6 +124,8 @@ func Load() (*Config, error) {
 		InstanceLabel:         env("FD_INSTANCE_LABEL", "namespace"),
 		SandboxMetric:         env("FD_SANDBOX_METRIC", "hypershell_gateways_active_sandboxes_total"),
 		ClusterLabel:          env("FD_CLUSTER_LABEL", "cluster"),
+		UserMetric:            env("FD_USER_METRIC", "hypershell_users_registered_total"),
+		UserLoginsMetric:      env("FD_USER_LOGINS_METRIC", "hypershell_users_unique_logins_last_7_days_total"),
 		AuthEnabled:           envBool("FD_AUTH_ENABLED", true),
 		SAR: SubjectAccessReview{
 			Verb:      env("FD_SAR_VERB", "get"),

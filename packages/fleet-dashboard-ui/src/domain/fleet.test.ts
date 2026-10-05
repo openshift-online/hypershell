@@ -29,6 +29,9 @@ function inst(
     sandboxes: 0,
     sandboxesByCluster: [],
     sandboxHistory: [],
+    logins: null,
+    userHistory: [],
+    loginsHistory: [],
     ...overrides,
   };
 }

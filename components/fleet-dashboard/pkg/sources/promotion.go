@@ -154,9 +154,9 @@ type Environment struct {
 	Env        string `json:"env,omitempty"`
 	Cluster    string `json:"cluster,omitempty"`
 	ConsoleURL string `json:"consoleUrl,omitempty"`
-	// GrafanaURL deep-links to the cluster's own Grafana (per-cluster instance at
-	// grafana.<label>.infra.hypershell.app). Like ConsoleURL it is the raw value of
-	// an Argo "extra link" annotation, so gitops stays authoritative for the host.
+	// GrafanaURL deep-links to the cluster's own per-cluster Grafana instance. Like
+	// ConsoleURL it is the raw value of an Argo "extra link" annotation, so gitops
+	// stays authoritative for the host (no hostname pattern is baked in here).
 	GrafanaURL string `json:"grafanaUrl,omitempty"`
 }
 

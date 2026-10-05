@@ -247,31 +247,30 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Sandbox widget: same inset card as .gatewayWidget so the two bands read as a pair,
- * stacked gateways-then-sandboxes. Its own top margin is dropped because the
- * gatewayWidget below it already supplies the separating gap. */
-.sandboxWidget {
-  background: rgba(0, 0, 0, 0.22);
-  border-radius: 10px;
-  padding: 14px 16px;
-}
-
-.sandboxBody {
-  display: flex;
-  flex-direction: column;
+/* Population metric tiles: sandboxes / users / logins as a row of square-aspect cards
+ * beneath the gateways donut. Three equal columns that collapse to a tight grid on
+ * narrow drawers; each tile is its own inset card so the populations read as peers. */
+.metricTiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
-/* Headline row: "Sandboxes" eyebrow on the left, the big total on the right. */
-.sandboxHead {
+/* One tile: eyebrow label (top), big number (middle), sparkline pinned to the base.
+ * aspect-ratio keeps the cards square-ish; min-height guards very narrow drawers. */
+.metricTile {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 4px;
+  aspect-ratio: 1 / 1;
+  min-height: 92px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-.sandboxTitle {
-  margin: 0;
+.metricTileLabel {
   font-size: var(--pf-t--global--font--size--xs, 0.75rem);
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -279,75 +278,26 @@
   color: var(--pf-t--global--text--color--subtle, #9ca2a8);
 }
 
-.sandboxCount {
-  font-size: var(--pf-t--global--font--size--xl, 1.5rem);
+.metricTileValue {
+  font-size: var(--pf-t--global--font--size--2xl, 1.75rem);
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
-/* "Sandboxes by cluster" caption above the chin bars. */
-.sandboxChinTitle {
-  margin: 0;
-  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
-  font-weight: 600;
-  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
-}
-
-/* The chin: one bar row per cluster, tight stack. */
-.sandboxChin {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* cluster label | proportional bar | count, counts right-aligned into a column. */
-.sandboxRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sandboxRowName {
-  flex: 0 0 auto;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
-  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
-}
-
-.sandboxRowTrack {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 8px;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.sandboxRowBar {
+/* Sparkline fills the remaining tile height and the full width; it is stretched
+ * (preserveAspectRatio="none" in the SVG), so a fixed height here is all it needs. */
+.metricTileSpark {
+  margin-top: auto;
+  width: 100%;
+  height: 28px;
   display: block;
-  height: 100%;
-  border-radius: 4px;
-  min-width: 2px;
 }
 
-.sandboxRowCount {
-  flex: 0 0 auto;
-  margin-left: auto;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Honest empty state when the instance reports no active sandboxes. */
-.sandboxEmpty {
-  margin: 0;
-  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
-  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+/* Field grid below the tiles. A clear gap keeps the first field ("Cluster") from
+ * crowding the tiles above it. */
+.nodeFields {
+  margin-top: var(--pf-t--global--spacer--lg, 1.5rem);
 }
 
 /* --- Links tab ------------------------------------------------------------

@@ -46,6 +46,21 @@ export const SANDBOX_TRACK = token(
   "#26292d",
 );
 
+/**
+ * User-population accents for the detail-panel metric tiles, each a distinct
+ * nonstatus hue so the Sandboxes (teal), Users (purple) and Logins (blue) tiles
+ * read as three separate populations rather than status phases. Paired with the
+ * shared SANDBOX_TRACK for any unfilled backing.
+ */
+export const USER_COLOR = token(
+  "--pf-t--global--color--nonstatus--purple--default",
+  "#8476d1",
+);
+export const LOGINS_COLOR = token(
+  "--pf-t--global--color--nonstatus--blue--default",
+  "#92c5f9",
+);
+
 /** Surfaces/strokes for cards, lanes and edges on the dark canvas. */
 export const CARD_BG = token(
   "--pf-t--global--background--color--secondary--default",

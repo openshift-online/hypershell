@@ -25,14 +25,16 @@ import (
 // Prometheus queries the metrics receiver over its HTTP API. The instance
 // filter is built from discovery, never hard-coded.
 type Prometheus struct {
-	base          string
-	tokenFile     string
-	metric        string
-	instLabel     string
-	sandboxMetric string
-	clusterLabel  string
-	client        *http.Client
-	logger        *slog.Logger
+	base             string
+	tokenFile        string
+	metric           string
+	instLabel        string
+	sandboxMetric    string
+	clusterLabel     string
+	userMetric       string
+	userLoginsMetric string
+	client           *http.Client
+	logger           *slog.Logger
 }
 
 // NewPrometheus builds a Prometheus source from config.
@@ -42,14 +44,16 @@ func NewPrometheus(c *config.Config) *Prometheus {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // opt-in for self-signed in-cluster endpoints
 	}
 	return &Prometheus{
-		base:          strings.TrimRight(c.PromURL, "/"),
-		tokenFile:     c.PromTokenFile,
-		metric:        c.GatewayMetric,
-		instLabel:     c.InstanceLabel,
-		sandboxMetric: c.SandboxMetric,
-		clusterLabel:  c.ClusterLabel,
-		client:        &http.Client{Timeout: 20 * time.Second, Transport: tr},
-		logger:        slog.Default(),
+		base:             strings.TrimRight(c.PromURL, "/"),
+		tokenFile:        c.PromTokenFile,
+		metric:           c.GatewayMetric,
+		instLabel:        c.InstanceLabel,
+		sandboxMetric:    c.SandboxMetric,
+		clusterLabel:     c.ClusterLabel,
+		userMetric:       c.UserMetric,
+		userLoginsMetric: c.UserLoginsMetric,
+		client:           &http.Client{Timeout: 20 * time.Second, Transport: tr},
+		logger:           slog.Default(),
 	}
 }
 
@@ -219,6 +223,14 @@ type InstanceFleet struct {
 	// as GatewayHistory, so the sandbox "sand" sparkline (the lower node-card chin)
 	// shares the gateway sparkline's x-axis exactly and the two chins are comparable.
 	SandboxHistory []float64 `json:"sandboxHistory"`
+	// Users is the instance's registered-user total; Logins is its rolling 7-day
+	// unique-login count. UserHistory and LoginsHistory are the same values sampled
+	// oldest->newest on the shared 24h/32-sample grid, feeding the detail panel's
+	// Users and Logins metric tiles (headline number + mini sparkline). Users is the
+	// long-standing scalar; the rest were added alongside the sandbox widget's model.
+	Logins        float64   `json:"logins"`
+	UserHistory   []float64 `json:"userHistory"`
+	LoginsHistory []float64 `json:"loginsHistory"`
 }
 
 // SandboxClusterCount is one managed cluster's active-sandbox count within an
@@ -368,8 +380,10 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 	}
 	byNS(fmt.Sprintf("sum by (%s) (hypershell_managed_clusters_total{%s=~%q})", p.instLabel, p.instLabel, nsRE),
 		func(f *InstanceFleet, v float64) { f.ManagedCluster = v })
-	byNS(fmt.Sprintf("sum by (%s) (hypershell_users_registered_total{%s=~%q})", p.instLabel, p.instLabel, nsRE),
+	byNS(fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.userMetric, p.instLabel, nsRE),
 		func(f *InstanceFleet, v float64) { f.Users = v })
+	byNS(fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.userLoginsMetric, p.instLabel, nsRE),
+		func(f *InstanceFleet, v float64) { f.Logins = v })
 	byNS(fmt.Sprintf("1000 * histogram_quantile(0.95, sum by (%s,le) (rate(gateway_provision_duration_seconds_bucket{%s=~%q}[30m])))", p.instLabel, p.instLabel, nsRE),
 		func(f *InstanceFleet, v float64) { f.ProvisionP95Ms = v })
 
@@ -432,6 +446,34 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 				f.SandboxHistory = hist
 			}
 		}
+	}
+
+	// User-count and login history (newest sample last) for the Users and Logins
+	// metric tiles' mini sparklines. Same 24h/32-sample grid as the sandbox/gateway
+	// histories so every tile's sparkline shares an x-axis. One series per instance.
+	// Best-effort like the other sub-queries.
+	{
+		const histWindow = 24 * time.Hour
+		const histSamples = 32
+		now := time.Now()
+		rangeHist := func(metric string, set func(f *InstanceFleet, h []float64)) {
+			subTotal++
+			expr := fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, metric, p.instLabel, nsRE)
+			if res, err := p.queryRange(ctx, expr, now.Add(-histWindow), now, histWindow/histSamples); err != nil {
+				subErrs = append(subErrs, err)
+			} else {
+				for _, r := range res {
+					f := get(r.Metric[p.instLabel])
+					hist := make([]float64, 0, len(r.Values))
+					for _, v := range r.Values {
+						hist = append(hist, sampleValue(v))
+					}
+					set(f, hist)
+				}
+			}
+		}
+		rangeHist(p.userMetric, func(f *InstanceFleet, h []float64) { f.UserHistory = h })
+		rangeHist(p.userLoginsMetric, func(f *InstanceFleet, h []float64) { f.LoginsHistory = h })
 	}
 
 	// Rate/error/p95 triples keyed by k8s_namespace_name.

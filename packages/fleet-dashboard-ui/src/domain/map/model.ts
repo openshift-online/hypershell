@@ -120,6 +120,14 @@ export interface MapNode {
   readonly sandboxHistory: readonly number[];
   readonly managedClusters: number | null;
   readonly users: number | null;
+  /** Rolling 7-day unique-login count, or null when unknown. */
+  readonly logins: number | null;
+  /** Registered-user total over the last day, oldest-first, on the sandbox grid -
+   *  drives the Users tile's mini sparkline (may be empty). */
+  readonly userHistory: readonly number[];
+  /** Unique-login count over the last day, oldest-first, same grid - drives the
+   *  Logins tile's mini sparkline (may be empty). */
+  readonly loginsHistory: readonly number[];
   readonly metrics: MapNodeMetrics;
   readonly links: MapNodeLinks;
 }
@@ -260,6 +268,9 @@ function buildNode(
     sandboxHistory: fl?.sandboxHistory ?? [],
     managedClusters: fl?.managedClusters ?? null,
     users: fl?.users ?? null,
+    logins: fl?.logins ?? null,
+    userHistory: fl?.userHistory ?? [],
+    loginsHistory: fl?.loginsHistory ?? [],
     metrics: {
       rpc: fl?.rpc ?? ZERO_RATE,
       reconcile: fl?.reconcile ?? ZERO_RATE,

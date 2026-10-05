@@ -72,6 +72,9 @@ describe("use cases", () => {
           sandboxes: 0,
           sandboxesByCluster: [],
           sandboxHistory: [],
+          logins: null,
+          userHistory: [],
+          loginsHistory: [],
         },
       ],
     });

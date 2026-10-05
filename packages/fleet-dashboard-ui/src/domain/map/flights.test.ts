@@ -35,6 +35,9 @@ function node(id: string, columnKey: string, seed: string): MapNode {
     sandboxes: 0,
     sandboxesByCluster: [],
     sandboxHistory: [],
+    logins: null,
+    userHistory: [],
+    loginsHistory: [],
     managedClusters: null,
     users: null,
     metrics: {
