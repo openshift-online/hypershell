@@ -1,4 +1,4 @@
-// Tracks whether the user's session has gone stale, i.e. the BFF returned 401/403 for an
+// Tracks whether the user's session has gone stale, i.e. the BFF returned 401 for an
 // API call. This is a tiny external store (not React state) because the signal originates
 // in the TanStack QueryCache error handler, which lives OUTSIDE the React tree - see
 // composition/query-client. The App subscribes via useSessionExpired and, when set, shows

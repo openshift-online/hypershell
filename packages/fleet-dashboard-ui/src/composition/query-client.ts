@@ -6,9 +6,19 @@ import { QueryCache, QueryClient } from "@tanstack/react-query";
 import { HttpError } from "../adapters/api/http-fleet-api";
 import { markSessionExpired } from "../adapters/auth/session-expiry";
 
-/** A stale/expired or unauthorized session: the BFF (behind oauth-proxy) returns 401 for an
- *  invalid token and 403 when the user lacks access. Both mean "re-authenticate", not "retry". */
-function isAuthError(error: unknown): boolean {
+/** A stale/expired session: behind the oauth-proxy an XHR with an invalid/expired cookie
+ *  comes back 401. Re-authenticating (a full-document reload) mints a fresh cookie, so this
+ *  is the only status that should drive the "sign in again" takeover. */
+function isSessionExpired(error: unknown): boolean {
+  return error instanceof HttpError && error.status === 401;
+}
+
+/** An auth failure that a retry cannot fix: 401 (expired, needs re-login) or 403 (the
+ *  authenticated user is forbidden). Neither recovers by hammering the BFF again. A 403 is
+ *  deliberately NOT treated as session-expired: reloading re-auths the same identity and
+ *  would 403 again, dead-ending a forbidden user in a reload loop -- it falls through to the
+ *  normal error surface instead. */
+function isUnrecoverableAuthError(error: unknown): boolean {
   return (
     error instanceof HttpError && (error.status === 401 || error.status === 403)
   );
@@ -21,7 +31,7 @@ export function createQueryClient(): QueryClient {
     // app into its "sign in again" takeover.
     queryCache: new QueryCache({
       onError: (error) => {
-        if (isAuthError(error)) {
+        if (isSessionExpired(error)) {
           markSessionExpired();
         }
       },
@@ -30,9 +40,10 @@ export function createQueryClient(): QueryClient {
       queries: {
         staleTime: 10_000,
         gcTime: 300_000,
-        // Never retry an auth failure: it won't succeed without re-login and would just
-        // hammer the BFF with repeat 401s. Other errors keep the prior 2-retry behavior.
-        retry: (failureCount, error) => !isAuthError(error) && failureCount < 2,
+        // Never retry an auth failure (401 re-login or 403 forbidden): neither succeeds on
+        // retry and would just hammer the BFF. Other errors keep the prior 2-retry behavior.
+        retry: (failureCount, error) =>
+          !isUnrecoverableAuthError(error) && failureCount < 2,
         refetchOnWindowFocus: true,
         // Refetch intervals are set per-hook; background tabs stay paused
         // because refetchIntervalInBackground defaults to false.
