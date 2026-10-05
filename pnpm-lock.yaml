@@ -56,6 +56,9 @@ importers:
       '@patternfly/react-icons':
         specifier: 6.6.1
         version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@patternfly/react-styles':
+        specifier: 6.6.1
+        version: 6.6.1
       '@patternfly/react-table':
         specifier: 6.6.1
         version: 6.6.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

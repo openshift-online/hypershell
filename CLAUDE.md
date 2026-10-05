@@ -2,6 +2,18 @@
 
 Distributed API gateway fleet management platform that orchestrates gateway deployments across multiple Kubernetes clusters and cloud providers. Built with Go (API server, control plane). PostgreSQL is the source of truth; the control plane reconciles via gRPC watch streams.
 
+## Mandatory web-console completion gate
+
+For every new or materially changed production page with an approved mockup,
+read and execute `skills/build/ui-build-gate/SKILL.md`. Do not report or hand
+off the page until the gate returns `Complete`. Treat pending stories,
+fixtures, captures, inspection, or mismatches as implementation work.
+
+When a build or reconcile task changes UI and no corresponding mockup exists,
+warn the user and continue. Do not create a mockup unless the task includes
+mockup or spec work. Skip `ui-build-gate` and all mockup-to-production parity
+checks. Continue running all non-parity checks required by the task.
+
 ## Before Developing
 
 Install the repository's pinned Git hooks from the repository root before making

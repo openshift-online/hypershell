@@ -23,8 +23,12 @@ web-console mockup or shared component.
 
 ## Spacing
 
-- Use PatternFly component defaults and layout props for spacing before adding
-  custom CSS.
+- Use PatternFly component defaults, layout props, utility classes, and design
+  tokens first for spacing, typography, color, and sizing. Add custom CSS only
+  when PatternFly has no suitable primitive.
+- New page mockups start with no page-specific CSS module. Admit CSS only for a
+  spec-backed capability gap after component props, layouts, responsive props,
+  and utilities are exhausted.
 
 ## Page structure
 
@@ -36,6 +40,13 @@ web-console mockup or shared component.
 - Use the shared mockup shell and its PatternFly components for common page
   chrome. Duplicate the implementation into the mockup workspace only when
   production dependencies would make the mockup change automatically.
+- Keep page-owned mockup content separate from shared shell chrome. Compose it
+  inside the shared shell for `Mockups/...` design-review stories and render it
+  without the shell for `Parity/...` implementation-comparison stories.
+- Do not add masthead, product branding, global navigation, user controls, or
+  the outer application `Page` to a page-owned parity component.
+- Use PatternFly layouts, collections, content, status, and action components.
+  Do not recreate them with styled native elements.
 
 ## Tables and actions
 
