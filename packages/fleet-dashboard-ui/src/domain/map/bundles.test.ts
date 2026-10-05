@@ -50,6 +50,9 @@ function node(overrides: Partial<MapNode> & { id: string }): MapNode {
     sandboxes: 0,
     sandboxesByCluster: [],
     sandboxHistory: [],
+    logins: null,
+    userHistory: [],
+    loginsHistory: [],
     managedClusters: null,
     users: null,
     metrics: {

@@ -168,6 +168,68 @@ func TestFleetSandboxesByCluster(t *testing.T) {
 	}
 }
 
+// TestFleetUsers covers the user-count sub-queries: the configurable registered-user
+// gauge folds into Users and the rolling unique-login gauge into Logins, each summed
+// per instance. Every other sub-query is stubbed empty so a partial snapshot still
+// assembles.
+func TestFleetUsers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		case r.URL.Path == "/api/v1/query_range":
+			// History range queries: no history in this test.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+		case strings.Contains(q, "group by"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
+				`]}}`))
+		case strings.Contains(q, "users_registered_total"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"31"]}` +
+				`]}}`))
+		case strings.Contains(q, "unique_logins"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"8"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:             srv.URL,
+		metric:           "hypershell_gateways_total",
+		instLabel:        "namespace",
+		sandboxMetric:    "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:     "cluster",
+		userMetric:       "hypershell_users_registered_total",
+		userLoginsMetric: "hypershell_users_unique_logins_last_7_days_total",
+		client:           srv.Client(),
+		logger:           slog.Default(),
+	}
+
+	out, err := p.Fleet(context.Background())
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	fleet, ok := out.(map[string]InstanceFleet)
+	if !ok {
+		t.Fatalf("Fleet returned %T, want map[string]InstanceFleet", out)
+	}
+	f, ok := fleet["inst-a"]
+	if !ok {
+		t.Fatalf("no inst-a in fleet: %+v", fleet)
+	}
+	if f.Users != 31 {
+		t.Errorf("Users = %v, want 31", f.Users)
+	}
+	if f.Logins != 8 {
+		t.Errorf("Logins = %v, want 8", f.Logins)
+	}
+}
+
 // TestQueryRangeStepFloor ensures a sub-second step is clamped to 1s so Prometheus
 // never receives a "0s" step (which it rejects).
 func TestQueryRangeStepFloor(t *testing.T) {

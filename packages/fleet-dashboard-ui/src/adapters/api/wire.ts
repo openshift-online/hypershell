@@ -198,6 +198,9 @@ interface WireInstanceFleet {
   readonly sandboxes?: number;
   readonly sandboxesByCluster?: readonly WireSandboxClusterCount[] | null;
   readonly sandboxHistory?: readonly number[] | null;
+  readonly logins?: number;
+  readonly userHistory?: readonly number[] | null;
+  readonly loginsHistory?: readonly number[] | null;
 }
 
 interface WireGatewayHistorySample {
@@ -255,6 +258,9 @@ function mapInstanceFleet(key: string, raw: WireInstanceFleet): InstanceFleet {
       .map((s) => ({ cluster: s.cluster ?? "", count: num(s.count) }))
       .filter((s) => s.cluster !== ""),
     sandboxHistory: (raw.sandboxHistory ?? []).map((v) => num(v)),
+    logins: typeof raw.logins === "number" ? raw.logins : null,
+    userHistory: (raw.userHistory ?? []).map((v) => num(v)),
+    loginsHistory: (raw.loginsHistory ?? []).map((v) => num(v)),
   };
 }
 
