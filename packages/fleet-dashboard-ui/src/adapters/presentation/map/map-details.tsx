@@ -56,6 +56,7 @@ import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import styles from "./map-details.module.css";
+import { ReleaseTime } from "./release-time";
 import { SandboxChin } from "./sandbox-chin";
 
 /**
@@ -966,7 +967,7 @@ function BundleDetails({
         ) : null}
         {bundle.date ? (
           <Row term={<FormattedMessage {...messages.detailDate} />}>
-            {bundle.date}
+            <ReleaseTime iso={bundle.date} mode="full" />
           </Row>
         ) : null}
       </DescriptionList>

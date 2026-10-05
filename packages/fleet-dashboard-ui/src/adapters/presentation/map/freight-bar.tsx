@@ -19,6 +19,7 @@ import type { ReleaseBundle } from "../../../domain/promotion";
 import { messages } from "../../../messages";
 import { CARD_BG, CARD_STROKE, TONE_COLOR } from "./colors";
 import { Identicon } from "./identicon";
+import { ReleaseTime } from "./release-time";
 import styles from "./topology-map.module.css";
 
 const ICON = 34;
@@ -105,6 +106,13 @@ export function FreightBar({
                   >
                     {shortDigest(bundle.digest)}
                   </div>
+                ) : null}
+                {bundle.date ? (
+                  <ReleaseTime
+                    iso={bundle.date}
+                    mode="relative"
+                    style={{ fontSize: 10, opacity: 0.55 }}
+                  />
                 ) : null}
               </div>
               <Badge isRead={count === 0} screenReaderText="">
