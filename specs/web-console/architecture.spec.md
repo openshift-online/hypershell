@@ -682,7 +682,7 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 
 - a gateway connection list containing a stable identifier, display name, readiness, creation timestamp, gateway endpoint, console URL, OIDC issuer, OIDC client ID, and OIDC audience;
 - gateway list, search, pagination, sort, and filter semantics, including page size (default 20, max 100), page number, search query (filters by name, ID, or fleet), sort field and direction, and response metadata (page, size, total count);
-- platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner` or `gateway:viewer` bindings;
+- platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner`, `gateway:admin`, or `gateway:viewer` bindings;
 - a managed-cluster placement list containing a stable identifier, display name, provider, region, and status;
 - gateway provisioning, renaming, and deletion contracts;
 - gateway-scoped service-account list, create, get, revoke, and delete contracts;

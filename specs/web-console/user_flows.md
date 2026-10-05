@@ -255,6 +255,9 @@ flowchart LR
 | Service accounts tab | Expiration | Users with service-account capability | Makes upcoming credential replacement visible |
 | Service accounts tab | Description, client ID, subject, and creation time | Users with service-account capability | Available in row details; never shows the client secret again |
 | Service accounts tab | Create, view setup, revoke, and delete actions | Users with the matching capability | Uses server-provided capabilities instead of the user persona |
+| Manage access tab | Access list (user name, user ID, role) | All users with gateway access | Lists who can access the gateway; read-only for viewers |
+| Manage access tab | Find people... search and role filter | All users with gateway access | Filters the access list by name/user ID and by Admin/User |
+| Manage access tab | Add users, inline role change, remove access | Gateway owners and admins | Manage who has access and at what role; the creator row is locked |
 | Details tab | Active sandbox count | All users with gateway access | Shows current gateway use |
 | Details tab | Cluster or placement | Developers and Admin | Useful for support and troubleshooting |
 | Details tab | Endpoint | Developers and Admin | Raw value used by clients and support workflows |
@@ -354,29 +357,24 @@ flowchart LR
 **user(s)**: Team - non-developer, Team - developer
 **description**: Gateway owner grants another user viewer or owner access to a shared gateway.
 
-### questions
- - Is access granted to individual users, identity-provider groups, or both?
- - Who can add or remove team members?
- - Does a team need a role between viewer and owner?
- - This is a proposed page or panel. The current authorization model grants access through individual gateway RoleBindings.
+### decisions
+ - Access is granted to **individual users** from the Keycloak realm directory. Identity-provider **group** access remains out of scope (see `platform/gateway-access-management.spec.md` Non-Goals).
+ - **Gateway owners and gateway admins** can add, change, and remove access. Viewers see the list read-only.
+ - Roles are **Admin** and **User** (mapping to `gateway:admin`/`gateway:viewer`). The creator is `gateway:owner`, shown as Admin, and cannot be removed or demoted.
 
-### Page: Gateway access
+### Page: Manage access
 
-This is a proposed page or another tab on Gateway details. The fields are the same either way. The current API supports individual user bindings; identity-provider group access is still unresolved.
+This is the **Manage access** tab on Gateway details (next to Connection). It is specified in `web-console/gateway-access-management.spec.md`; the API it consumes is in `platform/gateway-access-management.spec.md`.
 
 | Field or control | Who sees it | Notes |
 | --- | --- | --- |
-| Gateway name | Team users with gateway access | Keeps the access list tied to the correct gateway |
-| Gateway owner | Team users with gateway access | Clarifies who can manage access |
-| User search | Gateway owners | Finds the individual identity receiving access |
-| Group search | Gateway owners, if group access is supported | Proposed; depends on identity-provider integration |
-| Identity name and type | Team users with gateway access | Distinguishes users from identity-provider groups if both are supported |
-| Role | Team users with gateway access | Shows Viewer or Owner; owners can change it |
-| Granted by and granted date | Gateway owners | Useful for understanding how access was added |
-| Add access | Gateway owners | Grants the selected identity a role |
-| Change role | Gateway owners | Updates existing access |
-| Remove access | Gateway owners | Requires confirmation, especially when removing another owner |
-| Error and recovery guidance | Gateway owners | Keeps the selected identity and role when a request fails |
+| User name and user ID | Team users with gateway access | Shows each person's display name and username (the user ID column) |
+| Find people... search | Team users with gateway access | Filters the access list by name or user ID |
+| Role filter | Team users with gateway access | Filters the list to Admin or User |
+| Role | Team users with gateway access | Shows Admin or User; owners and admins can change it inline. The creator row is marked and its role is locked |
+| Add users (directory picker) | Gateway owners and admins | Searches the Keycloak realm directory (including users who have never signed in) and opens a role modal |
+| Remove access | Gateway owners and admins | Requires confirmation. The creator cannot be removed |
+| Error and recovery guidance | Gateway owners and admins | Keeps the selected identity and role when a request fails |
 
 ```mermaid
 ---
@@ -386,11 +384,11 @@ config:
 flowchart LR
     user["👤"] --> login["Login (RH auth)"]
     login --> gateway["Open team gateway"]
-    gateway --> manage["Select proposed Manage access"]
-    manage --> owner{"Gateway owner?"}
-    owner -- No --> denied["Explain that owner access is required"]
-    owner -- Yes --> find["Find user or group"]
-    find --> role["Select Viewer or Owner"]
+    gateway --> manage["Select Manage access tab"]
+    manage --> owner{"Owner or admin?"}
+    owner -- No --> denied["Show read-only access list"]
+    owner -- Yes --> find["Find user in directory"]
+    find --> role["Select User or Admin"]
     role --> grant["Grant access"]
     grant --> success{"Access granted?"}
     success -- No --> error["Show error and keep selections"]

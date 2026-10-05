@@ -12,7 +12,7 @@
 
 The Gateway Console is the OpenShell dashboard for one gateway. The control plane deploys a console with each gateway that has a route. The console runs in the gateway namespace (`openshell-<id-hex-8>`). The console connects to the gateway through the in-cluster Service. A user opens the console in a browser at a per-gateway hostname.
 
-An oauth2-proxy sidecar authenticates the browser against a dedicated Keycloak client. The access token carries the gateway audience (`aud = {name}-{id}`) and the user roles (`hypershell.roles`). The dashboard sends this token to the gateway. The gateway validates the token with the rules that it applies to the CLI. The OIDC Role Bridge controls access. A user operates the console only where a `gateway:owner` or `gateway:viewer` RoleBinding exists.
+An oauth2-proxy sidecar authenticates the browser against a dedicated Keycloak client. The access token carries the gateway audience (`aud = {name}-{id}`) and the user roles (`hypershell.roles`). The dashboard sends this token to the gateway. The gateway validates the token with the rules that it applies to the CLI. The OIDC Role Bridge controls access. A user operates the console only where a `gateway:owner`, `gateway:admin`, or `gateway:viewer` RoleBinding exists.
 
 This spec covers Option 1: one oauth2-proxy for each gateway, real tokens with the correct audience, no token exchange, and no shared credential across gateways.
 
