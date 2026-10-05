@@ -45,6 +45,14 @@ const placementReasonMessages = {
   "no-eligible-cluster": messages.noEligibleCluster,
 } as const;
 
+function placementReasonKey(
+  ...reasons: readonly (string | null | undefined)[]
+): keyof typeof placementReasonMessages {
+  return (reasons.find(
+    (reason) => reason !== undefined && reason !== null && reason !== "",
+  ) ?? "no-eligible-cluster") as keyof typeof placementReasonMessages;
+}
+
 export interface GatewayCreatePageProps {
   onCreated?: (gatewayId: string) => Promise<void> | void;
 }
@@ -472,9 +480,10 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                           network: intl.formatMessage(messages.publicNetwork),
                           reason: intl.formatMessage(
                             placementReasonMessages[
-                              availability.data.awsReason ??
-                                availability.data.ibmReason ??
-                                "no-eligible-cluster"
+                              placementReasonKey(
+                                availability.data.awsReason,
+                                availability.data.ibmReason,
+                              )
                             ],
                           ),
                         })
@@ -508,8 +517,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                           network: intl.formatMessage(messages.vpnNetwork),
                           reason: intl.formatMessage(
                             placementReasonMessages[
-                              availability.data.awsReason ??
-                                "no-eligible-cluster"
+                              placementReasonKey(availability.data.awsReason)
                             ],
                           ),
                         })
@@ -552,8 +560,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                             provider: intl.formatMessage(messages.awsProvider),
                             reason: intl.formatMessage(
                               placementReasonMessages[
-                                availability.data.awsReason ??
-                                  "no-eligible-cluster"
+                                placementReasonKey(availability.data.awsReason)
                               ],
                             ),
                           })
@@ -587,8 +594,9 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                               ),
                               reason: intl.formatMessage(
                                 placementReasonMessages[
-                                  availability.data.ibmReason ??
-                                    "no-eligible-cluster"
+                                  placementReasonKey(
+                                    availability.data.ibmReason,
+                                  )
                                 ],
                               ),
                             })

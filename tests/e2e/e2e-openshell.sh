@@ -444,7 +444,7 @@ else
     fail_test "Could not discover seeded cluster id"
     exit 1
   fi
-  dim "  Creating gateway on registered cluster_id=${E2E_CLUSTER_ID}; the gateway database is provisioned by the control plane"
+  dim "  Creating gateway with server-side placement; the gateway database is provisioned by the control plane"
 
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(e2e_gateway_create_body "$GW_NAME")
@@ -1832,7 +1832,8 @@ except Exception:
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': os.environ['E2E_CLUSTER_ID'],
+    'placement': ({'mode': 'local-kind'} if os.environ.get('E2E_INFRA_DRIVER') == 'kind'
+                  else {'network': 'public', 'provider': 'aws'}),
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -2003,7 +2004,8 @@ print('true' if has_owner else 'false')
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': os.environ['E2E_CLUSTER_ID'],
+    'placement': ({'mode': 'local-kind'} if os.environ.get('E2E_INFRA_DRIVER') == 'kind'
+                  else {'network': 'public', 'provider': 'aws'}),
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -2396,6 +2398,7 @@ import json, os
 print(json.dumps({
     'name': os.environ['GW_NAME'],
     'cluster_id': '',
+    'placement': {'mode': 'local-kind'} if os.environ.get('E2E_INFRA_DRIVER') == 'kind' else {'network': 'public', 'provider': 'aws'},
     'oidc': json.dumps({'issuer': os.environ['E2E_OIDC_ISSUER'], 'audience': os.environ['E2E_OIDC_CLIENT_ID'],
                         'roles_claim': 'groups', 'admin_role': 'hypershell-admins', 'user_role': 'hypershell-users'}),
     'route': json.dumps({'enabled': True}),
@@ -2425,6 +2428,7 @@ import json, os
 print(json.dumps({
     'name': os.environ['GW_NAME'],
     'cluster_id': os.environ['PH_ID'],
+    'placement': {'mode': 'local-kind'} if os.environ.get('E2E_INFRA_DRIVER') == 'kind' else {'network': 'public', 'provider': 'aws'},
     'oidc': json.dumps({'issuer': os.environ['E2E_OIDC_ISSUER'], 'audience': os.environ['E2E_OIDC_CLIENT_ID'],
                         'roles_claim': 'groups', 'admin_role': 'hypershell-admins', 'user_role': 'hypershell-users'}),
     'route': json.dumps({'enabled': True}),

@@ -10,7 +10,6 @@ import (
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
-	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
@@ -68,8 +67,4 @@ func createManualCluster(t *testing.T) string {
 		t.Fatalf("create manual managed cluster: %v", svcErr)
 	}
 	return cluster.ID
-}
-
-func openapiErrorReason(_ *test.Helper, err error) string {
-	return test.APIErrorReason(err)
 }

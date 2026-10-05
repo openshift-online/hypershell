@@ -17,8 +17,11 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 // These tests pin the authorization of ManagedCluster records and of the
@@ -262,9 +265,15 @@ func createGateway(t *testing.T, client *openapi.APIClient, owner principal, clu
 	created, err := pb.NewGatewayServiceClient(owner.conn).CreateGateway(context.Background(), &pb.CreateGatewayRequest{
 		Name:      fmt.Sprintf("gw-%s", strings.ToLower(api.NewID())[:10]),
 		ClusterId: clusterID,
+		ReleaseId: "test-release",
 	})
 	Expect(err).NotTo(HaveOccurred(), "create gateway")
 	id := created.GetGateway().GetMetadata().GetId()
+	user, svcErr := users.Service(&environments.Environment().Services).GetByUsername(context.Background(), owner.name)
+	Expect(svcErr).NotTo(HaveOccurred(), "find gateway owner")
+	Expect(roleBindings.Service(&environments.Environment().Services).CreateGatewayOwnerBinding(
+		context.Background(), user.ID, id,
+	)).To(Succeed(), "bind gateway owner")
 	return &openapi.Gateway{Id: &id, Namespace: created.GetGateway().GetNamespace()}
 }
 
