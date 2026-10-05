@@ -1,5 +1,5 @@
 // Full-page takeover shown when the user's session has gone stale (the BFF returned
-// 401/403). Instead of every data panel showing an identical generic error, we replace the
+// 401). Instead of every data panel showing an identical generic error, we replace the
 // whole view with a single clear message and a "Sign in again" action. The button reloads
 // the top-level document so the oauth-proxy re-runs its identity-provider sign-in (the
 // HTTP-only session cookie it owns can't be cleared from JS - see adapters/auth/session-expiry).

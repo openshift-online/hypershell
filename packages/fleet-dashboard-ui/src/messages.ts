@@ -489,10 +489,9 @@ export const messages = defineMessages({
   },
   sessionExpiredBody: {
     id: "fleet.session.expired.body",
-    defaultMessage:
-      "Your session has expired or you are no longer authorized. Sign in again to continue.",
+    defaultMessage: "Your session has expired. Sign in again to continue.",
     description:
-      "Body of the full-page takeover shown when the BFF returns 401/403 for API calls.",
+      "Body of the full-page takeover shown when the BFF returns 401 for API calls.",
   },
   sessionExpiredTitle: {
     id: "fleet.session.expired.title",

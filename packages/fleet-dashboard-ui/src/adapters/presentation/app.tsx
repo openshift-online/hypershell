@@ -45,9 +45,9 @@ export function App(): React.ReactElement {
   const promotion = usePromotion();
   const fleet = useFleet();
 
-  // A stale/unauthorized session (any API 401/403, detected in the query cache) replaces
-  // the whole dashboard with a single sign-in prompt rather than a grid of generic error
-  // panels. Hooks above still run (rules of hooks); we just short-circuit the render.
+  // A stale session (any API 401, detected in the query cache) replaces the whole dashboard
+  // with a single sign-in prompt rather than a grid of generic error panels. Hooks above
+  // still run (rules of hooks); we just short-circuit the render.
   if (sessionExpired) {
     return <SessionExpired />;
   }
