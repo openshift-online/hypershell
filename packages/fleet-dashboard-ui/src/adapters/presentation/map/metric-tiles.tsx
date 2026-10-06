@@ -81,7 +81,9 @@ function MetricTile({
         {info ? <InfoTip info={info} /> : null}
       </span>
       <span className={styles.metricTileValue}>{value}</span>
-      <div className={styles.metricTileSparkWrap}>
+      {/* data-spark marks the chart area so the row's pointer scrubber can measure
+          the fraction against a single graph's width (1:1 cursor tracking). */}
+      <div className={styles.metricTileSparkWrap} data-spark="">
         <TileSparkline history={history} color={color} />
         <TileCursor history={history} active={active} color={color} />
       </div>
@@ -215,10 +217,35 @@ export function MetricTiles({
   const n = node.historyTimes.length;
   const interactive = n >= 2;
 
+  // Map the pointer onto the chart it is over (or the nearest), so a sample sits
+  // exactly under the mouse: 1:1 tracking within a single graph's width. Measuring
+  // against the whole three-tile row instead made the dash crawl at a third of the
+  // mouse's speed. The chart areas carry data-spark; rowRef is read here in an
+  // event handler, never during render.
   const setFromClientX = (clientX: number): void => {
     const el = rowRef.current;
     if (!el) return;
-    const rect = el.getBoundingClientRect();
+    const wraps = el.querySelectorAll("[data-spark]");
+    const first = wraps[0];
+    if (!first) return;
+    // Pick the chart the pointer is over; between tiles (gaps/padding), fall back
+    // to the nearest one so scrubbing stays continuous across the row.
+    let chosen = first;
+    let best = Infinity;
+    for (const w of wraps) {
+      const r = w.getBoundingClientRect();
+      const dist =
+        clientX < r.left
+          ? r.left - clientX
+          : clientX > r.right
+            ? clientX - r.right
+            : 0;
+      if (dist < best) {
+        best = dist;
+        chosen = w;
+      }
+    }
+    const rect = chosen.getBoundingClientRect();
     if (rect.width <= 0) return;
     const frac = (clientX - rect.left) / rect.width;
     onActive(clampIndex(Math.round(frac * (n - 1)), n));
