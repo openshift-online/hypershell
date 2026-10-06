@@ -119,12 +119,14 @@ func TestFleetSandboxesByCluster(t *testing.T) {
 				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
 				`]}}`))
 		case strings.Contains(q, "active_sandboxes_total"):
-			// Two clusters, listed count-ascending on the wire to prove we re-sort
-			// busiest-first; "c-tie" shares c1's count to prove the name tie-break.
+			// Three spokes on the SAME scrape-injected hub cluster (c1), listed
+			// count-ascending on the wire to prove we re-sort busiest-first;
+			// "spoke-tie" shares spoke1's count to prove the managed-cluster name
+			// tie-break. Attribution is by managed_cluster, not the hub cluster.
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
-				`{"metric":{"namespace":"inst-a","cluster":"c1"},"value":[1,"3"]},` +
-				`{"metric":{"namespace":"inst-a","cluster":"c-tie"},"value":[1,"3"]},` +
-				`{"metric":{"namespace":"inst-a","cluster":"c2"},"value":[1,"7"]}` +
+				`{"metric":{"namespace":"inst-a","cluster":"c1","managed_cluster":"spoke1"},"value":[1,"3"]},` +
+				`{"metric":{"namespace":"inst-a","cluster":"c1","managed_cluster":"spoke-tie"},"value":[1,"3"]},` +
+				`{"metric":{"namespace":"inst-a","cluster":"c1","managed_cluster":"spoke2"},"value":[1,"7"]}` +
 				`]}}`))
 		default:
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
@@ -133,13 +135,14 @@ func TestFleetSandboxesByCluster(t *testing.T) {
 	defer srv.Close()
 
 	p := &Prometheus{
-		base:          srv.URL,
-		metric:        "hypershell_gateways_total",
-		instLabel:     "namespace",
-		sandboxMetric: "hypershell_gateways_active_sandboxes_total",
-		clusterLabel:  "cluster",
-		client:        srv.Client(),
-		logger:        slog.Default(),
+		base:                srv.URL,
+		metric:              "hypershell_gateways_total",
+		instLabel:           "namespace",
+		sandboxMetric:       "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:        "cluster",
+		managedClusterLabel: "managed_cluster",
+		client:              srv.Client(),
+		logger:              slog.Default(),
 	}
 
 	out, err := p.Fleet(context.Background())
@@ -157,7 +160,11 @@ func TestFleetSandboxesByCluster(t *testing.T) {
 	if f.Sandboxes != 13 {
 		t.Errorf("Sandboxes total = %d, want 13", f.Sandboxes)
 	}
-	want := []SandboxClusterCount{{"c2", 7}, {"c-tie", 3}, {"c1", 3}}
+	want := []SandboxClusterCount{
+		{Cluster: "c1", ManagedCluster: "spoke2", Count: 7},
+		{Cluster: "c1", ManagedCluster: "spoke-tie", Count: 3},
+		{Cluster: "c1", ManagedCluster: "spoke1", Count: 3},
+	}
 	if len(f.SandboxesByCluster) != len(want) {
 		t.Fatalf("SandboxesByCluster = %+v, want %+v", f.SandboxesByCluster, want)
 	}
@@ -165,6 +172,78 @@ func TestFleetSandboxesByCluster(t *testing.T) {
 		if f.SandboxesByCluster[i] != w {
 			t.Errorf("SandboxesByCluster[%d] = %+v, want %+v", i, f.SandboxesByCluster[i], w)
 		}
+	}
+}
+
+// TestFleetGatewaysByCluster covers per-spoke gateway attribution: the gateway
+// phase gauge is grouped by the application-emitted managed_cluster label, folded
+// into per-spoke phase maps (busiest-first, ties by name), while the per-instance
+// phase totals are preserved. Every other sub-query is stubbed empty.
+func TestFleetGatewaysByCluster(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		case r.URL.Path == "/api/v1/query_range":
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+		case strings.Contains(q, "group by"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
+				`]}}`))
+		case strings.Contains(q, "phase"):
+			// spoke0: 2 Running; spoke1: 1 Running + 1 Failed (equal totals -> name
+			// tie-break puts spoke0 first).
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke0","phase":"Running"},"value":[1,"2"]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1","phase":"Running"},"value":[1,"1"]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1","phase":"Failed"},"value":[1,"1"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:                srv.URL,
+		metric:              "hypershell_gateways_total",
+		instLabel:           "namespace",
+		sandboxMetric:       "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:        "cluster",
+		managedClusterLabel: "managed_cluster",
+		client:              srv.Client(),
+		logger:              slog.Default(),
+	}
+
+	out, err := p.Fleet(context.Background())
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	fleet := out.(map[string]InstanceFleet)
+	f, ok := fleet["inst-a"]
+	if !ok {
+		t.Fatalf("no inst-a in fleet: %+v", fleet)
+	}
+
+	// Per-instance phase totals preserved (summed across spokes).
+	if f.GatewaysTotal != 4 {
+		t.Errorf("GatewaysTotal = %d, want 4", f.GatewaysTotal)
+	}
+	if f.Gateways["running"] != 3 || f.Gateways["failed"] != 1 {
+		t.Errorf("Gateways = %+v, want running:3 failed:1", f.Gateways)
+	}
+
+	// Per-spoke breakdown, busiest-first with name tie-break (spoke0 before spoke1).
+	if len(f.GatewaysByCluster) != 2 {
+		t.Fatalf("GatewaysByCluster = %+v, want 2 rows", f.GatewaysByCluster)
+	}
+	if f.GatewaysByCluster[0].ManagedCluster != "spoke0" || f.GatewaysByCluster[0].Total != 2 ||
+		f.GatewaysByCluster[0].Gateways["running"] != 2 {
+		t.Errorf("row[0] = %+v, want spoke0 total2 running2", f.GatewaysByCluster[0])
+	}
+	if f.GatewaysByCluster[1].ManagedCluster != "spoke1" || f.GatewaysByCluster[1].Total != 2 ||
+		f.GatewaysByCluster[1].Gateways["running"] != 1 || f.GatewaysByCluster[1].Gateways["failed"] != 1 {
+		t.Errorf("row[1] = %+v, want spoke1 total2 running1 failed1", f.GatewaysByCluster[1])
 	}
 }
 

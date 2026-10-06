@@ -1,7 +1,4 @@
-import {
-  applicationScalarQuery,
-  queryPrometheusInstantScalar,
-} from "./prometheus-instant-query.js";
+import { queryPrometheusInstantScalar } from "./prometheus-instant-query.js";
 import {
   alignDailyIntegerSeries,
   dailyRangeStepSeconds,
@@ -39,6 +36,18 @@ export function attentionFleetQuery(
   return `sum(max by (hypershell_cluster_id) (${metric}${selector}))`;
 }
 
+/**
+ * Fleet active-sandbox count from the api-server gauge (scrape `namespace` label).
+ * `max by (managed_cluster)` dedupes api-server replica series per spoke (managed
+ * cluster) before summing across spokes: a plain `sum` would double-count replicas,
+ * while a bare `max` collapses the spokes into a single (largest) value once the
+ * managed_cluster label is present.
+ */
+export function activeSandboxesFleetQuery(namespace?: string): string {
+  const selector = namespaceSelector(namespace);
+  return `sum(max by (managed_cluster) (${gatewayActiveSandboxesPromql}${selector}))`;
+}
+
 export interface GatewaySandboxesHourlyActive {
   count: number;
   hour: string;
@@ -64,7 +73,7 @@ async function queryHourlyActiveSandboxes(
   namespace?: string,
 ): Promise<GatewaySandboxesHourlyActive[]> {
   const { end, start } = rollingHourlyRange();
-  const query = applicationScalarQuery(gatewayActiveSandboxesPromql, namespace);
+  const query = activeSandboxesFleetQuery(namespace);
   const samples = await queryPrometheusRangeScalarSamples(
     prometheusUrl,
     query,
@@ -86,7 +95,7 @@ async function queryDailyActiveSandboxes(
   namespace?: string,
 ): Promise<GatewaySandboxesDailyActive[]> {
   const { end, start } = sevenDayUtcCalendarRange();
-  const query = applicationScalarQuery(gatewayActiveSandboxesPromql, namespace);
+  const query = activeSandboxesFleetQuery(namespace);
   const samples = await queryPrometheusRangeScalarSamples(
     prometheusUrl,
     query,
@@ -109,7 +118,7 @@ export async function queryGatewaySandboxes(
 ): Promise<GatewaySandboxesCounts> {
   const activeSandboxes = await queryPrometheusInstantScalar(
     prometheusUrl,
-    applicationScalarQuery(gatewayActiveSandboxesPromql, namespace),
+    activeSandboxesFleetQuery(namespace),
     timeoutMs,
   );
 

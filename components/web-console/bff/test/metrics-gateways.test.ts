@@ -34,7 +34,10 @@ async function startPrometheusStub(
 describe("queryGatewayPhaseCounts", () => {
   it("maps Prometheus samples into phase counts", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
-      expect(request.url).toBe("/api/v1/query?query=hypershell_gateways_total");
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      expect(url.searchParams.get("query")).toBe(
+        "sum by (phase) (max by (phase, managed_cluster, namespace) (hypershell_gateways_total))",
+      );
       response.setHeader("content-type", "application/json");
       response.end(
         JSON.stringify({
