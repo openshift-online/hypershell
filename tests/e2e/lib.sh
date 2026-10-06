@@ -649,14 +649,12 @@ e2e_auto_seed_enabled() {
   esac
 }
 
-# E2E_ALLOW_UNSEEDED lets the suite run against a platform that has no seeded
-# gateway release. The gateway API resolves an empty release_id to the platform
-# default gateway image (GATEWAY_IMAGE), and the control plane assigns database
-# placement server-side. cluster_id is NOT optional: every control plane
-# registers its own ManagedCluster and reconciles only gateways assigned to it,
-# and the API rejects an empty or unregistered cluster_id. In unseeded mode the
-# cluster is therefore still discovered - by E2E_SEED_CLUSTER_NAME, or the first
-# record with a non-empty oidc_subject - and its absence is an error. This lets
+# E2E_ALLOW_UNSEEDED lets the suite run against a platform with no seeded data.
+# cluster_id is NOT optional: every control plane registers its own
+# ManagedCluster and reconciles only gateways assigned to it, and the API
+# rejects an empty or unregistered cluster_id. In unseeded mode the cluster is
+# therefore still discovered - by E2E_SEED_CLUSTER_NAME, or the first record
+# with a non-empty oidc_subject - and its absence is an error. This lets
 # a post-rollout release check verify an already-deployed environment without
 # seeding or provisioning anything. Default (unset/0) preserves the
 # seed-required behavior: both ids must be discovered (and optionally

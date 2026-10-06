@@ -7,9 +7,9 @@ import (
 
 type InferenceRoute struct {
 	api.Meta
-	WorkspaceId      string `json:"workspace_id"`
+	WorkspaceId       string `json:"workspace_id"`
 	ProviderBindingId string `json:"provider_binding_id"`
-	Model            string `json:"model"`
+	Model             string `json:"model"`
 }
 
 type InferenceRouteList []*InferenceRoute

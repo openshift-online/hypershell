@@ -1283,4 +1283,3 @@ func (r *StubGatewayReconciler) Handle(ctx context.Context, event watcher.Event[
 	log.Printf("INFO [stub] reconciling Gateway %s (event=%d)", event.ResourceID, event.Type)
 	return nil
 }
-

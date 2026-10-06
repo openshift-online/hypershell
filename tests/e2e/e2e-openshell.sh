@@ -235,7 +235,7 @@ printf '  %s\n' "9. Developer user RBAC verification"
 printf '  %s\n' "10. Platform admin RBAC verification"
 printf '  %s\n' "11. Gateway deletion + namespace garbage collection"
 printf '  %s\n' "12. ManagedCluster registration + control-plane identity [long]"
-printf '  %s\n' "13. Gateway release promotion + reconciled status [long]"
+printf '  %s\n' "13. Gateway release promotion + reconciled status [skipped - GatewayRelease removed]"
 printf '  %s\n' "14. Admin inventory + API validation [long]"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
@@ -2549,16 +2549,15 @@ fi
 sep
 
 # ── 13. Gateway release promotion + reconciled status ───────────────────────
-# Area 13 closes the gateway-release-rollout gap (promotion) and asserts the
-# control plane's reconciled status write-back for releases and networks
-# (gateway-release-reconciliation / gateway-network-reconciliation). Long only.
+# Area 13 tested GatewayRelease and GatewayNetwork which were removed from the
+# data model (feat/adlc-agent-runtime-spec). The area is permanently skipped.
 
 echo ""
 e2e_area "13. Gateway Release Promotion + Reconciled Status"
 echo ""
 
-if ! e2e_step long; then
-  dim "  Skipped (E2E_MODE=${E2E_MODE}): area 13 creates releases/networks and rolls a gateway"
+if true; then
+  dim "  Skipped: GatewayRelease and GatewayNetwork kinds were removed from the data model"
 else
   acquire_oidc_token 2>/dev/null || true
   e2e_ensure_seed_ids || true
