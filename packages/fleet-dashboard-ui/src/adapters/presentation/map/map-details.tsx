@@ -51,6 +51,11 @@ import type {
   PullRequest,
   ReleaseBundle,
 } from "../../../domain/promotion";
+import {
+  hasSpokeRows,
+  type SpokeAttribution,
+  type SpokeRow,
+} from "../../../domain/spoke-attribution";
 import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
 import { StatusLabel } from "../status-label";
@@ -471,6 +476,123 @@ function GatewaySummary({
   );
 }
 
+/** One managed-cluster row: the cluster name (+ optional role badge) with its gateway
+ *  and sandbox counts pinned to the right. */
+function SpokeCountRow({
+  row,
+  badge,
+  hub = false,
+}: {
+  row: SpokeRow;
+  badge?: React.ReactNode;
+  hub?: boolean;
+}): React.ReactElement {
+  const className = [styles.spokeRow, hub ? styles.spokeHubRow : null]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <div className={className}>
+      <span className={styles.spokeRowName}>
+        <Truncate content={row.managedCluster} position="middle" />
+      </span>
+      {badge}
+      <span className={styles.spokeRowCounts}>
+        <span>
+          <FormattedMessage
+            {...messages.spokeGatewaysCount}
+            values={{ count: row.gatewaysTotal }}
+          />
+        </span>
+        {/* The middot separator is drawn in CSS (::before) so it is decorative,
+            not an untranslated JSX text node. */}
+        <span className={styles.spokeCountSep}>
+          <FormattedMessage
+            {...messages.spokeSandboxesCount}
+            values={{ count: row.sandboxes }}
+          />
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The hub instance's gateway + sandbox population, split by the managed cluster it
+ * runs on: the hub's own row, co-located spokes nested beneath it, and remote spokes
+ * in their own group. When topology was unavailable the rows list flat under an
+ * "attribution unavailable" note. Renders nothing unless there is at least one spoke
+ * row (a plain instance with no managed clusters shows no section).
+ */
+function SpokeAttributionSection({
+  attribution,
+}: {
+  attribution: SpokeAttribution;
+}): React.ReactElement | null {
+  if (!hasSpokeRows(attribution)) {
+    return null;
+  }
+  const remoteBadge = (
+    <Label color="purple" isCompact variant="outline">
+      <FormattedMessage {...messages.spokeRemote} />
+    </Label>
+  );
+  return (
+    <div className={styles.section}>
+      <h4 className={styles.sectionTitle}>
+        <FormattedMessage {...messages.sectionManagedClusters} />
+      </h4>
+
+      {!attribution.hasTopology ? (
+        <>
+          <p className={styles.spokeUnavailable}>
+            <FormattedMessage {...messages.spokeAttributionUnavailable} />
+          </p>
+          {attribution.unknown.map((row) => (
+            <SpokeCountRow key={row.managedCluster} row={row} />
+          ))}
+        </>
+      ) : (
+        <>
+          {attribution.hubOwn ? (
+            <SpokeCountRow row={attribution.hubOwn} hub />
+          ) : null}
+          {attribution.coLocated.length > 0 ? (
+            <div className={styles.spokeNested}>
+              {attribution.coLocated.map((row) => (
+                <SpokeCountRow key={row.managedCluster} row={row} />
+              ))}
+            </div>
+          ) : null}
+          {attribution.remote.length > 0 ? (
+            <>
+              <h5 className={styles.spokeGroupTitle}>
+                <FormattedMessage {...messages.spokeRemoteGroup} />
+              </h5>
+              {attribution.remote.map((row) => (
+                <SpokeCountRow
+                  key={row.managedCluster}
+                  row={row}
+                  badge={remoteBadge}
+                />
+              ))}
+            </>
+          ) : null}
+          {attribution.unknown.length > 0 ? (
+            <>
+              <h5 className={styles.spokeGroupTitle}>
+                <FormattedMessage {...messages.spokeUnattributedGroup} />
+              </h5>
+              {attribution.unknown.map((row) => (
+                <SpokeCountRow key={row.managedCluster} row={row} />
+              ))}
+            </>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
 function NodeFields({
   node,
   onSelectBundle,
@@ -785,6 +907,9 @@ function NodeDetails({
           <div className="pf-v6-u-mt-md">
             <MetricTiles node={node} active={active} onActive={setActive} />
           </div>
+          {node.spokeAttribution ? (
+            <SpokeAttributionSection attribution={node.spokeAttribution} />
+          ) : null}
           <div className={styles.nodeFields}>
             <NodeFields node={node} onSelectBundle={onSelectBundle} />
           </div>

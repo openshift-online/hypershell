@@ -6,22 +6,16 @@ import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
 
-/** Topology is opaque to the domain - the server owns its shape entirely. */
-export interface TopologyData {
-  readonly nodes: readonly TopologyNode[];
-  readonly edges: readonly TopologyEdge[];
-}
-
-export interface TopologyNode {
-  readonly id: string;
-  readonly label: string;
-  readonly kind: string;
-}
-
-export interface TopologyEdge {
-  readonly from: string;
-  readonly to: string;
-}
+// The topology plane is modelled in the domain (per-hub spoke layout); the wire
+// adapter decodes /api/topology into it. Re-exported here so FleetApi's port stays
+// expressed in the type the rest of the app already imports from ports.
+export type {
+  InstanceTopology,
+  TopologyData,
+  TopologyHub,
+  TopologySpoke,
+} from "../domain/topology";
+import type { TopologyData } from "../domain/topology";
 
 /** One managed instance's summary, as reported by the server. */
 export interface InstanceSummary {

@@ -87,8 +87,7 @@ describe("App", () => {
     const empty = {
       getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
       getPromotion: () => Promise.resolve(plane(promotion)),
-      getTopology: () =>
-        Promise.resolve(plane<TopologyData>({ nodes: [], edges: [] })),
+      getTopology: () => Promise.resolve(plane<TopologyData>({})),
       getInstances: () =>
         Promise.resolve(plane<InstancesData>({ instances: [] })),
     } satisfies FleetApi;

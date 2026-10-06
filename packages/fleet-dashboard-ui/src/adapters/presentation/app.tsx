@@ -15,9 +15,10 @@ import {
 } from "@patternfly/react-core";
 import { FormattedMessage } from "react-intl";
 
-import { useFleet, usePromotion } from "../query/hooks";
+import { useFleet, usePromotion, useTopology } from "../query/hooks";
 import { useSessionExpired } from "../auth/session-expiry";
 import type { FleetData } from "../../domain/fleet";
+import type { TopologyData } from "../../domain/topology";
 import { messages } from "../../messages";
 import { TopologyMap } from "./map/topology-map";
 import { PlaneSection } from "./plane-section";
@@ -26,6 +27,7 @@ import { SessionExpired } from "./session-expired";
 import styles from "./app.module.css";
 
 const EMPTY_FLEET: FleetData = { instances: [] };
+const EMPTY_TOPOLOGY: TopologyData = {};
 
 /** Visually hidden, but present in the accessibility tree (sr-only pattern). */
 const srOnly: React.CSSProperties = {
@@ -44,6 +46,7 @@ export function App(): React.ReactElement {
   const sessionExpired = useSessionExpired();
   const promotion = usePromotion();
   const fleet = useFleet();
+  const topology = useTopology();
 
   // A stale session (any API 401, detected in the query cache) replaces the whole dashboard
   // with a single sign-in prompt rather than a grid of generic error panels. Hooks above
@@ -56,6 +59,9 @@ export function App(): React.ReactElement {
   // (its backbone) and enriches with fleet metrics opportunistically, so a lagging
   // or failed fleet plane degrades the cards' metrics without blanking the map.
   const fleetData = fleet.data?.data ?? EMPTY_FLEET;
+  // Topology enriches the map's per-spoke attribution; like fleet it degrades
+  // gracefully (a lagging/failed plane leaves the attribution unresolved, not blank).
+  const topologyData = topology.data?.data ?? EMPTY_TOPOLOGY;
 
   const masthead = (
     <Masthead>
@@ -85,7 +91,13 @@ export function App(): React.ReactElement {
         <Stack hasGutter className={styles.stack}>
           <StackItem isFilled className={styles.mapItem}>
             <PlaneSection titleMessage={messages.sectionMap} query={promotion}>
-              {(data) => <TopologyMap promotion={data} fleet={fleetData} />}
+              {(data) => (
+                <TopologyMap
+                  promotion={data}
+                  fleet={fleetData}
+                  topology={topologyData}
+                />
+              )}
             </PlaneSection>
           </StackItem>
           <StackItem>

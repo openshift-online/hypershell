@@ -473,6 +473,74 @@
   margin: 0;
 }
 
+/* --- Managed-cluster (spoke) attribution ----------------------------------
+ * The hub's gateway/sandbox population split by the managed cluster it runs on.
+ * One row per cluster: the cluster name takes the slack and truncates; its gateway
+ * and sandbox counts are pinned to the right so the numbers line up down the list. */
+.spokeRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
+  padding: calc(var(--pf-t--global--spacer--xs, 0.25rem) / 1) 0;
+}
+
+.spokeRowName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* The counts band: muted, never wrapping, so a long cluster name clips instead. */
+.spokeRowCounts {
+  flex: 0 0 auto;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A decorative middot between the gateway and sandbox counts, drawn in CSS so the
+ * separator is never an untranslated JSX text node. */
+.spokeCountSep::before {
+  content: "\00B7";
+  margin: 0 0.4ch;
+}
+
+/* The hub's own row reads as the group's anchor: full-weight, not muted. */
+.spokeHubRow .spokeRowName {
+  font-weight: 700;
+}
+
+/* Co-located spokes nest UNDER the hub: an indent plus a hairline guide on the
+ * left edge, so the containment ("these run on the hub's cluster") reads visually. */
+.spokeNested {
+  margin-left: var(--pf-t--global--spacer--sm, 0.5rem);
+  padding-left: var(--pf-t--global--spacer--sm, 0.5rem);
+  border-left: 1px solid var(--pf-t--global--border--color--default, #3d3d3d);
+}
+
+/* A sub-group eyebrow (Remote / Unattributed): lighter + smaller than the section
+ * title, with air above it so each sub-group reads as its own band. */
+.spokeGroupTitle {
+  margin: var(--pf-t--global--spacer--sm, 0.5rem) 0
+    var(--pf-t--global--spacer--xs, 0.25rem) 0;
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+/* The "attribution unavailable" note: a muted caption above the flat fallback list. */
+.spokeUnavailable {
+  margin: 0 0 var(--pf-t--global--spacer--sm, 0.5rem) 0;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
 .bundleCount {
   margin-left: auto;
 }

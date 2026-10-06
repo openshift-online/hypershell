@@ -19,12 +19,26 @@ export interface GatewayHistorySample {
 }
 
 /**
- * One managed cluster's active-sandbox count within an instance. `cluster` is the
- * opaque server-reported cluster label; no cluster identity is baked in here.
+ * One managed cluster's active-sandbox count within an instance. `managedCluster`
+ * is the application-emitted spoke name (the `managed_cluster` label == GitOps spoke
+ * name) - the correct attribution key. The legacy scrape-injected `cluster` label is
+ * the emitting HUB's identity, not the spoke, so it is deliberately NOT carried here
+ * (gateway-managed-cluster-attribution.spec). No cluster identity is baked in.
  */
 export interface SandboxClusterCount {
-  readonly cluster: string;
+  readonly managedCluster: string;
   readonly count: number;
+}
+
+/**
+ * One managed cluster's gateway phase breakdown within an instance, keyed by the
+ * spoke name (the `managed_cluster` label). Summing `total` across the rows recovers
+ * the instance's {@link InstanceFleet.gatewaysTotal}. No cluster identity is baked in.
+ */
+export interface GatewayClusterBreakdown {
+  readonly managedCluster: string;
+  readonly gateways: GatewayPhaseCounts;
+  readonly total: number;
 }
 
 /** A rate + error% + p95-latency triple, as the BFF reports per control-plane. */
@@ -45,6 +59,12 @@ export interface InstanceFleet {
   readonly gateways: GatewayPhaseCounts;
   /** Total gateways across phases, as the server sums them. */
   readonly gatewaysTotal: number;
+  /**
+   * Gateway phase counts broken down per managed cluster (spoke), busiest-first as
+   * the server orders them. Summing the rows recovers {@link gateways}. Empty when
+   * the server reports no per-spoke breakdown (the UI degrades to the instance total).
+   */
+  readonly gatewaysByCluster: readonly GatewayClusterBreakdown[];
   readonly managedClusters: number | null;
   readonly users: number | null;
   /** api-server (gRPC) RED metrics. */

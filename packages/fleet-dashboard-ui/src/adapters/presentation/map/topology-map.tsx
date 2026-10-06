@@ -25,6 +25,7 @@ import { computeLayout, type NodeBox } from "../../../domain/map/layout";
 import { buildMapModel } from "../../../domain/map/model";
 import type { FleetData } from "../../../domain/fleet";
 import type { PromotionData } from "../../../domain/promotion";
+import type { TopologyData } from "../../../domain/topology";
 import { isHealthUnavailable } from "../../../domain/status";
 import { messages } from "../../../messages";
 import {
@@ -49,6 +50,8 @@ import { useMapViewport } from "./use-map-viewport";
 export interface TopologyMapProps {
   readonly promotion: PromotionData;
   readonly fleet: FleetData;
+  /** Per-hub spoke layout, used to attribute gateways/sandboxes to their spoke. */
+  readonly topology: TopologyData;
 }
 
 /** Cubic bezier with horizontal control handles, from (x1,y1) to (x2,y2). */
@@ -60,11 +63,12 @@ function hBezier(x1: number, y1: number, x2: number, y2: number): string {
 export function TopologyMap({
   promotion,
   fleet,
+  topology,
 }: TopologyMapProps): React.ReactElement {
   const intl = useIntl();
   const model = useMemo(
-    () => buildMapModel(promotion, fleet),
-    [promotion, fleet],
+    () => buildMapModel(promotion, fleet, topology),
+    [promotion, fleet, topology],
   );
   const layout = useMemo(() => computeLayout(model), [model]);
 

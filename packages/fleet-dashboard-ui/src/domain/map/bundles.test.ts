@@ -45,6 +45,8 @@ function node(overrides: Partial<MapNode> & { id: string }): MapNode {
     gateBadge: { tone: "unknown", labelKey: "unknown" },
     gateways: {},
     gatewaysTotal: 0,
+    gatewaysByCluster: [],
+    spokeAttribution: null,
     gatewayTone: "unknown",
     gatewayHistory: [],
     sandboxes: 0,
