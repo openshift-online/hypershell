@@ -81,7 +81,6 @@ function gatewayResponse(id: string, name: string) {
     name,
     namespace: "openshell",
     phase: "Running",
-    releaseId: "release-1",
     status: "Ready",
   };
 }
@@ -192,7 +191,6 @@ describe("gateway shell pages", () => {
           oidcClientId: "openshell-cli",
           oidcIssuer: "https://issuer.example.test/realms/openshell",
           phase: "Running",
-          releaseId: "release-1",
           status: "Ready",
         }}
       />
@@ -319,7 +317,6 @@ describe("gateway shell pages", () => {
           oidcClientId: "openshell-cli",
           oidcIssuer: "https://issuer.example.test/realms/openshell",
           phase: "Running",
-          releaseId: "release-1",
           status: "Ready",
         }}
         gatewayId="gateway-1"

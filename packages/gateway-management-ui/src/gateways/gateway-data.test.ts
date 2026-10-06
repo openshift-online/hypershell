@@ -34,7 +34,6 @@ function gateway(overrides: Partial<GatewayRecord> = {}): GatewayRecord {
     name: "Team gateway",
     namespace: "openshell",
     phase: "",
-    releaseId: "release-1",
     status: "Ready",
     ...overrides,
   };

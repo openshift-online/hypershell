@@ -14,7 +14,6 @@ const gateway: GatewayRecord = {
   id: "gateway-1",
   name: "Team gateway",
   namespace: "openshell",
-  releaseId: "",
 };
 const listRequest = {
   page: 1,
