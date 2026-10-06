@@ -23,9 +23,13 @@ signal, and parity between the CLI commands the web console renders and the
 commands the e2e suite actually executes. This specification defines the e2e
 coverage that closes those gaps.
 
-The five areas become **numbered areas 15-19** of the functional e2e suite,
+The five feature gaps become **numbered areas 15-19** of the functional e2e suite,
 continuing the area model defined by the E2E Test Suite Coverage requirement in
-`e2e-testing.spec.md` (areas 1-14). Like areas 12-14, every area here is
+`e2e-testing.spec.md` (areas 1-14). This spec additionally defines two
+cross-component coverage **extensions to existing areas 12 and 13** (see
+[Cross-Component Route Coverage Extensions](#cross-component-route-coverage-extensions)),
+which close the only two API routes whose cross-component behavior no area asserts
+today. Like areas 12-14, every area here is
 **long-only**: it is skipped in `short` and `perf` modes (it mutates shared
 state, acts as a second identity, or depends on infrastructure the quick gate
 does not provide). Each area reuses the existing driver contract and harness
@@ -43,8 +47,9 @@ every target, including the Kind merge-queue gate's long runs.
 
 ### Scope
 
-In scope: the five new functional e2e areas (15-19), their short/long-mode
-placement, and the environment variables they add. Out of scope: the feature
+In scope: the five new functional e2e areas (15-19), the two cross-component
+coverage extensions to existing areas 12-13, their short/long-mode placement, and
+the environment variables they add. Out of scope: the feature
 implementations themselves (owned by the specs cross-referenced above), the
 browser console suite's own areas (owned by `e2e-console-browser-testing.spec.md`,
 except where this spec notes a browser counterpart), and authoring a
@@ -326,14 +331,121 @@ bump that breaks suffix handling or branch selection fails this area.
 - WHEN area 19 runs against the upgraded gateway
 - THEN the parity assertions SHALL use the reconciled `gateway_version`, so a regression in suffix handling or branch selection fails the area rather than passing against a stale pinned value
 
+## Cross-Component Route Coverage Extensions
+
+A review of every published REST route against the e2e suite found that
+route-level validation (does a route accept input, enforce auth, return the right
+status, and persist a record) is already owned by the trex integration tests -
+each resource plugin's `integration_test.go` drives List, Get, Create, Patch,
+Delete, paging, and search over real HTTP against a testcontainers Postgres,
+including 401 and 404 cases. e2e adds nothing by re-issuing those routes. e2e adds
+value only where a route triggers **cross-component** behavior (an API write that
+the control plane must reconcile across the api-server, the control plane, and the
+cluster) that no existing area asserts.
+
+Of the routes no area exercises today, exactly two carry untested cross-component
+behavior. Both are extensions to existing long-only areas, not new areas:
+`PATCH /gateway_releases/{id}` (area 13) and `DELETE /managed_clusters/{id}`
+(area 12). The remaining uncovered routes are pure CRUD or reads
+(`GET /roles`, `GET /gateway_releases` List, `GET /role_bindings/{id}`,
+`PATCH`/`GET` `/gateway_networks`, `GET /metrics/gateways`, metadata/openapi/
+healthcheck) whose only observable effect is already covered - by the trex
+integration tests, by a prior e2e area (gateway-network `status` write-back at
+area 13; sandbox-count gRPC flow at areas 7-8), or by a dedicated unit test
+(`plugins/gateways/metrics_test.go` for the `managed_cluster` metric attribution,
+which `gateway-managed-cluster-attribution.spec.md` GMCA-06 assigns to unit
+tests). Those SHALL NOT be re-tested in e2e.
+
+### Requirement: Release Image Fan-Out Coverage
+
+The e2e test suite SHALL validate the release-image fan-out path:
+updating a referenced `GatewayRelease`'s image (`PATCH /gateway_releases/{id}`)
+and asserting that every gateway referencing that release rolls to the new image,
+as `gateway-release-rollout.spec.md` and `gateway-release-reconciliation.spec.md`
+define. This extends area 13, which today exercises only the other rollout trigger
+- repointing a single gateway's `release_id` - and never mutates a shared
+release's image. It is long-only.
+
+Against a dedicated disposable release and gateway (so the seeded release and
+other gateways are not perturbed), the suite SHALL: create a release, create a
+gateway referencing it and wait for `Running`, then `PATCH` that release's image to
+a new valid image and assert the referencing gateway rolls revision-aware and
+last-good-preserving - the prior revision stays serving until the new revision is
+Ready, `observed_release_id` advances only after the health gates pass, and a
+subsequent `PATCH` to an unpullable image surfaces `Degraded` while preserving the
+last-good revision. Under `E2E_MULTICLUSTER=1`, the suite SHALL place two gateways
+referencing the same release on different clusters and assert the single release
+`PATCH` fans out to both, each control plane rolling its own gateway. The suite
+SHALL delete every release and gateway it created on all exit paths.
+
+#### Scenario: Release image update fans out to referencing gateways
+
+- GIVEN a disposable release and a `Running` gateway referencing it
+- WHEN the suite `PATCH`es the release's image to a new valid image
+- THEN the referencing gateway SHALL roll to the new image, the prior revision SHALL stay serving until the new revision is Ready, and `observed_release_id` SHALL advance only after the health gates pass
+
+#### Scenario: Failed image roll preserves last-good
+
+- GIVEN a `Running` gateway referencing a disposable release
+- WHEN the suite `PATCH`es the release to an unpullable image
+- THEN the gateway SHALL surface `Degraded` and SHALL keep serving the last-good revision rather than going down
+
+#### Scenario: Fan-out spans clusters
+
+- GIVEN `E2E_MULTICLUSTER=1` and two gateways on different clusters referencing one release
+- WHEN the suite `PATCH`es that release's image once
+- THEN both gateways SHALL roll to the new image, each reconciled by its own control plane
+
+### Requirement: ManagedCluster Delete and Re-Registration Coverage
+
+The e2e test suite SHALL validate the orphan-on-delete and
+restore-on-re-registration semantics in `managed-cluster-registration.spec.md`:
+deleting a registered ManagedCluster's record (`DELETE /managed_clusters/{id}`)
+detaches the gateways placed on it until the control plane registers again, and
+the control plane's next `/registration` restores the **same** `cluster_id` so the
+gateways re-attach. This extends area 12, which today deletes only the inert
+placeholder record (empty `oidc_subject`, which by spec holds no gateways) and
+never a registered cluster with a gateway on it. It is long-only.
+
+Because deleting a registered cluster's record disrupts every gateway on that
+cluster, the suite SHALL run this against a **second** real cluster, gated on
+`E2E_MULTICLUSTER=1`, so the primary cluster the rest of the suite depends on is
+never disrupted; on a single-cluster run it SHALL record a skip (a single real
+control plane cannot be deleted without breaking the run, and a synthetic record
+cannot hold a gateway). It SHALL place a throwaway gateway on the second cluster,
+delete that cluster's record, assert the gateway is detached (no longer
+reconciled) within a bounded window, then wait for the second control plane's next
+`/registration` to restore the same `cluster_id` and the gateway to re-attach,
+leaving the fleet as it found it. The suite SHALL delete the throwaway gateway on
+all exit paths.
+
+#### Scenario: Deleting a registered cluster orphans its gateways
+
+- GIVEN `E2E_MULTICLUSTER=1` and a throwaway gateway on the second registered cluster
+- WHEN the suite deletes that cluster's record
+- THEN the gateway SHALL be detached and no longer reconciled within a bounded window
+
+#### Scenario: Re-registration restores the cluster and re-attaches gateways
+
+- GIVEN a deleted second-cluster record whose control plane is still running
+- WHEN that control plane issues its next `/registration`
+- THEN the record SHALL be restored with the same `cluster_id` and the gateway SHALL re-attach and reconcile again
+
+#### Scenario: Single-cluster run skips the delete
+
+- GIVEN a single-cluster run (no `E2E_MULTICLUSTER`)
+- WHEN the suite reaches the cluster-delete coverage
+- THEN it SHALL record a skip, because deleting the only registered cluster would break the run and a synthetic record cannot hold a gateway
+
 ### Requirement: Area Placement and Mode Tags
 
-Areas 15-19 SHALL extend the numbered area model in `e2e-testing.spec.md` and
-SHALL all be long-only: skipped in `short` and `perf` modes, consistent with the
+Areas 15-19 SHALL extend the numbered area model in `e2e-testing.spec.md`, and the
+two cross-component extensions above SHALL extend existing areas 13 and 12. All
+SHALL be long-only: skipped in `short` and `perf` modes, consistent with the
 `e2e_step long` / `e2e_multi_identity` gating that areas 12-14 use. The E2E Test
 Suite Coverage requirement and the short/long mode table in `e2e-testing.spec.md`
-SHALL be amended to list areas 15-19 as long-only rather than restating them
-here; this spec owns their content.
+SHALL be amended to list areas 15-19 as long-only and to note the area-12/13
+extensions rather than restating them here; this spec owns their content.
 
 | Area | Title | Mode | Gate |
 |------|-------|------|------|
@@ -342,12 +454,16 @@ here; this spec owns their content.
 | 17 | Kata runtime sandbox | long-only | `E2E_QUALIFY_KATA=1` |
 | 18 | Alerting / incident signal | long-only | metric tier always; alert-firing on `E2E_QUALIFY_ALERTING=1` |
 | 19 | CLI/UI command parity | long-only | none (Kind-hostable) |
+| 13 (ext) | Release image fan-out | long-only | `E2E_MULTICLUSTER=1` for the cross-cluster scenario |
+| 12 (ext) | ManagedCluster delete + re-registration | long-only | `E2E_MULTICLUSTER=1` (single-cluster skips) |
+| 20 | API route coverage completeness | long-only | none (Kind-hostable) |
 
 #### Scenario: New areas skipped in short and perf
 
 - GIVEN `E2E_MODE=short` or `E2E_MODE=perf`
 - WHEN the suite runs
 - THEN areas 15-19 SHALL each print a skip notice and SHALL NOT execute, exactly as areas 12-14 do
+- AND the area-12/13 cross-component extensions, being long-only, SHALL likewise not execute
 
 #### Scenario: New areas run in long mode
 
@@ -355,6 +471,7 @@ here; this spec owns their content.
 - WHEN the suite runs
 - THEN areas 15, 16, and 19 SHALL execute on every target
 - AND areas 17 and 18's infra-gated tiers SHALL execute only when their `E2E_QUALIFY_*` variable is set, otherwise record a skip
+- AND the area-13 release fan-out extension SHALL execute on every target (its cross-cluster scenario only under `E2E_MULTICLUSTER=1`), while the area-12 cluster-delete extension SHALL execute only under `E2E_MULTICLUSTER=1` and otherwise record a skip
 
 ## Environment Variables
 
@@ -378,11 +495,23 @@ and the version helpers already defined for the CLI install path.
 
 ## Design Decisions
 
-- **One spec, five areas, not five fragment files.** The epic's five rows share
-  the e2e driver contract, the mode model, and the area numbering; batching them
-  as areas 15-19 keeps the area count in one place, exactly as areas 12-14 were
-  added together. The epic's child stories can each reference the matching
-  requirement section here.
+- **One spec, five areas plus two targeted extensions, not fragment files.** The
+  epic's five rows share the e2e driver contract, the mode model, and the area
+  numbering; batching them as areas 15-19 keeps the area count in one place,
+  exactly as areas 12-14 were added together. The epic's child stories can each
+  reference the matching requirement section here.
+- **Route coverage is behavior coverage, not a route checklist.** A review of
+  every published REST route found that route-level validation (status codes,
+  auth, persistence, paging, search) is already owned by the trex
+  `integration_test.go` suites over real HTTP, so re-issuing those routes in e2e
+  adds nothing. e2e earns its cost only where a route drives cross-component
+  reconciliation no area asserts - which, across the whole uncovered set, is
+  exactly two routes (`PATCH /gateway_releases/{id}` fan-out, and
+  `DELETE /managed_clusters/{id}` orphan-and-restore). Those become extensions to
+  the areas that already own those resources (13 and 12), not a catch-all route
+  area. Everything else uncovered is pure CRUD or is covered at a better layer
+  (prior e2e area, or a unit test the owning spec assigns), so it is deliberately
+  left to those layers.
 - **Infra-heavy backends are opt-in, not gate-blocking.** Vault, Kata, and
   alert-firing need infrastructure the Kind merge-queue gate does not provide, so
   they follow the established `E2E_QUALIFY_*` opt-in pattern and record skips (not
