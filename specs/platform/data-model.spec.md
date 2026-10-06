@@ -21,13 +21,6 @@ Current model:
 - **InferenceRoute** - designates the active ProviderBinding and model alias for LLM inference within an AgentWorkspace. At most one per AgentWorkspace.
 - **SecretSource** - abstract reference to a secret in an external backend (Vault, AWS Secrets Manager, Kubernetes). Owned by AgentRuntime; purpose enum drives controller-generated env var wiring.
 
-### Kinds Slated for Removal
-
-The following kinds are deprecated and will be removed in a future release. Their implementations are being deleted from all layers (API, gRPC, control plane, CLI). Do not create new dependencies on them.
-
-- **GatewayRelease** - Deprecated: Gateways specify images directly via `image`/`supervisor_image` fields. The release indirection layer (canary rollout via GatewayRelease) added complexity without product adoption. Direct image references are sufficient.
-- **GatewayNetwork** - Deprecated: The reconciler owns no Kubernetes resources and only validates topology fields. Real mesh/tunnel provisioning was never specified. Being removed until the product defines a concrete network membership and connectivity model.
-
 ## Entity Relationship Diagram
 
 ```mermaid
@@ -112,6 +105,25 @@ erDiagram
         time updated_at
         time deleted_at
     }
+
+    AgentRuntime {
+        string ID PK
+        string name
+        string cluster_id FK
+        string gateway_id FK
+        string sandbox_template_id FK
+        string description
+        string cron
+        string coordinator_image
+        string concurrency_policy
+        int login_refresh_seconds
+        jsonb parameters
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
 
     AgentWorkspace {
         string ID PK
@@ -1040,5 +1052,3 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0
 | login_refresh_seconds on AgentRuntime, not SandboxTemplate | Login renewal is a coordinator concern (CronJob lifecycle), not a sandbox policy concern. Embedding it on the AgentRuntime where the coordinator schedule lives keeps it co-located with the fields it relates to. |
 | No ManifestWork: controller applies cluster resources directly | The controller has direct cluster API access via in-cluster credentials, the same mechanism used for gateway infrastructure. ManifestWork would add an OCM dependency without architectural benefit. |
 | No bootstrap Job: controller provisions gateway-side objects via gRPC | Gateway-side workspace, members, and provider objects are provisioned by the controller through the gateway gRPC API in its normal reconcile loop, co-located with existing gateway database provisioning logic. An idempotent imperative Job on the cluster would tie provisioning to a specific OpenShell CLI version. |
-| Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
-| Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |
