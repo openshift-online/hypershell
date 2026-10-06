@@ -201,6 +201,7 @@ interface WireInstanceFleet {
   readonly logins?: number;
   readonly userHistory?: readonly number[] | null;
   readonly loginsHistory?: readonly number[] | null;
+  readonly historyTimes?: readonly number[] | null;
 }
 
 interface WireGatewayHistorySample {
@@ -261,6 +262,7 @@ function mapInstanceFleet(key: string, raw: WireInstanceFleet): InstanceFleet {
     logins: typeof raw.logins === "number" ? raw.logins : null,
     userHistory: (raw.userHistory ?? []).map((v) => num(v)),
     loginsHistory: (raw.loginsHistory ?? []).map((v) => num(v)),
+    historyTimes: (raw.historyTimes ?? []).map((v) => num(v)),
   };
 }
 

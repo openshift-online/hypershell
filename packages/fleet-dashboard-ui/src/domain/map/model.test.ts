@@ -51,6 +51,7 @@ function inst(
     logins: null,
     userHistory: [],
     loginsHistory: [],
+    historyTimes: [],
     ...overrides,
   };
 }

@@ -75,6 +75,7 @@ describe("use cases", () => {
           logins: null,
           userHistory: [],
           loginsHistory: [],
+          historyTimes: [],
         },
       ],
     });

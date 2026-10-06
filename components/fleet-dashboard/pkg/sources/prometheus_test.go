@@ -230,6 +230,98 @@ func TestFleetUsers(t *testing.T) {
 	}
 }
 
+// TestFleetHistoryShared covers the unified history block: the four range series
+// (gateway phase mix, sandbox total, users, logins) must land on ONE sorted per-
+// instance timestamp axis (HistoryTimes) with every array index-aligned to it, so
+// HistoryTimes[i] indexes the same moment in all of them. The gateway phases stack
+// per timestamp; a phase absent at a step contributes zero.
+func TestFleetHistoryShared(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "phase"):
+			// Gateway phase mix: running at both steps, failed only at the first.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a","phase":"Running"},"values":[[100,"5"],[200,"6"]]},` +
+				`{"metric":{"namespace":"inst-a","phase":"failed"},"values":[[100,"1"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "active_sandboxes_total"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a"},"values":[[100,"2"],[200,"3"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "users_registered_total"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a"},"values":[[100,"7"],[200,"8"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "unique_logins"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a"},"values":[[100,"4"],[200,"5"]]}` +
+				`]}}`))
+		case strings.Contains(q, "group by"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:             srv.URL,
+		metric:           "hypershell_gateways_total",
+		instLabel:        "namespace",
+		sandboxMetric:    "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:     "cluster",
+		userMetric:       "hypershell_users_registered_total",
+		userLoginsMetric: "hypershell_users_unique_logins_last_7_days_total",
+		client:           srv.Client(),
+		logger:           slog.Default(),
+	}
+
+	out, err := p.Fleet(context.Background())
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	f := out.(map[string]InstanceFleet)["inst-a"]
+
+	if got := f.HistoryTimes; len(got) != 2 || got[0] != 100 || got[1] != 200 {
+		t.Fatalf("HistoryTimes = %v, want [100 200]", got)
+	}
+	wantGW := []GatewayHistorySample{{Running: 5, Failed: 1}, {Running: 6}}
+	if len(f.GatewayHistory) != len(wantGW) {
+		t.Fatalf("GatewayHistory = %+v, want %+v", f.GatewayHistory, wantGW)
+	}
+	for i, w := range wantGW {
+		if f.GatewayHistory[i] != w {
+			t.Errorf("GatewayHistory[%d] = %+v, want %+v", i, f.GatewayHistory[i], w)
+		}
+	}
+	// Every series is aligned to the same two-column axis.
+	if want := []float64{2, 3}; !floatsEqual(f.SandboxHistory, want) {
+		t.Errorf("SandboxHistory = %v, want %v", f.SandboxHistory, want)
+	}
+	if want := []float64{7, 8}; !floatsEqual(f.UserHistory, want) {
+		t.Errorf("UserHistory = %v, want %v", f.UserHistory, want)
+	}
+	if want := []float64{4, 5}; !floatsEqual(f.LoginsHistory, want) {
+		t.Errorf("LoginsHistory = %v, want %v", f.LoginsHistory, want)
+	}
+}
+
+func floatsEqual(a, b []float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // TestQueryRangeStepFloor ensures a sub-second step is clamped to 1s so Prometheus
 // never receives a "0s" step (which it rejects).
 func TestQueryRangeStepFloor(t *testing.T) {

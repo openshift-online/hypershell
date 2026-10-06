@@ -231,6 +231,13 @@ type InstanceFleet struct {
 	Logins        float64   `json:"logins"`
 	UserHistory   []float64 `json:"userHistory"`
 	LoginsHistory []float64 `json:"loginsHistory"`
+	// HistoryTimes is the canonical per-instance time axis (unix seconds, oldest->
+	// newest) that EVERY history series above is index-aligned to: HistoryTimes[i] is
+	// the timestamp of GatewayHistory[i], SandboxHistory[i], UserHistory[i] and
+	// LoginsHistory[i]. One shared 24h/32-sample grid lets the detail panel draw a
+	// shared temporal cursor across the sparklines and read each series (including the
+	// gateway phase mix for that moment) at the hovered sample. Empty when no history.
+	HistoryTimes []int64 `json:"historyTimes"`
 }
 
 // SandboxClusterCount is one managed cluster's active-sandbox count within an
@@ -310,66 +317,6 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 		}
 	}
 
-	// Gateway-count history (newest sample last) for the per-instance "sand"
-	// sparkline. Option A: stateless - the full window is recomputed from
-	// Prometheus on every snapshot, so no history is buffered in-process.
-	// Best-effort like the instant sub-queries above.
-	{
-		const histWindow = 24 * time.Hour
-		const histSamples = 32
-		now := time.Now()
-		subTotal++
-		// Split history by phase so the sand chart can stack running/provisioning/
-		// failed over time (parity with the prototype). Range series come back one
-		// per (instance, phase); align them on the shared step grid by timestamp,
-		// since a phase that only appeared mid-window yields a shorter series.
-		expr := fmt.Sprintf("sum by (%s,phase) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE)
-		if res, err := p.queryRange(ctx, expr, now.Add(-histWindow), now, histWindow/histSamples); err != nil {
-			subErrs = append(subErrs, err)
-		} else {
-			// instance -> (timestamp -> stacked sample)
-			byTS := map[string]map[int64]*GatewayHistorySample{}
-			for _, r := range res {
-				inst := r.Metric[p.instLabel]
-				phase := strings.ToLower(r.Metric["phase"])
-				steps, ok := byTS[inst]
-				if !ok {
-					steps = map[int64]*GatewayHistorySample{}
-					byTS[inst] = steps
-				}
-				for _, v := range r.Values {
-					ts := sampleTime(v)
-					s, ok := steps[ts]
-					if !ok {
-						s = &GatewayHistorySample{}
-						steps[ts] = s
-					}
-					val := sampleValue(v)
-					switch phase {
-					case "running":
-						s.Running += val
-					case "provisioning":
-						s.Provisioning += val
-					case "failed":
-						s.Failed += val
-					}
-				}
-			}
-			for inst, steps := range byTS {
-				tss := make([]int64, 0, len(steps))
-				for ts := range steps {
-					tss = append(tss, ts)
-				}
-				sort.Slice(tss, func(i, j int) bool { return tss[i] < tss[j] })
-				hist := make([]GatewayHistorySample, 0, len(tss))
-				for _, ts := range tss {
-					hist = append(hist, *steps[ts])
-				}
-				get(inst).GatewayHistory = hist
-			}
-		}
-	}
-
 	// Simple by-namespace gauges.
 	byNS := func(expr string, set func(f *InstanceFleet, v float64)) {
 		if res, ok := runInstant(expr); ok {
@@ -417,63 +364,116 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 		}
 	}
 
-	// Sandbox-count history (newest sample last) for the per-instance sandbox "sand"
-	// sparkline - the lower node-card chin. Deliberately on the SAME 24h/32-sample grid
-	// as GatewayHistory above so the two chins share an x-axis exactly and are directly
-	// comparable. One series per instance: the TOTAL across clusters, deduping scrape
-	// replicas with the same inner max-by-(cluster,instance,gateway) the snapshot uses
-	// before summing the gateways. Best-effort like the other sub-queries.
+	// Per-instance history on ONE shared grid. All four series (the gateway phase mix,
+	// sandbox total, registered users and 7-day logins) are range-queried over the same
+	// 24h/32-sample window computed once here, then index-aligned to a single sorted
+	// timestamp axis (HistoryTimes) per instance. Aligning every series to one axis -
+	// rather than trusting each range query to return an identical grid - lets the
+	// detail panel draw a shared temporal cursor and read every series at the hovered
+	// sample, and keeps the two node-card chins (gateway + sandbox) sharing an x-axis.
+	// Each sub-query is best-effort; a failing one leaves its contribution zero-filled.
 	{
 		const histWindow = 24 * time.Hour
 		const histSamples = 32
 		now := time.Now()
-		subTotal++
-		expr := fmt.Sprintf(
-			"sum by (%s) (max by (%s,%s,gateway) (%s{%s=~%q}))",
-			p.instLabel, p.clusterLabel, p.instLabel, p.sandboxMetric, p.instLabel, nsRE,
-		)
-		if res, err := p.queryRange(ctx, expr, now.Add(-histWindow), now, histWindow/histSamples); err != nil {
-			subErrs = append(subErrs, err)
-		} else {
-			for _, r := range res {
-				f := get(r.Metric[p.instLabel])
-				// One series per instance; Prometheus returns values in ascending time
-				// order, which is the oldest->newest order the sparkline expects.
-				hist := make([]float64, 0, len(r.Values))
-				for _, v := range r.Values {
-					hist = append(hist, sampleValue(v))
-				}
-				f.SandboxHistory = hist
-			}
-		}
-	}
+		start := now.Add(-histWindow)
+		step := histWindow / histSamples
 
-	// User-count and login history (newest sample last) for the Users and Logins
-	// metric tiles' mini sparklines. Same 24h/32-sample grid as the sandbox/gateway
-	// histories so every tile's sparkline shares an x-axis. One series per instance.
-	// Best-effort like the other sub-queries.
-	{
-		const histWindow = 24 * time.Hour
-		const histSamples = 32
-		now := time.Now()
-		rangeHist := func(metric string, set func(f *InstanceFleet, h []float64)) {
+		// instance -> timestamp -> accumulated sample across the four series.
+		type histPoint struct {
+			gw      GatewayHistorySample
+			sandbox float64
+			users   float64
+			logins  float64
+		}
+		byTS := map[string]map[int64]*histPoint{}
+		pointAt := func(inst string, ts int64) *histPoint {
+			steps, ok := byTS[inst]
+			if !ok {
+				steps = map[int64]*histPoint{}
+				byTS[inst] = steps
+			}
+			pt, ok := steps[ts]
+			if !ok {
+				pt = &histPoint{}
+				steps[ts] = pt
+			}
+			return pt
+		}
+		// rangeInto runs one range query and folds each (instance, timestamp) sample
+		// into the shared point map via add. Best-effort: a query error is collected
+		// and that series simply stays zero across the axis.
+		rangeInto := func(expr string, add func(pt *histPoint, phase string, v float64)) {
 			subTotal++
-			expr := fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, metric, p.instLabel, nsRE)
-			if res, err := p.queryRange(ctx, expr, now.Add(-histWindow), now, histWindow/histSamples); err != nil {
+			res, err := p.queryRange(ctx, expr, start, now, step)
+			if err != nil {
 				subErrs = append(subErrs, err)
-			} else {
-				for _, r := range res {
-					f := get(r.Metric[p.instLabel])
-					hist := make([]float64, 0, len(r.Values))
-					for _, v := range r.Values {
-						hist = append(hist, sampleValue(v))
-					}
-					set(f, hist)
+				return
+			}
+			for _, r := range res {
+				inst := r.Metric[p.instLabel]
+				phase := strings.ToLower(r.Metric["phase"])
+				for _, v := range r.Values {
+					add(pointAt(inst, sampleTime(v)), phase, sampleValue(v))
 				}
 			}
 		}
-		rangeHist(p.userMetric, func(f *InstanceFleet, h []float64) { f.UserHistory = h })
-		rangeHist(p.userLoginsMetric, func(f *InstanceFleet, h []float64) { f.LoginsHistory = h })
+
+		// Gateway phase mix: one series per (instance, phase); stack the three plotted
+		// phases and ignore the rest, matching the node-card sand chart.
+		rangeInto(
+			fmt.Sprintf("sum by (%s,phase) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE),
+			func(pt *histPoint, phase string, v float64) {
+				switch phase {
+				case "running":
+					pt.gw.Running += v
+				case "provisioning":
+					pt.gw.Provisioning += v
+				case "failed":
+					pt.gw.Failed += v
+				}
+			},
+		)
+		// Sandbox total across clusters, deduping scrape replicas with the same inner
+		// max-by-(cluster,instance,gateway) the instant snapshot uses before summing.
+		rangeInto(
+			fmt.Sprintf("sum by (%s) (max by (%s,%s,gateway) (%s{%s=~%q}))",
+				p.instLabel, p.clusterLabel, p.instLabel, p.sandboxMetric, p.instLabel, nsRE),
+			func(pt *histPoint, _ string, v float64) { pt.sandbox += v },
+		)
+		// Registered users and rolling 7-day unique logins.
+		rangeInto(
+			fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.userMetric, p.instLabel, nsRE),
+			func(pt *histPoint, _ string, v float64) { pt.users += v },
+		)
+		rangeInto(
+			fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.userLoginsMetric, p.instLabel, nsRE),
+			func(pt *histPoint, _ string, v float64) { pt.logins += v },
+		)
+
+		// Emit each instance's series aligned to its sorted timestamp axis. A timestamp
+		// present in any series becomes a column in all of them (missing -> zero), so
+		// HistoryTimes[i] indexes the same moment in every array.
+		for inst, steps := range byTS {
+			tss := make([]int64, 0, len(steps))
+			for ts := range steps {
+				tss = append(tss, ts)
+			}
+			sort.Slice(tss, func(i, j int) bool { return tss[i] < tss[j] })
+			f := get(inst)
+			f.HistoryTimes = tss
+			f.GatewayHistory = make([]GatewayHistorySample, 0, len(tss))
+			f.SandboxHistory = make([]float64, 0, len(tss))
+			f.UserHistory = make([]float64, 0, len(tss))
+			f.LoginsHistory = make([]float64, 0, len(tss))
+			for _, ts := range tss {
+				pt := steps[ts]
+				f.GatewayHistory = append(f.GatewayHistory, pt.gw)
+				f.SandboxHistory = append(f.SandboxHistory, pt.sandbox)
+				f.UserHistory = append(f.UserHistory, pt.users)
+				f.LoginsHistory = append(f.LoginsHistory, pt.logins)
+			}
+		}
 	}
 
 	// Rate/error/p95 triples keyed by k8s_namespace_name.

@@ -216,6 +216,32 @@ export const messages = defineMessages({
     description:
       "Freshness indicator when the server is serving a last-good value.",
   },
+  historyAsOf: {
+    id: "fleet.map.history.asOf",
+    defaultMessage: "As of {time}",
+    description:
+      "Label above the population tiles showing the date/time of the history sample currently under the shared cursor.",
+  },
+  historyCursorGroup: {
+    id: "fleet.map.history.cursorGroup",
+    defaultMessage:
+      "Population history over the last day. Use the left and right arrow keys to inspect past values, Home and End for the oldest and newest, and Escape to clear.",
+    description:
+      "Accessible name for the interactive population-tiles region that hosts the shared temporal cursor.",
+  },
+  historyCursorHint: {
+    id: "fleet.map.history.cursorHint",
+    defaultMessage: "Hover or use arrow keys to inspect history",
+    description:
+      "Subtle hint shown above the population tiles when the shared cursor is not engaged.",
+  },
+  historyReadout: {
+    id: "fleet.map.history.readout",
+    defaultMessage:
+      "{time}: {sandboxes} sandboxes, {users} users, {logins} logins in the last 7 days",
+    description:
+      "Screen-reader announcement of the population values at the history sample under the shared cursor.",
+  },
   infoDigest: {
     id: "fleet.map.info.digest",
     defaultMessage:
@@ -242,6 +268,12 @@ export const messages = defineMessages({
     description:
       "Help tooltip for the Proposed (incoming) release field in the detail panel.",
   },
+  infoLogins: {
+    id: "fleet.map.info.logins",
+    defaultMessage:
+      "Distinct users who signed in to this instance at least once in the last 7 days - a rolling measure of active usage, not the total account count.",
+    description: "Help tooltip for the Logins tile in the detail panel.",
+  },
   infoPromotion: {
     id: "fleet.map.info.promotion",
     defaultMessage:
@@ -265,6 +297,12 @@ export const messages = defineMessages({
     defaultMessage:
       "Argo CD sync state of this instance's Application. Synced = the live cluster matches the desired Git manifests; OutOfSync = it has drifted or a change is pending.",
     description: "Help tooltip for the Sync field in the detail panel.",
+  },
+  infoUsers: {
+    id: "fleet.map.info.users",
+    defaultMessage:
+      "Total registered user accounts for this instance, whether or not they have signed in recently.",
+    description: "Help tooltip for the Users tile in the detail panel.",
   },
   legendFailed: {
     id: "fleet.map.legend.failed",
