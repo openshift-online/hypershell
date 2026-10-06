@@ -562,7 +562,7 @@ The functional suite SHALL exploit the following parallelization levers, all bou
 
 6. **Background orphan reaper.** In long mode, the periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
 
-The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
+The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per selected healthy cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
 
 7. **Collision-free naming, capacity, and determinism.** Every concurrently-created gateway SHALL have a unique name (`<step-id>-<runid>`), so parallel units never collide and cleanup is a prefix match. Because parallel own-gateway steps multiply the peak gateway count, the suite SHALL document that a small Kind cluster may need a lower `E2E_CONCURRENCY`; the default of `4` SHALL be safe on a typical Kind cluster, and larger clusters MAY raise it. Reporting SHALL remain deterministic despite parallel subtests: the final summary SHALL list steps in canonical phase order (P0.1, P0.2, P1.1, ...) regardless of completion order.
 
@@ -1480,35 +1480,45 @@ The refactored deploy structure SHALL maintain backward compatibility with exist
 
 ### Requirement: E2E-CORE-30 -- Managed-Cluster Matrix Runner
 
-The system SHALL provide a Go matrix runner (`TestMatrix`, run via `make e2e-matrix`) that enumerates registered ManagedClusters and runs the single-cluster `E2ESuite` once per cluster, then reports a per-cluster pass/fail/skip matrix and a single gate verdict. The runner SHALL add no new test assertions; it reuses the suite verbatim. Unlike the former Bash matrix (which ran each cluster as a separate child process to isolate process-global counters), the Go runner SHALL run each cluster as its own `E2ESuite` instance with its own per-suite state, fanned out as bounded goroutines (see [Concurrency Model](#requirement-concurrency-model)); there SHALL be no shared mutable counter across clusters.
+`TestMatrix` SHALL list the ManagedCluster records in the environment and report an outcome for every selected record. All records are selected by default; `E2E_MANAGED_CLUSTERS` MAY narrow the run to an explicit allowlist. The matrix SHALL run the existing `E2ESuite` exactly once for each selected cluster that is registered and Healthy.
 
-The only matrix dimension SHALL be the fleet of registered ManagedClusters, discovered from `GET /v1/managed_clusters` (registered = non-empty `oidc_subject`). The runner SHALL NOT matrix over drivers or infra types: it selects one `E2EInfraDriver` exactly as the single-cluster suite does and fans that selection across clusters. The matrix SHALL default to `E2E_MODE=short` (the smoke subset the gate runs) when `E2E_MODE` is unset -- overriding the suite's own `long` default, since the matrix is a promotion/smoke gate -- but SHALL forward any `E2E_MODE` the caller sets (`long`, or `perf` depth when driven by the harness) to each cluster's suite unchanged.
+```text
+for mc in GET /managed_clusters:
+    if mc is unregistered or unhealthy:
+        report FAIL, or SKIP when E2E_MANAGED_SKIP_UNHEALTHY=1
+        continue
+    suite = E2ESuite { targetClusterID: mc.id }
+    run suite
+```
 
-The runner SHALL bound parallelism with `E2E_CONCURRENCY` (default `4`; `1` forces sequential). Each per-cluster suite SHALL own a uniquely named gateway (`${E2E_MANAGED_GATEWAY_PREFIX}-<cluster>-<runid>`, prefix default `e2e`) and SHALL tear it down regardless of outcome, so parallel clusters never collide. The runner SHALL resolve each cluster's `cluster_id` by name and pass it to that cluster's suite. A product-interface run (API + gRPC) SHALL be the baseline and SHALL need no kubeconfig; kube-level steps (P1.2 infra verification, P2.3 GC) SHALL run for a cluster only when `E2E_MANAGED_KUBECONTEXT_<name>` is supplied, and SHALL otherwise `t.Skip` (never fail) for that cluster.
+`TestMatrix` SHALL configure each `E2ESuite` with `mc.id` as its target cluster. Every positive workflow or provisioning gateway create that is expected to bind successfully SHALL use the existing pinned `cluster_id` contract defined by PLAT-DATA-02 and PLAT-CLUS-09, and SHALL include `cluster_id: mc.id`. After each such create, the suite SHALL assert that the response contains the same `cluster_id` before continuing that gateway's workflow. These positive creates SHALL NOT use selector placement, random placement, or a fallback cluster.
 
-The runner SHALL fail closed: an unregistered, stale (`last_seen_at` beyond `E2E_MANAGED_HEALTHY_WINDOW`, default `5m`), or unreachable cluster SHALL be a failure by default; `E2E_MANAGED_SKIP_UNHEALTHY=1` SHALL downgrade it to a skip. A skip SHALL never count as a pass. The runner SHALL print a per-cluster result table (name, health, pass/fail/skip, child tally) and a single overall verdict; per-cluster output SHALL be captured and attributed, not interleaved. `go test` SHALL exit non-zero if any selected cluster failed and zero only when every selected cluster passed or was skipped; a partial or aborted run SHALL NOT report a clean gate. `E2E_MANAGED_CLUSTERS` SHALL be an optional allowlist (unset = all registered; allowlist only, no denylist). This gate is consumed by Argo CD release analysis and GitOps Promoter promotion gates in the gitops repo. Renovate supplies the selected release bundle.
+Contract-negative creates and late-binding probes SHALL retain the request shape required by the behavior they verify. In particular, P2.4 SHALL continue to send its unregistered `cluster_id`, its empty `cluster_id` with no placement, and its placement selector with no `cluster_id`; the matrix target SHALL NOT be injected into those requests, and a successful late-bound response SHALL NOT be required to resolve to `mc.id`. A selected record with an empty `oidc_subject`, or whose `last_seen_at` is outside `E2E_MANAGED_HEALTHY_WINDOW`, SHALL be reported without constructing or running `E2ESuite`.
 
-#### Scenario: E2E-CORE-30.01 -- Suite Reused Per Cluster
+#### Scenario: E2E-CORE-30.01 -- Suite runs against every selected healthy cluster
 
-- GIVEN three registered ManagedClusters
-- WHEN `make e2e-matrix` runs with `E2E_MODE=short` and `E2E_CONCURRENCY=2`
-- THEN the runner SHALL run `E2ESuite` once per cluster, at most two at a time
-- AND each cluster's suite SHALL own a uniquely named gateway and tear it down
-- AND no assertion beyond the single-cluster suite SHALL be added
+- GIVEN `GET /managed_clusters` returns registered Healthy clusters `A` and `B`
+- WHEN `TestMatrix` runs
+- THEN it SHALL configure one `E2ESuite` with target cluster `A` and one with target cluster `B`
+- AND every positive workflow or provisioning create from the suite targeting `A` SHALL include `cluster_id: "A"` and verify the response has `cluster_id: "A"`
+- AND every positive workflow or provisioning create from the suite targeting `B` SHALL include `cluster_id: "B"` and verify the response has `cluster_id: "B"`
+- AND neither suite SHALL place a positive-workflow gateway on any other cluster
+- AND each suite SHALL preserve the contract-negative and late-binding request shapes exercised by P2.4
 
-#### Scenario: E2E-CORE-30.02 -- Unhealthy Cluster Fails Closed
+#### Scenario: E2E-CORE-30.02 -- Unhealthy cluster fails or skips explicitly
 
-- GIVEN a registered cluster whose `last_seen_at` is older than `E2E_MANAGED_HEALTHY_WINDOW`
-- WHEN the matrix runs with `E2E_MANAGED_SKIP_UNHEALTHY` unset
-- THEN that cluster SHALL be reported as a failure and the overall verdict SHALL be non-zero
-- AND with `E2E_MANAGED_SKIP_UNHEALTHY=1` it SHALL be reported as a skip, not a pass
+- GIVEN a selected ManagedCluster is unregistered or not Healthy
+- WHEN `TestMatrix` evaluates that cluster
+- THEN it SHALL NOT create a gateway or run `E2ESuite` for that cluster
+- AND it SHALL report FAIL by default
+- OR it SHALL report SKIP when `E2E_MANAGED_SKIP_UNHEALTHY=1`
 
-#### Scenario: E2E-CORE-30.03 -- Missing Kube Context Degrades To Skip
+#### Scenario: E2E-CORE-30.03 -- Missing Kubernetes context skips Kubernetes checks
 
-- GIVEN a healthy cluster for which `E2E_MANAGED_KUBECONTEXT_<name>` is not supplied
-- WHEN that cluster's suite reaches the kube-level steps (P1.2 and P2.3)
-- THEN those steps SHALL `t.Skip` with a reason
-- AND the product-interface steps SHALL still run and be asserted
+- GIVEN a selected registered Healthy cluster has no `E2E_MANAGED_KUBECONTEXT_<name>` mapping
+- WHEN `E2ESuite` runs for that cluster
+- THEN API-level steps SHALL still run
+- AND Kubernetes-level steps SHALL report SKIP rather than use another cluster's context
 
 ### Requirement: E2E-CORE-31 -- Shell Suite Removal
 
