@@ -259,6 +259,21 @@ type SandboxClusterCount struct {
 	Count          int    `json:"count"`
 }
 
+// managedClusterUnknown buckets samples whose managed_cluster label is absent or
+// empty. During rollout (before the api-server emits the label) a blank value maps
+// here, matching the api-server collector's own "unknown" bucket so the BFF
+// breakdown stays consistent with the metric source.
+const managedClusterUnknown = "unknown"
+
+// managedClusterOrUnknown normalizes a managed_cluster label value, mapping the
+// empty string to managedClusterUnknown.
+func managedClusterOrUnknown(mc string) string {
+	if mc == "" {
+		return managedClusterUnknown
+	}
+	return mc
+}
+
 // ClusterGatewayCount is one managed cluster's (spoke's) gateway counts within an
 // instance: ManagedCluster is the spoke name (managed_cluster label), Gateways is
 // phase->count, and Total is their sum.
@@ -340,7 +355,7 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 			instKey := r.Metric[p.instLabel]
 			f := get(instKey)
 			phase := strings.ToLower(r.Metric["phase"])
-			mc := r.Metric[p.managedClusterLabel]
+			mc := managedClusterOrUnknown(r.Metric[p.managedClusterLabel])
 			n := int(sampleValue(r.Value))
 			f.Gateways[phase] += n
 			f.GatewaysTotal += n
@@ -412,7 +427,7 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 			n := int(sampleValue(r.Value))
 			f.SandboxesByCluster = append(f.SandboxesByCluster, SandboxClusterCount{
 				Cluster:        r.Metric[p.clusterLabel],
-				ManagedCluster: r.Metric[p.managedClusterLabel],
+				ManagedCluster: managedClusterOrUnknown(r.Metric[p.managedClusterLabel]),
 				Count:          n,
 			})
 			f.Sandboxes += n

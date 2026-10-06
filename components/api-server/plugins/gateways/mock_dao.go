@@ -105,17 +105,12 @@ func (d *gatewayDaoMock) CountByPhase(ctx context.Context) (map[string]int64, er
 	return counts, nil
 }
 
-func (d *gatewayDaoMock) SumActiveSandboxCount(ctx context.Context) (int64, error) {
-	var total int64
-	for _, gw := range d.gateways {
-		total += int64(derefCount(gw.ActiveSandboxCount))
-	}
-	return total, nil
-}
-
 // CountByClusterAndPhase groups by the gateway's cluster_id as a stand-in for the
 // resolved ManagedCluster name (the mock has no registry to join against); a blank
-// cluster_id buckets to managedClusterUnknown.
+// cluster_id buckets to managedClusterUnknown. NOTE: the real COALESCE(mc.name,
+// 'unknown') + LEFT JOIN managed_clusters ... AND mc.deleted_at IS NULL resolution
+// lives in the sqlGatewayDao and is only exercised by live-DB (integration) tests,
+// not these mock-backed unit tests.
 func (d *gatewayDaoMock) CountByClusterAndPhase(ctx context.Context) ([]ClusterPhaseCount, error) {
 	byCluster := map[string]map[string]int64{}
 	for _, gw := range d.gateways {

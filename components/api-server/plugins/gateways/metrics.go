@@ -81,6 +81,15 @@ func (c *gatewayCollector) Collect(ch chan<- prometheus.Metric) {
 		phases[r.Phase] += r.Count
 	}
 
+	// Zero-fleet baseline: with no gateways at all there is no spoke to attribute,
+	// but fleet-wide panels (sum(hypershell_gateways_total{phase="Running"}),
+	// sum by (phase) (...)) should still read 0 rather than "No data". Emit the
+	// canonical phases (and "other") at 0 under the "unknown" bucket so a freshly
+	// deployed/empty hub keeps the pre-attribution zero baseline.
+	if len(byCluster) == 0 {
+		byCluster[managedClusterUnknown] = map[string]int64{}
+	}
+
 	for cluster, counts := range byCluster {
 		// Always emit the canonical phases per spoke so graphs never have gaps.
 		for _, phase := range gatewayhealth.PhaseStrings() {
