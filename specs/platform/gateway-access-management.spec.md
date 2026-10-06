@@ -119,7 +119,7 @@ Each grant item SHALL expose:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `role_binding_id` | string | The backing RoleBinding id; used by change/revoke |
+| `role_binding_id` | string | The backing RoleBinding id; informational only. Change (GAM-05) and revoke (GAM-06) are keyed by `user_id` in the URL and operate on all of that user's bindings on the gateway, not by `role_binding_id` |
 | `user_id` | string | HyperShell User id |
 | `username` | string | `User.username` (= Keycloak `preferred_username`); the console "User ID" column |
 | `name` | string | `User.name` display name, when present; the console "User name" column |
@@ -158,7 +158,9 @@ The API server SHALL expose `POST /api/hypershell/v1/gateways/{gateway_id}/acces
 
 The request SHALL identify the target user by a directory identity (`username`, or an equivalent Keycloak subject reference returned by GAM-09) and a `role` of `owner`, `admin`, or `user`. Granting `owner` SHALL create a `gateway:owner` binding; granting `admin` SHALL create a `gateway:admin` binding; granting `user` SHALL create a `gateway:viewer` binding. Granting (or changing to) the `owner` tier SHALL require the caller to be a `gateway:owner` (GAM-08); `gateway:admin` callers SHALL NOT assign owners.
 
-When the target identity has no existing HyperShell `User` record, the API server SHALL **pre-provision** one from the Keycloak directory record (upsert keyed on `username`, populating `username`, `email`, and `name`) before creating the binding, so the binding references a real `user_id` and the Role Bridge can resolve the Keycloak user by username. Pre-provisioning SHALL use the same upsert semantics as JWT auto-provisioning (`security/rbac-enforcement.spec.md`) and SHALL NOT expand the public users API, which remains read-only (`registered-users.spec.md`).
+The target identity SHALL be resolved against the Keycloak realm directory before any binding is created. If the identity does not correspond to a user in the realm, the request SHALL be rejected with `404 Not Found` and a clear error (the person must exist in the realm to be granted access); no `User` record SHALL be pre-provisioned and no binding SHALL be created. Resolution SHALL reuse the directory projection / lookup of GAM-09.
+
+When the target identity resolves to a realm user that has no existing HyperShell `User` record, the API server SHALL **pre-provision** one from the Keycloak directory record (upsert keyed on `username`, populating `username`, `email`, and `name`) before creating the binding, so the binding references a real `user_id` and the Role Bridge can resolve the Keycloak user by username. Pre-provisioning SHALL use the same upsert semantics as JWT auto-provisioning (`security/rbac-enforcement.spec.md`) and SHALL NOT expand the public users API, which remains read-only (`registered-users.spec.md`).
 
 Granting SHALL be idempotent with respect to the effective role (GAM-10). On success the endpoint SHALL return the resulting grant item (GAM-03 shape).
 
@@ -195,13 +197,22 @@ Granting SHALL be idempotent with respect to the effective role (GAM-10). On suc
 - WHEN a caller posts an access grant with a role that is not `owner`, `admin`, or `user`
 - THEN the request SHALL be rejected with `400`
 
+#### Scenario: Grant to a user not in the realm is rejected
+
+- GIVEN identity `ghost` does not exist in the Keycloak realm
+- WHEN an owner of gw-1 grants `ghost` any role
+- THEN the request SHALL be rejected with `404` and a clear error
+- AND no `User` record SHALL be pre-provisioned and no binding SHALL be created for `ghost`
+
 ---
 
 ### Requirement: GAM-05 -- Change Role
 
 The API server SHALL expose `PATCH /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` to change a user's access among `owner`, `admin`, and `user`.
 
-The change SHALL be atomic: the user SHALL NOT be left with zero gateway access or with conflicting bindings at any observable point. The server SHALL converge the user's gateway bindings to exactly the requested tier (a single `gateway:owner`, `gateway:admin`, or `gateway:viewer` binding) within one transaction, emitting watch events such that the Role Bridge reconciles to the correct Keycloak client-role union (GAM-02).
+The change SHALL be atomic: the user SHALL NOT be left with zero gateway access or with conflicting bindings at any observable point. The server SHALL converge the user's gateway bindings to exactly the requested tier (a single `gateway:owner`, `gateway:admin`, or `gateway:viewer` binding) within one transaction.
+
+**Mechanism.** When the user holds a single binding on the gateway (the normal case under GAM-10), the change SHALL be implemented by updating that `RoleBinding`'s `role_id` **in place**, emitting one `RoleBinding` `UPDATED` watch event -- not delete-then-create -- so there is no window in which the user has no binding. The generic `role_bindings` REST resource remains create/delete-only publicly (`data-model.spec.md`); the in-place role change is an internal mutation performed by the access facade / service layer, and the control plane's Role Bridge handles the `UPDATED` event by reconciling to the client-role union (GAM-02, `openshell-gateway-keycloak.spec.md`). The reconcile is union-based and reads live bindings, so it remains correct even if an implementation instead converges by adjusting individual bindings.
 
 Promoting a user to `owner`, or demoting a user from `owner`, SHALL require the caller to be a `gateway:owner` (GAM-08). Demoting an owner SHALL be rejected if that owner is the last remaining owner (GAM-07). Changing to a role the user already holds SHALL be a no-op success (GAM-10).
 
@@ -268,6 +279,8 @@ A gateway SHALL always have at least one `gateway:owner`. The access facade SHAL
 - Revoking (`DELETE`) a user who is the only remaining owner SHALL be rejected with `409 Conflict`.
 - Demoting (`PATCH` to `admin` or `user`) a user who is the only remaining owner SHALL be rejected with `409 Conflict`.
 
+Each `409` response SHALL carry a detailed, human-readable error message explaining the constraint -- that a gateway must retain at least one owner and that another owner must be assigned before this one can be demoted or removed -- so the caller (CLI or console) can surface actionable guidance rather than a bare status code.
+
 These rejections SHALL apply regardless of the caller, including an owner acting on themselves. When more than one owner exists, any owner (including the creator) MAY be demoted or revoked by an owner. Ownership is therefore shared and transferable: the creator is not uniquely protected once another owner exists; it is the **last owner** that cannot be removed.
 
 The creator (the auto-provisioned first owner) is retained as `is_creator` for display and audit only and SHALL NOT, by itself, confer immutability.
@@ -319,17 +332,19 @@ Granting, changing, and revoking access (GAM-04, GAM-05, GAM-06) and searching t
 
 The API server SHALL expose `GET /api/hypershell/v1/gateways/{gateway_id}/access/directory?search=` returning candidate users from the configured Keycloak realm for the "Add users" picker.
 
-Each candidate SHALL expose `username`, `name`, and `email`, and SHALL be usable as the target identity of a grant (GAM-04). Candidates SHALL include realm users who have never signed in to HyperShell (the search is against the Keycloak directory, not the HyperShell users inventory).
+Each candidate SHALL expose `username`, `name`, and `email`, and SHALL be usable as the target identity of a grant (GAM-04). Candidates SHALL include realm users who have never signed in to HyperShell (the directory is the Keycloak realm, not the HyperShell users inventory).
 
-Because the API server SHALL NOT read the `hypershell-keycloak-admin` Secret (`openshell-gateway-keycloak.spec.md`), the API server SHALL obtain directory results from the control plane over the existing in-cluster gRPC path used for Keycloak-backed provisioning. The control plane SHALL query the Keycloak Admin REST API realm user search and return candidates. Results SHALL be bounded (paginated/capped) and the search SHALL require a non-trivial query term to avoid enumerating the entire realm in one call.
+**Backing store.** Rather than issuing a live Keycloak Admin REST query on every keystroke, the directory SHALL be served from a **control-plane-maintained projection of realm users** that the control plane refreshes periodically (and MAY refresh on demand). The control plane -- which holds the `hypershell-keycloak-admin` Secret and already runs reconcile loops -- SHALL periodically list realm users via the Keycloak Admin REST API and persist a directory projection (`username`, `name`, `email`, Keycloak subject) that the API server reads and filters for this endpoint. The API server SHALL NOT read the `hypershell-keycloak-admin` Secret (`openshell-gateway-keycloak.spec.md`). This keeps search fast and resilient to transient Keycloak unavailability; the tradeoff is bounded staleness equal to the refresh interval. Because the projection may be stale, grant (GAM-04) SHALL re-validate the chosen identity against the realm at grant time and reject unknown users (`404`). The refresh interval SHALL be configuration, not code (`specs/standards/`), and newly added realm users become selectable within one refresh cycle. Results SHALL be bounded (paginated/capped); the search SHALL apply the query term server-side against the projection.
 
 Authorization SHALL follow GAM-08 (owner or admin on the gateway).
 
-#### Scenario: Directory search returns realm users
+#### Scenario: Directory search returns realm users from the projection
 
 - GIVEN the realm contains users `dana` and `dale`, neither registered in HyperShell
+- AND the control plane has refreshed the directory projection
 - WHEN an admin of gw-1 calls `GET /api/hypershell/v1/gateways/gw-1/access/directory?search=da`
 - THEN the response SHALL include candidates for `dana` and `dale` with `username` and `name`
+- AND the API server SHALL serve them from the projection without a live Keycloak call
 
 #### Scenario: Directory search requires access management authorization
 
@@ -420,9 +435,9 @@ The directory search (GAM-09) is a deliberate exception to the CLI mirror: it se
 
 ### Requirement: GAM-14 -- Verification
 
-The API server SHALL include integration tests covering: enriched access list with search and role filter across all three tiers; grant (owner, admin, user) to a registered user and to a never-signed-in directory user (pre-provisioning); atomic role change (promote and demote, including to/from owner) with no zero-access window; revoke; last-owner-protection rejections (`409`) for demoting or revoking the sole owner; owner-tier authorization (a non-owner admin assigning, demoting, or revoking an owner returns `403`); management authorization (viewer `403`, admin allowed for admin/user tiers, non-member `404`); directory-search authorization; and idempotent re-grant.
+The API server SHALL include integration tests covering: enriched access list with search and role filter across all three tiers; grant (owner, admin, user) to a registered user and to a never-signed-in directory user (pre-provisioning); grant to an identity absent from the realm rejected with `404` and no pre-provision/binding; atomic role change (promote and demote, including to/from owner) implemented as an in-place `role_id` update (single `UPDATED` event) with no zero-access window; revoke; last-owner-protection rejections (`409`) for demoting or revoking the sole owner, asserting the response carries a descriptive message; owner-tier authorization (a non-owner admin assigning, demoting, or revoking an owner returns `403`); management authorization (viewer `403`, admin allowed for admin/user tiers, non-member `404`); directory-search authorization and serving from the control-plane projection; and idempotent re-grant.
 
-The control plane SHALL include tests covering the `gateway:owner` and `gateway:admin` bridge mappings and reconcile-to-union on create, update, and delete (including demotion stripping `openshell-admin` while retaining `openshell-user`).
+The control plane SHALL include tests covering the `gateway:owner` and `gateway:admin` bridge mappings and reconcile-to-union on create, update, and delete (including demotion stripping `openshell-admin` while retaining `openshell-user`), and the periodic directory-projection refresh.
 
 The `hsctl` CLI SHALL include tests covering the access commands (GAM-13), including a last-owner-protection failure surfacing as a non-zero exit.
 
