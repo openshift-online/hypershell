@@ -4,7 +4,7 @@
 **Status:** Draft
 **Applies to:** `packages/gateway-management-ui` (gateway detail pages, application ports, probes), `components/web-console` (host routes, API adapter, composition root, BFF)
 **Parent:** `web-console/architecture.spec.md` -- console stack and trust boundaries
-**Related:** `platform/gateway-access-management.spec.md` -- the access API, roles, directory search, and creator protection this surface consumes; `web-console/user_flows.md` -- "Sharing a team gateway"; `standards/ui/hexagonal-architecture.spec.md`, `standards/ui/patternfly.spec.md`, `standards/ui/domain-observability.spec.md`, `standards/ui/interaction.spec.md`, `standards/ui/content-localization.spec.md`, `standards/ui/accessibility.spec.md`
+**Related:** `platform/gateway-access-management.spec.md` -- the access API, roles, directory search, and last-owner protection this surface consumes; `web-console/user_flows.md` -- "Sharing a team gateway"; `standards/ui/hexagonal-architecture.spec.md`, `standards/ui/patternfly.spec.md`, `standards/ui/domain-observability.spec.md`, `standards/ui/interaction.spec.md`, `standards/ui/content-localization.spec.md`, `standards/ui/accessibility.spec.md`
 
 ---
 
@@ -41,25 +41,25 @@ Each row SHALL show:
 | --- | --- |
 | User name | `name` (display name) |
 | User ID | `username` |
-| Role | `role` (`admin` or `user`), rendered as an inline control per GAM-UI-05 |
+| Role | `role` (`owner`, `admin`, or `user`), rendered as an inline control per GAM-UI-05 |
 | (row action) | Remove access per GAM-UI-06 |
 
-The creator's row (`is_creator: true`) SHALL be clearly indicated (for example a "Creator" marker) and its role control and remove action SHALL be disabled with an accessible explanation (GAM-UI-08).
+The creator's row (`is_creator: true`) SHALL be indicated (for example a "Creator" marker) for context; this is informational and does not by itself lock the row. A row's role control and remove action SHALL be disabled with an accessible explanation when the server would reject the action (GAM-UI-08): the user is the last remaining owner, or the current caller is not an owner and the row is an owner.
 
 The table SHALL show localized empty, loading, no-results, and error states and SHALL expose a manual refresh consistent with other gateway resource tables.
 
 #### Scenario: Access rows render user name, user ID, and role
 
-- GIVEN the access list returns a creator, one admin, and one user
+- GIVEN the access list returns an owner (the creator), another owner, one admin, and one user
 - WHEN the table renders
-- THEN each row SHALL show the display name, username, and role
-- AND the creator's row SHALL be marked and its controls disabled
+- THEN each row SHALL show the display name, username, and role (Owner/Admin/User)
+- AND the creator's row SHALL carry the Creator marker
 
 ---
 
 ### Requirement: GAM-UI-03 -- Search and Role Filter
 
-The table toolbar SHALL provide a **Find people...** search input and a **role** filter (All, Admin, User).
+The table toolbar SHALL provide a **Find people...** search input and a **role** filter (All, Owner, Admin, User).
 
 Search SHALL be debounced, SHALL cancel superseded in-flight requests, SHALL treat the entered text as a literal, and SHALL issue a bounded number of requests. Search and the role filter SHALL be applied server-side via the access list query (GAM-03). A localized no-results state SHALL offer clearing the filters.
 
@@ -91,23 +91,28 @@ Selecting a candidate SHALL open the role assignment modal (GAM-UI-05) for that 
 
 ### Requirement: GAM-UI-05 -- Role Assignment and Change
 
-Assigning a role to a newly selected user SHALL use a modal containing a **radio list** of the two roles, **User** and **Admin**, each with a short localized description. Confirming SHALL grant the selected role (GAM-04) and, on success, close the modal and refresh the access list.
+Assigning a role to a newly selected user SHALL use a modal containing a **radio list** of the roles the current caller may assign, each with a short localized description. Owners SHALL see **User**, **Admin**, and **Owner**; admins (non-owners) SHALL see only **User** and **Admin** (the Owner option SHALL be absent or disabled with an explanation, per GAM-08). Confirming SHALL grant the selected role (GAM-04) and, on success, close the modal and refresh the access list.
 
-Changing an existing grant's role SHALL use the inline role control in that row (GAM-UI-02). Selecting a different role SHALL change the user's access (GAM-05). The change SHALL reflect in the row on success.
+Changing an existing grant's role SHALL use the inline role control in that row (GAM-UI-02), offering the same role set the caller may assign. Selecting a different role SHALL change the user's access (GAM-05). The change SHALL reflect in the row on success.
 
 Role submissions SHALL disable their confirm/select control while in flight and SHALL surface a localized error (keeping the user's selection) on failure.
 
-#### Scenario: Assign a role via the radio modal
+#### Scenario: Owner assigns the Owner role via the radio modal
 
-- GIVEN an administrator selected `dana` from the directory picker
-- WHEN the role modal shows **User** and **Admin** radio options and the administrator chooses **Admin** and confirms
-- THEN `dana` SHALL be granted admin access
-- AND the modal SHALL close and the access list SHALL show `dana` as Admin
+- GIVEN an owner selected `dana` from the directory picker
+- WHEN the role modal shows **User**, **Admin**, and **Owner** radio options and the owner chooses **Owner** and confirms
+- THEN `dana` SHALL be granted owner access
+- AND the modal SHALL close and the access list SHALL show `dana` as Owner
+
+#### Scenario: Admin does not see the Owner option
+
+- GIVEN a non-owner admin opens the role modal or inline role control
+- THEN only **User** and **Admin** SHALL be selectable (no Owner option)
 
 #### Scenario: Change a role inline
 
 - GIVEN `dana` currently has **Admin**
-- WHEN an administrator changes `dana`'s row role to **User**
+- WHEN an owner changes `dana`'s row role to **User**
 - THEN `dana`'s access SHALL change to user
 - AND the row SHALL show **User** on success
 
@@ -115,13 +120,13 @@ Role submissions SHALL disable their confirm/select control while in flight and 
 
 ### Requirement: GAM-UI-06 -- Remove Access
 
-Each non-creator row SHALL offer a **Remove access** action that opens a confirmation modal (reusing the lifecycle-dialog pattern) and, on confirm, revokes the grant (GAM-06), then closes and refreshes the list.
+Each row the caller may manage SHALL offer a **Remove access** action that opens a confirmation modal (reusing the lifecycle-dialog pattern) and, on confirm, revokes the grant (GAM-06), then closes and refreshes the list. The action SHALL be disabled per GAM-UI-07 (owner rows for non-owners) and GAM-UI-08 (last owner).
 
-The confirmation SHALL name the user being removed. Removing one's own non-creator access SHALL be permitted.
+The confirmation SHALL name the user being removed. Removing one's own access SHALL be permitted unless the caller is the last remaining owner (GAM-UI-08). Removing an owner SHALL be offered only to owners.
 
 #### Scenario: Remove a user's access with confirmation
 
-- GIVEN `dana` has access to the gateway and is not the creator
+- GIVEN `dana` has User access to the gateway
 - WHEN an administrator removes `dana` and confirms
 - THEN `dana`'s access SHALL be revoked
 - AND the access list SHALL no longer include `dana`
@@ -132,6 +137,8 @@ The confirmation SHALL name the user being removed. Removing one's own non-creat
 
 Access management controls (Add users, the inline role control, and Remove access) SHALL be presented only to callers the server authorizes to manage access (gateway owner or admin, GAM-08). Viewers SHALL see the access list read-only, without those controls.
 
+Controls that touch the **Owner tier** -- assigning the Owner role, or changing/removing a user who is an owner -- SHALL be offered only to owner callers; for non-owner admins these SHALL be absent or disabled with an accessible explanation.
+
 The console SHALL rely on server authorization as the source of truth: it SHALL handle `403` and `409` responses with localized messaging and SHALL NOT present a management outcome the server rejected as if it succeeded.
 
 #### Scenario: Viewer sees a read-only list
@@ -140,17 +147,29 @@ The console SHALL rely on server authorization as the source of truth: it SHALL 
 - WHEN the list renders
 - THEN no Add users, role-change, or Remove access controls SHALL be offered
 
+#### Scenario: Admin cannot act on owner rows
+
+- GIVEN a non-owner admin opens the Manage access tab
+- WHEN the table renders
+- THEN owner rows SHALL have their role control and Remove access action disabled with an accessible reason
+
 ---
 
-### Requirement: GAM-UI-08 -- Creator Protection in the UI
+### Requirement: GAM-UI-08 -- Last-Owner Protection in the UI
 
-The creator's row SHALL disable the role control and the Remove access action, with an accessible explanation that the gateway creator cannot be removed or demoted (GAM-07). This mirrors the server guarantee rather than replacing it; if the server rejects a creator mutation with `409`, the console SHALL surface a localized explanation.
+When a user is the **last remaining owner**, that row's role control and Remove access action SHALL be disabled with an accessible explanation that a gateway must keep at least one owner (GAM-07). This mirrors the server guarantee rather than replacing it; if the server rejects a mutation with `409`, the console SHALL surface a localized explanation. When more than one owner exists, owner rows SHALL be demotable/removable by owner callers.
 
-#### Scenario: Creator controls are disabled
+#### Scenario: Sole owner controls are disabled
 
-- GIVEN the current gateway has a creator row
-- WHEN the table renders for an administrator
-- THEN the creator's role control and Remove access action SHALL be disabled with an accessible reason
+- GIVEN gw-1 has exactly one owner
+- WHEN the table renders
+- THEN that owner's role control and Remove access action SHALL be disabled with an accessible reason
+
+#### Scenario: Owner rows become actionable once a second owner exists
+
+- GIVEN gw-1 has two owners and the caller is an owner
+- WHEN the table renders
+- THEN each owner row's role control and Remove access action SHALL be enabled
 
 ---
 
@@ -164,7 +183,7 @@ The API adapter SHALL map the access endpoints (GAM-03 through GAM-09) to domain
 
 #### Scenario: An access operation emits one started and one terminal probe
 
-- WHEN a grant operation runs and the server returns `409` (creator protection)
+- WHEN a grant operation runs and the server returns `409` (last-owner protection)
 - THEN exactly one started probe and one terminal `conflicted` probe SHALL be published
 - AND no raw console or vendor telemetry SHALL be emitted
 
@@ -186,12 +205,12 @@ All user-visible strings (tab label, column headers, filter labels, **Find peopl
 
 ### Requirement: GAM-UI-11 -- Verification
 
-The gateway management UI package SHALL include unit/component tests (running the use cases against in-memory/fake adapters) covering: table rendering with creator marking and disabled creator controls; search and role filtering; the directory typeahead including a never-signed-in candidate; the radio role modal grant; inline role change; remove-access confirmation; viewer read-only presentation; and probe emission (one started + one terminal per operation, including `denied`/`conflicted`).
+The gateway management UI package SHALL include unit/component tests (running the use cases against in-memory/fake adapters) covering: table rendering with creator marking, sole-owner disabled controls, and owner rows disabled for non-owner callers; search and role filtering across the three tiers; the directory typeahead including a never-signed-in candidate; the radio role modal grant including the owner-only Owner option; inline role change; remove-access confirmation; viewer read-only presentation; and probe emission (one started + one terminal per operation, including `denied`/`conflicted`).
 
-The production API adapter SHALL have contract tests mapping the access endpoints and their error codes to domain types. Storybook/fixtures SHALL include an access list with a creator, an admin, and a user.
+The production API adapter SHALL have contract tests mapping the access endpoints and their error codes to domain types. Storybook/fixtures SHALL include an access list with two owners (one the creator), an admin, and a user.
 
-#### Scenario: CI exercises creator protection and probes in the UI
+#### Scenario: CI exercises last-owner protection and probes in the UI
 
 - WHEN the UI test suite runs
-- THEN it SHALL assert the creator's controls are disabled
-- AND assert that a server `409` on a creator mutation yields a localized message and a single terminal `conflicted` probe
+- THEN it SHALL assert the sole owner's controls are disabled
+- AND assert that a server `409` on a last-owner mutation yields a localized message and a single terminal `conflicted` probe

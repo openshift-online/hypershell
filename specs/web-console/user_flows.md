@@ -256,8 +256,8 @@ flowchart LR
 | Service accounts tab | Description, client ID, subject, and creation time | Users with service-account capability | Available in row details; never shows the client secret again |
 | Service accounts tab | Create, view setup, revoke, and delete actions | Users with the matching capability | Uses server-provided capabilities instead of the user persona |
 | Manage access tab | Access list (user name, user ID, role) | All users with gateway access | Lists who can access the gateway; read-only for viewers |
-| Manage access tab | Find people... search and role filter | All users with gateway access | Filters the access list by name/user ID and by Admin/User |
-| Manage access tab | Add users, inline role change, remove access | Gateway owners and admins | Manage who has access and at what role; the creator row is locked |
+| Manage access tab | Find people... search and role filter | All users with gateway access | Filters the access list by name/user ID and by Owner/Admin/User |
+| Manage access tab | Add users, inline role change, remove access | Gateway owners and admins | Manage who has access and at what role; only owners assign/remove owners, and the last owner is locked |
 | Details tab | Active sandbox count | All users with gateway access | Shows current gateway use |
 | Details tab | Cluster or placement | Developers and Admin | Useful for support and troubleshooting |
 | Details tab | Endpoint | Developers and Admin | Raw value used by clients and support workflows |
@@ -360,7 +360,7 @@ flowchart LR
 ### decisions
  - Access is granted to **individual users** from the Keycloak realm directory. Identity-provider **group** access remains out of scope (see `platform/gateway-access-management.spec.md` Non-Goals).
  - **Gateway owners and gateway admins** can add, change, and remove access. Viewers see the list read-only.
- - Roles are **Admin** and **User** (mapping to `gateway:admin`/`gateway:viewer`). The creator is `gateway:owner`, shown as Admin, and cannot be removed or demoted.
+ - Roles are **Owner**, **Admin**, and **User** (mapping to `gateway:owner`/`gateway:admin`/`gateway:viewer`), a hierarchy Owner > Admin > Viewer. Owners can delete the gateway and assign other owners; admins manage Admin/User only. A gateway always keeps at least one owner (the last owner cannot be removed or demoted). The creator is the first owner, marked for context.
 
 ### Page: Manage access
 
@@ -371,9 +371,9 @@ This is the **Manage access** tab on Gateway details (next to Connection). It is
 | User name and user ID | Team users with gateway access | Shows each person's display name and username (the user ID column) |
 | Find people... search | Team users with gateway access | Filters the access list by name or user ID |
 | Role filter | Team users with gateway access | Filters the list to Admin or User |
-| Role | Team users with gateway access | Shows Admin or User; owners and admins can change it inline. The creator row is marked and its role is locked |
+| Role | Team users with gateway access | Shows Owner, Admin, or User; owners change any role, admins change Admin/User. The last owner's role is locked |
 | Add users (directory picker) | Gateway owners and admins | Searches the Keycloak realm directory (including users who have never signed in) and opens a role modal |
-| Remove access | Gateway owners and admins | Requires confirmation. The creator cannot be removed |
+| Remove access | Gateway owners and admins | Requires confirmation. Only owners remove owners; the last owner cannot be removed |
 | Error and recovery guidance | Gateway owners and admins | Keeps the selected identity and role when a request fails |
 
 ```mermaid
@@ -388,7 +388,7 @@ flowchart LR
     manage --> owner{"Owner or admin?"}
     owner -- No --> denied["Show read-only access list"]
     owner -- Yes --> find["Find user in directory"]
-    find --> role["Select User or Admin"]
+    find --> role["Select Owner, Admin, or User"]
     role --> grant["Grant access"]
     grant --> success{"Access granted?"}
     success -- No --> error["Show error and keep selections"]

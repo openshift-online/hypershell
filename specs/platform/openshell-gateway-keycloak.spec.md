@@ -147,9 +147,10 @@ receives only `openshell-user`:
 | `gateway:admin` | `openshell-admin`, `openshell-user` | The specific bound gateway |
 | `gateway:viewer` | `openshell-user` | The specific bound gateway |
 
-`gateway:owner` (the creator) and `gateway:admin` (a granted administrator) are
-indistinguishable to the gateway; the owner/admin distinction is a management-plane
-concern only (see `gateway-access-management.spec.md`). `gateway:creator` is not mapped --
+`gateway:owner` and `gateway:admin` are both gateway administrators and are
+indistinguishable to the gateway; the owner/admin distinction (only owners may delete the
+gateway or assign owners) is a management-plane concern only (see
+`gateway-access-management.spec.md`). `gateway:creator` is not mapped --
 it grants the ability to create gateways but does not confer access to any specific
 gateway. The creator automatically receives a `gateway:owner` RoleBinding on creation
 (see [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)), which provides

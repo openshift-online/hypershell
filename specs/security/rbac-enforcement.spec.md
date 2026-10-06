@@ -28,9 +28,9 @@ stranding users before Keycloak is fully configured. It SHALL NOT be set in any
 production or staging overlay.
 
 Users gain gateway access by being assigned `gateway:creator` or `platform:admin` in
-Keycloak, or by being granted a per-gateway binding (`gateway:admin`, `gateway:viewer`)
-by an existing gateway owner or admin. `gateway:owner` is the creator's binding and is
-not granted; see `platform/gateway-access-management.spec.md`.
+Keycloak, or by being granted a per-gateway binding (`gateway:owner`, `gateway:admin`,
+`gateway:viewer`). Owners can grant any of the three; admins can grant only
+`gateway:admin` and `gateway:viewer`. See `platform/gateway-access-management.spec.md`.
 
 ---
 
@@ -108,8 +108,8 @@ Role        ||--o{ RoleBinding : "granted_by"
 |------|-------|--------|---------|
 | `platform:admin` | global | Keycloak JWT | Platform-wide administration; can view and delete any gateway |
 | `gateway:creator` | global | Keycloak JWT | Can create gateways; auto-becomes `gateway:owner` on creation |
-| `gateway:owner` | per gateway | DB (app logic) | The creator; exactly one per gateway; immutable (cannot be granted, demoted, or revoked). Full CRUD including delete; can grant `gateway:admin` and `gateway:viewer` to others |
-| `gateway:admin` | per gateway | DB (app logic) | Granted administrator; zero or more; removable. Same as owner except cannot delete the gateway; can grant `gateway:admin` and `gateway:viewer` to others |
+| `gateway:owner` | per gateway | DB (app logic) | Gateway owner; one or more; grantable and removable (but a gateway always keeps at least one owner). Full CRUD including delete; can grant/change/revoke any role including `gateway:owner`. The creator is the first owner |
+| `gateway:admin` | per gateway | DB (app logic) | Granted administrator; zero or more; removable. Read/update the gateway (no delete); can grant/change/revoke `gateway:admin` and `gateway:viewer` only (not `gateway:owner`) |
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway |
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 
@@ -118,8 +118,8 @@ Role        ||--o{ RoleBinding : "granted_by"
 | Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping | OpenShellGatewayServiceAccounts | ManagedCluster Registration |
 |------|----------|-------------|-------------|-------------------|-----------------|-----------------|
 | `platform:admin` | view all, delete any | view all + delete any | -- | -- | None without a gateway binding | View all records; create, update, or delete any record |
-| `gateway:creator` | create + own gateways | full (as owner) | grant admin/viewer on own gateways | `openshell-admin` + `openshell-user` on own gateways | Through the resulting owner binding | View all records; no writes |
-| `gateway:owner` | full (one gateway) | full incl. delete | grant admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
+| `gateway:creator` | create + own gateways | full (as owner) | grant owner/admin/viewer on own gateways | `openshell-admin` + `openshell-user` on own gateways | Through the resulting owner binding | View all records; no writes |
+| `gateway:owner` | full (one gateway) | full incl. delete | grant owner/admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
 | `gateway:admin` | full except delete (one gateway) | read + update (no delete) | grant admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
 | `managed-cluster-registrar` | none (unless also granted `gateway:creator` via defaults) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
@@ -224,11 +224,12 @@ needed to match the JWT claims.
 
 Any authenticated user with the `gateway:creator` role SHALL be able to create gateways.
 On successful gateway creation, the system SHALL automatically create a `gateway:owner`
-RoleBinding for the authenticated user, scoped to the new gateway. This owner binding
-identifies the creator; it is the only `gateway:owner` binding on the gateway and is
-immutable (it cannot be granted, demoted, or revoked -- see
-`platform/gateway-access-management.spec.md` GAM-07). Additional administrators are
-added as `gateway:admin`, not `gateway:owner`.
+RoleBinding for the authenticated user, scoped to the new gateway. This user is the
+creator and the first owner. Owners MAY subsequently grant `gateway:owner`,
+`gateway:admin`, or `gateway:viewer` to others, so a gateway may have multiple owners;
+a gateway SHALL always retain at least one owner (last-owner protection -- see
+`platform/gateway-access-management.spec.md` GAM-07). The creator holds no capability
+beyond any other owner and is tracked only for display/audit.
 
 This binding is created in the same database transaction as the gateway.
 
@@ -276,13 +277,13 @@ on all gateways the user owns (has a `gateway:owner` binding for).
 
 ### Requirement: RoleBinding Grants
 
-Gateway owners and gateway admins can grant `gateway:admin` or `gateway:viewer` to other
-users on gateways they administer. There is no hierarchy restriction among administrators
--- owners and admins can make more admins. Neither owners nor admins can grant
-`gateway:owner`: the owner binding is the creator's and is never granted (see Gateway
-Creation Bootstrap and `platform/gateway-access-management.spec.md` GAM-07). The console
-performs these grants through the gateway access facade (`GAM-04`/`GAM-05`/`GAM-06`),
-which writes the same RoleBinding records.
+Grants follow the hierarchy **owner > admin > viewer**. Gateway owners can grant, change,
+or revoke any role -- `gateway:owner`, `gateway:admin`, or `gateway:viewer` -- on gateways
+they own. Gateway admins can grant, change, or revoke only `gateway:admin` and
+`gateway:viewer`; they SHALL NOT assign, change, or revoke the owner tier. A gateway SHALL
+always retain at least one owner (last-owner protection, GAM-07). The console performs
+these grants through the gateway access facade (`GAM-04`/`GAM-05`/`GAM-06`), which writes
+the same RoleBinding records.
 
 #### Scenario: Owner invites a viewer
 
@@ -291,24 +292,24 @@ which writes the same RoleBinding records.
 - THEN the binding is created
 - AND user B gains read-only access to gw-1
 
-#### Scenario: Owner invites a co-admin
+#### Scenario: Owner assigns a co-owner
 
 - GIVEN user A has `gateway:owner` on gw-1
-- WHEN user A grants `role=gateway:admin`, `gateway_id=gw-1`, `user_id=B`
+- WHEN user A grants `role=gateway:owner`, `gateway_id=gw-1`, `user_id=B`
 - THEN the binding is created
-- AND user B gains administrative access to gw-1 (everything except deleting the gateway)
+- AND user B gains full owner access to gw-1 (including deleting the gateway and assigning owners)
 
-#### Scenario: Admin can grant access
+#### Scenario: Admin can grant admin and viewer
 
 - GIVEN user B has `gateway:admin` on gw-1
-- WHEN user B grants `role=gateway:viewer`, `gateway_id=gw-1`, `user_id=D`
+- WHEN user B grants `role=gateway:viewer` (or `gateway:admin`), `gateway_id=gw-1`, `user_id=D`
 - THEN the binding is created
 
-#### Scenario: Granting gateway:owner is rejected
+#### Scenario: Admin cannot assign an owner
 
-- GIVEN user A has `gateway:owner` on gw-1
-- WHEN user A attempts to grant `role=gateway:owner` on gw-1
-- THEN the request is rejected (the owner binding cannot be granted)
+- GIVEN user B has `gateway:admin` on gw-1 (not an owner)
+- WHEN user B attempts to grant `role=gateway:owner` on gw-1
+- THEN the request returns 403 Forbidden
 
 #### Scenario: Viewer cannot grant
 

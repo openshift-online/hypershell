@@ -7,7 +7,7 @@
 
 The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers.
 
-Gateways, clusters, releases, and networks are **top-level resources**. An earlier model included a top-level "Sector" (later renamed "Fleet") organizational unit that grouped these resources via a `fleet_id`; that layer has been removed. There is no sectorization: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner` (the creator), `gateway:admin` (granted administrators), and `gateway:viewer`), not by a fleet grouping. See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) and [`gateway-access-management.spec.md`](gateway-access-management.spec.md).
+Gateways, clusters, releases, and networks are **top-level resources**. An earlier model included a top-level "Sector" (later renamed "Fleet") organizational unit that grouped these resources via a `fleet_id`; that layer has been removed. There is no sectorization: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner` (full control incl. delete; grantable, one or more), `gateway:admin` (granted administrators; no delete), and `gateway:viewer`), not by a fleet grouping. See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) and [`gateway-access-management.spec.md`](gateway-access-management.spec.md).
 
 Current model:
 
@@ -414,13 +414,13 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 | `GET /api/hypershell/v1/role_bindings/{id}` | `hsctl get roleBinding <id>` | ✅ implemented |
 | `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>]` | ✅ implemented |
 | `DELETE /api/hypershell/v1/role_bindings/{id}` | `hsctl delete roleBinding <id>` | ✅ implemented |
-| `GET /api/hypershell/v1/gateways/{gateway_id}/access` | `hsctl list gatewayAccess --gateway-id <gateway_id> [--role <admin\|user>] [--search <q>]` | planned (see [`gateway-access-management.spec.md`](gateway-access-management.spec.md) GAM-03) |
-| `POST /api/hypershell/v1/gateways/{gateway_id}/access` | `hsctl create gatewayAccess --gateway-id <gateway_id> --user <username> --role <admin\|user>` | planned (GAM-04) |
-| `PATCH /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` | `hsctl update gatewayAccess <user_id> --gateway-id <gateway_id> --role <admin\|user>` | planned (GAM-05) |
+| `GET /api/hypershell/v1/gateways/{gateway_id}/access` | `hsctl list gatewayAccess --gateway-id <gateway_id> [--role <owner\|admin\|user>] [--search <q>]` | planned (see [`gateway-access-management.spec.md`](gateway-access-management.spec.md) GAM-03) |
+| `POST /api/hypershell/v1/gateways/{gateway_id}/access` | `hsctl create gatewayAccess --gateway-id <gateway_id> --user <username> --role <owner\|admin\|user>` | planned (GAM-04) |
+| `PATCH /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` | `hsctl update gatewayAccess <user_id> --gateway-id <gateway_id> --role <owner\|admin\|user>` | planned (GAM-05) |
 | `DELETE /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` | `hsctl delete gatewayAccess <user_id> --gateway-id <gateway_id>` | planned (GAM-06) |
 | `GET /api/hypershell/v1/gateways/{gateway_id}/access/directory` | -- (web console only) | planned Keycloak realm user search (GAM-09); serves the "Add users" picker, no CLI command |
 
-The gateway access facade is a gateway-scoped, enriched projection over the `role_bindings` resource above: `admin` grants write `gateway:admin` bindings, `user` grants write `gateway:viewer` bindings, and the creator's immutable `gateway:owner` binding cannot be granted, changed, or revoked. Granting access to a Keycloak realm user with no existing `User` record pre-provisions one (upsert keyed on `username`); the public users API remains read-only (see [`registered-users.spec.md`](registered-users.spec.md)).
+The gateway access facade is a gateway-scoped, enriched projection over the `role_bindings` resource above: `owner` grants write `gateway:owner` bindings, `admin` grants write `gateway:admin` bindings, and `user` grants write `gateway:viewer` bindings. Only owners may assign, change, or revoke the owner tier; a gateway always keeps at least one owner (last-owner protection). Granting access to a Keycloak realm user with no existing `User` record pre-provisions one (upsert keyed on `username`); the public users API remains read-only (see [`registered-users.spec.md`](registered-users.spec.md)).
 
 #### Users
 
