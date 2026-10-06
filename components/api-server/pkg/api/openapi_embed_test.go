@@ -55,8 +55,8 @@ func TestGetOpenAPISpecReturnsCompleteContract(t *testing.T) {
 			operationIDs[operation.OperationID] = method + " " + path
 		}
 	}
-	if operationCount != 35 {
-		t.Fatalf("embedded operation count = %d, want 35", operationCount)
+	if operationCount != 40 {
+		t.Fatalf("embedded operation count = %d, want 40", operationCount)
 	}
 
 	expectedDeletes := map[string]string{
