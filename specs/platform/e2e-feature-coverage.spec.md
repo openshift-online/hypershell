@@ -15,8 +15,8 @@
 ## Purpose
 
 Five platform features are implemented and shipped but carry no (or only
-indirect) end-to-end coverage in `tests/e2e/e2e-openshell.sh` and
-`tests/e2e/e2e-console.sh`: per-gateway provider credential storage drivers
+indirect) end-to-end coverage in the Go functional suite (`E2ESuite`, `tests/e2e/`)
+or the browser suite (`tests/e2e/e2e-console.sh`): per-gateway provider credential storage drivers
 (Vault and Kubernetes Secrets), sharing a gateway between users through the
 `role_bindings` API, Kata-runtime sandboxes, automated alerting / incident
 signal, and parity between the CLI commands the web console renders and the
@@ -25,17 +25,23 @@ coverage that closes those gaps.
 
 The five feature gaps become **numbered areas 15-19** of the functional e2e suite,
 continuing the area model defined by the E2E Test Suite Coverage requirement in
-`e2e-testing.spec.md` (areas 1-14). This spec additionally defines two
-cross-component coverage **extensions to existing areas 12 and 13** (see
+`e2e-testing.spec.md` (areas 1-14). They are added as ordered named subtests of
+`E2ESuite` (`tests/e2e/`), the Go `testify/suite` the e2e framework is now built
+on (see the Test Framework and Suite Structure requirement in `e2e-testing.spec.md`).
+This spec additionally defines two cross-component coverage **extensions to existing
+areas 12 and 13** (see
 [Cross-Component Route Coverage Extensions](#cross-component-route-coverage-extensions)),
 which close the only two API routes whose cross-component behavior no area asserts
 today. Like areas 12-14, every area here is
-**long-only**: it is skipped in `short` and `perf` modes (it mutates shared
+**long-only**: it is skipped (`t.Skip`) in `short` and `perf` modes (it mutates shared
 state, acts as a second identity, or depends on infrastructure the quick gate
-does not provide). Each area reuses the existing driver contract and harness
-vocabulary (`e2e_area`, `e2e_step`, `e2e_multi_identity`, `api_curl`,
-`acquire_oidc_token`, `acquire_gateway_token_with_role`, `retry_until`, `pass`,
-`fail_test`) and adds no new required driver functions.
+does not provide). Each area reuses the existing `E2EInfraDriver` contract and the
+shared `harness` helpers (the Go equivalents of the former `e2e_area`, `e2e_step`,
+`e2e_multi_identity`, `api_curl`, `acquire_oidc_token`, `acquire_gateway_token_with_role`,
+`retry_until`, `pass`, `fail_test`: ordered subtests, the `E2ESuite.multiIdentity()`
+predicate, the shared `apiclient`, `E2EInfraDriver.AcquireOIDCToken` /
+`AcquireGatewayTokenWithRole`, poll/retry helpers, and testify assertions) and adds
+no new `E2EInfraDriver` methods.
 
 Backends that the Kind CI gate cannot host (a running Vault server; a
 `kata-containers` RuntimeClass) are gated behind opt-in `E2E_QUALIFY_*` variables
@@ -141,7 +147,7 @@ The e2e test suite SHALL validate a complete "owner shares a gateway with a
 second user" flow through the `role_bindings` API, exercising the product path
 that area 9's `assign_gateway_client_role` driver shortcut currently bypasses.
 This is area 16, long-only (it acts as a second identity and mutates bindings),
-and gated on `e2e_multi_identity`.
+and gated on `E2ESuite.multiIdentity()`.
 
 The flow SHALL use the gateway owned by the admin (the owner RoleBinding the
 control plane auto-creates at provisioning). The suite SHALL discover the second
@@ -151,7 +157,7 @@ exists first by acquiring a token for `E2E_DEV_USERNAME`), then as the owner
 `role = gateway:viewer`, `user_id = <second user>`, and `gateway_id = <owned gateway>`.
 It SHALL then prove the RoleBinding reconciler propagated the grant into Keycloak
 by acquiring a per-gateway token for the second user with
-`acquire_gateway_token_with_role` and asserting the `openshell-user` role lands
+`E2EInfraDriver.AcquireGatewayTokenWithRole` and asserting the `openshell-user` role lands
 in it, and by confirming the second user MAY now create a sandbox on that gateway.
 
 The suite SHALL then revoke access: `DELETE /role_bindings/<id>` as the owner and
@@ -169,7 +175,7 @@ The suite SHALL clean up any binding it creates on every exit path.
 
 - GIVEN the admin owns a `Running` gateway and the second user's id has been resolved from `/v1/users`
 - WHEN the owner `POST`s a `role_bindings` entry with `scope = gateway`, `role = gateway:viewer`, and the second user's id
-- THEN `acquire_gateway_token_with_role` for the second user SHALL observe the `openshell-user` role on the per-gateway client within the role-reconcile timeout
+- THEN `E2EInfraDriver.AcquireGatewayTokenWithRole` for the second user SHALL observe the `openshell-user` role on the per-gateway client within the role-reconcile timeout
 - AND the second user SHALL be able to create a sandbox on that gateway
 
 #### Scenario: Revoking the binding removes access
@@ -279,9 +285,9 @@ the same commands the e2e suite executes, and that they stay valid across
 OpenShell upgrades. This is area 19, long-only. Today the UI's
 `buildOpenShellInstallCommand` / `buildProviderCreateCommand`
 (`packages/gateway-management-ui/src/gateways/gateway-connections.ts`) and the
-suite's `openshell_cli_image_tag` (`tests/e2e/lib.sh`) share version-derivation
-logic coupled only by a "keep in sync" comment and separate unit tests; nothing
-asserts identical command strings end to end.
+suite's version-derivation helper in `tests/e2e/harness` (the Go port of the former
+`openshell_cli_image_tag`) share version-derivation logic coupled only by a "keep in
+sync" comment and separate unit tests; nothing asserts identical command strings end to end.
 
 The suite SHALL derive the install command the UI would render for the live,
 reconciled `gateway_version` (invoking the same `buildOpenShellInstallCommand`
@@ -293,7 +299,7 @@ quay image path for suffixed versions, the GitHub-release-with-checksum path for
 plain semver). It SHALL then execute the UI-rendered install command through
 `scripts/install-openshell.sh` with the UI's `OPENSHELL_VERSION` value and assert
 the installed `openshell --version` matches the deployed gateway
-(`openshell_cli_matches_version`), proving the command the console shows a user
+(via the `harness` version-match helper, the Go port of `openshell_cli_matches_version`), proving the command the console shows a user
 actually produces a working, version-matched CLI.
 
 The suite SHALL additionally cover the provider-add command: it SHALL derive the
@@ -316,7 +322,7 @@ bump that breaks suffix handling or branch selection fails this area.
 
 - GIVEN the UI-rendered install command and its `OPENSHELL_VERSION` value
 - WHEN the suite runs it through `scripts/install-openshell.sh`
-- THEN the installed `openshell --version` SHALL match the deployed gateway version (`openshell_cli_matches_version`)
+- THEN the installed `openshell --version` SHALL match the deployed gateway version (the `harness` version-match helper, Go port of `openshell_cli_matches_version`)
 - AND the checksum-verified GitHub-release branch SHALL be used for plain-semver versions and the quay-image branch for suffixed versions
 
 #### Scenario: Provider-add command runs end to end
@@ -439,10 +445,13 @@ all exit paths.
 
 ### Requirement: Area Placement and Mode Tags
 
-Areas 15-19 SHALL extend the numbered area model in `e2e-testing.spec.md`, and the
-two cross-component extensions above SHALL extend existing areas 13 and 12. All
-SHALL be long-only: skipped in `short` and `perf` modes, consistent with the
-`e2e_step long` / `e2e_multi_identity` gating that areas 12-14 use. The E2E Test
+Areas 15-19 SHALL extend the numbered area model in `e2e-testing.spec.md` as
+additional ordered subtests of `E2ESuite`, and the two cross-component extensions
+above SHALL extend existing areas 13 and 12. All SHALL be long-only: skipped
+(`t.Skip`) in `short` and `perf` modes, consistent with the long-step /
+`E2ESuite.multiIdentity()` gating that areas 12-14 use. A step that cannot run
+because its `E2E_QUALIFY_*` backend is absent SHALL `t.Skip` with a reason, never
+record a pass (the three-outcome model in `e2e-testing.spec.md`). The E2E Test
 Suite Coverage requirement and the short/long mode table in `e2e-testing.spec.md`
 SHALL be amended to list areas 15-19 as long-only and to note the area-12/13
 extensions rather than restating them here; this spec owns their content.
@@ -450,7 +459,7 @@ extensions rather than restating them here; this spec owns their content.
 | Area | Title | Mode | Gate |
 |------|-------|------|------|
 | 15 | Provider credential drivers | long-only | Kubernetes Secrets always; Vault on `E2E_QUALIFY_VAULT=1` |
-| 16 | Gateway sharing via `role_bindings` | long-only | `e2e_multi_identity` |
+| 16 | Gateway sharing via `role_bindings` | long-only | `E2ESuite.multiIdentity()` |
 | 17 | Kata runtime sandbox | long-only | `E2E_QUALIFY_KATA=1` |
 | 18 | Alerting / incident signal | long-only | metric tier always; alert-firing on `E2E_QUALIFY_ALERTING=1` |
 | 19 | CLI/UI command parity | long-only | none (Kind-hostable) |
