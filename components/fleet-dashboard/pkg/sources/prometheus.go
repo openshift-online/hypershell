@@ -25,16 +25,17 @@ import (
 // Prometheus queries the metrics receiver over its HTTP API. The instance
 // filter is built from discovery, never hard-coded.
 type Prometheus struct {
-	base             string
-	tokenFile        string
-	metric           string
-	instLabel        string
-	sandboxMetric    string
-	clusterLabel     string
-	userMetric       string
-	userLoginsMetric string
-	client           *http.Client
-	logger           *slog.Logger
+	base                string
+	tokenFile           string
+	metric              string
+	instLabel           string
+	sandboxMetric       string
+	clusterLabel        string
+	managedClusterLabel string
+	userMetric          string
+	userLoginsMetric    string
+	client              *http.Client
+	logger              *slog.Logger
 }
 
 // NewPrometheus builds a Prometheus source from config.
@@ -44,16 +45,17 @@ func NewPrometheus(c *config.Config) *Prometheus {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // opt-in for self-signed in-cluster endpoints
 	}
 	return &Prometheus{
-		base:             strings.TrimRight(c.PromURL, "/"),
-		tokenFile:        c.PromTokenFile,
-		metric:           c.GatewayMetric,
-		instLabel:        c.InstanceLabel,
-		sandboxMetric:    c.SandboxMetric,
-		clusterLabel:     c.ClusterLabel,
-		userMetric:       c.UserMetric,
-		userLoginsMetric: c.UserLoginsMetric,
-		client:           &http.Client{Timeout: 20 * time.Second, Transport: tr},
-		logger:           slog.Default(),
+		base:                strings.TrimRight(c.PromURL, "/"),
+		tokenFile:           c.PromTokenFile,
+		metric:              c.GatewayMetric,
+		instLabel:           c.InstanceLabel,
+		sandboxMetric:       c.SandboxMetric,
+		clusterLabel:        c.ClusterLabel,
+		managedClusterLabel: c.ManagedClusterLabel,
+		userMetric:          c.UserMetric,
+		userLoginsMetric:    c.UserLoginsMetric,
+		client:              &http.Client{Timeout: 20 * time.Second, Transport: tr},
+		logger:              slog.Default(),
 	}
 }
 
@@ -201,15 +203,21 @@ func (p *Prometheus) Instances(ctx context.Context) (any, error) {
 
 // InstanceFleet is the per-instance fleet health/throughput summary.
 type InstanceFleet struct {
-	Instance       string         `json:"instance"`
-	Gateways       map[string]int `json:"gateways"` // phase -> count
-	GatewaysTotal  int            `json:"gatewaysTotal"`
-	ManagedCluster float64        `json:"managedClusters"`
-	Users          float64        `json:"users"`
-	RPC            RateStats      `json:"rpc"`
-	Reconcile      RateStats      `json:"reconcile"`
-	BFF            RateStats      `json:"bff"`
-	ProvisionP95Ms float64        `json:"provisionP95Ms"`
+	Instance      string         `json:"instance"`
+	Gateways      map[string]int `json:"gateways"` // phase -> count
+	GatewaysTotal int            `json:"gatewaysTotal"`
+	// GatewaysByCluster breaks the instance's gateway counts down per managed
+	// cluster (spoke), attributed via the application-emitted managed_cluster label
+	// rather than the scrape-injected hub cluster label
+	// (gateway-managed-cluster-attribution.spec.md). Summing the rows recovers
+	// GatewaysTotal / Gateways.
+	GatewaysByCluster []ClusterGatewayCount `json:"gatewaysByCluster"`
+	ManagedCluster    float64               `json:"managedClusters"`
+	Users             float64               `json:"users"`
+	RPC               RateStats             `json:"rpc"`
+	Reconcile         RateStats             `json:"reconcile"`
+	BFF               RateStats             `json:"bff"`
+	ProvisionP95Ms    float64               `json:"provisionP95Ms"`
 	// GatewayHistory is per-phase gateway counts sampled oldest->newest over the
 	// last day, feeding the per-instance stacked "sand" sparkline on the map.
 	GatewayHistory []GatewayHistorySample `json:"gatewayHistory"`
@@ -241,10 +249,23 @@ type InstanceFleet struct {
 }
 
 // SandboxClusterCount is one managed cluster's active-sandbox count within an
-// instance. Cluster is the opaque scrape-injected cluster label value.
+// instance. Cluster is the opaque scrape-injected (hub) cluster label value,
+// retained for the legacy breakdown; ManagedCluster is the application-emitted
+// spoke name (== ManagedCluster.Name / GitOps spoke name) and is the correct key
+// for per-spoke attribution (gateway-managed-cluster-attribution.spec.md).
 type SandboxClusterCount struct {
-	Cluster string `json:"cluster"`
-	Count   int    `json:"count"`
+	Cluster        string `json:"cluster"`
+	ManagedCluster string `json:"managedCluster"`
+	Count          int    `json:"count"`
+}
+
+// ClusterGatewayCount is one managed cluster's (spoke's) gateway counts within an
+// instance: ManagedCluster is the spoke name (managed_cluster label), Gateways is
+// phase->count, and Total is their sum.
+type ClusterGatewayCount struct {
+	ManagedCluster string         `json:"managedCluster"`
+	Gateways       map[string]int `json:"gateways"`
+	Total          int            `json:"total"`
 }
 
 // RateStats is a rate + error% + p95 latency triple.
@@ -306,14 +327,54 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 		return res, true
 	}
 
-	// Gateways by phase.
-	if res, ok := runInstant(fmt.Sprintf("sum by (%s,phase) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE)); ok {
+	// Gateways by phase, attributed to the managed cluster (spoke) each gateway
+	// runs on. Group by the application-emitted managed_cluster label (the spoke
+	// name) alongside phase; summing across managed clusters recovers the
+	// per-instance phase counts. Attributing by the scrape-injected cluster label
+	// instead would lump every spoke's gateways under the emitting hub
+	// (gateway-managed-cluster-attribution.spec.md).
+	if res, ok := runInstant(fmt.Sprintf("sum by (%s,%s,phase) (%s{%s=~%q})", p.instLabel, p.managedClusterLabel, p.metric, p.instLabel, nsRE)); ok {
+		// instance -> managed cluster -> phase -> count
+		byMC := map[string]map[string]map[string]int{}
 		for _, r := range res {
-			f := get(r.Metric[p.instLabel])
+			instKey := r.Metric[p.instLabel]
+			f := get(instKey)
 			phase := strings.ToLower(r.Metric["phase"])
+			mc := r.Metric[p.managedClusterLabel]
 			n := int(sampleValue(r.Value))
 			f.Gateways[phase] += n
 			f.GatewaysTotal += n
+
+			clusters, ok := byMC[instKey]
+			if !ok {
+				clusters = map[string]map[string]int{}
+				byMC[instKey] = clusters
+			}
+			phases, ok := clusters[mc]
+			if !ok {
+				phases = map[string]int{}
+				clusters[mc] = phases
+			}
+			phases[phase] += n
+		}
+		// Flatten per instance into stable, busiest-first rows so a snapshot always
+		// renders the spokes in the same order.
+		for instKey, clusters := range byMC {
+			f := get(instKey)
+			for mc, phases := range clusters {
+				total := 0
+				for _, n := range phases {
+					total += n
+				}
+				f.GatewaysByCluster = append(f.GatewaysByCluster, ClusterGatewayCount{ManagedCluster: mc, Gateways: phases, Total: total})
+			}
+			sort.Slice(f.GatewaysByCluster, func(i, j int) bool {
+				a, b := f.GatewaysByCluster[i], f.GatewaysByCluster[j]
+				if a.Total != b.Total {
+					return a.Total > b.Total
+				}
+				return a.ManagedCluster < b.ManagedCluster
+			})
 		}
 	}
 
@@ -341,23 +402,32 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 	// Grafana "Sandboxes by cluster" panel. The per-instance total is summed in Go
 	// from the per-cluster rows (one query instead of two). Best-effort.
 	if res, ok := runInstant(fmt.Sprintf(
-		"sum by (%s,%s) (max by (%s,%s,gateway) (%s{%s=~%q}))",
-		p.instLabel, p.clusterLabel, p.clusterLabel, p.instLabel, p.sandboxMetric, p.instLabel, nsRE,
+		"sum by (%s,%s,%s) (max by (%s,%s,%s,gateway) (%s{%s=~%q}))",
+		p.instLabel, p.clusterLabel, p.managedClusterLabel,
+		p.clusterLabel, p.instLabel, p.managedClusterLabel,
+		p.sandboxMetric, p.instLabel, nsRE,
 	)); ok {
 		for _, r := range res {
 			f := get(r.Metric[p.instLabel])
-			cluster := r.Metric[p.clusterLabel]
 			n := int(sampleValue(r.Value))
-			f.SandboxesByCluster = append(f.SandboxesByCluster, SandboxClusterCount{Cluster: cluster, Count: n})
+			f.SandboxesByCluster = append(f.SandboxesByCluster, SandboxClusterCount{
+				Cluster:        r.Metric[p.clusterLabel],
+				ManagedCluster: r.Metric[p.managedClusterLabel],
+				Count:          n,
+			})
 			f.Sandboxes += n
 		}
-		// Stable, meaningful order: busiest cluster first, ties broken by name so a
-		// given snapshot always renders the rows the same way.
+		// Stable, meaningful order: busiest first, ties broken by managed-cluster
+		// (spoke) then hub cluster name so a given snapshot always renders the rows
+		// the same way.
 		for _, f := range byInst {
 			sort.Slice(f.SandboxesByCluster, func(i, j int) bool {
 				a, b := f.SandboxesByCluster[i], f.SandboxesByCluster[j]
 				if a.Count != b.Count {
 					return a.Count > b.Count
+				}
+				if a.ManagedCluster != b.ManagedCluster {
+					return a.ManagedCluster < b.ManagedCluster
 				}
 				return a.Cluster < b.Cluster
 			})

@@ -46,6 +46,41 @@ type GatewayDao interface {
 	// SumActiveSandboxCount returns the fleet-wide sum of active_sandbox_count
 	// across live gateways, treating NULL as zero.
 	SumActiveSandboxCount(ctx context.Context) (int64, error)
+
+	// CountByClusterAndPhase returns live gateway counts grouped by the Name of
+	// the ManagedCluster each gateway's cluster_id resolves to and by phase. A
+	// gateway whose cluster_id does not resolve to a live managed cluster is
+	// reported under managedClusterUnknown, so the sum across clusters always
+	// equals the fleet total. It powers the per-managed-cluster (spoke)
+	// attribution of hypershell_gateways_total (gateway-managed-cluster-attribution.spec.md).
+	CountByClusterAndPhase(ctx context.Context) ([]ClusterPhaseCount, error)
+
+	// SumActiveSandboxCountByCluster returns the sum of active_sandbox_count
+	// across live gateways grouped by resolved ManagedCluster Name (NULL counts
+	// treated as zero, unresolved references under managedClusterUnknown). It
+	// powers the per-managed-cluster attribution of
+	// hypershell_gateways_active_sandboxes_total.
+	SumActiveSandboxCountByCluster(ctx context.Context) ([]ClusterSandboxCount, error)
+}
+
+// managedClusterUnknown is the bucket for gateways whose cluster_id does not
+// resolve to a live ManagedCluster (soft-deleted or unknown), so per-spoke
+// attribution never silently drops a gateway.
+const managedClusterUnknown = "unknown"
+
+// ClusterPhaseCount is one managed cluster's gateway count in one phase.
+// ClusterName is the resolved ManagedCluster.Name (== the GitOps spoke name) or
+// managedClusterUnknown when the reference does not resolve.
+type ClusterPhaseCount struct {
+	ClusterName string
+	Phase       string
+	Count       int64
+}
+
+// ClusterSandboxCount is one managed cluster's active-sandbox sum.
+type ClusterSandboxCount struct {
+	ClusterName string
+	Count       int64
 }
 
 // sandboxCountRow captures the gateway identity and count returned by the
@@ -309,4 +344,55 @@ func (d *sqlGatewayDao) SumActiveSandboxCount(ctx context.Context) (int64, error
 		return 0, err
 	}
 	return total, nil
+}
+
+// gatewayClusterJoin LEFT JOINs the managed_clusters registry so a gateway's
+// cluster_id resolves to the ManagedCluster.Name. Only live managed clusters
+// match (deleted_at IS NULL); unmatched rows yield a NULL name that the callers
+// COALESCE to managedClusterUnknown. Model(&Gateway{}) already scopes the
+// gateways side to live rows, so this stays a single per-scrape query (name
+// resolution bounded by the number of managed clusters, not gateways).
+const gatewayClusterJoin = "LEFT JOIN managed_clusters mc ON mc.id = gateways.cluster_id AND mc.deleted_at IS NULL"
+
+func (d *sqlGatewayDao) CountByClusterAndPhase(ctx context.Context) ([]ClusterPhaseCount, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	type row struct {
+		ClusterName string
+		Phase       string
+		Count       int64
+	}
+	var rows []row
+	if err := g2.Model(&Gateway{}).
+		Select("COALESCE(mc.name, '" + managedClusterUnknown + "') as cluster_name, gateways.phase as phase, count(*) as count").
+		Joins(gatewayClusterJoin).
+		Group("cluster_name, gateways.phase").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]ClusterPhaseCount, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ClusterPhaseCount{ClusterName: r.ClusterName, Phase: r.Phase, Count: r.Count})
+	}
+	return out, nil
+}
+
+func (d *sqlGatewayDao) SumActiveSandboxCountByCluster(ctx context.Context) ([]ClusterSandboxCount, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	type row struct {
+		ClusterName string
+		Count       int64
+	}
+	var rows []row
+	if err := g2.Model(&Gateway{}).
+		Select("COALESCE(mc.name, '" + managedClusterUnknown + "') as cluster_name, COALESCE(SUM(COALESCE(gateways.active_sandbox_count, 0)), 0) as count").
+		Joins(gatewayClusterJoin).
+		Group("cluster_name").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]ClusterSandboxCount, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ClusterSandboxCount{ClusterName: r.ClusterName, Count: r.Count})
+	}
+	return out, nil
 }

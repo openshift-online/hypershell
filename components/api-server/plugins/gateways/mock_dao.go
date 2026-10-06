@@ -113,6 +113,52 @@ func (d *gatewayDaoMock) SumActiveSandboxCount(ctx context.Context) (int64, erro
 	return total, nil
 }
 
+// CountByClusterAndPhase groups by the gateway's cluster_id as a stand-in for the
+// resolved ManagedCluster name (the mock has no registry to join against); a blank
+// cluster_id buckets to managedClusterUnknown.
+func (d *gatewayDaoMock) CountByClusterAndPhase(ctx context.Context) ([]ClusterPhaseCount, error) {
+	byCluster := map[string]map[string]int64{}
+	for _, gw := range d.gateways {
+		cluster := gw.ClusterId
+		if cluster == "" {
+			cluster = managedClusterUnknown
+		}
+		phase := ""
+		if gw.Phase != nil {
+			phase = *gw.Phase
+		}
+		phases, ok := byCluster[cluster]
+		if !ok {
+			phases = map[string]int64{}
+			byCluster[cluster] = phases
+		}
+		phases[phase]++
+	}
+	var out []ClusterPhaseCount
+	for cluster, phases := range byCluster {
+		for phase, count := range phases {
+			out = append(out, ClusterPhaseCount{ClusterName: cluster, Phase: phase, Count: count})
+		}
+	}
+	return out, nil
+}
+
+func (d *gatewayDaoMock) SumActiveSandboxCountByCluster(ctx context.Context) ([]ClusterSandboxCount, error) {
+	byCluster := map[string]int64{}
+	for _, gw := range d.gateways {
+		cluster := gw.ClusterId
+		if cluster == "" {
+			cluster = managedClusterUnknown
+		}
+		byCluster[cluster] += int64(derefCount(gw.ActiveSandboxCount))
+	}
+	var out []ClusterSandboxCount
+	for cluster, count := range byCluster {
+		out = append(out, ClusterSandboxCount{ClusterName: cluster, Count: count})
+	}
+	return out, nil
+}
+
 func (d *gatewayDaoMock) findByNamespace(namespace string) *Gateway {
 	for _, gateway := range d.gateways {
 		if gateway.Namespace == namespace {
