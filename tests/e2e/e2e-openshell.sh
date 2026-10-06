@@ -441,14 +441,10 @@ for gw in data.get('items', []):
   e2e_apply_seed_ids_from_gateway_json "$EXISTING_GW" "$GW_NAME"
 else
   if ! e2e_ensure_seed_ids; then
-    fail_test "Could not discover seeded cluster/release ids"
+    fail_test "Could not discover seeded cluster id"
     exit 1
   fi
-  if [[ -z "${E2E_RELEASE_ID}" ]]; then
-    dim "  Creating gateway on registered cluster_id=${E2E_CLUSTER_ID} without a seeded release (release_id=''); the platform default gateway image is used"
-  else
-    dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; the gateway database is provisioned by the control plane"
-  fi
+  dim "  Creating gateway on registered cluster_id=${E2E_CLUSTER_ID}; the gateway database is provisioned by the control plane"
 
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(e2e_gateway_create_body "$GW_NAME")
@@ -1793,7 +1789,6 @@ import json, os
 body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': os.environ['E2E_CLUSTER_ID'],
-    'release_id': 'e2e-release',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -1965,7 +1960,6 @@ import json, os
 body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': os.environ['E2E_CLUSTER_ID'],
-    'release_id': 'e2e-release',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -2358,7 +2352,6 @@ import json, os
 print(json.dumps({
     'name': os.environ['GW_NAME'],
     'cluster_id': '',
-    'release_id': '',
     'oidc': json.dumps({'issuer': os.environ['E2E_OIDC_ISSUER'], 'audience': os.environ['E2E_OIDC_CLIENT_ID'],
                         'roles_claim': 'groups', 'admin_role': 'hypershell-admins', 'user_role': 'hypershell-users'}),
     'route': json.dumps({'enabled': True}),
@@ -2388,7 +2381,6 @@ import json, os
 print(json.dumps({
     'name': os.environ['GW_NAME'],
     'cluster_id': os.environ['PH_ID'],
-    'release_id': '',
     'oidc': json.dumps({'issuer': os.environ['E2E_OIDC_ISSUER'], 'audience': os.environ['E2E_OIDC_CLIENT_ID'],
                         'roles_claim': 'groups', 'admin_role': 'hypershell-admins', 'user_role': 'hypershell-users'}),
     'route': json.dumps({'enabled': True}),
