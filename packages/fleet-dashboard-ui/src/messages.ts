@@ -487,6 +487,12 @@ export const messages = defineMessages({
     description:
       "Label for the 7-day unique-login metric tile in the detail panel.",
   },
+  sectionManagedClusters: {
+    id: "fleet.section.managedClusters",
+    defaultMessage: "Managed clusters",
+    description:
+      "Heading for the per-managed-cluster gateway/sandbox breakdown in the detail panel.",
+  },
   sectionMap: {
     id: "fleet.section.map",
     defaultMessage: "Promotion topology",
@@ -531,6 +537,43 @@ export const messages = defineMessages({
     defaultMessage: "Sign in again",
     description:
       "Button that reloads the document to re-run the oauth-proxy sign-in flow.",
+  },
+  spokeAttributionUnavailable: {
+    id: "fleet.spoke.attributionUnavailable",
+    defaultMessage:
+      "Cluster topology is unavailable, so these managed clusters could not be attributed to a hub.",
+    description:
+      "Note shown above an unattributed, flat list of managed clusters when topology data is missing.",
+  },
+  spokeGatewaysCount: {
+    id: "fleet.spoke.gatewaysCount",
+    defaultMessage: "{count, plural, one {# gateway} other {# gateways}}",
+    description:
+      "Gateway total shown to the right of a managed-cluster row in the detail panel.",
+  },
+  spokeRemote: {
+    id: "fleet.spoke.remote",
+    defaultMessage: "Remote",
+    description:
+      "Compact badge marking a managed cluster that runs remote from its hub.",
+  },
+  spokeRemoteGroup: {
+    id: "fleet.spoke.remoteGroup",
+    defaultMessage: "Remote",
+    description:
+      "Sub-heading for the group of managed clusters that run remote from the hub.",
+  },
+  spokeSandboxesCount: {
+    id: "fleet.spoke.sandboxesCount",
+    defaultMessage: "{count, plural, one {# sandbox} other {# sandboxes}}",
+    description:
+      "Sandbox total shown to the right of a managed-cluster row in the detail panel.",
+  },
+  spokeUnattributedGroup: {
+    id: "fleet.spoke.unattributedGroup",
+    defaultMessage: "Unattributed",
+    description:
+      "Sub-heading for managed clusters present in the metrics but absent from the hub's topology.",
   },
   statusDegraded: {
     id: "fleet.status.degraded",

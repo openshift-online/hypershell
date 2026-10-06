@@ -18,11 +18,14 @@ import {
   totalGateways,
   ZERO_RATE,
   type FleetData,
+  type GatewayClusterBreakdown,
   type GatewayHistorySample,
   type GatewayPhaseCounts,
   type RateStats,
   type SandboxClusterCount,
 } from "../fleet";
+import { classifySpokes, type SpokeAttribution } from "../spoke-attribution";
+import type { InstanceTopology, TopologyData } from "../topology";
 import {
   environmentGateBadge,
   orderedEnvironments,
@@ -111,10 +114,20 @@ export interface MapNode {
   readonly gatewayTone: StatusBadge["tone"];
   /** Per-phase samples oldest -> newest for the stacked sand spark (may be empty). */
   readonly gatewayHistory: readonly GatewayHistorySample[];
+  /** Gateway phase counts per managed cluster (spoke), busiest-first (may be empty). */
+  readonly gatewaysByCluster: readonly GatewayClusterBreakdown[];
   /** Total active agent sandboxes across this instance's gateways. */
   readonly sandboxes: number;
   /** Active sandboxes per managed cluster, busiest-first (may be empty). */
   readonly sandboxesByCluster: readonly SandboxClusterCount[];
+  /**
+   * This instance's gateway + sandbox population split by the managed cluster it runs
+   * on, classified against the topology plane: the hub's own counts, co-located spokes
+   * (nested under the hub) and remote spokes (linked out). Null when the instance
+   * reports no per-spoke breakdown at all (nothing to attribute). When topology is
+   * unavailable the rows survive in the `unknown` bucket (flagged `hasTopology:false`).
+   */
+  readonly spokeAttribution: SpokeAttribution | null;
   /** Total active-sandbox count over the last day, oldest-first, on the gateway
    *  sparkline's grid - drives the lower sandbox sparkline (may be empty). */
   readonly sandboxHistory: readonly number[];
@@ -232,10 +245,19 @@ function buildNode(
   env: PromotionEnvironment,
   fleet: FleetData,
   columnKey: string,
+  topology: InstanceTopology | null,
 ): MapNode {
   const provider = nonEmpty(env.provider);
   const fl = findInstance(fleet.instances, env.name);
   const gateways = fl?.gateways ?? {};
+  const gatewaysByCluster = fl?.gatewaysByCluster ?? [];
+  const sandboxesByCluster = fl?.sandboxesByCluster ?? [];
+  // Only attribute when the instance actually reports a per-spoke breakdown; with
+  // neither series there is nothing to split out (keeps the section off plain nodes).
+  const spokeAttribution =
+    gatewaysByCluster.length > 0 || sandboxesByCluster.length > 0
+      ? classifySpokes(gatewaysByCluster, sandboxesByCluster, topology)
+      : null;
   return {
     id: env.name,
     columnKey,
@@ -267,8 +289,10 @@ function buildNode(
     gatewaysTotal: fl?.gatewaysTotal ?? totalGateways(gateways),
     gatewayTone: gatewayTone(gateways),
     gatewayHistory: fl?.gatewayHistory ?? [],
+    gatewaysByCluster,
     sandboxes: fl?.sandboxes ?? 0,
-    sandboxesByCluster: fl?.sandboxesByCluster ?? [],
+    sandboxesByCluster,
+    spokeAttribution,
     sandboxHistory: fl?.sandboxHistory ?? [],
     managedClusters: fl?.managedClusters ?? null,
     users: fl?.users ?? null,
@@ -424,11 +448,17 @@ function buildGates(
 export function buildMapModel(
   promotion: PromotionData,
   fleet: FleetData,
+  topology: TopologyData = {},
 ): MapModel {
   const envs = orderedEnvironments(promotion);
   const columnKeyByName = assignColumns(envs);
   const built = envs.map((env) =>
-    buildNode(env, fleet, columnKeyByName.get(env.name) ?? env.name),
+    buildNode(
+      env,
+      fleet,
+      columnKeyByName.get(env.name) ?? env.name,
+      topology[env.name] ?? null,
+    ),
   );
 
   // Version-drift post-pass: a node drifts when it runs a different active digest
