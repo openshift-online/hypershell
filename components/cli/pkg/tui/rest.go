@@ -35,10 +35,6 @@ func collectionPath(kind Kind) string {
 	switch kind {
 	case KindClusters:
 		return urls.ManagedClustersPath
-	case KindReleases:
-		return urls.GatewayReleasesPath
-	case KindNetworks:
-		return urls.GatewayNetworksPath
 	}
 	return urls.GatewaysPath
 }

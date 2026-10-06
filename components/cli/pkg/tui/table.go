@@ -10,10 +10,9 @@ import (
 )
 
 const (
-	hubClusterLabel     = "Hub cluster"
-	defaultReleaseLabel = "default"
-	unresolvedSuffix    = " (unresolved)"
-	resolvingLabel      = "..."
+	hubClusterLabel  = "Hub cluster"
+	unresolvedSuffix = " (unresolved)"
+	resolvingLabel   = "..."
 )
 
 // column describes one table column: its header and how a cell is derived
@@ -40,24 +39,13 @@ func columnsFor(kind Kind) []column {
 			status,
 			{title: "LAST SEEN", cell: func(m *Model, r Resource) string { return sinceField(m.now(), r.Field("last_seen_at")) }},
 			age}
-	case KindReleases:
-		return []column{name,
-			{title: "IMAGE", cell: field("image")},
-			{title: "ROLLOUT STRATEGY", cell: field("rollout_strategy")},
-			status, age}
-	case KindNetworks:
-		return []column{name,
-			{title: "TOPOLOGY", cell: field("topology")},
-			{title: "TUNNEL MODE", cell: field("tunnel_mode")},
-			{title: "HUB GATEWAY", cell: field("hub_gateway_id")},
-			status, age}
 	}
 	return []column{name,
 		{title: "CLUSTER", cell: func(m *Model, r Resource) string { return m.clusterLabel(r.Field("cluster_id")) }},
 		{title: "PHASE", cell: func(_ *Model, r Resource) string { return orDash(r.Field("phase")) }, phase: true},
 		status,
 		{title: "SANDBOXES", cell: field("active_sandbox_count")},
-		{title: "RELEASE", cell: func(m *Model, r Resource) string { return m.releaseLabel(r.Field("release_id")) }},
+		{title: "IMAGE", cell: field("image")},
 		age}
 }
 

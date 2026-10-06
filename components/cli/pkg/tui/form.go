@@ -11,13 +11,11 @@ import (
 
 const (
 	hubPlacementLabel     = "Hub cluster (default)"
-	defaultReleaseOption  = "Platform default"
 	creatorRoleHint       = "Provisioning requires the gateway:creator role."
 	selectVisibleOptions  = 6
 	formFieldName         = 0
 	formFieldPlacement    = 1
-	formFieldRelease      = 2
-	formFieldCount        = 3
+	formFieldCount        = 2
 	formNameCharLimit     = 253
 	formSelectFilterLimit = 64
 )
@@ -149,12 +147,11 @@ func (s *selectList) view(focused bool, width int) string {
 	return sb.String()
 }
 
-// createForm is the gateway provisioning form (TUI-07). It collects exactly a
-// name, a placement, and a release.
+// createForm is the gateway provisioning form (TUI-07). It collects a name and
+// a placement; the platform default image applies.
 type createForm struct {
 	name       textinput.Model
 	placement  selectList
-	release    selectList
 	focus      int
 	submitting bool
 	err        string
@@ -170,10 +167,8 @@ func newCreateForm() *createForm {
 	f := &createForm{
 		name:      name,
 		placement: selectList{title: "Placement"},
-		release:   selectList{title: "Release"},
 	}
 	f.placement.setOptions(option{label: hubPlacementLabel, match: hubPlacementLabel}, nil)
-	f.release.setOptions(option{label: defaultReleaseOption, match: defaultReleaseOption}, nil)
 	return f
 }
 
@@ -191,22 +186,6 @@ func (f *createForm) setClusters(items []Resource, err error) {
 	f.placement.unavailable = ""
 	if err != nil {
 		f.placement.unavailable = "Managed clusters"
-	}
-}
-
-func (f *createForm) setReleases(items []Resource, err error) {
-	opts := make([]option, 0, len(items))
-	for _, r := range items {
-		label := r.DisplayName()
-		if img := r.Field("image"); img != "" {
-			label += "  " + mutedStyle.Render(img)
-		}
-		opts = append(opts, option{id: r.ID, label: label, match: r.DisplayName()})
-	}
-	f.release.setOptions(option{label: defaultReleaseOption, match: defaultReleaseOption}, opts)
-	f.release.unavailable = ""
-	if err != nil {
-		f.release.unavailable = "Gateway releases"
 	}
 }
 
@@ -231,11 +210,7 @@ func (f *createForm) request() (req GatewayCreate, problem string) {
 	if !ok {
 		return GatewayCreate{}, "Select a placement."
 	}
-	release, ok := f.release.selected()
-	if !ok {
-		return GatewayCreate{}, "Select a release."
-	}
-	return GatewayCreate{Name: name, ClusterID: placement.id, ReleaseID: release.id}, ""
+	return GatewayCreate{Name: name, ClusterID: placement.id}, ""
 }
 
 func (f *createForm) setFocus(i int) {
@@ -257,8 +232,6 @@ func (f *createForm) view(width int) string {
 	}
 	sb.WriteString(label + "\n  " + f.name.View() + "\n\n")
 	sb.WriteString(f.placement.view(f.focus == formFieldPlacement, width))
-	sb.WriteString("\n")
-	sb.WriteString(f.release.view(f.focus == formFieldRelease, width))
 	if f.submitting {
 		sb.WriteString("\n" + progressStyle.Render("Provisioning..."))
 	}

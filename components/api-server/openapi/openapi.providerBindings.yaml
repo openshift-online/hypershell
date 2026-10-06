@@ -1,0 +1,231 @@
+paths:
+  /api/hypershell/v1/provider_bindings:
+    get:
+      operationId: listProviderBindings
+      summary: Returns a list of provider bindings
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: A JSON array of provider binding objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderBindingList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+    post:
+      operationId: createProviderBinding
+      summary: Create a new provider binding
+      security:
+        - Bearer: []
+      requestBody:
+        description: ProviderBinding data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderBinding'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderBinding'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/v1/provider_bindings/{id}:
+    get:
+      operationId: getProviderBinding
+      summary: Get a provider binding by ID
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: ProviderBinding found by ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderBinding'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No provider binding with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    patch:
+      operationId: updateProviderBinding
+      summary: Update a provider binding
+      security:
+        - Bearer: []
+      requestBody:
+        description: Updated provider binding data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderBindingPatchRequest'
+      responses:
+        '200':
+          description: ProviderBinding updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderBinding'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No provider binding with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteProviderBinding
+      summary: Delete a provider binding
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: ProviderBinding deleted successfully
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No provider binding with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+components:
+  schemas:
+    ProviderBinding:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - name
+            - workspace_id
+            - provider_spec_id
+          properties:
+            name:
+              type: string
+            workspace_id:
+              type: string
+            provider_spec_id:
+              type: string
+            secret_source_id:
+              type: string
+            refresh_strategy:
+              type: string
+              description: JSON-encoded credential refresh strategy configuration
+            status:
+              type: string
+              readOnly: true
+    ProviderBindingList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProviderBinding'
+    ProviderBindingPatchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        secret_source_id:
+          type: string
+        refresh_strategy:
+          type: string
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

@@ -179,7 +179,7 @@ func New(opts Options) *Model {
 		opts:    opts,
 		active:  KindGateways,
 		views:   map[Kind]*viewState{},
-		lookups: map[Kind]*lookupState{KindClusters: {}, KindReleases: {}},
+		lookups: map[Kind]*lookupState{KindClusters: {}},
 		input:   newInput(),
 	}
 	for _, k := range kinds {
@@ -242,7 +242,7 @@ func (m *Model) fetchLookups(force bool) tea.Cmd {
 		return nil
 	}
 	var cmds []tea.Cmd
-	for _, kind := range []Kind{KindClusters, KindReleases} {
+	for _, kind := range []Kind{KindClusters} {
 		l := m.lookups[kind]
 		if l.inFlight {
 			continue
@@ -428,9 +428,6 @@ func (m *Model) fillForm() {
 	if c := m.lookups[KindClusters]; c.loaded || c.err != nil {
 		m.form.setClusters(c.items, c.err)
 	}
-	if r := m.lookups[KindReleases]; r.loaded || r.err != nil {
-		m.form.setReleases(r.items, r.err)
-	}
 }
 
 func (m *Model) onDetail(msg detailMsg) {
@@ -598,10 +595,6 @@ func (m *Model) clusterLabel(id string) string {
 	return m.lookupLabel(KindClusters, id, hubClusterLabel)
 }
 
-func (m *Model) releaseLabel(id string) string {
-	return m.lookupLabel(KindReleases, id, defaultReleaseLabel)
-}
-
 func (m *Model) lookupLabel(kind Kind, id, emptyLabel string) string {
 	if id == "" {
 		return emptyLabel
@@ -655,7 +648,9 @@ func (m *Model) onNormalKey(msg tea.KeyMsg) tea.Cmd {
 	case "q":
 		return tea.Quit
 	case "1", "2", "3", "4":
-		return m.switchView(kinds[int(msg.Runes[0]-'1')])
+		if idx := int(msg.Runes[0] - '1'); idx < len(kinds) {
+			return m.switchView(kinds[idx])
+		}
 	case "up", "k":
 		m.moveCursor(v, v.cursor-1)
 	case "down", "j":
@@ -727,8 +722,6 @@ func (m *Model) onFilterKey(msg tea.KeyMsg) tea.Cmd {
 var viewCommands = map[string]Kind{
 	"gateways": KindGateways, "gw": KindGateways,
 	"clusters": KindClusters, "mc": KindClusters,
-	"releases": KindReleases, "rel": KindReleases,
-	"networks": KindNetworks, "net": KindNetworks,
 }
 
 func (m *Model) onCommandKey(msg tea.KeyMsg) tea.Cmd {
@@ -849,8 +842,6 @@ func (m *Model) onCreateKey(msg tea.KeyMsg) tea.Cmd {
 	switch f.focus {
 	case formFieldPlacement:
 		f.placement.update(msg)
-	case formFieldRelease:
-		f.release.update(msg)
 	default:
 		var cmd tea.Cmd
 		f.name, cmd = f.name.Update(msg)

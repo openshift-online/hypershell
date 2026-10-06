@@ -12,10 +12,9 @@ func newGateway(id string) (*gateways.Gateway, error) {
 	gatewayService := gateways.Service(&environments.Environment().Services)
 
 	gateway := &gateways.Gateway{
-		Name:           "test-name",
-		ClusterId:      "test-cluster_id",
-		ReleaseId:      "test-release_id",
-		ExternalDns:    stringPtr("test-external_dns"),
+		Name:        "test-name",
+		ClusterId:   "test-cluster_id",
+		ExternalDns: stringPtr("test-external_dns"),
 		TlsMode:        stringPtr("test-tls_mode"),
 		ServiceType:    stringPtr("test-service_type"),
 		Status:         stringPtr("test-status"),

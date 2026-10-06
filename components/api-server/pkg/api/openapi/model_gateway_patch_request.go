@@ -21,7 +21,6 @@ var _ MappedNullable = &GatewayPatchRequest{}
 type GatewayPatchRequest struct {
 	Name             *string  `json:"name,omitempty"`
 	ClusterId        *string  `json:"cluster_id,omitempty"`
-	ReleaseId        *string  `json:"release_id,omitempty"`
 	ExternalDns      *string  `json:"external_dns,omitempty"`
 	TlsMode          *string  `json:"tls_mode,omitempty"`
 	ServiceType      *string  `json:"service_type,omitempty"`
@@ -115,38 +114,6 @@ func (o *GatewayPatchRequest) HasClusterId() bool {
 // SetClusterId gets a reference to the given string and assigns it to the ClusterId field.
 func (o *GatewayPatchRequest) SetClusterId(v string) {
 	o.ClusterId = &v
-}
-
-// GetReleaseId returns the ReleaseId field value if set, zero value otherwise.
-func (o *GatewayPatchRequest) GetReleaseId() string {
-	if o == nil || IsNil(o.ReleaseId) {
-		var ret string
-		return ret
-	}
-	return *o.ReleaseId
-}
-
-// GetReleaseIdOk returns a tuple with the ReleaseId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *GatewayPatchRequest) GetReleaseIdOk() (*string, bool) {
-	if o == nil || IsNil(o.ReleaseId) {
-		return nil, false
-	}
-	return o.ReleaseId, true
-}
-
-// HasReleaseId returns a boolean if a field has been set.
-func (o *GatewayPatchRequest) HasReleaseId() bool {
-	if o != nil && !IsNil(o.ReleaseId) {
-		return true
-	}
-
-	return false
-}
-
-// SetReleaseId gets a reference to the given string and assigns it to the ReleaseId field.
-func (o *GatewayPatchRequest) SetReleaseId(v string) {
-	o.ReleaseId = &v
 }
 
 // GetExternalDns returns the ExternalDns field value if set, zero value otherwise.
@@ -548,9 +515,6 @@ func (o GatewayPatchRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ClusterId) {
 		toSerialize["cluster_id"] = o.ClusterId
-	}
-	if !IsNil(o.ReleaseId) {
-		toSerialize["release_id"] = o.ReleaseId
 	}
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns

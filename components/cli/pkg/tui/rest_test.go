@@ -80,7 +80,7 @@ func TestListExactlyAtBoundIsNotTruncated(t *testing.T) {
 	src := restSource(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(page(PageSize, PageSize*MaxPages))
 	})
-	res, err := src.List(context.Background(), KindReleases)
+	res, err := src.List(context.Background(), KindClusters)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestCreateGatewaySendsOnlyFormFields(t *testing.T) {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
 		body, _ := io.ReadAll(r.Body)
-		if string(body) != `{"name":"demo","cluster_id":"","release_id":""}` {
+		if string(body) != `{"name":"demo","cluster_id":""}` {
 			t.Errorf("body = %s", body)
 		}
 		w.WriteHeader(http.StatusCreated)

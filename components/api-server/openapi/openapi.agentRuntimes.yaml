@@ -1,0 +1,257 @@
+paths:
+  /api/hypershell/v1/agent_runtimes:
+    get:
+      operationId: listAgentRuntimes
+      summary: Returns a list of agent runtimes
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: A JSON array of agent runtime objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRuntimeList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+    post:
+      operationId: createAgentRuntime
+      summary: Create a new agent runtime
+      security:
+        - Bearer: []
+      requestBody:
+        description: AgentRuntime data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRuntime'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRuntime'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/v1/agent_runtimes/{id}:
+    get:
+      operationId: getAgentRuntime
+      summary: Get an agent runtime by ID
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: AgentRuntime found by ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRuntime'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No agent runtime with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    patch:
+      operationId: updateAgentRuntime
+      summary: Update an agent runtime
+      security:
+        - Bearer: []
+      requestBody:
+        description: Updated agent runtime data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRuntimePatchRequest'
+      responses:
+        '200':
+          description: AgentRuntime updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRuntime'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No agent runtime with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteAgentRuntime
+      summary: Delete an agent runtime
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: AgentRuntime deleted successfully
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No agent runtime with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+components:
+  schemas:
+    AgentRuntime:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - name
+            - cluster_id
+            - gateway_id
+          properties:
+            name:
+              type: string
+            cluster_id:
+              type: string
+            gateway_id:
+              type: string
+            sandbox_template_id:
+              type: string
+            description:
+              type: string
+            cron:
+              type: string
+              description: Cron expression for scheduling the agent coordinator
+            coordinator_image:
+              type: string
+              description: Container image for the agent coordinator CronJob
+            concurrency_policy:
+              type: string
+              description: Kubernetes CronJob concurrency policy (Allow, Forbid, Replace)
+            login_refresh_seconds:
+              type: integer
+              format: int32
+              description: Interval in seconds for refreshing gateway login credentials
+            parameters:
+              type: string
+              description: JSON-encoded key-value parameters passed to the agent coordinator
+            status:
+              type: string
+              readOnly: true
+    AgentRuntimeList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgentRuntime'
+    AgentRuntimePatchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        sandbox_template_id:
+          type: string
+        description:
+          type: string
+        cron:
+          type: string
+        coordinator_image:
+          type: string
+        concurrency_policy:
+          type: string
+        login_refresh_seconds:
+          type: integer
+          format: int32
+        parameters:
+          type: string
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

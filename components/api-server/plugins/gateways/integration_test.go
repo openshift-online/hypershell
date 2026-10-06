@@ -53,7 +53,6 @@ func TestGatewayPost(t *testing.T) {
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:        "test-name",
 		ClusterId:   registerTestCluster(t),
-		ReleaseId:   "test-release_id",
 		ExternalDns: openapi.PtrString("test-external_dns"),
 		TlsMode:     openapi.PtrString("test-tls_mode"),
 		ServiceType: openapi.PtrString("test-service_type"),
@@ -80,7 +79,7 @@ func TestGatewayPost(t *testing.T) {
 	Expect(restyResp.StatusCode()).To(Equal(http.StatusBadRequest))
 }
 
-func TestGatewayPostAllowsEmptyReleaseID(t *testing.T) {
+func TestGatewayPostMinimalFields(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
@@ -89,14 +88,12 @@ func TestGatewayPostAllowsEmptyReleaseID(t *testing.T) {
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "local-gateway",
 		ClusterId: clusterID,
-		ReleaseId: "",
 	}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
-	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with empty release_id: %v", err)
+	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with minimal fields: %v", err)
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 	Expect(gatewayOutput.ClusterId).To(Equal(clusterID))
-	Expect(gatewayOutput.ReleaseId).To(BeEmpty())
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 }
 
@@ -201,7 +198,6 @@ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "route-default-test",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "",
 	}
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
@@ -220,7 +216,6 @@ func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:      "route-explicit-test",
 		ClusterId: registerTestCluster(t),
-		ReleaseId: "",
 		Route:     openapi.PtrString(customRoute),
 	}
 
@@ -340,7 +335,6 @@ func TestGatewayPostWithCredentialDriver(t *testing.T) {
 	gatewayInput := openapi.GatewayCreateRequest{
 		Name:             "test-cred-driver",
 		ClusterId:        registerTestCluster(t),
-		ReleaseId:        "test-release_id",
 		CredentialDriver: openapi.PtrString(credDriver),
 	}
 
