@@ -111,6 +111,32 @@ describe("classifySpokes", () => {
     ]);
   });
 
+  it("accumulates both sides when a managed cluster appears more than once", () => {
+    // GMCA-05 guarantees one row per managed_cluster, but a malformed payload with
+    // duplicate rows must sum (never last-write-wins) so it cannot silently undercount.
+    const result = classifySpokes(
+      [
+        { managedCluster: "beta", gateways: { Ready: 3 }, total: 3 },
+        {
+          managedCluster: "beta",
+          gateways: { Ready: 1, Pending: 2 },
+          total: 3,
+        },
+      ],
+      [sb("beta", 4), sb("beta", 5)],
+      topology(),
+    );
+
+    expect(result.coLocated).toEqual([
+      {
+        managedCluster: "beta",
+        gateways: { Ready: 4, Pending: 2 },
+        gatewaysTotal: 6,
+        sandboxes: 9,
+      },
+    ]);
+  });
+
   it("skips rows with an empty managed-cluster name", () => {
     const result = classifySpokes(
       [gw("", 5), gw("beta", 1)],

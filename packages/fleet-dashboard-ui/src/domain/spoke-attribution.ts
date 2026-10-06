@@ -63,34 +63,46 @@ function mergeRows(
   gateways: readonly GatewayClusterBreakdown[],
   sandboxes: readonly SandboxClusterCount[],
 ): SpokeRow[] {
-  const byCluster = new Map<
-    string,
-    { gw: GatewayClusterBreakdown | null; sb: number }
-  >();
+  // Both sides accumulate: if a managed cluster somehow appears more than once in
+  // either series (GMCA-05 guarantees it will not, but a malformed payload could),
+  // the phase counts, totals and sandboxes all sum rather than the last-write
+  // winning - so a duplicated row never silently undercounts.
+  interface Acc {
+    gateways: Record<string, number>;
+    gatewaysTotal: number;
+    sandboxes: number;
+  }
+  const byCluster = new Map<string, Acc>();
+  const slotFor = (name: string): Acc => {
+    let cur = byCluster.get(name);
+    if (!cur) {
+      cur = { gateways: {}, gatewaysTotal: 0, sandboxes: 0 };
+      byCluster.set(name, cur);
+    }
+    return cur;
+  };
   for (const g of gateways) {
     if (g.managedCluster === "") {
       continue;
     }
-    const cur = byCluster.get(g.managedCluster) ?? { gw: null, sb: 0 };
-    cur.gw = g;
-    byCluster.set(g.managedCluster, cur);
+    const cur = slotFor(g.managedCluster);
+    for (const [phase, n] of Object.entries(g.gateways)) {
+      cur.gateways[phase] = (cur.gateways[phase] ?? 0) + n;
+    }
+    cur.gatewaysTotal += g.total;
   }
   for (const s of sandboxes) {
     if (s.managedCluster === "") {
       continue;
     }
-    const cur = byCluster.get(s.managedCluster) ?? { gw: null, sb: 0 };
-    cur.sb += s.count;
-    byCluster.set(s.managedCluster, cur);
+    slotFor(s.managedCluster).sandboxes += s.count;
   }
   const rows: SpokeRow[] = [];
-  for (const [managedCluster, { gw, sb }] of byCluster) {
-    rows.push({
-      managedCluster,
-      gateways: gw?.gateways ?? {},
-      gatewaysTotal: gw?.total ?? 0,
-      sandboxes: sb,
-    });
+  for (const [
+    managedCluster,
+    { gateways, gatewaysTotal, sandboxes },
+  ] of byCluster) {
+    rows.push({ managedCluster, gateways, gatewaysTotal, sandboxes });
   }
   return rows;
 }
