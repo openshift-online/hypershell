@@ -341,43 +341,26 @@ const gatewayClusterJoin = "LEFT JOIN managed_clusters mc ON mc.id = gateways.cl
 
 func (d *sqlGatewayDao) CountByClusterAndPhase(ctx context.Context) ([]ClusterPhaseCount, error) {
 	g2 := (*d.sessionFactory).New(ctx)
-	type row struct {
-		ClusterName string
-		Phase       string
-		Count       int64
-	}
-	var rows []row
+	out := make([]ClusterPhaseCount, 0)
 	if err := g2.Model(&Gateway{}).
 		Select("COALESCE(mc.name, '" + managedClusterUnknown + "') as cluster_name, gateways.phase as phase, count(*) as count").
 		Joins(gatewayClusterJoin).
 		Group("cluster_name, gateways.phase").
-		Scan(&rows).Error; err != nil {
+		Scan(&out).Error; err != nil {
 		return nil, err
-	}
-	out := make([]ClusterPhaseCount, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, ClusterPhaseCount{ClusterName: r.ClusterName, Phase: r.Phase, Count: r.Count})
 	}
 	return out, nil
 }
 
 func (d *sqlGatewayDao) SumActiveSandboxCountByCluster(ctx context.Context) ([]ClusterSandboxCount, error) {
 	g2 := (*d.sessionFactory).New(ctx)
-	type row struct {
-		ClusterName string
-		Count       int64
-	}
-	var rows []row
+	out := make([]ClusterSandboxCount, 0)
 	if err := g2.Model(&Gateway{}).
 		Select("COALESCE(mc.name, '" + managedClusterUnknown + "') as cluster_name, COALESCE(SUM(COALESCE(gateways.active_sandbox_count, 0)), 0) as count").
 		Joins(gatewayClusterJoin).
 		Group("cluster_name").
-		Scan(&rows).Error; err != nil {
+		Scan(&out).Error; err != nil {
 		return nil, err
-	}
-	out := make([]ClusterSandboxCount, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, ClusterSandboxCount{ClusterName: r.ClusterName, Count: r.Count})
 	}
 	return out, nil
 }
