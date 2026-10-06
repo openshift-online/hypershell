@@ -49,6 +49,7 @@ function inst(
     sandboxes: 0,
     sandboxesByCluster: [],
     sandboxHistory: [],
+    historyByCluster: [],
     logins: null,
     userHistory: [],
     loginsHistory: [],
@@ -460,5 +461,210 @@ describe("buildMapModel - frontier", () => {
       emptyFleet,
     );
     expect(model.frontier).toEqual(frontier);
+  });
+});
+
+describe("buildMapModel - per-cluster attribution", () => {
+  // One hub ("hub0") with a remote spoke ("hub0-spoke") that stacks into its column by
+  // name prefix. The hub instance reports three managed-cluster rows: its own controller
+  // ("hub0-hub"), a co-located spoke ("hub0-co") and the remote spoke ("hub0-spoke").
+  // The remote spoke gets its own node card; the hub card rolls up the other two.
+  function hubAndSpoke(): { promotion: PromotionData; fleet: FleetData } {
+    return {
+      promotion: promotion(["hub0", "hub0-spoke"], {
+        hub0: env({ name: "hub0", role: "hub", provider: "ibm" }),
+        "hub0-spoke": env({
+          name: "hub0-spoke",
+          role: "spoke",
+          provider: "aws",
+        }),
+      }),
+      fleet: {
+        instances: [
+          inst({
+            instance: "hub0",
+            gateways: { running: 6 },
+            gatewaysTotal: 6,
+            gatewaysByCluster: [
+              {
+                managedCluster: "hub0-hub",
+                gateways: { running: 3 },
+                total: 3,
+              },
+              { managedCluster: "hub0-co", gateways: { running: 2 }, total: 2 },
+              {
+                managedCluster: "hub0-spoke",
+                gateways: { running: 1 },
+                total: 1,
+              },
+            ],
+            sandboxes: 3,
+            sandboxesByCluster: [
+              { managedCluster: "hub0-hub", count: 1 },
+              { managedCluster: "hub0-co", count: 1 },
+              { managedCluster: "hub0-spoke", count: 1 },
+            ],
+            gatewayHistory: [{ running: 6, provisioning: 0, failed: 0 }],
+            sandboxHistory: [3],
+            historyTimes: [100, 200],
+            historyByCluster: [
+              {
+                managedCluster: "hub0-hub",
+                gatewayHistory: [
+                  { running: 3, provisioning: 0, failed: 0 },
+                  { running: 3, provisioning: 0, failed: 0 },
+                ],
+                sandboxHistory: [1, 1],
+              },
+              {
+                managedCluster: "hub0-co",
+                gatewayHistory: [
+                  { running: 2, provisioning: 0, failed: 0 },
+                  { running: 2, provisioning: 0, failed: 0 },
+                ],
+                sandboxHistory: [1, 1],
+              },
+              {
+                managedCluster: "hub0-spoke",
+                gatewayHistory: [
+                  { running: 1, provisioning: 0, failed: 0 },
+                  { running: 1, provisioning: 0, failed: 0 },
+                ],
+                sandboxHistory: [0, 1],
+              },
+            ],
+            rpc: { rate: 5, errorPct: 0, p95Ms: 0 },
+            users: 42,
+          }),
+        ],
+      },
+    };
+  }
+
+  function nodeById(model: ReturnType<typeof buildMapModel>, id: string) {
+    const n = model.nodes.find((x) => x.id === id);
+    if (!n) {
+      throw new Error(`no node ${id}`);
+    }
+    return n;
+  }
+
+  it("rolls up the hub's own + co-located clusters, excluding the broken-out spoke", () => {
+    const { promotion: p, fleet } = hubAndSpoke();
+    const hub = nodeById(buildMapModel(p, fleet), "hub0");
+    // 3 (hub-own) + 2 (co-located) = 5; the remote spoke's 1 is NOT on this card.
+    expect(hub.gatewaysTotal).toBe(5);
+    expect(hub.gateways).toEqual({ running: 5 });
+    expect(hub.sandboxes).toBe(2);
+    expect(hub.gatewaysByCluster.map((r) => r.managedCluster)).toEqual([
+      "hub0-hub",
+      "hub0-co",
+    ]);
+  });
+
+  it("gives the remote spoke its own counts from the hub's per-cluster row", () => {
+    const { promotion: p, fleet } = hubAndSpoke();
+    const spoke = nodeById(buildMapModel(p, fleet), "hub0-spoke");
+    expect(spoke.gatewaysTotal).toBe(1);
+    expect(spoke.gateways).toEqual({ running: 1 });
+    expect(spoke.sandboxes).toBe(1);
+    // A single slice has nothing further to split, so no detail-panel attribution.
+    expect(spoke.spokeAttribution).toBeNull();
+  });
+
+  it("rolls up the hub's chin history across its clusters, excluding the spoke", () => {
+    const { promotion: p, fleet } = hubAndSpoke();
+    const hub = nodeById(buildMapModel(p, fleet), "hub0");
+    // hub-own(3,3) + co-located(2,2) at each sample; the spoke's 1 is excluded.
+    expect(hub.gatewayHistory).toEqual([
+      { running: 5, provisioning: 0, failed: 0 },
+      { running: 5, provisioning: 0, failed: 0 },
+    ]);
+    expect(hub.sandboxHistory).toEqual([2, 2]);
+    expect(hub.historyTimes).toEqual([100, 200]);
+  });
+
+  it("gives the remote spoke its own chin history, zero-filling missing samples", () => {
+    const { promotion: p, fleet } = hubAndSpoke();
+    const spoke = nodeById(buildMapModel(p, fleet), "hub0-spoke");
+    expect(spoke.gatewayHistory).toEqual([
+      { running: 1, provisioning: 0, failed: 0 },
+      { running: 1, provisioning: 0, failed: 0 },
+    ]);
+    // The spoke's ts-100 sandbox sample is 0, ts-200 is 1 (from historyByCluster).
+    expect(spoke.sandboxHistory).toEqual([0, 1]);
+    expect(spoke.historyTimes).toEqual([100, 200]);
+  });
+
+  it("does not borrow the hub's control-plane metrics onto the spoke card", () => {
+    const { promotion: p, fleet } = hubAndSpoke();
+    const spoke = nodeById(buildMapModel(p, fleet), "hub0-spoke");
+    // RED metrics, users and friends are hub-level, so the spoke card leaves them empty.
+    expect(spoke.metrics.rpc).toEqual(ZERO_RATE);
+    expect(spoke.users).toBeNull();
+  });
+
+  it("keeps the unattributed (unknown) bucket on the hub card", () => {
+    const fleet: FleetData = {
+      instances: [
+        inst({
+          instance: "hub0",
+          gatewaysByCluster: [
+            { managedCluster: "hub0-hub", gateways: { running: 3 }, total: 3 },
+            { managedCluster: "unknown", gateways: { failed: 4 }, total: 4 },
+            {
+              managedCluster: "hub0-spoke",
+              gateways: { running: 1 },
+              total: 1,
+            },
+          ],
+          sandboxesByCluster: [
+            { managedCluster: "unknown", count: 2 },
+            { managedCluster: "hub0-spoke", count: 5 },
+          ],
+        }),
+      ],
+    };
+    const p = promotion(["hub0", "hub0-spoke"], {
+      hub0: env({ name: "hub0", role: "hub" }),
+      "hub0-spoke": env({ name: "hub0-spoke", role: "spoke" }),
+    });
+    const hub = nodeById(buildMapModel(p, fleet), "hub0");
+    // hub-own(3) + unknown(4) stay on the hub; only the spoke's 1 is split out.
+    expect(hub.gatewaysTotal).toBe(7);
+    expect(hub.gateways).toEqual({ running: 3, failed: 4 });
+    expect(hub.sandboxes).toBe(2);
+    expect(hub.gatewaysByCluster.map((r) => r.managedCluster)).toEqual([
+      "hub0-hub",
+      "unknown",
+    ]);
+  });
+
+  it("leaves a lone hub's totals verbatim when no spoke is broken out", () => {
+    const fleet: FleetData = {
+      instances: [
+        inst({
+          instance: "solo",
+          gateways: { running: 9 },
+          gatewaysTotal: 9,
+          gatewaysByCluster: [
+            { managedCluster: "solo-hub", gateways: { running: 9 }, total: 9 },
+          ],
+          sandboxes: 4,
+          gatewayHistory: [{ running: 9, provisioning: 0, failed: 0 }],
+          sandboxHistory: [4],
+          historyTimes: [100],
+        }),
+      ],
+    };
+    const p = promotion(["solo"], { solo: env({ name: "solo", role: "hub" }) });
+    const hub = nodeById(buildMapModel(p, fleet), "solo");
+    // No sibling spoke node, so the card is the instance total unchanged.
+    expect(hub.gatewaysTotal).toBe(9);
+    expect(hub.sandboxes).toBe(4);
+    expect(hub.gatewayHistory).toEqual([
+      { running: 9, provisioning: 0, failed: 0 },
+    ]);
+    expect(hub.sandboxHistory).toEqual([4]);
   });
 });

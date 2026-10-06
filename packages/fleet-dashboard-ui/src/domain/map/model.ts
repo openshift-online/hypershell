@@ -15,12 +15,13 @@
 import {
   findInstance,
   gatewayTone,
-  totalGateways,
   ZERO_RATE,
+  type ClusterHistory,
   type FleetData,
   type GatewayClusterBreakdown,
   type GatewayHistorySample,
   type GatewayPhaseCounts,
+  type InstanceFleet,
   type RateStats,
   type SandboxClusterCount,
 } from "../fleet";
@@ -241,29 +242,209 @@ function laneKeyFor(provider: string | null): string {
   return provider ?? "none";
 }
 
+/** A node's gateway + sandbox population: the counts, the two chin histories (aligned
+ *  to a shared time axis) and the per-cluster breakdowns feeding the detail panel. */
+interface NodeCounts {
+  readonly gateways: GatewayPhaseCounts;
+  readonly gatewaysTotal: number;
+  readonly sandboxes: number;
+  readonly gatewayHistory: readonly GatewayHistorySample[];
+  readonly sandboxHistory: readonly number[];
+  readonly historyTimes: readonly number[];
+  readonly gatewaysByCluster: readonly GatewayClusterBreakdown[];
+  readonly sandboxesByCluster: readonly SandboxClusterCount[];
+}
+
+/** Sum a set of per-cluster gateway rows into one phase map + total. */
+function sumGatewayRows(rows: readonly GatewayClusterBreakdown[]): {
+  gateways: GatewayPhaseCounts;
+  total: number;
+} {
+  const gateways: Record<string, number> = {};
+  let total = 0;
+  for (const r of rows) {
+    for (const [phase, n] of Object.entries(r.gateways)) {
+      gateways[phase] = (gateways[phase] ?? 0) + n;
+    }
+    total += r.total;
+  }
+  return { gateways, total };
+}
+
+/** Sum a set of per-cluster sandbox rows. */
+function sumSandboxRows(rows: readonly SandboxClusterCount[]): number {
+  return rows.reduce((sum, r) => sum + r.count, 0);
+}
+
+/**
+ * Sum a set of per-cluster history rows onto a shared `length`-column axis: at each
+ * sample the gateway phases add and the sandbox counts add, zero-filling a row that is
+ * short (every row is meant to be index-aligned to the instance's historyTimes, but we
+ * never index past a row's own length). Returns a single pair of aligned chin series.
+ */
+function sumClusterHistory(
+  rows: readonly ClusterHistory[],
+  length: number,
+): { gatewayHistory: GatewayHistorySample[]; sandboxHistory: number[] } {
+  const gatewayHistory: GatewayHistorySample[] = [];
+  const sandboxHistory: number[] = [];
+  for (let i = 0; i < length; i++) {
+    let running = 0;
+    let provisioning = 0;
+    let failed = 0;
+    let sandbox = 0;
+    for (const r of rows) {
+      const g = r.gatewayHistory[i];
+      if (g) {
+        running += g.running;
+        provisioning += g.provisioning;
+        failed += g.failed;
+      }
+      sandbox += r.sandboxHistory[i] ?? 0;
+    }
+    gatewayHistory.push({ running, provisioning, failed });
+    sandboxHistory.push(sandbox);
+  }
+  return { gatewayHistory, sandboxHistory };
+}
+
+/**
+ * The hub/physical-cluster card's population: everything the owning instance reports
+ * EXCEPT the managed clusters broken out onto their own node (its remote spokes, which
+ * live on a different physical cluster). So the card rolls up the hub's own gateways,
+ * its co-located spokes AND the unattributed ("unknown") bucket into one count + one
+ * pair of chins - each physical cluster showing only what runs on it. When nothing is
+ * excluded (no sibling spoke node) it degrades to the instance totals verbatim, so a
+ * plain hub with no broken-out spokes is byte-for-byte unchanged.
+ */
+function hubRollup(
+  fl: InstanceFleet,
+  exclude: ReadonlySet<string>,
+): NodeCounts {
+  if (exclude.size === 0) {
+    return {
+      gateways: fl.gateways,
+      gatewaysTotal: fl.gatewaysTotal,
+      sandboxes: fl.sandboxes,
+      gatewayHistory: fl.gatewayHistory,
+      sandboxHistory: fl.sandboxHistory,
+      historyTimes: fl.historyTimes,
+      gatewaysByCluster: fl.gatewaysByCluster,
+      sandboxesByCluster: fl.sandboxesByCluster,
+    };
+  }
+  const gatewaysByCluster = fl.gatewaysByCluster.filter(
+    (r) => !exclude.has(r.managedCluster),
+  );
+  const sandboxesByCluster = fl.sandboxesByCluster.filter(
+    (r) => !exclude.has(r.managedCluster),
+  );
+  const { gateways, total } = sumGatewayRows(gatewaysByCluster);
+  const { gatewayHistory, sandboxHistory } = sumClusterHistory(
+    fl.historyByCluster.filter((r) => !exclude.has(r.managedCluster)),
+    fl.historyTimes.length,
+  );
+  return {
+    gateways,
+    gatewaysTotal: total,
+    sandboxes: sumSandboxRows(sandboxesByCluster),
+    gatewayHistory,
+    sandboxHistory,
+    historyTimes: fl.historyTimes,
+    gatewaysByCluster,
+    sandboxesByCluster,
+  };
+}
+
+/**
+ * A single managed cluster's slice of its owning hub instance: the one spoke's gateway
+ * + sandbox counts and its own two chins, read from the hub's per-cluster breakdowns by
+ * matching `cluster`. Drives a remote spoke's own node card (the spoke lives on a
+ * different physical cluster than its hub, so it gets its own card instead of rolling
+ * into the hub's). Empty when the hub reports nothing for that cluster.
+ */
+function spokeSlice(fl: InstanceFleet, cluster: string): NodeCounts {
+  const gatewaysByCluster = fl.gatewaysByCluster.filter(
+    (r) => r.managedCluster === cluster,
+  );
+  const sandboxesByCluster = fl.sandboxesByCluster.filter(
+    (r) => r.managedCluster === cluster,
+  );
+  const { gateways, total } = sumGatewayRows(gatewaysByCluster);
+  const { gatewayHistory, sandboxHistory } = sumClusterHistory(
+    fl.historyByCluster.filter((r) => r.managedCluster === cluster),
+    fl.historyTimes.length,
+  );
+  return {
+    gateways,
+    gatewaysTotal: total,
+    sandboxes: sumSandboxRows(sandboxesByCluster),
+    gatewayHistory,
+    sandboxHistory,
+    historyTimes: fl.historyTimes,
+    gatewaysByCluster,
+    sandboxesByCluster,
+  };
+}
+
+/** The empty population for a node whose instance reports no fleet data. */
+const EMPTY_COUNTS: NodeCounts = {
+  gateways: {},
+  gatewaysTotal: 0,
+  sandboxes: 0,
+  gatewayHistory: [],
+  sandboxHistory: [],
+  historyTimes: [],
+  gatewaysByCluster: [],
+  sandboxesByCluster: [],
+};
+
 function buildNode(
   env: PromotionEnvironment,
   fleet: FleetData,
   columnKey: string,
   topology: InstanceTopology | null,
+  siblingSpokes: ReadonlySet<string>,
 ): MapNode {
   const provider = nonEmpty(env.provider);
-  const fl = findInstance(fleet.instances, env.name);
-  const gateways = fl?.gateways ?? {};
-  const gatewaysByCluster = fl?.gatewaysByCluster ?? [];
-  const sandboxesByCluster = fl?.sandboxesByCluster ?? [];
-  // Only attribute when the instance actually reports a per-spoke breakdown; with
-  // neither series there is nothing to split out (keeps the section off plain nodes).
+  const isHub = isHubRole(env.role);
+  // A hub card reads its OWN instance and rolls up every cluster except the spokes
+  // broken out onto their own node; a spoke card reads its HUB instance (its column
+  // key) and takes just its own slice. This is the whole point of the attribution:
+  // each physical cluster shows only the gateways/sandboxes that run on it.
+  const owning = isHub
+    ? findInstance(fleet.instances, env.name)
+    : findInstance(fleet.instances, columnKey);
+  const counts: NodeCounts =
+    owning === null
+      ? EMPTY_COUNTS
+      : isHub
+        ? hubRollup(owning, siblingSpokes)
+        : spokeSlice(owning, env.name);
+  // Attribute (for the detail panel breakdown) only on the hub card, and only when it
+  // actually carries a per-cluster breakdown; a single spoke slice has nothing to split
+  // further. The hub classifies its ROLLED-UP rows (remote spokes already excluded), so
+  // the panel's hub-own + co-located + unknown sum back to the card's headline count.
   const spokeAttribution =
-    gatewaysByCluster.length > 0 || sandboxesByCluster.length > 0
-      ? classifySpokes(gatewaysByCluster, sandboxesByCluster, topology)
+    isHub &&
+    (counts.gatewaysByCluster.length > 0 ||
+      counts.sandboxesByCluster.length > 0)
+      ? classifySpokes(
+          counts.gatewaysByCluster,
+          counts.sandboxesByCluster,
+          topology,
+        )
       : null;
+  // Control-plane RED metrics, users/logins and their histories are hub-level (the
+  // api-server reports them per instance, not per spoke), so only a hub card carries
+  // them; a spoke card leaves them zero/empty rather than borrow its hub's.
+  const fl = isHub ? owning : null;
   return {
     id: env.name,
     columnKey,
     envLabel: nonEmpty(env.envLabel),
     laneKey: laneKeyFor(provider),
-    isHub: isHubRole(env.role),
+    isHub,
     role: nonEmpty(env.role),
     provider,
     cluster: nonEmpty(env.cluster),
@@ -285,21 +466,21 @@ function buildNode(
     gateChecks: env.gates
       .filter((g) => g.name !== "")
       .map((g) => ({ name: g.name, badge: gatePhaseBadge(g.phase) })),
-    gateways,
-    gatewaysTotal: fl?.gatewaysTotal ?? totalGateways(gateways),
-    gatewayTone: gatewayTone(gateways),
-    gatewayHistory: fl?.gatewayHistory ?? [],
-    gatewaysByCluster,
-    sandboxes: fl?.sandboxes ?? 0,
-    sandboxesByCluster,
+    gateways: counts.gateways,
+    gatewaysTotal: counts.gatewaysTotal,
+    gatewayTone: gatewayTone(counts.gateways),
+    gatewayHistory: counts.gatewayHistory,
+    gatewaysByCluster: counts.gatewaysByCluster,
+    sandboxes: counts.sandboxes,
+    sandboxesByCluster: counts.sandboxesByCluster,
     spokeAttribution,
-    sandboxHistory: fl?.sandboxHistory ?? [],
+    sandboxHistory: counts.sandboxHistory,
     managedClusters: fl?.managedClusters ?? null,
     users: fl?.users ?? null,
     logins: fl?.logins ?? null,
     userHistory: fl?.userHistory ?? [],
     loginsHistory: fl?.loginsHistory ?? [],
-    historyTimes: fl?.historyTimes ?? [],
+    historyTimes: counts.historyTimes,
     metrics: {
       rpc: fl?.rpc ?? ZERO_RATE,
       reconcile: fl?.reconcile ?? ZERO_RATE,
@@ -452,14 +633,34 @@ export function buildMapModel(
 ): MapModel {
   const envs = orderedEnvironments(promotion);
   const columnKeyByName = assignColumns(envs);
-  const built = envs.map((env) =>
-    buildNode(
+  // Per column, the non-hub env names that get their OWN node card (remote spokes). A
+  // hub card rolls up everything on its physical cluster EXCEPT these, so each managed
+  // cluster's counts are drawn on exactly one card. Derived from runtime role + column
+  // data alone - no fleet names or hub table baked in (FIREWALL).
+  const siblingSpokesByColumn = new Map<string, Set<string>>();
+  for (const env of envs) {
+    if (isHubRole(env.role)) {
+      continue;
+    }
+    const col = columnKeyByName.get(env.name) ?? env.name;
+    let set = siblingSpokesByColumn.get(col);
+    if (!set) {
+      set = new Set<string>();
+      siblingSpokesByColumn.set(col, set);
+    }
+    set.add(env.name);
+  }
+  const noSpokes: ReadonlySet<string> = new Set<string>();
+  const built = envs.map((env) => {
+    const columnKey = columnKeyByName.get(env.name) ?? env.name;
+    return buildNode(
       env,
       fleet,
-      columnKeyByName.get(env.name) ?? env.name,
+      columnKey,
       topology[env.name] ?? null,
-    ),
-  );
+      siblingSpokesByColumn.get(columnKey) ?? noSpokes,
+    );
+  });
 
   // Version-drift post-pass: a node drifts when it runs a different active digest
   // than its column's governing (hub) node. Needs the whole column, so it runs here
