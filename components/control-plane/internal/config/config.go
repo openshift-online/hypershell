@@ -64,6 +64,10 @@ type Config struct {
 	// it is reaped.
 	NamespaceGCGracePeriod time.Duration
 
+	// DirectoryRefreshInterval is the cadence of the Keycloak realm directory
+	// projection refresh (GAM-09). Bounded staleness equals this interval.
+	DirectoryRefreshInterval time.Duration
+
 	// GatewayReconcileWorkers bounds how many distinct gateways the control
 	// plane provisions concurrently: the size of the gateway reconcile queue
 	// worker pool. Work for a single gateway is always serialized; this only
@@ -111,6 +115,8 @@ func Load() (*Config, error) {
 		NamespaceGCEnabled:     getEnvBool("GATEWAY_NAMESPACE_GC_ENABLED", true),
 		NamespaceGCInterval:    getEnvDuration("GATEWAY_NAMESPACE_GC_INTERVAL", 5*time.Minute),
 		NamespaceGCGracePeriod: getEnvDuration("GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 10*time.Minute),
+
+		DirectoryRefreshInterval: getEnvDuration("GATEWAY_DIRECTORY_REFRESH_INTERVAL", 5*time.Minute),
 
 		GatewayReconcileWorkers: getEnvInt("GATEWAY_RECONCILE_WORKERS", DefaultGatewayReconcileWorkers, 1),
 

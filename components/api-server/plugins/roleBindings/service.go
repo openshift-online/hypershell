@@ -3,6 +3,7 @@ package roleBindings
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -20,6 +21,19 @@ type RoleBindingService interface {
 	Delete(ctx context.Context, id string) *errors.ServiceError
 	CreateGatewayOwnerBinding(ctx context.Context, userID string, gatewayID string) error
 	FindBindingsByUserID(ctx context.Context, userID string) ([]rbac.BindingSummary, error)
+	BindingsForGateway(ctx context.Context, gatewayID string) (RoleBindingList, *errors.ServiceError)
+	// SetGatewayRole converges the user's bindings on gatewayID to exactly one
+	// binding for roleName (one of gateway:owner/admin/viewer), in place where
+	// possible (GAM-05, GAM-10). It emits an UPDATED watch event when an existing
+	// single binding's role_id is changed in place (no zero-access window), a
+	// CREATED event when a new binding is made, and DELETED events for any surplus
+	// bindings removed during convergence. It performs NO caller authorization;
+	// the access facade authorizes before calling.
+	SetGatewayRole(ctx context.Context, userID string, gatewayID string, roleName string) (*RoleBinding, *errors.ServiceError)
+	// RevokeGatewayAccess deletes all of the user's gateway-scoped bindings on
+	// gatewayID (one DELETED event each) and returns the number removed. It
+	// performs NO caller authorization.
+	RevokeGatewayAccess(ctx context.Context, userID string, gatewayID string) (int, *errors.ServiceError)
 	FindByUserID(ctx context.Context, userID string) (RoleBindingList, *errors.ServiceError)
 	FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, *errors.ServiceError)
 	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
@@ -270,6 +284,123 @@ func (s *sqlRoleBindingService) Delete(ctx context.Context, id string) *errors.S
 		return services.HandleDeleteError("RoleBinding", evErr)
 	}
 
+	return nil
+}
+
+func (s *sqlRoleBindingService) BindingsForGateway(ctx context.Context, gatewayID string) (RoleBindingList, *errors.ServiceError) {
+	bindings, err := s.rbDao.FindByGatewayID(ctx, gatewayID)
+	if err != nil {
+		return nil, errors.GeneralError("Unable to get gateway role bindings: %s", err)
+	}
+	return bindings, nil
+}
+
+// gatewayBindingsForUser returns the user's gateway-scoped bindings on gatewayID.
+func (s *sqlRoleBindingService) gatewayBindingsForUser(ctx context.Context, userID, gatewayID string) (RoleBindingList, error) {
+	all, err := s.rbDao.FindByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := RoleBindingList{}
+	for _, b := range all {
+		if b.Scope == ScopeGateway && b.GatewayID != nil && *b.GatewayID == gatewayID {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+
+func (s *sqlRoleBindingService) SetGatewayRole(ctx context.Context, userID, gatewayID, roleName string) (*RoleBinding, *errors.ServiceError) {
+	if roleName != roles.RoleGatewayOwner && roleName != roles.RoleGatewayAdmin && roleName != roles.RoleGatewayViewer {
+		return nil, errors.Validation("invalid gateway role: %q", roleName)
+	}
+	targetRole, roleErr := s.roleDao.GetByName(ctx, roleName)
+	if roleErr != nil {
+		return nil, errors.Validation("invalid role %q: %s", roleName, roleErr)
+	}
+
+	existing, err := s.gatewayBindingsForUser(ctx, userID, gatewayID)
+	if err != nil {
+		return nil, errors.GeneralError("unable to look up existing bindings: %s", err)
+	}
+
+	// No binding yet: create one (CREATED event).
+	if len(existing) == 0 {
+		uid := userID
+		gid := gatewayID
+		rb := &RoleBinding{RoleID: targetRole.ID, Scope: ScopeGateway, UserID: &uid, GatewayID: &gid}
+		rb.CaptureTraceContext(ctx)
+		created, createErr := s.rbDao.Create(ctx, rb)
+		if createErr != nil {
+			return nil, services.HandleCreateError("RoleBinding", createErr)
+		}
+		if evErr := s.emitBindingEvent(ctx, created.ID, api.CreateEventType); evErr != nil {
+			return nil, evErr
+		}
+		return created, nil
+	}
+
+	// Converge to exactly one binding (GAM-10): keep the earliest-created,
+	// delete any surplus so a user never accumulates conflicting bindings.
+	sort.Slice(existing, func(i, j int) bool {
+		if existing[i].CreatedAt.Equal(existing[j].CreatedAt) {
+			return existing[i].ID < existing[j].ID
+		}
+		return existing[i].CreatedAt.Before(existing[j].CreatedAt)
+	})
+	keep := existing[0]
+	for _, extra := range existing[1:] {
+		if delErr := s.rbDao.Delete(ctx, extra.ID); delErr != nil {
+			return nil, services.HandleDeleteError("RoleBinding", errors.GeneralError("unable to delete duplicate binding: %s", delErr))
+		}
+		if evErr := s.emitBindingEvent(ctx, extra.ID, api.DeleteEventType); evErr != nil {
+			return nil, evErr
+		}
+	}
+
+	// Already the target role: idempotent no-op success (GAM-10).
+	if keep.RoleID == targetRole.ID {
+		return keep, nil
+	}
+
+	// Change in place (GAM-05): a single UPDATED event, no zero-access window.
+	keep.RoleID = targetRole.ID
+	keep.CaptureTraceContext(ctx)
+	updated, updErr := s.rbDao.Update(ctx, keep)
+	if updErr != nil {
+		return nil, services.HandleUpdateError("RoleBinding", updErr)
+	}
+	if evErr := s.emitBindingEvent(ctx, updated.ID, api.UpdateEventType); evErr != nil {
+		return nil, evErr
+	}
+	return updated, nil
+}
+
+func (s *sqlRoleBindingService) RevokeGatewayAccess(ctx context.Context, userID, gatewayID string) (int, *errors.ServiceError) {
+	existing, err := s.gatewayBindingsForUser(ctx, userID, gatewayID)
+	if err != nil {
+		return 0, errors.GeneralError("unable to look up existing bindings: %s", err)
+	}
+	for _, b := range existing {
+		if delErr := s.rbDao.Delete(ctx, b.ID); delErr != nil {
+			return 0, services.HandleDeleteError("RoleBinding", errors.GeneralError("unable to delete binding: %s", delErr))
+		}
+		if evErr := s.emitBindingEvent(ctx, b.ID, api.DeleteEventType); evErr != nil {
+			return 0, evErr
+		}
+	}
+	return len(existing), nil
+}
+
+func (s *sqlRoleBindingService) emitBindingEvent(ctx context.Context, sourceID string, eventType api.EventType) *errors.ServiceError {
+	_, evErr := s.events.Create(ctx, &api.Event{
+		Source:    "RoleBindings",
+		SourceID:  sourceID,
+		EventType: eventType,
+	})
+	if evErr != nil {
+		return evErr
+	}
 	return nil
 }
 

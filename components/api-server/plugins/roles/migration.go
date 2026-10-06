@@ -144,10 +144,21 @@ var builtInRoleSeeds = []roleSeed{
 	{
 		Name:        RoleGatewayOwner,
 		DisplayName: "Gateway Owner",
-		Description: "Full CRUD on one gateway; can grant owner and viewer to others",
+		Description: "Full CRUD on one gateway; can grant owner, admin, and viewer to others",
 		Permissions: map[string]interface{}{
-			"gateways":      []string{"read", "update", "delete"},
-			"role_bindings": []string{"create", "read", "delete", "list"},
+			"gateways":         []string{"read", "update", "delete"},
+			"role_bindings":    []string{"create", "read", "update", "delete", "list"},
+			"service_accounts": []string{"create", "read", "delete", "list"},
+		},
+	},
+	{
+		Name:        RoleGatewayAdmin,
+		DisplayName: "Gateway Admin",
+		Description: "Granted administrator: read/update one gateway (no delete); can grant admin and viewer to others",
+		Permissions: map[string]interface{}{
+			"gateways":         []string{"read", "update"},
+			"role_bindings":    []string{"create", "read", "update", "delete", "list"},
+			"service_accounts": []string{"create", "read", "delete", "list"},
 		},
 	},
 	{
@@ -248,6 +259,55 @@ func migrationSeedManagedClusterRegistrarRole() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Where("name = ?", RoleManagedClusterRegistrar).Delete(&Role{}).Error
+		},
+	}
+}
+
+// migrationAddGatewayAdminRole seeds the gateway:admin built-in role
+// idempotently (GAM-12). gateway:admin is a per-gateway, DB-assigned role (like
+// gateway:owner and gateway:viewer); it is NOT JWT-synced. Re-running is safe,
+// and no existing binding is touched.
+func migrationAddGatewayAdminRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026100600000001",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			if err := tx.Where("name = ?", RoleGatewayAdmin).First(&existing).Error; err == nil {
+				return nil
+			}
+			permissions := map[string]interface{}{
+				"gateways":         []string{"read", "update"},
+				"role_bindings":    []string{"create", "read", "update", "delete", "list"},
+				"service_accounts": []string{"create", "read", "delete", "list"},
+			}
+			permJSON, err := json.Marshal(permissions)
+			if err != nil {
+				return err
+			}
+			permStr := string(permJSON)
+			displayName := "Gateway Admin"
+			description := "Granted administrator: read/update one gateway (no delete); can grant admin and viewer to others"
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RoleGatewayAdmin,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RoleGatewayAdmin).Delete(&Role{}).Error
 		},
 	}
 }

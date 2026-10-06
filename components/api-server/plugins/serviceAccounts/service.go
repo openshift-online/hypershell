@@ -953,8 +953,10 @@ func (s *service) access(ctx context.Context, gatewayID, userID string) (Access,
 		if binding.Scope != "gateway" || binding.GatewayID == nil || *binding.GatewayID != gatewayID {
 			continue
 		}
-		if binding.RoleName == "gateway:owner" {
-			return Access{CanCreate: true, CanManageAll: true, AllowedRoles: []string{RoleUser, RoleAdmin}, Role: "gateway:owner"}, nil
+		// A granted admin is capped identically to an owner (GAM-11): it may
+		// create and manage all service accounts and select either OpenShell role.
+		if binding.RoleName == "gateway:owner" || binding.RoleName == "gateway:admin" {
+			return Access{CanCreate: true, CanManageAll: true, AllowedRoles: []string{RoleUser, RoleAdmin}, Role: binding.RoleName}, nil
 		}
 		if binding.RoleName == "gateway:viewer" {
 			result = Access{CanCreate: true, CanManageAll: false, AllowedRoles: []string{RoleUser}, Role: "gateway:viewer"}

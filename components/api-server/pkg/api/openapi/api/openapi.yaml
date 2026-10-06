@@ -1873,6 +1873,280 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Unexpected error occurred
       summary: Get a registered user by ID
+  /api/hypershell/v1/gateways/{gateway_id}/access:
+    get:
+      operationId: listGatewayAccess
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Filter by console role tier
+        in: query
+        name: role
+        required: false
+        schema:
+          $ref: "#/components/schemas/GatewayAccessRole"
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - in: query
+        name: sort
+        required: false
+        schema:
+          default: created_at
+          enum:
+          - name
+          - role
+          - status
+          - expires_at
+          - created_at
+          type: string
+      - in: query
+        name: order
+        required: false
+        schema:
+          default: desc
+          enum:
+          - asc
+          - desc
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAccessList"
+          description: Access grants and caller capabilities
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: List access grants on a gateway
+    post:
+      operationId: grantGatewayAccess
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayAccessGrantRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAccessGrantResponse"
+          description: Access granted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Grant a user access to a gateway
+  /api/hypershell/v1/gateways/{gateway_id}/access/directory:
+    get:
+      operationId: searchGatewayDirectory
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayDirectoryUserList"
+          description: Candidate realm users
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Search the Keycloak realm directory for candidate users
+  /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:
+    delete:
+      operationId: revokeGatewayAccess
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: HyperShell User ID
+        in: path
+        name: user_id
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: Access revoked
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+      summary: Revoke a user's access to a gateway
+    patch:
+      operationId: changeGatewayAccessRole
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: HyperShell User ID
+        in: path
+        name: user_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayAccessChangeRoleRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAccessGrantResponse"
+          description: Role changed
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+      summary: Change a user's access role on a gateway
 components:
   parameters:
     id:
@@ -1974,6 +2248,20 @@ components:
       description: OpenShellGatewayServiceAccount ID
       in: path
       name: service_account_id
+      required: true
+      schema:
+        type: string
+    role:
+      description: Filter by console role tier
+      in: query
+      name: role
+      required: false
+      schema:
+        $ref: "#/components/schemas/GatewayAccessRole"
+    userId:
+      description: HyperShell User ID
+      in: path
+      name: user_id
       required: true
       schema:
         type: string
@@ -3264,6 +3552,194 @@ components:
           href: href
           email: email
           username: username
+    GatewayAccessRole:
+      enum:
+      - owner
+      - admin
+      - user
+      type: string
+    GatewayAccessGrantRequest:
+      additionalProperties: false
+      example:
+        role: owner
+        subject: subject
+        username: username
+      properties:
+        username:
+          minLength: 1
+          type: string
+        subject:
+          description: Optional Keycloak subject reference returned by the directory
+            search
+          type: string
+        role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+      required:
+      - role
+      - username
+      type: object
+    GatewayAccessChangeRoleRequest:
+      additionalProperties: false
+      example:
+        role: owner
+      properties:
+        role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+      required:
+      - role
+      type: object
+    GatewayAccessListItem:
+      example:
+        granted_at: 2000-01-23T04:56:07.000+00:00
+        role: null
+        user_id: user_id
+        name: name
+        role_binding_id: role_binding_id
+        is_creator: true
+        email: email
+        username: username
+      properties:
+        role_binding_id:
+          type: string
+        user_id:
+          type: string
+        username:
+          type: string
+        name:
+          nullable: true
+          type: string
+        email:
+          nullable: true
+          type: string
+        role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+        is_creator:
+          type: boolean
+        granted_at:
+          format: date-time
+          type: string
+      required:
+      - granted_at
+      - is_creator
+      - role
+      - role_binding_id
+      - user_id
+      - username
+      type: object
+    GatewayAccessGrantResponse:
+      allOf:
+      - $ref: "#/components/schemas/GatewayAccessListItem"
+      example:
+        granted_at: 2000-01-23T04:56:07.000+00:00
+        role: owner
+        user_id: user_id
+        name: name
+        role_binding_id: role_binding_id
+        is_creator: true
+        email: email
+        username: username
+    GatewayAccessCapabilities:
+      example:
+        caller_role: owner
+        can_manage_access: true
+        can_manage_owners: true
+      properties:
+        caller_role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+        can_manage_access:
+          type: boolean
+        can_manage_owners:
+          type: boolean
+      required:
+      - can_manage_access
+      - can_manage_owners
+      type: object
+    GatewayAccessList:
+      example:
+        total: 1
+        capabilities:
+          caller_role: owner
+          can_manage_access: true
+          can_manage_owners: true
+        size: 6
+        page: 0
+        items:
+        - granted_at: 2000-01-23T04:56:07.000+00:00
+          role: null
+          user_id: user_id
+          name: name
+          role_binding_id: role_binding_id
+          is_creator: true
+          email: email
+          username: username
+        - granted_at: 2000-01-23T04:56:07.000+00:00
+          role: null
+          user_id: user_id
+          name: name
+          role_binding_id: role_binding_id
+          is_creator: true
+          email: email
+          username: username
+      properties:
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
+        capabilities:
+          $ref: "#/components/schemas/GatewayAccessCapabilities"
+        items:
+          items:
+            $ref: "#/components/schemas/GatewayAccessListItem"
+          type: array
+      required:
+      - capabilities
+      - items
+      - page
+      - size
+      - total
+      type: object
+    GatewayDirectoryUser:
+      example:
+        subject: subject
+        name: name
+        email: email
+        username: username
+      properties:
+        username:
+          type: string
+        name:
+          nullable: true
+          type: string
+        email:
+          nullable: true
+          type: string
+        subject:
+          nullable: true
+          type: string
+      required:
+      - username
+      type: object
+    GatewayDirectoryUserList:
+      example:
+        items:
+        - subject: subject
+          name: name
+          email: email
+          username: username
+        - subject: subject
+          name: name
+          email: email
+          username: username
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/GatewayDirectoryUser"
+          type: array
+      required:
+      - items
+      type: object
     GatewayCreateRequest:
       example:
         phase: phase

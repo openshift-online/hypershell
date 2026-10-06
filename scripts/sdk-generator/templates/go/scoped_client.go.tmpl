@@ -35,6 +35,7 @@ func (a *{{.Resource.Name}}API) Create(ctx context.Context{{range .Resource.Scop
 	return &result, nil
 }
 
+{{if .Resource.HasGet}}
 func (a *{{.Resource.Name}}API) Get(ctx context.Context{{range .Resource.ScopeParameters}}, {{.GoName}} string{{end}}, {{.Resource.ItemParameter.GoName}} string) (*types.{{.Resource.GetResponseType}}, error) {
 	var result types.{{.Resource.GetResponseType}}
 	if _, err := a.client.doAny(ctx, http.MethodGet, {{.Resource.GoItemPath}}, nil, &result, http.StatusOK); err != nil {
@@ -42,7 +43,7 @@ func (a *{{.Resource.Name}}API) Get(ctx context.Context{{range .Resource.ScopePa
 	}
 	return &result, nil
 }
-
+{{end}}
 func (a *{{.Resource.Name}}API) List(ctx context.Context{{range .Resource.ScopeParameters}}, {{.GoName}} string{{end}}, opts *types.{{.Resource.Name}}ListOptions) (*types.{{.Resource.ListType}}, error) {
 	path := {{.Resource.GoCollectionPath}}
 	if opts != nil {
@@ -63,6 +64,7 @@ func (a *{{.Resource.Name}}API) List(ctx context.Context{{range .Resource.ScopeP
 	return &result, nil
 }
 
+{{if .Resource.HasRevoke}}
 func (a *{{.Resource.Name}}API) Revoke(ctx context.Context{{range .Resource.ScopeParameters}}, {{.GoName}} string{{end}}, {{.Resource.ItemParameter.GoName}} string) (*types.{{.Resource.ItemType}}, error) {
 	var result types.{{.Resource.ItemType}}
 	if _, err := a.client.doAny(ctx, http.MethodPost, {{.Resource.GoItemPath}}+"/revoke", nil, &result, http.StatusOK, http.StatusAccepted); err != nil {
@@ -70,7 +72,7 @@ func (a *{{.Resource.Name}}API) Revoke(ctx context.Context{{range .Resource.Scop
 	}
 	return &result, nil
 }
-
+{{end}}
 func (a *{{.Resource.Name}}API) Delete(ctx context.Context{{range .Resource.ScopeParameters}}, {{.GoName}} string{{end}}, {{.Resource.ItemParameter.GoName}} string) (*types.{{.Resource.ItemType}}, error) {
 	var result types.{{.Resource.ItemType}}
 	status, err := a.client.doAny(ctx, http.MethodDelete, {{.Resource.GoItemPath}}, nil, &result, http.StatusNoContent, http.StatusAccepted)
@@ -82,7 +84,34 @@ func (a *{{.Resource.Name}}API) Delete(ctx context.Context{{range .Resource.Scop
 	}
 	return &result, nil
 }
-
+{{if .Resource.HasPatch}}
+func (a *{{.Resource.Name}}API) Update(ctx context.Context{{range .Resource.ScopeParameters}}, {{.GoName}} string{{end}}, {{.Resource.ItemParameter.GoName}} string, request *types.{{.Resource.PatchRequestType}}) (*types.{{.Resource.PatchResponseType}}, error) {
+	body, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("marshal {{.Resource.Name | snakeCase}} update request: %w", err)
+	}
+	var result types.{{.Resource.PatchResponseType}}
+	if _, err := a.client.doAny(ctx, http.MethodPatch, {{.Resource.GoItemPath}}, body, &result, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+{{end}}
+{{- if .Resource.HasDirectorySearch}}
+func (a *{{.Resource.Name}}API) SearchDirectory(ctx context.Context{{range .Resource.ScopeParameters}}, {{.GoName}} string{{end}}, search string) (*types.{{.Resource.DirectoryListType}}, error) {
+	path := {{.Resource.GoDirectoryPath}}
+	if search != "" {
+		params := url.Values{}
+		params.Set("search", search)
+		path += "?" + params.Encode()
+	}
+	var result types.{{.Resource.DirectoryListType}}
+	if _, err := a.client.doAny(ctx, http.MethodGet, path, nil, &result, http.StatusOK); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+{{end}}
 func (a *{{.Resource.Name}}API) ListAll(ctx context.Context{{range .Resource.ScopeParameters}}, {{.GoName}} string{{end}}, opts *types.{{.Resource.Name}}ListOptions) *Iterator[types.{{.Resource.ItemType}}] {
 	if opts == nil {
 		opts = types.New{{.Resource.Name}}ListOptions().Build()

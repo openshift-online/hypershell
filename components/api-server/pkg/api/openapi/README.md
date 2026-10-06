@@ -78,6 +78,7 @@ All URIs are relative to *http://localhost:8000*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
+*DefaultAPI* | [**ChangeGatewayAccessRole**](docs/DefaultAPI.md#changegatewayaccessrole) | **Patch** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Change a user&#39;s access role on a gateway
 *DefaultAPI* | [**CreateGateway**](docs/DefaultAPI.md#creategateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 *DefaultAPI* | [**CreateGatewayNetwork**](docs/DefaultAPI.md#creategatewaynetwork) | **Post** /api/hypershell/v1/gateway_networks | Create a new gatewayNetwork
 *DefaultAPI* | [**CreateGatewayRelease**](docs/DefaultAPI.md#creategatewayrelease) | **Post** /api/hypershell/v1/gateway_releases | Create a new gatewayRelease
@@ -99,6 +100,8 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**GetRole**](docs/DefaultAPI.md#getrole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 *DefaultAPI* | [**GetRoleBinding**](docs/DefaultAPI.md#getrolebinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
 *DefaultAPI* | [**GetUser**](docs/DefaultAPI.md#getuser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
+*DefaultAPI* | [**GrantGatewayAccess**](docs/DefaultAPI.md#grantgatewayaccess) | **Post** /api/hypershell/v1/gateways/{gateway_id}/access | Grant a user access to a gateway
+*DefaultAPI* | [**ListGatewayAccess**](docs/DefaultAPI.md#listgatewayaccess) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access | List access grants on a gateway
 *DefaultAPI* | [**ListGatewayNetworks**](docs/DefaultAPI.md#listgatewaynetworks) | **Get** /api/hypershell/v1/gateway_networks | Returns a list of gatewayNetworks
 *DefaultAPI* | [**ListGatewayReleases**](docs/DefaultAPI.md#listgatewayreleases) | **Get** /api/hypershell/v1/gateway_releases | Returns a list of gatewayReleases
 *DefaultAPI* | [**ListGatewayServiceAccounts**](docs/DefaultAPI.md#listgatewayserviceaccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
@@ -108,7 +111,9 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**ListRoles**](docs/DefaultAPI.md#listroles) | **Get** /api/hypershell/v1/roles | List all roles
 *DefaultAPI* | [**ListUsers**](docs/DefaultAPI.md#listusers) | **Get** /api/hypershell/v1/users | List registered users
 *DefaultAPI* | [**RegisterManagedCluster**](docs/DefaultAPI.md#registermanagedcluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a control plane as a managed cluster
+*DefaultAPI* | [**RevokeGatewayAccess**](docs/DefaultAPI.md#revokegatewayaccess) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Revoke a user&#39;s access to a gateway
 *DefaultAPI* | [**RevokeGatewayServiceAccount**](docs/DefaultAPI.md#revokegatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
+*DefaultAPI* | [**SearchGatewayDirectory**](docs/DefaultAPI.md#searchgatewaydirectory) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access/directory | Search the Keycloak realm directory for candidate users
 *DefaultAPI* | [**UpdateGateway**](docs/DefaultAPI.md#updategateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 *DefaultAPI* | [**UpdateGatewayNetwork**](docs/DefaultAPI.md#updategatewaynetwork) | **Patch** /api/hypershell/v1/gateway_networks/{id} | Update an gatewayNetwork
 *DefaultAPI* | [**UpdateGatewayRelease**](docs/DefaultAPI.md#updategatewayrelease) | **Patch** /api/hypershell/v1/gateway_releases/{id} | Update an gatewayRelease
@@ -119,8 +124,17 @@ Class | Method | HTTP request | Description
 
  - [Error](docs/Error.md)
  - [Gateway](docs/Gateway.md)
+ - [GatewayAccessCapabilities](docs/GatewayAccessCapabilities.md)
+ - [GatewayAccessChangeRoleRequest](docs/GatewayAccessChangeRoleRequest.md)
+ - [GatewayAccessGrantRequest](docs/GatewayAccessGrantRequest.md)
+ - [GatewayAccessGrantResponse](docs/GatewayAccessGrantResponse.md)
+ - [GatewayAccessList](docs/GatewayAccessList.md)
+ - [GatewayAccessListItem](docs/GatewayAccessListItem.md)
+ - [GatewayAccessRole](docs/GatewayAccessRole.md)
  - [GatewayAllOfProvisioningConditions](docs/GatewayAllOfProvisioningConditions.md)
  - [GatewayCreateRequest](docs/GatewayCreateRequest.md)
+ - [GatewayDirectoryUser](docs/GatewayDirectoryUser.md)
+ - [GatewayDirectoryUserList](docs/GatewayDirectoryUserList.md)
  - [GatewayList](docs/GatewayList.md)
  - [GatewayNetwork](docs/GatewayNetwork.md)
  - [GatewayNetworkList](docs/GatewayNetworkList.md)

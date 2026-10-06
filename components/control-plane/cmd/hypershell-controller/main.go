@@ -18,8 +18,10 @@ import (
 	"k8s.io/client-go/rest"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	provisionerpb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/auth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/directory"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/grpctransport"
@@ -278,8 +280,18 @@ func main() {
 		transportConfig := serviceaccountprovisioner.TransportConfig{
 			Address: cfg.ServiceAccountProvisionerAddress,
 		}
+		// The Keycloak realm directory projection (GAM-09) rides the same private
+		// in-cluster channel. It needs Keycloak, so it is served only when a
+		// Keycloak client is configured; the API server dials this one address for
+		// both the provisioner and the directory.
+		var directorySvc provisionerpb.DirectoryServiceServer
+		if kcClient != nil {
+			projection := directory.NewProjection(kcClient, cfg.DirectoryRefreshInterval)
+			directorySvc = directory.NewServer(projection)
+			supervise("keycloak directory projection", projection.Run)
+		}
 		supervise("service-account provisioner", func(ctx context.Context) error {
-			return serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer)
+			return serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer, directorySvc)
 		})
 		log.Printf("INFO service-account provisioner launched on %s (in-cluster, NetworkPolicy-restricted)", cfg.ServiceAccountProvisionerAddress)
 	} else {

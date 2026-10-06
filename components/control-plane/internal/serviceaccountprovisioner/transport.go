@@ -21,7 +21,7 @@ type TransportConfig struct {
 // rather than adding mTLS. See
 // specs/platform/openshell-gateway-service-accounts.spec.md (Internal Provisioner
 // Network Isolation).
-func ListenAndServe(ctx context.Context, config TransportConfig, handler *Server) error {
+func ListenAndServe(ctx context.Context, config TransportConfig, handler *Server, directory pb.DirectoryServiceServer) error {
 	if config.Address == "" {
 		return fmt.Errorf("service-account provisioner bind address is required")
 	}
@@ -31,6 +31,11 @@ func ListenAndServe(ctx context.Context, config TransportConfig, handler *Server
 	}
 	grpcServer := grpc.NewServer()
 	pb.RegisterOpenShellGatewayServiceAccountProvisionerServiceServer(grpcServer, handler)
+	// The Keycloak realm directory projection (GAM-09) rides the same private
+	// in-cluster channel; the API server dials this one address for both.
+	if directory != nil {
+		pb.RegisterDirectoryServiceServer(grpcServer, directory)
+	}
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(grpcServer, healthServer)

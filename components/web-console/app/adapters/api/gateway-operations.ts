@@ -1,5 +1,9 @@
 import type {
+  GatewayAccessCapabilities,
+  GatewayAccessGrantRecord,
+  GatewayAccessPage,
   GatewayControlPlane,
+  GatewayDirectoryUser,
   GatewayFailureCode,
   GatewayFailureKind,
   GatewayInvocationContext,
@@ -21,6 +25,9 @@ import {
 import {
   SDKAPIError,
   type Gateway,
+  type GatewayAccessCapabilities as ApiGatewayAccessCapabilities,
+  type GatewayAccessListItem as ApiGatewayAccessListItem,
+  type GatewayDirectoryUser as ApiGatewayDirectoryUser,
   type ManagedCluster,
   type OpenShellGatewayServiceAccountCapabilities as ApiServiceAccountCapabilities,
   type OpenShellGatewayServiceAccountConnection as ApiServiceAccountConnection,
@@ -40,7 +47,12 @@ type ServiceAccountApi = Pick<
   SDKClient["openShellGatewayServiceAccounts"],
   "create" | "delete" | "get" | "list" | "revoke"
 >;
+type GatewayAccessApi = Pick<
+  SDKClient["gatewayAccesses"],
+  "create" | "delete" | "list" | "searchDirectory" | "update"
+>;
 interface GatewayApiClient {
+  gatewayAccesses: GatewayAccessApi;
   gateways: GatewayApi;
   managedClusters: ManagedClusterApi;
   openShellGatewayServiceAccounts: ServiceAccountApi;
@@ -198,6 +210,47 @@ type ApiServiceAccountRecord =
   | OpenShellGatewayServiceAccountGetResponse
   | OpenShellGatewayServiceAccountListItem;
 
+function toAccessGrantRecord(
+  item: ApiGatewayAccessListItem,
+): GatewayAccessGrantRecord {
+  const email = optionalString(item.email);
+  const name = optionalString(item.name);
+  return {
+    ...(email ? { email } : {}),
+    grantedAt: item.granted_at,
+    isCreator: item.is_creator,
+    ...(name ? { name } : {}),
+    role: item.role,
+    roleBindingId: item.role_binding_id,
+    userId: item.user_id,
+    username: item.username,
+  };
+}
+
+function toAccessCapabilities(
+  capabilities: ApiGatewayAccessCapabilities,
+): GatewayAccessCapabilities {
+  return {
+    ...(capabilities.caller_role
+      ? { callerRole: capabilities.caller_role }
+      : {}),
+    canManageAccess: capabilities.can_manage_access,
+    canManageOwners: capabilities.can_manage_owners,
+  };
+}
+
+function toDirectoryUser(user: ApiGatewayDirectoryUser): GatewayDirectoryUser {
+  const email = optionalString(user.email);
+  const name = optionalString(user.name);
+  const subject = optionalString(user.subject);
+  return {
+    ...(email ? { email } : {}),
+    ...(name ? { name } : {}),
+    ...(subject ? { subject } : {}),
+    username: user.username,
+  };
+}
+
 function toServiceAccountRecord(
   account: ApiServiceAccountRecord,
 ): OpenShellGatewayServiceAccountRecord {
@@ -322,6 +375,83 @@ export function createGatewayControlPlaneAdapter(
   apiFactory: GatewayApiFactory,
 ): GatewayControlPlane {
   return {
+    async changeGatewayAccessRole(gatewayId, userId, role, context) {
+      return mapFailure(async () => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).gatewayAccesses.update(
+          gatewayId,
+          userId,
+          { role },
+          { signal: context.signal },
+        );
+        return toAccessGrantRecord(response);
+      });
+    },
+    async grantGatewayAccess(gatewayId, input, context) {
+      return mapFailure(async () => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).gatewayAccesses.create(
+          gatewayId,
+          {
+            role: input.role,
+            ...(input.subject === undefined ? {} : { subject: input.subject }),
+            username: input.username,
+          },
+          { signal: context.signal },
+        );
+        return toAccessGrantRecord(response);
+      });
+    },
+    async listGatewayAccess(gatewayId, request, context) {
+      return mapFailure(async (): Promise<GatewayAccessPage> => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).gatewayAccesses.list(
+          gatewayId,
+          {
+            order: request.order,
+            page: request.page,
+            ...(request.role ? { role: request.role } : {}),
+            ...(request.search ? { search: request.search } : {}),
+            size: request.size,
+            sort: request.sort,
+          },
+          { signal: context.signal },
+        );
+        return {
+          capabilities: toAccessCapabilities(response.capabilities),
+          items: response.items.map(toAccessGrantRecord),
+          page: response.page,
+          size: response.size,
+          total: response.total,
+        };
+      });
+    },
+    async revokeGatewayAccess(gatewayId, userId, context) {
+      await mapFailure(() =>
+        apiClient(apiFactory, context).gatewayAccesses.delete(
+          gatewayId,
+          userId,
+          { signal: context.signal },
+        ),
+      );
+    },
+    async searchGatewayDirectory(gatewayId, search, context) {
+      return mapFailure(async () => {
+        const response = await apiClient(
+          apiFactory,
+          context,
+        ).gatewayAccesses.searchDirectory(gatewayId, search, {
+          signal: context.signal,
+        });
+        return response.items.map(toDirectoryUser);
+      });
+    },
     async createOpenShellGatewayServiceAccount(gatewayId, input, context) {
       return mapFailure(async () => {
         const response = await apiClient(

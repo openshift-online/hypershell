@@ -56,7 +56,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 const operations: GatewayOperations = {
+  changeGatewayAccessRole: vi.fn(),
   createOpenShellGatewayServiceAccount: mocks.create,
+  grantGatewayAccess: vi.fn(),
+  listGatewayAccess: vi.fn(),
+  revokeGatewayAccess: vi.fn(),
+  searchGatewayDirectory: vi.fn(),
   deleteOpenShellGatewayServiceAccount: mocks.delete,
   findGatewayPlacements: vi.fn(),
   getGateway: vi.fn(),

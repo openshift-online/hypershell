@@ -140,7 +140,7 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 		}
 
 		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles) {
-			if resource == "service_accounts" || (r.Method == http.MethodGet && resourceID != "") {
+			if resource == "service_accounts" || resource == "access" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
 			} else {
 				http.Error(w, "Forbidden", http.StatusForbidden)
@@ -280,6 +280,12 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/service_accounts") {
 		return "service_accounts", mux.Vars(r)["service_account_id"]
 	}
+	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/access") {
+		// Collection, item (/access/{user_id}), and directory (/access/directory)
+		// all resolve to the "access" resource; user_id is empty for the
+		// collection and directory sub-paths.
+		return "access", mux.Vars(r)["user_id"]
+	}
 
 	parts := strings.Split(pathTemplate, "/")
 	for i := len(parts) - 1; i >= 0; i-- {
@@ -318,6 +324,16 @@ func extractResourceInfoFromPath(path string) (resource string, resourceID strin
 			}
 		}
 	}
+	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/access") {
+		for i, part := range parts {
+			if part == "access" {
+				if i+1 < len(parts) && parts[i+1] != "directory" {
+					return "access", parts[i+1]
+				}
+				return "access", ""
+			}
+		}
+	}
 
 	resource = parts[0]
 	if len(parts) > 1 {
@@ -327,7 +343,7 @@ func extractResourceInfoFromPath(path string) (resource string, resourceID strin
 }
 
 func extractGatewayID(r *http.Request, resource string) string {
-	if resource == "service_accounts" {
+	if resource == "service_accounts" || resource == "access" {
 		if gatewayID := mux.Vars(r)["gateway_id"]; gatewayID != "" {
 			return gatewayID
 		}
@@ -403,15 +419,20 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	}
 
 	if resource == "service_accounts" && gatewayID != "" {
-		// Both gateway roles can create service accounts. The handler applies the
-		// finer owner-all/viewer-own visibility and role-cap rules.
+		// Any gateway role can reach the service-accounts API. The handler applies
+		// the finer owner/admin-all vs viewer-own visibility and role-cap rules
+		// (admins are capped like owners -- GAM-11).
 		for _, binding := range bindings {
 			if binding.Scope == "gateway" && binding.GatewayID != nil && *binding.GatewayID == gatewayID &&
-				(binding.RoleName == "gateway:owner" || binding.RoleName == "gateway:viewer") {
+				(binding.RoleName == "gateway:owner" || binding.RoleName == "gateway:admin" || binding.RoleName == "gateway:viewer") {
 				return true
 			}
 		}
 		return false
+	}
+
+	if resource == "access" && gatewayID != "" {
+		return isAccessFacadeAuthorized(gatewayID, bindings)
 	}
 
 	if resource == "role_bindings" {
@@ -442,10 +463,35 @@ func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSumm
 		switch b.RoleName {
 		case "gateway:owner":
 			return true
+		case "gateway:admin":
+			// Granted administrator: read and update, but never delete the
+			// gateway (GAM-01). Delete requires gateway:owner.
+			if method != http.MethodDelete {
+				return true
+			}
 		case "gateway:viewer":
 			if method == http.MethodGet {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// isAccessFacadeAuthorized is the coarse gate for the gateway access facade
+// (/gateways/{gateway_id}/access...). Any caller with a binding on the gateway
+// (owner, admin, or viewer) or platform:admin passes; everyone else gets 404
+// (existence is not disclosed, per rbac-enforcement.spec.md). The fine-grained
+// rules -- owner/admin-only management, owner-tier gating, and last-owner
+// protection -- are enforced in the access facade service (403/409), which can
+// return descriptive messages the middleware cannot.
+func isAccessFacadeAuthorized(gatewayID string, bindings []BindingSummary) bool {
+	if hasPlatformAdmin(bindings) {
+		return true
+	}
+	for _, b := range bindings {
+		if b.Scope == "gateway" && b.GatewayID != nil && *b.GatewayID == gatewayID {
+			return true
 		}
 	}
 	return false

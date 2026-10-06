@@ -6,12 +6,9 @@
 import type { SDKClientConfig, RequestOptions } from './base.js';
 import { sdkFetch } from './base.js';
 import type {
-  {{.Resource.CreateRequestType}},
-  {{.Resource.CreateResponseType}},
-  {{.Resource.GetResponseType}},
-  {{.Resource.ItemType}},
-  {{.Resource.ListType}},
-  {{.Resource.Name}}ListOptions,
+{{- range .Resource.TSImports}}
+  {{.}},
+{{- end}}
 } from './{{.Resource.Name | snakeCase}}.js';
 
 export class {{.Resource.Name}}API {
@@ -20,10 +17,12 @@ export class {{.Resource.Name}}API {
   async create({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}data: {{.Resource.CreateRequestType}}, opts?: RequestOptions): Promise<{{.Resource.CreateResponseType}}> {
     return sdkFetch<{{.Resource.CreateResponseType}}>(this.config, 'POST', {{.Resource.TSCollectionPath}}, data, opts);
   }
+{{- if .Resource.HasGet}}
 
   async get({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}{{.Resource.ItemParameter.TSName}}: string, opts?: RequestOptions): Promise<{{.Resource.GetResponseType}}> {
     return sdkFetch<{{.Resource.GetResponseType}}>(this.config, 'GET', {{.Resource.TSItemPath}}, undefined, opts);
   }
+{{- end}}
 
   async list({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}listOpts?: {{.Resource.Name}}ListOptions, opts?: RequestOptions): Promise<{{.Resource.ListType}}> {
     const params = new URLSearchParams();
@@ -36,14 +35,34 @@ export class {{.Resource.Name}}API {
     const path = {{.Resource.TSCollectionPath}} + (query ? `?${query}` : '');
     return sdkFetch<{{.Resource.ListType}}>(this.config, 'GET', path, undefined, opts);
   }
+{{- if .Resource.HasRevoke}}
 
   async revoke({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}{{.Resource.ItemParameter.TSName}}: string, opts?: RequestOptions): Promise<{{.Resource.ItemType}}> {
     return sdkFetch<{{.Resource.ItemType}}>(this.config, 'POST', {{.Resource.TSItemPath}} + '/revoke', undefined, opts);
   }
+{{- end}}
 
   async delete({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}{{.Resource.ItemParameter.TSName}}: string, opts?: RequestOptions): Promise<{{.Resource.ItemType}} | undefined> {
     return sdkFetch<{{.Resource.ItemType}} | undefined>(this.config, 'DELETE', {{.Resource.TSItemPath}}, undefined, opts);
   }
+{{- if .Resource.HasPatch}}
+
+  async update({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}{{.Resource.ItemParameter.TSName}}: string, data: {{.Resource.PatchRequestType}}, opts?: RequestOptions): Promise<{{.Resource.PatchResponseType}}> {
+    return sdkFetch<{{.Resource.PatchResponseType}}>(this.config, 'PATCH', {{.Resource.TSItemPath}}, data, opts);
+  }
+{{- end}}
+{{- if .Resource.HasDirectorySearch}}
+
+  async searchDirectory({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}search?: string, opts?: RequestOptions): Promise<{{.Resource.DirectoryListType}}> {
+    const params = new URLSearchParams();
+    if (search !== undefined && search !== '') {
+      params.set('search', search);
+    }
+    const query = params.toString();
+    const path = {{.Resource.TSDirectoryPath}} + (query ? `?${query}` : '');
+    return sdkFetch<{{.Resource.DirectoryListType}}>(this.config, 'GET', path, undefined, opts);
+  }
+{{- end}}
 
   async *listAll({{range .Resource.ScopeParameters}}{{.TSName}}: string, {{end}}size: number = 20, opts?: RequestOptions): AsyncGenerator<{{.Resource.ItemType}}> {
     let page = 1;

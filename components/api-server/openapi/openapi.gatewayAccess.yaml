@@ -1,0 +1,320 @@
+paths:
+  /api/hypershell/v1/gateways/{gateway_id}/access:
+    parameters:
+      - $ref: '#/components/parameters/gatewayId'
+    get:
+      operationId: listGatewayAccess
+      summary: List access grants on a gateway
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/role'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/order'
+      responses:
+        '200':
+          description: Access grants and caller capabilities
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayAccessList'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    post:
+      operationId: grantGatewayAccess
+      summary: Grant a user access to a gateway
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GatewayAccessGrantRequest'
+      responses:
+        '201':
+          description: Access granted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayAccessGrantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+  /api/hypershell/v1/gateways/{gateway_id}/access/directory:
+    parameters:
+      - $ref: '#/components/parameters/gatewayId'
+    get:
+      operationId: searchGatewayDirectory
+      summary: Search the Keycloak realm directory for candidate users
+      parameters:
+        - $ref: '#/components/parameters/search'
+      responses:
+        '200':
+          description: Candidate realm users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayDirectoryUserList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+  /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/gatewayId'
+      - $ref: '#/components/parameters/userId'
+    patch:
+      operationId: changeGatewayAccessRole
+      summary: Change a user's access role on a gateway
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GatewayAccessChangeRoleRequest'
+      responses:
+        '200':
+          description: Role changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayAccessGrantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+    delete:
+      operationId: revokeGatewayAccess
+      summary: Revoke a user's access to a gateway
+      responses:
+        '204':
+          description: Access revoked
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+components:
+  parameters:
+    gatewayId:
+      name: gateway_id
+      in: path
+      required: true
+      description: Selected Gateway ID
+      schema:
+        type: string
+    userId:
+      name: user_id
+      in: path
+      required: true
+      description: HyperShell User ID
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    size:
+      name: size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    role:
+      name: role
+      in: query
+      required: false
+      description: Filter by console role tier
+      schema:
+        $ref: '#/components/schemas/GatewayAccessRole'
+    search:
+      name: search
+      in: query
+      required: false
+      description: Case-insensitive literal substring over username and name
+      schema:
+        type: string
+    sort:
+      name: sort
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [username, name, role, granted_at]
+        default: granted_at
+    order:
+      name: order
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+
+  responses:
+    BadRequestError:
+      description: Invalid request or query value
+      content:
+        application/json:
+          schema:
+            $ref: 'openapi.yaml#/components/schemas/Error'
+    NotFoundError:
+      description: Gateway or user was not found or is not visible
+      content:
+        application/json:
+          schema:
+            $ref: 'openapi.yaml#/components/schemas/Error'
+    ConflictError:
+      description: The operation would remove the last owner (last-owner protection)
+      content:
+        application/json:
+          schema:
+            $ref: 'openapi.yaml#/components/schemas/Error'
+    ServiceUnavailableError:
+      description: The Keycloak directory projection is unavailable
+      content:
+        application/json:
+          schema:
+            $ref: 'openapi.yaml#/components/schemas/Error'
+
+  schemas:
+    GatewayAccessRole:
+      type: string
+      enum: [owner, admin, user]
+    GatewayAccessGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [username, role]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        subject:
+          type: string
+          description: Optional Keycloak subject reference returned by the directory search
+        role:
+          $ref: '#/components/schemas/GatewayAccessRole'
+    GatewayAccessChangeRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/GatewayAccessRole'
+    GatewayAccessListItem:
+      type: object
+      required:
+        - role_binding_id
+        - user_id
+        - username
+        - role
+        - is_creator
+        - granted_at
+      properties:
+        role_binding_id:
+          type: string
+        user_id:
+          type: string
+        username:
+          type: string
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/GatewayAccessRole'
+        is_creator:
+          type: boolean
+        granted_at:
+          type: string
+          format: date-time
+    GatewayAccessGrantResponse:
+      allOf:
+        - $ref: '#/components/schemas/GatewayAccessListItem'
+    GatewayAccessCapabilities:
+      type: object
+      required: [can_manage_access, can_manage_owners]
+      properties:
+        caller_role:
+          $ref: '#/components/schemas/GatewayAccessRole'
+        can_manage_access:
+          type: boolean
+        can_manage_owners:
+          type: boolean
+    GatewayAccessList:
+      type: object
+      required: [page, size, total, capabilities, items]
+      properties:
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
+        capabilities:
+          $ref: '#/components/schemas/GatewayAccessCapabilities'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GatewayAccessListItem'
+    GatewayDirectoryUser:
+      type: object
+      required: [username]
+      properties:
+        username:
+          type: string
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        subject:
+          type: string
+          nullable: true
+    GatewayDirectoryUserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GatewayDirectoryUser'

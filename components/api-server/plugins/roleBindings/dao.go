@@ -14,8 +14,10 @@ type RoleBindingDao interface {
 	Get(ctx context.Context, id string) (*RoleBinding, error)
 	GetUnscoped(ctx context.Context, id string) (*RoleBinding, error)
 	Create(ctx context.Context, rb *RoleBinding) (*RoleBinding, error)
+	Update(ctx context.Context, rb *RoleBinding) (*RoleBinding, error)
 	Delete(ctx context.Context, id string) error
 	FindByUserID(ctx context.Context, userID string) (RoleBindingList, error)
+	FindByGatewayID(ctx context.Context, gatewayID string) (RoleBindingList, error)
 	FindByIDs(ctx context.Context, ids []string) (RoleBindingList, error)
 	FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, error)
 	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
@@ -50,6 +52,18 @@ func (d *sqlRoleBindingDao) Create(ctx context.Context, rb *RoleBinding) (*RoleB
 	return rb, nil
 }
 
+// Update persists an in-place change to an existing binding (e.g. a role_id
+// swap for a role change). Associations are omitted so only the binding row is
+// written.
+func (d *sqlRoleBindingDao) Update(ctx context.Context, rb *RoleBinding) (*RoleBinding, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	if err := g2.Omit(clause.Associations).Save(rb).Error; err != nil {
+		db.MarkForRollback(ctx, err)
+		return nil, err
+	}
+	return rb, nil
+}
+
 func (d *sqlRoleBindingDao) Delete(ctx context.Context, id string) error {
 	g2 := (*d.sessionFactory).New(ctx)
 	if err := g2.Omit(clause.Associations).Delete(&RoleBinding{Meta: api.Meta{ID: id}}).Error; err != nil {
@@ -72,6 +86,15 @@ func (d *sqlRoleBindingDao) FindByUserID(ctx context.Context, userID string) (Ro
 	g2 := (*d.sessionFactory).New(ctx)
 	bindings := RoleBindingList{}
 	if err := g2.Where("user_id = ?", userID).Find(&bindings).Error; err != nil {
+		return nil, err
+	}
+	return bindings, nil
+}
+
+func (d *sqlRoleBindingDao) FindByGatewayID(ctx context.Context, gatewayID string) (RoleBindingList, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	bindings := RoleBindingList{}
+	if err := g2.Where("gateway_id = ?", gatewayID).Find(&bindings).Error; err != nil {
 		return nil, err
 	}
 	return bindings, nil

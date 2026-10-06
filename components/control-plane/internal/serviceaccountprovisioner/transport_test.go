@@ -12,7 +12,7 @@ import (
 )
 
 func TestListenAndServeRequiresBindAddress(t *testing.T) {
-	if err := ListenAndServe(t.Context(), TransportConfig{}, NewServer(&fakeProvider{configured: true})); err == nil {
+	if err := ListenAndServe(t.Context(), TransportConfig{}, NewServer(&fakeProvider{configured: true}), nil); err == nil {
 		t.Fatal("ListenAndServe() error = nil, want error for empty bind address")
 	}
 }
@@ -31,7 +31,7 @@ func TestListenAndServeServesPlaintextProvisionerCalls(t *testing.T) {
 	served := make(chan error, 1)
 	go func() {
 		served <- ListenAndServe(ctx, TransportConfig{Address: address},
-			NewServer(&fakeProvider{configured: true, secret: "one-time-secret"}))
+			NewServer(&fakeProvider{configured: true, secret: "one-time-secret"}), nil)
 	}()
 
 	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))

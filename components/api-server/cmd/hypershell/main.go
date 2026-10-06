@@ -12,6 +12,7 @@ import (
 	pkgcmd "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/cmd"
 
 	_ "github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayAccess"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayReleases"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"

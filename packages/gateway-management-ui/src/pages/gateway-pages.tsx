@@ -52,6 +52,7 @@ import {
 import { GatewayLoadState } from "../gateways/gateway-load-state";
 import { GatewayRowActions } from "../gateways/gateway-row-actions";
 import { GatewayStatus } from "../gateways/gateway-status";
+import { AccessPage } from "../access/access-page";
 import {
   ResourceTable,
   type ResourceTableColumn,
@@ -506,10 +507,12 @@ export function GatewaysPage({
   );
 }
 
-export type GatewayDetailTab = "connection" | "details" | "service-accounts";
+export type GatewayDetailTab =
+  "connection" | "details" | "manage-access" | "service-accounts";
 
 const gatewayDetailTabs: readonly GatewayDetailTab[] = [
   "connection",
+  "manage-access",
   "service-accounts",
   "details",
 ];
@@ -694,6 +697,20 @@ export function GatewayPage({
                 connection.phase.toLocaleLowerCase() === "pending" ||
                 connection.phase.toLocaleLowerCase() === "provisioning"
               }
+            />
+          </Tab>
+          <Tab
+            eventKey="manage-access"
+            title={
+              <TabTitleText>
+                <FormattedMessage {...messages.manageAccessTab} />
+              </TabTitleText>
+            }
+          >
+            <AccessPage
+              gatewayId={gatewayId}
+              isActive={currentTab === "manage-access"}
+              key={gatewayId}
             />
           </Tab>
           <Tab

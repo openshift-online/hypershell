@@ -63,25 +63,48 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 		return Resource{}, fmt.Errorf("list schema %s has no named items schema", listType)
 	}
 
+	// The item path is <collection>/{param}; it may support GET, PATCH, and/or
+	// DELETE. GET is optional (e.g. the access facade has PATCH+DELETE, no GET).
+	itemPrefix := strings.TrimSuffix(collection.Path, "/") + "/"
 	itemPath := ""
-	var getOperation *ir.Operation
 	for _, operation := range document.Operations {
-		if operation.Method != "GET" || !strings.HasPrefix(operation.Path, strings.TrimSuffix(collection.Path, "/")+"/{") {
+		if !strings.HasPrefix(operation.Path, itemPrefix) {
 			continue
 		}
-		if strings.Count(strings.TrimPrefix(operation.Path, collection.Path), "/") != 1 {
+		remainder := strings.TrimPrefix(operation.Path, itemPrefix)
+		if strings.Contains(remainder, "/") || !strings.HasPrefix(remainder, "{") {
 			continue
 		}
 		itemPath = operation.Path
-		getOperation = operation
 		break
 	}
-	if getOperation == nil {
-		return Resource{}, fmt.Errorf("scoped collection has no item GET operation")
+	if itemPath == "" {
+		return Resource{}, fmt.Errorf("scoped collection %s has no item operation", collection.Path)
 	}
-	getResponseType := successSchemaName(document, getOperation, "200")
-	if getResponseType == "" {
-		return Resource{}, fmt.Errorf("item GET requires a named response schema")
+
+	getResponseType := ""
+	if getOperation := operationAt(document, itemPath, "GET"); getOperation != nil {
+		getResponseType = successSchemaName(document, getOperation, "200")
+		if getResponseType == "" {
+			return Resource{}, fmt.Errorf("item GET requires a named response schema")
+		}
+	}
+
+	patchRequestType := ""
+	patchResponseType := ""
+	if patchOperation := operationAt(document, itemPath, "PATCH"); patchOperation != nil {
+		patchRequestType = requestSchemaName(document, patchOperation)
+		patchResponseType = successSchemaName(document, patchOperation, "200")
+		if patchRequestType == "" || patchResponseType == "" {
+			return Resource{}, fmt.Errorf("item PATCH requires named request and response schemas")
+		}
+	}
+
+	// Optional directory sub-collection search: a "<collection>/directory" GET.
+	directoryPath := strings.TrimSuffix(collection.Path, "/") + "/directory"
+	directoryListType := ""
+	if directoryOperation := operationAt(document, directoryPath, "GET"); directoryOperation != nil {
+		directoryListType = successSchemaName(document, directoryOperation, "200")
 	}
 
 	name := strings.TrimSuffix(itemType, "ListItem")
@@ -96,7 +119,7 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 	itemParameterName := lastPathParameter(itemPath)
 	itemParameter := newPathParameter(itemParameterName)
 
-	roots := []string{listType, itemType, createRequestType, createResponseType, getResponseType}
+	roots := []string{listType, itemType, createRequestType, createResponseType, getResponseType, patchRequestType, patchResponseType, directoryListType}
 	models := projectModels(document, roots)
 	listParameters := make([]Field, 0)
 	for _, parameter := range listOperation.Parameters {
@@ -113,7 +136,29 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 
 	collectionRelative := relativeAPIPath(collection.Path, apiPrefix)
 	itemRelative := relativeAPIPath(itemPath, apiPrefix)
-	return Resource{
+	directoryRelative := relativeAPIPath(directoryPath, apiPrefix)
+
+	hasGet := getResponseType != ""
+	hasRevoke := operationAt(document, itemPath+"/revoke", "POST") != nil
+	hasPatch := patchRequestType != ""
+	hasDirectorySearch := directoryListType != ""
+
+	// Ordered, deduped type names the TS scoped client imports. The order
+	// preserves the historical layout so unchanged resources regenerate
+	// byte-identically.
+	tsImports := dedupeStrings([]string{
+		createRequestType,
+		createResponseType,
+		optional(hasGet, getResponseType),
+		itemType,
+		listType,
+		optional(hasPatch, patchRequestType),
+		optional(hasPatch, patchResponseType),
+		optional(hasDirectorySearch, directoryListType),
+		name + "ListOptions",
+	})
+
+	resource := Resource{
 		Name:               name,
 		Plural:             resourcePlural(name),
 		PathSegment:        lastLiteralSegment(collection.Path),
@@ -132,8 +177,43 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 		Models:             models,
 		ListParameters:     listParameters,
 		HasDelete:          operationAt(document, itemPath, "DELETE") != nil,
-		Actions:            []string{"revoke"},
-	}, nil
+		HasGet:             hasGet,
+		HasRevoke:          hasRevoke,
+		HasPatch:           hasPatch,
+		PatchRequestType:   patchRequestType,
+		PatchResponseType:  patchResponseType,
+		HasDirectorySearch: hasDirectorySearch,
+		DirectoryListType:  directoryListType,
+		TSImports:          tsImports,
+	}
+	if hasDirectorySearch {
+		resource.GoDirectoryPath = goPathExpression(directoryRelative, scopeParameters, nil)
+		resource.TSDirectoryPath = tsPathExpression(directoryRelative, scopeParameters, nil)
+	}
+	if hasRevoke {
+		resource.Actions = []string{"revoke"}
+	}
+	return resource, nil
+}
+
+func optional(include bool, value string) string {
+	if include {
+		return value
+	}
+	return ""
+}
+
+func dedupeStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func scopedCollectionViews(document *ir.Document, apiPrefix string) []*ir.ResourceView {
@@ -145,6 +225,12 @@ func scopedCollectionViews(document *ir.Document, apiPrefix string) []*ir.Resour
 		}
 		remainder := strings.TrimPrefix(view.Path, strings.TrimSuffix(apiPrefix, "/")+"/")
 		if remainder == view.Path || remainder == "" || !strings.Contains(remainder, "/") || seen[view.Path] {
+			continue
+		}
+		// A nested collection that cannot be POSTed to (e.g. a ".../directory"
+		// search sub-collection) is not a resource in its own right; it is
+		// projected as a method on its parent resource instead.
+		if operationAt(document, view.Path, "POST") == nil {
 			continue
 		}
 		seen[view.Path] = true

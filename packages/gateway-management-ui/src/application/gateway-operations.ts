@@ -176,6 +176,10 @@ export function createGatewayOperations({
   }
 
   return {
+    changeGatewayAccessRole: (gatewayId, userId, role, signal) =>
+      execute("change-access-role", signal, (context) =>
+        controlPlane.changeGatewayAccessRole(gatewayId, userId, role, context),
+      ),
     createOpenShellGatewayServiceAccount: (gatewayId, input, signal) =>
       execute("create-service-account", signal, (context) =>
         controlPlane.createOpenShellGatewayServiceAccount(
@@ -212,6 +216,14 @@ export function createGatewayOperations({
       execute("get", signal, (context) =>
         controlPlane.getGateway(gatewayId, context),
       ),
+    grantGatewayAccess: (gatewayId, input, signal) =>
+      execute("grant-access", signal, (context) =>
+        controlPlane.grantGatewayAccess(gatewayId, input, context),
+      ),
+    listGatewayAccess: (gatewayId, request, signal) =>
+      execute("list-access", signal, (context) =>
+        controlPlane.listGatewayAccess(gatewayId, request, context),
+      ),
     getOpenShellGatewayServiceAccount: (gatewayId, serviceAccountId, signal) =>
       execute("get-service-account", signal, (context) =>
         controlPlane.getOpenShellGatewayServiceAccount(
@@ -243,6 +255,14 @@ export function createGatewayOperations({
     renameGateway: (gatewayId, name, signal) =>
       execute("rename", signal, (context) =>
         controlPlane.renameGateway(gatewayId, name, context),
+      ),
+    revokeGatewayAccess: (gatewayId, userId, signal) =>
+      execute("revoke-access", signal, (context) =>
+        controlPlane.revokeGatewayAccess(gatewayId, userId, context),
+      ),
+    searchGatewayDirectory: (gatewayId, search, signal) =>
+      execute("search-directory", signal, (context) =>
+        controlPlane.searchGatewayDirectory(gatewayId, search.trim(), context),
       ),
     revokeOpenShellGatewayServiceAccount: (
       gatewayId,
