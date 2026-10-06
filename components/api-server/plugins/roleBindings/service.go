@@ -222,7 +222,7 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		return nil, err
 	}
 
-	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayViewer {
+	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayAdmin || role.Name == roles.RoleGatewayViewer {
 		if err := s.validateCallerOwnsGateway(ctx, rb.GatewayID); err != nil {
 			return nil, err
 		}
@@ -265,7 +265,7 @@ func (s *sqlRoleBindingService) Delete(ctx context.Context, id string) *errors.S
 		return errors.Validation("invalid role_id: role not found")
 	}
 
-	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayViewer {
+	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayAdmin || role.Name == roles.RoleGatewayViewer {
 		if err := s.validateCallerOwnsGateway(ctx, rb.GatewayID); err != nil {
 			return err
 		}
@@ -529,7 +529,7 @@ func (s *sqlRoleBindingService) validateScopeMatchesRole(roleName string, rb *Ro
 		if rb.Scope != ScopeGlobal {
 			return errors.Validation("role %q requires scope=global", roleName)
 		}
-	case roles.RoleGatewayOwner, roles.RoleGatewayViewer:
+	case roles.RoleGatewayOwner, roles.RoleGatewayAdmin, roles.RoleGatewayViewer:
 		if rb.Scope != ScopeGateway {
 			return errors.Validation("role %q requires scope=gateway", roleName)
 		}
