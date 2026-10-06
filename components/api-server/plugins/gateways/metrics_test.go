@@ -109,6 +109,39 @@ func TestGatewayCollector_AttributesByManagedCluster(t *testing.T) {
 	}
 }
 
+func TestGatewayCollector_ZeroFleetBaseline(t *testing.T) {
+	// Empty fleet: there is no spoke to attribute, but fleet-wide panels
+	// (sum(hypershell_gateways_total{phase="Running"}), sum by (phase) (...))
+	// must still read 0 rather than "No data". The collector seeds the "unknown"
+	// bucket so every canonical phase (and "other") is emitted at 0.
+	dao := NewMockGatewayDao()
+
+	got := gatherGauge(t, newGatewayCollector(dao), "hypershell_gateways_total", "phase", "managed_cluster")
+
+	for _, phase := range gatewayhealth.PhaseStrings() {
+		v, ok := got[[2]string{phase, managedClusterUnknown}]
+		if !ok {
+			t.Errorf("canonical phase %q missing for %q bucket", phase, managedClusterUnknown)
+			continue
+		}
+		if v != 0 {
+			t.Errorf("empty fleet: %q/%q = %v, want 0", phase, managedClusterUnknown, v)
+		}
+	}
+	if v, ok := got[[2]string{gatewayPhaseOther, managedClusterUnknown}]; !ok || v != 0 {
+		t.Errorf("empty fleet: %q/%q = %v (present=%v), want 0", gatewayPhaseOther, managedClusterUnknown, v, ok)
+	}
+
+	// Nothing is attributed to any real spoke, and the total is 0.
+	var sum float64
+	for _, v := range got {
+		sum += v
+	}
+	if sum != 0 {
+		t.Errorf("empty fleet: sum over all series = %v, want 0", sum)
+	}
+}
+
 func TestActiveSandboxesCollector_AttributesByManagedCluster(t *testing.T) {
 	dao := NewMockGatewayDao()
 	ctx := context.Background()
