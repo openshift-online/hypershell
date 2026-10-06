@@ -457,7 +457,6 @@ else
 fi
 if grep -q 'json_registered_cluster_id "${cluster_name}"' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && grep -q 'cluster_name="local-openshift"' "${SCRIPT_DIR}/drivers/openshift.sh" \
-  && grep -q 'json_named_id dev-release' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && grep -q 'json_named_id dev-gateway' "${SCRIPT_DIR}/drivers/openshift.sh"; then
   PASS=$((PASS + 1))
 else

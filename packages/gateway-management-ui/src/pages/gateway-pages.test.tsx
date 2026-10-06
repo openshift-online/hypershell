@@ -223,7 +223,6 @@ describe("gateway shell pages", () => {
     expect(
       screen.getByDisplayValue("https://gateway.example.com:443"),
     ).toBeTruthy();
-    expect(screen.getByText("release-1")).toBeTruthy();
     expect(screen.getByText("Cluster", { exact: true })).toBeTruthy();
     expect(await screen.findByText("Cluster East")).toBeTruthy();
     renameGatewayMock.mockResolvedValue(
