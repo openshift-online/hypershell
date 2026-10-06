@@ -53,6 +53,7 @@ function node(overrides: Partial<MapNode> & { id: string }): MapNode {
     logins: null,
     userHistory: [],
     loginsHistory: [],
+    historyTimes: [],
     managedClusters: null,
     users: null,
     metrics: {

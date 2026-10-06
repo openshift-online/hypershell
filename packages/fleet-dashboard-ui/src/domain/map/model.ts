@@ -128,6 +128,10 @@ export interface MapNode {
   /** Unique-login count over the last day, oldest-first, same grid - drives the
    *  Logins tile's mini sparkline (may be empty). */
   readonly loginsHistory: readonly number[];
+  /** Shared time axis (unix seconds, oldest-first) that gateway/sandbox/user/login
+   *  histories are index-aligned to - drives the detail panel's shared temporal
+   *  cursor and the hovered sample's date/time (may be empty). */
+  readonly historyTimes: readonly number[];
   readonly metrics: MapNodeMetrics;
   readonly links: MapNodeLinks;
 }
@@ -271,6 +275,7 @@ function buildNode(
     logins: fl?.logins ?? null,
     userHistory: fl?.userHistory ?? [],
     loginsHistory: fl?.loginsHistory ?? [],
+    historyTimes: fl?.historyTimes ?? [],
     metrics: {
       rpc: fl?.rpc ?? ZERO_RATE,
       reconcile: fl?.reconcile ?? ZERO_RATE,

@@ -38,6 +38,7 @@ function node(id: string, columnKey: string, seed: string): MapNode {
     logins: null,
     userHistory: [],
     loginsHistory: [],
+    historyTimes: [],
     managedClusters: null,
     users: null,
     metrics: {

@@ -83,6 +83,13 @@ export interface InstanceFleet {
   readonly userHistory: readonly number[];
   /** Rolling 7-day unique-login count over the last day, oldest-first, same grid. */
   readonly loginsHistory: readonly number[];
+  /**
+   * The shared time axis (unix seconds, oldest-first) that every history series above
+   * is index-aligned to: historyTimes[i] is the timestamp of gatewayHistory[i],
+   * sandboxHistory[i], userHistory[i] and loginsHistory[i]. Drives the detail panel's
+   * shared temporal cursor. Empty when the server reports no history.
+   */
+  readonly historyTimes: readonly number[];
 }
 
 export interface FleetData {

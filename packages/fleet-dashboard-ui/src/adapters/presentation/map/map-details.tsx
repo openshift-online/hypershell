@@ -41,6 +41,7 @@ import {
   deployedFor,
   seedForBundle,
 } from "../../../domain/map/bundles";
+import type { GatewayPhaseCounts } from "../../../domain/fleet";
 import { otherGateways } from "../../../domain/fleet";
 import { shortDigest } from "../../../domain/map/digest";
 import { identiName } from "../../../domain/map/identiname";
@@ -375,17 +376,37 @@ function BundleContents({
   );
 }
 
-function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
+function GatewaySummary({
+  node,
+  active,
+}: {
+  node: MapNode;
+  active: number | null;
+}): React.ReactElement {
   const intl = useIntl();
+  // When the shared cursor is engaged over a sample this instance has gateway history
+  // for, the donut, legend and total all read that moment's phase mix; otherwise the
+  // live snapshot. The historical samples carry only the three charted phases, so
+  // "other" is nil at a historical sample and the total is their sum.
+  const hist =
+    active !== null && active < node.gatewayHistory.length
+      ? node.gatewayHistory[active]
+      : null;
   const g = node.gateways;
-  const running = g.running ?? 0;
-  const provisioning = g.provisioning ?? 0;
-  const failed = g.failed ?? 0;
+  const running = hist ? hist.running : (g.running ?? 0);
+  const provisioning = hist ? hist.provisioning : (g.provisioning ?? 0);
+  const failed = hist ? hist.failed : (g.failed ?? 0);
   // Gateways in any phase beyond the three named rows, so the legend sums to the
   // donut's centre total instead of under-counting it.
-  const other = otherGateways(g);
+  const other = hist ? 0 : otherGateways(g);
+  const total = hist ? running + provisioning + failed : node.gatewaysTotal;
+  // The donut takes a phase-count record; project the history sample into one so the
+  // ring redraws for the hovered moment, else the live phase counts.
+  const counts: GatewayPhaseCounts = hist
+    ? { running, provisioning, failed }
+    : g;
   const label = intl.formatMessage(messages.detailGatewayBreakdown, {
-    total: node.gatewaysTotal,
+    total,
     running,
     provisioning,
     failed,
@@ -428,7 +449,7 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
           aria-label={label}
           style={{ color: TEXT_COLOR }}
         >
-          <GatewayDonut counts={g} cx={48} cy={48} radius={44} />
+          <GatewayDonut counts={counts} cx={48} cy={48} radius={44} />
         </svg>
       </div>
       <ul className={styles.gatewayLegend}>
@@ -730,6 +751,17 @@ function NodeDetails({
   onSelectBundle: (seed: string) => void;
 }): React.ReactElement {
   const [activeKey, setActiveKey] = useState<string | number>("details");
+  // The shared temporal cursor's sample index, lifted here so the gateways donut and
+  // the population tiles read the same moment. Null = cursor idle (live snapshot).
+  const [active, setActive] = useState<number | null>(null);
+  // Reset the cursor when a different node is selected so a stale index never leaks
+  // across nodes. Done during render (the React-recommended "adjust state when a prop
+  // changes" pattern) rather than in an effect, so there is no extra render pass.
+  const [prevNodeId, setPrevNodeId] = useState(node.id);
+  if (prevNodeId !== node.id) {
+    setPrevNodeId(node.id);
+    setActive(null);
+  }
   const bundle = node.digest ? releaseByDigest[node.digest] : undefined;
   return (
     <Tabs
@@ -748,10 +780,10 @@ function NodeDetails({
       >
         <div className="pf-v6-u-mt-md">
           <div className={styles.gatewayWidget}>
-            <GatewaySummary node={node} />
+            <GatewaySummary node={node} active={active} />
           </div>
           <div className="pf-v6-u-mt-md">
-            <MetricTiles node={node} />
+            <MetricTiles node={node} active={active} onActive={setActive} />
           </div>
           <div className={styles.nodeFields}>
             <NodeFields node={node} onSelectBundle={onSelectBundle} />

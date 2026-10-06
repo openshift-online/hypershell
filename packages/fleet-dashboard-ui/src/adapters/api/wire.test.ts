@@ -164,6 +164,7 @@ describe("mapFleet", () => {
         logins: 5,
         userHistory: [10, 11, 12],
         loginsHistory: [3, 4, 5],
+        historyTimes: [100, 200, 300],
         rpc: { rate: 2, errorPct: 0.5, p95Ms: 40 },
         provisionP95Ms: 120,
         gatewayHistory: [
@@ -186,6 +187,7 @@ describe("mapFleet", () => {
     expect(inst?.logins).toBe(5);
     expect(inst?.userHistory).toEqual([10, 11, 12]);
     expect(inst?.loginsHistory).toEqual([3, 4, 5]);
+    expect(inst?.historyTimes).toEqual([100, 200, 300]);
     expect(inst?.rpc.p95Ms).toBe(40);
     expect(inst?.provisionP95Ms).toBe(120);
     expect(inst?.sandboxes).toBe(9);
