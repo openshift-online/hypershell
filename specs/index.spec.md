@@ -20,10 +20,6 @@ RBAC enforcement, authentication, authorization.
 
 Cross-cutting engineering constraints by component.
 
-### [ADLC](adlc/)
-
-Agent Declarative Lifecycle Configuration: data model and requirements for autonomous AI agents running on HyperShell gateways.
-
 UI standards cover accessible, usable, trustworthy, resilient, and verifiable web interfaces in `standards/ui/`.
 
 ## Spec Registry
@@ -32,7 +28,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 
 | Path | Domain | Primary Entities | Components | Depends On |
 |------|--------|-----------------|------------|------------|
-| `platform/data-model.spec.md` | platform | Gateway, GatewayNetwork, GatewayRelease, ManagedCluster | API, CP | - |
+| `platform/data-model.spec.md` | platform | Gateway, GatewayNetwork, GatewayRelease, ManagedCluster, AgentRuntime, SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource | API, CP, CLI | managed-cluster-registration, openshell-gateway-service-accounts |
 | `platform/control-plane.spec.md` | platform | Watcher, Reconciler, gRPC streams | CP | data-model |
 | `platform/openshell-gateway.spec.md` | platform | Gateway, GatewayReconciler, provisioning | CP | data-model, control-plane |
 | `platform/openshell-gateway-database.spec.md` | platform | Mounted admin credential Secret, per-gateway PostgreSQL provisioning, admin TLS verify-full, tenant TLS require, cleanup | CP, deploy | openshell-gateway, gateway-deletion-finalization |
@@ -91,4 +87,3 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `standards/ui/hexagonal-architecture.spec.md` | standards | UI application ports, adapters, composition | WEB, BFF, SDK | foundations |
 | `standards/ui/domain-observability.spec.md` | standards | Domain probes, fan-out telemetry | WEB, BFF | hexagonal-architecture, trust-performance, security |
 | `standards/ui/verification.spec.md` | standards | UI verification | WEB | foundations, brand-color, interaction, patternfly, accessibility, content-localization, trust-performance, hexagonal-architecture, domain-observability |
-| `adlc/agents.spec.md` | adlc | AgentRuntime, Workspace, WorkspaceMembership, ProviderSpec, ProviderBinding, InferenceRoute, SandboxTemplate, SecretSource | API, CP, GITOPS | data-model, managed-cluster-registration, openshell-gateway-service-accounts |
