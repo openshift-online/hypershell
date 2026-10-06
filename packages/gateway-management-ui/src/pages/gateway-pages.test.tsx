@@ -81,7 +81,6 @@ function gatewayResponse(id: string, name: string) {
     name,
     namespace: "openshell",
     phase: "Running",
-    releaseId: "release-1",
     status: "Ready",
   };
 }
@@ -192,7 +191,6 @@ describe("gateway shell pages", () => {
           oidcClientId: "openshell-cli",
           oidcIssuer: "https://issuer.example.test/realms/openshell",
           phase: "Running",
-          releaseId: "release-1",
           status: "Ready",
         }}
       />
@@ -225,7 +223,6 @@ describe("gateway shell pages", () => {
     expect(
       screen.getByDisplayValue("https://gateway.example.com:443"),
     ).toBeTruthy();
-    expect(screen.getByText("release-1")).toBeTruthy();
     expect(screen.getByText("Cluster", { exact: true })).toBeTruthy();
     expect(await screen.findByText("Cluster East")).toBeTruthy();
     renameGatewayMock.mockResolvedValue(
@@ -319,7 +316,6 @@ describe("gateway shell pages", () => {
           oidcClientId: "openshell-cli",
           oidcIssuer: "https://issuer.example.test/realms/openshell",
           phase: "Running",
-          releaseId: "release-1",
           status: "Ready",
         }}
         gatewayId="gateway-1"

@@ -11,7 +11,6 @@ Name | Type | Description | Notes
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
 **ClusterId** | **string** |  | 
-**ReleaseId** | **string** |  | 
 **Namespace** | **string** | API-assigned Kubernetes namespace derived from the Gateway identifier | [readonly] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
@@ -24,7 +23,6 @@ Name | Type | Description | Notes
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
 **GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly] 
-**ObservedReleaseId** | Pointer to **string** | Release the control plane has rolled out and observed healthy, advanced only after a new revision passes its health gates; distinct from the desired release_id and populated by the control plane | [optional] [readonly] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
@@ -38,7 +36,7 @@ Name | Type | Description | Notes
 
 ### NewGateway
 
-`func NewGateway(name string, clusterId string, releaseId string, namespace string, ) *Gateway`
+`func NewGateway(name string, clusterId string, namespace string, ) *Gateway`
 
 NewGateway instantiates a new Gateway object
 This constructor will assign default values to properties that have it defined,
@@ -216,26 +214,6 @@ and a boolean to check if the value has been set.
 `func (o *Gateway) SetClusterId(v string)`
 
 SetClusterId sets ClusterId field to given value.
-
-
-### GetReleaseId
-
-`func (o *Gateway) GetReleaseId() string`
-
-GetReleaseId returns the ReleaseId field if non-nil, zero value otherwise.
-
-### GetReleaseIdOk
-
-`func (o *Gateway) GetReleaseIdOk() (*string, bool)`
-
-GetReleaseIdOk returns a tuple with the ReleaseId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetReleaseId
-
-`func (o *Gateway) SetReleaseId(v string)`
-
-SetReleaseId sets ReleaseId field to given value.
 
 
 ### GetNamespace
@@ -532,31 +510,6 @@ SetGatewayVersion sets GatewayVersion field to given value.
 `func (o *Gateway) HasGatewayVersion() bool`
 
 HasGatewayVersion returns a boolean if a field has been set.
-
-### GetObservedReleaseId
-
-`func (o *Gateway) GetObservedReleaseId() string`
-
-GetObservedReleaseId returns the ObservedReleaseId field if non-nil, zero value otherwise.
-
-### GetObservedReleaseIdOk
-
-`func (o *Gateway) GetObservedReleaseIdOk() (*string, bool)`
-
-GetObservedReleaseIdOk returns a tuple with the ObservedReleaseId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetObservedReleaseId
-
-`func (o *Gateway) SetObservedReleaseId(v string)`
-
-SetObservedReleaseId sets ObservedReleaseId field to given value.
-
-### HasObservedReleaseId
-
-`func (o *Gateway) HasObservedReleaseId() bool`
-
-HasObservedReleaseId returns a boolean if a field has been set.
 
 ### GetOidc
 

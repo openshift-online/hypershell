@@ -12,7 +12,6 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c := &Gateway{}
 	c.Name = gateway.Name
 	c.ClusterId = gateway.ClusterId
-	c.ReleaseId = gateway.ReleaseId
 	c.ExternalDns = gateway.ExternalDns
 	c.TlsMode = gateway.TlsMode
 	c.ServiceType = gateway.ServiceType
@@ -43,7 +42,6 @@ func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 		UpdatedAt:          openapi.PtrTime(gateway.UpdatedAt),
 		Name:               gateway.Name,
 		ClusterId:          gateway.ClusterId,
-		ReleaseId:          gateway.ReleaseId,
 		Namespace:          gateway.Namespace,
 		ExternalDns:        gateway.ExternalDns,
 		TlsMode:            gateway.TlsMode,
@@ -55,7 +53,6 @@ func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
 		RouteAddress:       gateway.RouteAddress,
 		ConsoleAddress:     gateway.ConsoleAddress,
 		GatewayVersion:     gateway.GatewayVersion,
-		ObservedReleaseId:  gateway.ObservedReleaseId,
 		Oidc:               gateway.Oidc,
 		Route:              gateway.Route,
 		CredentialDriver:   gateway.CredentialDriver,

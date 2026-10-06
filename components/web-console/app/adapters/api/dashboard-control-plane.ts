@@ -12,18 +12,10 @@ import type {
   OperationalDashboardMetrics,
   OperationalMetric,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
-import type { SDKClient } from "@openshift-online/hypershell-sdk";
-
-import {
-  aggregateGatewayReleaseDistribution,
-  buildGatewayReleasesMetric,
-} from "./gateway-release-distribution-aggregation";
 import {
   platformInventoryMetricsResponseToMetrics,
   type PlatformInventoryMetricsResponse,
 } from "./platform-inventory-aggregation";
-
-type DashboardApiFactory = (correlationId: string) => SDKClient;
 
 const gibibyteDivisor = 1024 ** 3;
 
@@ -534,19 +526,6 @@ async function fetchRegisteredUsersMetric(
   return [registeredUsersResponseToMetric(body)];
 }
 
-async function fetchGatewayReleaseDistributionMetrics(
-  context: DashboardInvocationContext,
-  apiFactory: DashboardApiFactory,
-): Promise<OperationalMetric[]> {
-  const client = apiFactory(context.correlationId);
-  const aggregate = await aggregateGatewayReleaseDistribution(
-    client,
-    context.signal,
-  );
-
-  return [buildGatewayReleasesMetric(aggregate)];
-}
-
 async function fetchPlatformInventoryMetrics(
   context: DashboardInvocationContext,
 ): Promise<OperationalMetric[]> {
@@ -760,10 +739,7 @@ async function fetchControlPlaneReconciliationMetrics(
 }
 
 interface MetricSourceDefinition {
-  fetch: (
-    context: DashboardInvocationContext,
-    apiFactory: DashboardApiFactory,
-  ) => Promise<OperationalMetric[]>;
+  fetch: (context: DashboardInvocationContext) => Promise<OperationalMetric[]>;
   id: DashboardMetricSourceId;
 }
 
@@ -779,11 +755,6 @@ const metricSources: readonly MetricSourceDefinition[] = [
   {
     id: "platform-inventory",
     fetch: async (context) => fetchPlatformInventoryMetrics(context),
-  },
-  {
-    id: "gateway-release-distribution",
-    fetch: async (context, apiFactory) =>
-      fetchGatewayReleaseDistributionMetrics(context, apiFactory),
   },
   {
     id: "cluster-memory",
@@ -803,9 +774,7 @@ const metricSources: readonly MetricSourceDefinition[] = [
   },
 ];
 
-export function createDashboardControlPlaneAdapter(
-  apiFactory: DashboardApiFactory,
-): DashboardControlPlane {
+export function createDashboardControlPlaneAdapter(): DashboardControlPlane {
   return {
     async getOperationalMetrics(
       context: DashboardInvocationContext,
@@ -814,7 +783,7 @@ export function createDashboardControlPlaneAdapter(
 
       const settled = await Promise.allSettled(
         metricSources.map((source) =>
-          source.fetch(context, apiFactory).then((metrics) => ({
+          source.fetch(context).then((metrics) => ({
             id: source.id,
             metrics,
           })),

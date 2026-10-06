@@ -211,18 +211,6 @@ func migrationAddGatewayVersion() *gormigrate.Migration {
 	}
 }
 
-func migrationAddObservedReleaseId() *gormigrate.Migration {
-	return &gormigrate.Migration{
-		ID: "2026091412000001",
-		Migrate: func(tx *gorm.DB) error {
-			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS observed_release_id TEXT").Error
-		},
-		Rollback: func(tx *gorm.DB) error {
-			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS observed_release_id").Error
-		},
-	}
-}
-
 func migrationAddGenerationTracking() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026081912000006",
@@ -256,6 +244,83 @@ func migrationDropDatabaseId() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS database_id TEXT NOT NULL DEFAULT ''").Error
+		},
+	}
+}
+
+// migrationDropReleaseFK drops release_id and observed_release_id from gateways
+// after GatewayRelease is removed from the API.
+func migrationDropReleaseFK() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026100600000001",
+		Migrate: func(tx *gorm.DB) error {
+			if err := tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS release_id").Error; err != nil {
+				return err
+			}
+			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS observed_release_id").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			if err := tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS release_id TEXT NOT NULL DEFAULT ''").Error; err != nil {
+				return err
+			}
+			return tx.Exec("ALTER TABLE gateways ADD COLUMN IF NOT EXISTS observed_release_id TEXT").Error
+		},
+	}
+}
+
+// migrationDropGatewayReleasesTable drops the gateway_releases table after the
+// GatewayRelease API kind is removed.
+func migrationDropGatewayReleasesTable() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026100600000002",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("DROP TABLE IF EXISTS gateway_releases").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				CREATE TABLE IF NOT EXISTS gateway_releases (
+					id TEXT PRIMARY KEY,
+					created_at TIMESTAMP WITH TIME ZONE,
+					updated_at TIMESTAMP WITH TIME ZONE,
+					deleted_at TIMESTAMP WITH TIME ZONE,
+					name TEXT,
+					image TEXT,
+					status TEXT,
+					rollout_strategy TEXT,
+					canary_percent INTEGER,
+					canary_duration TEXT,
+					traceparent TEXT,
+					tracestate TEXT
+				)
+			`).Error
+		},
+	}
+}
+
+// migrationDropGatewayNetworksTable drops the gateway_networks table after the
+// GatewayNetwork API kind is removed.
+func migrationDropGatewayNetworksTable() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026100600000003",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec("DROP TABLE IF EXISTS gateway_networks").Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				CREATE TABLE IF NOT EXISTS gateway_networks (
+					id TEXT PRIMARY KEY,
+					created_at TIMESTAMP WITH TIME ZONE,
+					updated_at TIMESTAMP WITH TIME ZONE,
+					deleted_at TIMESTAMP WITH TIME ZONE,
+					name TEXT,
+					topology TEXT,
+					tunnel_mode TEXT,
+					hub_gateway_id TEXT,
+					status TEXT,
+					traceparent TEXT,
+					tracestate TEXT
+				)
+			`).Error
 		},
 	}
 }

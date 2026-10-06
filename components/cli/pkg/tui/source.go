@@ -21,11 +21,9 @@ type Kind int
 const (
 	KindGateways Kind = iota
 	KindClusters
-	KindReleases
-	KindNetworks
 )
 
-var kinds = []Kind{KindGateways, KindClusters, KindReleases, KindNetworks}
+var kinds = []Kind{KindGateways, KindClusters}
 
 func (k Kind) Title() string {
 	switch k {
@@ -33,10 +31,6 @@ func (k Kind) Title() string {
 		return "Gateways"
 	case KindClusters:
 		return "Managed Clusters"
-	case KindReleases:
-		return "Gateway Releases"
-	case KindNetworks:
-		return "Gateway Networks"
 	}
 	return fmt.Sprintf("Kind(%d)", int(k))
 }
@@ -125,12 +119,10 @@ type ListResult struct {
 }
 
 // GatewayCreate is the only request body the provisioning form sends. Empty
-// ClusterID places the gateway on the hub cluster; empty ReleaseID selects the
-// platform default release.
+// ClusterID places the gateway on the hub cluster.
 type GatewayCreate struct {
 	Name      string `json:"name"`
 	ClusterID string `json:"cluster_id"`
-	ReleaseID string `json:"release_id"`
 }
 
 // Source is the application-owned port the interface reads and writes through.

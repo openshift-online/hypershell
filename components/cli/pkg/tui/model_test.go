@@ -98,7 +98,7 @@ func res(t *testing.T, fields map[string]any) Resource {
 }
 
 func gateway(t *testing.T, id, name string, extra ...any) Resource {
-	fields := map[string]any{"id": id, "name": name, "cluster_id": "", "release_id": "", "phase": "Running"}
+	fields := map[string]any{"id": id, "name": name, "cluster_id": "", "phase": "Running"}
 	for i := 0; i+1 < len(extra); i += 2 {
 		fields[extra[i].(string)] = extra[i+1]
 	}
@@ -323,18 +323,16 @@ func TestGatewayColumnsResolveNames(t *testing.T) {
 	src := newFakeSource()
 	src.lists[KindGateways] = ListResult{Items: []Resource{
 		gateway(t, "g1", "on-hub"),
-		gateway(t, "g2", "on-east", "cluster_id", "c1", "release_id", "r1"),
+		gateway(t, "g2", "on-east", "cluster_id", "c1"),
 		gateway(t, "g3", "orphan", "cluster_id", "gone", "phase", "Upgrading"),
 		gateway(t, "g4", "fresh", "phase", ""),
 	}}
 	src.lists[KindClusters] = ListResult{Items: []Resource{res(t, map[string]any{"id": "c1", "name": "mc-east"})}}
-	src.lists[KindReleases] = ListResult{Items: []Resource{res(t, map[string]any{"id": "r1", "name": "openshell-0.9"})}}
 	h := newHarness(t, src)
 
 	view := h.view()
 	assertContains(t, view, hubClusterLabel)
 	assertContains(t, view, "mc-east")
-	assertContains(t, view, "openshell-0.9")
 	assertContains(t, view, "gone (unresolved)")
 	assertContains(t, view, "Upgrading")
 	assertNotContains(t, view, "c1")
@@ -429,15 +427,15 @@ func TestSwitchViewMovesPolling(t *testing.T) {
 func TestCommandBar(t *testing.T) {
 	h := newHarness(t, newFakeSource())
 	h.key(":")
-	h.typeText("rel")
+	h.typeText("mc")
 	h.key("enter")
-	if h.m.active != KindReleases {
-		t.Fatalf("active = %s, want releases", h.m.active.Title())
+	if h.m.active != KindClusters {
+		t.Fatalf("active = %s, want clusters", h.m.active.Title())
 	}
 	h.key(":")
 	h.typeText("nope")
 	h.key("enter")
-	if h.m.active != KindReleases {
+	if h.m.active != KindClusters {
 		t.Error("unknown command changed the view")
 	}
 	assertContains(t, h.view(), "Unknown command: nope")
@@ -463,7 +461,7 @@ func TestCreateOnHubTrimsName(t *testing.T) {
 		t.Fatalf("create requests = %d, want 1", len(src.creates))
 	}
 	body, _ := json.Marshal(src.creates[0])
-	if string(body) != `{"name":"demo","cluster_id":"","release_id":""}` {
+	if string(body) != `{"name":"demo","cluster_id":""}` {
 		t.Errorf("request body = %s", body)
 	}
 	if h.m.mode != modeNormal {
@@ -503,13 +501,12 @@ func TestCreatedGatewayStaysSelectedThroughInFlightRefresh(t *testing.T) {
 	}
 }
 
-func TestCreateOnManagedClusterWithRelease(t *testing.T) {
+func TestCreateOnManagedCluster(t *testing.T) {
 	src := newFakeSource()
 	src.lists[KindClusters] = ListResult{Items: []Resource{
 		res(t, map[string]any{"id": "c1", "name": "mc-east", "provider": "aws", "region": "us-east-1"}),
 		res(t, map[string]any{"id": "c2", "name": "mc-west"}),
 	}}
-	src.lists[KindReleases] = ListResult{Items: []Resource{res(t, map[string]any{"id": "r1", "name": "openshell-0.9", "image": "quay.io/x:0.9"})}}
 	src.createRes = gateway(t, "g9", "demo")
 	h := newHarness(t, src)
 
@@ -517,14 +514,12 @@ func TestCreateOnManagedClusterWithRelease(t *testing.T) {
 	h.typeText("demo")
 	h.key("tab")
 	h.typeText("mc-e")
-	h.key("tab")
-	h.typeText("openshell")
 	h.key("enter")
 
 	if len(src.creates) != 1 {
 		t.Fatalf("create requests = %d, want 1", len(src.creates))
 	}
-	if got, want := src.creates[0], (GatewayCreate{Name: "demo", ClusterID: "c1", ReleaseID: "r1"}); got != want {
+	if got, want := src.creates[0], (GatewayCreate{Name: "demo", ClusterID: "c1"}); got != want {
 		t.Errorf("request = %+v, want %+v", got, want)
 	}
 }
@@ -743,9 +738,9 @@ func TestBurstOfKeysIsReplayed(t *testing.T) {
 	src := newFakeSource()
 	threeGateways(t, src)
 	h := newHarness(t, src)
-	h.dispatch(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4?")})
-	if h.m.active != KindNetworks || h.m.mode != modeHelp {
-		t.Errorf("active = %s mode = %d, want networks with help open", h.m.active.Title(), h.m.mode)
+	h.dispatch(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2?")})
+	if h.m.active != KindClusters || h.m.mode != modeHelp {
+		t.Errorf("active = %s mode = %d, want clusters with help open", h.m.active.Title(), h.m.mode)
 	}
 	h.key("esc", "1")
 	h.dispatch(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/gw-b")})

@@ -215,22 +215,8 @@ func TestGRPCWatchRPCsRejectAnonymous(t *testing.T) {
 			}
 			return func() error { _, e := s.Recv(); return e }, nil
 		},
-		"WatchGatewayReleases": func(ctx context.Context) (func() error, error) {
-			s, err := pb.NewGatewayReleaseServiceClient(conn).WatchGatewayReleases(ctx, &pb.WatchGatewayReleasesRequest{})
-			if err != nil {
-				return nil, err
-			}
-			return func() error { _, e := s.Recv(); return e }, nil
-		},
 		"WatchManagedClusters": func(ctx context.Context) (func() error, error) {
 			s, err := pb.NewManagedClusterServiceClient(conn).WatchManagedClusters(ctx, &pb.WatchManagedClustersRequest{})
-			if err != nil {
-				return nil, err
-			}
-			return func() error { _, e := s.Recv(); return e }, nil
-		},
-		"WatchGatewayNetworks": func(ctx context.Context) (func() error, error) {
-			s, err := pb.NewGatewayNetworkServiceClient(conn).WatchGatewayNetworks(ctx, &pb.WatchGatewayNetworksRequest{})
 			if err != nil {
 				return nil, err
 			}

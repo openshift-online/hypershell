@@ -139,6 +139,20 @@ Gateway         CLI         partial     get/list implemented, delete missing
 
 Each wave is a gate. Do not start downstream work against an unstable upstream.
 
+### Kind Removal: Reverse-Dependency Execution
+
+When a gap item is prefixed `RM-` (kind removal), the pipeline runs in **reverse** dependency order - the opposite of the normal forward order above. Use the Kind Removal Wave Pattern documented in `/reconcile` SKILL.md:
+
+```
+FE (RM-W1) -> CLI (RM-W2) -> CP (RM-W3) -> BE+gRPC (RM-W4) -> API+SDK (RM-W5) -> DB migration (RM-W6)
+```
+
+Key differences from an addition wave:
+- Start from the leaf layers (UI/CLI) and work inward toward the data layer
+- Gate: `go build ./...` + `go vet ./...` must pass after RM-W3 before deleting the backend plugin
+- Gate: no application code may import the dropped model before adding the RM-W6 drop migration
+- Verify each layer with `grep -r "<KindName>" components/` to confirm no stale references remain
+
 ### Step 4 -- Verify Each Wave
 
 After each wave:

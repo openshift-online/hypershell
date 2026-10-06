@@ -6,7 +6,6 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | Pointer to **string** |  | [optional] 
 **ClusterId** | Pointer to **string** |  | [optional] 
-**ReleaseId** | Pointer to **string** |  | [optional] 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -88,31 +87,6 @@ SetClusterId sets ClusterId field to given value.
 `func (o *GatewayPatchRequest) HasClusterId() bool`
 
 HasClusterId returns a boolean if a field has been set.
-
-### GetReleaseId
-
-`func (o *GatewayPatchRequest) GetReleaseId() string`
-
-GetReleaseId returns the ReleaseId field if non-nil, zero value otherwise.
-
-### GetReleaseIdOk
-
-`func (o *GatewayPatchRequest) GetReleaseIdOk() (*string, bool)`
-
-GetReleaseIdOk returns a tuple with the ReleaseId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetReleaseId
-
-`func (o *GatewayPatchRequest) SetReleaseId(v string)`
-
-SetReleaseId sets ReleaseId field to given value.
-
-### HasReleaseId
-
-`func (o *GatewayPatchRequest) HasReleaseId() bool`
-
-HasReleaseId returns a boolean if a field has been set.
 
 ### GetExternalDns
 
