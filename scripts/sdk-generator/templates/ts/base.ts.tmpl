@@ -83,7 +83,7 @@ export async function sdkFetch<T>(
   body?: unknown,
   requestOpts?: RequestOptions,
 ): Promise<T> {
-  const url = `${config.baseUrl ?? ''}{{.Spec.APIPrefix}}${path}`;
+  const url = `${config.baseUrl ?? ''}${path}`;
   const headers: Record<string, string> = {};
   const token = config.getToken ? await config.getToken() : config.token;
   if (token) {

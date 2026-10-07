@@ -1,5 +1,5 @@
 paths:
-  /api/hypershell/v1/provider_specs:
+  /api/hypershell/ext/provider_specs:
     get:
       operationId: listProviderSpecs
       summary: Returns a list of provider specs
@@ -55,7 +55,7 @@ paths:
           $ref: 'openapi.yaml#/components/responses/ForbiddenError'
         '500':
           $ref: 'openapi.yaml#/components/responses/InternalServerError'
-  /api/hypershell/v1/provider_specs/{id}:
+  /api/hypershell/ext/provider_specs/{id}:
     get:
       operationId: getProviderSpec
       summary: Get a provider spec by ID

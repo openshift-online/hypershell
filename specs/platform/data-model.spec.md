@@ -21,13 +21,6 @@ Current model:
 - **InferenceRoute** - designates the active ProviderBinding and model alias for LLM inference within an AgentWorkspace. At most one per AgentWorkspace.
 - **SecretSource** - abstract reference to a secret in an external backend (Vault, AWS Secrets Manager, Kubernetes). Owned by AgentRuntime; purpose enum drives controller-generated env var wiring.
 
-### Kinds Slated for Removal
-
-The following kinds are deprecated and will be removed in a future release. Their implementations are being deleted from all layers (API, gRPC, control plane, CLI). Do not create new dependencies on them.
-
-- **GatewayRelease** - Deprecated: Gateways specify images directly via `image`/`supervisor_image` fields. The release indirection layer (canary rollout via GatewayRelease) added complexity without product adoption. Direct image references are sufficient.
-- **GatewayNetwork** - Deprecated: The reconciler owns no Kubernetes resources and only validates topology fields. Real mesh/tunnel provisioning was never specified. Being removed until the product defines a concrete network membership and connectivity model.
-
 ## Entity Relationship Diagram
 
 ```mermaid
@@ -112,6 +105,7 @@ erDiagram
         time updated_at
         time deleted_at
     }
+
 
     AgentWorkspace {
         string ID PK
@@ -434,7 +428,7 @@ An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provid
 
 - GIVEN a valid `cluster_id`, `gateway_id`, and `sandbox_template_id`
 - AND a valid `cron` expression and `coordinator_image`
-- WHEN a POST request is made to `/api/hypershell/v1/agent_runtimes`
+- WHEN a POST request is made to `/api/hypershell/ext/agent_runtimes`
 - THEN a new `AgentRuntime` is created with status `Pending`
 - AND the controller begins reconciliation: applies cluster resources and provisions the `AgentWorkspace` on the gateway
 
@@ -713,7 +707,7 @@ A `Degraded` `AgentRuntime` SHALL surface the failing `SecretSource` name and th
 
 ## API Reference
 
-All routes under `/api/hypershell/v1/`:
+### Standard kinds - `/api/hypershell/v1/`
 
 | Method | Path | Operation |
 |--------|------|-----------|
@@ -729,16 +723,23 @@ All routes under `/api/hypershell/v1/`:
 | GET/POST | `/managed_clusters` | List/Create |
 | GET/PATCH/DELETE | `/managed_clusters/{id}` | Get/Update/Delete |
 | POST | `/managed_clusters/registration` | Self-register spoke; idempotent on (oidc_subject, name); updates last_seen_at on every call |
+
+### ADLC extension kinds - `/api/hypershell/ext/`
+
+| Method | Path | Operation |
+|--------|------|-----------|
 | GET/POST | `/agent_runtimes` | List/Create |
 | GET/PATCH/DELETE | `/agent_runtimes/{id}` | Get/Update/Delete |
 | GET/POST | `/sandbox_templates` | List/Create |
 | GET/PATCH/DELETE | `/sandbox_templates/{id}` | Get/Update/Delete |
 | GET/POST | `/provider_specs` | List/Create |
 | GET/PATCH/DELETE | `/provider_specs/{id}` | Get/Update/Delete |
-| GET/POST | `/agent_runtimes/{agent_runtime_id}/provider_bindings` | List/Create |
-| GET/PATCH/DELETE | `/agent_runtimes/{agent_runtime_id}/provider_bindings/{id}` | Get/Update/Delete |
-| GET/POST | `/agent_runtimes/{agent_runtime_id}/inference_routes` | List/Create |
-| GET/PATCH/DELETE | `/agent_runtimes/{agent_runtime_id}/inference_routes/{id}` | Get/Update/Delete |
+| GET/POST | `/provider_bindings` | List/Create |
+| GET/PATCH/DELETE | `/provider_bindings/{id}` | Get/Update/Delete |
+| GET/POST | `/inference_routes` | List/Create |
+| GET/PATCH/DELETE | `/inference_routes/{id}` | Get/Update/Delete |
+| GET/POST | `/secret_sources` | List/Create |
+| GET/PATCH/DELETE | `/secret_sources/{id}` | Get/Update/Delete |
 
 ## CLI Reference (`hsctl`)
 
