@@ -30,6 +30,7 @@ function inst(
     sandboxes: 0,
     sandboxesByCluster: [],
     sandboxHistory: [],
+    historyByCluster: [],
     logins: null,
     userHistory: [],
     loginsHistory: [],
