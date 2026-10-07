@@ -216,7 +216,7 @@ func (a *DefaultAPIService) CreateAgentRuntimeExecute(r ApiCreateAgentRuntimeReq
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/agent_runtimes"
+	localVarPath := localBasePath + "/api/hypershell/ext/agent_runtimes"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -678,7 +678,7 @@ func (a *DefaultAPIService) CreateInferenceRouteExecute(r ApiCreateInferenceRout
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/inference_routes"
+	localVarPath := localBasePath + "/api/hypershell/ext/inference_routes"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -973,7 +973,7 @@ func (a *DefaultAPIService) CreateProviderBindingExecute(r ApiCreateProviderBind
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_bindings"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_bindings"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1104,7 +1104,7 @@ func (a *DefaultAPIService) CreateProviderSpecExecute(r ApiCreateProviderSpecReq
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_specs"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_specs"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1377,7 +1377,7 @@ func (a *DefaultAPIService) CreateSandboxTemplateExecute(r ApiCreateSandboxTempl
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/sandbox_templates"
+	localVarPath := localBasePath + "/api/hypershell/ext/sandbox_templates"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1508,7 +1508,7 @@ func (a *DefaultAPIService) CreateSecretSourceExecute(r ApiCreateSecretSourceReq
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/secret_sources"
+	localVarPath := localBasePath + "/api/hypershell/ext/secret_sources"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -1632,7 +1632,7 @@ func (a *DefaultAPIService) DeleteAgentRuntimeExecute(r ApiDeleteAgentRuntimeReq
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/agent_runtimes/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/agent_runtimes/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -2003,7 +2003,7 @@ func (a *DefaultAPIService) DeleteInferenceRouteExecute(r ApiDeleteInferenceRout
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/inference_routes/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/inference_routes/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -2247,7 +2247,7 @@ func (a *DefaultAPIService) DeleteProviderBindingExecute(r ApiDeleteProviderBind
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_bindings/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_bindings/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -2358,7 +2358,7 @@ func (a *DefaultAPIService) DeleteProviderSpecExecute(r ApiDeleteProviderSpecReq
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_specs/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_specs/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -2591,7 +2591,7 @@ func (a *DefaultAPIService) DeleteSandboxTemplateExecute(r ApiDeleteSandboxTempl
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/sandbox_templates/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/sandbox_templates/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -2702,7 +2702,7 @@ func (a *DefaultAPIService) DeleteSecretSourceExecute(r ApiDeleteSecretSourceReq
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/secret_sources/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/secret_sources/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -2816,7 +2816,7 @@ func (a *DefaultAPIService) GetAgentRuntimeExecute(r ApiGetAgentRuntimeRequest) 
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/agent_runtimes/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/agent_runtimes/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -3211,7 +3211,7 @@ func (a *DefaultAPIService) GetInferenceRouteExecute(r ApiGetInferenceRouteReque
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/inference_routes/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/inference_routes/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -3577,7 +3577,7 @@ func (a *DefaultAPIService) GetProviderBindingExecute(r ApiGetProviderBindingReq
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_bindings/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_bindings/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -3700,7 +3700,7 @@ func (a *DefaultAPIService) GetProviderSpecExecute(r ApiGetProviderSpecRequest) 
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_specs/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_specs/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -4069,7 +4069,7 @@ func (a *DefaultAPIService) GetSandboxTemplateExecute(r ApiGetSandboxTemplateReq
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/sandbox_templates/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/sandbox_templates/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -4192,7 +4192,7 @@ func (a *DefaultAPIService) GetSecretSourceExecute(r ApiGetSecretSourceRequest) 
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/secret_sources/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/secret_sources/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -4626,7 +4626,7 @@ func (a *DefaultAPIService) ListAgentRuntimesExecute(r ApiListAgentRuntimesReque
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/agent_runtimes"
+	localVarPath := localBasePath + "/api/hypershell/ext/agent_runtimes"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -5383,7 +5383,7 @@ func (a *DefaultAPIService) ListInferenceRoutesExecute(r ApiListInferenceRoutesR
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/inference_routes"
+	localVarPath := localBasePath + "/api/hypershell/ext/inference_routes"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -5733,7 +5733,7 @@ func (a *DefaultAPIService) ListProviderBindingsExecute(r ApiListProviderBinding
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_bindings"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_bindings"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -5897,7 +5897,7 @@ func (a *DefaultAPIService) ListProviderSpecsExecute(r ApiListProviderSpecsReque
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_specs"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_specs"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -6389,7 +6389,7 @@ func (a *DefaultAPIService) ListSandboxTemplatesExecute(r ApiListSandboxTemplate
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/sandbox_templates"
+	localVarPath := localBasePath + "/api/hypershell/ext/sandbox_templates"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -6553,7 +6553,7 @@ func (a *DefaultAPIService) ListSecretSourcesExecute(r ApiListSecretSourcesReque
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/secret_sources"
+	localVarPath := localBasePath + "/api/hypershell/ext/secret_sources"
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -7402,7 +7402,7 @@ func (a *DefaultAPIService) UpdateAgentRuntimeExecute(r ApiUpdateAgentRuntimeReq
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/agent_runtimes/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/agent_runtimes/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -7906,7 +7906,7 @@ func (a *DefaultAPIService) UpdateProviderBindingExecute(r ApiUpdateProviderBind
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_bindings/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_bindings/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -8052,7 +8052,7 @@ func (a *DefaultAPIService) UpdateProviderSpecExecute(r ApiUpdateProviderSpecReq
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/provider_specs/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/provider_specs/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -8198,7 +8198,7 @@ func (a *DefaultAPIService) UpdateSandboxTemplateExecute(r ApiUpdateSandboxTempl
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/sandbox_templates/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/sandbox_templates/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -8344,7 +8344,7 @@ func (a *DefaultAPIService) UpdateSecretSourceExecute(r ApiUpdateSecretSourceReq
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/api/hypershell/v1/secret_sources/{id}"
+	localVarPath := localBasePath + "/api/hypershell/ext/secret_sources/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)

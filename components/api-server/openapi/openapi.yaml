@@ -60,30 +60,30 @@ paths:
     $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access~1directory'
   /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:
     $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access~1{user_id}'
-  /api/hypershell/v1/agent_runtimes:
-    $ref: 'openapi.agentRuntimes.yaml#/paths/~1api~1hypershell~1v1~1agent_runtimes'
-  /api/hypershell/v1/agent_runtimes/{id}:
-    $ref: 'openapi.agentRuntimes.yaml#/paths/~1api~1hypershell~1v1~1agent_runtimes~1{id}'
-  /api/hypershell/v1/sandbox_templates:
-    $ref: 'openapi.sandboxTemplates.yaml#/paths/~1api~1hypershell~1v1~1sandbox_templates'
-  /api/hypershell/v1/sandbox_templates/{id}:
-    $ref: 'openapi.sandboxTemplates.yaml#/paths/~1api~1hypershell~1v1~1sandbox_templates~1{id}'
-  /api/hypershell/v1/provider_specs:
-    $ref: 'openapi.providerSpecs.yaml#/paths/~1api~1hypershell~1v1~1provider_specs'
-  /api/hypershell/v1/provider_specs/{id}:
-    $ref: 'openapi.providerSpecs.yaml#/paths/~1api~1hypershell~1v1~1provider_specs~1{id}'
-  /api/hypershell/v1/provider_bindings:
-    $ref: 'openapi.providerBindings.yaml#/paths/~1api~1hypershell~1v1~1provider_bindings'
-  /api/hypershell/v1/provider_bindings/{id}:
-    $ref: 'openapi.providerBindings.yaml#/paths/~1api~1hypershell~1v1~1provider_bindings~1{id}'
-  /api/hypershell/v1/inference_routes:
-    $ref: 'openapi.inferenceRoutes.yaml#/paths/~1api~1hypershell~1v1~1inference_routes'
-  /api/hypershell/v1/inference_routes/{id}:
-    $ref: 'openapi.inferenceRoutes.yaml#/paths/~1api~1hypershell~1v1~1inference_routes~1{id}'
-  /api/hypershell/v1/secret_sources:
-    $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1v1~1secret_sources'
-  /api/hypershell/v1/secret_sources/{id}:
-    $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1v1~1secret_sources~1{id}'
+  /api/hypershell/ext/agent_runtimes:
+    $ref: 'openapi.agentRuntimes.yaml#/paths/~1api~1hypershell~1ext~1agent_runtimes'
+  /api/hypershell/ext/agent_runtimes/{id}:
+    $ref: 'openapi.agentRuntimes.yaml#/paths/~1api~1hypershell~1ext~1agent_runtimes~1{id}'
+  /api/hypershell/ext/sandbox_templates:
+    $ref: 'openapi.sandboxTemplates.yaml#/paths/~1api~1hypershell~1ext~1sandbox_templates'
+  /api/hypershell/ext/sandbox_templates/{id}:
+    $ref: 'openapi.sandboxTemplates.yaml#/paths/~1api~1hypershell~1ext~1sandbox_templates~1{id}'
+  /api/hypershell/ext/provider_specs:
+    $ref: 'openapi.providerSpecs.yaml#/paths/~1api~1hypershell~1ext~1provider_specs'
+  /api/hypershell/ext/provider_specs/{id}:
+    $ref: 'openapi.providerSpecs.yaml#/paths/~1api~1hypershell~1ext~1provider_specs~1{id}'
+  /api/hypershell/ext/provider_bindings:
+    $ref: 'openapi.providerBindings.yaml#/paths/~1api~1hypershell~1ext~1provider_bindings'
+  /api/hypershell/ext/provider_bindings/{id}:
+    $ref: 'openapi.providerBindings.yaml#/paths/~1api~1hypershell~1ext~1provider_bindings~1{id}'
+  /api/hypershell/ext/inference_routes:
+    $ref: 'openapi.inferenceRoutes.yaml#/paths/~1api~1hypershell~1ext~1inference_routes'
+  /api/hypershell/ext/inference_routes/{id}:
+    $ref: 'openapi.inferenceRoutes.yaml#/paths/~1api~1hypershell~1ext~1inference_routes~1{id}'
+  /api/hypershell/ext/secret_sources:
+    $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1ext~1secret_sources'
+  /api/hypershell/ext/secret_sources/{id}:
+    $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1ext~1secret_sources~1{id}'
   # AUTO-ADD NEW PATHS
 components:
   schemas:

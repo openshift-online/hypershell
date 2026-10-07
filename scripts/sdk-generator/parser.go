@@ -134,10 +134,6 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 		})
 	}
 
-	collectionRelative := relativeAPIPath(collection.Path, apiPrefix)
-	itemRelative := relativeAPIPath(itemPath, apiPrefix)
-	directoryRelative := relativeAPIPath(directoryPath, apiPrefix)
-
 	hasGet := getResponseType != ""
 	hasRevoke := operationAt(document, itemPath+"/revoke", "POST") != nil
 	hasPatch := patchRequestType != ""
@@ -165,10 +161,10 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 		Scoped:             true,
 		ScopeParameters:    scopeParameters,
 		ItemParameter:      &itemParameter,
-		GoCollectionPath:   goPathExpression(collectionRelative, scopeParameters, nil),
-		GoItemPath:         goPathExpression(itemRelative, scopeParameters, &itemParameter),
-		TSCollectionPath:   tsPathExpression(collectionRelative, scopeParameters, nil),
-		TSItemPath:         tsPathExpression(itemRelative, scopeParameters, &itemParameter),
+		GoCollectionPath:   goPathExpression(collection.Path, scopeParameters, nil),
+		GoItemPath:         goPathExpression(itemPath, scopeParameters, &itemParameter),
+		TSCollectionPath:   tsPathExpression(collection.Path, scopeParameters, nil),
+		TSItemPath:         tsPathExpression(itemPath, scopeParameters, &itemParameter),
 		ListType:           listType,
 		ItemType:           itemType,
 		CreateRequestType:  createRequestType,
@@ -187,8 +183,8 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 		TSImports:          tsImports,
 	}
 	if hasDirectorySearch {
-		resource.GoDirectoryPath = goPathExpression(directoryRelative, scopeParameters, nil)
-		resource.TSDirectoryPath = tsPathExpression(directoryRelative, scopeParameters, nil)
+		resource.GoDirectoryPath = goPathExpression(directoryPath, scopeParameters, nil)
+		resource.TSDirectoryPath = tsPathExpression(directoryPath, scopeParameters, nil)
 	}
 	if hasRevoke {
 		resource.Actions = []string{"revoke"}
@@ -517,6 +513,7 @@ func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.Re
 
 	resource := Resource{
 		Name: schema.Name, Plural: resourcePlural(schema.Name), PathSegment: lastLiteralSegment(collection.Path),
+		AbsoluteCollectionPath: collection.Path,
 		Fields: fields, RequiredFields: required, PatchFields: patchFields,
 		StatusPatchFields: statusPatchFields, HasStatusPatch: len(statusPatchFields) > 0,
 	}
@@ -594,7 +591,12 @@ func primaryCollectionViews(document *ir.Document, apiPrefix string) []*ir.Resou
 			continue
 		}
 		remainder := strings.TrimPrefix(view.Path, strings.TrimSuffix(apiPrefix, "/")+"/")
-		if remainder == view.Path || remainder == "" || strings.Contains(remainder, "/") {
+		if remainder == view.Path || remainder == "" {
+			continue
+		}
+		// Accept paths that are exactly two segments past the prefix, e.g. "v1/gateways"
+		// or "ext/agent_runtimes". Three or more segments are nested/scoped resources.
+		if strings.Count(remainder, "/") != 1 {
 			continue
 		}
 		if current := bySchema[view.SchemaRef]; current == nil || view.Path < current.Path {

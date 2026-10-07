@@ -1593,7 +1593,7 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Gateway is not ready or the active name already exists
       summary: Change a user's access role on a gateway
-  /api/hypershell/v1/agent_runtimes:
+  /api/hypershell/ext/agent_runtimes:
     get:
       operationId: listAgentRuntimes
       parameters:
@@ -1697,7 +1697,7 @@ paths:
       security:
       - Bearer: []
       summary: Create a new agent runtime
-  /api/hypershell/v1/agent_runtimes/{id}:
+  /api/hypershell/ext/agent_runtimes/{id}:
     delete:
       operationId: deleteAgentRuntime
       parameters:
@@ -1818,7 +1818,7 @@ paths:
       security:
       - Bearer: []
       summary: Update an agent runtime
-  /api/hypershell/v1/sandbox_templates:
+  /api/hypershell/ext/sandbox_templates:
     get:
       operationId: listSandboxTemplates
       parameters:
@@ -1922,7 +1922,7 @@ paths:
       security:
       - Bearer: []
       summary: Create a new sandbox template
-  /api/hypershell/v1/sandbox_templates/{id}:
+  /api/hypershell/ext/sandbox_templates/{id}:
     delete:
       operationId: deleteSandboxTemplate
       parameters:
@@ -2043,7 +2043,7 @@ paths:
       security:
       - Bearer: []
       summary: Update a sandbox template
-  /api/hypershell/v1/provider_specs:
+  /api/hypershell/ext/provider_specs:
     get:
       operationId: listProviderSpecs
       parameters:
@@ -2147,7 +2147,7 @@ paths:
       security:
       - Bearer: []
       summary: Create a new provider spec
-  /api/hypershell/v1/provider_specs/{id}:
+  /api/hypershell/ext/provider_specs/{id}:
     delete:
       operationId: deleteProviderSpec
       parameters:
@@ -2268,7 +2268,7 @@ paths:
       security:
       - Bearer: []
       summary: Update a provider spec
-  /api/hypershell/v1/provider_bindings:
+  /api/hypershell/ext/provider_bindings:
     get:
       operationId: listProviderBindings
       parameters:
@@ -2372,7 +2372,7 @@ paths:
       security:
       - Bearer: []
       summary: Create a new provider binding
-  /api/hypershell/v1/provider_bindings/{id}:
+  /api/hypershell/ext/provider_bindings/{id}:
     delete:
       operationId: deleteProviderBinding
       parameters:
@@ -2493,7 +2493,7 @@ paths:
       security:
       - Bearer: []
       summary: Update a provider binding
-  /api/hypershell/v1/inference_routes:
+  /api/hypershell/ext/inference_routes:
     get:
       operationId: listInferenceRoutes
       parameters:
@@ -2597,7 +2597,7 @@ paths:
       security:
       - Bearer: []
       summary: Create a new inference route
-  /api/hypershell/v1/inference_routes/{id}:
+  /api/hypershell/ext/inference_routes/{id}:
     delete:
       operationId: deleteInferenceRoute
       parameters:
@@ -2668,7 +2668,7 @@ paths:
       security:
       - Bearer: []
       summary: Get an inference route by ID
-  /api/hypershell/v1/secret_sources:
+  /api/hypershell/ext/secret_sources:
     get:
       operationId: listSecretSources
       parameters:
@@ -2772,7 +2772,7 @@ paths:
       security:
       - Bearer: []
       summary: Create a new secret source
-  /api/hypershell/v1/secret_sources/{id}:
+  /api/hypershell/ext/secret_sources/{id}:
     delete:
       operationId: deleteSecretSource
       parameters:

@@ -20,7 +20,7 @@ CLI_GENERATOR_DIR=$(abspath ../../scripts/cli-generator)
 SDK_TYPESCRIPT_DIR=$(abspath ../sdk-typescript)
 SDK_GO_DIR=$(abspath ../sdk-go)
 CLI_DIR=$(abspath ../cli)
-SDK_API_PREFIX=/api/hypershell/v1
+SDK_API_PREFIX=/api/hypershell
 SDK_GO_MODULE=github.com/openshift-online/hypershell/components/sdk-go
 CLI_MODULE=github.com/openshift-online/hypershell/components/cli
 

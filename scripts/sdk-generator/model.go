@@ -7,10 +7,11 @@ import (
 )
 
 type Resource struct {
-	Name               string
-	Plural             string
-	PathSegment        string
-	Scoped             bool
+	Name                   string
+	Plural                 string
+	PathSegment            string
+	AbsoluteCollectionPath string
+	Scoped                 bool
 	ScopeParameters    []PathParameter
 	ItemParameter      *PathParameter
 	GoCollectionPath   string
