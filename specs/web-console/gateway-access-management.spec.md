@@ -135,9 +135,9 @@ The confirmation SHALL name the user being removed. Removing one's own access SH
 
 ### Requirement: GAM-UI-07 -- Management Controls Gated to Administrators
 
-Access management controls (Add users, the inline role control, and Remove access) SHALL be presented only to callers the server authorizes to manage access (gateway owner or admin, GAM-08). Viewers SHALL see the access list read-only, without those controls.
+Access management controls (Add users, the inline role control, and Remove access) SHALL be presented only to callers the server authorizes to manage access -- those for whom the access-list capabilities report `can_manage_access` (a gateway owner or admin, or a `platform:admin`; GAM-08). Viewers SHALL see the access list read-only, without those controls. The console SHALL drive these gates from the server-reported capabilities (`can_manage_access`, `can_manage_owners`), not from the caller's own listed role, so a `platform:admin` who is not on the access list still receives the full controls.
 
-Controls that touch the **Owner tier** -- assigning the Owner role, or changing/removing a user who is an owner -- SHALL be offered only to owner callers; for non-owner admins these SHALL be absent or disabled with an accessible explanation.
+Controls that touch the **Owner tier** -- assigning the Owner role, or changing/removing a user who is an owner -- SHALL be offered only when the capabilities report `can_manage_owners` (a gateway owner, or a `platform:admin`); for non-owner admins these SHALL be absent or disabled with an accessible explanation.
 
 The console SHALL rely on server authorization as the source of truth: it SHALL handle `403` and `409` responses with localized messaging and SHALL NOT present a management outcome the server rejected as if it succeeded.
 

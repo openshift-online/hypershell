@@ -106,7 +106,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 
 | Role | Scope | Source | Purpose |
 |------|-------|--------|---------|
-| `platform:admin` | global | Keycloak JWT | Platform-wide administration; can view and delete any gateway |
+| `platform:admin` | global | Keycloak JWT | Platform-wide administration; can view and delete any gateway, and manage any gateway's access (grant/change/revoke any tier, including owner) via the access facade -- without gaining gateway login |
 | `gateway:creator` | global | Keycloak JWT | Can create gateways; auto-becomes `gateway:owner` on creation |
 | `gateway:owner` | per gateway | DB (app logic) | Gateway owner; one or more; grantable and removable (but a gateway always keeps at least one owner). Full CRUD including delete; can grant/change/revoke any role including `gateway:owner`. The creator is the first owner |
 | `gateway:admin` | per gateway | DB (app logic) | Granted administrator; zero or more; removable. Read/update the gateway (no delete); can grant/change/revoke `gateway:admin` and `gateway:viewer` only (not `gateway:owner`) |
@@ -117,7 +117,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 
 | Role | Gateways | Gateway CRUD | RBAC Grants | OpenShell Mapping | OpenShellGatewayServiceAccounts | ManagedCluster Registration |
 |------|----------|-------------|-------------|-------------------|-----------------|-----------------|
-| `platform:admin` | view all, delete any | view all + delete any | -- | -- | None without a gateway binding | View all records; create, update, or delete any record |
+| `platform:admin` | view all, delete any | view all + delete any | grant/change/revoke owner/admin/viewer on any gateway (via the access facade, GAM-04/05/06) | None without a gateway binding | None without a gateway binding | View all records; create, update, or delete any record |
 | `gateway:creator` | create + own gateways | full (as owner) | grant owner/admin/viewer on own gateways | `openshell-admin` + `openshell-user` on own gateways | Through the resulting owner binding | View all records; no writes |
 | `gateway:owner` | full (one gateway) | full incl. delete | grant owner/admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
 | `gateway:admin` | full except delete (one gateway) | read + update (no delete) | grant admin/viewer on that gateway | `openshell-admin` + `openshell-user` on that gateway | Select `openshell-user` or `openshell-admin`. Manage all OpenShellGatewayServiceAccounts on the gateway. | -- |
@@ -325,29 +325,36 @@ the same RoleBinding records.
 
 ### Requirement: Platform Admin Global Access
 
-Users with the `platform:admin` role SHALL have global view and delete permissions across
-all gateways in the platform, regardless of per-gateway RoleBindings. This role is assigned
-via Keycloak and synced to the database identically to `gateway:creator`.
+Users with the `platform:admin` role SHALL have global view, delete, and access-management
+permissions across all gateways in the platform, regardless of per-gateway RoleBindings.
+Access management (grant/change/revoke any tier, including owner, and directory search)
+is owner-equivalent and exercised through the access facade; it creates no gateway-scoped
+binding for the platform admin, so it confers no gateway login
+(`platform/gateway-access-management.spec.md` GAM-08). This role is assigned via Keycloak
+and synced to the database identically to `gateway:creator`.
 
 Platform administrators SHALL be able to:
 
 - List all gateways across the platform (GET `/api/hypershell/v1/gateways` returns all)
 - View any specific gateway (GET `/api/hypershell/v1/gateways/{id}` succeeds for any ID)
 - Delete any gateway (DELETE `/api/hypershell/v1/gateways/{id}` succeeds for any ID)
+- Manage any gateway's access through the access facade (`/api/hypershell/v1/gateways/{id}/access`): list, grant, change, and revoke any tier including `gateway:owner`, and search the directory -- owner-equivalent, without holding a per-gateway binding, and subject to last-owner protection (`platform/gateway-access-management.spec.md` GAM-07/GAM-08)
 
 Platform administrators SHALL NOT be able to:
 
 - Modify gateway configuration (PATCH/PUT operations require `gateway:owner` or `gateway:admin`)
-- Grant or revoke RoleBindings (requires `gateway:owner` or `gateway:admin` on that specific gateway)
+- Create or delete `RoleBinding` records through the low-level generic `/role_bindings` resource (that endpoint still requires `gateway:owner` or `gateway:admin` on the gateway; platform administrators manage access through the access facade instead)
 - Create gateways (requires `gateway:creator` role)
+- Obtain gateway login from managing access: performing access management creates no gateway-scoped binding for the platform administrator, so they receive no `openshell` CLI access unless separately granted a per-gateway binding (see OpenShell Role Bridge above)
 
 The `platform:admin` role is orthogonal to `gateway:creator`, `gateway:owner`, and
 `gateway:viewer`. A user may hold multiple roles (e.g., `platform:admin` + `gateway:creator`).
 
-In the initial implementation, the `platform:admin` role is **limited to gateway view and delete operations**. It does NOT grant permissions to:
+The `platform:admin` role covers gateway **view**, **delete**, and **access management** (the access facade; `platform/gateway-access-management.spec.md`). It does NOT grant permissions to:
 
+- Modify gateway configuration (PATCH), or create gateways (requires `gateway:creator`)
 - View or modify GatewayNetworks, GatewayReleases, or ManagedClusters
-- View or modify Users or RoleBindings
+- Create or delete `RoleBinding` records through the generic `/role_bindings` resource (access is managed through the access facade instead)
 - Access platform-level configuration or system administration functions
 
 Future iterations may expand platform:admin permissions to include these resources.
@@ -377,6 +384,14 @@ Future iterations may expand platform:admin permissions to include these resourc
 - THEN the gateway is deleted
 - AND the response is 204 No Content
 
+#### Scenario: Platform admin manages gateway access without a binding
+
+- GIVEN user A has `platform:admin`
+- AND user A has no binding for gw-1 (owned by user B)
+- WHEN user A grants user C the `owner` role on gw-1 via `POST /api/hypershell/v1/gateways/gw-1/access`
+- THEN the grant SHALL succeed
+- AND no gateway-scoped binding SHALL be created for user A (user A gains no `openshell` login on gw-1)
+
 #### Scenario: Platform admin cannot modify gateways without ownership
 
 - GIVEN user A has `platform:admin` only
@@ -391,12 +406,13 @@ Future iterations may expand platform:admin permissions to include these resourc
 - WHEN user A calls `POST /api/hypershell/v1/gateways`
 - THEN the response is 403 Forbidden
 
-#### Scenario: Platform admin cannot grant role bindings
+#### Scenario: Platform admin cannot use the low-level role_bindings resource
 
 - GIVEN user A has `platform:admin` only
 - AND user A has no `gateway:owner` binding for gw-1
 - WHEN user A calls `POST /api/hypershell/v1/role_bindings` with `gateway_id=gw-1`
 - THEN the response is 403 Forbidden
+- (platform administrators manage access through the access facade `/gateways/{id}/access`, not this generic resource)
 
 #### Scenario: User with platform:admin and gateway:creator can create and view all
 

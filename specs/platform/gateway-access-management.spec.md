@@ -33,6 +33,8 @@ The three per-gateway roles form a strict hierarchy, **Owner > Admin > Viewer**:
 
 `gateway:owner` and `gateway:admin` are indistinguishable **to the gateway**: both are gateway administrators and receive the same Keycloak client roles. Their difference is entirely a management-plane concern -- only owners may delete the gateway and assign other owners. A gateway always retains at least one owner (GAM-07).
 
+Separately, `platform:admin` (a global, Keycloak-sourced role, not a per-gateway role) has **owner-equivalent access-management authority on every gateway**: it may list, grant, change, and revoke any tier (including `gateway:owner`) and search the directory, without holding any per-gateway binding (GAM-08). It is purely a management-plane authority: it confers **no gateway login** (no Keycloak client roles) unless the `platform:admin` is separately granted a per-gateway binding, so a platform administrator managing a gateway's access does not thereby gain `openshell` CLI access to it.
+
 The creator (the auto-provisioned first owner, `security/rbac-enforcement.spec.md`) is tracked for display and audit (`is_creator`, "Created by") but holds no capability beyond any other owner; ownership is shared and transferable among owners.
 
 ## Non-Goals
@@ -53,7 +55,7 @@ The platform SHALL define a per-gateway built-in role `gateway:admin` representi
 - Manage access **for the Admin and User tiers only**: grant, change, and revoke `gateway:admin` and `gateway:viewer` bindings (GAM-08).
 - Create and manage all OpenShellGatewayServiceAccounts on the gateway, selecting `openshell-user` or `openshell-admin` (GAM-12).
 
-`gateway:admin` SHALL NOT delete the gateway, and SHALL NOT grant, change, or revoke the Owner tier (`gateway:owner`). Deleting a gateway SHALL require `gateway:owner` or `platform:admin`; assigning an owner SHALL require `gateway:owner` (GAM-08).
+`gateway:admin` SHALL NOT delete the gateway, and SHALL NOT grant, change, or revoke the Owner tier (`gateway:owner`). Deleting a gateway SHALL require `gateway:owner` or `platform:admin`; assigning an owner SHALL require `gateway:owner` or `platform:admin` (GAM-08).
 
 The Gateway REST resource SHALL advertise a read-only, per-caller `can_delete` boolean on `GET` (list and single) responses, computed from the authenticated caller's current bindings with the **same check that authorizes `DELETE`** (`gateway:owner` on that gateway, or `platform:admin`). `can_delete` is advisory: it exists so clients (console, CLI) can disable a delete affordance the API would reject, and SHALL NOT weaken enforcement. The API server SHALL remain the authorization boundary and SHALL enforce delete authorization on `DELETE` regardless of `can_delete`. When RBAC enforcement is disabled, every delete is permitted, so `can_delete` SHALL be `true`.
 
@@ -167,7 +169,7 @@ Any caller with a binding on the gateway (owner, admin, or viewer) or `platform:
 
 The API server SHALL expose `POST /api/hypershell/v1/gateways/{gateway_id}/access` to grant a user `owner`, `admin`, or `user` access to the gateway.
 
-The request SHALL identify the target user by a directory identity (`username`, or an equivalent Keycloak subject reference returned by GAM-09) and a `role` of `owner`, `admin`, or `user`. Granting `owner` SHALL create a `gateway:owner` binding; granting `admin` SHALL create a `gateway:admin` binding; granting `user` SHALL create a `gateway:viewer` binding. Granting (or changing to) the `owner` tier SHALL require the caller to be a `gateway:owner` (GAM-08); `gateway:admin` callers SHALL NOT assign owners.
+The request SHALL identify the target user by a directory identity (`username`, or an equivalent Keycloak subject reference returned by GAM-09) and a `role` of `owner`, `admin`, or `user`. Granting `owner` SHALL create a `gateway:owner` binding; granting `admin` SHALL create a `gateway:admin` binding; granting `user` SHALL create a `gateway:viewer` binding. Granting (or changing to) the `owner` tier SHALL require the caller to be a `gateway:owner` or `platform:admin` (GAM-08); `gateway:admin` callers SHALL NOT assign owners.
 
 The target identity SHALL be resolved against the Keycloak realm directory before any binding is created. If the identity does not correspond to a user in the realm, the request SHALL be rejected with `404 Not Found` and a clear error (the person must exist in the realm to be granted access); no `User` record SHALL be pre-provisioned and no binding SHALL be created. Resolution SHALL reuse the directory projection / lookup of GAM-09.
 
@@ -321,9 +323,13 @@ The creator (the auto-provisioned first owner) is retained as `is_creator` for d
 
 ### Requirement: GAM-08 -- Access Management Authorization
 
-Granting, changing, and revoking access (GAM-04, GAM-05, GAM-06) and searching the directory (GAM-09) SHALL require `gateway:owner` or `gateway:admin` on the target gateway. Operations that touch the **Owner tier** -- granting `owner`, promoting to `owner`, or demoting/revoking a user who holds `gateway:owner` -- SHALL additionally require the caller to be a `gateway:owner`. A `gateway:admin` caller MAY manage only the Admin and User tiers.
+Granting, changing, and revoking access (GAM-04, GAM-05, GAM-06) and searching the directory (GAM-09) SHALL require `gateway:owner` or `gateway:admin` on the target gateway, or `platform:admin`. Operations that touch the **Owner tier** -- granting `owner`, promoting to `owner`, or demoting/revoking a user who holds `gateway:owner` -- SHALL additionally require the caller to be a `gateway:owner` or `platform:admin`. A `gateway:admin` caller MAY manage only the Admin and User tiers.
 
-`gateway:viewer` callers SHALL NOT manage access or search the directory. `platform:admin` SHALL NOT grant, change, or revoke access unless it also holds `gateway:owner` or `gateway:admin` on that gateway (consistent with `platform:admin` being view/delete-only for RBAC grants in `security/rbac-enforcement.spec.md`). Unauthorized management attempts SHALL return `403`; callers with no access to the gateway SHALL receive `404`.
+`gateway:viewer` callers SHALL NOT manage access or search the directory.
+
+A `platform:admin` SHALL be authorized for **all** access-management operations on **any** gateway -- listing, granting, changing, and revoking **any** tier including `gateway:owner`, and searching the directory -- exactly like a `gateway:owner`, and **without requiring any per-gateway binding**. This authority is management-plane only: performing access management SHALL NOT grant the `platform:admin` gateway login (the per-gateway Keycloak client roles `openshell-admin`/`openshell-user`); gateway login follows solely from an explicit gateway-scoped binding on that gateway (`security/rbac-enforcement.spec.md`, OpenShell Role Bridge). Last-owner protection (GAM-07) applies to `platform:admin` actions exactly as to an owner's: a `platform:admin` SHALL NOT remove or demote the last remaining owner, but MAY assign a new owner first. The access-list capabilities (GAM-03) returned to a `platform:admin` SHALL report `can_manage_access` and `can_manage_owners` as true.
+
+Unauthorized management attempts SHALL return `403`; callers with no access to the gateway SHALL receive `404`.
 
 #### Scenario: Viewer cannot grant access
 
@@ -337,6 +343,26 @@ Granting, changing, and revoking access (GAM-04, GAM-05, GAM-06) and searching t
 - WHEN user B grants user D the `user` role on gw-1
 - THEN the grant SHALL be created
 
+#### Scenario: Platform admin manages access on any gateway without a binding
+
+- GIVEN user P holds `platform:admin` and has no binding on gw-1
+- WHEN user P grants user E the `owner` role on gw-1
+- THEN the grant SHALL be created
+- AND user P MAY likewise change and revoke any tier on gw-1, including owners (subject to GAM-07), and search the directory
+
+#### Scenario: Platform admin managing access gains no gateway login
+
+- GIVEN user P holds `platform:admin` and has no gateway-scoped binding on gw-1
+- WHEN user P grants, changes, or revokes access on gw-1
+- THEN no gateway-scoped binding SHALL be created for user P
+- AND the Role Bridge SHALL assign user P no `openshell-admin` or `openshell-user` client role on gw-1 (user P has no gateway login unless separately granted a binding)
+
+#### Scenario: Platform admin cannot remove the last owner
+
+- GIVEN gw-1 has exactly one owner, user A, and user P holds `platform:admin`
+- WHEN user P revokes or demotes user A
+- THEN the response SHALL be `409 Conflict` (a gateway must keep at least one owner, GAM-07)
+
 ---
 
 ### Requirement: GAM-09 -- Keycloak Directory Search
@@ -347,7 +373,7 @@ Each candidate SHALL expose `username`, `name`, and `email`, and SHALL be usable
 
 **Backing store.** Rather than issuing a live Keycloak Admin REST query on every keystroke, the directory SHALL be served from a **control-plane-maintained projection of realm users** that the control plane refreshes periodically (and MAY refresh on demand). The control plane -- which holds the `hypershell-keycloak-admin` Secret and already runs reconcile loops -- SHALL periodically list realm users via the Keycloak Admin REST API and persist a directory projection (`username`, `name`, `email`, Keycloak subject) that the API server reads and filters for this endpoint. The API server SHALL NOT read the `hypershell-keycloak-admin` Secret (`openshell-gateway-keycloak.spec.md`). This keeps search fast and resilient to transient Keycloak unavailability; the tradeoff is bounded staleness equal to the refresh interval. Because the projection may be stale, grant (GAM-04) SHALL re-validate the chosen identity against the realm at grant time and reject unknown users (`404`). The refresh interval SHALL be configuration, not code (`specs/standards/`), and newly added realm users become selectable within one refresh cycle. Results SHALL be bounded (paginated/capped); the search SHALL apply the query term server-side against the projection.
 
-Authorization SHALL follow GAM-08 (owner or admin on the gateway).
+Authorization SHALL follow GAM-08 (owner or admin on the gateway, or `platform:admin`).
 
 #### Scenario: Directory search returns realm users from the projection
 

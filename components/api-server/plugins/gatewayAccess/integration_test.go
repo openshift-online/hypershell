@@ -385,3 +385,85 @@ func userTierOf(svc gatewayAccess.Service, gw, userID string) (string, error) {
 	}
 	return "", nil
 }
+
+// seedPlatformAdmin provisions a user and gives them the global platform:admin
+// binding (as JWT sync does in production), with NO gateway-scoped binding, so
+// their access-management authority comes solely from platform:admin (GAM-08).
+func seedPlatformAdmin(t *testing.T, username string) string {
+	t.Helper()
+	uid, err := userService().UpsertByUsername(context.Background(), strings.ToLower(username), nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(rbService().SyncJWTRoles(context.Background(), uid, []string{roles.RolePlatformAdmin})).To(Succeed())
+	return uid
+}
+
+// hasGatewayBinding reports whether userID holds any gateway-scoped binding on gw.
+func hasGatewayBinding(t *testing.T, userID, gw string) bool {
+	t.Helper()
+	summaries, err := rbService().FindBindingsByUserID(context.Background(), userID)
+	Expect(err).NotTo(HaveOccurred())
+	for _, b := range summaries {
+		if b.Scope == roleBindings.ScopeGateway && b.GatewayID != nil && *b.GatewayID == gw {
+			return true
+		}
+	}
+	return false
+}
+
+// GAM-08: a platform:admin manages access on any gateway with owner-equivalent
+// authority (including assigning the owner tier) without holding a per-gateway
+// binding, the reported capabilities reflect that, and doing so grants the
+// platform admin no gateway login (no gateway-scoped binding is created for it).
+func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
+	test.RegisterIntegration(t)
+	defer gatewayAccess.SetDirectoryResolver(nil)
+	gw := "gw-padmin-manage"
+	seed(t, gw, "owner-pa", roles.RoleGatewayOwner)
+	padmin := seedPlatformAdmin(t, "padmin-pa")
+
+	dir := realm(gatewayAccess.DirectoryUser{Username: "erin", Name: "Erin"})
+	svc := accessSvc(dir)
+
+	// Capabilities are owner-equivalent even though padmin has no binding on gw.
+	_, _, caps, aerr := svc.List(context.Background(), gw, padmin, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	Expect(aerr).To(BeNil())
+	Expect(caps.CallerRole).To(Equal(gatewayAccess.TierOwner))
+	Expect(caps.CanManageAccess).To(BeTrue())
+	Expect(caps.CanManageOwners).To(BeTrue())
+
+	// Can assign the owner tier - an owner-only operation a gateway:admin cannot do.
+	item, aerr := svc.Grant(context.Background(), gw, padmin, gatewayAccess.GrantInput{Username: "erin", Role: gatewayAccess.TierOwner})
+	Expect(aerr).To(BeNil())
+	Expect(item.Role).To(Equal(gatewayAccess.TierOwner))
+
+	// Can search the directory (GAM-09).
+	candidates, aerr := svc.SearchDirectory(context.Background(), gw, padmin, "er")
+	Expect(aerr).To(BeNil())
+	Expect(len(candidates)).To(Equal(1))
+
+	// Login-safety: managing access created NO gateway-scoped binding for padmin,
+	// so the platform admin has no openshell login on gw.
+	Expect(hasGatewayBinding(t, padmin, gw)).To(BeFalse())
+}
+
+// GAM-07/GAM-08: a platform:admin may revoke an owner while another owner
+// remains, but is still blocked from removing the last remaining owner.
+func TestPlatformAdmin_RevokeOwnerGuardedByLastOwner(t *testing.T) {
+	test.RegisterIntegration(t)
+	defer gatewayAccess.SetDirectoryResolver(nil)
+	gw := "gw-padmin-revoke"
+	owner1 := seed(t, gw, "owner-r1", roles.RoleGatewayOwner)
+	owner2 := seed(t, gw, "owner-r2", roles.RoleGatewayOwner)
+	padmin := seedPlatformAdmin(t, "padmin-rv")
+
+	svc := accessSvc(realm())
+
+	// Two owners exist: the platform admin may revoke one.
+	aerr := svc.Revoke(context.Background(), gw, padmin, owner2)
+	Expect(aerr).To(BeNil())
+
+	// One owner remains: the platform admin may not remove the last owner (GAM-07).
+	aerr = svc.Revoke(context.Background(), gw, padmin, owner1)
+	Expect(aerr).NotTo(BeNil())
+	Expect(aerr.Status).To(Equal(http.StatusConflict))
+}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
@@ -122,13 +123,10 @@ func NewService(d *dao, bindings roleBindings.RoleBindingService, userService us
 
 var _ Service = &service{}
 
-// userTier returns the user's highest gateway tier on gatewayID (owner > admin
-// > user), or "" if the user has no gateway-scoped binding there.
-func (s *service) userTier(ctx context.Context, userID, gatewayID string) (string, *APIError) {
-	summaries, err := s.bindings.FindBindingsByUserID(ctx, userID)
-	if err != nil {
-		return "", serverError("unable to resolve access")
-	}
+// highestGatewayTier returns the highest gateway-scoped tier (owner > admin >
+// user) among summaries for gatewayID, or "" if none. It considers only explicit
+// gateway-scoped bindings.
+func highestGatewayTier(summaries []rbac.BindingSummary, gatewayID string) string {
 	best := ""
 	for _, b := range summaries {
 		if b.Scope != roleBindings.ScopeGateway || b.GatewayID == nil || *b.GatewayID != gatewayID {
@@ -139,7 +137,40 @@ func (s *service) userTier(ctx context.Context, userID, gatewayID string) (strin
 			best = t
 		}
 	}
-	return best, nil
+	return best
+}
+
+// userTier returns the user's highest gateway tier on gatewayID (owner > admin
+// > user), or "" if the user has no gateway-scoped binding there. It reflects
+// only explicit gateway-scoped bindings, so it is the correct reading of a
+// target user's current tier. Authorization and capability decisions use
+// callerTier instead, which also honors platform:admin.
+func (s *service) userTier(ctx context.Context, userID, gatewayID string) (string, *APIError) {
+	summaries, err := s.bindings.FindBindingsByUserID(ctx, userID)
+	if err != nil {
+		return "", serverError("unable to resolve access")
+	}
+	return highestGatewayTier(summaries, gatewayID), nil
+}
+
+// callerTier returns the caller's EFFECTIVE management tier on gatewayID. A
+// platform:admin is owner-equivalent on every gateway (GAM-08) even without a
+// per-gateway binding, so it resolves to owner; this governs manage
+// authorization (authorizeManage), directory search, and the capabilities
+// reported to the console (List). Resolving a platform admin as owner here never
+// creates a binding for the caller, so it confers no gateway login
+// (security/rbac-enforcement.spec.md, OpenShell Role Bridge).
+func (s *service) callerTier(ctx context.Context, userID, gatewayID string) (string, *APIError) {
+	summaries, err := s.bindings.FindBindingsByUserID(ctx, userID)
+	if err != nil {
+		return "", serverError("unable to resolve access")
+	}
+	for _, b := range summaries {
+		if b.RoleName == roles.RolePlatformAdmin {
+			return TierOwner, nil
+		}
+	}
+	return highestGatewayTier(summaries, gatewayID), nil
 }
 
 func (s *service) List(ctx context.Context, gatewayID, callerUserID string, opts ListOptions) ([]GrantItem, int64, Capabilities, *APIError) {
@@ -155,7 +186,7 @@ func (s *service) List(ctx context.Context, gatewayID, callerUserID string, opts
 	for _, r := range rows {
 		items = append(items, grantItemFromRow(r, creatorID))
 	}
-	tier, aerr := s.userTier(ctx, callerUserID, gatewayID)
+	tier, aerr := s.callerTier(ctx, callerUserID, gatewayID)
 	if aerr != nil {
 		return nil, 0, Capabilities{}, aerr
 	}
@@ -285,7 +316,7 @@ func (s *service) Revoke(ctx context.Context, gatewayID, callerUserID, targetUse
 }
 
 func (s *service) SearchDirectory(ctx context.Context, gatewayID, callerUserID, query string) ([]DirectoryCandidate, *APIError) {
-	tier, aerr := s.userTier(ctx, callerUserID, gatewayID)
+	tier, aerr := s.callerTier(ctx, callerUserID, gatewayID)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -312,7 +343,7 @@ func (s *service) SearchDirectory(ctx context.Context, gatewayID, callerUserID, 
 // user who currently holds owner) requires the caller to be an owner.
 // newTier is "" for revoke; currentTier is "" for a fresh grant.
 func (s *service) authorizeManage(ctx context.Context, callerUserID, gatewayID, newTier, currentTier string) *APIError {
-	caller, aerr := s.userTier(ctx, callerUserID, gatewayID)
+	caller, aerr := s.callerTier(ctx, callerUserID, gatewayID)
 	if aerr != nil {
 		return aerr
 	}
