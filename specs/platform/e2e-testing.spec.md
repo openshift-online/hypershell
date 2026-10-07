@@ -851,8 +851,8 @@ steps, and P2.5). A second `ManagedCluster` SHALL be established by a second
 control-plane deployment reconciling into the same physical cluster under a
 distinct `HYPERSHELL_MANAGED_CLUSTER_NAME` (`E2E_SEED_CLUSTER_NAME_2`) and its own
 registrar OIDC client, so each control plane filters only its own `cluster_id`.
-The two-cluster harness is opt-in: when `E2E_MULTICLUSTER` is unset or `0`, area
-12 runs only the single-cluster registration assertions above and P2.5 runs
+The two-cluster harness is opt-in: when `E2E_MULTICLUSTER` is unset or `0`, P2.4
+runs only the single-cluster registration assertions above and P2.5 runs
 its single-cluster rollout path. Deploying the second control plane is owned by
 `local-development.spec.md` / `openshift-development.spec.md`; this spec owns only
 the assertions.
