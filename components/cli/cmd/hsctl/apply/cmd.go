@@ -287,10 +287,16 @@ func getName(resource Resource) string {
 
 func isSupportedKind(kind string) bool {
 	supportedKinds := map[string]bool{
-		"Gateway":        true,
-		"ManagedCluster": true,
-		"Role":           true,
-		"RoleBinding":    true,
+		"Gateway":         true,
+		"ManagedCluster":  true,
+		"Role":            true,
+		"RoleBinding":     true,
+		"AgentRuntime":    true,
+		"SandboxTemplate": true,
+		"ProviderSpec":    true,
+		"ProviderBinding": true,
+		"InferenceRoute":  true,
+		"SecretSource":    true,
 	}
 	return supportedKinds[kind]
 }
@@ -314,6 +320,18 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 		basePath = urls.RolesPath
 	case "RoleBinding":
 		basePath = urls.RoleBindingsPath
+	case "AgentRuntime":
+		basePath = urls.AgentRuntimesPath
+	case "SandboxTemplate":
+		basePath = urls.SandboxTemplatesPath
+	case "ProviderSpec":
+		basePath = urls.ProviderSpecsPath
+	case "ProviderBinding":
+		basePath = urls.ProviderBindingsPath
+	case "InferenceRoute":
+		basePath = urls.InferenceRoutesPath
+	case "SecretSource":
+		basePath = urls.SecretSourcesPath
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", kind)
 	}
