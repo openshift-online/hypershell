@@ -43,7 +43,7 @@ func init() {
 		envServices := services.(*environments.Services)
 		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices))
 
-		router := extRouter.PathPrefix("/agent_runtimes/{agent_runtime_id}/secret_sources").Subrouter()
+		router := extRouter.PathPrefix("/secret_sources").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
 		router.HandleFunc("/{id}", h.Get).Methods(http.MethodGet)
 		router.HandleFunc("", h.Create).Methods(http.MethodPost)
