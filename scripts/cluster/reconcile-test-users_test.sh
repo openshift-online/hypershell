@@ -141,5 +141,35 @@ else
   echo 'FAIL: de-seed did not look up developer'
 fi
 
+# keycloak_reconcile_extra_users: create-or-reset a plain user + assign its role.
+# The curl stub reports every user as existing (reset-password path) and returns a
+# role object for any /roles/ lookup, so we can assert the generic path ran.
+cat >"${WORKDIR}/curl" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"${CURL_LOG}"
+if [[ " \$* " == *"/token"* ]]; then
+  printf '%s' '{"access_token":"tok"}'; exit 0
+fi
+if [[ " \$* " == *"users?username="* ]]; then
+  printf '%s' '[{"id":"uid-1"}]'; exit 0
+fi
+if [[ " \$* " == *"/roles/"* ]]; then
+  printf '%s' '{"id":"rid","name":"hypershell-users"}'; exit 0
+fi
+printf '%s' '204'
+EOF
+chmod +x "${WORKDIR}/curl"
+: >"${CURL_LOG}"
+assert_ok "reconcile extra users" keycloak_reconcile_extra_users alice
+if grep -q 'username=alice' "${CURL_LOG}" \
+  && grep -q 'reset-password' "${CURL_LOG}" \
+  && grep -q 'role-mappings/realm' "${CURL_LOG}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: extra-user reconcile did not create/reset and assign a role'
+fi
+assert_ok "reconcile extra users with none is a no-op" keycloak_reconcile_extra_users
+
 printf 'reconcile-test-users tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

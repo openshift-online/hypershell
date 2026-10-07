@@ -232,6 +232,7 @@ printf '  %s\n' "6. Gateway connectivity"
 printf '  %s\n' "7. Sandbox lifecycle (create → ready)"
 printf '  %s\n' "8. Sandbox interaction + active sandbox count"
 printf '  %s\n' "9. Developer user RBAC verification"
+printf '  %s\n' "9b. Gateway access management + directory pickup of a new Keycloak user [kind, long]"
 printf '  %s\n' "10. Platform admin RBAC verification"
 printf '  %s\n' "11. Gateway deletion + namespace garbage collection"
 printf '  %s\n' "12. ManagedCluster registration + control-plane identity [long]"
@@ -1849,6 +1850,465 @@ print(json.dumps(body))
 
   "${OPENSHELL_BIN}" gateway remove "${DEV_GW_LOCAL_NAME}" 2>/dev/null || true
 fi
+fi
+sep
+
+# --- 9b. gateway access management (secondary users) ----------------------
+#
+# Exercises the gateway-access-management facade end to end with the secondary
+# Keycloak users seeded by `make kind-up`
+# (scripts/cluster/reconcile-test-users.sh): an owner grants a normal user, a
+# granted admin, and a granted owner through POST /gateways/{id}/access, and the
+# Owner > Admin > Viewer authorization hierarchy and the Keycloak Role Bridge are
+# asserted (gateway-access-management.spec.md GAM-02..GAM-09).
+#
+#   1. normal user (role "user" = gateway:viewer) can create a sandbox
+#   2. granted admin (role "admin" = gateway:admin) can remove the normal user
+#   3. granted owner (role "owner" = gateway:owner) can remove the granted admin,
+#      and can delete a gateway
+#
+# Requires a resource-owner password grant against the seeded secondary users.
+# Brokered CI (E2E_OIDC_GRANT=client_credentials) cannot password-grant them and
+# they are not impersonation targets (ephemeral-test-credentials.spec.md), so this
+# area is Kind / local-OpenShift (password grant), long mode only.
+
+echo ""
+e2e_area "9b. Gateway Access Management (secondary users)"
+echo ""
+
+: "${E2E_GAM_USER:=alice}"    # normal user   -> role "user"  (gateway:viewer)
+: "${E2E_GAM_ADMIN:=bob}"     # granted admin -> role "admin" (gateway:admin)
+: "${E2E_GAM_OWNER:=carol}"   # granted owner -> role "owner" (gateway:owner)
+: "${E2E_GAM_VIEWER:=dana}"   # second normal user the granted admin adds as viewer
+
+if ! e2e_step long; then
+  dim "  Skipped (E2E_MODE=${E2E_MODE}): access-management matrix acts as several secondary user identities"
+elif [[ "${E2E_INFRA_DRIVER}" != "kind" ]]; then
+  dim "  Skipped (E2E_INFRA_DRIVER=${E2E_INFRA_DRIVER}): the secondary users (${E2E_GAM_USER}/${E2E_GAM_ADMIN}/${E2E_GAM_OWNER}) are seeded only by 'make kind-up' (scripts/cluster/reconcile-test-users.sh)"
+elif [[ "${E2E_OIDC_GRANT:-password}" != "password" ]]; then
+  dim "  Skipped (E2E_OIDC_GRANT=${E2E_OIDC_GRANT}): secondary users (${E2E_GAM_USER}/${E2E_GAM_ADMIN}/${E2E_GAM_OWNER}) need a resource-owner password grant; brokered CI cannot mint their tokens"
+elif [[ -z "${GW_ID}" ]]; then
+  fail_test "Access management: no gateway id (area 2 did not provision a gateway)"
+else
+  GAM_LAST_BODY=""
+
+  # --- small helpers over the access facade (keyed by gateway id + bearer) ---
+  # Poll until the realm-user projection (GAM-09) lists the user, so a just-seeded
+  # user is grantable (the projection has bounded staleness).
+  gam_wait_directory() { # <gw> <bearer> <username>
+    local gw="$1" token="$2" uname="$3" deadline
+    deadline=$(($(date +%s) + 120))
+    while [[ $(date +%s) -lt $deadline ]]; do
+      if _driver_curl -H "Authorization: Bearer ${token}" \
+          "${API_HOST}/api/hypershell/v1/gateways/${gw}/access/directory?search=${uname}" 2>/dev/null \
+          | UNAME="$uname" python3 -c "import json,sys,os
+u=os.environ['UNAME']
+sys.exit(0 if any(i.get('username')==u for i in json.load(sys.stdin).get('items',[])) else 1)" 2>/dev/null; then
+        return 0
+      fi
+      sleep 5
+    done
+    return 1
+  }
+  gam_grant() { # <gw> <bearer> <username> <role> -> prints HTTP code; body in GAM_LAST_BODY
+    local gw="$1" token="$2" uname="$3" role="$4" f code body
+    f=$(mktemp)
+    body=$(UNAME="$uname" ROLE="$role" python3 -c "import json,os;print(json.dumps({'username':os.environ['UNAME'],'role':os.environ['ROLE']}))")
+    code=$(_driver_curl -o "$f" -w '%{http_code}' -X POST \
+      -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" \
+      "${API_HOST}/api/hypershell/v1/gateways/${gw}/access" -d "$body" 2>/dev/null || true)
+    GAM_LAST_BODY=$(sed 's/\x1b\[[0-9;]*m//g' "$f" 2>/dev/null | tr '\n' ' ' | tr -s ' '); rm -f "$f"
+    printf '%s' "$code"
+  }
+  gam_revoke() { # <gw> <bearer> <user_id> -> prints HTTP code; body in GAM_LAST_BODY
+    local gw="$1" token="$2" uid="$3" f code
+    f=$(mktemp)
+    code=$(_driver_curl -o "$f" -w '%{http_code}' -X DELETE \
+      -H "Authorization: Bearer ${token}" \
+      "${API_HOST}/api/hypershell/v1/gateways/${gw}/access/${uid}" 2>/dev/null || true)
+    GAM_LAST_BODY=$(sed 's/\x1b\[[0-9;]*m//g' "$f" 2>/dev/null | tr '\n' ' ' | tr -s ' '); rm -f "$f"
+    printf '%s' "$code"
+  }
+  gam_user_id() { # <gw> <bearer> <username> -> prints HyperShell user_id (via GAM-03 list)
+    local gw="$1" token="$2" uname="$3"
+    _driver_curl -H "Authorization: Bearer ${token}" \
+      "${API_HOST}/api/hypershell/v1/gateways/${gw}/access" 2>/dev/null \
+      | UNAME="$uname" python3 -c "import json,sys,os
+u=os.environ['UNAME']
+print(next((i.get('user_id','') for i in json.load(sys.stdin).get('items',[]) if i.get('username')==u),''))" 2>/dev/null || true
+  }
+  gam_user_role() { # <gw> <bearer> <username> -> prints the user's tier (owner/admin/user) or empty
+    local gw="$1" token="$2" uname="$3"
+    _driver_curl -H "Authorization: Bearer ${token}" \
+      "${API_HOST}/api/hypershell/v1/gateways/${gw}/access" 2>/dev/null \
+      | UNAME="$uname" python3 -c "import json,sys,os
+u=os.environ['UNAME']
+print(next((i.get('role','') for i in json.load(sys.stdin).get('items',[]) if i.get('username')==u),''))" 2>/dev/null || true
+  }
+
+  # The admin user created the main gateway in area 2, so it is the first
+  # gateway:owner (security/rbac-enforcement.spec.md) and may grant every tier.
+  acquire_oidc_token 2>/dev/null || true
+  GAM_OWNER_API_TOKEN="${_OIDC_ACCESS_TOKEN}"
+  [[ -n "$GAM_OWNER_API_TOKEN" ]] || fail_test "Access management: failed to acquire owner (admin) API token"
+
+  # == Scenario 0: a realm user added to Keycloak AFTER the platform is running is
+  #    picked up by the control-plane directory projection (GAM-09 periodic refresh)
+  #    and becomes searchable, then grantable. Unlike alice/bob/carol/dana, ellen is
+  #    NOT seeded by `make kind-up`, so this proves the platform reflects a brand-new
+  #    Keycloak user into its directory, and -- on grant -- pre-provisions a HyperShell
+  #    User record in its database. The directory refresh interval was shortened up
+  #    front (kind driver GC-timing patch) so the refresh lands within the wait. ==
+  E2E_GAM_NEW_USER="${E2E_GAM_NEW_USER:-ellen}"
+  show_cmd "# create Keycloak realm user ${E2E_GAM_NEW_USER} (not seeded by make kind-up)"
+  if kc_create_user "$E2E_GAM_NEW_USER"; then
+    pass "Created Keycloak realm user ${E2E_GAM_NEW_USER} at test time"
+  else
+    fail_test "Access management: could not create Keycloak user ${E2E_GAM_NEW_USER}"
+  fi
+
+  show_cmd "# await ${E2E_GAM_NEW_USER} in the directory projection (control plane picks up the new realm user)"
+  if gam_wait_directory "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_NEW_USER"; then
+    pass "Directory search resolves ${E2E_GAM_NEW_USER} after it was added to Keycloak (projection refreshed)"
+  else
+    fail_test "Access management: ${E2E_GAM_NEW_USER} never appeared in the directory projection after Keycloak create"
+  fi
+
+  show_cmd "POST ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}/access {user: ${E2E_GAM_NEW_USER}, role: user}"
+  GAM_CODE=$(gam_grant "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_NEW_USER" user)
+  if [[ "$GAM_CODE" =~ ^2 ]]; then
+    pass "Owner granted ${E2E_GAM_NEW_USER} the 'user' tier (HTTP ${GAM_CODE})"
+  else
+    fail_test "Access management: grant 'user' to ${E2E_GAM_NEW_USER} returned HTTP ${GAM_CODE:-none}"
+    dim "    ${GAM_LAST_BODY:0:200}"
+  fi
+  GAM_NEW_USER_ID=$(gam_user_id "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_NEW_USER")
+  if [[ -n "$GAM_NEW_USER_ID" ]]; then
+    pass "${E2E_GAM_NEW_USER} resolves to a pre-provisioned HyperShell user_id in the access list (${GAM_NEW_USER_ID})"
+  else
+    fail_test "Access management: ${E2E_GAM_NEW_USER} has no HyperShell user_id after grant (not persisted to the database)"
+  fi
+
+  # == Scenario 1: normal user is granted "user" and can create a sandbox ==
+  show_cmd "# wait for ${E2E_GAM_USER} in the gateway directory projection (GAM-09)"
+  if gam_wait_directory "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_USER"; then
+    pass "Directory search resolves ${E2E_GAM_USER} (realm-user projection populated)"
+  else
+    fail_test "Access management: ${E2E_GAM_USER} never appeared in the directory projection"
+  fi
+
+  show_cmd "POST ${API_HOST}/api/hypershell/v1/gateways/${GW_ID}/access {user: ${E2E_GAM_USER}, role: user}"
+  GAM_CODE=$(gam_grant "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_USER" user)
+  if [[ "$GAM_CODE" =~ ^2 ]]; then
+    pass "Owner granted ${E2E_GAM_USER} the 'user' tier (gateway:viewer) (HTTP ${GAM_CODE})"
+  else
+    fail_test "Access management: grant 'user' to ${E2E_GAM_USER} returned HTTP ${GAM_CODE:-none}"
+    dim "    ${GAM_LAST_BODY:0:200}"
+  fi
+
+  # The Role Bridge (GAM-02) projects gateway:viewer -> openshell-user on the
+  # per-gateway Keycloak client. Poll the normal user's per-gateway token until
+  # that client role appears: the end-to-end proof the grant reconciled.
+  show_cmd "# acquire ${E2E_GAM_USER} per-gateway token, await Role Bridge openshell-user"
+  if acquire_gateway_token_with_role "$E2E_GAM_USER" "$E2E_GAM_USER" "$GW_KC_CLIENT_ID" openshell-user; then
+    GAM_USER_GW_TOKEN="${_OIDC_ACCESS_TOKEN}"
+    pass "Role Bridge projected openshell-user to ${E2E_GAM_USER} (gateway:viewer -> openshell-user)"
+  else
+    GAM_USER_GW_TOKEN=""
+    fail_test "Access management: Role Bridge did not project openshell-user to ${E2E_GAM_USER}"
+  fi
+  acquire_oidc_token 2>/dev/null || true  # restore owner token
+
+  if [[ -n "$GAM_USER_GW_TOKEN" ]]; then
+    # gateway:viewer / openshell-user authorizes sandbox creation only inside a
+    # workspace the user is a member of. The access facade grants the gateway
+    # role, NOT OpenShell workspace membership (a separate gateway-side concern;
+    # see area 9). An owner/admin must still add the user to 'default' first.
+    GAM_USER_SUBJECT=$(GAM_TOK="$GAM_USER_GW_TOKEN" python3 -c "
+import os,json,base64
+try:
+    p=os.environ['GAM_TOK'].split('.')[1]; p+='='*(-len(p)%4)
+    print(json.loads(base64.urlsafe_b64decode(p)).get('sub','') or '')
+except Exception:
+    pass" 2>/dev/null || true)
+    if [[ -z "$GAM_USER_SUBJECT" ]]; then
+      fail_test "Access management: could not resolve ${E2E_GAM_USER} OIDC subject for workspace membership"
+    else
+      show_cmd "${OPENSHELL_BIN} -g ${GW_LOCAL_NAME} workspace member add --workspace default --subject ${GAM_USER_SUBJECT} --role user"
+      GAM_WM_LOG=$(mktemp)
+      if "${OPENSHELL_BIN}" -g "${GW_LOCAL_NAME}" workspace member add \
+          --workspace default --subject "${GAM_USER_SUBJECT}" --role user >"${GAM_WM_LOG}" 2>&1 \
+          || grep -qiE "already|exists" "${GAM_WM_LOG}"; then
+        pass "Owner added ${E2E_GAM_USER} as a 'user' member of 'default' workspace"
+      else
+        fail_test "Access management: failed to add ${E2E_GAM_USER} to 'default' workspace"
+        dim "    $(sed 's/\x1b\[[0-9;]*m//g' "${GAM_WM_LOG}" | tr '\n' ' ' | tr -s ' ' | cut -c1-200)"
+      fi
+      rm -f "${GAM_WM_LOG}"
+
+      # register a CLI config for the normal user and create a sandbox
+      GAM_USER_GW_LOCAL="${GW_LOCAL_NAME}-${E2E_GAM_USER}"
+      GAM_USER_CFG="${HOME}/.config/openshell/gateways/${GAM_USER_GW_LOCAL}"
+      "${OPENSHELL_BIN}" gateway remove "${GAM_USER_GW_LOCAL}" 2>/dev/null || true
+      mkdir -p "${GAM_USER_CFG}"
+      GAM_USER_GW_LOCAL="$GAM_USER_GW_LOCAL" GW_ENDPOINT="$GW_ENDPOINT" \
+        E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" GW_KC_CLIENT_ID="$GW_KC_CLIENT_ID" \
+        GAM_USER_GW_TOKEN="$GAM_USER_GW_TOKEN" GAM_USER_CFG="$GAM_USER_CFG" python3 -c "
+import json, os
+d=os.environ['GAM_USER_CFG']
+json.dump({'name':os.environ['GAM_USER_GW_LOCAL'],'gateway_endpoint':os.environ['GW_ENDPOINT'],
+  'is_remote':True,'gateway_port':0,'auth_mode':'oidc','oidc_issuer':os.environ['E2E_OIDC_ISSUER'],
+  'oidc_client_id':os.environ['GW_KC_CLIENT_ID'],
+  'gateway_insecure':bool(os.environ.get('OPENSHELL_GATEWAY_INSECURE',''))}, open(os.path.join(d,'metadata.json'),'w'), indent=2)
+json.dump({'access_token':os.environ['GAM_USER_GW_TOKEN'],'issuer':os.environ['E2E_OIDC_ISSUER'],
+  'client_id':os.environ['GW_KC_CLIENT_ID']}, open(os.path.join(d,'oidc_token.json'),'w'), indent=2)
+os.chmod(os.path.join(d,'metadata.json'),0o600); os.chmod(os.path.join(d,'oidc_token.json'),0o600)
+"
+      GAM_SANDBOX="e2e-gam-$(date +%s | tail -c5)"
+      show_cmd "${OPENSHELL_BIN} -g ${GAM_USER_GW_LOCAL} sandbox create --name ${GAM_SANDBOX}"
+      dim "  Expecting success (${E2E_GAM_USER} is a 'user' member of 'default' with openshell-user)..."
+      GAM_SB_LOG=$(mktemp)
+      "${OPENSHELL_BIN}" -g "${GAM_USER_GW_LOCAL}" sandbox create --name "${GAM_SANDBOX}" >"${GAM_SB_LOG}" 2>&1 &
+      GAM_SB_PID=$!
+      GAM_SB_OK=false
+      GAM_SB_DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+      while [[ $(date +%s) -lt $GAM_SB_DEADLINE ]]; do
+        if $CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -qi "default--${GAM_SANDBOX}"; then
+          GAM_SB_OK=true; break
+        fi
+        kill -0 "$GAM_SB_PID" 2>/dev/null || break
+        sleep 5
+      done
+      kill "$GAM_SB_PID" 2>/dev/null || true; wait "$GAM_SB_PID" 2>/dev/null || true
+      if [[ "$GAM_SB_OK" == "true" ]]; then
+        pass "Normal user (${E2E_GAM_USER}): sandbox create allowed"
+        "${OPENSHELL_BIN}" -g "${GAM_USER_GW_LOCAL}" sandbox delete "${GAM_SANDBOX}" 2>/dev/null || true
+      else
+        fail_test "Normal user (${E2E_GAM_USER}): sandbox not created within ${E2E_SANDBOX_TIMEOUT}s"
+        dim "    $(sed 's/\x1b\[[0-9;]*m//g' "${GAM_SB_LOG}" | tr '\n' ' ' | tr -s ' ' | cut -c1-200)"
+      fi
+      rm -f "${GAM_SB_LOG}"
+      "${OPENSHELL_BIN}" gateway remove "${GAM_USER_GW_LOCAL}" 2>/dev/null || true
+    fi
+  fi
+
+  # -- negative: a viewer (user tier) cannot manage access (GAM-08). While ${E2E_GAM_USER}
+  #    still holds the user tier from scenario 1, a grant attempt must be 403. --
+  acquire_oidc_token "$E2E_GAM_USER" "$E2E_GAM_USER" 2>/dev/null || true
+  GAM_VIEWER_API_TOKEN="${_OIDC_ACCESS_TOKEN}"
+  acquire_oidc_token 2>/dev/null || true  # restore owner token
+  if [[ -z "$GAM_VIEWER_API_TOKEN" ]]; then
+    fail_test "Access management: could not acquire ${E2E_GAM_USER} API token for the viewer-denied check"
+  else
+    show_cmd "POST .../gateways/${GW_ID}/access {user: ${E2E_GAM_VIEWER}, role: user} (as viewer ${E2E_GAM_USER}) -> expect 403"
+    GAM_CODE=$(gam_grant "$GW_ID" "$GAM_VIEWER_API_TOKEN" "$E2E_GAM_VIEWER" user)
+    if [[ "$GAM_CODE" == "403" ]]; then
+      pass "Normal user (${E2E_GAM_USER}, viewer) cannot add users (HTTP 403)"
+    else
+      fail_test "Access management: viewer ${E2E_GAM_USER} grant returned HTTP ${GAM_CODE:-none} (want 403)"
+      dim "    ${GAM_LAST_BODY:0:200}"
+    fi
+  fi
+
+  # == Scenario 2: granted admin can add another user as viewer, and remove a user ==
+  gam_wait_directory "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_ADMIN" || true
+  show_cmd "POST .../gateways/${GW_ID}/access {user: ${E2E_GAM_ADMIN}, role: admin}"
+  GAM_CODE=$(gam_grant "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_ADMIN" admin)
+  if [[ "$GAM_CODE" =~ ^2 ]]; then
+    pass "Owner granted ${E2E_GAM_ADMIN} the 'admin' tier (gateway:admin) (HTTP ${GAM_CODE})"
+  else
+    fail_test "Access management: grant 'admin' to ${E2E_GAM_ADMIN} returned HTTP ${GAM_CODE:-none}"
+    dim "    ${GAM_LAST_BODY:0:200}"
+  fi
+
+  acquire_oidc_token "$E2E_GAM_ADMIN" "$E2E_GAM_ADMIN" 2>/dev/null || true
+  GAM_ADMIN_API_TOKEN="${_OIDC_ACCESS_TOKEN}"
+  acquire_oidc_token 2>/dev/null || true  # restore owner token
+  if [[ -z "$GAM_ADMIN_API_TOKEN" ]]; then
+    fail_test "Access management: could not acquire ${E2E_GAM_ADMIN} API token for the admin management checks"
+  else
+    # -- a granted admin may grant the Admin and User tiers (GAM-08). Acting as
+    #    bob, add a second user as viewer, searching the directory as the admin. --
+    if gam_wait_directory "$GW_ID" "$GAM_ADMIN_API_TOKEN" "$E2E_GAM_VIEWER"; then
+      pass "Granted admin (${E2E_GAM_ADMIN}) can search the directory and resolve ${E2E_GAM_VIEWER} (GAM-08)"
+    else
+      fail_test "Access management: admin ${E2E_GAM_ADMIN} could not resolve ${E2E_GAM_VIEWER} via directory search"
+    fi
+    show_cmd "POST .../gateways/${GW_ID}/access {user: ${E2E_GAM_VIEWER}, role: user} (as admin ${E2E_GAM_ADMIN})"
+    GAM_CODE=$(gam_grant "$GW_ID" "$GAM_ADMIN_API_TOKEN" "$E2E_GAM_VIEWER" user)
+    if [[ "$GAM_CODE" =~ ^2 ]]; then
+      pass "Granted admin (${E2E_GAM_ADMIN}) added ${E2E_GAM_VIEWER} as viewer (user tier) (HTTP ${GAM_CODE})"
+    else
+      fail_test "Access management: admin grant of 'user' to ${E2E_GAM_VIEWER} returned HTTP ${GAM_CODE:-none}"
+      dim "    ${GAM_LAST_BODY:0:200}"
+    fi
+    GAM_VIEWER_ROLE=$(gam_user_role "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_VIEWER")
+    if [[ "$GAM_VIEWER_ROLE" == "user" ]]; then
+      pass "${E2E_GAM_VIEWER} appears in the access list with role 'user'"
+    else
+      fail_test "Access management: ${E2E_GAM_VIEWER} role is '${GAM_VIEWER_ROLE:-<none>}', want 'user'"
+    fi
+
+    # -- negative: a granted admin may NOT touch the Owner tier (GAM-08). bob
+    #    attempting to grant 'owner' must be 403 (no binding is created). --
+    show_cmd "POST .../gateways/${GW_ID}/access {user: ${E2E_GAM_OWNER}, role: owner} (as admin ${E2E_GAM_ADMIN}) -> expect 403"
+    GAM_CODE=$(gam_grant "$GW_ID" "$GAM_ADMIN_API_TOKEN" "$E2E_GAM_OWNER" owner)
+    if [[ "$GAM_CODE" == "403" ]]; then
+      pass "Granted admin (${E2E_GAM_ADMIN}) cannot grant the owner tier (HTTP 403)"
+    else
+      fail_test "Access management: admin ${E2E_GAM_ADMIN} owner-grant returned HTTP ${GAM_CODE:-none} (want 403)"
+      dim "    ${GAM_LAST_BODY:0:200}"
+    fi
+
+    # -- a granted admin may also revoke a user-tier grant: remove the normal user --
+    GAM_USER_ID=$(gam_user_id "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_USER")
+    if [[ -z "$GAM_USER_ID" ]]; then
+      fail_test "Access management: could not resolve ${E2E_GAM_USER} user_id for the admin-revoke check"
+    else
+      show_cmd "DELETE .../gateways/${GW_ID}/access/${GAM_USER_ID} (as admin ${E2E_GAM_ADMIN})"
+      GAM_CODE=$(gam_revoke "$GW_ID" "$GAM_ADMIN_API_TOKEN" "$GAM_USER_ID")
+      if [[ "$GAM_CODE" == "204" || "$GAM_CODE" == "200" ]]; then
+        pass "Granted admin (${E2E_GAM_ADMIN}) removed normal user (${E2E_GAM_USER}) (HTTP ${GAM_CODE})"
+      else
+        fail_test "Access management: admin revoke of ${E2E_GAM_USER} returned HTTP ${GAM_CODE:-none}"
+        dim "    ${GAM_LAST_BODY:0:200}"
+      fi
+      if [[ -z "$(gam_user_id "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_USER")" ]]; then
+        pass "Normal user (${E2E_GAM_USER}) no longer appears in the gateway access list"
+      else
+        fail_test "Access management: ${E2E_GAM_USER} still has access after admin revoke"
+      fi
+    fi
+  fi
+
+  # == Scenario 3: granted owner can remove the admin, and can delete a gateway ==
+  gam_wait_directory "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_OWNER" || true
+  show_cmd "POST .../gateways/${GW_ID}/access {user: ${E2E_GAM_OWNER}, role: owner}"
+  GAM_CODE=$(gam_grant "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_OWNER" owner)
+  if [[ "$GAM_CODE" =~ ^2 ]]; then
+    pass "Owner granted ${E2E_GAM_OWNER} the 'owner' tier (gateway:owner) (HTTP ${GAM_CODE})"
+  else
+    fail_test "Access management: grant 'owner' to ${E2E_GAM_OWNER} returned HTTP ${GAM_CODE:-none}"
+    dim "    ${GAM_LAST_BODY:0:200}"
+  fi
+
+  acquire_oidc_token "$E2E_GAM_OWNER" "$E2E_GAM_OWNER" 2>/dev/null || true
+  GAM_OWNER2_API_TOKEN="${_OIDC_ACCESS_TOKEN}"
+  acquire_oidc_token 2>/dev/null || true  # restore owner token
+  GAM_ADMIN_ID=$(gam_user_id "$GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_ADMIN")
+  if [[ -z "$GAM_OWNER2_API_TOKEN" || -z "$GAM_ADMIN_ID" ]]; then
+    fail_test "Access management: missing ${E2E_GAM_OWNER} token or ${E2E_GAM_ADMIN} user_id for the owner-revoke check"
+  else
+    show_cmd "DELETE .../gateways/${GW_ID}/access/${GAM_ADMIN_ID} (as owner ${E2E_GAM_OWNER})"
+    GAM_CODE=$(gam_revoke "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$GAM_ADMIN_ID")
+    if [[ "$GAM_CODE" == "204" || "$GAM_CODE" == "200" ]]; then
+      pass "Granted owner (${E2E_GAM_OWNER}) removed granted admin (${E2E_GAM_ADMIN}) (HTTP ${GAM_CODE})"
+    else
+      fail_test "Access management: owner revoke of ${E2E_GAM_ADMIN} returned HTTP ${GAM_CODE:-none}"
+      dim "    ${GAM_LAST_BODY:0:200}"
+    fi
+  fi
+
+  # -- an owner may add any tier and remove anyone (GAM-04 / GAM-06). The owner
+  #    adds one admin and one viewer, then removes both. ${E2E_GAM_USER} and
+  #    ${E2E_GAM_ADMIN} currently hold no binding (both were revoked above), so
+  #    these are clean adds. --
+  if [[ -n "$GAM_OWNER2_API_TOKEN" ]]; then
+    gam_wait_directory "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$E2E_GAM_USER" || true
+    show_cmd "POST .../gateways/${GW_ID}/access {user: ${E2E_GAM_USER}, role: admin} (as owner ${E2E_GAM_OWNER})"
+    GAM_CODE=$(gam_grant "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$E2E_GAM_USER" admin)
+    if [[ "$GAM_CODE" =~ ^2 ]]; then
+      pass "Granted owner (${E2E_GAM_OWNER}) added ${E2E_GAM_USER} as admin (HTTP ${GAM_CODE})"
+    else
+      fail_test "Access management: owner grant of 'admin' to ${E2E_GAM_USER} returned HTTP ${GAM_CODE:-none}"
+      dim "    ${GAM_LAST_BODY:0:200}"
+    fi
+
+    gam_wait_directory "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$E2E_GAM_ADMIN" || true
+    show_cmd "POST .../gateways/${GW_ID}/access {user: ${E2E_GAM_ADMIN}, role: user} (as owner ${E2E_GAM_OWNER})"
+    GAM_CODE=$(gam_grant "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$E2E_GAM_ADMIN" user)
+    if [[ "$GAM_CODE" =~ ^2 ]]; then
+      pass "Granted owner (${E2E_GAM_OWNER}) added ${E2E_GAM_ADMIN} as viewer (HTTP ${GAM_CODE})"
+    else
+      fail_test "Access management: owner grant of 'user' to ${E2E_GAM_ADMIN} returned HTTP ${GAM_CODE:-none}"
+      dim "    ${GAM_LAST_BODY:0:200}"
+    fi
+
+    GAM_NEW_ADMIN_ID=$(gam_user_id "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$E2E_GAM_USER")
+    GAM_NEW_VIEWER_ID=$(gam_user_id "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$E2E_GAM_ADMIN")
+    if [[ -z "$GAM_NEW_ADMIN_ID" || -z "$GAM_NEW_VIEWER_ID" ]]; then
+      fail_test "Access management: owner could not resolve the two users it just added for removal"
+    else
+      show_cmd "DELETE .../gateways/${GW_ID}/access/${GAM_NEW_ADMIN_ID} (as owner ${E2E_GAM_OWNER})"
+      GAM_CODE=$(gam_revoke "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$GAM_NEW_ADMIN_ID")
+      if [[ "$GAM_CODE" == "204" || "$GAM_CODE" == "200" ]]; then
+        pass "Granted owner (${E2E_GAM_OWNER}) removed the added admin (${E2E_GAM_USER}) (HTTP ${GAM_CODE})"
+      else
+        fail_test "Access management: owner revoke of added admin ${E2E_GAM_USER} returned HTTP ${GAM_CODE:-none}"
+        dim "    ${GAM_LAST_BODY:0:200}"
+      fi
+      show_cmd "DELETE .../gateways/${GW_ID}/access/${GAM_NEW_VIEWER_ID} (as owner ${E2E_GAM_OWNER})"
+      GAM_CODE=$(gam_revoke "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$GAM_NEW_VIEWER_ID")
+      if [[ "$GAM_CODE" == "204" || "$GAM_CODE" == "200" ]]; then
+        pass "Granted owner (${E2E_GAM_OWNER}) removed the added viewer (${E2E_GAM_ADMIN}) (HTTP ${GAM_CODE})"
+      else
+        fail_test "Access management: owner revoke of added viewer ${E2E_GAM_ADMIN} returned HTTP ${GAM_CODE:-none}"
+        dim "    ${GAM_LAST_BODY:0:200}"
+      fi
+      if [[ -z "$(gam_user_id "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$E2E_GAM_USER")" \
+         && -z "$(gam_user_id "$GW_ID" "$GAM_OWNER2_API_TOKEN" "$E2E_GAM_ADMIN")" ]]; then
+        pass "Both users the owner added are removed from the access list"
+      else
+        fail_test "Access management: a user removed by the owner still has access"
+      fi
+    fi
+  fi
+
+  # "finally delete the gateway": the owner tier authorizes gateway deletion. This
+  # is verified on a dedicated throwaway gateway rather than the main one, because
+  # the main gateway must survive for areas 10-11 (platform-admin delete + the
+  # namespace-GC assertion). A delete check needs no provisioning wait.
+  if [[ -n "$GAM_OWNER2_API_TOKEN" ]]; then
+    GAM_GW_NAME="e2e-gam-gw-$(date +%s | tail -c5)"
+    GAM_GW_BODY=$(GW_NAME="$GAM_GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
+      E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}" python3 -c "
+import json, os
+print(json.dumps({'name':os.environ['GW_NAME'],'cluster_id':os.environ['E2E_CLUSTER_ID'],
+  'oidc':json.dumps({'issuer':os.environ['E2E_OIDC_ISSUER'],'audience':os.environ['E2E_OIDC_CLIENT_ID'],
+    'roles_claim':'groups','admin_role':'hypershell-admins','user_role':'hypershell-users'}),
+  'route':json.dumps({'enabled':True})}))")
+    GAM_GW_ID=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
+      -H "Content-Type: application/json" -d "$GAM_GW_BODY" 2>/dev/null \
+      | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+    if [[ -z "$GAM_GW_ID" ]]; then
+      fail_test "Access management: failed to create throwaway gateway for the owner-delete check"
+    else
+      E2E_EXTRA_GW_IDS+=("$GAM_GW_ID")  # fail-safe cleanup if the delete below fails
+      GAM_CODE=$(gam_grant "$GAM_GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_OWNER" owner)
+      if [[ "$GAM_CODE" =~ ^2 ]]; then
+        pass "Owner grant on throwaway gateway ${GAM_GW_NAME} (HTTP ${GAM_CODE})"
+      else
+        fail_test "Access management: grant owner on throwaway gateway returned HTTP ${GAM_CODE:-none}"
+        dim "    ${GAM_LAST_BODY:0:200}"
+      fi
+      show_cmd "DELETE .../gateways/${GAM_GW_ID} (as owner ${E2E_GAM_OWNER})"
+      GAM_DEL_F=$(mktemp)
+      GAM_DEL_CODE=$(_driver_curl -o "$GAM_DEL_F" -w '%{http_code}' -X DELETE \
+        "${API_HOST}/api/hypershell/v1/gateways/${GAM_GW_ID}" \
+        -H "Authorization: Bearer ${GAM_OWNER2_API_TOKEN}" 2>/dev/null || true)
+      if [[ "$GAM_DEL_CODE" == "204" || "$GAM_DEL_CODE" == "200" ]]; then
+        pass "Granted owner (${E2E_GAM_OWNER}) deleted the gateway (HTTP ${GAM_DEL_CODE})"
+        GAM_NEW_EXTRA=(); for _x in "${E2E_EXTRA_GW_IDS[@]}"; do [[ "$_x" != "$GAM_GW_ID" ]] && GAM_NEW_EXTRA+=("$_x"); done
+        E2E_EXTRA_GW_IDS=("${GAM_NEW_EXTRA[@]}")
+      else
+        fail_test "Granted owner (${E2E_GAM_OWNER}): gateway delete returned HTTP ${GAM_DEL_CODE:-none} (want 204)"
+        dim "    $(sed 's/\x1b\[[0-9;]*m//g' "$GAM_DEL_F" 2>/dev/null | tr '\n' ' ' | tr -s ' ' | cut -c1-200)"
+      fi
+      rm -f "$GAM_DEL_F"
+    fi
+  fi
+
+  acquire_oidc_token 2>/dev/null || true  # restore admin token for later areas
 fi
 sep
 
