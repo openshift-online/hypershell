@@ -107,7 +107,7 @@ export function GatewayRowActions({
           </DropdownItem>
           <DropdownItem
             isAriaDisabled={!canDelete}
-            isDanger
+            isDanger={canDelete}
             onClick={() => {
               if (!canDelete) {
                 return;

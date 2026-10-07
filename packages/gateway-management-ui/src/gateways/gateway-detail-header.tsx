@@ -201,7 +201,7 @@ function GatewayDetailActions({
               <Divider component="li" />
               <DropdownItem
                 isAriaDisabled={!canDelete}
-                isDanger
+                isDanger={canDelete}
                 onClick={() => {
                   if (!canDelete) {
                     return;
