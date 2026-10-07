@@ -20,17 +20,19 @@ deploys a complete HyperShell environment to an ephemeral namespace on an
 OpenShift cluster. The developer can swap one component at a time from the working
 tree, exactly as `make kind-<component>-up` does today.
 
-This spec owns the OpenShift lifecycle, the `deploy/openshift/` overlay, the
-cluster bootstrap, and the OpenShift side of the e2e driver contract.
-`e2e-testing.spec.md` owns the e2e driver interface and the
-`tests/e2e/drivers/openshift.sh` file that implements the OpenShift side of that
-contract. Automated pull-request CI on OpenShift -- namespace naming, continuous
-deployment, timebox, access comment, GitHub-brokered Keycloak, and the
-removal of `components/pr-test/e2e-openshell.sh` -- is owned by
+This spec owns the OpenShift lifecycle (`make openshift-up` / `make openshift-down`,
+the `scripts/cluster/drivers/openshift.sh` lifecycle driver), the `deploy/openshift/`
+overlay, and the cluster bootstrap. It does **not** own the e2e driver: the e2e
+suite is now Go (`testify/suite`), and `e2e-testing.spec.md` owns both the
+`E2EInfraDriver` Go interface and its OpenShift implementation (`tests/e2e/driver/openshift.go`),
+which replaced the former shell `tests/e2e/drivers/openshift.sh`. This spec
+supplies the OpenShift environment facts that Go driver depends on (the Routes,
+the shared Gateway base domain, the Keycloak Route issuer, RBAC and SCC posture).
+Automated pull-request CI on OpenShift -- namespace naming, continuous
+deployment, timebox, access comment, GitHub-brokered Keycloak -- is owned by
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). This spec supplies the
 lifecycle that workflow runs (`make openshift-up` / `make openshift-down`, the
-overlay, and the OpenShift e2e driver) so a local deployment and a CI
-deployment cannot drift.
+overlay) so a local deployment and a CI deployment cannot drift.
 
 HyperShell uses one ephemerality model -- an ephemeral namespace on an existing
 OpenShift cluster -- in two contexts:
@@ -49,19 +51,19 @@ provisioned through the
 or an equivalent mechanism.
 
 Both contexts use the same lifecycle driver -- `make openshift-up` and the same
-driver functions -- and the same e2e driver, so that a local deployment and a CI
-deployment cannot drift.
+lifecycle driver functions -- and the same Go e2e suite, so that a local
+deployment and a CI deployment cannot drift.
 
 ### Scope
 
-This spec covers the OpenShift lifecycle driver, the OpenShift e2e driver, and
-the reconciliation of the OpenShift deploy overlay against a production
-reference. Pull-request CI, the access handoff comment, the timebox, and the
-`e2e-openshell.sh` deprecation window are specified in
-`ephemeral-pr-environments.spec.md`.
+This spec covers the OpenShift lifecycle driver, the OpenShift environment facts
+the Go e2e driver depends on, and the reconciliation of the OpenShift deploy
+overlay against a production reference. Pull-request CI, the access handoff
+comment, and the timebox are specified in `ephemeral-pr-environments.spec.md`.
 This spec does not change the Kind driver, the Kind lifecycle scripts, or the Kind
-CI job. This spec does not redesign the e2e driver interface contract that
-`e2e-testing.spec.md` defines; it implements the OpenShift side of that contract.
+CI job. This spec does not define the e2e driver: `e2e-testing.spec.md` owns the
+Go `E2EInfraDriver` interface and its Kind and OpenShift implementations. This
+spec only guarantees the OpenShift environment those implementations run against.
 
 This spec is a behavior contract. It does not contain the driver code or the CI
 YAML. Those are follow-up implementation work.
@@ -92,18 +94,20 @@ Makefile (single entry point)
     │               ├── scripts/cluster/drivers/kind.sh       (wraps today's scripts/kind/)
     │               └── scripts/cluster/drivers/openshift.sh  (this spec)
     │
-    └── e2e tests (infra-agnostic, unchanged contract)
+    └── e2e tests (Go testify/suite; e2e-testing.spec.md)
             │
-            └── selects driver by auto-detecting the KUBECONFIG context
+            └── E2EInfraDriver resolved by auto-detecting the KUBECONFIG context
                     (E2E_INFRA_DRIVER overrides detection)
-                    ├── tests/e2e/drivers/kind.sh
-                    └── tests/e2e/drivers/openshift.sh         (this spec)
+                    ├── tests/e2e/driver/kind.go
+                    └── tests/e2e/driver/openshift.go          (e2e-testing.spec.md)
 ```
 
 The lifecycle driver and the e2e driver are two different interfaces for two
-different jobs. The lifecycle driver creates and removes the environment. The e2e
-driver discovers and drives the running environment during tests. A single
-infrastructure target supplies one of each.
+different jobs. The lifecycle driver (shell, this spec) creates and removes the
+environment. The e2e driver (Go `E2EInfraDriver`, `e2e-testing.spec.md`) discovers
+and drives the running environment during tests. A single infrastructure target
+supplies one of each; this spec owns the OpenShift lifecycle driver, and
+`e2e-testing.spec.md` owns the OpenShift e2e driver.
 
 ## Requirements
 
@@ -127,11 +131,12 @@ infrastructure, the same way `scripts/kind/lib.sh` centralizes the Kubernetes
 context and the swap tracking today. The Kind driver SHALL reuse the existing
 `scripts/kind/` logic without behavior change.
 
-Each infrastructure target SHALL use its own driver for both lifecycle operations
-and e2e operations. The Kind target SHALL use the Kind lifecycle driver and the
-Kind e2e driver (`tests/e2e/drivers/kind.sh`). The OpenShift target SHALL use the
-OpenShift lifecycle driver and the OpenShift e2e driver
-(`tests/e2e/drivers/openshift.sh`).
+Each infrastructure target SHALL use its own lifecycle driver (this spec) and its
+own e2e driver (the Go `E2EInfraDriver` implementation owned by
+`e2e-testing.spec.md`). The Kind target SHALL use the Kind lifecycle driver and
+the Kind e2e driver (`tests/e2e/driver/kind.go`). The OpenShift target SHALL use
+the OpenShift lifecycle driver and the OpenShift e2e driver
+(`tests/e2e/driver/openshift.go`).
 
 The lifecycle driver and the e2e driver for a target SHALL select the same
 infrastructure. The lifecycle driver comes from the make target name. The e2e
@@ -788,90 +793,78 @@ build, which run the baseline image, and the exact image each one runs.
   image
 - AND `make openshift-status` reports the API server as a baseline image
 
-### Requirement: OpenShift E2E Driver
+### Requirement: OpenShift E2E Driver Environment
 
-The `tests/e2e/drivers/openshift.sh` file SHALL implement the e2e driver interface
-that `e2e-testing.spec.md` defines. The driver SHALL implement every required
-function: `discover_api_host`, `discover_gateway_endpoint`, `get_cluster_domain`,
-`get_cli_binary`, `wait_for_gateway_route`, `acquire_oidc_token`, and `api_curl`.
-The driver SHALL return values through the global variables that the contract
-defines (`_DISCOVER_API_HOST`, `_DISCOVER_GW_ENDPOINT`, `_OIDC_ACCESS_TOKEN`), so
-that background processes survive in the parent shell.
+The OpenShift e2e driver is the Go `driver/openshift.go` implementation of the
+`E2EInfraDriver` interface, owned and specified by `e2e-testing.spec.md` (it
+replaced the former shell `tests/e2e/drivers/openshift.sh`). This spec does not
+re-specify that interface; it records the OpenShift environment facts the Go driver
+depends on, which `make openshift-up` and the cluster bootstrap guarantee. The Go
+driver reaches the cluster through the shared `client-go`/controller-runtime client
+built from the current KUBECONFIG context (it SHALL NOT shell out to `oc`), and
+SHALL scope every resource lookup to the target namespace so concurrent environments
+on one cluster do not read each other's resources.
 
-The driver SHALL implement each function with OpenShift constructs, and SHALL scope
-every resource lookup to the target namespace, so that concurrent environments on
-one cluster do not read each other's resources:
+The environment SHALL provide, and the Go OpenShift driver SHALL rely on:
 
-- `discover_api_host` SHALL read the `hypershell-api` Route host in the platform
-  namespace with `oc get route hypershell-api -n "${OPENSHIFT_NAMESPACE}"
-  -o jsonpath='{.spec.host}'`, and SHALL set `_DISCOVER_API_HOST` to the HTTPS URL.
-- `discover_gateway_endpoint` SHALL take the gateway name and the gateway namespace
-  as arguments, the same as the Kind driver, and SHALL discover the endpoint the
-  same way: read the tenant GRPCRoute hostname and confirm the parent Gateway
-  reports `Programmed=True`, then set `_DISCOVER_GW_ENDPOINT` to
-  `https://<grpc-host>:443`. The driver SHALL NOT expect a per-gateway OpenShift
-  Route; per-tenant gateway traffic uses Gateway API, as
-  `openshell-gateway-routing.spec.md` defines.
-- `get_cluster_domain` SHALL return the configured gateway base domain -- the same
-  `GATEWAY_API_BASE_DOMAIN` value the control plane uses -- so that the driver
-  builds gateway hostnames that match the tenant GRPCRoute hostname and the wildcard
-  certificate on the shared Gateway. The driver SHALL NOT read the cluster apps
-  domain from `ingresses.config.openshift.io`: that value is not the gateway base
-  domain, and a namespace-scoped ephemeral environment does not have permission to
-  read that cluster-scoped resource.
-- `get_cli_binary` SHALL return `oc`.
-- `wait_for_gateway_route` SHALL take the gateway name and the gateway namespace as
-  arguments and SHALL wait, up to `E2E_PROVISION_TIMEOUT`, until the parent Gateway
-  reports `Programmed=True` and the tenant GRPCRoute parent reports `Accepted=True`,
-  the same two conditions the Kind driver waits for. The driver SHALL NOT wait for an
-  OpenShift Route `Admitted` condition, because no per-gateway Route exists.
+- **API host** (`DiscoverAPIHost`) -- a `hypershell-api` Route in the platform
+  namespace (`OPENSHIFT_NAMESPACE`); the driver reads its host via the route client
+  and forms the HTTPS URL.
+- **Gateway endpoint** (`DiscoverGatewayEndpoint`) -- per-tenant gateway traffic uses
+  Gateway API, not a per-gateway OpenShift Route (`openshell-gateway-routing.spec.md`);
+  the driver reads the tenant GRPCRoute hostname and confirms the parent Gateway is
+  `Programmed=True`.
+- **Cluster domain** (`ClusterDomain`) -- the configured gateway base domain (the same
+  `GATEWAY_API_BASE_DOMAIN` the control plane uses), so gateway hostnames match the
+  tenant GRPCRoute and the wildcard certificate on the shared Gateway. The driver
+  SHALL NOT read the cluster apps domain from `ingresses.config.openshift.io`: that
+  value is not the gateway base domain, and a namespace-scoped ephemeral environment
+  cannot read that cluster-scoped resource.
+- **Platform namespace** (`PlatformNamespace`) -- `OPENSHIFT_NAMESPACE` (the current
+  `oc` project when unset), where the driver inspects platform resources.
+- **Gateway readiness** (`WaitForGatewayRoute`) -- the driver waits, up to
+  `E2E_PROVISION_TIMEOUT`, until the parent Gateway is `Programmed=True` and the tenant
+  GRPCRoute parent is `Accepted=True`, the same two conditions the Kind driver waits
+  for. It SHALL NOT wait for an OpenShift Route `Admitted` condition, because no
+  per-gateway Route exists.
+- **OIDC issuer** -- the Keycloak Route in the `-keycloak` namespace (the Keycloak
+  Namespace requirement), not the Kind default `keycloak.hypershell.localhost`.
+- **Per-gateway client token** -- per-gateway audience is production behavior, not a
+  Kind-only path: a token minted for the shared frontend client carries the wrong
+  `aud` claim and the control plane rejects it. The environment SHALL expose the same
+  Keycloak admin and role surface the Kind path uses, so `AssignRealmRole`,
+  `AssignGatewayClientRole`, and `AcquireGatewayTokenWithRole` acquire a
+  per-gateway-client token with the required role the same way on both targets, with
+  no weaker OpenShift OIDC path.
+- **Trusted TLS** -- no insecure bypass (`e2e-testing.spec.md`). When the shared
+  Gateway serves a publicly trusted or cluster-wildcard certificate, the suite relies
+  on the system trust store; when it serves a private CA, the driver extracts that CA
+  and points `SSL_CERT_FILE` at it. The suite SHALL NOT set `OPENSHELL_GATEWAY_INSECURE`.
 
-The driver SHALL set the OIDC issuer from the Keycloak Route in the `-keycloak`
-namespace, as the Keycloak Namespace requirement defines, rather than the Kind
-default `keycloak.hypershell.localhost`.
-
-The OpenShift suite SHALL use the same per-gateway Keycloak client and role wait
-that the Kind suite uses, because per-gateway audience is production behavior, not a
-Kind-only path: a token minted for the shared frontend client carries the wrong
-`aud` claim and the control plane rejects it. The driver SHALL provide the same
-Keycloak admin and role helpers the Kind driver provides -- `assign_realm_role`,
-`assign_gateway_client_role`, and `acquire_gateway_token_with_role` -- so that the
-OpenShift suite acquires a per-gateway-client token with the required role the same
-way the Kind suite does, and so that no weaker OpenShift OIDC path remains.
-
-The driver SHALL establish trusted TLS without an insecure bypass, the same rule
-`e2e-testing.spec.md` sets. When the shared Gateway serves a publicly trusted or
-cluster-wildcard certificate, the suite SHALL rely on the system trust store. When
-the shared Gateway serves a private CA, the driver SHALL extract that CA and point
-`SSL_CERT_FILE` at it. The suite SHALL NOT set `OPENSHELL_GATEWAY_INSECURE`.
-
-The OpenShift e2e suite SHALL run with `bash tests/e2e/e2e-openshell.sh` against
-a KUBECONFIG context pointed at the OpenShift cluster -- the suite auto-detects
-the OpenShift driver from that context, or a caller MAY force it explicitly
-with `E2E_INFRA_DRIVER=openshift bash tests/e2e/e2e-openshell.sh` -- and SHALL
-exercise the same test areas that the Kind suite exercises, so that a single
-suite validates both infrastructure targets.
+The OpenShift e2e suite SHALL run with `go test ./tests/e2e/ -run TestE2E` against a
+KUBECONFIG context pointed at the OpenShift cluster -- the suite auto-detects the
+OpenShift driver from that context, or a caller MAY force it explicitly with
+`E2E_INFRA_DRIVER=openshift go test ./tests/e2e/ -run TestE2E` -- and SHALL exercise
+the same phases (P0--P3) the Kind suite exercises, so one suite validates both targets.
 
 #### Scenario: Discover the API host on OpenShift
 
 - GIVEN a HyperShell deployment is ready on OpenShift
-- WHEN the e2e suite calls `discover_api_host` with `E2E_INFRA_DRIVER=openshift`
-- THEN the driver sets `_DISCOVER_API_HOST` to the HTTPS URL of the API Route
+- WHEN the Go suite's `DiscoverAPIHost` runs with `E2E_INFRA_DRIVER=openshift`
+- THEN the driver returns the HTTPS URL of the `hypershell-api` Route read via the route client
 - AND a request to the API URL returns an HTTP response
 
 #### Scenario: Same suite runs on both drivers
 
-- GIVEN the e2e test logic is infrastructure-agnostic
-- WHEN a developer runs the suite with `E2E_INFRA_DRIVER=openshift`
-- THEN the suite runs the same test areas that it runs with
-  `E2E_INFRA_DRIVER=kind`
+- GIVEN the Go e2e suite is infrastructure-agnostic
+- WHEN a developer runs `go test ./tests/e2e/ -run TestE2E` with `E2E_INFRA_DRIVER=openshift`
+- THEN the suite runs the same phases (P0--P3) it runs with `E2E_INFRA_DRIVER=kind`
 - AND the test logic is not changed between the two runs
 
 #### Scenario: Gateway readiness uses Gateway API status
 
 - GIVEN the control plane provisions a Gateway and a tenant GRPCRoute
-- WHEN the e2e suite calls `wait_for_gateway_route` with the gateway name and
-  namespace
+- WHEN the Go suite's `WaitForGatewayRoute` runs for the gateway
 - THEN the driver waits until the parent Gateway reports `Programmed=True`
 - AND the driver waits until the tenant GRPCRoute parent reports `Accepted=True`
 - AND the driver does not wait for an OpenShift Route `Admitted` condition
@@ -881,32 +874,31 @@ suite validates both infrastructure targets.
 #### Scenario: OpenShift uses the per-gateway client token
 
 - GIVEN a gateway has its own Keycloak client with a scoped audience
-- WHEN the e2e suite acquires a token on OpenShift
-- THEN the suite uses `acquire_gateway_token_with_role` with the per-gateway client
+- WHEN the Go suite acquires a token on OpenShift
+- THEN it uses `AcquireGatewayTokenWithRole` with the per-gateway client
 - AND the token carries the gateway's audience
 - AND the control plane accepts the token
 
 #### Scenario: OpenShift trusts TLS without an insecure bypass
 
 - GIVEN the shared Gateway serves the gateway TLS certificate
-- WHEN the e2e suite connects to a gateway on OpenShift
-- THEN the suite verifies the certificate through the system trust store or an
-  extracted CA
-- AND the suite does not set `OPENSHELL_GATEWAY_INSECURE`
+- WHEN the Go suite connects to a gateway on OpenShift
+- THEN it verifies the certificate through the system trust store or an extracted CA
+- AND it does not set `OPENSHELL_GATEWAY_INSECURE`
 
 ### Requirement: Lifecycle Library Unit Tests
 
 The `make openshift-test` command SHALL run the lifecycle library's unit and static
 test harness (`scripts/cluster/lib_test.sh`) without a live cluster, so the shared
-lifecycle seams and the OpenShift driver's pure helpers are verified in CI and
-locally without provisioning infrastructure. This command is distinct from the
-OpenShift E2E Driver: `make openshift-test` validates the driver's logic in
-isolation with stubbed cluster access, while the e2e suite drives a running
-environment. The harness SHALL exit non-zero when any check fails, so it can gate
-CI, and SHALL report pass and fail counts.
+lifecycle seams and the OpenShift lifecycle driver's pure helpers are verified in CI
+and locally without provisioning infrastructure. This command covers the shell
+lifecycle driver only; the Go e2e driver (`driver/openshift.go`) is unit-tested in Go
+as `e2e-testing.spec.md` defines, and the e2e suite drives a running environment. The
+harness SHALL exit non-zero when any check fails, so it can gate CI, and SHALL report
+pass and fail counts.
 
-The harness SHALL cover the pure helpers whose correctness gates the driver without
-a cluster: DNS-label sanitization and RFC-1123 label validation, the swap-registry
+The harness SHALL cover the pure helpers whose correctness gates the lifecycle driver
+without a cluster: DNS-label sanitization and RFC-1123 label validation, the swap-registry
 rules (rejecting an unset, org-less, or cluster-local registry, and refusing to fall
 back to the baseline `IMAGE_REGISTRY`), target-architecture selection for the swap
 build, image-digest capture from a registry push log, pull-secret parsing, and the
@@ -917,8 +909,8 @@ DNS, and prefixes cluster-scoped names without corrupting `roleRef`s or hyphenat
 image names.
 
 The harness SHALL assert the safety invariants of the destructive paths by
-inspecting the driver source, so a regression that weakens them fails the build
-rather than data in a cluster: `cluster_teardown` SHALL be the same command as
+inspecting the lifecycle driver source, so a regression that weakens them fails the
+build rather than data in a cluster: `cluster_teardown` SHALL be the same command as
 `cluster_down`; the down path SHALL refuse unlabeled and foreign-environment
 namespaces and SHALL NOT delete the unprefixed `hypershell-controller`
 cluster-scoped RBAC; and the swap path SHALL push to an external registry and SHALL
@@ -934,7 +926,7 @@ NOT use the internal image registry (`oc registry`, `oc start-build`).
 
 #### Scenario: Safety invariants are guarded statically
 
-- GIVEN the OpenShift driver source is present
+- GIVEN the OpenShift lifecycle driver source is present
 - WHEN `make openshift-test` runs
 - THEN the harness fails if `cluster_teardown` diverges from `cluster_down`
 - AND the harness fails if the down path would delete the unprefixed
@@ -950,11 +942,13 @@ shared e2e harness and the pull-request workflow in
 out of scope for that removal and remains. The `pr_test` component and its CI
 wiring remain, rescoped to the ROKS script, until it is also retired or rehomed.
 
-The eventual end state is unchanged: OpenShift-specific logic lives in
-`tests/e2e/drivers/openshift.sh`, infrastructure-agnostic tests live in
-`tests/e2e/e2e-openshell.sh`, and no OpenShift e2e logic remains hardcoded
-outside the driver model. This spec SHALL NOT require the ROKS script or the
-`pr_test` component to already be removed.
+The end state after the Go rewrite: OpenShift-specific e2e logic lives in the Go
+`tests/e2e/driver/openshift.go` (`e2e-testing.spec.md`), the infrastructure-agnostic
+suite is the Go `E2ESuite`, and no OpenShift e2e logic remains hardcoded outside the
+`E2EInfraDriver` model. The former Bash `tests/e2e/e2e-openshell.sh` and
+`tests/e2e/drivers/openshift.sh` are removed by that rewrite's cutover (see Shell
+Suite Removal in `e2e-testing.spec.md`). This spec SHALL NOT require the ROKS script
+or the `pr_test` component to already be removed.
 
 #### Scenario: Legacy OpenShift script has been removed
 
@@ -983,9 +977,10 @@ requirements.
 
 The pull-request workflow SHALL deploy and release with the same lifecycle this
 spec defines: `make openshift-up` and `make openshift-down`, the
-`deploy/openshift/` overlay, the namespace-group derivation, the ownership
-labels `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment`, and
-the OpenShift e2e driver. A local `make openshift-up` and a CI deploy SHALL NOT
+`deploy/openshift/` overlay, the namespace-group derivation, and the ownership
+labels `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment`. The Go
+e2e suite then runs against that environment with the OpenShift `E2EInfraDriver`
+(`e2e-testing.spec.md`). A local `make openshift-up` and a CI deploy SHALL NOT
 drift. `make openshift-up` SHALL NOT stamp a pull-request timebox; expiry is a
 CI annotation defined in `ephemeral-pr-environments.spec.md`.
 
@@ -1006,7 +1001,7 @@ requirement defines.
 - WHEN the workflow deploys the environment
 - THEN it SHALL run `make openshift-up` with `OPENSHIFT_NAMESPACE` set as
   `ephemeral-pr-environments.spec.md` defines
-- AND it SHALL run the OpenShift e2e driver this spec defines
+- AND the Go e2e suite SHALL run against it with the OpenShift `E2EInfraDriver` (`e2e-testing.spec.md`)
 - AND it SHALL NOT use a second OpenShift bring-up path
 
 #### Scenario: Merge-queue stays on Kind
