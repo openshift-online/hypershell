@@ -846,9 +846,17 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 | `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | [REMOVED] |
 | `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | [REMOVED] |
 | `ManagedCluster` | `name`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | ✅ implemented |
-| `AgentRuntime` | `name`, `cluster_id`, `gateway_id`, `sandbox_template_id`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` | 🔲 planned |
-| `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
-| `ProviderSpec` | `name`, `category`, `capability`, `profile` | 🔲 planned |
+| `AgentRuntime` | `name`, `cluster_id`, `gateway_id`, `sandbox_template_id`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` | ✅ implemented |
+| `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | ✅ implemented |
+| `ProviderSpec` | `name`, `category`, `capability`, `profile` | ✅ implemented |
+| `ProviderBinding` | all fields in the ProviderBinding data model (see "Requirement: ProviderBinding") | ✅ implemented |
+| `InferenceRoute` | all fields in the InferenceRoute data model (see "Requirement: InferenceRoute") | ✅ implemented |
+| `SecretSource` | all fields in the SecretSource data model (see "Requirement: SecretSource") | ✅ implemented |
+
+All ADLC extension Kinds above are applied against the `/api/hypershell/ext/`
+API prefix (see "ADLC extension kinds - `/api/hypershell/ext/`" above); the core
+Kinds use `/api/hypershell/v1/`. `hsctl apply` SHALL dispatch each Kind to the
+correct prefix. See "Requirement: `hsctl apply` Supports ADLC Extension Kinds".
 
 #### `-f` - File or Directory
 
@@ -999,6 +1007,38 @@ cat gateway.yaml | hsctl apply -f -
 | `configured` | Resource existed; PATCH applied one or more changes. |
 | `unchanged` | Resource existed and matched desired state; no API call made. |
 | `dry-run` | Dry-run mode; resource would be applied (with `-o json` only). |
+
+### Requirement: `hsctl apply` Supports ADLC Extension Kinds
+
+`hsctl apply` SHALL support every ADLC extension Kind (`AgentRuntime`,
+`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`,
+`SecretSource`) through both the `-f` (file/directory/stdin) and `-k` (Kustomize
+directory) inputs, using the same create-or-update reconciliation semantics it
+applies to the core Kinds. Each ADLC Kind SHALL be dispatched to its
+`/api/hypershell/ext/` collection path; core Kinds SHALL continue to use
+`/api/hypershell/v1/`. A document whose `kind` is not a recognized core or ADLC
+Kind SHALL be skipped with a warning and SHALL NOT fail the command.
+
+#### Scenario: Apply an AgentRuntime from a file
+
+- GIVEN a YAML document with `kind: AgentRuntime` and a `metadata.name` that does not yet exist
+- WHEN `hsctl apply -f agent-runtime.yaml` runs
+- THEN `hsctl` SHALL POST the resource to `/api/hypershell/ext/agent_runtimes`
+- AND report status `created`
+
+#### Scenario: Apply all ADLC Kinds from a Kustomize directory
+
+- GIVEN a Kustomize directory whose build output contains `SandboxTemplate`, `ProviderSpec`, `SecretSource`, `AgentRuntime`, `ProviderBinding`, and `InferenceRoute` documents
+- WHEN `hsctl apply -k ./overlays/agents/` runs
+- THEN each resource SHALL be dispatched to its `/api/hypershell/ext/` path
+- AND existing resources SHALL be PATCHed (`configured`) while new resources SHALL be POSTed (`created`)
+
+#### Scenario: Unknown kind is skipped, not fatal
+
+- GIVEN an input stream containing one `AgentRuntime` document and one document with an unrecognized `kind`
+- WHEN `hsctl apply -f -` runs
+- THEN the `AgentRuntime` SHALL be applied
+- AND the unrecognized document SHALL be skipped with a warning without failing the command
 
 ### Global Flags
 

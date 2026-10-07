@@ -26,7 +26,7 @@ Managed Cluster (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md).
+The Watcher establishes gRPC streaming connections to the API server for each watched resource Kind (Gateways, ManagedClusters, RoleBindings, and the control-plane-reconciled ADLC Kinds defined in "Requirement: gRPC Contract and Watch Coverage for ADLC Kinds" below). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md).
 
 ### Reconciler
 
@@ -180,6 +180,83 @@ The control plane SHALL connect to the API server via gRPC watch streams for eac
 - THEN the request SHALL carry `cluster_id: X` and the control plane's bearer token
 - AND events for gateways assigned to other clusters SHALL NOT be delivered
 
+### Requirement: gRPC Contract and Watch Coverage for ADLC Kinds
+
+The ADLC extension Kinds introduced to the data model (`AgentRuntime`,
+`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`,
+`SecretSource`; see [`data-model.spec.md`](./data-model.spec.md)) are exposed
+today only over the REST surface at `/api/hypershell/ext/`. The control plane
+reconciles `AgentRuntime` (data-model.spec.md, "Requirement: AgentRuntime
+Cluster Resource Provisioning" and "Requirement: Gateway-Side Provisioning"),
+so it SHALL be driven by the same gRPC event mechanism as every other
+control-plane-reconciled Kind rather than by polling the REST API.
+
+For each control-plane-reconciled ADLC Kind, the API server SHALL expose a gRPC
+contract defined in `components/api-server/proto/hypershell/v1/` and generated
+the same way as the existing Kinds (`make proto` into
+`components/api-server/pkg/api/grpc/hypershell/v1/`). The contract SHALL provide,
+at minimum, a `List` seed RPC and a `Watch` streaming RPC that deliver create,
+update, and delete events, and the write RPC(s) the control plane needs to
+report status back (phase transitions). The gRPC message for each Kind SHALL
+carry the same fields as its REST representation, with server-owned fields
+(identifiers, `generation`, status/phase) read-only to clients other than the
+control plane, consistent with the Gateway gRPC contract.
+
+The control plane SHALL open a `Watch` stream for each watched ADLC Kind filtered
+by its own `cluster_id` (the same per-cluster filtering the Gateway watch stream
+uses), seed from the corresponding `List` RPC, reconnect with exponential backoff
+on failure, and carry its OIDC bearer token on every RPC. `AgentRuntime` events
+SHALL drive the AgentRuntime reconcile loop, and the control plane SHALL report
+`AgentRuntime` status transitions (`Pending`, `Provisioning`, `Running`, and
+failure states) back through the gRPC write RPC rather than the REST API.
+
+> **DECISION NEEDED (maintainer):** This requirement fixes the hub-side gRPC
+> watch coverage. The exact per-Kind gRPC surface is an architecture decision a
+> maintainer SHALL confirm before `reconcile` implements it:
+>
+> 1. **Which ADLC Kinds get a hub gRPC watch stream?** Recommended: `AgentRuntime`
+>    is watched (the control plane reconciles it). `SandboxTemplate`,
+>    `ProviderSpec`, and `SecretSource` are reusable configuration the reconciler
+>    reads while materializing an `AgentRuntime`; these MAY be fetched on demand
+>    via a gRPC `Get`/`List` rather than continuously watched. Confirm whether a
+>    change to a shared `SandboxTemplate`/`ProviderSpec`/`SecretSource` must
+>    trigger re-reconciliation of dependent `AgentRuntime`s (which would require
+>    watching them too).
+> 2. **Hub gRPC vs. gateway gRPC for the gateway-side Kinds.** `AgentWorkspace`,
+>    `WorkspaceMembership`, `ProviderBinding`, and `InferenceRoute` are described
+>    in data-model.spec.md as gateway-side objects the controller provisions
+>    through the **gateway** gRPC API during the `AgentRuntime` reconcile loop.
+>    Confirm that `ProviderBinding` and `InferenceRoute` (which also have `/ext/`
+>    REST endpoints and `hsctl` commands) do **not** additionally need a hub gRPC
+>    watch stream, i.e. that the hub never reconciles them independently of their
+>    owning `AgentRuntime`.
+>
+> The scenarios below assume answer (1)=`AgentRuntime` watched and
+> (2)=gateway-side Kinds provisioned via the gateway gRPC API. Adjust the Kind
+> set if the maintainer decides otherwise.
+
+#### Scenario: Control plane watches AgentRuntime filtered by its cluster
+
+- GIVEN a control plane registered as `cluster_id: X`
+- WHEN it opens the AgentRuntime watch stream
+- THEN the request SHALL carry `cluster_id: X` and the control plane's bearer token
+- AND only `AgentRuntime` events whose `cluster_id` is `X` SHALL be delivered
+
+#### Scenario: AgentRuntime creation drives the reconcile loop over gRPC
+
+- GIVEN a new `AgentRuntime` with this control plane's `cluster_id` is created over the REST `/ext/` API
+- WHEN the API server publishes the create event
+- THEN the control plane SHALL receive it on the AgentRuntime gRPC watch stream
+- AND SHALL begin the AgentRuntime reconcile loop (cluster resources and gateway-side provisioning)
+- AND SHALL NOT poll the REST `/ext/` API to discover the new `AgentRuntime`
+
+#### Scenario: AgentRuntime status is written back over gRPC
+
+- GIVEN the control plane has applied an `AgentRuntime`'s cluster and gateway-side resources
+- WHEN it reports the resulting phase
+- THEN it SHALL set the `AgentRuntime` status to `Running` through the gRPC write RPC
+- AND the change SHALL be observable through the REST `/ext/agent_runtimes/{id}` read path
+
 ### Requirement: gRPC Transport Security
 
 The control plane SHALL select gRPC transport credentials from `HYPERSHELL_GRPC_SERVER_ADDR`
@@ -274,7 +351,7 @@ The control plane SHALL read the gateway database server's administrative connec
 - GIVEN the admin Secret is mounted with `host`, `port`, `user`, `password` and a PEM `sslrootcert`
 - WHEN the control plane starts
 - THEN it SHALL validate the files without connecting to the server
-- AND it SHALL serve watch streams for Gateways, GatewayReleases, ManagedClusters and GatewayNetworks
+- AND it SHALL serve watch streams for Gateways, ManagedClusters, RoleBindings, and the control-plane-reconciled ADLC Kinds (see "Requirement: gRPC Contract and Watch Coverage for ADLC Kinds")
 
 #### Scenario: Controller refuses to start on invalid admin credential files
 - GIVEN a required admin credential file is missing, or `sslmode` is present with a value other than `verify-full`
