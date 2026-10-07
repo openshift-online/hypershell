@@ -11,7 +11,7 @@ export class {{.Resource.Name}}API {
   constructor(private readonly config: SDKClientConfig) {}
 {{if eq .Resource.Name "Gateway"}}
   async placementAvailability(opts?: RequestOptions): Promise<GatewayPlacementAvailability> {
-    return sdkFetch<GatewayPlacementAvailability>(this.config, 'GET', '/gateways/placement-availability', undefined, opts);
+    return sdkFetch<GatewayPlacementAvailability>(this.config, 'GET', '{{.Resource.AbsoluteCollectionPath}}/placement-availability', undefined, opts);
   }
 {{end}}
   async create(data: {{.Resource.Name}}CreateRequest, opts?: RequestOptions): Promise<{{.Resource.Name}}> {

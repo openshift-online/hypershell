@@ -384,14 +384,15 @@ else
 fi
 
 LOCAL_KIND_REF=$(ab_wait_ref radio '^Use local-kind$' 15 || true)
-if [[ -n "$LOCAL_KIND_REF" ]] \
-    && ab_ok scrollintoview "$LOCAL_KIND_REF" \
-    && ab_ok scroll down 240 \
-    && show_cmd "agent-browser click ${LOCAL_KIND_REF}  # Use local-kind" \
-    && ab_ok click "$LOCAL_KIND_REF"; then
+if [[ -z "$LOCAL_KIND_REF" ]]; then
+  ab_fail "Use local-kind radio was not found in the provisioning form"
+  exit 1
+fi
+if show_cmd "agent-browser eval local-kind radio click" \
+    && ab_ok eval 'document.querySelector("input[value=local-kind]").click()'; then
   pass "Selected local-kind placement"
 else
-  ab_fail "Use local-kind placement was not available"
+  ab_fail "Could not activate the Use local-kind radio"
   exit 1
 fi
 
@@ -748,13 +749,12 @@ ab_use "$ADMIN_SESSION"
 if ab_open "${CONSOLE_HOST}/gateways/new" \
     && ab_wait_ref textbox "$NAME_TEXTBOX" "$PAGE_TIMEOUT_S" >/dev/null; then
   TA_LOCAL_KIND=$(ab_wait_ref radio '^Use local-kind$' 15 || true)
-  if [[ -n "$TA_LOCAL_KIND" ]] \
-      && ab_ok scrollintoview "$TA_LOCAL_KIND" \
-      && ab_ok scroll down 240 \
-      && ab_ok click "$TA_LOCAL_KIND"; then
+  if [[ -z "$TA_LOCAL_KIND" ]]; then
+    ab_fail "Use local-kind radio was not found in the placement form"
+  elif ab_ok eval 'document.querySelector("input[value=local-kind]").click()'; then
     pass "Placement choices include local-kind"
   else
-    ab_fail "Use local-kind placement was not available"
+    ab_fail "Could not activate the Use local-kind radio"
   fi
 else
   ab_fail "Could not open the gateway create form for the placement check"

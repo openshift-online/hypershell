@@ -546,6 +546,65 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/v1/gateways/placement-availability:#/schemas/GatewayPlacementAvailability",
+      "kind": "collection",
+      "schemaRef": "#/schemas/GatewayPlacementAvailability",
+      "label": "GatewayPlacementAvailability",
+      "defaultSort": "aws_public",
+      "columns": [
+        {
+          "property": "aws_public",
+          "label": "AWS PUBLIC",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "aws_reason",
+          "label": "AWS REASON",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "aws_vpn",
+          "label": "AWS VPN",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "ibm_public",
+          "label": "IBM PUBLIC",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "ibm_reason",
+          "label": "IBM REASON",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "ibm_vpn",
+          "label": "IBM VPN",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "local_kind",
+          "label": "LOCAL KIND",
+          "priority": 0,
+          "type": "boolean"
+        }
+      ],
+      "operationIds": [
+        "getGatewayPlacementAvailability"
+      ],
+      "capabilities": [
+        "get"
+      ],
+      "getOperationId": "getGatewayPlacementAvailability",
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke:#/schemas/OpenShellGatewayServiceAccountListItem",
       "kind": "collection",
       "schemaRef": "#/schemas/OpenShellGatewayServiceAccountListItem",
@@ -1062,6 +1121,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "visibility",
+          "label": "VISIBILITY",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
@@ -2264,6 +2329,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "visibility",
+          "label": "VISIBILITY",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
@@ -2639,11 +2710,6 @@
         "contentType": "application/json",
         "fields": [
           {
-            "name": "cluster_id",
-            "type": "string",
-            "required": true
-          },
-          {
             "name": "credential_driver",
             "type": "string",
             "required": false,
@@ -2675,6 +2741,12 @@
             "name": "phase",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "placement",
+            "type": "object",
+            "required": true,
+            "description": "Exactly one of network/provider or mode must be supplied."
           },
           {
             "name": "route",
@@ -2974,7 +3046,8 @@
           {
             "name": "provider",
             "type": "string",
-            "required": true
+            "required": true,
+            "description": "Cloud provider capability used for gateway placement."
           },
           {
             "name": "region",
@@ -4193,6 +4266,44 @@
         "get"
       ],
       "summary": "Get an gateway by id",
+      "presentation": {}
+    },
+    {
+      "id": "getGatewayPlacementAvailability",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/placement-availability"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Returns current provider placement eligibility",
       "presentation": {}
     },
     {
@@ -5889,6 +6000,27 @@
             "type": "string",
             "required": true,
             "description": "Human-readable spoke name, unique per fleet (e.g. hyp0-mc1). Must match on every subsequent call."
+          },
+          {
+            "name": "provider",
+            "type": "string",
+            "required": false,
+            "description": "Cloud provider hosting this control plane.",
+            "enum": [
+              "aws",
+              "ibm",
+              "kind"
+            ]
+          },
+          {
+            "name": "visibility",
+            "type": "string",
+            "required": false,
+            "description": "Network visibility supported for gateways on this control plane.",
+            "enum": [
+              "public",
+              "vpn"
+            ]
           }
         ]
       },

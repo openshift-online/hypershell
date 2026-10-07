@@ -10,7 +10,7 @@ export class GatewayAPI {
   constructor(private readonly config: SDKClientConfig) {}
 
   async placementAvailability(opts?: RequestOptions): Promise<GatewayPlacementAvailability> {
-    return sdkFetch<GatewayPlacementAvailability>(this.config, 'GET', '/gateways/placement-availability', undefined, opts);
+    return sdkFetch<GatewayPlacementAvailability>(this.config, 'GET', '/api/hypershell/v1/gateways/placement-availability', undefined, opts);
   }
 
   async create(data: GatewayCreateRequest, opts?: RequestOptions): Promise<Gateway> {

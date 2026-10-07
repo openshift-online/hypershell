@@ -24,7 +24,7 @@ func (c *Client) Gateways() *GatewayAPI {
 
 func (a *GatewayAPI) PlacementAvailability(ctx context.Context) (*types.GatewayPlacementAvailability, error) {
 	var result types.GatewayPlacementAvailability
-	if err := a.client.do(ctx, http.MethodGet, "/gateways/placement-availability", nil, http.StatusOK, &result); err != nil {
+	if err := a.client.do(ctx, http.MethodGet, "/api/hypershell/v1/gateways/placement-availability", nil, http.StatusOK, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
