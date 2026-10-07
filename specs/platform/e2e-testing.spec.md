@@ -39,7 +39,7 @@ tests/e2e/ (Go module: github.com/openshift-online/hypershell/tests/e2e)
     │
     ├── suite_test.go      -- TestE2E entry point; constructs the E2EInfraDriver, runs E2ESuite
     ├── suite.go           -- E2ESuite (testify/suite.Suite): SetupSuite/TearDownSuite,
-    │                         ordered area subtests, mode + multi-identity gating
+    │                         ordered phase-step subtests, mode + multi-identity gating
     ├── perf_test.go       -- TestPerformance entry point; PerfHarness (bounded concurrency)
     ├── matrix_test.go     -- TestMatrix entry point; fans the suite across ManagedClusters
     ├── driver/            -- E2EInfraDriver interface + Kind and OpenShift implementations + registry
@@ -71,7 +71,7 @@ The driver model separates test logic from infrastructure mechanics. The suite c
 
 Each infrastructure target implements the `E2EInfraDriver` Go interface. The suite depends only on this interface for infra-specific mechanics, and reaches the Kubernetes API directly through a shared `client-go` clientset and a controller-runtime client (for Gateway API and other CRDs) built once from the current KUBECONFIG context. The table maps each method to the construct it abstracts; the logical names (for example `acquire_oidc_token`) used throughout the behavioral requirements below denote the corresponding interface method (`E2EInfraDriver.AcquireOIDCToken`). Where the Bash contract returned values through shell globals (`_OIDC_ACCESS_TOKEN`, `_DISCOVER_*`), the Go interface returns typed values and errors; a method that cannot satisfy its contract SHALL return a non-nil `error` rather than set a global.
 
-The interface deliberately has no `CLIBinary`/`kubectl`/`oc` method: Kubernetes resource inspection, the namespace-GC deployment patch, Event lookups, and namespace polling all go through the shared Kubernetes client, not by shelling out to a CLI. The only product binary the suite still invokes directly is the `openshell` CLI (`OPENSHELL_BIN`, areas 5--8), which is itself under test and is infra-agnostic. There is also no `SeedTestUsers` method: test users are seeded by the environment (`make kind-seed` / `make openshift-seed`, and for ephemeral environments by `ephemeral-test-credentials.spec.md`), not by the suite; `DeSeedTestUsers` mirrors the Bash contract's lone teardown hook and is a no-op on both drivers today.
+The interface deliberately has no `CLIBinary`/`kubectl`/`oc` method: Kubernetes resource inspection, the namespace-GC deployment patch, Event lookups, and namespace polling all go through the shared Kubernetes client, not by shelling out to a CLI. The only product binary the suite still invokes directly is the `openshell` CLI (`OPENSHELL_BIN`, used from CLI registration (P1.4) through the sandbox steps (P2.1)), which is itself under test and is infra-agnostic. There is also no `SeedTestUsers` method: test users are seeded by the environment (`make kind-seed` / `make openshift-seed`, and for ephemeral environments by `ephemeral-test-credentials.spec.md`), not by the suite; `DeSeedTestUsers` mirrors the Bash contract's lone teardown hook and is a no-op on both drivers today.
 
 ```go
 // tests/e2e/driver/driver.go
@@ -106,7 +106,7 @@ type E2EInfraDriver interface {
 
 | Method | Purpose | Kind Implementation | OpenShift Implementation |
 |--------|---------|---------------------|--------------------------|
-| `DiscoverAPIHost` | Find the HyperShell API server URL | HTTPRoute hostname `api.hypershell.localhost` or port-forward to `svc/hypershell-api-server` | Route host `hypershell-api` (`route.openshift.io`) |
+| `DiscoverAPIHost` | Find the HyperShell API server URL | HTTPRoute hostname `api.hypershell.localhost`, or a programmatic port-forward to `svc/hypershell-api-server` via `k8s.io/client-go/tools/portforward` if the HTTPRoute is not reachable | Route host `hypershell-api` (`route.openshift.io`) |
 | `DiscoverConsoleHost` | Find the HyperShell web console (BFF) URL | HTTPRoute hostname `console.hypershell.localhost` | Route host `hypershell-web-console`. Not derivable from `DiscoverAPIHost`'s result by string substitution -- Route hostnames are cluster-generated and unrelated to each other |
 | `DiscoverGatewayEndpoint` | Find the gateway gRPC endpoint | GRPCRoute hostname `<gw-name>.gw.localhost` via Gateway status address | GRPCRoute hostname via shared Gateway `Programmed=True` (Gateway API, not a per-gateway Route) |
 | `ClusterDomain` | Get the base domain for constructing gateway DNS names | `gw.localhost` (static, matching `GATEWAY_API_BASE_DOMAIN` in `deploy/kind/`) | Gateway base domain derived from the shared Gateway listener hostname -- the same value `make openshift-up` sets on the control plane. Not a developer-supplied `GATEWAY_API_BASE_DOMAIN`, and not the cluster apps domain |
@@ -117,7 +117,7 @@ type E2EInfraDriver interface {
 | `AssignGatewayClientRole` | Grant a user a role on a gateway's per-gateway OIDC client (mirrors the `gateway:viewer` RoleBinding); idempotent | Keycloak admin API assigns the client role in the `hypershell` realm | HyperShell Keycloak admin API (at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace) assigns the client role in the `hypershell` realm |
 | `AssignRealmRole` | Grant a user a platform-wide realm role, for example `platform:admin`; idempotent | Keycloak admin API assigns the realm role | HyperShell Keycloak admin API (at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace) assigns the realm role in the `hypershell` realm |
 | `AcquireGatewayTokenWithRole` | Acquire a per-gateway OIDC token and block until the named role lands in it (roles reconcile asynchronously after gateway create); returns the `Token` | Password grant against the per-gateway client, polling until the role appears | Grant-agnostic against the per-gateway client on the HyperShell Keycloak at its Route, polling until the role appears. Manual OpenShift defaults to the password grant. GitHub-brokered pull-request environments obtain developer tokens by token-exchange impersonation of the seeded developer principal, and admin per-gateway tokens by token-exchange of the `hypershell-e2e` service account targeting that gateway client (`ephemeral-pr-environments.spec.md`) |
-| `ConfigureNamespaceGCTiming` | Temporarily shorten the controller's namespace-GC interval/grace period for the duration of a long-mode run, so the orphan-GC assertion (area 11a) doesn't have to wait out production timing; blocks until the resulting rollout completes | Patch the `hypershell-controller` Deployment env via the shared client through the Kind platform namespace, then wait for the rollout | Patch the `hypershell-controller` Deployment env via the shared client through `OPENSHIFT_NAMESPACE`, then wait for the rollout |
+| `ConfigureNamespaceGCTiming` | Temporarily shorten the controller's namespace-GC interval/grace period for the duration of a long-mode run, so the orphan-GC assertion (P2.3) doesn't have to wait out production timing; blocks until the resulting rollout completes | Patch the `hypershell-controller` Deployment env via the shared client through the Kind platform namespace, then wait for the rollout | Patch the `hypershell-controller` Deployment env via the shared client through `OPENSHIFT_NAMESPACE`, then wait for the rollout |
 | `RestoreNamespaceGCTiming` | Revert the override applied by `ConfigureNamespaceGCTiming`, restoring the deployment's configured (production) defaults; a no-op if never patched | Same mechanism as `ConfigureNamespaceGCTiming`, in reverse; `TearDownSuite` always calls it, including on failure | Same mechanism as `ConfigureNamespaceGCTiming`, in reverse on success. A failed OpenShift run SHALL skip restore so cleanup can move to teardown instead of waiting on a controller rollout that the environment destroy is about to delete |
 | `DeSeedTestUsers` | Cleanup hook so a future driver can tear down test users; called unconditionally from `TearDownSuite`, even on failure | No-op: seeded users last until the environment does | No-op: CI-owned and developer-owned OpenShift users last until the namespace group is destroyed |
 
@@ -264,7 +264,7 @@ The suite SHALL call `DeSeedTestUsers` from `TearDownSuite` alongside `RestoreNa
 - GIVEN the `kind` driver is active
 - WHEN `discover_api_host` is called
 - THEN it SHALL return `api.hypershell.localhost` (the HTTPRoute hostname from `deploy/kind/httproutes.yaml`)
-- OR fall back to `localhost:<port>` via `kubectl port-forward svc/hypershell-api-server` if the HTTPRoute is not reachable
+- OR fall back to `localhost:<port>` via a programmatic `client-go` port-forward (`k8s.io/client-go/tools/portforward`) to `svc/hypershell-api-server` if the HTTPRoute is not reachable, not by shelling to `kubectl`
 
 #### Scenario: Gateway Endpoint Discovery -- Kind
 
@@ -325,19 +325,19 @@ The OpenShift driver implements the same interface methods with OpenShift constr
 
 ### Requirement: Test Framework and Suite Structure
 
-The functional e2e suite SHALL be a Go test built on `github.com/stretchr/testify/suite`, invoked by a single `go test` entry point `TestE2E` that constructs the resolved `E2EInfraDriver` and runs `E2ESuite` via `suite.Run`. The 14 numbered areas (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) SHALL be realized as named subtests of this one suite, not as independent top-level `Test*` functions, because they share setup state (acquired tokens, discovered endpoints, seeded ids). The suite SHALL establish that shared state in `SetupSuite` (resolve driver, discover API host, acquire the admin token, seed cluster/release ids, and -- in long mode -- call `ConfigureNamespaceGCTiming`) and SHALL tear it down in `TearDownSuite` (restore GC timing, delete the suite's gateways, `DeSeedTestUsers`), on every exit path.
+The functional e2e suite SHALL be a Go test built on `github.com/stretchr/testify/suite`, invoked by a single `go test` entry point `TestE2E` that constructs the resolved `E2EInfraDriver` and runs `E2ESuite` via `suite.Run`. The phase steps P0--P3 (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) SHALL be realized as named subtests of this one suite, not as independent top-level `Test*` functions, because they share setup state (acquired tokens, discovered endpoints, seeded ids). The suite SHALL establish that shared state in `SetupSuite` (resolve driver, discover API host, acquire the admin token, seed cluster/release ids, and -- in long mode -- call `ConfigureNamespaceGCTiming`) and SHALL tear it down in `TearDownSuite` (restore GC timing, delete the suite's gateways, `DeSeedTestUsers`), on every exit path.
 
-Areas SHALL run in the dependency-ordered / parallel structure defined by the [Concurrency Model](#requirement-concurrency-model): the state-dependent bring-up chain on the primary gateway runs sequentially, while read-only areas and own-gateway areas run as parallel subtests bounded by `E2E_CONCURRENCY`. The suite SHALL NOT rely on testify's alphabetical method ordering for correctness; it SHALL drive the areas explicitly (an ordered driver method running each area as a `t.Run` subtest, marking the independent ones `t.Parallel`), so the state-dependent ordering is honored and the parallelizable areas overlap. At `E2E_CONCURRENCY=1` the areas SHALL run strictly 1 through 14 in order. Each area SHALL be a named subtest (`t.Run("area-07-sandbox-lifecycle", ...)`) so `go test -run` can target one area and per-area pass/fail/skip is visible. A failed assertion in an area SHALL NOT silently continue into dependent areas: the suite SHALL use `suite.Require()` (fail-fast) for preconditions a later area depends on and `suite.Assert()` for independent checks within an area. The final summary SHALL list areas in canonical numbered order regardless of parallel completion order.
+Steps SHALL run in the fail-fast / parallel structure defined by the [Concurrency Model](#requirement-concurrency-model): the serial preflight and primary-gateway bring-up gate (P0, P1) runs sequentially, while the hard-behavior steps (P2) and read-only verification (P3) run as parallel subtests bounded by `E2E_CONCURRENCY`. The suite SHALL NOT rely on testify's alphabetical method ordering for correctness; it SHALL drive the steps explicitly (an ordered driver method running each step as a `t.Run` subtest, marking the independent ones `t.Parallel`), so the state-dependent ordering is honored and the parallelizable steps overlap. At `E2E_CONCURRENCY=1` the steps SHALL run strictly in canonical phase order (P0.1, P0.2, P1.1, ... P3.1). Each step SHALL be a named subtest (`t.Run("p2.1-sandbox-lifecycle", ...)`) so `go test -run` can target one step and per-step pass/fail/skip is visible. A failed assertion in a step SHALL NOT silently continue into dependent steps: the suite SHALL use `suite.Require()` (fail-fast) for preconditions a later step depends on and `suite.Assert()` for independent checks within a step. The final summary SHALL list steps in canonical phase order regardless of parallel completion order.
 
-`go test` SHALL remain the only entry point; there SHALL be no wrapper shell script that re-implements suite orchestration. `make e2e` SHALL invoke `go test ./tests/e2e/ -run TestE2E`. The suite SHALL honor the standard Go test timeout (`-timeout`) and SHALL propagate a `context.Context` derived from it into every `E2EInfraDriver` call and poll loop, so a hung infrastructure operation fails the run cleanly within the CI ceiling rather than hanging until the runner kills the job.
+`go test` SHALL remain the only entry point; there SHALL be no wrapper shell script that re-implements suite orchestration. `make e2e` SHALL invoke `go test ./tests/e2e/ -run TestE2E -failfast` (see [Three-Outcome Reporting](#requirement-three-outcome-reporting) for the fail-fast behavior). The suite SHALL honor the standard Go test timeout (`-timeout`) and SHALL propagate a `context.Context` derived from it into every `E2EInfraDriver` call and poll loop, so a hung infrastructure operation fails the run cleanly within the CI ceiling rather than hanging until the runner kills the job.
 
 #### Scenario: Single Suite Entry Point
 
 - GIVEN the Go e2e module
 - WHEN a user runs `go test ./tests/e2e/ -run TestE2E`
 - THEN exactly one testify suite (`E2ESuite`) SHALL run
-- AND its 14 areas SHALL run as named subtests in the dependency-ordered / parallel structure of the Concurrency Model (strictly numbered order at `E2E_CONCURRENCY=1`)
-- AND `SetupSuite` state (tokens, endpoints, seed ids) SHALL be shared across areas; the read-only areas SHALL reuse the primary gateway rather than re-provisioning one each, while own-gateway areas provision their own
+- AND its phase steps (P0--P3) SHALL run as named subtests in the fail-fast / parallel structure of the Concurrency Model (strict phase order at `E2E_CONCURRENCY=1`)
+- AND `SetupSuite` state (tokens, endpoints, seed ids) SHALL be shared across steps; the read-only steps SHALL reuse the primary gateway rather than re-provisioning one each, while own-gateway steps provision their own
 
 #### Scenario: Setup Failure Still Tears Down
 
@@ -346,16 +346,16 @@ Areas SHALL run in the dependency-ordered / parallel structure defined by the [C
 - THEN `TearDownSuite` SHALL still run `RestoreNamespaceGCTiming` and `DeSeedTestUsers`
 - AND the run SHALL exit non-zero
 
-#### Scenario: Targeting a Single Area
+#### Scenario: Targeting a Single Step
 
-- GIVEN the suite exposes each area as a named subtest
-- WHEN a developer runs `go test ./tests/e2e/ -run TestE2E/area-07`
-- THEN only the setup required for that area and the area itself SHALL run
-- AND the output SHALL name the area that ran
+- GIVEN the suite exposes each phase step as a named subtest
+- WHEN a developer runs `go test ./tests/e2e/ -run TestE2E/p2.1`
+- THEN only the setup required for that step and the step itself SHALL run
+- AND the output SHALL name the step that ran
 
 ### Requirement: Command Logging and Demo Output
 
-The suite SHALL render every infrastructure or API operation it performs as a human-readable command line before executing it, so a captured run doubles as a demonstration of the commands a user would run by hand. This mirrors the Bash `show_cmd` helper (which survives in the retained smoke script). A shared `CommandRunner` in `harness` SHALL log each step through `t.Log`/`t.Logf` (so output interleaves correctly with testify's per-subtest grouping and is attributed to the right area) in the form `$ <command>`, then run it. For operations that are not literal shell commands (SDK calls, Keycloak admin API calls), the runner SHALL log an equivalent illustrative command (for example the `curl` or `openshell` invocation a user would run) as a comment-prefixed line, matching the existing Bash suite's behavior.
+The suite SHALL render every infrastructure or API operation it performs as a human-readable command line before executing it, so a captured run doubles as a demonstration of the commands a user would run by hand. This mirrors the Bash `show_cmd` helper (which survives in the retained smoke script). A shared `CommandRunner` in `harness` SHALL log each step through `t.Log`/`t.Logf` (so output interleaves correctly with testify's per-subtest grouping and is attributed to the right step) in the form `$ <command>`, then run it. For operations that are not literal shell commands (SDK calls, Keycloak admin API calls), the runner SHALL log an equivalent illustrative command (for example the `curl` or `openshell` invocation a user would run) as a comment-prefixed line, matching the existing Bash suite's behavior.
 
 Color SHALL be emitted only when stdout is a TTY and `NO_COLOR` is unset; under `go test` output capture the runner SHALL emit plain text. Logging SHALL NOT swallow output: the command's stdout/stderr SHALL be captured and logged, and included in the failure message when the command fails. (There is no demo-pause/step-delay knob; the value is the captured command log, not a paced live playback.)
 
@@ -370,7 +370,9 @@ Color SHALL be emitted only when stdout is a TTY and `NO_COLOR` is unset; under 
 
 The suite SHALL distinguish three per-check outcomes -- pass, fail, and skip -- and SHALL never report a skip as a pass. `go test` and testify provide this natively: a satisfied assertion passes, a failed `Assert`/`Require` fails the (sub)test, and `t.Skip`/`suite.T().Skip` records a skip. A step that cannot run because an opt-in qualification backend is absent (the `E2E_QUALIFY_*` gates, see [Extended Platform Qualification](#requirement-extended-platform-qualification)) or because kube access is unavailable in a product-interface run SHALL call `t.Skip` with a reason, SHALL NOT assert, and SHALL NOT count as a pass. A mode-gated step that does not belong in the active `E2E_MODE` (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) SHALL likewise `t.Skip` rather than silently return.
 
-The run's overall result SHALL be `go test`'s exit status: zero only when no subtest failed (skips are allowed), non-zero when any subtest failed. The suite SHALL print a final summary (areas passed / failed / skipped with per-area detail) from `TearDownSuite`, equivalent to the Bash `print_results`, so a reader sees the roll-up without parsing `go test` output. A partial or aborted run SHALL NOT report a clean result: if the suite panics or `SetupSuite` fails, `go test` SHALL exit non-zero.
+The run's overall result SHALL be `go test`'s exit status: zero only when no subtest failed (skips are allowed), non-zero when any subtest failed. The suite SHALL print a final summary (steps passed / failed / skipped with per-step detail) from `TearDownSuite`, equivalent to the Bash `print_results`, so a reader sees the roll-up without parsing `go test` output. A partial or aborted run SHALL NOT report a clean result: if the suite panics or `SetupSuite` fails, `go test` SHALL exit non-zero.
+
+The suite SHALL run under `go test -failfast` so it aborts on the first failing step rather than running every remaining step: `make e2e` and the CI e2e job SHALL pass `-failfast`. Combined with `Require()` on the P0/P1 critical path, a broken environment or a failed bring-up stops the run immediately. One honest caveat applies to the parallel phases: `-failfast` stops new subtests from starting after the first failure but does not interrupt subtests already running, so P2/P3 subtests that were already in flight when the first failure occurred will finish; their results are still reported. A developer debugging a single failure MAY drop `-failfast` (and set `E2E_CONCURRENCY=1`) to collect every failure in one run.
 
 #### Scenario: Absent Qualification Backend Skips
 
@@ -395,49 +397,41 @@ The functional suite SHALL exploit the following parallelization levers, all bou
 
 1. **Parallel setup fan-out.** `SetupSuite` SHALL acquire the admin, developer, and platform-admin tokens, discover the seeded cluster/release ids, extract the cluster CA, and (long mode) apply `ConfigureNamespaceGCTiming` concurrently in one `errgroup`, since these are independent. Gateway provisioning waits on the ids and admin token only.
 
-2. **A serial bring-up chain on the primary gateway.** The ordered lifecycle that genuinely depends step-on-step -- provision (area 2) -> token + CA (4) -> route discovery + CLI registration (5) -> connectivity (6) -> the `active_sandbox_count` accounting of sandbox lifecycle (7) -> delete-driven GC (11) -- SHALL stay sequential on that one gateway. These either mutate the shared gateway's sandbox count or destroy the gateway, so they cannot overlap each other.
+2. **The serial preflight + bring-up gate (P0, P1).** The cheap preconditions (P0) and the one unavoidable gate -- the primary gateway's bring-up chain, provision (P1.1) -> infra verify (P1.2) -> token + CA (P1.3) -> route + CLI registration (P1.4) -> connectivity (P1.5) -- SHALL run sequentially with `Require`, because each step depends on the one before and a failure here invalidates everything downstream. This gate runs first precisely so a broken environment fails within seconds-to-minutes rather than after cheap checks pass.
 
-3. **A parallel read-only assertion group against the primary gateway.** Once the gateway is `Running` and the CLI is registered, the areas that only read/assert against it -- infrastructure verification (area 3), connectivity re-checks (6), sandbox interaction exec against an existing sandbox (8), and admin inventory + API validation (14) -- SHALL run as parallel subtests (`t.Run` + `t.Parallel`) bounded by `E2E_CONCURRENCY`, because none mutates the gateway or the sandbox count.
+3. **Parallel hard behaviors on their own gateways (P2).** The highest-value lever: the integration-heavy P2 steps -- sandbox lifecycle + count (P2.1), RBAC (P2.2), deletion + GC (P2.3), ManagedCluster + control-plane lifecycle (P2.4), release promotion (P2.5) -- SHALL run as parallel subtests (`t.Run` + `t.Parallel`) bounded by `E2E_CONCURRENCY`. A step that mutates per-gateway state (notably `active_sandbox_count`) or destroys a gateway SHALL own its own uniquely named gateway so it is isolated; at most one P2 step may reuse the P1 primary gateway. Because provisioning is the dominant cost (~minutes each), provisioning these gateways concurrently up front collapses the critical path from the sum of the steps toward the slowest step. The scheduler SHALL start the longest steps first (provisioning-heavy P2.5 and P2.4), and each step SHALL tear its own gateway down on every exit path.
 
-4. **Own-gateway mutating areas fanned out in parallel.** The highest-value lever: areas that must mutate or destroy a gateway -- developer RBAC (area 9), platform-admin RBAC (10), gateway release promotion (13), and ManagedCluster registration side effects (12) -- SHALL each provision their **own** uniquely named gateway and run concurrently with each other and with the read-only group, bounded by `E2E_CONCURRENCY`. Because gateway provisioning is the dominant cost (~minutes each), provisioning these gateways concurrently up front collapses the critical path from the sum of the areas to roughly the slowest area. Each such area SHALL tear its own gateway down on every exit path (unique names make this collision-free, per lever 7's naming rule).
+4. **Parallel read-only verification (P3).** The P3 read-only steps (admin inventory + API validation) SHALL run as parallel subtests bounded by `E2E_CONCURRENCY`; they never mutate shared state and never gate the run.
 
-5. **Intra-area fan-out.** Within an area, independent client-go/API checks SHALL use an `errgroup`: area 3's resource gets (Deployment, Service, TLS Secret, certgen Job, NetworkPolicy) SHALL be fetched concurrently; multi-sandbox steps and the multi-cluster promotion (area 13 under `E2E_MULTICLUSTER`) SHALL act on their independent targets concurrently.
+5. **Intra-step fan-out.** Within a step, independent client-go/API checks SHALL use an `errgroup`: P1.2's resource gets (Deployment, Service, TLS Secret, certgen Job, NetworkPolicy) SHALL be fetched concurrently; P2.1's multiple sandboxes and P2.5's multi-cluster promotion (under `E2E_MULTICLUSTER`) SHALL act on their independent targets concurrently.
 
-6. **Background orphan reaper.** The area-11a periodic-reaper wait SHALL proceed in a background goroutine seeded right after provisioning (bound to the suite context) while the other areas run, so the suite never blocks on the sweep interval; area 11 SHALL join that goroutine to assert the reap.
+6. **Background orphan reaper.** The periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
 
 The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
 
-7. **Collision-free naming and capacity.** Every concurrently-created gateway SHALL have a unique name (`<area-or-unit>-<runid>`), so parallel units never collide and cleanup is a prefix match. Because parallel own-gateway areas multiply the peak gateway count, the suite SHALL document that a small Kind cluster may need a lower `E2E_CONCURRENCY`; the default of `4` SHALL be safe on a typical Kind cluster, and larger clusters MAY raise it. Reporting SHALL remain deterministic despite parallel subtests: the final summary SHALL list areas in canonical numbered order regardless of completion order.
+7. **Collision-free naming, capacity, and determinism.** Every concurrently-created gateway SHALL have a unique name (`<step-id>-<runid>`), so parallel units never collide and cleanup is a prefix match. Because parallel own-gateway steps multiply the peak gateway count, the suite SHALL document that a small Kind cluster may need a lower `E2E_CONCURRENCY`; the default of `4` SHALL be safe on a typical Kind cluster, and larger clusters MAY raise it. Reporting SHALL remain deterministic despite parallel subtests: the final summary SHALL list steps in canonical phase order (P0.1, P0.2, P1.1, ...) regardless of completion order.
 
 #### Scenario: Sequential When Concurrency Is One
 
 - GIVEN `E2E_CONCURRENCY=1`
 - WHEN the functional suite runs
-- THEN every area SHALL run sequentially in numbered order (only the background orphan reaper still overlaps)
-- AND the run SHALL be byte-for-byte deterministic in ordering, for debugging
+- THEN every step SHALL run sequentially in canonical phase order (only the background orphan reaper still overlaps)
+- AND the ordering SHALL be deterministic, for debugging
 
-#### Scenario: Read-Only Areas Run in Parallel Against the Primary Gateway
+#### Scenario: Hard Behaviors Fan Out on Their Own Gateways
 
-- GIVEN the primary gateway is `Running` and the CLI is registered, with `E2E_CONCURRENCY=4`
-- WHEN the read-only assertion group runs (areas 3, 6, 8-exec, 14)
-- THEN those areas SHALL run as parallel subtests bounded by `E2E_CONCURRENCY`
-- AND none SHALL mutate the gateway or its `active_sandbox_count`
-- AND the `active_sandbox_count` accounting (area 7) SHALL NOT run concurrently with any other sandbox creator on that gateway
+- GIVEN the P0/P1 gate has passed, with `E2E_CONCURRENCY=4` in long mode
+- WHEN the P2 steps run (sandbox, RBAC, deletion+GC, ManagedCluster, release promotion)
+- THEN they SHALL run as parallel subtests bounded by `E2E_CONCURRENCY`, longest-first
+- AND each step that mutates `active_sandbox_count` or destroys a gateway SHALL own its own uniquely named gateway
+- AND no step SHALL mutate or delete another step's gateway
 
-#### Scenario: Mutating Areas Fan Out on Their Own Gateways
+#### Scenario: Orphan Reaper Runs Concurrently With P2
 
-- GIVEN `E2E_CONCURRENCY=4` in long mode
-- WHEN the own-gateway areas run (developer RBAC, platform-admin RBAC, release promotion)
-- THEN each SHALL provision a uniquely named gateway and run concurrently, bounded by `E2E_CONCURRENCY`
-- AND each SHALL delete its own gateway on every exit path
-- AND no area SHALL mutate or delete another area's gateway
-
-#### Scenario: Orphan Reaper Runs Concurrently With Later Areas
-
-- GIVEN a long-mode run has seeded the synthetic orphan namespace after provisioning
-- WHEN the other areas run
+- GIVEN a long-mode run has seeded the synthetic orphan namespace right after P1.1
+- WHEN the P2 steps run
 - THEN the orphan-reaper wait SHALL proceed in a background goroutine bound to the suite context
-- AND area 11 SHALL join that goroutine to assert the reap, rather than starting the wait only at area 11
+- AND P2.3 SHALL join that goroutine to assert the reap, rather than starting the wait only at P2.3
 
 #### Scenario: Bounded Fan-Out Honors Cancellation
 
@@ -452,9 +446,9 @@ Each target SHALL auto-detect the driver from the current KUBECONFIG context (se
 
 **Preconditions (owned by `openshift-development.spec.md`).** These runs assume HyperShell is already deployed on the cluster through `make openshift-up` (`kustomize build deploy/openshift/` mapped into the current `oc` project, or `OPENSHIFT_NAMESPACE`). That bring-up creates the companion `${OPENSHIFT_NAMESPACE}-keycloak` project, applies Routes for the API, web console, and Keycloak, applies `keycloak-allow-platform` so platform pods can reach JWKS, applies per-environment ClusterRoles and ClusterRoleBindings named `${OPENSHIFT_NAMESPACE}-dev-*`, and applies the privileged SCC RoleBinding `hypershell-sandbox-scc`. The cluster infrastructure bootstrap (shared Gateway, GatewayClass, certificate issuer, wildcard certificate) is in place per `openshift-development.spec.md`. The suite SHALL fail with a clear error, not a broken run, when the API Route or the gateway infrastructure is absent.
 
-**Driver behavior needed for parity.** For the shared suite to pass on OpenShift, the OpenShift driver SHALL use the current `oc` project when `OPENSHIFT_NAMESPACE` is unset (and fail clearly when neither is available), matching `make openshift-up`; derive the OIDC issuer from the Keycloak Route in `${OPENSHIFT_NAMESPACE}-keycloak` (not the Kind default `keycloak.hypershell.localhost`); return `ClusterDomain` from the same shared-Gateway listener hostname `make openshift-up` used; and provide the same Keycloak admin and role-assignment helpers the Kind driver provides, so the RBAC areas (developer and platform-admin) run unchanged. The OpenShift deployment SHALL enforce RBAC (`RBAC_ENFORCE=true`) and SHALL keep the OpenShift SCC posture (per-namespace privileged SCC for sandbox pods), so the sandbox and RBAC areas behave the same as on Kind. These behaviors are specified in `openshift-development.spec.md`; this spec only depends on them.
+**Driver behavior needed for parity.** For the shared suite to pass on OpenShift, the OpenShift driver SHALL use the current `oc` project when `OPENSHIFT_NAMESPACE` is unset (and fail clearly when neither is available), matching `make openshift-up`; derive the OIDC issuer from the Keycloak Route in `${OPENSHIFT_NAMESPACE}-keycloak` (not the Kind default `keycloak.hypershell.localhost`); return `ClusterDomain` from the same shared-Gateway listener hostname `make openshift-up` used; and provide the same Keycloak admin and role-assignment helpers the Kind driver provides, so the RBAC checks (developer and platform-admin) run unchanged. The OpenShift deployment SHALL enforce RBAC (`RBAC_ENFORCE=true`) and SHALL keep the OpenShift SCC posture (per-namespace privileged SCC for sandbox pods), so the sandbox and RBAC checks behave the same as on Kind. These behaviors are specified in `openshift-development.spec.md`; this spec only depends on them.
 
-**Namespace GC timing.** Area 11 exercises the periodic namespace reaper. Every deploy target (Kind included) runs with the production `GATEWAY_NAMESPACE_GC_INTERVAL`/`GATEWAY_NAMESPACE_GC_GRACE_PERIOD` defaults (5m sweep / 10m grace) -- no overlay bakes in shortened e2e timing, so Kind stays representative of a vanilla deployment. Instead, a long-mode run SHALL call `configure_namespace_gc_timing` once, before any gateway is created, to patch the controller deployment to a short interval/grace period for the duration of the run, and SHALL call `restore_namespace_gc_timing` from the suite's cleanup path so the deployment's production defaults are restored. Kind SHALL restore on every exit, including failure. A failed run SHALL dump the live controller logs (and the stand-in postgres logs, when that namespace exists) from the cleanup trap *before* restore, because restore rolls a new controller ReplicaSet and otherwise the SQL/TLS error behind a `DatabaseReady` failure is lost. A failed OpenShift run SHALL skip restore and proceed to teardown: the environment is destroyed next, so a controller rollout wait has no effect. That same cleanup path SHALL call `de_seed_test_users` as the driver table defines.
+**Namespace GC timing.** Step P2.3 exercises the periodic namespace reaper. Every deploy target (Kind included) runs with the production `GATEWAY_NAMESPACE_GC_INTERVAL`/`GATEWAY_NAMESPACE_GC_GRACE_PERIOD` defaults (5m sweep / 10m grace) -- no overlay bakes in shortened e2e timing, so Kind stays representative of a vanilla deployment. Instead, a long-mode run SHALL call `configure_namespace_gc_timing` once, before any gateway is created, to patch the controller deployment to a short interval/grace period for the duration of the run, and SHALL call `restore_namespace_gc_timing` from the suite's cleanup path so the deployment's production defaults are restored. Kind SHALL restore on every exit, including failure. A failed run SHALL dump the live controller logs (and the stand-in postgres logs, when that namespace exists) from the cleanup trap *before* restore, because restore rolls a new controller ReplicaSet and otherwise the SQL/TLS error behind a `DatabaseReady` failure is lost. A failed OpenShift run SHALL skip restore and proceed to teardown: the environment is destroyed next, so a controller rollout wait has no effect. That same cleanup path SHALL call `de_seed_test_users` as the driver table defines.
 
 **Not in this spec's CI.** OpenShift performance runs SHALL NOT be wired into CI. Kind e2e, including the merge-queue gate, SHALL remain the CI job this spec defines. Origin-repository OpenShift pull-request environments are specified in `ephemeral-pr-environments.spec.md` and SHALL NOT be restated here.
 
@@ -501,31 +495,57 @@ Each target SHALL auto-detect the driver from the current KUBECONFIG context (se
 
 ### Requirement: E2E Test Suite Coverage
 
-The e2e test suite SHALL validate the following 14 areas, realized as ordered named subtests of `E2ESuite` (see [Test Framework and Suite Structure](#requirement-test-framework-and-suite-structure)). Areas 1--11 preserve the behavior of the numbered sections of the former Bash suite; areas 12--14 extend it further (ManagedCluster registration and multi-cluster, release promotion, and admin inventory + API validation). All test areas SHALL be infrastructure-agnostic -- they call `E2EInfraDriver` interface methods for infra-specific operations and use the Kubernetes API (via `client-go`) for resource inspection. Areas 12--14 are long-only (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)).
+The e2e test suite SHALL validate the coverage below, organized into four **phases** ordered for fail-fast feedback rather than by feature-build order. The phases SHALL run in order `P0 -> P1 -> P2 -> P3`; steps within a phase run per the [Concurrency Model](#requirement-concurrency-model) (sequential where state-dependent, parallel where independent). Every step SHALL be a named subtest of `E2ESuite` (see [Test Framework and Suite Structure](#requirement-test-framework-and-suite-structure)) with a stable step id (`P1.1`, `P2.3`, ...) and slug, so `go test -run` can target it. All steps SHALL be infrastructure-agnostic -- they call `E2EInfraDriver` methods for infra-specific operations and use the Kubernetes API (via `client-go`) for resource inspection.
 
-1. **OIDC authentication** -- acquire an admin OIDC access token via `AcquireOIDCToken`, the credential every subsequent API call carries through the shared `apiclient` SDK client (`APIClient`) (see OIDC Authentication in E2E Tests)
-2. **Gateway provisioning via HyperShell API** -- create a gateway via the REST API and wait for the control plane to reconcile it to `Running` phase
-3. **Gateway infrastructure verification** -- confirm the gateway deployment, service, TLS secret, certgen job, and NetworkPolicy exist and are healthy
-4. **Gateway token + CA trust** -- fetch the gateway connection token and CA bundle so the CLI connects over trusted TLS, with no insecure bypass (see Gateway TLS Trust)
-5. **Route discovery + openshell CLI registration** -- discover the gateway endpoint via the driver, register it with the openshell CLI
-6. **Gateway connectivity** -- verify the openshell CLI can connect to the gateway and report status over the trusted TLS established in area 4
-7. **Sandbox lifecycle** -- create a sandbox as the admin user, wait for the pod to reach `Running` state, and verify the gateway's `active_sandbox_count` accounting reflects sandbox create and delete (see Active Sandbox Count Accounting)
-8. **Sandbox interaction** -- execute commands inside the sandbox (`uname -a`, `ls /workspace`)
-9. **Developer user RBAC verification** -- authenticate as the `developer` user (the `openshell-user` tier) and confirm it MAY create a sandbox but MAY NOT create a gateway via the HyperShell API (see Developer RBAC Enforcement)
-10. **Platform-admin RBAC verification** -- authenticate as a platform-admin user and confirm the elevated permissions the developer tier is denied, including deleting a gateway through the HyperShell API (see Developer RBAC Enforcement)
-11. **Gateway deletion + namespace garbage collection** -- validate both garbage-collection paths from `openshell-gateway-namespace-gc.spec.md`: (a) seed a synthetic orphaned managed namespace after gateway provisioning and validate periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event (while the earlier areas run in parallel with the reaper); (b) delete-driven reap of the gateway's managed namespace (see Gateway Deletion and Namespace GC)
-12. **ManagedCluster registration and multi-cluster fleet** -- validate that the co-located control plane registered itself (a `ManagedCluster` with a non-empty `oidc_subject` and a fresh `last_seen_at`), that `/registration` is idempotent, that the registrar role and name-collision rules are enforced, and that a gateway create rejects an empty or unregistered `cluster_id`; under `E2E_MULTICLUSTER=1`, that a second registered cluster appears in the fleet and can be independently targeted; and the controller lifecycle -- connect-time snapshot, disconnect/reconnect convergence, and rejection of unauthorized or revoked gRPC identities (HYPERSHELL-241) (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane Reconnect and Identity Rejection Coverage)
-13. **Gateway release promotion** -- repoint a gateway's `release_id` (or update a referenced release's image) and validate a revision-aware, last-good-preserving rollout, with the gateway reporting the `observed_release_id` actually serving and a failed rollout surfaced as `Degraded`; under `E2E_MULTICLUSTER=1`, promote a release across both clusters (see Gateway Release Promotion Coverage and Reconciled Status Assertions)
-14. **Admin inventory and API validation** -- confirm the admin-only `/v1/users` inventory boundary (non-admin receives 403, singleton Get is an opaque 404) and that the API rejects an unknown gateway phase write (see Admin Inventory and API Validation Coverage)
+The ordering principle is: cheap preconditions that gate everything run first and abort the run immediately on failure; the single unavoidable gate (gateway provisioning) runs next; then the hardest, most integration-heavy behaviors run in parallel on their own gateways (scheduled longest-first), so a real defect surfaces as early as possible; cheap read-only verifications run last and never gate. This supersedes the former "Feature A, Section A, Feature B, Section B" numbering; the old area numbers are retired.
 
-The admin OIDC token from area 1 authenticates the API calls in areas 2--8, 11, 13, and 14; the developer and platform-admin areas (9 and 10) each acquire their own token via `acquire_oidc_token` for their user (see OIDC Authentication in E2E Tests). Area 12 additionally exercises the control-plane `managed-cluster-registrar` client-credentials identity.
+**Phase P0 -- Preflight gate** (sequential, `Require`, fails in seconds on a broken environment):
+- **P0.1 Authentication** -- acquire the admin OIDC token via `AcquireOIDCToken` (the credential every later API call carries through the shared `apiclient`), assert an unauthenticated API call is `401`, the BFF `/auth/login` PKCE redirect and `/auth/session` contract, and that the control-plane gRPC watch has no `Unauthenticated` errors (see OIDC Authentication in E2E Tests).
+- **P0.2 Environment readiness** -- assert the platform dependencies are present and healthy (cert-manager, Gateway API, Agent Sandbox CRDs/controllers, Keycloak, NetworkPolicies) and resolve the seeded cluster/release ids; a missing dependency or seed id fails here, before any gateway is created.
+
+**Phase P1 -- Primary gateway up and reachable** (sequential, `Require`; this is the one unavoidable gate the rest depends on):
+- **P1.1 Provisioning** -- create a gateway via `POST /api/hypershell/v1/gateways` and wait for the control plane to reconcile it to `Running`.
+- **P1.2 Infrastructure verification** -- confirm the gateway deployment, service, TLS secret, certgen job, and NetworkPolicy exist and are healthy, and that the deployment image matches the referenced release.
+- **P1.3 Token + CA trust** -- fetch the gateway connection token and CA bundle so the CLI connects over trusted TLS, with no insecure bypass (see Gateway TLS Trust).
+- **P1.4 Route discovery + CLI registration** -- discover the gateway endpoint via the driver and register it with the openshell CLI.
+- **P1.5 Connectivity** -- verify the openshell CLI connects and reports status over the trusted TLS established in P1.3.
+
+**Phase P2 -- Hard behaviors** (parallel, each on its own gateway, bounded by `E2E_CONCURRENCY`, scheduled longest-first so provisioning-heavy work starts first):
+- **P2.1 Sandbox lifecycle and interaction** -- create a sandbox as admin, wait for the pod `Running`, exec in it (`uname -a`, `ls /workspace`), delete it, and verify the gateway's `active_sandbox_count` tracks create/delete (see Active Sandbox Count Accounting). Owns its own gateway so the count assertion is isolated.
+- **P2.2 RBAC enforcement** -- the developer (`openshell-user`) tier MAY create a sandbox but MAY NOT create a gateway, and the platform-admin tier has the elevated permissions the developer is denied including gateway delete (see Developer RBAC Enforcement). Each identity owns its own gateway.
+- **P2.3 Gateway deletion + namespace GC** -- both GC paths from `openshell-gateway-namespace-gc.spec.md`: delete-driven reap of the gateway's managed namespace, and the periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event for a synthetic orphan namespace seeded right after P1.1 (its reaper runs in the background throughout P2; see Gateway Deletion and Namespace GC).
+- **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an empty/unregistered `cluster_id`; under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus connect-time snapshot, disconnect/reconnect convergence, and rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane Reconnect and Identity Rejection Coverage).
+- **P2.5 Release promotion** -- repoint a gateway's `release_id` (or update a referenced release image) and validate a revision-aware, last-good-preserving rollout, `observed_release_id`, and a failed rollout surfaced as `Degraded`; under `E2E_MULTICLUSTER=1`, promote across both clusters (see Gateway Release Promotion Coverage and Reconciled Status Assertions).
+
+**Phase P3 -- Read-only verification** (parallel, non-gating, runs last):
+- **P3.1 Admin inventory + API validation** -- the admin-only `/v1/users` boundary (non-admin `403`, singleton Get an opaque `404`) and rejection of an unknown gateway phase write (see Admin Inventory and API Validation Coverage).
+
+Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, the sandbox step (P2.1) and the delete-driven half of P2.3 are `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.4 and P2.5 are long-only. P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
+
+**Old area -> new phase step** (for traceability against the former 14-area numbering and the in-flight `e2e-feature-coverage.spec.md`):
+
+| Old area | New step |
+|----------|----------|
+| 1 OIDC auth | P0.1 |
+| (infra deps) + seed discovery | P0.2 |
+| 2 Provisioning | P1.1 |
+| 3 Infra verification | P1.2 |
+| 4 Token + CA trust | P1.3 |
+| 5 Route + CLI registration | P1.4 |
+| 6 Connectivity | P1.5 |
+| 7 Sandbox lifecycle + 8 interaction | P2.1 |
+| 9 Developer RBAC + 10 platform-admin RBAC | P2.2 |
+| 11 Deletion + namespace GC (both paths) | P2.3 |
+| 12 ManagedCluster + control-plane lifecycle | P2.4 |
+| 13 Release promotion | P2.5 |
+| 14 Admin inventory + API validation | P3.1 |
 
 #### Scenario: Full Suite Execution
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all 14 test areas SHALL be executed in long mode, in the dependency-ordered / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only areas 12--14)
-- AND results SHALL be reported as pass/fail counts with per-test detail
+- THEN all phases P0--P3 SHALL be executed in long mode, in the fail-fast / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only steps P2.4, P2.5, and P3.1)
+- AND results SHALL be reported as pass/fail/skip counts with per-step detail
 
 #### Scenario: Gateway Provisioning
 
@@ -537,11 +557,11 @@ The admin OIDC token from area 1 authenticates the API calls in areas 2--8, 11, 
 #### Scenario: Seeded Cluster and Release Discovery
 
 - GIVEN the HyperShell API is reachable and the suite has an admin bearer token
-- WHEN area 2 looks up the seeded managed cluster and gateway release
+- WHEN P0.2 looks up the seeded managed cluster and gateway release
 - THEN it SHALL query `GET /managed_clusters` and `GET /gateway_releases` through the shared `apiclient` SDK client and select by `E2E_SEED_CLUSTER_NAME` / `E2E_SEED_RELEASE_NAME`
 - AND on `E2E_INFRA_DRIVER=kind` those names SHALL default to `local-kind` / `dev-release`
 - AND on `E2E_INFRA_DRIVER=openshift` those names SHALL default to `local-openshift` / `dev-release`
-- AND when either id is missing, the suite SHALL fail the area and print whether each list body was empty, an API `Error` (code and reason), or unparseable, plus a re-seed hint (`SEED_STRICT=true make openshift-seed` or `make kind-seed`)
+- AND when either id is missing, the suite SHALL fail the step and print whether each list body was empty, an API `Error` (code and reason), or unparseable, plus a re-seed hint (`SEED_STRICT=true make openshift-seed` or `make kind-seed`)
 
 #### Scenario: Infrastructure Verification
 
@@ -552,7 +572,7 @@ The admin OIDC token from area 1 authenticates the API calls in areas 2--8, 11, 
 #### Scenario: Deployment image matches the referenced release
 
 - GIVEN a gateway created with a `release_id` (not a direct `image`)
-- WHEN area 3 reads the `openshell-gateway` deployment's container image
+- WHEN P1.2 reads the `openshell-gateway` deployment's container image
 - THEN it SHALL equal the `image` of the referenced `GatewayRelease` (`gateway-version-selection.spec.md`), not a stale image or the platform default
 - AND when a gateway sets both `release_id` and a direct `image`, the resolved release image SHALL take precedence
 
@@ -673,15 +693,15 @@ labeled with the three required ownership labels (`hypershell.redhat.io/managed=
 `hypershell.redhat.io/instance=<E2E_HS_NAMESPACE>`) and a name matching
 the gateway prefix, annotate it with a
 backdated `hypershell.redhat.io/gc-eligible-since` timestamp so the next sweep can
-reap without waiting a full grace period. Steps 3–10 SHALL run while the periodic
+reap without waiting a full grace period. The P2 steps SHALL run while the periodic
 reaper may delete that namespace in the background, so the suite is not blocked
-waiting on the sweep interval. In step 11 the suite SHALL validate delete-driven
+waiting on the sweep interval. In P2.3 the suite SHALL validate delete-driven
 gateway namespace GC first, then assert the orphan namespace was reaped and a
 `GarbageCollected` Event exists in the control-plane namespace
 (`E2E_HS_NAMESPACE`, default `hypershell-system`) with `involvedObject.name`
 equal to the orphan namespace name. The orphan reap deadline SHALL be measured
 from seed time (`E2E_ORPHAN_GC_TIMEOUT` seconds after creation); if the namespace
-is already gone when step 11 runs, validation SHALL pass without additional
+is already gone when P2.3 runs, validation SHALL pass without additional
 waiting. Failure to reap or to record the Event SHALL be reported with GC
 diagnostics (namespace state and control-plane logs).
 
@@ -710,8 +730,8 @@ removal of the in-namespace sandbox resources (see
   this instance's three ownership labels, a gateway-style name, and a backdated
   `hypershell.redhat.io/gc-eligible-since`
   annotation, with no live Gateway backing it
-- AND steps 3–10 have run while the periodic reaper may have deleted it
-- WHEN the suite validates orphan GC in step 11 (after delete-driven GC)
+- AND the P2 steps have run while the periodic reaper may have deleted it
+- WHEN the suite validates orphan GC in P2.3 (after delete-driven GC)
 - THEN the namespace SHALL be gone within `E2E_ORPHAN_GC_TIMEOUT` seconds of
   seeding
 - AND a namespace still present after that deadline SHALL be reported as a
@@ -780,11 +800,11 @@ The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT d
 
 The e2e test suite SHALL directly validate the self-registration behavior in
 `managed-cluster-registration.spec.md`, not only consume the already-registered
-cluster for gateway placement. These assertions are area 12. The registration
+cluster for gateway placement. These assertions are P2.4. The registration
 calls SHALL use the control plane's `managed-cluster-registrar` client-credentials
 identity (`E2E_REGISTRAR_CLIENT_ID` / `E2E_REGISTRAR_CLIENT_SECRET`, defaulting to
 the development `hypershell-control-plane` client); inventory reads use the admin
-token. Area 12 is long-only (it mutates fleet records and acts as a second
+token. P2.4 is long-only (it mutates fleet records and acts as a second
 identity), so `short` and `perf` runs skip it.
 
 #### Scenario: Co-located control plane is registered
@@ -826,13 +846,13 @@ identity), so `short` and `perf` runs skip it.
 ### Requirement: Multi-Cluster Fleet Coverage
 
 When `E2E_MULTICLUSTER=1`, the suite SHALL exercise a two-cluster fleet so
-cross-cluster placement and promotion are validated (area 12, multi-cluster
-steps, and area 13). A second `ManagedCluster` SHALL be established by a second
+cross-cluster placement and promotion are validated (P2.4, multi-cluster
+steps, and P2.5). A second `ManagedCluster` SHALL be established by a second
 control-plane deployment reconciling into the same physical cluster under a
 distinct `HYPERSHELL_MANAGED_CLUSTER_NAME` (`E2E_SEED_CLUSTER_NAME_2`) and its own
 registrar OIDC client, so each control plane filters only its own `cluster_id`.
 The two-cluster harness is opt-in: when `E2E_MULTICLUSTER` is unset or `0`, area
-12 runs only the single-cluster registration assertions above and area 13 runs
+12 runs only the single-cluster registration assertions above and P2.5 runs
 its single-cluster rollout path. Deploying the second control plane is owned by
 `local-development.spec.md` / `openshift-development.spec.md`; this spec owns only
 the assertions.
@@ -854,7 +874,7 @@ the assertions.
 ### Requirement: Control-Plane Reconnect and Identity Rejection Coverage
 
 The suite SHALL validate the controller lifecycle in HYPERSHELL-241 as part of
-area 12: connect-time snapshot delivery, convergence after a watch disconnect, and
+P2.4: connect-time snapshot delivery, convergence after a watch disconnect, and
 rejection of unauthorized or revoked gRPC identities. These assertions act against
 the same public gRPC boundary a supported deployment uses, with no management-plane
 access to the cluster API. Long only.
@@ -876,11 +896,11 @@ access to the cluster API. Long only.
 
 ### Requirement: Gateway Release Promotion Coverage
 
-The suite SHALL validate release promotion as area 13, closing the
+The suite SHALL validate release promotion as P2.5, closing the
 `gateway-release-rollout.spec.md` gap. Promotion is a release-version change
 applied to a running gateway: repoint the gateway's `release_id` to a second
 `GatewayRelease`, or update the referenced release's image, and confirm a safe,
-revision-aware rollout that preserves the last-good workload. Area 13 is long-only.
+revision-aware rollout that preserves the last-good workload. P2.5 is long-only.
 
 #### Scenario: Rollout reports the serving release
 
@@ -915,7 +935,7 @@ that they were accepted. Today the suite creates `GatewayRelease` and
 `GatewayNetwork` records but never waits on the control plane's status write-back,
 leaving `gateway-release-reconciliation.spec.md` and
 `gateway-network-reconciliation.spec.md` under-verified. These assertions run
-alongside the resource lifecycle steps (area 13 and the hsctl resource coverage)
+alongside the resource lifecycle steps (P2.5 and the hsctl resource coverage)
 and are long-only.
 
 #### Scenario: Release settles to Available
@@ -934,8 +954,8 @@ and are long-only.
 
 ### Requirement: Admin Inventory and API Validation Coverage
 
-The suite SHALL validate two boundaries as area 14: the admin-only user inventory
-and unknown-phase rejection. Area 14 is long-only.
+The suite SHALL validate two boundaries as P3.1: the admin-only user inventory
+and unknown-phase rejection. P3.1 is long-only.
 
 #### Scenario: User inventory is admin-only
 
@@ -962,8 +982,8 @@ the project does not yet operate, this spec records the prerequisite, and the
 item SHALL NOT be reported as covered until that infrastructure exists.
 HYPERSHELL-243 (Gateway API ingress on AWS) is already covered by the
 `e2e-openshift` job on the ROSA cluster and is not restated here; HYPERSHELL-246
-(service-account authentication) is covered by `tests/e2e/gateway_service_account.{py,sh}`
-wired into areas 2 and 11.
+(service-account authentication) is covered by the gateway service-account machine-e2e path
+(ported per [Shell Suite Removal](#requirement-shell-suite-removal)) wired into P1.1 and P2.3.
 
 ROKS Route-mode ingress (HYPERSHELL-244) is intentionally NOT specified here. The
 project does not currently operate a ROKS (or any Route-ingress) environment, and
@@ -1364,7 +1384,7 @@ The system SHALL provide a Go matrix runner (`TestMatrix`, run via `make e2e-mat
 
 The only matrix dimension SHALL be the fleet of registered ManagedClusters, discovered from `GET /v1/managed_clusters` (registered = non-empty `oidc_subject`). The runner SHALL NOT matrix over drivers or infra types: it selects one `E2EInfraDriver` exactly as the single-cluster suite does and fans that selection across clusters. The matrix SHALL default to `E2E_MODE=short` (the smoke subset the gate runs) when `E2E_MODE` is unset -- overriding the suite's own `long` default, since the matrix is a promotion/smoke gate -- but SHALL forward any `E2E_MODE` the caller sets (`long`, or `perf` depth when driven by the harness) to each cluster's suite unchanged.
 
-The runner SHALL bound parallelism with `E2E_CONCURRENCY` (default `4`; `1` forces sequential). Each per-cluster suite SHALL own a uniquely named gateway (`${E2E_MANAGED_GATEWAY_PREFIX}-<cluster>-<runid>`, prefix default `e2e`) and SHALL tear it down regardless of outcome, so parallel clusters never collide. The runner SHALL resolve each cluster's `cluster_id` by name and pass it to that cluster's suite. A product-interface run (API + gRPC) SHALL be the baseline and SHALL need no kubeconfig; kube-level steps (area 3 infra verification, area 11 GC) SHALL run for a cluster only when `E2E_MANAGED_KUBECONTEXT_<name>` is supplied, and SHALL otherwise `t.Skip` (never fail) for that cluster.
+The runner SHALL bound parallelism with `E2E_CONCURRENCY` (default `4`; `1` forces sequential). Each per-cluster suite SHALL own a uniquely named gateway (`${E2E_MANAGED_GATEWAY_PREFIX}-<cluster>-<runid>`, prefix default `e2e`) and SHALL tear it down regardless of outcome, so parallel clusters never collide. The runner SHALL resolve each cluster's `cluster_id` by name and pass it to that cluster's suite. A product-interface run (API + gRPC) SHALL be the baseline and SHALL need no kubeconfig; kube-level steps (P1.2 infra verification, P2.3 GC) SHALL run for a cluster only when `E2E_MANAGED_KUBECONTEXT_<name>` is supplied, and SHALL otherwise `t.Skip` (never fail) for that cluster.
 
 The runner SHALL fail closed: an unregistered, stale (`last_seen_at` beyond `E2E_MANAGED_HEALTHY_WINDOW`, default `5m`), or unreachable cluster SHALL be a failure by default; `E2E_MANAGED_SKIP_UNHEALTHY=1` SHALL downgrade it to a skip. A skip SHALL never count as a pass. The runner SHALL print a per-cluster result table (name, health, pass/fail/skip, child tally) and a single overall verdict; per-cluster output SHALL be captured and attributed, not interleaved. `go test` SHALL exit non-zero if any selected cluster failed and zero only when every selected cluster passed or was skipped; a partial or aborted run SHALL NOT report a clean gate. `E2E_MANAGED_CLUSTERS` SHALL be an optional allowlist (unset = all registered; allowlist only, no denylist). This gate is consumed by Kargo dev->prod promotion in the gitops repo.
 
@@ -1386,13 +1406,13 @@ The runner SHALL fail closed: an unregistered, stale (`last_seen_at` beyond `E2E
 #### Scenario: Missing Kube Context Degrades To Skip
 
 - GIVEN a healthy cluster for which `E2E_MANAGED_KUBECONTEXT_<name>` is not supplied
-- WHEN that cluster's suite reaches the kube-level steps (areas 3 and 11)
+- WHEN that cluster's suite reaches the kube-level steps (P1.2 and P2.3)
 - THEN those steps SHALL `t.Skip` with a reason
 - AND the product-interface steps SHALL still run and be asserted
 
 ### Requirement: Shell Suite Removal
 
-This rewrite SHALL replace the Bash functional and performance suites in a single cutover, not run them in parallel with the Go suite. On completion, `tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/perf-lib.sh`, and `tests/e2e/drivers/kind.sh` / `tests/e2e/drivers/openshift.sh` (the full 14-method driver contract, now owned by `tests/e2e/driver/`) SHALL be removed, and the associated `*_test.sh` unit tests for those scripts SHALL be removed or ported. `make e2e`, `make e2e-performance`, and the CI e2e workflow SHALL invoke `go test` targets exclusively; no Makefile target or workflow step SHALL invoke the removed suites. Any Bash or Python machine-e2e helpers that back the removed suites (for example the gateway service-account machine-e2e path, `tests/e2e/gateway_service_account*`) SHALL be ported to Go or explicitly retained with a recorded reason; the cutover SHALL NOT silently drop their coverage, and any in-flight fix to the removed drivers (for example a kind-driver JWT-audience change) SHALL be carried into the Go driver. The removal SHALL land together with the Go suite reaching behavioral parity across all 14 areas, the performance harness, and the matrix runner, so the repository never carries two functional e2e implementations.
+This rewrite SHALL replace the Bash functional and performance suites in a single cutover, not run them in parallel with the Go suite. On completion, `tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/perf-lib.sh`, and `tests/e2e/drivers/kind.sh` / `tests/e2e/drivers/openshift.sh` (the full 14-method driver contract, now owned by `tests/e2e/driver/`) SHALL be removed, and the associated `*_test.sh` unit tests for those scripts SHALL be removed or ported. `make e2e`, `make e2e-performance`, and the CI e2e workflow SHALL invoke `go test` targets exclusively; no Makefile target or workflow step SHALL invoke the removed suites. Any Bash or Python machine-e2e helpers that back the removed suites (for example the gateway service-account machine-e2e path, `tests/e2e/gateway_service_account*`) SHALL be ported to Go or explicitly retained with a recorded reason; the cutover SHALL NOT silently drop their coverage, and any in-flight fix to the removed drivers (for example a kind-driver JWT-audience change) SHALL be carried into the Go driver. The removal SHALL land together with the Go suite reaching behavioral parity across all phases (P0--P3), the performance harness, and the matrix runner, so the repository never carries two functional e2e implementations.
 
 Explicitly retained Bash: the browser suite (`e2e-console.sh`, `browser-lib.sh`), the new user-interaction smoke script (`smoke.sh`, see [Bash Smoke Script](#requirement-bash-smoke-script)), a slimmed `tests/e2e/lib.sh` holding the shared helpers those two use (`show_cmd` command echo, color output, retry/poll, pass/fail, and a slim Kind/OpenShift infra selection for host discovery, CLI binary, token acquisition, and an authenticated API call -- not the full driver contract), and the ROKS variant. The slim `lib.sh` SHALL NOT duplicate the Go driver's full contract; the authoritative driver abstraction lives only in Go.
 
@@ -1451,8 +1471,8 @@ CI MAY run the smoke script non-blocking or on demand; a smoke failure SHALL NOT
 tests/e2e/                 -- Go module: github.com/openshift-online/hypershell/tests/e2e
   go.mod                   -- depends on testify, client-go, and the generated HyperShell Go SDK (components/sdk-go)
   suite_test.go            -- TestE2E entry point (constructs E2EInfraDriver, runs E2ESuite)
-  suite.go                 -- E2ESuite: SetupSuite/TearDownSuite, ordered area subtests, mode gating
-  areas.go                 -- the 14 area steps (short/long tagged), infra-agnostic
+  suite.go                 -- E2ESuite: SetupSuite/TearDownSuite, ordered phase-step subtests, mode gating
+  phases.go                -- the phase steps P0-P3 (short/long tagged), infra-agnostic
   perf_test.go             -- TestPerformance entry point + PerfHarness (bounded concurrency, checkpoints)
   matrix_test.go           -- TestMatrix entry point + matrix runner (fans the suite across ManagedClusters)
   driver/
@@ -1534,24 +1554,24 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `OPENSHIFT_NAMESPACE` | current `oc project` | Platform namespace the OpenShift driver and `make openshift-up` target; Keycloak is `${OPENSHIFT_NAMESPACE}-keycloak` |
 | `E2E_NAMESPACE` | `openshell-e2e` | Namespace for e2e test resources (gateway deployment) |
 | `E2E_GATEWAY_NAME` | `e2e-gw` | Gateway name for the e2e test |
-| `E2E_MODE` | `long` | User-facing run depth: `long` runs every step; `short` runs the essential steps of each area, owns and tears down its own gateway, and runs as a single identity (self-contained full-lifecycle check, safe against a live env). The `perf` depth is not a valid `E2E_MODE` value; it is set in-process by the performance harness only (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) |
+| `E2E_MODE` | `long` | User-facing run depth: `long` runs every step; `short` runs the essential steps of each phase, owns and tears down its own gateway, and runs as a single identity (self-contained full-lifecycle check, safe against a live env). The `perf` depth is not a valid `E2E_MODE` value; it is set in-process by the performance harness only (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) |
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
-| `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in step 11) |
+| `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in P2.3) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
 | `E2E_CONCURRENCY` | `4` | Overarching bound on parallel fan-out work: gateway create/provision/delete in the performance harness, and clusters run in parallel in the matrix runner. `1` forces sequential. There is no per-subsystem concurrency knob |
 | `E2E_PAUSE` | `0` | Bash smoke script only (`make e2e-smoke`): seconds to pause after echoing each command, for live demos. The Go suites have no pause |
-| `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--8, 11, 13, and 14 |
+| `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for the admin-authenticated steps (P0, P1, and the admin paths of P2/P3) |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (developer-owned default). Unused when `E2E_OIDC_GRANT=client_credentials`. A password-grant run against a CI-owned `pr-*` environment SHALL read Secret `hypershell-e2e-test-users` instead of this default (`ephemeral-test-credentials.spec.md`) |
 | `E2E_OIDC_GRANT` | `password` | Token grant for `acquire_oidc_token` and `acquire_gateway_token_with_role`: `password` (Kind and manual OpenShift) or `client_credentials` (GitHub-brokered pull-request environments, see `ephemeral-pr-environments.spec.md`) |
 | `E2E_SEED_CLUSTER_NAME` | `local-kind` on kind; `local-openshift` on openshift; unset otherwise | Pin seed discovery to this managed-cluster name. Unset means the first list item |
 | `E2E_SEED_RELEASE_NAME` | `dev-release` on kind and openshift; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
 | `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
 | `E2E_DEV_PASSWORD` | `developer` | Password for the developer OIDC user (local dev only) |
-| `E2E_MULTICLUSTER` | `0` | `1` enables the two-cluster fleet (area 12 multi-cluster steps and area 13 cross-cluster promotion); requires a second control plane deployed as `E2E_SEED_CLUSTER_NAME_2` |
+| `E2E_MULTICLUSTER` | `0` | `1` enables the two-cluster fleet (P2.4 multi-cluster steps and P2.5 cross-cluster promotion); requires a second control plane deployed as `E2E_SEED_CLUSTER_NAME_2` |
 | `E2E_SEED_CLUSTER_NAME_2` | (unset) | Name of the second registered ManagedCluster when `E2E_MULTICLUSTER=1` |
-| `E2E_REGISTRAR_CLIENT_ID` | `hypershell-control-plane` | OIDC client (holding `managed-cluster-registrar`) the suite uses for the area-12 `/registration` calls |
+| `E2E_REGISTRAR_CLIENT_ID` | `hypershell-control-plane` | OIDC client (holding `managed-cluster-registrar`) the suite uses for the P2.4 `/registration` calls |
 | `E2E_REGISTRAR_CLIENT_SECRET` | (dev client secret) | Secret for `E2E_REGISTRAR_CLIENT_ID` |
 | `E2E_QUALIFY_DNS_TLS_RENEWAL` | `0` | `1` runs the trusted DNS/TLS renewal qualification (HYPERSHELL-245); opt-in, not in the Kind gate |
 | `E2E_QUALIFY_DB_ROTATION` | `0` | `1` runs the database credential rotation qualification (HYPERSHELL-247) |
@@ -1575,7 +1595,7 @@ suite reuses the full single-cluster variable set above.
 | `E2E_MANAGED_SKIP_UNHEALTHY` | `0` | `1` downgrades an unregistered/stale/unreachable cluster from failure to skip |
 | `E2E_MANAGED_HEALTHY_WINDOW` | `5m` | Max `last_seen_at` age for a cluster to count as healthy |
 | `E2E_MANAGED_GATEWAY_PREFIX` | `e2e` | Prefix for each cluster's uniquely named gateway (`<prefix>-<cluster>-<runid>`) |
-| `E2E_MANAGED_KUBECONTEXT_<name>` | (unset) | Kube context for cluster `<name>`; enables its kube-level steps (areas 3, 11), else they skip |
+| `E2E_MANAGED_KUBECONTEXT_<name>` | (unset) | Kube context for cluster `<name>`; enables its kube-level steps (P1.2, P2.3), else they skip |
 
 The console browser suite (`tests/e2e/e2e-console.sh`) adds the following; see
 [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md#environment-variables).
@@ -1712,7 +1732,7 @@ The system SHALL provide a `make e2e-performance` target. The target SHALL run t
 - AND the OpenShift `E2EInfraDriver` implementation is registered under `openshift`
 - WHEN the user runs `make e2e-performance` with no `E2E_INFRA_DRIVER` set, or runs `E2E_INFRA_DRIVER=openshift make e2e-performance` explicitly
 - THEN the harness SHALL run against the OpenShift cluster with no change to the harness code
-- AND all infrastructure operations SHALL use the OpenShift driver (`oc`, Routes)
+- AND all infrastructure operations SHALL use the OpenShift driver (Routes for discovery; the shared `client-go` client for Kubernetes access, not `oc`)
 
 ### Requirement: Infra-Agnostic Performance Harness
 
@@ -1766,7 +1786,7 @@ The harness SHALL wait until each gateway reaches `Running` phase, or until `E2E
 
 The harness SHALL validate the platform incrementally as the fleet grows, so a scale problem is caught as it appears rather than only at the end. It SHALL provision the fleet in batches of `E2E_PERF_BATCH_SIZE` (default 5; a value of 5--10 is recommended). After each batch reaches `Running` (or times out), the harness SHALL run a checkpoint mini test and SHALL append one checkpoint record to the run results before starting the next batch. This means the results file is written incrementally across the run, not only at teardown.
 
-The checkpoint mini test SHALL be `E2ESuite` run at **perf depth** (set in-process by the harness, see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), not the full suite (running every step of all 14 areas after every batch would dominate the run). Perf depth runs the essential (`short`-tagged) steps of every area -- so the checkpoint touches a slice of each portion of the test -- while long depth (used for the final run) runs all steps. This reuses the suite's real assertions and driver code; the harness adds no separate probe.
+The checkpoint mini test SHALL be `E2ESuite` run at **perf depth** (set in-process by the harness, see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), not the full suite (running every check of all phases after every batch would dominate the run). Perf depth runs the essential (`short`-tagged) checks of every phase -- so the checkpoint touches a slice of each portion of the test -- while long depth (used for the final run) runs everything. This reuses the suite's real assertions and driver code; the harness adds no separate probe.
 
 The mini test SHALL run against a dedicated **canary** gateway that the harness provisions once during preflight and whose per-gateway OIDC role it grants once (through `E2EInfraDriver.AcquireGatewayTokenWithRole`, so the harness still calls only interface methods), so no batch pays repeated Keycloak setup or gateway provisioning. The canary is separate from the counted fleet and is named `<E2E_PERF_GATEWAY_PREFIX>-canary`. The harness SHALL run the checkpoint by constructing `E2ESuite` in-process at perf depth with the canary gateway name and a reuse-the-gateway / no-teardown setting, so the suite reuses the canary and does not delete it between batches, while the harness's own teardown still deletes the canary and the whole fleet at the end (see [Performance Test Cleanup](#requirement-performance-test-cleanup)).
 
@@ -1812,38 +1832,37 @@ Setting `E2E_PERF_BATCH_SIZE` greater than or equal to `E2E_PERF_GATEWAY_COUNT` 
 
 ### Requirement: E2E Short and Long Modes
 
-The e2e suite SHALL support three run depths: `long`, `short`, and `perf`. The user-facing `E2E_MODE` variable SHALL select only `long` (the default) or `short`. The `perf` depth SHALL NOT be a user-settable `E2E_MODE` value: it is set in-process by the performance harness (`TestPerformance`) when it runs `E2ESuite` as a checkpoint, so an ordinary `go test ./tests/e2e/ -run TestE2E` never needs it and users do not pass it. The depth is chosen per step, not per area: each area's checks SHALL be organized as named steps, and each step SHALL declare the minimum depth it belongs to. A step tagged `short` runs at every depth; a step tagged `long` runs only at long depth. Long therefore runs every step (the full behavior), and both `short` and `perf` run the `short`-tagged subset of every area -- a slice of each portion of the test, exercising each area's essential path while skipping its deep or slow steps.
+The e2e suite SHALL support three run depths: `long`, `short`, and `perf`. The user-facing `E2E_MODE` variable SHALL select only `long` (the default) or `short`. The `perf` depth SHALL NOT be a user-settable `E2E_MODE` value: it is set in-process by the performance harness (`TestPerformance`) when it runs `E2ESuite` as a checkpoint, so an ordinary `go test ./tests/e2e/ -run TestE2E` never needs it and users do not pass it. The depth is chosen per step: each phase step (and each sub-check within it) SHALL declare the minimum depth it belongs to. A check tagged `short` runs at every depth; one tagged `long` runs only at long depth. Long therefore runs every check (the full behavior), and both `short` and `perf` run the `short`-tagged subset of every phase -- a slice of each portion of the test, exercising each phase's essential path while skipping its deep or slow checks.
 
 When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so the CI e2e job and the final run of the performance harness are unchanged. At `short` depth (or the harness-set `perf` depth), the suite SHALL run only the `short`-tagged steps, in the suite's normal order, and SHALL `t.Skip` the long-only steps (a skip, never a silent pass; see [Three-Outcome Reporting](#requirement-three-outcome-reporting)). The suite SHALL fail fast (`t.Fatal`, non-zero `go test` exit) in `SetupSuite` if `E2E_MODE` is set to any value other than `short` or `long`. Depth tagging SHALL be expressed in Go (a step helper that takes the minimum depth and calls `t.Skip` when the active depth is lower), so all depths run the same assertion code; there SHALL be no second copy of any check.
 
 `short` is the canonical quick check. It owns the gateway it creates and SHALL tear it fully down at the end (the same delete-driven namespace-GC path a long run uses for its own gateway), leaving nothing behind. `short` is therefore a self-contained, non-destructive full-lifecycle check -- create, run, interact, delete -- safe to run repeatedly against a live or shared environment: a post-rollout promotion gate, synthetic monitoring, or a post-deploy sanity check.
 
-`short` additionally runs as a single identity: it SHALL NOT impersonate other users (token-exchange with `requested_subject`), so it SHALL skip the developer RBAC area (area 9), which mints a token for a second principal. This keeps the check minimal-privilege -- its OIDC client needs only `gateway:creator` and `hypershell-users` (plus same-subject token-exchange for the per-gateway audience), not `platform:admin` or an impersonation policy -- so it is safe as a live-environment promotion gate. The suite SHALL express this through a mode predicate (`E2ESuite.multiIdentity()`, the Go form of the former `e2e_multi_identity`), false for `short` and true for `perf` and `long`; any step that acts as a principal other than the run's own identity SHALL gate on it and `t.Skip` when it is false. The platform-admin area (area 10) is long-only and so is already skipped in `short`.
+`short` additionally runs as a single identity: it SHALL NOT impersonate other users (token-exchange with `requested_subject`), so it SHALL skip the developer-RBAC check of P2.2, which mints a token for a second principal. This keeps the check minimal-privilege -- its OIDC client needs only `gateway:creator` and `hypershell-users` (plus same-subject token-exchange for the per-gateway audience), not `platform:admin` or an impersonation policy -- so it is safe as a live-environment promotion gate. The suite SHALL express this through a mode predicate (`E2ESuite.multiIdentity()`, the Go form of the former `e2e_multi_identity`), false for `short` and true for `perf` and `long`; any step that acts as a principal other than the run's own identity SHALL gate on it and `t.Skip` when it is false. The platform-admin check of P2.2 is long-only and so is already skipped in `short`.
 
-`perf` runs the same `short`-tagged step subset but is tailored to the performance harness (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)) and SHALL be set only in-process by the harness (`TestPerformance`), never via `E2E_MODE`. It differs from `short` in two ways: it follows the harness's reuse-or-preserve pattern -- it may reuse a supplied long-lived canary gateway and SHALL NOT tear it down, so the canary survives repeated checkpoints -- and it exercises the multi-identity developer RBAC path (area 9). It is not a live-environment gate; it assumes the harness owns the canary's lifecycle.
+`perf` runs the same `short`-tagged subset but is tailored to the performance harness (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)) and SHALL be set only in-process by the harness (`TestPerformance`), never via `E2E_MODE`. It differs from `short` in two ways: it follows the harness's reuse-or-preserve pattern -- it may reuse a supplied long-lived canary gateway and SHALL NOT tear it down, so the canary survives repeated checkpoints -- and it exercises the multi-identity developer-RBAC check of P2.2. It is not a live-environment gate; it assumes the harness owns the canary's lifecycle.
 
-Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every one of the 14 areas (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only steps; areas 12--14 are long-only and run in neither short nor perf:
+Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every phase step (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only checks; P2.4, P2.5, and P3.1 are long-only and run in neither short nor perf:
 
-| Area | Short (essential steps) | Long-only (deep / slow steps) |
-|------|-------------------------|-------------------------------|
-| 1. OIDC authentication | acquire the admin token via `acquire_oidc_token` | n/a (every run needs a token) |
-| 2. Gateway provisioning | reuse-or-create the gateway, wait `Running` | n/a (both modes need a running gateway) |
-| 3. Infrastructure verification | deployment and service present and healthy | TLS secret, certgen job, and NetworkPolicy assertions |
-| 4. Token + CA trust | fetch token and CA bundle, establish trusted TLS | n/a |
-| 5. Route discovery + CLI registration | discover the endpoint, register the openshell CLI | n/a |
-| 6. Connectivity | one route reachability check | n/a |
-| 7. Sandbox lifecycle | one sandbox create -> ready -> delete, `active_sandbox_count` = 1 then 0 | second concurrent sandbox to assert the count increments |
-| 8. Sandbox interaction | one in-sandbox exec (`uname -a`) | the remaining exec commands (`ls /workspace`) |
-| 9. Developer RBAC | short: skipped (single-identity; no impersonation). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix |
-| 10. Platform-admin RBAC | n/a; skipped in short and perf (its assertion deletes a gateway) | full platform-admin matrix, including gateway deletion |
-| 11. Namespace GC | short: delete-driven GC of the run's own gateway. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
-| 12. ManagedCluster registration + multi-cluster | skipped (mutates fleet records; acts as a second identity) | registration assertions; second-cluster placement under `E2E_MULTICLUSTER=1` |
-| 13. Release promotion | skipped | repoint + revision-aware rollout, `observed_release_id`, Degraded-and-recover; cross-cluster promotion under `E2E_MULTICLUSTER=1` |
-| 14. Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
+| Step | Short (essential checks) | Long-only (deep / slow checks) |
+|------|--------------------------|--------------------------------|
+| P0.1 Authentication | acquire the admin token via `AcquireOIDCToken`; 401 on an unauthenticated call | BFF PKCE/session contract and the control-plane gRPC-auth check |
+| P0.2 Environment readiness | resolve the seeded cluster/release ids | full platform-dependency CRD/Keycloak/NetworkPolicy assertions |
+| P1.1 Provisioning | reuse-or-create the gateway, wait `Running` | n/a (both modes need a running gateway) |
+| P1.2 Infrastructure verification | deployment and service present and healthy | TLS secret, certgen job, NetworkPolicy, and image-matches-release assertions |
+| P1.3 Token + CA trust | fetch token and CA bundle, establish trusted TLS | n/a |
+| P1.4 Route discovery + CLI registration | discover the endpoint, register the openshell CLI | n/a |
+| P1.5 Connectivity | one route reachability check | n/a |
+| P2.1 Sandbox lifecycle + interaction | one sandbox create -> ready -> exec (`uname -a`) -> delete, `active_sandbox_count` 1 then 0 | second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
+| P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
+| P2.3 Deletion + namespace GC | short: delete-driven GC of the run's own gateway. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
+| P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration assertions; second-cluster placement + reconnect/identity under `E2E_MULTICLUSTER=1` |
+| P2.5 Release promotion | skipped | repoint + revision-aware rollout, `observed_release_id`, Degraded-and-recover; cross-cluster promotion under `E2E_MULTICLUSTER=1` |
+| P3.1 Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
 
-`short` mode SHALL own the gateway it provisions: it SHALL delete that gateway at the end and assert its namespace is garbage collected (the same delete-driven GC path area 11 runs for a long run's own gateway), and its cleanup path SHALL also delete the gateway on any exit, so a short run leaves nothing behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace (that periodic-reaper assertion is long-only) and SHALL NOT mutate shared controller state (namespace-GC timing is adjusted only for long runs). Any long-only step that deletes the run's own gateway as part of the RBAC matrix SHALL NOT run in short or perf mode; area 11's own-gateway deletion, being the assertion itself, SHALL run in short and long but not perf.
+`short` mode SHALL own the gateway it provisions: it SHALL delete that gateway at the end and assert its namespace is garbage collected (the same delete-driven GC path P2.3 runs for a long run's own gateway), and its cleanup path SHALL also delete the gateway on any exit, so a short run leaves nothing behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace (that periodic-reaper assertion is long-only) and SHALL NOT mutate shared controller state (namespace-GC timing is adjusted only for long runs). The platform-admin gateway-deletion check of P2.2 SHALL NOT run in short or perf mode; P2.3's own-gateway deletion, being the assertion itself, SHALL run in short and long but not perf.
 
-`perf` depth SHALL follow the reuse-or-create pattern the harness relies on: when the harness supplies an existing canary gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated perf-depth runs). This constraint governs the two areas that would otherwise tear a gateway down: the platform-admin RBAC area (area 10) SHALL NOT run its gateway-deletion step at short or perf depth, and the namespace-GC area (area 11) SHALL, at perf depth, exercise delete-driven GC against a throwaway gateway it creates, never against the supplied canary. Creating that throwaway gateway SHALL reuse the seeded `cluster_id` and `release_id`. The suite SHALL take cluster and release ids from the harness-supplied config when the performance harness provides them in-process, from the reused gateway's JSON when that gateway already exists, or by discovering them from the API when either is missing.
+`perf` depth SHALL follow the reuse-or-create pattern the harness relies on: when the harness supplies an existing canary gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated perf-depth runs). This governs the two checks that would otherwise tear a gateway down: the platform-admin gateway-deletion check of P2.2 SHALL NOT run at short or perf depth, and P2.3 SHALL, at perf depth, exercise delete-driven GC against a throwaway gateway it creates, never against the supplied canary. Creating that throwaway gateway SHALL reuse the seeded `cluster_id` and `release_id`. The suite SHALL take cluster and release ids from the harness-supplied config when the performance harness provides them in-process, from the reused gateway's JSON when that gateway already exists, or by discovering them from the API when either is missing.
 
 #### Scenario: Perf Depth Throwaway Uses Seed Ids
 
@@ -1856,14 +1875,14 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 
 - GIVEN `E2E_MODE` is unset
 - WHEN the e2e suite runs
-- THEN it SHALL run every step of every area, the same as before mode selection existed
+- THEN it SHALL run every check of every phase step, the same as before mode selection existed
 
 #### Scenario: Short Mode Runs the Short Slice and Owns Its Gateway
 
 - GIVEN `E2E_MODE=short`
 - WHEN the e2e suite runs
-- THEN it SHALL run the `short`-tagged steps of every area and skip the `long`-only steps (for example the second sandbox and the full RBAC matrix)
-- AND it SHALL skip the developer RBAC area (area 9), running as a single identity without impersonation
+- THEN it SHALL run the `short`-tagged checks of every phase and skip the `long`-only checks (for example the second sandbox and the full RBAC matrix)
+- AND it SHALL skip the developer-RBAC check of P2.2, running as a single identity without impersonation
 - AND it SHALL delete the gateway it created and assert its namespace is garbage collected
 - AND it SHALL NOT seed the synthetic orphan namespace or mutate shared namespace-GC timing
 - AND it SHALL leave no gateway behind on any exit
@@ -1872,9 +1891,9 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 
 - GIVEN the performance harness runs `E2ESuite` at perf depth with a supplied canary gateway
 - WHEN the suite runs
-- THEN it SHALL run the `short`-tagged steps of every area and skip the `long`-only steps
+- THEN it SHALL run the `short`-tagged checks of every phase and skip the `long`-only checks
 - AND it SHALL reuse the supplied gateway and SHALL NOT delete it
-- AND it SHALL exercise the developer RBAC area (area 9)
+- AND it SHALL exercise the developer-RBAC check of P2.2
 
 #### Scenario: Invalid Mode Fails Fast
 
@@ -1884,7 +1903,7 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 
 ### Requirement: Functional Validation Under Load
 
-After the fleet is fully provisioned, the harness SHALL run the functional e2e suite (`E2ESuite`, in-process) against the target cluster as the final, comprehensive gate. Where the per-batch checkpoint runs the suite at perf depth (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), this phase runs it at long depth -- every step of all 14 areas -- to confirm the platform still works correctly while the large gateway fleet runs. The functional suite SHALL use a dedicated gateway name (`E2E_PERF_FUNCTIONAL_GATEWAY_NAME`, default `perf-e2e-gw`) so it does not collide with the perf fleet or the canary. The functional suite SHALL use the same resolved `E2EInfraDriver`. A failing functional suite SHALL fail the performance test.
+After the fleet is fully provisioned, the harness SHALL run the functional e2e suite (`E2ESuite`, in-process) against the target cluster as the final, comprehensive gate. Where the per-batch checkpoint runs the suite at perf depth (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)), this phase runs it at long depth -- every check of all phases -- to confirm the platform still works correctly while the large gateway fleet runs. The functional suite SHALL use a dedicated gateway name (`E2E_PERF_FUNCTIONAL_GATEWAY_NAME`, default `perf-e2e-gw`) so it does not collide with the perf fleet or the canary. The functional suite SHALL use the same resolved `E2EInfraDriver`. A failing functional suite SHALL fail the performance test.
 
 A user SHALL be able to skip the functional phase by setting `E2E_PERF_RUN_FUNCTIONAL=0`. This supports pure load measurement without the functional gate.
 
@@ -2189,13 +2208,13 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 
 | Decision | Rationale |
 |----------|-----------|
-| Go + `testify/suite` as the framework | The suite had outgrown shell: it needed structured assertions, real concurrency (perf fan-out, matrix fan-out), per-suite state instead of process-global counters, and direct use of the generated Go SDK and `client-go`. The former spec already named this as the natural follow-up and noted the driver contract is function-shape-agnostic, so it survives the port. `testify/suite` is chosen over bare `go test` for its `SetupSuite`/`TearDownSuite` lifecycle (one gateway shared across ordered areas, guaranteed teardown) and its `Require`/`Assert` split, and over heavier frameworks (Ginkgo) because it adds no new DSL or vocabulary for the team to learn |
+| Go + `testify/suite` as the framework | The suite had outgrown shell: it needed structured assertions, real concurrency (perf fan-out, matrix fan-out), per-suite state instead of process-global counters, and direct use of the generated Go SDK and `client-go`. The former spec already named this as the natural follow-up and noted the driver contract is function-shape-agnostic, so it survives the port. `testify/suite` is chosen over bare `go test` for its `SetupSuite`/`TearDownSuite` lifecycle (one gateway shared across ordered steps, guaranteed teardown) and its `Require`/`Assert` split, and over heavier frameworks (Ginkgo) because it adds no new DSL or vocabulary for the team to learn |
 | `E2EInfraDriver` is a Go interface with a name registry | Compile-time interface satisfaction replaces the Bash `declare -f` startup check -- an incomplete driver fails to build rather than failing at runtime. A name->constructor registry keeps driver selection (auto-detect or `E2E_INFRA_DRIVER`) a lookup, so a new target is a new file plus one registration, with no switch statement to edit |
-| Areas are ordered subtests of one suite, not independent tests | The 14 areas share mutable state (the provisioned gateway, tokens, endpoints) and must run in order. One `testify` suite with explicit ordering and `t.Run` subtests gives per-area visibility and `-run` targeting while keeping the shared setup in `SetupSuite`. Relying on `go test`'s default parallelism or testify's alphabetical ordering for these would be fragile |
+| Phase steps are subtests of one suite, in a fail-fast / parallel structure | The steps share setup state (tokens, endpoints, seeded ids), so one `testify` suite with shared `SetupSuite` keeps that state in one place and gives per-step `-run` targeting. Execution follows the dependency-ordered / parallel structure of the Concurrency Model: the serial preflight + bring-up gate (P0, P1) runs first and aborts fast on failure, the read-only P3 steps reuse the primary gateway as parallel subtests, and the mutating P2 steps each provision their own uniquely named gateway and fan out in parallel; strict phase order holds only at `E2E_CONCURRENCY=1`. Relying on testify's alphabetical ordering or unbounded `go test` parallelism would be fragile |
 | Bounded concurrency via `errgroup`, aggregated through channels/mutex | Go's motivation for the rewrite is concurrency, but unbounded fan-out would flood the API server and control plane. `errgroup.SetLimit` bounded by a single overarching `E2E_CONCURRENCY` (not a per-subsystem knob) caps in-flight work in both the perf harness and the matrix runner; a context-aware group cancels cleanly on timeout. Per-unit results flow through a synchronized aggregator, which removes the process-global counters and per-cluster child processes the Bash matrix needed |
 | Checkpoint and matrix runs invoke the suite in-process | The Bash perf harness and matrix shelled out to child suite processes to isolate global counters. With per-suite state in Go, the harness and matrix call `E2ESuite` in-process, reusing the same assertion code with no fork overhead and no second copy of any check |
 | `CommandRunner` preserves the demo-log behavior | The Bash `show_cmd` echoed `$ cmd` so a run doubled as a command demo. A Go `CommandRunner` keeps the echo (logging the equivalent command through `t.Log` before running) but has no pause: in the Go suites the value is the captured command log, not a timed playback. The paced `E2E_PAUSE` demo pause is kept where it is actually useful -- the retained Bash smoke script -- not in the Go suites |
-| Big-bang cutover of the functional/perf suites | Carrying two implementations of the full functional and performance suites invites drift and doubles CI time. The Go suite lands at parity across all 14 areas, the perf harness, and the matrix runner, and the Bash functional/perf suites plus the heavy `drivers/*.sh` contract are removed in the same change (see [Shell Suite Removal](#requirement-shell-suite-removal)). This is a cutover of the suites, not of all Bash: the browser suite and a thin smoke script are kept (next rows) |
+| Big-bang cutover of the functional/perf suites | Carrying two implementations of the full functional and performance suites invites drift and doubles CI time. The Go suite lands at parity across all phases (P0--P3), the perf harness, and the matrix runner, and the Bash functional/perf suites plus the heavy `drivers/*.sh` contract are removed in the same change (see [Shell Suite Removal](#requirement-shell-suite-removal)). This is a cutover of the suites, not of all Bash: the browser suite and a thin smoke script are kept (next rows) |
 | Browser suite stays Bash | `e2e-console.sh` drives headless Chromium through `agent-browser`; a Go port would reimplement that harness for no concurrency benefit. It keeps consuming the slim retained `lib.sh` infra selection and `deploy/` structure |
 | Bash smoke script retained for the interaction story | The team values a Bash artifact that shows the user-interaction story -- the literal commands a user types -- which a Go `t.Log` stream conveys less vividly. A thin `smoke.sh` (`make e2e-smoke`) keeps `show_cmd`-style command echo and the `E2E_PAUSE` demo pause for the happy path. It is a demonstration and lightweight sanity check, deliberately non-authoritative (the Go short mode is the gate), so it carries a tiny Bash surface without reintroducing a second full suite. It shares the slim `lib.sh` with the browser suite rather than the removed driver contract |
 | `E2E_INFRA_DRIVER` is auto-detected from the KUBECONFIG context, with an explicit override | `route.openshift.io` is a reliable, cheap signal for OpenShift, so a developer running against whichever cluster their context selects does not need to remember to set a flag. CI still sets `E2E_INFRA_DRIVER=kind` explicitly so the invocation stays self-documenting and does not depend on the runner's kubeconfig |
@@ -2215,7 +2234,7 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | Performance test runs the e2e suite for functional validation | The user requirement is "spin up a ton of gateways, then confirm things still function." The e2e suite already validates the full functional path (provisioning, connectivity, sandbox lifecycle, RBAC, GC) and exits non-zero on any failure. Running it while the perf fleet is up proves the platform still works correctly under load, without duplicating functional assertions in the perf harness |
 | Bounded concurrency for scale-up and teardown | Creating hundreds of gateways at once would flood the API server and control plane and would not model a realistic ramp. `E2E_CONCURRENCY` caps in-flight operations so the client applies steady, controllable load and the harness itself does not become the bottleneck |
 | Batched scale-up with per-batch checkpoints | Provisioning all N gateways and validating once at the end hides the scale at which a problem first appears. Adding gateways in batches of `E2E_PERF_BATCH_SIZE` (5--10) and running the e2e suite in perf mode after each batch produces a time series (count vs latency, count vs pass/fail), so a regression is pinned to a scale and the results file is written incrementally. Optional early-stop reports the breaking scale instead of pushing to a guaranteed failure. The suite runs once in long mode at the end as the comprehensive gate |
-| Short vs long mode by step tag, not area selector | The quick checks need to touch every area but stay fast. Tagging each step `short` or `long` (rather than selecting whole areas by name) lets the quick modes (`short` and `perf`) run a slice of each portion of the test -- the essential path of every area -- while long mode runs everything. Both depths execute the same assertion code in `E2ESuite`, so there is one copy of each check and the incremental signal is trustworthy. `E2E_MODE` defaults to `long`, so CI and the final run are unchanged |
+| Short vs long depth by per-check tag, not phase selector | The quick checks need to touch every phase but stay fast. Tagging each check `short` or `long` (rather than selecting whole phases) lets the quick depths (`short` and `perf`) run a slice of each portion of the test -- the essential path of every phase -- while long runs everything. Both depths execute the same assertion code in `E2ESuite`, so there is one copy of each check and the incremental signal is trustworthy. `E2E_MODE` defaults to `long`, so CI and the final run are unchanged |
 | Dedicated canary gateway for the mini test | The perf checkpoint needs a stable target it can reuse across batches without re-paying gateway provisioning and per-gateway OIDC role setup each time. A single canary gateway, provisioned once with its role granted once, is passed via `E2E_GATEWAY_NAME`; perf mode does not delete a supplied gateway, so the canary survives repeated runs. The canary is kept separate from the counted fleet so its own lifecycle is unaffected by fleet churn and it is not double-counted in scale metrics |
 | Deterministic gateway names + reuse-or-create | Naming perf gateways `<prefix>-<index>` makes a run idempotent and makes cleanup a simple prefix match. This follows the repo-wide "reconcile, don't create-or-skip" convention and lets a developer re-run the test without accumulating duplicate fleets |
 | SLO gating is optional and off by default | A plain run should just report metrics so a developer can explore capacity. Gating (`E2E_PERF_MIN_SUCCESS_RATE`, `E2E_PERF_MAX_PROVISION_P99`) is opt-in so a manual or on-demand run can fail on a regression without forcing thresholds on every local run |
