@@ -50,12 +50,12 @@ as new specifications.
 
 ### Step 4: Reconcile Specifications
 
-Execute the skills/build/reconcile skill against the specification changes identified in Step 2.
+Execute the [reconcile skill](../../build/reconcile/SKILL.md) against the specification changes identified in Step 3.
 
 
 ### Step 5: Review Changes
 
-Execute the skills/review/amber-review skill against the implementation produced by Step 3.
+Execute the [amber-review skill](../../review/amber-review/SKILL.md) against the implementation produced by Step 4.
 
 If the review produces findings:
 - Return to Step 4 and address the findings
