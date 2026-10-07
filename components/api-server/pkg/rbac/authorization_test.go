@@ -468,6 +468,63 @@ func TestIsAuthorized_ManagedInventoryListRequiresDashboardOperatorOrCreator(t *
 	}
 }
 
+func TestAuthorizeApi_ManagedClustersListRequiresDashboardOperator(t *testing.T) {
+	tests := []struct {
+		name       string
+		bindings   []BindingSummary
+		wantReach  bool
+		wantStatus int
+	}{
+		{
+			name: "platform admin reaches the list handler",
+			bindings: []BindingSummary{
+				{RoleName: "platform:admin", Scope: "global"},
+			},
+			wantReach:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "caller without dashboard-operator access is denied",
+			bindings:   nil,
+			wantReach:  false,
+			wantStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			middleware := NewRBACAuthzMiddleware(
+				authorizationLookup{bindings: test.bindings},
+				AuthzConfig{EnforceRBAC: true},
+				nil,
+				nil,
+			)
+			reached := false
+			router := mux.NewRouter()
+			router.Handle("/api/hypershell/v1/managed_clusters", middleware.AuthorizeApi(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				reached = true
+				w.WriteHeader(http.StatusOK)
+			}))).Methods(http.MethodGet)
+
+			request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/managed_clusters", nil)
+			token := &jwt.Token{Claims: jwt.MapClaims{
+				"preferred_username": "dashboard-operator",
+			}}
+			ctx := context.WithValue(request.Context(), ContextUserIDKey, "dashboard-operator")
+			ctx = context.WithValue(ctx, auth.ContextAuthKey, token)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request.WithContext(ctx))
+
+			if reached != test.wantReach {
+				t.Fatalf("handler reached = %t, want %t", reached, test.wantReach)
+			}
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d", recorder.Code, test.wantStatus)
+			}
+		})
+	}
+}
+
 func TestExtractResourceInfoFromPath_Users(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/hypershell/v1/users/user-1", nil)
 	resource, resourceID := extractResourceInfo(request)

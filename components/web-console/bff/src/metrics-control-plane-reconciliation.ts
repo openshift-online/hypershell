@@ -1,26 +1,23 @@
 import { fetchMetrics, type MetricsSource } from "./metrics-source.js";
 import {
-  fiveMinuteRangeStepSeconds,
   formatHourLabel,
-  formatMinuteLabel,
   hourlyRangeStepSeconds,
   queryPrometheusRangeScalarSamples,
-  rollingFiveMinuteRange,
   rollingHourlyRange,
 } from "./prometheus-range-query.js";
 
 export const reconciliationFailureCountPromql =
   "sum(increase(hypershell_reconciliation_failures_total[24h]))";
 export const reconciliationFailureHourlyCountPromql =
-  "sum(increase(hypershell_reconciliation_failures_total[5m]))";
+  "sum(increase(hypershell_reconciliation_failures_total[1h]))";
 export const reconciliationRetryCountPromql =
   "sum(increase(hypershell_reconciliation_retries_total[24h]))";
 export const reconciliationRetryHourlyCountPromql =
-  "sum(increase(hypershell_reconciliation_retries_total[5m]))";
+  "sum(increase(hypershell_reconciliation_retries_total[1h]))";
 export const reconciliationSuccessCountPromql =
   'sum(increase(reconcile_outcomes_total{outcome="success"}[24h]))';
 export const reconciliationSuccessHourlyCountPromql =
-  'sum(increase(reconcile_outcomes_total{outcome="success"}[5m]))';
+  'sum(increase(reconcile_outcomes_total{outcome="success"}[1h]))';
 export const reconciliationLagP50SecondsPromql =
   "histogram_quantile(0.50, sum(rate(hypershell_reconciliation_lag_seconds_bucket[5m])) by (le))";
 export const staleResourceStatusCountPromql =
@@ -126,40 +123,6 @@ function mapHourly(samples: Map<number, number>): ReconciliationHourlyPoint[] {
     .map(([timestamp, value]) => ({ hour: formatHourLabel(timestamp), value }));
 }
 
-function mapFiveMinute(
-  samples: Map<number, number>,
-): ReconciliationHourlyPoint[] {
-  return [...samples.entries()]
-    .sort(([left], [right]) => left - right)
-    .filter(([, value]) => Number.isFinite(value) && value >= 0)
-    .map(([timestamp, value]) => ({
-      hour: formatMinuteLabel(timestamp),
-      value,
-    }));
-}
-
-async function optionalFiveMinute(
-  source: MetricsSource,
-  query: string,
-  timeoutMs: number,
-): Promise<ReconciliationHourlyPoint[] | undefined> {
-  try {
-    const { start, end } = rollingFiveMinuteRange();
-    const samples = await queryPrometheusRangeScalarSamples(
-      source,
-      query,
-      start,
-      end,
-      String(fiveMinuteRangeStepSeconds),
-      timeoutMs,
-    );
-    const result = mapFiveMinute(samples);
-    return result.length > 0 ? result : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 async function optionalHourly(
   source: MetricsSource,
   query: string,
@@ -211,17 +174,9 @@ export async function queryControlPlaneReconciliation(
     failuresByReason,
     retriesByReason,
   ] = await Promise.all([
-    optionalFiveMinute(
-      source,
-      reconciliationFailureHourlyCountPromql,
-      timeoutMs,
-    ),
-    optionalFiveMinute(source, reconciliationRetryHourlyCountPromql, timeoutMs),
-    optionalFiveMinute(
-      source,
-      reconciliationSuccessHourlyCountPromql,
-      timeoutMs,
-    ),
+    optionalHourly(source, reconciliationFailureHourlyCountPromql, timeoutMs),
+    optionalHourly(source, reconciliationRetryHourlyCountPromql, timeoutMs),
+    optionalHourly(source, reconciliationSuccessHourlyCountPromql, timeoutMs),
     optionalHourly(source, reconciliationLagP50SecondsPromql, timeoutMs),
     optionalHourly(source, staleResourceStatusCountPromql, timeoutMs),
     queryReasonBreakdown(

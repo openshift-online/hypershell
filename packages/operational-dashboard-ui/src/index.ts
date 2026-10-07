@@ -14,6 +14,7 @@ export type {
   DashboardProbeName,
   DashboardProbeOutcome,
   DashboardProbePublisher,
+  DashboardTimeRange,
   DashboardWorkflowAction,
   DashboardWorkflowRuntime,
   OperationalDashboardMetrics,
@@ -46,4 +47,13 @@ export {
   ReliabilityDashboardPage,
   type ReliabilityDashboardPageProps,
 } from "./pages/reliability-dashboard-page";
+export {
+  ProvisioningDashboardPage,
+  type ProvisioningDashboardPageProps,
+} from "./pages/provisioning-dashboard-page";
+export {
+  PlatformInventoryDashboardPage,
+  type PlatformInventoryDashboardPageProps,
+} from "./pages/platform-inventory-dashboard-page";
+export { useGetMetricsData } from "./pages/get-metrics-data";
 export { messages as dashboardMessages } from "./messages";

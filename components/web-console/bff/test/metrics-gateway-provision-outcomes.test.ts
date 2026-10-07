@@ -11,8 +11,10 @@ import {
   gatewayProvisionDurationCountHourlyPromql,
   gatewayProvisionDurationCountLifetimePromql,
   gatewayProvisionOutcomesFailure24hPromql,
+  gatewayProvisionOutcomesFailureDailyPromql,
   gatewayProvisionOutcomesFailureHourlyPromql,
   gatewayProvisionOutcomesSuccess24hPromql,
+  gatewayProvisionOutcomesSuccessDailyPromql,
   gatewayProvisionOutcomesSuccessHourlyPromql,
   queryGatewayProvisionOutcomes,
 } from "../src/metrics-gateway-provision-outcomes.js";
@@ -95,6 +97,24 @@ describe("queryGatewayProvisionOutcomes", () => {
         );
         return;
       }
+      if (query === gatewayProvisionOutcomesSuccessDailyPromql) {
+        response.end(
+          prometheusRangeSample([
+            ["1704067200", "4"],
+            ["1704153600", "5"],
+          ]),
+        );
+        return;
+      }
+      if (query === gatewayProvisionOutcomesFailureDailyPromql) {
+        response.end(
+          prometheusRangeSample([
+            ["1704067200", "1"],
+            ["1704153600", "0"],
+          ]),
+        );
+        return;
+      }
 
       response.statusCode = 400;
       response.end();
@@ -106,6 +126,10 @@ describe("queryGatewayProvisionOutcomes", () => {
         5_000,
       );
       expect(outcomes).toEqual({
+        daily_success_rate: [
+          { date: "2024-01-01", success_rate_percent: 80 },
+          { date: "2024-01-02", success_rate_percent: 100 },
+        ],
         failure_count_24h: 1,
         hourly_success_rate: [
           {
@@ -151,6 +175,13 @@ describe("queryGatewayProvisionOutcomes", () => {
         response.end(prometheusRangeSample([]));
         return;
       }
+      if (
+        query === gatewayProvisionOutcomesSuccessDailyPromql ||
+        query === gatewayProvisionOutcomesFailureDailyPromql
+      ) {
+        response.end(prometheusRangeSample([]));
+        return;
+      }
 
       response.statusCode = 400;
       response.end();
@@ -162,6 +193,7 @@ describe("queryGatewayProvisionOutcomes", () => {
         5_000,
       );
       expect(outcomes).toEqual({
+        daily_success_rate: [],
         failure_count_24h: 0,
         hourly_success_rate: [],
         success_count_24h: 0,
@@ -202,6 +234,13 @@ describe("queryGatewayProvisionOutcomes", () => {
         response.end(prometheusRangeSample([]));
         return;
       }
+      if (
+        query === gatewayProvisionOutcomesSuccessDailyPromql ||
+        query === gatewayProvisionOutcomesFailureDailyPromql
+      ) {
+        response.end(prometheusRangeSample([]));
+        return;
+      }
 
       response.statusCode = 400;
       response.end();
@@ -213,6 +252,7 @@ describe("queryGatewayProvisionOutcomes", () => {
         5_000,
       );
       expect(outcomes).toEqual({
+        daily_success_rate: [],
         failure_count_24h: 0,
         hourly_success_rate: [
           {

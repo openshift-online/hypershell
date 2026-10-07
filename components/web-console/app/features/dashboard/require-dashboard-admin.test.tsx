@@ -13,9 +13,14 @@ vi.mock("../../composition/session-composition", () => ({
   sessionGateway: { getSession: getSessionMock },
 }));
 
-import { RequireDashboardAdmin } from "./require-dashboard-admin";
+import {
+  RequireAuthenticatedDashboard,
+  RequireDashboardAdmin,
+} from "./require-dashboard-admin";
 
-function renderGuard() {
+function renderGuard(
+  Guard: typeof RequireDashboardAdmin | typeof RequireAuthenticatedDashboard,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -23,9 +28,9 @@ function renderGuard() {
   return render(
     <IntlProvider locale="en" messages={englishMessages}>
       <QueryClientProvider client={queryClient}>
-        <RequireDashboardAdmin>
+        <Guard>
           <div data-testid="dashboard-content" />
-        </RequireDashboardAdmin>
+        </Guard>
       </QueryClientProvider>
     </IntlProvider>,
   );
@@ -43,7 +48,19 @@ describe("RequireDashboardAdmin", () => {
       roles: [],
     });
 
-    renderGuard();
+    renderGuard(RequireDashboardAdmin);
+
+    expect(await screen.findByTestId("dashboard-content")).toBeTruthy();
+  });
+
+  it("renders the authenticated dashboard for every authenticated user", async () => {
+    getSessionMock.mockResolvedValue({
+      authenticated: true,
+      authEnabled: true,
+      roles: ["hypershell-users"],
+    });
+
+    renderGuard(RequireAuthenticatedDashboard);
 
     expect(await screen.findByTestId("dashboard-content")).toBeTruthy();
   });
@@ -55,7 +72,7 @@ describe("RequireDashboardAdmin", () => {
       roles: [],
     });
 
-    renderGuard();
+    renderGuard(RequireDashboardAdmin);
 
     expect(
       await screen.findByRole("heading", { name: "Access denied" }),
@@ -70,7 +87,7 @@ describe("RequireDashboardAdmin", () => {
       roles: ["hypershell-admins"],
     });
 
-    renderGuard();
+    renderGuard(RequireDashboardAdmin);
 
     expect(
       await screen.findByRole("heading", { name: "Access denied" }),
@@ -85,7 +102,7 @@ describe("RequireDashboardAdmin", () => {
       roles: ["platform:admin"],
     });
 
-    renderGuard();
+    renderGuard(RequireDashboardAdmin);
 
     expect(await screen.findByTestId("dashboard-content")).toBeTruthy();
   });
@@ -97,7 +114,7 @@ describe("RequireDashboardAdmin", () => {
       roles: ["hypershell-users"],
     });
 
-    renderGuard();
+    renderGuard(RequireDashboardAdmin);
 
     expect(
       await screen.findByRole("heading", { name: "Access denied" }),

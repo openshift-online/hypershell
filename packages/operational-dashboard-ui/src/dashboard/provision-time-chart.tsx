@@ -1,3 +1,4 @@
+/* eslint-disable formatjs/no-literal-string-in-jsx */
 import {
   Content,
   DescriptionList,
@@ -12,6 +13,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 
 import type { OperationalMetric } from "../application/dashboard-types";
 import { messages } from "../messages";
+import { TrendSparklineChart } from "./trend-sparkline-chart";
 import {
   formatProvisionDurationValue,
   parseProvisionDurationStats,
@@ -62,6 +64,21 @@ export function ProvisionTimeChart({
           ))}
         </DescriptionList>
       </StackItem>
+      {metric.provisionDuration?.p50Trend &&
+      metric.provisionDuration.p95Trend ? (
+        <StackItem>
+          <TrendSparklineChart
+            caption="Selected range - daily duration"
+            trend={metric.provisionDuration.p50Trend}
+            title="P50"
+          />
+          <TrendSparklineChart
+            caption=""
+            trend={metric.provisionDuration.p95Trend}
+            title="P95"
+          />
+        </StackItem>
+      ) : null}
       <StackItem>
         <Content
           component="p"

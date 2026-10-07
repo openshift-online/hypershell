@@ -42,10 +42,10 @@ export function ProvisionReliabilityChart({
     metric.provisionOutcomes?.successCountWindow,
   );
   const subtitle = intl.formatMessage(windowCaptionMessage);
-  const sparklineTitle = intl.formatMessage(
-    messages.provisionReliabilityHourlySuccessRate,
-  );
-  const sparklineCaption = intl.formatMessage(windowCaptionMessage);
+  const sparklineTitle = "Daily success rate";
+  const sparklineCaption = intl.formatMessage(messages.trendLastDays, {
+    days: metric.successRateTrend?.points.length ?? 0,
+  });
 
   return (
     <Stack hasGutter className="hypershell-dashboard-provision-reliability">

@@ -28,7 +28,8 @@ func RegisterManagedClusterMetrics(dao ManagedClusterDao) {
 type managedClusterInventoryCollector struct {
 	dao             ManagedClusterDao
 	totalDesc       *prometheus.Desc
-	createdDesc     *prometheus.Desc
+	created7Desc    *prometheus.Desc
+	created30Desc   *prometheus.Desc
 	dimensionedDesc *prometheus.Desc
 }
 
@@ -41,7 +42,13 @@ func newManagedClusterInventoryCollector(dao ManagedClusterDao) *managedClusterI
 			nil,
 			nil,
 		),
-		createdDesc: prometheus.NewDesc(
+		created7Desc: prometheus.NewDesc(
+			prometheus.BuildFQName(metricsNamespace, metricsSubsystem, "created_last_7_days_total"),
+			"Managed clusters created in the last 7 days.",
+			nil,
+			nil,
+		),
+		created30Desc: prometheus.NewDesc(
 			prometheus.BuildFQName(metricsNamespace, metricsSubsystem, "created_last_30_days_total"),
 			"Managed clusters created in the last 30 days.",
 			nil,
@@ -58,7 +65,8 @@ func newManagedClusterInventoryCollector(dao ManagedClusterDao) *managedClusterI
 
 func (c *managedClusterInventoryCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.totalDesc
-	ch <- c.createdDesc
+	ch <- c.created7Desc
+	ch <- c.created30Desc
 	ch <- c.dimensionedDesc
 }
 
@@ -84,7 +92,12 @@ func (c *managedClusterInventoryCollector) Collect(ch chan<- prometheus.Metric) 
 
 	ch <- prometheus.MustNewConstMetric(c.totalDesc, prometheus.GaugeValue, float64(total))
 	ch <- prometheus.MustNewConstMetric(
-		c.createdDesc,
+		c.created7Desc,
+		prometheus.GaugeValue,
+		float64(snapshot.CreatedLast7Days),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.created30Desc,
 		prometheus.GaugeValue,
 		float64(snapshot.CreatedLast30Days),
 	)

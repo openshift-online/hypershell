@@ -1,4 +1,4 @@
-import { ChartDonut } from "@patternfly/react-charts/victory";
+import { ChartDonut, ChartLegend } from "@patternfly/react-charts/victory";
 import { useEffect, useRef, useState } from "react";
 
 import type {
@@ -127,6 +127,7 @@ export function StatusDonutChart({
         height={chartHeight}
         labels={({ datum }: { datum: StatusDonutDatum }) => dataLabel(datum)}
         legendData={[...legendData]}
+        legendComponent={<ChartLegend rowGutter={4} />}
         legendOrientation="vertical"
         legendPosition="right"
         padding={chartPadding}
