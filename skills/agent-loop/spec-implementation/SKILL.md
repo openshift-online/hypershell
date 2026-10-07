@@ -23,14 +23,14 @@ Supported arguments:
 ### Step 1: Read Issue
 
 Using the GitHub API, fetch the issue title & body of `$GITHUB_ISSUE_URL`.
-Identify whether there is an existing pull request associated with this issue, 
+Identify whether there is an existing pull request associated with this issue,
 and whether a Jira issue is mentioned in the issue body or title (eg. HYPERSHELL-000).
 
 Output: (`$ISSUE_CONTENT`, `$ISSUE_NUMBER`, `$EXISTING_PR`[NULL or string], `$JIRA_ISSUE`[NULL or string])
 
 ### Step 2: Write and/or Update Specifications
 
-Read the [spec skill](skills/plan/spec/SKILL.md). 
+Read the [spec skill](../../plan/spec/SKILL.md).
 
 In a new work tree (in a new directory), follow its workflow to codify the intent of `$ISSUE_CONTENT` in specifications.
 
@@ -46,7 +46,7 @@ ELSE:
 - Create a new branch for the issue of form `agent/work/issue/($JIRA_ISSUE ?? $ISSUE_NUMBER)`
 - Push to branch
 - Open Pull Request, link it to the issue
-- PR Body must conform to SIMPLIFIED TECHNICAL ENGLISH STANDARD.
+- PR Body must conform to [SIMPLIFIED TECHNICAL ENGLISH STANDARD](https://en.wikipedia.org/wiki/Simplified_Technical_English).
 
 ### Step 4: Update Issue State
 

@@ -25,7 +25,7 @@ Supported arguments:
 
 Fetch `$GITHUB_ISSUE_URL` and fully read its title and body.
 
-Discover the linked pull request. 
+Discover the linked pull request.
 
 If no linked pull request:
 - apply label `agent/blocked` to `$GITHUB_ISSUE_URL` (_Note: If the label does not exist, create it._)
@@ -55,7 +55,7 @@ Execute the skills/build/reconcile skill against the specification changes ident
 
 ### Step 5: Review Changes
 
-Execute the skills/review/amber-review skill against the implementation produced by Step 3. 
+Execute the skills/review/amber-review skill against the implementation produced by Step 3.
 
 If the review produces findings:
 - Return to Step 4 and address the findings

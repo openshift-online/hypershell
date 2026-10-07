@@ -33,7 +33,7 @@ Output: `$LIST_OF_ISSUES`
 ### Step 2: Classify Issues
 
 According to the criteria listed below, determine the classification each issue in `$LIST_OF_ISSUES`.
-It MUST be one of the following: 
+It MUST be one of the following:
 
 - `agent/duplicate`
 Definition: This issue is duplicated by an issue in `$LIST_OF_ISSUES` and contains equal or lesser clarity of intent. This issue will be closed.
