@@ -205,6 +205,17 @@ func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, inp
 	}
 	defer release()
 
+	// A grant that converges an existing owner is a change, not a fresh grant
+	// (GAM-10): re-run owner-tier gating under the lock now that the target's
+	// current tier is known, so an admin cannot demote or alter an owner (GAM-08).
+	current, aerr := s.userTier(ctx, targetUserID, gatewayID)
+	if aerr != nil {
+		return GrantItem{}, aerr
+	}
+	if aerr := s.authorizeManage(ctx, callerUserID, gatewayID, input.Role, current); aerr != nil {
+		return GrantItem{}, aerr
+	}
+
 	// A grant that converges an existing owner to a lower tier is a change
 	// (GAM-10); apply last-owner protection.
 	if aerr := s.guardLastOwner(ctx, gatewayID, targetUserID, input.Role); aerr != nil {

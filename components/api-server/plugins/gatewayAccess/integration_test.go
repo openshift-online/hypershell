@@ -191,6 +191,23 @@ func TestGrant_AdminCanGrantUser(t *testing.T) {
 	Expect(item.Role).To(Equal(gatewayAccess.TierUser))
 }
 
+// A Grant that targets a user who is already an owner is a change, not a fresh
+// grant; an admin must not be able to use it to demote or alter an owner (GAM-08).
+func TestGrant_AdminCannotDemoteOwner(t *testing.T) {
+	test.RegisterIntegration(t)
+	defer gatewayAccess.SetDirectoryResolver(nil)
+	gw := "gw-admin-nodemote-owner"
+	seed(t, gw, "owner-dm", roles.RoleGatewayOwner)  // existing owner (target)
+	seed(t, gw, "owner-dm2", roles.RoleGatewayOwner) // second owner, so last-owner guard is not the cause
+	admin := seed(t, gw, "admin-dm", roles.RoleGatewayAdmin)
+
+	dir := realm(gatewayAccess.DirectoryUser{Username: "owner-dm", Name: "Owner DM"})
+	svc := accessSvc(dir)
+	_, aerr := svc.Grant(context.Background(), gw, admin, gatewayAccess.GrantInput{Username: "owner-dm", Role: gatewayAccess.TierUser})
+	Expect(aerr).NotTo(BeNil())
+	Expect(aerr.Status).To(Equal(http.StatusForbidden))
+}
+
 func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
