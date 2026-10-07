@@ -55,7 +55,7 @@ For each issue in `$ISSUE_TO_CLASSIFICATION_MAP`, execute actions according to t
 _Note: If the label does not exist, create it._
 
 - `agent/duplicate`
-Action: Label the issue as `agent/duplicate`. Then, close the label.
+Action: Label the issue as `agent/duplicate`. Then, close the issue.
 
 - `agent/deferred`
 Action: Label the issue as `agent/deferred`.
