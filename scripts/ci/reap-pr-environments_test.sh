@@ -21,14 +21,23 @@ DELETED="${workdir}/deleted.txt"
 
 # Canned namespace table the stub returns for `get namespaces` with the owned
 # label. Columns: name<TAB>owned<TAB>environment<TAB>expires-at. Covers: expired
-# PR pair (reap both halves), active PR (future expiry, retain), local
-# openshift-up env (uuid id, retain), and an unlabeled-ish foreign env.
+# PR pair (reap both halves), active PR (future expiry, retain), an expired
+# owned hypershell-ci- namespace with an odd-shaped env id (env id is purely
+# descriptive and does not block reaping), an unprefixed foreign env that is
+# never reapable regardless of its labels, an expired push-to-main pair, an
+# expired merge-queue pair, and a not-yet-expired push-to-main pair (the short
+# 4h main/mq backstop, retained until then).
 cat > "${workdir}/rows.tsv" <<EOF
 hypershell-ci-pr-232	true	pr-232	${PAST}
 hypershell-ci-pr-232-keycloak	true	pr-232	${PAST}
 hypershell-ci-pr-999	true	pr-999	${FUTURE}
 hypershell-ci-pr-500	true	3f9a1c2e-uuid	${PAST}
 some-dev-namespace	true	pr-1	${PAST}
+hypershell-ci-main-47cb021	true	main-47cb021	${PAST}
+hypershell-ci-main-47cb021-keycloak	true	main-47cb021	${PAST}
+hypershell-ci-mq-404254f	true	mq-404254f	${PAST}
+hypershell-ci-mq-404254f-keycloak	true	mq-404254f	${PAST}
+hypershell-ci-main-aaaaaaa	true	main-aaaaaaa	${FUTURE}
 EOF
 
 # Control-plane-managed siblings. pr-232 is being reaped this pass; pr-267's
@@ -55,6 +64,12 @@ openshell-db-bbb
 openshell-ccc
 openshell-hyp5
 openshell-alice
+hypershell-ci-main-47cb021
+hypershell-ci-main-47cb021-keycloak
+hypershell-ci-mq-404254f
+hypershell-ci-mq-404254f-keycloak
+hypershell-ci-main-aaaaaaa
+hypershell-ci-main-aaaaaaa-keycloak
 EOF
 
 # Stub kubectl: owned list vs control-plane managed list vs existence vs delete.
@@ -104,7 +119,7 @@ chmod +x "${workdir}/kubectl"
 PR_ENV_KUBECTL="${workdir}/kubectl" bash "${SCRIPT_DIR}/reap-pr-environments.sh" >/dev/null
 
 deleted_sorted="$(sort -u "${DELETED}" | tr '\n' ' ')"
-expected='hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak openshell-aaa openshell-ccc openshell-db-bbb '
+expected='hypershell-ci-main-47cb021 hypershell-ci-main-47cb021-keycloak hypershell-ci-mq-404254f hypershell-ci-mq-404254f-keycloak hypershell-ci-pr-232 hypershell-ci-pr-232-keycloak hypershell-ci-pr-500 openshell-aaa openshell-ccc openshell-db-bbb '
 if [[ "${deleted_sorted}" == "${expected}" ]]; then
   PASS=$((PASS + 1))
 else

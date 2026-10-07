@@ -13,6 +13,12 @@
 # --- Ownership labels + timebox annotation (must match the OpenShift lifecycle
 # driver in scripts/cluster/drivers/openshift.sh so status and cleanup tooling
 # stay one selector set). ---
+# Common prefix for every ephemeral CI-owned namespace the reaper may ever
+# delete (pull request, push-to-main, or merge-queue). A local
+# `make openshift-up` namespace never carries this prefix, so it plus the
+# owned label and a past expires-at is the whole reapability contract;
+# pr_env_is_reapable does not also validate which CI namespace kind it is.
+PR_ENV_CI_NS_PREFIX="hypershell-ci-"
 PR_ENV_NS_PREFIX="hypershell-ci-pr-"
 # Push-to-main environments are per-commit so a cancelled older run's
 # teardown cannot delete a newer deploy's namespace. The 7-char short SHA
@@ -53,6 +59,13 @@ PR_ENV_CP_INSTANCE_LABEL="hypershell.redhat.io/instance"
 # In-run teardown is the primary path; this is what the reaper uses if that
 # teardown does not complete. Overridden by vars.PR_ENV_UNRETAINED_MAX_HOURS.
 : "${PR_ENV_UNRETAINED_MAX_HOURS:=24}"
+# Default max lifetime in hours for a push-to-main or merge-queue deploy.
+# These are never retained and nobody reviews them the way a pull request is
+# reviewed, so the backstop is intentionally much shorter than the PR one: the
+# in-run teardown is expected to always run, and the reaper exists only to
+# catch a crashed or skipped teardown, not to give the environment a lifetime.
+# Overridden by vars.PR_ENV_MAIN_MQ_MAX_HOURS.
+: "${PR_ENV_MAIN_MQ_MAX_HOURS:=4}"
 
 # Durable cache of the latest authorized /pr-extend vs /pr-destroy decision.
 # The pull request's command history is authoritative; this label is a cache
@@ -112,6 +125,23 @@ pr_env_keycloak_namespace() {
 # environments from local `make openshift-up` environments (opaque ids).
 pr_env_environment_id() {
   printf 'pr-%s' "$1"
+}
+
+# pr_env_main_environment_id <commit-sha> -> the environment identifier
+# stamped on a push-to-main namespace group. Distinct prefix from pr-<number>
+# and mq-<sha> so pr_env_is_reapable can tell the three namespace kinds apart.
+pr_env_main_environment_id() {
+  local short_sha
+  short_sha="$(pr_env_short_sha "$1")" || return 1
+  printf 'main-%s' "${short_sha}"
+}
+
+# pr_env_merge_queue_environment_id <commit-sha> -> the environment identifier
+# stamped on a merge-queue-entry namespace group.
+pr_env_merge_queue_environment_id() {
+  local short_sha
+  short_sha="$(pr_env_short_sha "$1")" || return 1
+  printf 'mq-%s' "${short_sha}"
 }
 
 # pr_env_is_reserved_namespace <name> - true for cluster-reserved namespaces the
@@ -175,6 +205,13 @@ pr_env_inactivity_expires_at() {
   else
     pr_env_expires_at_hours "${PR_ENV_UNRETAINED_MAX_HOURS}" "${2:-}"
   fi
+}
+
+# pr_env_main_mq_expires_at [now-epoch] -> RFC 3339 UTC expiry for a
+# push-to-main or merge-queue deploy, using PR_ENV_MAIN_MQ_MAX_HOURS.
+# now-epoch is injectable for deterministic tests.
+pr_env_main_mq_expires_at() {
+  pr_env_expires_at_hours "${PR_ENV_MAIN_MQ_MAX_HOURS}" "${1:-}"
 }
 
 # pr_env_command_from_body <body> -> "extend", "destroy", or empty.
@@ -248,34 +285,36 @@ EOF
 #
 # The single reaper match predicate (Timebox and Reaping requirement). Returns 0
 # (delete this namespace group) only when ALL hold:
-#   - name is prefixed hypershell-ci-pr-
-#   - name is not a reserved cluster namespace
+#   - name is prefixed hypershell-ci- (and not a reserved cluster namespace)
 #   - hypershell.redhat.io/owned == true
-#   - hypershell.redhat.io/environment == pr-<number>
 #   - hypershell.redhat.io/expires-at is present, parseable, and has passed
-# Anything else (local openshift-up envs, unlabeled namespaces, an env id that is
-# not pr-*, a still-in-the-future or missing expiry) is retained. Because every
-# deploying run refreshes expires-at, an actively worked pull request never
-# satisfies the expiry clause and is never reaped mid-flight.
+# Anything else (local openshift-up envs, unlabeled namespaces, a still-in-the-
+# future or missing expiry) is retained. A local `make openshift-up` namespace
+# never carries the hypershell-ci- prefix, so the prefix plus ownership plus
+# expiry is the whole safety boundary; env-id is not consulted here; it is
+# purely descriptive (pr-<number>, main-<sha>, or mq-<sha>) for logs and for
+# pr_env_should_reap_instance_workload. Because every deploying run refreshes
+# expires-at, an actively worked pull request never satisfies the expiry
+# clause and is never reaped mid-flight.
 pr_env_is_reapable() {
   local name="$1" owned="$2" env_id="$3" expires_at="$4"
   local now="${5:-$(pr_env_now_epoch)}"
-  [[ "${name}" == "${PR_ENV_NS_PREFIX}"* ]] || return 1
   if pr_env_is_reserved_namespace "${name}"; then
     return 1
   fi
+  [[ "${name}" == "${PR_ENV_CI_NS_PREFIX}"* ]] || return 1
   [[ "${owned}" == "true" ]] || return 1
-  [[ "${env_id}" =~ ^pr-[0-9]+$ ]] || return 1
   local exp
   exp="$(pr_env_rfc3339_to_epoch "${expires_at}")" || return 1
   [[ -n "${exp}" ]] || return 1
   (( now >= exp ))
 }
 
-# pr_env_is_pr_platform_namespace <name> - true for hypershell-ci-pr-<digits>
-# only, not the companion -keycloak namespace.
+# pr_env_is_pr_platform_namespace <name> - true for an ephemeral CI platform
+# namespace (anything prefixed hypershell-ci-) only, not the companion
+# -keycloak namespace.
 pr_env_is_pr_platform_namespace() {
-  [[ "$1" =~ ^hypershell-ci-pr-[0-9]+$ ]]
+  [[ "$1" == "${PR_ENV_CI_NS_PREFIX}"* && "$1" != *-keycloak ]]
 }
 
 # pr_env_should_reap_instance_workload <workload-ns> <instance> <platform-exists>

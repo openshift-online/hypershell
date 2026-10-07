@@ -5,10 +5,10 @@
 # Runs independently of any CI run (as a CronJob on the target cluster, see
 # deploy/e2e/reaper), so a crashed in-run teardown or a quiet retained pull
 # request is still reclaimed. It identifies a namespace group when
-# pr_env_is_reapable is true: prefixed hypershell-ci-pr-, owned by HyperShell,
-# environment id pr-<number>, and past its hypershell.redhat.io/expires-at.
-# Deletion uses the same teardown path as `make openshift-down`
-# (scripts/ci/teardown-pr-env.sh) per expired environment.
+# pr_env_is_reapable is true: prefixed hypershell-ci-, owned by HyperShell, and
+# past its hypershell.redhat.io/expires-at. Deletion uses the same teardown
+# path as `make openshift-down` (scripts/ci/teardown-pr-env.sh) per expired
+# environment.
 #
 # Environment:
 #   PR_ENV_KUBECTL        kubectl/oc binary (default: kubectl)
