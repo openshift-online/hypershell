@@ -7,7 +7,7 @@ description: >
 # Workflow
 
 GitHub issue triage workflow that classifies issues as:
-- `agent/deferred`
+- `agent/needs-input`
 - `agent/workable`
 - `agent/duplicate`
 
@@ -38,7 +38,7 @@ It MUST be one of the following:
 - `agent/duplicate`
 Definition: This issue is duplicated by an issue in `$LIST_OF_ISSUES` and contains equal or lesser clarity of intent. This issue will be closed.
 
-- `agent/deferred`
+- `agent/needs-input`
 Definition: This issue requires additional human input due to ambiguous intent,
 conflicting intent [with other issues], or the issue appears to be misaligned with the overall project direction.
 
@@ -57,8 +57,8 @@ _Note: If the label does not exist, create it._
 - `agent/duplicate`
 Action: Label the issue as `agent/duplicate`. Then, close the issue.
 
-- `agent/deferred`
-Action: Label the issue as `agent/deferred`.
+- `agent/needs-input`
+Action: Label the issue as `agent/needs-input`.
 
 - `agent/workable`
 Action: Label the issue as `agent/workable`.
