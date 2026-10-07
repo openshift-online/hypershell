@@ -71,6 +71,25 @@ teardown_env() {
   return 1
 }
 
+# queue_teardown <platform-ns> <log-message> - tear down <platform-ns> unless
+# it is already queued this run (the platform and -keycloak rows, or a
+# leftover instance workload and its platform, can resolve to the same
+# platform namespace). Updates the caller's seen/reaped/failed locals.
+queue_teardown() {
+  local platform="$1" message="$2"
+  if [[ "${seen}" == *" ${platform} "* ]]; then
+    log "${message} already queued as ${platform}"
+    return 0
+  fi
+  seen="${seen}${platform} "
+  log "${message} via openshift-down teardown"
+  if teardown_env "${platform}"; then
+    reaped=$((reaped + 1))
+  else
+    failed=$((failed + 1))
+  fi
+}
+
 main() {
   local now considered=0 reaped=0 retained=0 failed=0
   local seen=" "
@@ -89,17 +108,7 @@ main() {
     considered=$((considered + 1))
     if pr_env_is_reapable "${name}" "${owned}" "${env_id}" "${expires}" "${now}"; then
       platform="$(platform_for "${name}")"
-      if [[ "${seen}" == *" ${platform} "* ]]; then
-        log "REAP ${name} (env=${env_id}) already queued as ${platform}"
-        continue
-      fi
-      seen="${seen}${platform} "
-      log "REAP ${name} (env=${env_id}, expired at ${expires}) via openshift-down teardown"
-      if teardown_env "${platform}"; then
-        reaped=$((reaped + 1))
-      else
-        failed=$((failed + 1))
-      fi
+      queue_teardown "${platform}" "REAP ${name} (env=${env_id}, expired at ${expires})"
     else
       retained=$((retained + 1))
     fi
@@ -117,16 +126,7 @@ main() {
       exists="true"
     fi
     if pr_env_should_reap_instance_workload "${name}" "${inst}" "${exists}"; then
-      if [[ "${seen}" == *" ${inst} "* ]]; then
-        continue
-      fi
-      seen="${seen}${inst} "
-      log "REAP leftover ${name} (instance=${inst}, platform absent) via openshift-down teardown"
-      if teardown_env "${inst}"; then
-        reaped=$((reaped + 1))
-      else
-        failed=$((failed + 1))
-      fi
+      queue_teardown "${inst}" "REAP leftover ${name} (instance=${inst}, platform absent)"
     fi
   done <<< "${rows}"
 

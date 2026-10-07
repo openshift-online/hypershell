@@ -97,11 +97,18 @@ pr_env_short_sha() {
   printf '%s' "${sha:0:${PR_ENV_MAIN_SHA_LEN}}"
 }
 
+# pr_env_commit_suffixed <prefix> <commit-sha> -> <prefix><short-sha>. Shared
+# shape behind the main/merge-queue namespace and environment-id functions
+# below, which differ only in their prefix.
+pr_env_commit_suffixed() {
+  local prefix="$1" short_sha
+  short_sha="$(pr_env_short_sha "$2")" || return 1
+  printf '%s%s' "${prefix}" "${short_sha}"
+}
+
 # pr_env_main_namespace <commit-sha> -> the push-to-main platform namespace.
 pr_env_main_namespace() {
-  local short_sha
-  short_sha="$(pr_env_short_sha "$1")" || return 1
-  printf '%s%s' "${PR_ENV_MAIN_NS_PREFIX}" "${short_sha}"
+  pr_env_commit_suffixed "${PR_ENV_MAIN_NS_PREFIX}" "$1"
 }
 
 # pr_env_merge_queue_namespace <commit-sha> -> the merge-queue-entry platform
@@ -109,9 +116,7 @@ pr_env_main_namespace() {
 # environment never shares a namespace (or a concurrency group) with a push
 # to main, even if GitHub ever produced the same commit SHA for both.
 pr_env_merge_queue_namespace() {
-  local short_sha
-  short_sha="$(pr_env_short_sha "$1")" || return 1
-  printf '%s%s' "${PR_ENV_MERGE_QUEUE_NS_PREFIX}" "${short_sha}"
+  pr_env_commit_suffixed "${PR_ENV_MERGE_QUEUE_NS_PREFIX}" "$1"
 }
 
 # pr_env_keycloak_namespace <platform-namespace> -> the companion Keycloak
@@ -131,17 +136,13 @@ pr_env_environment_id() {
 # stamped on a push-to-main namespace group. Distinct prefix from pr-<number>
 # and mq-<sha> so pr_env_is_reapable can tell the three namespace kinds apart.
 pr_env_main_environment_id() {
-  local short_sha
-  short_sha="$(pr_env_short_sha "$1")" || return 1
-  printf 'main-%s' "${short_sha}"
+  pr_env_commit_suffixed "main-" "$1"
 }
 
 # pr_env_merge_queue_environment_id <commit-sha> -> the environment identifier
 # stamped on a merge-queue-entry namespace group.
 pr_env_merge_queue_environment_id() {
-  local short_sha
-  short_sha="$(pr_env_short_sha "$1")" || return 1
-  printf 'mq-%s' "${short_sha}"
+  pr_env_commit_suffixed "mq-" "$1"
 }
 
 # pr_env_is_reserved_namespace <name> - true for cluster-reserved namespaces the
