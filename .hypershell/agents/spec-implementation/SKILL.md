@@ -30,7 +30,7 @@ Output: (`$ISSUE_CONTENT`, `$ISSUE_NUMBER`, `$EXISTING_PR`[NULL or string], `$JI
 
 ### Step 2: Write and/or Update Specifications
 
-Read the [spec skill](../../plan/spec/SKILL.md).
+Read the [spec skill](../../../skills/plan/spec/SKILL.md).
 
 In a new work tree (in a new directory), follow its workflow to codify the intent of `$ISSUE_CONTENT` in specifications.
 

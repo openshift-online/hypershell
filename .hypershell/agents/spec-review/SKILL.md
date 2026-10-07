@@ -31,7 +31,7 @@ with the specification changes made in the PR.
 
 ### Step 2: Review the Specification Changes
 
-Read the [spec skill](../../plan/spec/SKILL.md).
+Read the [spec skill](../../../skills/plan/spec/SKILL.md).
 
 Assess the specifications according to:
 - the rules in the skill

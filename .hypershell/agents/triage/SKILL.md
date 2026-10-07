@@ -62,4 +62,3 @@ Action: Label the issue as `agent/needs-input`.
 
 - `agent/workable`
 Action: Label the issue as `agent/workable`.
-
