@@ -41,6 +41,22 @@ export interface GatewayClusterBreakdown {
   readonly total: number;
 }
 
+/**
+ * One managed cluster's (spoke's) gateway-phase + active-sandbox history within an
+ * instance, both oldest-first and index-aligned to the instance's shared
+ * {@link InstanceFleet.historyTimes} axis (every row for an instance shares that axis).
+ * Lets the map draw a spoke's own two chin sparklines on its node card and roll the
+ * remaining clusters up into the hub's card, so a spoke's counts land on exactly one
+ * card. Summing the rows at each sample recovers the instance's
+ * {@link InstanceFleet.gatewayHistory} / {@link InstanceFleet.sandboxHistory}. No
+ * cluster identity is baked in.
+ */
+export interface ClusterHistory {
+  readonly managedCluster: string;
+  readonly gatewayHistory: readonly GatewayHistorySample[];
+  readonly sandboxHistory: readonly number[];
+}
+
 /** A rate + error% + p95-latency triple, as the BFF reports per control-plane. */
 export interface RateStats {
   readonly rate: number;
@@ -93,6 +109,13 @@ export interface InstanceFleet {
    * lower sandbox "sand" sparkline. May be empty when no history is available.
    */
   readonly sandboxHistory: readonly number[];
+  /**
+   * Per-managed-cluster (spoke) decomposition of {@link gatewayHistory} +
+   * {@link sandboxHistory}, each row index-aligned to {@link historyTimes}. Drives the
+   * map's per-node chins: a spoke onto its own card, the rest rolled into the hub's.
+   * Empty when the server reports no per-cluster history.
+   */
+  readonly historyByCluster: readonly ClusterHistory[];
   /** Rolling 7-day unique-login count, or null when unknown. */
   readonly logins: number | null;
   /**

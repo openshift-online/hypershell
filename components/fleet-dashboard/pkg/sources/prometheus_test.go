@@ -389,6 +389,127 @@ func TestFleetHistoryShared(t *testing.T) {
 	}
 }
 
+// TestFleetHistoryByCluster covers the per-managed-cluster history decomposition: the
+// gateway-phase and sandbox range series grouped by managed_cluster must land on the
+// SAME per-instance timestamp axis as the totals (zero-filling a cluster's missing
+// samples), in stable managed-cluster order, so a spoke can be drawn on its own node
+// card and the rest rolled into the hub's. Summing the rows recovers the totals.
+func TestFleetHistoryByCluster(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		// Per-cluster branches first: they are the "phase"/"active_sandboxes_total"
+		// range queries that ALSO carry the managed_cluster grouping.
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "managed_cluster") && strings.Contains(q, "phase"):
+			// spoke0 runs two Running gateways at both steps; spoke1 one Running at both
+			// plus a failed one at the first step only. Summing recovers Running 5,6 /
+			// failed 1,0 - the instance totals below.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke0","phase":"Running"},"values":[[100,"4"],[200,"4"]]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1","phase":"Running"},"values":[[100,"1"],[200,"2"]]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1","phase":"failed"},"values":[[100,"1"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "managed_cluster") && strings.Contains(q, "active_sandboxes_total"):
+			// spoke1 has NO sandbox sample at ts 100: it must zero-fill, not drop a column.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke0"},"values":[[100,"2"],[200,"2"]]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1"},"values":[[200,"1"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "phase"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a","phase":"Running"},"values":[[100,"5"],[200,"6"]]},` +
+				`{"metric":{"namespace":"inst-a","phase":"failed"},"values":[[100,"1"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "active_sandboxes_total"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a"},"values":[[100,"2"],[200,"3"]]}` +
+				`]}}`))
+		case strings.Contains(q, "group by"):
+			// Instance discovery: one instance, inst-a.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:                srv.URL,
+		metric:              "hypershell_gateways_total",
+		instLabel:           "namespace",
+		managedClusterLabel: "managed_cluster",
+		sandboxMetric:       "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:        "cluster",
+		userMetric:          "hypershell_users_registered_total",
+		userLoginsMetric:    "hypershell_users_unique_logins_last_7_days_total",
+		client:              srv.Client(),
+		logger:              slog.Default(),
+	}
+
+	out, err := p.Fleet(context.Background())
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	f := out.(map[string]InstanceFleet)["inst-a"]
+
+	if got := f.HistoryTimes; len(got) != 2 || got[0] != 100 || got[1] != 200 {
+		t.Fatalf("HistoryTimes = %v, want [100 200]", got)
+	}
+	if len(f.HistoryByCluster) != 2 {
+		t.Fatalf("HistoryByCluster = %+v, want 2 rows", f.HistoryByCluster)
+	}
+	// Stable order: managed-cluster name ascending.
+	if f.HistoryByCluster[0].ManagedCluster != "spoke0" || f.HistoryByCluster[1].ManagedCluster != "spoke1" {
+		t.Fatalf("HistoryByCluster order = [%q %q], want [spoke0 spoke1]",
+			f.HistoryByCluster[0].ManagedCluster, f.HistoryByCluster[1].ManagedCluster)
+	}
+	s0, s1 := f.HistoryByCluster[0], f.HistoryByCluster[1]
+
+	wantG0 := []GatewayHistorySample{{Running: 4}, {Running: 4}}
+	for i, want := range wantG0 {
+		if s0.GatewayHistory[i] != want {
+			t.Errorf("spoke0 GatewayHistory[%d] = %+v, want %+v", i, s0.GatewayHistory[i], want)
+		}
+	}
+	wantG1 := []GatewayHistorySample{{Running: 1, Failed: 1}, {Running: 2}}
+	for i, want := range wantG1 {
+		if s1.GatewayHistory[i] != want {
+			t.Errorf("spoke1 GatewayHistory[%d] = %+v, want %+v", i, s1.GatewayHistory[i], want)
+		}
+	}
+	if want := []float64{2, 2}; !floatsEqual(s0.SandboxHistory, want) {
+		t.Errorf("spoke0 SandboxHistory = %v, want %v", s0.SandboxHistory, want)
+	}
+	// spoke1's missing ts-100 sandbox sample zero-fills to keep the shared axis.
+	if want := []float64{0, 1}; !floatsEqual(s1.SandboxHistory, want) {
+		t.Errorf("spoke1 SandboxHistory = %v, want %v", s1.SandboxHistory, want)
+	}
+	// The per-cluster rows sum back to the instance totals at every sample.
+	if want := []float64{2, 3}; !floatsEqual(f.SandboxHistory, want) {
+		t.Errorf("SandboxHistory total = %v, want %v", f.SandboxHistory, want)
+	}
+	// Symmetric check for the gateway chin: the per-cluster gateway-history rows sum
+	// back to the instance's GatewayHistory at every sample (spoke0{R4}+spoke1{R1,F1}
+	// = {R5,F1} at ts-100, {R4}+{R2} = {R6} at ts-200).
+	for i := range f.GatewayHistory {
+		var sum GatewayHistorySample
+		for _, c := range f.HistoryByCluster {
+			if i < len(c.GatewayHistory) {
+				sum.Running += c.GatewayHistory[i].Running
+				sum.Provisioning += c.GatewayHistory[i].Provisioning
+				sum.Failed += c.GatewayHistory[i].Failed
+			}
+		}
+		if sum != f.GatewayHistory[i] {
+			t.Errorf("GatewayHistory[%d] cluster-sum = %+v, want instance total %+v",
+				i, sum, f.GatewayHistory[i])
+		}
+	}
+}
+
 func floatsEqual(a, b []float64) bool {
 	if len(a) != len(b) {
 		return false

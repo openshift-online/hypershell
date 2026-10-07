@@ -9,6 +9,7 @@
 
 import type { InstancesData } from "../../application/ports";
 import type {
+  ClusterHistory,
   FleetData,
   GatewayClusterBreakdown,
   InstanceFleet,
@@ -210,6 +211,7 @@ interface WireInstanceFleet {
   readonly sandboxes?: number;
   readonly sandboxesByCluster?: readonly WireSandboxClusterCount[] | null;
   readonly sandboxHistory?: readonly number[] | null;
+  readonly historyByCluster?: readonly WireClusterHistory[] | null;
   readonly logins?: number;
   readonly userHistory?: readonly number[] | null;
   readonly loginsHistory?: readonly number[] | null;
@@ -235,6 +237,13 @@ interface WireGatewayClusterBreakdown {
   readonly managedCluster?: string;
   readonly gateways?: Readonly<Record<string, number>> | null;
   readonly total?: number;
+}
+
+/** One managed cluster's gateway + sandbox history on the wire (/api/fleet). */
+interface WireClusterHistory {
+  readonly managedCluster?: string;
+  readonly gatewayHistory?: readonly WireGatewayHistorySample[] | null;
+  readonly sandboxHistory?: readonly number[] | null;
 }
 
 /** `/api/fleet` is a map keyed by instance name; the domain uses a flat list. */
@@ -306,6 +315,19 @@ function mapInstanceFleet(key: string, raw: WireInstanceFleet): InstanceFleet {
       }))
       .filter((s) => s.managedCluster !== ""),
     sandboxHistory: (raw.sandboxHistory ?? []).map((v) => num(v)),
+    // Per-spoke history: keep rows with a managed-cluster name; numify both aligned
+    // series so each row is fully shaped (same keep-named-rows rule as the breakdowns).
+    historyByCluster: (raw.historyByCluster ?? [])
+      .map((c): ClusterHistory => ({
+        managedCluster: c.managedCluster ?? "",
+        gatewayHistory: (c.gatewayHistory ?? []).map((s) => ({
+          running: num(s.running),
+          provisioning: num(s.provisioning),
+          failed: num(s.failed),
+        })),
+        sandboxHistory: (c.sandboxHistory ?? []).map((v) => num(v)),
+      }))
+      .filter((c) => c.managedCluster !== ""),
     logins: typeof raw.logins === "number" ? raw.logins : null,
     userHistory: (raw.userHistory ?? []).map((v) => num(v)),
     loginsHistory: (raw.loginsHistory ?? []).map((v) => num(v)),
