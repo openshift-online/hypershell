@@ -39,11 +39,11 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterRoutes("secretSources", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterPrefixedRoutes("secretSources", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
 		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices))
 
-		router := apiV1Router.PathPrefix("/agent_runtimes/{agent_runtime_id}/secret_sources").Subrouter()
+		router := extRouter.PathPrefix("/agent_runtimes/{agent_runtime_id}/secret_sources").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
 		router.HandleFunc("/{id}", h.Get).Methods(http.MethodGet)
 		router.HandleFunc("", h.Create).Methods(http.MethodPost)
