@@ -15,6 +15,8 @@ The platform requirement is a security guarantee: a sandbox is an untrusted exec
 
 The inference router itself is upstream OpenShell functionality. HyperShell's desired state is that (a) sandbox agents get credential-free cloud-model access, and (b) the operational configuration that enables it is reproducible per environment. Concrete per-cluster runbook steps live in the [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md) skill.
 
+**Outbound trust-store prerequisite.** Both paths require the gateway process to make outbound HTTPS calls to publicly-trusted provider endpoints (provider token exchange and model APIs for Vertex AI, Anthropic, Bedrock, etc.). The gateway SHALL retain its default/system CA trust for these calls even when a custom OIDC issuer CA is injected. This is governed by [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) (Requirement: Trusted CA Bundle Injection, Trust store additivity): the `SSL_CERT_FILE` bundle must be the system CA bundle merged with the custom CA, never the custom CA alone.
+
 ---
 
 ## Architecture

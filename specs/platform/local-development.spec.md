@@ -72,7 +72,18 @@ Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYC
 
 The local environment SHALL NOT deploy a PostgreSQL workload per gateway - the control plane reconciler provisions a dedicated database and role for each gateway on the stand-in server with in-process DDL, using the mounted `hypershell-gateway-database-admin` Secret (see `specs/platform/openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production. The API server's database also lives on the stand-in server (see Stand-in PostgreSQL Server above).
 
-TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). The OIDC issuer uses HTTP because the local Keycloak instance runs in dev mode without TLS; the TLS requirement applies to the gateway's own serving certificate, not to the OIDC issuer endpoint. Authentication SHALL use OIDC only - mTLS client authentication is not supported.
+TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). The OIDC issuer is reached over HTTPS at the canonical `https://keycloak.hypershell.localhost` URL, served through the networking Gateway with the self-signed `*.hypershell.localhost` certificate; the gateway pod therefore needs that self-signed CA in its trust store (see Gateway Trusted CA below). Authentication SHALL use OIDC only - mTLS client authentication is not supported.
+
+#### Gateway Trusted CA (Merged Bundle)
+
+`make kind-up` SHALL publish a `gateway-trusted-ca` ConfigMap so the gateway trusts the self-signed CA behind the HTTPS OIDC issuer. The published CA content SHALL be the gateway image's default/system CA bundle concatenated with the Kind self-signed CA, NOT the self-signed CA alone. Because the upstream chart injects this bundle as the gateway's process-wide `SSL_CERT_FILE` and the Rust TLS stack treats `SSL_CERT_FILE` as a full replacement of the trust store, a bundle containing only the self-signed CA would break all outbound HTTPS from the gateway to real cloud providers (e.g. `openshell provider create --type google-vertex-ai --from-gcloud-adc ...` reaching `https://oauth2.googleapis.com/token`). The merge SHALL be idempotent and SHALL survive repeated `make kind-up` runs. See [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) (Requirement: Trusted CA Bundle Injection).
+
+##### Scenario: Outbound provider TLS works on a local Kind cluster
+
+- GIVEN a Kind cluster created with `make kind-up` and a gateway using the local self-signed OIDC issuer
+- WHEN a developer adds a real provider that talks to a public endpoint (e.g. `openshell provider create --type google-vertex-ai --from-gcloud-adc ...`)
+- THEN the gateway's outbound HTTPS to the provider's real token/API endpoint SHALL verify successfully using the system CA portion of the merged bundle
+- AND OIDC token validation against the local self-signed issuer SHALL continue to work
 
 ### Keycloak Configuration
 

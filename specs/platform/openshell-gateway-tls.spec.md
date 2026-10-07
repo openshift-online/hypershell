@@ -66,23 +66,49 @@ When SANs change, TLS secrets are regenerated. Connected sandbox supervisors wil
 
 ### Requirement: Trusted CA Bundle Injection
 
-Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP uses a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway's default trust store will not include the required CA.
+Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP uses a non-public CA certificate (e.g., OpenShift CRC, a Kind self-signed ingress CA, or a private PKI), the gateway's default trust store will not include the required CA. The platform SHALL supply the additional CA through the `gateway-trusted-ca` ConfigMap, which the upstream Helm chart injects into the gateway pod as the process-wide `SSL_CERT_FILE` (the control plane sets `server.oidc.caConfigMapName` to the copied ConfigMap; see [`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md)).
+
+**Trust store additivity.** The gateway's effective TLS trust store SHALL include BOTH the gateway image's complete default/system CA set AND every custom issuer CA, so the gateway can validate TLS for the private IdP endpoint and for publicly-trusted endpoints at the same time.
+
+The gateway's TLS stack (Rust `rustls`/`reqwest`) treats `SSL_CERT_FILE` as a COMPLETE REPLACEMENT of the trust store, not an addition. Therefore the bundle that `SSL_CERT_FILE` points at SHALL already be the concatenation of the image's default system CA bundle and the custom issuer CA(s). A bundle that contains only the custom issuer CA is a defect: it silently removes trust for every publicly-trusted endpoint the gateway must also reach, including cloud inference provider token and API endpoints (e.g. `https://oauth2.googleapis.com/token`, Anthropic, AWS Bedrock/STS). See [`openshell-inference-routing.spec.md`](./openshell-inference-routing.spec.md) for the outbound provider path this protects.
+
+Whichever component produces the `gateway-trusted-ca` content (the Kind `make kind-up` flow, or a production/GitOps source) SHALL publish the merged bundle; the control plane SHALL preserve the merged content when it copies the ConfigMap into the tenant namespace. The merge SHALL be idempotent so repeated runs do not duplicate or drop certificates.
 
 #### Scenario: Trusted CA ConfigMap present
 
 - GIVEN a ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
-- AND the ConfigMap has a `ca-bundle.crt` key containing PEM-encoded CA certificates
+- AND its CA material (key `ca-bundle.crt`) is the image's default system CA bundle concatenated with the custom issuer CA(s)
 - WHEN the GatewayReconciler reconciles a gateway in a tenant namespace
-- THEN it SHALL copy the ConfigMap to the tenant namespace (create-or-update)
-- AND it SHALL mount `ca-bundle.crt` at `/etc/pki/tls/certs/ca-bundle.crt` (read-only, subPath)
-- AND it SHALL add `SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt` to the gateway container
+- THEN it SHALL copy the ConfigMap to the tenant namespace (create-or-update), normalizing the key to `ca.crt` without altering the merged certificate content
+- AND it SHALL set `server.oidc.caConfigMapName` so the chart mounts the ConfigMap at `/etc/openshell-tls/oidc-ca/` and sets `SSL_CERT_FILE=/etc/openshell-tls/oidc-ca/ca.crt` on the gateway container
+- AND the gateway SHALL validate TLS for both the private OIDC issuer and publicly-trusted outbound endpoints using that single merged bundle
+
+#### Scenario: Gateway reaches a public provider endpoint with a custom OIDC CA in use
+
+- GIVEN a gateway whose `SSL_CERT_FILE` is driven by the `gateway-trusted-ca` ConfigMap (custom self-signed OIDC issuer CA)
+- WHEN the gateway makes an outbound HTTPS call to a publicly-trusted provider endpoint (e.g. `https://oauth2.googleapis.com/token`)
+- THEN the TLS handshake SHALL succeed using the system CA portion of the merged bundle
+- AND `openshell provider create --type google-vertex-ai --from-gcloud-adc ...` SHALL complete end to end
+
+#### Scenario: Trusted CA bundle containing only the custom CA is rejected as a defect
+
+- GIVEN a candidate `gateway-trusted-ca` ConfigMap whose content is only the custom issuer CA (the system CA bundle is absent)
+- WHEN the trusted-CA content is produced or verified
+- THEN this SHALL be treated as a defect, because `SSL_CERT_FILE` would replace the system trust store and break all outbound HTTPS to publicly-trusted endpoints
 
 #### Scenario: Trusted CA ConfigMap absent
 
 - GIVEN no ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
 - WHEN the GatewayReconciler reconciles a gateway
-- THEN it SHALL NOT add any CA volume or `SSL_CERT_FILE` env var
-- AND the gateway SHALL use its built-in trust store
+- THEN it SHALL NOT set `server.oidc.caConfigMapName` and the chart SHALL NOT add any CA volume or `SSL_CERT_FILE` env var
+- AND the gateway SHALL use its built-in (image default) trust store
+
+#### Scenario: Regression guard for additive trust
+
+- GIVEN the trusted-CA injection mechanism
+- WHEN the test suite runs
+- THEN a regression test (chart unit test and/or Kind e2e) SHALL assert that the bundle backing `SSL_CERT_FILE` contains the system CA bundle in addition to the custom issuer CA
+- AND the e2e variant SHALL create a real-provider-type `openshell provider` and assert the gateway reaches the provider's real token/API endpoint with TLS verification intact (not merely that credentials were accepted locally)
 
 ---
 
@@ -130,7 +156,8 @@ The gateway config template includes a `client_ca_path` setting under `[openshel
 | `DecryptError` in gateway logs | Stale client cert from sandbox after cert rotation | Recreate affected sandboxes |
 | Cert deletion loop (every 30s) | ConfigMap SANs don't match API SANs | Ensure exact match; manual certgen if needed |
 | `invalid peer certificate: UnknownIssuer` | Self-signed CA - CLI doesn't trust gateway CA | Use `OPENSHELL_GATEWAY_INSECURE=true` or trust CA |
-| OIDC discovery fails with TLS error | Gateway can't reach IdP (private CA) | Create `gateway-trusted-ca` ConfigMap |
+| OIDC discovery fails with TLS error | Gateway can't reach IdP (private CA) | Create `gateway-trusted-ca` ConfigMap (merged system CA + issuer CA) |
+| Outbound HTTPS to a real provider fails (`unable to get local issuer certificate` for e.g. `https://oauth2.googleapis.com/token`) while OIDC still works | `SSL_CERT_FILE` bundle contains only the custom issuer CA, replacing the system trust store | Publish `gateway-trusted-ca` as the system CA bundle merged with the issuer CA (see Trust Store Additivity) |
 | `peer sent no certificates` + `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present one | Ensure `route.enabled` is true so `client_ca_path` is stripped from config |
 
 ---

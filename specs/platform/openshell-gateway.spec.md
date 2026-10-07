@@ -328,25 +328,24 @@ The GatewayReconciler SHALL use cert-manager for TLS certificate lifecycle manag
 
 ### Requirement: Trusted CA Bundle Injection
 
-Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP is exposed through an ingress controller with a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway pod's default trust store will not include the required CA and OIDC initialization will fail.
+Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP is exposed through an ingress controller with a non-public CA certificate (e.g., OpenShift CRC, a Kind self-signed ingress CA, private PKI), the gateway pod's default trust store will not include the required CA and OIDC initialization will fail.
 
-The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in the HyperShell namespace. When present, it is copied to each tenant namespace and mounted into the gateway Deployment so that the gateway process trusts the additional CA certificates.
+The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in the HyperShell namespace. When present, it is copied to each tenant namespace and the control plane sets `server.oidc.caConfigMapName` so the upstream Helm chart injects it into the gateway Deployment as `SSL_CERT_FILE`. The full trust-store contract - including the requirement that this bundle be ADDITIVE (system CA bundle merged with the custom issuer CA) so outbound HTTPS to publicly-trusted endpoints keeps working - is defined in [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) (Requirement: Trusted CA Bundle Injection). This spec summarizes the provisioning behavior.
 
 #### Scenario: Trusted CA ConfigMap present in HyperShell namespace
 
 - GIVEN a ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
-- AND the ConfigMap has a `ca-bundle.crt` key containing one or more PEM-encoded CA certificates
+- AND its CA material is the image's default/system CA bundle concatenated with one or more custom issuer CAs
 - WHEN the GatewayReconciler reconciles a gateway in a tenant namespace
-- THEN it SHALL copy the `gateway-trusted-ca` ConfigMap to the tenant namespace (create-or-update pattern)
-- AND it SHALL add a volume to the gateway Deployment mounting the `ca-bundle.crt` key at `/etc/pki/tls/certs/ca-bundle.crt` (read-only, using `subPath`)
-- AND it SHALL add an `SSL_CERT_FILE` environment variable set to `/etc/pki/tls/certs/ca-bundle.crt` on the gateway container
-- AND the mounted CA bundle SHALL be used by the gateway's TLS client for OIDC discovery and JWKS fetching
+- THEN it SHALL copy the `gateway-trusted-ca` ConfigMap to the tenant namespace (create-or-update pattern), normalizing the key to `ca.crt` without altering the merged certificate content
+- AND it SHALL set `server.oidc.caConfigMapName` so the chart mounts the bundle and sets `SSL_CERT_FILE=/etc/openshell-tls/oidc-ca/ca.crt` on the gateway container
+- AND the merged bundle SHALL be used by the gateway's TLS client for OIDC discovery, JWKS fetching, AND outbound calls to publicly-trusted provider endpoints
 
 #### Scenario: Trusted CA ConfigMap absent
 
 - GIVEN no ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
 - WHEN the GatewayReconciler reconciles a gateway
-- THEN it SHALL NOT add any CA volume or `SSL_CERT_FILE` env var to the gateway Deployment
+- THEN it SHALL NOT set `server.oidc.caConfigMapName`, and the chart SHALL NOT add any CA volume or `SSL_CERT_FILE` env var to the gateway Deployment
 - AND the gateway SHALL use its built-in trust store (default behavior)
 - AND this SHALL be the default for environments with publicly-trusted IdP certificates (e.g., production with a public CA)
 
@@ -354,10 +353,10 @@ The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in th
 
 - GIVEN a `gateway-trusted-ca` ConfigMap exists and has been updated (new certificates added or removed)
 - WHEN the GatewayReconciler runs its next reconciliation cycle
-- THEN it SHALL update the copy in the tenant namespace
+- THEN it SHALL update the copy in the tenant namespace, preserving the merged (system + custom) content
 - AND the gateway pod SHALL pick up the new CA bundle on its next restart
 
-**Design rationale:** The OIDC issuer URL must be identical inside and outside the cluster (OpenShell requirement - see [Gateway Auth: OIDC](https://docs.nvidia.com/openshell/reference/gateway-auth#oidc)). On CRC, the external Keycloak Route uses HTTPS with the CRC ingress controller's self-signed CA. The gateway must reach this same URL, so it needs the ingress CA in its trust store. This approach generalizes to any environment where the IdP uses a private CA.
+**Design rationale:** The OIDC issuer URL must be identical inside and outside the cluster (OpenShell requirement - see [Gateway Auth: OIDC](https://docs.nvidia.com/openshell/reference/gateway-auth#oidc)). On CRC and Kind, the external Keycloak endpoint uses HTTPS with the ingress controller's self-signed CA. The gateway must reach this same URL, so it needs the ingress CA in its trust store. Because the gateway's Rust TLS stack treats `SSL_CERT_FILE` as a full replacement of the trust store, the injected bundle must also carry the system CA set, or the gateway loses trust for every public endpoint (cloud inference providers, token servers) it must also reach. This approach generalizes to any environment where the IdP uses a private CA.
 
 ---
 
