@@ -680,10 +680,10 @@ describe("gateway API operations adapter", () => {
     );
 
     expect(gatewayApi.create).toHaveBeenCalledWith(
-        {
-          name: "team-gateway",
-          placement: { network: "public", provider: "aws" },
-          route: '{"enabled":true}',
+      {
+        name: "team-gateway",
+        placement: { network: "public", provider: "aws" },
+        route: '{"enabled":true}',
       },
       { signal: undefined },
     );

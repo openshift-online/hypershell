@@ -572,10 +572,10 @@ export function createGatewayControlPlaneAdapter(
       return mapFailure(async () =>
         toGatewayRecord(
           await apiClient(apiFactory, context).gateways.create(
-              {
-                name: input.name,
-                placement,
-                route: JSON.stringify({ enabled: true }),
+            {
+              name: input.name,
+              placement,
+              route: JSON.stringify({ enabled: true }),
             },
             { signal: context.signal },
           ),
