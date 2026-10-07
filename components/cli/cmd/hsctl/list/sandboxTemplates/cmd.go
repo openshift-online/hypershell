@@ -100,7 +100,7 @@ func run(cmd *cobra.Command, argv []string) error {
 	for {
 		resp, err := conn.List(urls.SandboxTemplatesPath, page, size, searchQuery, args.orderBy)
 		if err != nil {
-			return fmt.Errorf("can't retrieve sandbox templates: %v", err)
+			return fmt.Errorf("can't retrieve sandbox templates: %w", err)
 		}
 
 		for _, item := range resp.Items {
@@ -127,7 +127,7 @@ func listJSON(conn *connection.Connection, search string) error {
 	for {
 		resp, err := conn.List(urls.SandboxTemplatesPath, page, size, search, args.orderBy)
 		if err != nil {
-			return fmt.Errorf("can't retrieve sandbox templates: %v", err)
+			return fmt.Errorf("can't retrieve sandbox templates: %w", err)
 		}
 		allItems = append(allItems, resp.Items...)
 		if resp.Size < size {

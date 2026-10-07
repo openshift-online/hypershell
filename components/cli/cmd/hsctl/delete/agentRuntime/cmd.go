@@ -57,7 +57,7 @@ func run(cmd *cobra.Command, argv []string) error {
 
 	resp, err := conn.Delete(urls.AgentRuntimePath(id))
 	if err != nil {
-		return fmt.Errorf("can't delete agent runtime: %v", err)
+		return fmt.Errorf("can't delete agent runtime: %w", err)
 	}
 	defer resp.Body.Close()
 

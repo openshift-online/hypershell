@@ -57,7 +57,7 @@ func run(cmd *cobra.Command, argv []string) error {
 
 	resp, err := conn.Delete(urls.InferenceRoutePath(id))
 	if err != nil {
-		return fmt.Errorf("can't delete inference route: %v", err)
+		return fmt.Errorf("can't delete inference route: %w", err)
 	}
 	defer resp.Body.Close()
 

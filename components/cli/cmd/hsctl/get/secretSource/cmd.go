@@ -38,13 +38,13 @@ func run(cmd *cobra.Command, argv []string) error {
 
 	resp, err := conn.Get(urls.SecretSourcePath(id), nil)
 	if err != nil {
-		return fmt.Errorf("can't retrieve secret source: %v", err)
+		return fmt.Errorf("can't retrieve secret source: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("can't read response: %v", err)
+		return fmt.Errorf("can't read response: %w", err)
 	}
 
 	if resp.StatusCode != 200 {

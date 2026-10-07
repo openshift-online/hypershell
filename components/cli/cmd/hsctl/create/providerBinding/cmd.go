@@ -60,7 +60,7 @@ func run(cmd *cobra.Command, argv []string) error {
 	if args.bodyFile != "" {
 		body, err = os.ReadFile(args.bodyFile)
 		if err != nil {
-			return fmt.Errorf("can't read body file: %v", err)
+			return fmt.Errorf("can't read body file: %w", err)
 		}
 	} else {
 		request := map[string]interface{}{}
@@ -78,19 +78,19 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 		body, err = json.Marshal(request)
 		if err != nil {
-			return fmt.Errorf("can't marshal request: %v", err)
+			return fmt.Errorf("can't marshal request: %w", err)
 		}
 	}
 
 	resp, err := conn.Post(urls.ProviderBindingsPath, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("can't create provider binding: %v", err)
+		return fmt.Errorf("can't create provider binding: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("can't read response: %v", err)
+		return fmt.Errorf("can't read response: %w", err)
 	}
 
 	if resp.StatusCode != 201 && resp.StatusCode != 200 {

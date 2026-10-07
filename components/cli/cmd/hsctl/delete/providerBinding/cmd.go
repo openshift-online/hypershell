@@ -57,7 +57,7 @@ func run(cmd *cobra.Command, argv []string) error {
 
 	resp, err := conn.Delete(urls.ProviderBindingPath(id))
 	if err != nil {
-		return fmt.Errorf("can't delete provider binding: %v", err)
+		return fmt.Errorf("can't delete provider binding: %w", err)
 	}
 	defer resp.Body.Close()
 

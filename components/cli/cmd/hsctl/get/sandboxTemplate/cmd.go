@@ -38,13 +38,13 @@ func run(cmd *cobra.Command, argv []string) error {
 
 	resp, err := conn.Get(urls.SandboxTemplatePath(id), nil)
 	if err != nil {
-		return fmt.Errorf("can't retrieve sandbox template: %v", err)
+		return fmt.Errorf("can't retrieve sandbox template: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("can't read response: %v", err)
+		return fmt.Errorf("can't read response: %w", err)
 	}
 
 	if resp.StatusCode != 200 {

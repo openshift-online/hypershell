@@ -57,7 +57,7 @@ func run(cmd *cobra.Command, argv []string) error {
 
 	resp, err := conn.Delete(urls.SecretSourcePath(id))
 	if err != nil {
-		return fmt.Errorf("can't delete secret source: %v", err)
+		return fmt.Errorf("can't delete secret source: %w", err)
 	}
 	defer resp.Body.Close()
 

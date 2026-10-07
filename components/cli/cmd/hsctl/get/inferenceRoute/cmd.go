@@ -38,13 +38,13 @@ func run(cmd *cobra.Command, argv []string) error {
 
 	resp, err := conn.Get(urls.InferenceRoutePath(id), nil)
 	if err != nil {
-		return fmt.Errorf("can't retrieve inference route: %v", err)
+		return fmt.Errorf("can't retrieve inference route: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("can't read response: %v", err)
+		return fmt.Errorf("can't read response: %w", err)
 	}
 
 	if resp.StatusCode != 200 {

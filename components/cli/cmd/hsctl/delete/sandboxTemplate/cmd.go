@@ -57,7 +57,7 @@ func run(cmd *cobra.Command, argv []string) error {
 
 	resp, err := conn.Delete(urls.SandboxTemplatePath(id))
 	if err != nil {
-		return fmt.Errorf("can't delete sandbox template: %v", err)
+		return fmt.Errorf("can't delete sandbox template: %w", err)
 	}
 	defer resp.Body.Close()
 
