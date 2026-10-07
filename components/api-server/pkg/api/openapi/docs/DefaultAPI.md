@@ -4,60 +4,60 @@ All URIs are relative to *http://localhost:8000*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**CreateAgentRuntime**](DefaultAPI.md#CreateAgentRuntime) | **Post** /api/hypershell/v1/agent_runtimes | Create a new agent runtime
+[**CreateAgentRuntime**](DefaultAPI.md#CreateAgentRuntime) | **Post** /api/hypershell/ext/agent_runtimes | Create a new agent runtime
 [**CreateGateway**](DefaultAPI.md#CreateGateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 [**CreateGatewayServiceAccount**](DefaultAPI.md#CreateGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
-[**CreateInferenceRoute**](DefaultAPI.md#CreateInferenceRoute) | **Post** /api/hypershell/v1/inference_routes | Create a new inference route
+[**CreateInferenceRoute**](DefaultAPI.md#CreateInferenceRoute) | **Post** /api/hypershell/ext/inference_routes | Create a new inference route
 [**CreateManagedCluster**](DefaultAPI.md#CreateManagedCluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
-[**CreateProviderBinding**](DefaultAPI.md#CreateProviderBinding) | **Post** /api/hypershell/v1/provider_bindings | Create a new provider binding
-[**CreateProviderSpec**](DefaultAPI.md#CreateProviderSpec) | **Post** /api/hypershell/v1/provider_specs | Create a new provider spec
+[**CreateProviderBinding**](DefaultAPI.md#CreateProviderBinding) | **Post** /api/hypershell/ext/provider_bindings | Create a new provider binding
+[**CreateProviderSpec**](DefaultAPI.md#CreateProviderSpec) | **Post** /api/hypershell/ext/provider_specs | Create a new provider spec
 [**CreateRoleBinding**](DefaultAPI.md#CreateRoleBinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
-[**CreateSandboxTemplate**](DefaultAPI.md#CreateSandboxTemplate) | **Post** /api/hypershell/v1/sandbox_templates | Create a new sandbox template
-[**CreateSecretSource**](DefaultAPI.md#CreateSecretSource) | **Post** /api/hypershell/v1/secret_sources | Create a new secret source
-[**DeleteAgentRuntime**](DefaultAPI.md#DeleteAgentRuntime) | **Delete** /api/hypershell/v1/agent_runtimes/{id} | Delete an agent runtime
+[**CreateSandboxTemplate**](DefaultAPI.md#CreateSandboxTemplate) | **Post** /api/hypershell/ext/sandbox_templates | Create a new sandbox template
+[**CreateSecretSource**](DefaultAPI.md#CreateSecretSource) | **Post** /api/hypershell/ext/secret_sources | Create a new secret source
+[**DeleteAgentRuntime**](DefaultAPI.md#DeleteAgentRuntime) | **Delete** /api/hypershell/ext/agent_runtimes/{id} | Delete an agent runtime
 [**DeleteGateway**](DefaultAPI.md#DeleteGateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
 [**DeleteGatewayServiceAccount**](DefaultAPI.md#DeleteGatewayServiceAccount) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Delete an OpenShell gateway service account
-[**DeleteInferenceRoute**](DefaultAPI.md#DeleteInferenceRoute) | **Delete** /api/hypershell/v1/inference_routes/{id} | Delete an inference route
+[**DeleteInferenceRoute**](DefaultAPI.md#DeleteInferenceRoute) | **Delete** /api/hypershell/ext/inference_routes/{id} | Delete an inference route
 [**DeleteManagedCluster**](DefaultAPI.md#DeleteManagedCluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
-[**DeleteProviderBinding**](DefaultAPI.md#DeleteProviderBinding) | **Delete** /api/hypershell/v1/provider_bindings/{id} | Delete a provider binding
-[**DeleteProviderSpec**](DefaultAPI.md#DeleteProviderSpec) | **Delete** /api/hypershell/v1/provider_specs/{id} | Delete a provider spec
+[**DeleteProviderBinding**](DefaultAPI.md#DeleteProviderBinding) | **Delete** /api/hypershell/ext/provider_bindings/{id} | Delete a provider binding
+[**DeleteProviderSpec**](DefaultAPI.md#DeleteProviderSpec) | **Delete** /api/hypershell/ext/provider_specs/{id} | Delete a provider spec
 [**DeleteRoleBinding**](DefaultAPI.md#DeleteRoleBinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
-[**DeleteSandboxTemplate**](DefaultAPI.md#DeleteSandboxTemplate) | **Delete** /api/hypershell/v1/sandbox_templates/{id} | Delete a sandbox template
-[**DeleteSecretSource**](DefaultAPI.md#DeleteSecretSource) | **Delete** /api/hypershell/v1/secret_sources/{id} | Delete a secret source
-[**GetAgentRuntime**](DefaultAPI.md#GetAgentRuntime) | **Get** /api/hypershell/v1/agent_runtimes/{id} | Get an agent runtime by ID
+[**DeleteSandboxTemplate**](DefaultAPI.md#DeleteSandboxTemplate) | **Delete** /api/hypershell/ext/sandbox_templates/{id} | Delete a sandbox template
+[**DeleteSecretSource**](DefaultAPI.md#DeleteSecretSource) | **Delete** /api/hypershell/ext/secret_sources/{id} | Delete a secret source
+[**GetAgentRuntime**](DefaultAPI.md#GetAgentRuntime) | **Get** /api/hypershell/ext/agent_runtimes/{id} | Get an agent runtime by ID
 [**GetGateway**](DefaultAPI.md#GetGateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 [**GetGatewayServiceAccount**](DefaultAPI.md#GetGatewayServiceAccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
-[**GetInferenceRoute**](DefaultAPI.md#GetInferenceRoute) | **Get** /api/hypershell/v1/inference_routes/{id} | Get an inference route by ID
+[**GetInferenceRoute**](DefaultAPI.md#GetInferenceRoute) | **Get** /api/hypershell/ext/inference_routes/{id} | Get an inference route by ID
 [**GetManagedCluster**](DefaultAPI.md#GetManagedCluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
 [**GetMetadata**](DefaultAPI.md#GetMetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
-[**GetProviderBinding**](DefaultAPI.md#GetProviderBinding) | **Get** /api/hypershell/v1/provider_bindings/{id} | Get a provider binding by ID
-[**GetProviderSpec**](DefaultAPI.md#GetProviderSpec) | **Get** /api/hypershell/v1/provider_specs/{id} | Get a provider spec by ID
+[**GetProviderBinding**](DefaultAPI.md#GetProviderBinding) | **Get** /api/hypershell/ext/provider_bindings/{id} | Get a provider binding by ID
+[**GetProviderSpec**](DefaultAPI.md#GetProviderSpec) | **Get** /api/hypershell/ext/provider_specs/{id} | Get a provider spec by ID
 [**GetRole**](DefaultAPI.md#GetRole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 [**GetRoleBinding**](DefaultAPI.md#GetRoleBinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
-[**GetSandboxTemplate**](DefaultAPI.md#GetSandboxTemplate) | **Get** /api/hypershell/v1/sandbox_templates/{id} | Get a sandbox template by ID
-[**GetSecretSource**](DefaultAPI.md#GetSecretSource) | **Get** /api/hypershell/v1/secret_sources/{id} | Get a secret source by ID
+[**GetSandboxTemplate**](DefaultAPI.md#GetSandboxTemplate) | **Get** /api/hypershell/ext/sandbox_templates/{id} | Get a sandbox template by ID
+[**GetSecretSource**](DefaultAPI.md#GetSecretSource) | **Get** /api/hypershell/ext/secret_sources/{id} | Get a secret source by ID
 [**GetUser**](DefaultAPI.md#GetUser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
-[**ListAgentRuntimes**](DefaultAPI.md#ListAgentRuntimes) | **Get** /api/hypershell/v1/agent_runtimes | Returns a list of agent runtimes
+[**ListAgentRuntimes**](DefaultAPI.md#ListAgentRuntimes) | **Get** /api/hypershell/ext/agent_runtimes | Returns a list of agent runtimes
 [**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 [**ListGateways**](DefaultAPI.md#ListGateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
-[**ListInferenceRoutes**](DefaultAPI.md#ListInferenceRoutes) | **Get** /api/hypershell/v1/inference_routes | Returns a list of inference routes
+[**ListInferenceRoutes**](DefaultAPI.md#ListInferenceRoutes) | **Get** /api/hypershell/ext/inference_routes | Returns a list of inference routes
 [**ListManagedClusters**](DefaultAPI.md#ListManagedClusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
-[**ListProviderBindings**](DefaultAPI.md#ListProviderBindings) | **Get** /api/hypershell/v1/provider_bindings | Returns a list of provider bindings
-[**ListProviderSpecs**](DefaultAPI.md#ListProviderSpecs) | **Get** /api/hypershell/v1/provider_specs | Returns a list of provider specs
+[**ListProviderBindings**](DefaultAPI.md#ListProviderBindings) | **Get** /api/hypershell/ext/provider_bindings | Returns a list of provider bindings
+[**ListProviderSpecs**](DefaultAPI.md#ListProviderSpecs) | **Get** /api/hypershell/ext/provider_specs | Returns a list of provider specs
 [**ListRoleBindings**](DefaultAPI.md#ListRoleBindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 [**ListRoles**](DefaultAPI.md#ListRoles) | **Get** /api/hypershell/v1/roles | List all roles
-[**ListSandboxTemplates**](DefaultAPI.md#ListSandboxTemplates) | **Get** /api/hypershell/v1/sandbox_templates | Returns a list of sandbox templates
-[**ListSecretSources**](DefaultAPI.md#ListSecretSources) | **Get** /api/hypershell/v1/secret_sources | Returns a list of secret sources
+[**ListSandboxTemplates**](DefaultAPI.md#ListSandboxTemplates) | **Get** /api/hypershell/ext/sandbox_templates | Returns a list of sandbox templates
+[**ListSecretSources**](DefaultAPI.md#ListSecretSources) | **Get** /api/hypershell/ext/secret_sources | Returns a list of secret sources
 [**ListUsers**](DefaultAPI.md#ListUsers) | **Get** /api/hypershell/v1/users | List registered users
 [**RegisterManagedCluster**](DefaultAPI.md#RegisterManagedCluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a control plane as a managed cluster
 [**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
-[**UpdateAgentRuntime**](DefaultAPI.md#UpdateAgentRuntime) | **Patch** /api/hypershell/v1/agent_runtimes/{id} | Update an agent runtime
+[**UpdateAgentRuntime**](DefaultAPI.md#UpdateAgentRuntime) | **Patch** /api/hypershell/ext/agent_runtimes/{id} | Update an agent runtime
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
-[**UpdateProviderBinding**](DefaultAPI.md#UpdateProviderBinding) | **Patch** /api/hypershell/v1/provider_bindings/{id} | Update a provider binding
-[**UpdateProviderSpec**](DefaultAPI.md#UpdateProviderSpec) | **Patch** /api/hypershell/v1/provider_specs/{id} | Update a provider spec
-[**UpdateSandboxTemplate**](DefaultAPI.md#UpdateSandboxTemplate) | **Patch** /api/hypershell/v1/sandbox_templates/{id} | Update a sandbox template
-[**UpdateSecretSource**](DefaultAPI.md#UpdateSecretSource) | **Patch** /api/hypershell/v1/secret_sources/{id} | Update a secret source
+[**UpdateProviderBinding**](DefaultAPI.md#UpdateProviderBinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
+[**UpdateProviderSpec**](DefaultAPI.md#UpdateProviderSpec) | **Patch** /api/hypershell/ext/provider_specs/{id} | Update a provider spec
+[**UpdateSandboxTemplate**](DefaultAPI.md#UpdateSandboxTemplate) | **Patch** /api/hypershell/ext/sandbox_templates/{id} | Update a sandbox template
+[**UpdateSecretSource**](DefaultAPI.md#UpdateSecretSource) | **Patch** /api/hypershell/ext/secret_sources/{id} | Update a secret source
 
 
 
