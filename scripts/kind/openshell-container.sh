@@ -96,7 +96,12 @@ RUN_ARGS+=(
   --tmpfs "/tmp/osh-home:mode=1777"
   -e HOME=/tmp/osh-home
   -e OPENSHELL_GATEWAY_INSECURE="${OPENSHELL_GATEWAY_INSECURE:-true}"
-  -v "${HOST_CONFIG}:/tmp/osh-home/.config/openshell"
+  # :z relabels the bind mount for SELinux-enforcing hosts (Fedora/RHEL);
+  # without it the containerized CLI cannot read the host config and reports
+  # "No gateway configured". Shared (:z), not private (:Z): the suite issues
+  # concurrent CLI calls (background sandbox creation), and a shared label is
+  # idempotent and safe across overlapping invocations where :Z would thrash.
+  -v "${HOST_CONFIG}:/tmp/osh-home/.config/openshell:z"
 )
 
 exec "${CONTAINER_ENGINE}" run "${RUN_ARGS[@]}" "${CLI_IMAGE}" "$@"
