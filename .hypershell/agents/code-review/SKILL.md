@@ -38,7 +38,7 @@ Output: (`$LINKED_PR`, `$ISSUE_CONTENTS`)
 
 ### Step 2: Review the Implementation
 
-Execute [amber-review](../../review/amber-review/SKILL.md) against `$LINKED_PR`. Review in the
+Execute [amber-review](../../../skills/review/amber-review/SKILL.md) against `$LINKED_PR`. Review in the
 context of `$ISSUE_CONTENTS`.
 
 Review must be rejected for any of the following reasons:
@@ -63,4 +63,3 @@ Apply `$VERDICT` label to `$GITHUB_ISSUE_URL`.
 IF `$VERDICT` == `agent/review-code-rejected`:
 - Add a comment to `$GITHUB_ISSUE_URL` communicating `$REJECTION_RATIONALE` that
   adheres to the [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English) standard.
-
