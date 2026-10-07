@@ -278,7 +278,7 @@ func migrationAddGatewayAdminRole() *gormigrate.Migration {
 	}
 
 	return &gormigrate.Migration{
-		ID: "2026100600000001",
+		ID: "2026100600000004",
 		Migrate: func(tx *gorm.DB) error {
 			var existing Role
 			if err := tx.Where("name = ?", RoleGatewayAdmin).First(&existing).Error; err == nil {
