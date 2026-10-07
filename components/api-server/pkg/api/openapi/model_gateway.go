@@ -29,7 +29,6 @@ type Gateway struct {
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	Name      string     `json:"name"`
 	ClusterId string     `json:"cluster_id"`
-	ReleaseId string     `json:"release_id"`
 	// API-assigned Kubernetes namespace derived from the Gateway identifier
 	Namespace   string  `json:"namespace"`
 	ExternalDns *string `json:"external_dns,omitempty"`
@@ -49,8 +48,6 @@ type Gateway struct {
 	ConsoleAddress *string `json:"console_address,omitempty"`
 	// Runtime version from the last successful gateway health response
 	GatewayVersion *string `json:"gateway_version,omitempty"`
-	// Release the control plane has rolled out and observed healthy, advanced only after a new revision passes its health gates; distinct from the desired release_id and populated by the control plane
-	ObservedReleaseId *string `json:"observed_release_id,omitempty"`
 	// JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning)
 	Oidc *string `json:"oidc,omitempty"`
 	// JSON-encoded route configuration
@@ -75,11 +72,10 @@ type _Gateway Gateway
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGateway(name string, clusterId string, releaseId string, namespace string) *Gateway {
+func NewGateway(name string, clusterId string, namespace string) *Gateway {
 	this := Gateway{}
 	this.Name = name
 	this.ClusterId = clusterId
-	this.ReleaseId = releaseId
 	this.Namespace = namespace
 	return &this
 }
@@ -298,30 +294,6 @@ func (o *Gateway) GetClusterIdOk() (*string, bool) {
 // SetClusterId sets field value
 func (o *Gateway) SetClusterId(v string) {
 	o.ClusterId = v
-}
-
-// GetReleaseId returns the ReleaseId field value
-func (o *Gateway) GetReleaseId() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.ReleaseId
-}
-
-// GetReleaseIdOk returns a tuple with the ReleaseId field value
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetReleaseIdOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.ReleaseId, true
-}
-
-// SetReleaseId sets field value
-func (o *Gateway) SetReleaseId(v string) {
-	o.ReleaseId = v
 }
 
 // GetNamespace returns the Namespace field value
@@ -700,38 +672,6 @@ func (o *Gateway) SetGatewayVersion(v string) {
 	o.GatewayVersion = &v
 }
 
-// GetObservedReleaseId returns the ObservedReleaseId field value if set, zero value otherwise.
-func (o *Gateway) GetObservedReleaseId() string {
-	if o == nil || IsNil(o.ObservedReleaseId) {
-		var ret string
-		return ret
-	}
-	return *o.ObservedReleaseId
-}
-
-// GetObservedReleaseIdOk returns a tuple with the ObservedReleaseId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Gateway) GetObservedReleaseIdOk() (*string, bool) {
-	if o == nil || IsNil(o.ObservedReleaseId) {
-		return nil, false
-	}
-	return o.ObservedReleaseId, true
-}
-
-// HasObservedReleaseId returns a boolean if a field has been set.
-func (o *Gateway) HasObservedReleaseId() bool {
-	if o != nil && !IsNil(o.ObservedReleaseId) {
-		return true
-	}
-
-	return false
-}
-
-// SetObservedReleaseId gets a reference to the given string and assigns it to the ObservedReleaseId field.
-func (o *Gateway) SetObservedReleaseId(v string) {
-	o.ObservedReleaseId = &v
-}
-
 // GetOidc returns the Oidc field value if set, zero value otherwise.
 func (o *Gateway) GetOidc() string {
 	if o == nil || IsNil(o.Oidc) {
@@ -1015,7 +955,6 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["name"] = o.Name
 	toSerialize["cluster_id"] = o.ClusterId
-	toSerialize["release_id"] = o.ReleaseId
 	toSerialize["namespace"] = o.Namespace
 	if !IsNil(o.ExternalDns) {
 		toSerialize["external_dns"] = o.ExternalDns
@@ -1049,9 +988,6 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.GatewayVersion) {
 		toSerialize["gateway_version"] = o.GatewayVersion
-	}
-	if !IsNil(o.ObservedReleaseId) {
-		toSerialize["observed_release_id"] = o.ObservedReleaseId
 	}
 	if !IsNil(o.Oidc) {
 		toSerialize["oidc"] = o.Oidc
@@ -1087,7 +1023,6 @@ func (o *Gateway) UnmarshalJSON(data []byte) (err error) {
 	requiredProperties := []string{
 		"name",
 		"cluster_id",
-		"release_id",
 		"namespace",
 	}
 

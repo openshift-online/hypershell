@@ -20,6 +20,7 @@ function env(
     argoHealth: null,
     argoSync: null,
     consoleUrl: null,
+    grafanaUrl: null,
     argoUrl: null,
     prState: null,
     prUrl: null,
@@ -37,6 +38,7 @@ function inst(
     provider: null,
     gateways: {},
     gatewaysTotal: 0,
+    gatewaysByCluster: [],
     managedClusters: null,
     users: null,
     rpc: ZERO_RATE,
@@ -47,6 +49,10 @@ function inst(
     sandboxes: 0,
     sandboxesByCluster: [],
     sandboxHistory: [],
+    logins: null,
+    userHistory: [],
+    loginsHistory: [],
+    historyTimes: [],
     ...overrides,
   };
 }
@@ -196,6 +202,7 @@ describe("buildMapModel - nodes", () => {
           provider: "ibm",
           cluster: "c1",
           consoleUrl: "https://console",
+          grafanaUrl: "https://grafana",
           argoUrl: "https://argo",
         }),
       }),
@@ -228,6 +235,7 @@ describe("buildMapModel - nodes", () => {
     expect(node?.users).toBe(10);
     expect(node?.metrics.rpc.p95Ms).toBe(42);
     expect(node?.links.console).toBe("https://console");
+    expect(node?.links.grafana).toBe("https://grafana");
   });
 
   it("seeds the identicon from the instance key when no digest exists", () => {

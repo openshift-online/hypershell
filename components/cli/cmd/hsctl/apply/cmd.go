@@ -288,8 +288,6 @@ func getName(resource Resource) string {
 func isSupportedKind(kind string) bool {
 	supportedKinds := map[string]bool{
 		"Gateway":        true,
-		"GatewayNetwork": true,
-		"GatewayRelease": true,
 		"ManagedCluster": true,
 		"Role":           true,
 		"RoleBinding":    true,
@@ -310,10 +308,6 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 	switch kind {
 	case "Gateway":
 		basePath = urls.GatewaysPath
-	case "GatewayNetwork":
-		basePath = urls.GatewayNetworksPath
-	case "GatewayRelease":
-		basePath = urls.GatewayReleasesPath
 	case "ManagedCluster":
 		basePath = urls.ManagedClustersPath
 	case "Role":

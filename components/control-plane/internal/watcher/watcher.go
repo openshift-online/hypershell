@@ -92,39 +92,6 @@ func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Ha
 	})
 }
 
-func WatchGatewayReleases(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.GatewayRelease]) error {
-	client := pb.NewGatewayReleaseServiceClient(conn)
-	// Drive release reconciliation through a per-resource reconcile queue rather
-	// than inline so a failed reconcile (e.g. a transient API-server error writing
-	// the release status, or listing the referencing gateways for fan-out) is
-	// retried with capped backoff instead of being logged and dropped. Releases
-	// own no cluster resources, so -- unlike gateways -- no startup seed or
-	// recovery is needed; the queue exists purely for retry and per-release
-	// serialization.
-	rq := newReconcileQueue(ctx, "GatewayRelease", handler)
-	defer rq.stop()
-	return watchLoop(ctx, "GatewayRelease", func(ctx context.Context) error {
-		stream, err := client.WatchGatewayReleases(ctx, &pb.WatchGatewayReleasesRequest{})
-		if err != nil {
-			return fmt.Errorf("starting gateway release watch: %w", err)
-		}
-		for {
-			event, err := stream.Recv()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("receiving gateway release event: %w", err)
-			}
-			rq.enqueue(Event[*pb.GatewayRelease]{
-				Type:       toEventType(event.Type),
-				ResourceID: event.ResourceId,
-				Resource:   event.GatewayRelease,
-			})
-		}
-	})
-}
-
 // ErrMissingClusterID is returned by every cluster-scoped list/watch (gateways
 // and role bindings) when it is asked to run without this control plane's
 // registered cluster id. Every control
@@ -158,10 +125,9 @@ func gatewayWorkerCount(configured int) int {
 }
 
 // GatewayReconcileQueue is a shareable handle to the gateway reconcile queue. It
-// lets an out-of-band reconciler -- e.g. the GatewayRelease reconciler on an
-// image change -- request a gateway be re-reconciled through the same serialized,
-// retrying, phase-gate-bypassing path the gateway watch stream uses, without
-// blocking the caller on the (potentially multi-minute) reconcile itself.
+// lets an out-of-band reconciler request a gateway be re-reconciled through the
+// same serialized, retrying, phase-gate-bypassing path the gateway watch stream
+// uses, without blocking the caller on the (potentially multi-minute) reconcile.
 type GatewayReconcileQueue struct {
 	q *reconcileQueue[*pb.Gateway]
 }
@@ -194,9 +160,7 @@ func (g *GatewayReconcileQueue) Stop() { g.q.stop() }
 // per-resource reconcile queue. The watch and its seed lists are scoped
 // server-side to gateways with this control plane's registered cluster_id, so it
 // only ever reconciles its own gateways (the pull model); an empty clusterID is
-// rejected. The queue is owned and stopped by the caller
-// (main) and shared with out-of-band enqueuers such as the GatewayRelease
-// reconciler, so it is neither created nor stopped here.
+// rejected. The queue is owned and stopped by the caller (main).
 func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayReconcileQueue, clusterID string) error {
 	clusterFilter, err := ClusterFilter(clusterID)
 	if err != nil {
@@ -210,8 +174,7 @@ func WatchGateways(ctx context.Context, conn *grpc.ClientConn, queue *GatewayRec
 	// The queue serializes work per gateway, coalesces to the latest observed state,
 	// and retries failures indefinitely with capped backoff -- all on the watcher
 	// lifetime context so recovery survives a stream reconnect. The queue is owned
-	// by the caller (main) and shared with out-of-band enqueuers such as the
-	// GatewayRelease reconciler, so it is neither created nor stopped here.
+	// by the caller (main).
 	rq := queue.q
 	return watchLoop(ctx, "Gateway", func(ctx context.Context) error {
 		// Derive a cancelable child before creating the stream so either the
@@ -583,32 +546,6 @@ func forceSeedRecovery(gw *pb.Gateway) bool {
 	default:
 		return false
 	}
-}
-
-func WatchGatewayNetworks(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.GatewayNetwork]) error {
-	client := pb.NewGatewayNetworkServiceClient(conn)
-	return watchLoop(ctx, "GatewayNetwork", func(ctx context.Context) error {
-		stream, err := client.WatchGatewayNetworks(ctx, &pb.WatchGatewayNetworksRequest{})
-		if err != nil {
-			return fmt.Errorf("starting gateway network watch: %w", err)
-		}
-		for {
-			event, err := stream.Recv()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("receiving gateway network event: %w", err)
-			}
-			if err := handler.Handle(ctx, Event[*pb.GatewayNetwork]{
-				Type:       toEventType(event.Type),
-				ResourceID: event.ResourceId,
-				Resource:   event.GatewayNetwork,
-			}); err != nil {
-				log.Printf("ERROR handling gateway network %s: %v", event.ResourceId, err)
-			}
-		}
-	})
 }
 
 // WatchRoleBindings streams the role bindings of this control plane's gateways.

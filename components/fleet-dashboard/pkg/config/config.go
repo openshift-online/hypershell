@@ -57,11 +57,21 @@ type Config struct {
 	// Metric conventions (product-level; safe defaults)
 	GatewayMetric string
 	InstanceLabel string
-	// SandboxMetric is the per-gateway active-sandbox gauge; ClusterLabel is the
-	// scrape-injected label carrying the managed-cluster identity, used to break
-	// the sandbox count down per cluster.
-	SandboxMetric string
-	ClusterLabel  string
+	// SandboxMetric is the per-gateway active-sandbox gauge. ClusterLabel is the
+	// SCRAPE-INJECTED label carrying the emitting hub's cluster identity (NOT the
+	// spoke a gateway runs on); kept for the legacy per-cluster sandbox breakdown.
+	// ManagedClusterLabel is the APPLICATION-EMITTED label naming the managed
+	// cluster (spoke) each gateway runs on (== ManagedCluster.Name / GitOps spoke
+	// name); it is the correct dimension for per-spoke attribution
+	// (gateway-managed-cluster-attribution.spec.md).
+	SandboxMetric       string
+	ClusterLabel        string
+	ManagedClusterLabel string
+	// UserMetric is the registered-user total gauge; UserLoginsMetric is the
+	// rolling 7-day unique-login count. Both carry the same instance label as the
+	// sandbox gauge, so they fold into the per-instance fleet record the same way.
+	UserMetric       string
+	UserLoginsMetric string
 
 	// Auth (backend defense-in-depth gate, §3.4)
 	AuthEnabled bool
@@ -119,6 +129,9 @@ func Load() (*Config, error) {
 		InstanceLabel:         env("FD_INSTANCE_LABEL", "namespace"),
 		SandboxMetric:         env("FD_SANDBOX_METRIC", "hypershell_gateways_active_sandboxes_total"),
 		ClusterLabel:          env("FD_CLUSTER_LABEL", "cluster"),
+		ManagedClusterLabel:   env("FD_MANAGED_CLUSTER_LABEL", "managed_cluster"),
+		UserMetric:            env("FD_USER_METRIC", "hypershell_users_registered_total"),
+		UserLoginsMetric:      env("FD_USER_LOGINS_METRIC", "hypershell_users_unique_logins_last_7_days_total"),
 		AuthEnabled:           envBool("FD_AUTH_ENABLED", true),
 		SAR: SubjectAccessReview{
 			Verb:      env("FD_SAR_VERB", "get"),

@@ -19,6 +19,7 @@ function inst(
     provider: null,
     gateways: {},
     gatewaysTotal: 0,
+    gatewaysByCluster: [],
     managedClusters: null,
     users: null,
     rpc: ZERO_RATE,
@@ -29,6 +30,10 @@ function inst(
     sandboxes: 0,
     sandboxesByCluster: [],
     sandboxHistory: [],
+    logins: null,
+    userHistory: [],
+    loginsHistory: [],
+    historyTimes: [],
     ...overrides,
   };
 }

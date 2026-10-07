@@ -58,6 +58,7 @@ skills/
 | Domain | Specs | Requirements | Present | Partial | Missing | Deferred | Coverage |
 |--------|-------|-------------|---------|---------|---------|----------|----------|
 | Platform - Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
+| Platform - Data Model (Kind Removal) | 1 | 20 | 0 | 0 | 20 | 0 | 0% |
 | Platform - Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
 | Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
 | Platform - Gateway DB | 1 | 12 | 10 | 2 | 0 | 0 | 83% |
@@ -95,7 +96,7 @@ skills/
 | Platform - Gateway Sandbox Active Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - Hub Cluster Utilization Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - OpenShell Branch Build | 1 | ~12 | 0 | 0 | ~12 | 0 | 0% |
-| **TOTAL (analyzed rows)** | **42** | **364** | **310** | **22** | **27** | **5** | **85%** |
+| **TOTAL (analyzed rows)** | **43** | **384** | **310** | **22** | **47** | **5** | **81%** |
 | **TOTAL (all 48 groups)** | **48** | **~424** | **?** | **?** | **?** | **?** | **Pending** |
 
 ### Spec Dependency Order
@@ -119,6 +120,35 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Gap Table
+
+### Kind Removal: GatewayRelease + GatewayNetwork
+
+These items track deletion of deprecated kinds across all implementation layers.
+Execution order is the reverse of creation: FE -> CLI -> CP (watcher+reconciler) -> BE+gRPC (plugin, handler, presenter, migration) -> SDK (generated types) -> API (OpenAPI routes+schema).
+Database tables are dropped via a final migration after confirmed zero rows.
+
+| # | Kind | Layer | Action | Status | Code Location | Wave |
+|---|------|-------|--------|--------|---------------|------|
+| RM-1 | GatewayRelease | FE | Remove any UI references (list/detail views, selectors) | Missing | `components/web-console/` | RM-W1 |
+| RM-2 | GatewayNetwork | FE | Remove any UI references | Missing | `components/web-console/` | RM-W1 |
+| RM-3 | GatewayRelease | CLI | Delete `hsctl create/get/list/delete gatewayRelease` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
+| RM-4 | GatewayNetwork | CLI | Delete `hsctl create/get/list/delete gatewayNetwork` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
+| RM-5 | GatewayRelease | CP | Delete `GatewayReleaseReconciler`, `WatchGatewayReleases`, `gateway_version_selection_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
+| RM-6 | GatewayNetwork | CP | Delete `GatewayNetworkReconciler`, `WatchGatewayNetworks`, `gateway_network_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
+| RM-7 | GatewayRelease | CP | Remove `release_id` propagation from `GatewayReconciler`; keep `image` path only | Missing | `components/control-plane/internal/reconciler/reconciler.go` | RM-W3 |
+| RM-8 | GatewayRelease | BE | Delete `components/api-server/plugins/gatewayReleases/` plugin entirely | Missing | `components/api-server/plugins/gatewayReleases/` | RM-W4 |
+| RM-9 | GatewayNetwork | BE | Delete `components/api-server/plugins/gatewayNetworks/` plugin entirely | Missing | `components/api-server/plugins/gatewayNetworks/` | RM-W4 |
+| RM-10 | GatewayRelease | gRPC | Delete `gateway_releases.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayReleases/grpc_*` | RM-W4 |
+| RM-11 | GatewayNetwork | gRPC | Delete `gateway_networks.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayNetworks/grpc_*` | RM-W4 |
+| RM-12 | GatewayRelease | API | Remove `/gateway_releases` routes and `GatewayRelease` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
+| RM-13 | GatewayNetwork | API | Remove `/gateway_networks` routes and `GatewayNetwork` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
+| RM-14 | GatewayRelease | SDK | Regenerate Go + TS SDKs (generated files will drop GatewayRelease types automatically) | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
+| RM-15 | GatewayNetwork | SDK | Regenerate Go + TS SDKs | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
+| RM-16 | GatewayRelease | DB | Add migration to drop `gateway_releases` table (after zero-row verification) | Missing | `components/api-server/plugins/gatewayReleases/migration.go` | RM-W6 |
+| RM-17 | GatewayNetwork | DB | Add migration to drop `gateway_networks` table | Missing | `components/api-server/plugins/gatewayNetworks/migration.go` | RM-W6 |
+| RM-18 | Gateway | BE | Remove `release_id` field from Gateway model, handler, and migration (nullable FK to removed table) | Missing | `components/api-server/plugins/gateways/` | RM-W4 |
+| RM-19 | Gateway | API | Remove `release_id` from OpenAPI Gateway schema, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
+| RM-20 | GatewayRelease+GatewayNetwork | RBAC | Remove both from `grpc_authorization.go` control-plane identity allow-list | Missing | `components/api-server/pkg/rbac/grpc_authorization.go` | RM-W4 |
 
 ### generated-gateway-config-validation.spec.md (HYPERSHELL-179)
 

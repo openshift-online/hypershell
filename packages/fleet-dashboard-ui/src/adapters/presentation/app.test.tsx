@@ -35,6 +35,7 @@ const envExtras = {
   argoHealth: null,
   argoSync: null,
   consoleUrl: null,
+  grafanaUrl: null,
   argoUrl: null,
   prState: null,
   prUrl: null,
@@ -86,8 +87,7 @@ describe("App", () => {
     const empty = {
       getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
       getPromotion: () => Promise.resolve(plane(promotion)),
-      getTopology: () =>
-        Promise.resolve(plane<TopologyData>({ nodes: [], edges: [] })),
+      getTopology: () => Promise.resolve(plane<TopologyData>({})),
       getInstances: () =>
         Promise.resolve(plane<InstancesData>({ instances: [] })),
     } satisfies FleetApi;

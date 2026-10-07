@@ -17,7 +17,6 @@ type Gateway struct {
 	hypershellapi.TraceMeta
 	Name                   string  `json:"name"`
 	ClusterId              string  `json:"cluster_id"`
-	ReleaseId              string  `json:"release_id"`
 	Namespace              string  `json:"namespace"`
 	ExternalDns            *string `json:"external_dns"`
 	TlsMode                *string `json:"tls_mode"`
@@ -30,7 +29,6 @@ type Gateway struct {
 	RouteAddress           *string `json:"route_address"`
 	ConsoleAddress         *string `json:"console_address"`
 	GatewayVersion         *string `json:"gateway_version"`
-	ObservedReleaseId      *string `json:"observed_release_id"`
 	Oidc                   *string `json:"oidc" gorm:"type:jsonb"`
 	Route                  *string `json:"route" gorm:"type:jsonb"`
 	CredentialDriver       *string `json:"credential_driver" gorm:"type:jsonb"`
@@ -67,7 +65,6 @@ func (d *Gateway) BeforeCreate(tx *gorm.DB) error {
 type GatewayPatchRequest struct {
 	Name             *string `json:"name,omitempty"`
 	ClusterId        *string `json:"cluster_id,omitempty"`
-	ReleaseId        *string `json:"release_id,omitempty"`
 	ExternalDns      *string `json:"external_dns,omitempty"`
 	TlsMode          *string `json:"tls_mode,omitempty"`
 	ServiceType      *string `json:"service_type,omitempty"`

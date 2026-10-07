@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Seed the platform's baseline resources (GatewayRelease, Gateway) into a
+# Seed the platform's baseline resources (Gateway, ManagedCluster) into a
 # running Kind cluster via the REST API. The ManagedCluster is NOT seeded: the
 # control plane registers itself as local-kind (HYPERSHELL_MANAGED_CLUSTER_NAME
 # in deploy/kind) and this script waits for that record and uses its id. A
@@ -108,7 +108,7 @@ info "Obtaining API token from Keycloak..."
 # HTTP authz middleware (unlike the gRPC interceptor) has no service-account
 # bypass -- every write requires the caller's JWT to carry the `gateway:creator`
 # realm role. The `hypershell-control-plane` client holds no such role, so its
-# token 403s on `POST /gateway_releases` onward and (because seeding is non-fatal) would
+# token 403s on `POST /gateways` and (because seeding is non-fatal) would
 # leave the cluster with no seeded resources behind a scroll-past warning. The
 # `admin` user has `gateway:creator`, and `hypershell-frontend` permits the
 # password grant (publicClient + directAccessGrantsEnabled), so this token is
@@ -178,7 +178,6 @@ extract_id() {
 
 seed_failed=""
 CLUSTER_ID=""
-RELEASE_ID=""
 
 if [[ -z "${seed_failed}" ]]; then
   # The control plane registers local-kind itself; wait for that record (bounded)
@@ -221,37 +220,6 @@ if [[ -z "${seed_failed}" ]]; then
 fi
 
 if [[ -z "${seed_failed}" ]]; then
-  # Check for existing GatewayRelease
-  info "Checking for existing dev-release GatewayRelease..."
-  EXISTING_GR_RAW=$(api_get "${API_URL}/api/hypershell/v1/gateway_releases")
-  EXISTING_GR_HTTP=$(echo "${EXISTING_GR_RAW}" | tail -1)
-  EXISTING_GR_RESP=$(echo "${EXISTING_GR_RAW}" | sed '$d')
-
-  if [[ "${EXISTING_GR_HTTP}" == "200" ]]; then
-    RELEASE_ID=$(printf '%s' "${EXISTING_GR_RESP}" | json_named_id dev-release)
-    if [[ -n "${RELEASE_ID}" ]]; then
-      success "dev-release GatewayRelease already exists: ${RELEASE_ID}"
-    fi
-  fi
-
-  if [[ -z "${RELEASE_ID}" ]]; then
-    info "Creating GatewayRelease..."
-    GR_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateway_releases" \
-      "{\"name\":\"dev-release\",\"image\":\"${GATEWAY_IMAGE}\"}")
-    GR_HTTP=$(echo "${GR_RAW}" | tail -1)
-    GR_RESP=$(echo "${GR_RAW}" | sed '$d')
-    RELEASE_ID=$(extract_id "${GR_RESP}")
-
-    if [[ -z "${RELEASE_ID}" ]]; then
-      warn "GatewayRelease creation failed (HTTP ${GR_HTTP}): ${GR_RESP:-no response}"
-      seed_failed=true
-    else
-      success "GatewayRelease created: ${RELEASE_ID}"
-    fi
-  fi
-fi
-
-if [[ -z "${seed_failed}" ]]; then
   # Check if dev-gateway already exists before creating
   info "Checking for existing dev-gateway..."
   GATEWAY_ID=""
@@ -272,7 +240,8 @@ if [[ -z "${seed_failed}" ]]; then
     OIDC_JSON="{\\\"issuer\\\":\\\"${KEYCLOAK_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"${KEYCLOAK_OIDC_AUDIENCE}\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
     # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
-    GW_BODY="{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${OIDC_JSON}\""
+    # release_id was removed from the Gateway schema (GatewayRelease kind removed).
+    GW_BODY="{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"oidc\":\"${OIDC_JSON}\""
     GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
     GW_BODY="${GW_BODY}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")

@@ -1,0 +1,62 @@
+package sandboxTemplates
+
+import (
+	"net/http"
+
+	"github.com/gorilla/mux"
+
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
+	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
+)
+
+type ServiceLocator func() SandboxTemplateService
+
+func NewServiceLocator(env *environments.Env) ServiceLocator {
+	dao := NewSandboxTemplateDao(&env.Database.SessionFactory)
+	return func() SandboxTemplateService {
+		return NewSandboxTemplateService(dao)
+	}
+}
+
+func Service(s *environments.Services) SandboxTemplateService {
+	if s == nil {
+		return nil
+	}
+	if obj := s.GetService("SandboxTemplates"); obj != nil {
+		locator := obj.(ServiceLocator)
+		return locator()
+	}
+	return nil
+}
+
+func init() {
+	registry.RegisterService("SandboxTemplates", func(env interface{}) interface{} {
+		return NewServiceLocator(env.(*environments.Env))
+	})
+
+	pkgserver.RegisterRoutes("sandboxTemplates", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+		envServices := services.(*environments.Services)
+		h := NewSandboxTemplateHandler(Service(envServices), generic.Service(envServices))
+
+		router := apiV1Router.PathPrefix("/sandbox_templates").Subrouter()
+		router.HandleFunc("", h.List).Methods(http.MethodGet)
+		router.HandleFunc("/{id}", h.Get).Methods(http.MethodGet)
+		router.HandleFunc("", h.Create).Methods(http.MethodPost)
+		router.HandleFunc("/{id}", h.Patch).Methods(http.MethodPatch)
+		router.HandleFunc("/{id}", h.Delete).Methods(http.MethodDelete)
+		router.Use(authMiddleware.AuthenticateAccountJWT)
+		router.Use(authzMiddleware.AuthorizeApi)
+	})
+
+	presenters.RegisterPath(SandboxTemplate{}, "sandbox_templates")
+	presenters.RegisterPath(&SandboxTemplate{}, "sandbox_templates")
+	presenters.RegisterKind(SandboxTemplate{}, "SandboxTemplate")
+	presenters.RegisterKind(&SandboxTemplate{}, "SandboxTemplate")
+
+	db.RegisterMigration(migration())
+}

@@ -124,3 +124,22 @@ reconciliation report showing coverage delta.
 - Subagents stay in their layer
 - Always update `skills/RECONCILE.md` after state changes
 - Divergences (D-prefixed items) require human decision before execution
+
+## Kind Removal Wave Pattern
+
+When a kind is marked "Slated for Removal" in a spec, add `RM-` prefixed gap items to `RECONCILE.md` and execute them in the following reverse-dependency order:
+
+| Wave | Layer | Actions |
+|------|-------|---------|
+| RM-W1 | FE | Remove list/detail pages, route entries, nav links, and any component referencing the kind |
+| RM-W2 | CLI | Delete command tree (create/get/list/update/delete sub-commands) |
+| RM-W3 | CP | Delete watcher function, reconciler struct + Handle method, and any propagation logic referencing the kind from sibling reconcilers |
+| RM-W4 | BE+gRPC | Delete plugin directory (model, DAO, handler, service, factory, integration tests), delete gRPC handler + presenter, remove from `grpc_authorization.go`, remove FK fields from sibling models |
+| RM-W5 | API+SDK | Remove routes + schemas from OpenAPI YAML, run `make generate` to regenerate Go + TS SDKs |
+| RM-W6 | DB | Add a migration that drops the table (verify zero rows in staging before executing in production) |
+
+**Gate between RM-W3 and RM-W4**: Run `go build ./...` and `go vet ./...` on the control-plane. All references to the removed kind's generated proto types must be gone before deleting the backend plugin.
+
+**Gate between RM-W5 and RM-W6**: Confirm no application code imports the dropped table's model. The migration must be additive to the migration sequence (new sequential version number).
+
+**Idempotency**: Each RM wave item is independently verifiable. Run `grep -r "<KindName>" components/` after each wave to confirm the layer is clean before proceeding.

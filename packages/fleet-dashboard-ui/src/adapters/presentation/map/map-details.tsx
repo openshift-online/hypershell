@@ -27,6 +27,7 @@ import {
   Tooltip,
   Truncate,
 } from "@patternfly/react-core";
+import ChartLineIcon from "@patternfly/react-icons/dist/esm/icons/chart-line-icon";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
 import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
 import LongArrowAltRightIcon from "@patternfly/react-icons/dist/esm/icons/long-arrow-alt-right-icon";
@@ -40,6 +41,7 @@ import {
   deployedFor,
   seedForBundle,
 } from "../../../domain/map/bundles";
+import type { GatewayPhaseCounts } from "../../../domain/fleet";
 import { otherGateways } from "../../../domain/fleet";
 import { shortDigest } from "../../../domain/map/digest";
 import { identiName } from "../../../domain/map/identiname";
@@ -49,6 +51,11 @@ import type {
   PullRequest,
   ReleaseBundle,
 } from "../../../domain/promotion";
+import {
+  hasSpokeRows,
+  type SpokeAttribution,
+  type SpokeRow,
+} from "../../../domain/spoke-attribution";
 import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
 import { StatusLabel } from "../status-label";
@@ -56,7 +63,8 @@ import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import styles from "./map-details.module.css";
-import { SandboxChin } from "./sandbox-chin";
+import { MetricTiles } from "./metric-tiles";
+import { ReleaseTime } from "./release-time";
 
 /**
  * The release-bundle identicon, inline. A release bundle is always identified by
@@ -373,17 +381,37 @@ function BundleContents({
   );
 }
 
-function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
+function GatewaySummary({
+  node,
+  active,
+}: {
+  node: MapNode;
+  active: number | null;
+}): React.ReactElement {
   const intl = useIntl();
+  // When the shared cursor is engaged over a sample this instance has gateway history
+  // for, the donut, legend and total all read that moment's phase mix; otherwise the
+  // live snapshot. The historical samples carry only the three charted phases, so
+  // "other" is nil at a historical sample and the total is their sum.
+  const hist =
+    active !== null && active < node.gatewayHistory.length
+      ? node.gatewayHistory[active]
+      : null;
   const g = node.gateways;
-  const running = g.running ?? 0;
-  const provisioning = g.provisioning ?? 0;
-  const failed = g.failed ?? 0;
+  const running = hist ? hist.running : (g.running ?? 0);
+  const provisioning = hist ? hist.provisioning : (g.provisioning ?? 0);
+  const failed = hist ? hist.failed : (g.failed ?? 0);
   // Gateways in any phase beyond the three named rows, so the legend sums to the
   // donut's centre total instead of under-counting it.
-  const other = otherGateways(g);
+  const other = hist ? 0 : otherGateways(g);
+  const total = hist ? running + provisioning + failed : node.gatewaysTotal;
+  // The donut takes a phase-count record; project the history sample into one so the
+  // ring redraws for the hovered moment, else the live phase counts.
+  const counts: GatewayPhaseCounts = hist
+    ? { running, provisioning, failed }
+    : g;
   const label = intl.formatMessage(messages.detailGatewayBreakdown, {
-    total: node.gatewaysTotal,
+    total,
     running,
     provisioning,
     failed,
@@ -426,7 +454,7 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
           aria-label={label}
           style={{ color: TEXT_COLOR }}
         >
-          <GatewayDonut counts={g} cx={48} cy={48} radius={44} />
+          <GatewayDonut counts={counts} cx={48} cy={48} radius={44} />
         </svg>
       </div>
       <ul className={styles.gatewayLegend}>
@@ -448,45 +476,118 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
   );
 }
 
-/**
- * Active agent-sandbox population for an instance: a headline count plus the
- * per-cluster "chin" (SandboxChin) showing how those sandboxes spread across the
- * instance's managed clusters. Mirrors the gateways widget's shape so the two read
- * as a pair in the drawer. Sandboxes are a distinct population from gateways (an
- * instance with idle gateways can still host sandboxes), so they get their own band.
- */
-function SandboxSummary({ node }: { node: MapNode }): React.ReactElement {
-  const intl = useIntl();
-  const total = node.sandboxes;
-  const clusters = node.sandboxesByCluster;
-  const summary = intl.formatMessage(messages.detailSandboxBreakdown, {
-    total,
-    clusters: clusters.length,
-  });
-  const noneLabel = intl.formatMessage(messages.sandboxNone);
+/** One managed-cluster row: the cluster name (+ optional role badge) with its gateway
+ *  and sandbox counts pinned to the right. */
+function SpokeCountRow({
+  row,
+  badge,
+  hub = false,
+}: {
+  row: SpokeRow;
+  badge?: React.ReactNode;
+  hub?: boolean;
+}): React.ReactElement {
+  const className = [styles.spokeRow, hub ? styles.spokeHubRow : null]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <div className={styles.sandboxBody}>
-      <div className={styles.sandboxHead}>
-        <h4 className={styles.sandboxTitle}>
-          <FormattedMessage {...messages.sectionSandboxes} />
-        </h4>
-        <span
-          className={styles.sandboxCount}
-          aria-label={summary}
-          title={summary}
-        >
-          {total}
+    <div className={className}>
+      <span className={styles.spokeRowName}>
+        <Truncate content={row.managedCluster} position="middle" />
+      </span>
+      {badge}
+      <span className={styles.spokeRowCounts}>
+        <span>
+          <FormattedMessage
+            {...messages.spokeGatewaysCount}
+            values={{ count: row.gatewaysTotal }}
+          />
         </span>
-      </div>
-      {clusters.length > 0 ? (
+        {/* The middot separator is drawn in CSS (::before) so it is decorative,
+            not an untranslated JSX text node. */}
+        <span className={styles.spokeCountSep}>
+          <FormattedMessage
+            {...messages.spokeSandboxesCount}
+            values={{ count: row.sandboxes }}
+          />
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The hub instance's gateway + sandbox population, split by the managed cluster it
+ * runs on: the hub's own row, co-located spokes nested beneath it, and remote spokes
+ * in their own group. When topology was unavailable the rows list flat under an
+ * "attribution unavailable" note. Renders nothing unless there is at least one spoke
+ * row (a plain instance with no managed clusters shows no section).
+ */
+function SpokeAttributionSection({
+  attribution,
+}: {
+  attribution: SpokeAttribution;
+}): React.ReactElement | null {
+  if (!hasSpokeRows(attribution)) {
+    return null;
+  }
+  const remoteBadge = (
+    <Label color="purple" isCompact variant="outline">
+      <FormattedMessage {...messages.spokeRemote} />
+    </Label>
+  );
+  return (
+    <div className={styles.section}>
+      <h4 className={styles.sectionTitle}>
+        <FormattedMessage {...messages.sectionManagedClusters} />
+      </h4>
+
+      {!attribution.hasTopology ? (
         <>
-          <h5 className={styles.sandboxChinTitle}>
-            <FormattedMessage {...messages.sandboxByCluster} />
-          </h5>
-          <SandboxChin clusters={clusters} />
+          <p className={styles.spokeUnavailable}>
+            <FormattedMessage {...messages.spokeAttributionUnavailable} />
+          </p>
+          {attribution.unknown.map((row) => (
+            <SpokeCountRow key={row.managedCluster} row={row} />
+          ))}
         </>
       ) : (
-        <p className={styles.sandboxEmpty}>{noneLabel}</p>
+        <>
+          {attribution.hubOwn ? (
+            <SpokeCountRow row={attribution.hubOwn} hub />
+          ) : null}
+          {attribution.coLocated.length > 0 ? (
+            <div className={styles.spokeNested}>
+              {attribution.coLocated.map((row) => (
+                <SpokeCountRow key={row.managedCluster} row={row} />
+              ))}
+            </div>
+          ) : null}
+          {attribution.remote.length > 0 ? (
+            <>
+              <h5 className={styles.spokeGroupTitle}>
+                <FormattedMessage {...messages.spokeRemoteGroup} />
+              </h5>
+              {attribution.remote.map((row) => (
+                <SpokeCountRow
+                  key={row.managedCluster}
+                  row={row}
+                  badge={remoteBadge}
+                />
+              ))}
+            </>
+          ) : null}
+          {attribution.unknown.length > 0 ? (
+            <>
+              <h5 className={styles.spokeGroupTitle}>
+                <FormattedMessage {...messages.spokeUnattributedGroup} />
+              </h5>
+              {attribution.unknown.map((row) => (
+                <SpokeCountRow key={row.managedCluster} row={row} />
+              ))}
+            </>
+          ) : null}
+        </>
       )}
     </div>
   );
@@ -654,11 +755,6 @@ function NodeFields({
           {node.managedClusters}
         </Row>
       ) : null}
-      {node.users !== null ? (
-        <Row term={<FormattedMessage {...messages.detailUsers} />}>
-          {node.users}
-        </Row>
-      ) : null}
       <Row term={<FormattedMessage {...messages.detailMetrics} />}>
         <FormattedMessage
           {...messages.detailMetricTriple}
@@ -721,6 +817,7 @@ function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
   // operational follow-ups, grouped under their own eyebrow below it. The group
   // heading only shows when at least one operational link is present.
   const hasOps =
+    Boolean(node.links.grafana) ||
     Boolean(node.links.argo) ||
     Boolean(node.links.pr) ||
     Boolean(node.links.analysis);
@@ -738,6 +835,12 @@ function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
           <FormattedMessage {...messages.linksOperations} />
         </h4>
       ) : null}
+      <LinkCard
+        href={node.links.grafana}
+        icon={<ChartLineIcon />}
+        label={<FormattedMessage {...messages.linkGrafana} />}
+        desc={<FormattedMessage {...messages.linkGrafanaDesc} />}
+      />
       <LinkCard
         href={node.links.argo}
         icon={<ExternalLinkAltIcon />}
@@ -770,6 +873,17 @@ function NodeDetails({
   onSelectBundle: (seed: string) => void;
 }): React.ReactElement {
   const [activeKey, setActiveKey] = useState<string | number>("details");
+  // The shared temporal cursor's sample index, lifted here so the gateways donut and
+  // the population tiles read the same moment. Null = cursor idle (live snapshot).
+  const [active, setActive] = useState<number | null>(null);
+  // Reset the cursor when a different node is selected so a stale index never leaks
+  // across nodes. Done during render (the React-recommended "adjust state when a prop
+  // changes" pattern) rather than in an effect, so there is no extra render pass.
+  const [prevNodeId, setPrevNodeId] = useState(node.id);
+  if (prevNodeId !== node.id) {
+    setPrevNodeId(node.id);
+    setActive(null);
+  }
   const bundle = node.digest ? releaseByDigest[node.digest] : undefined;
   return (
     <Tabs
@@ -788,12 +902,15 @@ function NodeDetails({
       >
         <div className="pf-v6-u-mt-md">
           <div className={styles.gatewayWidget}>
-            <GatewaySummary node={node} />
-          </div>
-          <div className={[styles.sandboxWidget, "pf-v6-u-mt-md"].join(" ")}>
-            <SandboxSummary node={node} />
+            <GatewaySummary node={node} active={active} />
           </div>
           <div className="pf-v6-u-mt-md">
+            <MetricTiles node={node} active={active} onActive={setActive} />
+          </div>
+          {node.spokeAttribution ? (
+            <SpokeAttributionSection attribution={node.spokeAttribution} />
+          ) : null}
+          <div className={styles.nodeFields}>
             <NodeFields node={node} onSelectBundle={onSelectBundle} />
           </div>
         </div>
@@ -966,7 +1083,7 @@ function BundleDetails({
         ) : null}
         {bundle.date ? (
           <Row term={<FormattedMessage {...messages.detailDate} />}>
-            {bundle.date}
+            <ReleaseTime iso={bundle.date} mode="full" />
           </Row>
         ) : null}
       </DescriptionList>

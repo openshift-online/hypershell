@@ -1,4 +1,3 @@
-import type { SDKClient } from "@openshift-online/hypershell-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -8,21 +7,8 @@ import {
 import type { PlatformInventoryMetricsResponse } from "./platform-inventory-aggregation";
 
 const fetchMock = vi.fn();
-const gatewaysListMock = vi.fn();
-const gatewayReleasesListMock = vi.fn();
-const apiFactory = vi.fn(
-  () =>
-    ({
-      gateways: {
-        list: gatewaysListMock,
-      },
-      gatewayReleases: {
-        list: gatewayReleasesListMock,
-      },
-    }) as unknown as SDKClient,
-);
 
-const adapter = createDashboardControlPlaneAdapter(apiFactory);
+const adapter = createDashboardControlPlaneAdapter();
 const context = {
   correlationId: "11111111-1111-4111-8111-111111111111",
 };
@@ -331,28 +317,6 @@ function resolveStandardPrometheusSupportRoutes(
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
-  gatewaysListMock.mockReset();
-  gatewayReleasesListMock.mockReset();
-  gatewaysListMock.mockResolvedValue({
-    items: [
-      { release_id: "rel-1" },
-      { release_id: "rel-1" },
-      { release_id: "rel-2" },
-      { release_id: "" },
-    ],
-    page: 1,
-    size: 100,
-    total: 4,
-  });
-  gatewayReleasesListMock.mockResolvedValue({
-    items: [
-      { id: "rel-1", name: "OpenShell 2.0" },
-      { id: "rel-2", name: "OpenShell 2.1" },
-    ],
-    page: 1,
-    size: 100,
-    total: 2,
-  });
 });
 
 afterEach(() => {
@@ -1039,8 +1003,6 @@ describe("createDashboardControlPlaneAdapter", () => {
 
   it("fails when every metric source is unavailable", async () => {
     fetchMock.mockRejectedValue(new Error("network down"));
-    gatewaysListMock.mockRejectedValue(new Error("network down"));
-    gatewayReleasesListMock.mockRejectedValue(new Error("network down"));
 
     await expect(adapter.getOperationalMetrics(context)).rejects.toThrow(
       "All operational dashboard metric sources failed",
@@ -1229,48 +1191,6 @@ describe("createDashboardControlPlaneAdapter", () => {
       uniqueLoginsLast30Days: "312",
       value: "450",
     });
-  });
-
-  it("aggregates gateway release distribution into gateway-releases metric", async () => {
-    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
-
-    const metrics = await adapter.getOperationalMetrics(context);
-    const gatewayReleasesMetric = metrics.metrics.find(
-      (metric) => metric.id === "gateway-releases",
-    );
-
-    expect(gatewayReleasesMetric).toEqual({
-      id: "gateway-releases",
-      releaseDistribution: {
-        "OpenShell 2.0": 2,
-        "OpenShell 2.1": 1,
-        unknown: 1,
-      },
-      value: "4",
-    });
-    expect(gatewaysListMock).toHaveBeenCalledWith(
-      { orderBy: "name asc", page: 1, size: 100 },
-      { signal: undefined },
-    );
-    expect(gatewayReleasesListMock).toHaveBeenCalledWith(
-      { orderBy: "name asc", page: 1, size: 100 },
-      { signal: undefined },
-    );
-  });
-
-  it("omits gateway-releases when gateway list aggregation fails", async () => {
-    mockClusterMetricsResponses(1024 ** 3, 512 * 1024 ** 2);
-    gatewaysListMock.mockRejectedValue(new Error("gateway list failed"));
-
-    const metrics = await adapter.getOperationalMetrics(context);
-
-    expect(metrics.failedSources).toEqual(["gateway-release-distribution"]);
-    expect(
-      metrics.metrics.find((metric) => metric.id === "gateway-releases"),
-    ).toBeUndefined();
-    expect(
-      metrics.metrics.find((metric) => metric.id === "provisioned-gateways"),
-    ).toBeDefined();
   });
 
   it("maps gateway daily_fleet_totals into provisioned-gateways trend", async () => {

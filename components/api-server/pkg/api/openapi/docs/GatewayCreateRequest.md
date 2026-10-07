@@ -6,7 +6,6 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** |  | 
 **ClusterId** | **string** |  | 
-**ReleaseId** | **string** |  | 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -23,7 +22,7 @@ Name | Type | Description | Notes
 
 ### NewGatewayCreateRequest
 
-`func NewGatewayCreateRequest(name string, clusterId string, releaseId string, ) *GatewayCreateRequest`
+`func NewGatewayCreateRequest(name string, clusterId string, ) *GatewayCreateRequest`
 
 NewGatewayCreateRequest instantiates a new GatewayCreateRequest object
 This constructor will assign default values to properties that have it defined,
@@ -76,26 +75,6 @@ and a boolean to check if the value has been set.
 `func (o *GatewayCreateRequest) SetClusterId(v string)`
 
 SetClusterId sets ClusterId field to given value.
-
-
-### GetReleaseId
-
-`func (o *GatewayCreateRequest) GetReleaseId() string`
-
-GetReleaseId returns the ReleaseId field if non-nil, zero value otherwise.
-
-### GetReleaseIdOk
-
-`func (o *GatewayCreateRequest) GetReleaseIdOk() (*string, bool)`
-
-GetReleaseIdOk returns a tuple with the ReleaseId field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetReleaseId
-
-`func (o *GatewayCreateRequest) SetReleaseId(v string)`
-
-SetReleaseId sets ReleaseId field to given value.
 
 
 ### GetExternalDns

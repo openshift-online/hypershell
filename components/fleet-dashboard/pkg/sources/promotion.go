@@ -154,6 +154,10 @@ type Environment struct {
 	Env        string `json:"env,omitempty"`
 	Cluster    string `json:"cluster,omitempty"`
 	ConsoleURL string `json:"consoleUrl,omitempty"`
+	// GrafanaURL deep-links to the cluster's own per-cluster Grafana instance. Like
+	// ConsoleURL it is the raw value of an Argo "extra link" annotation, so gitops
+	// stays authoritative for the host (no hostname pattern is baked in here).
+	GrafanaURL string `json:"grafanaUrl,omitempty"`
 }
 
 // Gate is a promoter commit status.
@@ -234,6 +238,7 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			env.Env = a.env
 			env.Cluster = a.cluster
 			env.ConsoleURL = a.consoleURL
+			env.GrafanaURL = a.grafanaURL
 		}
 		payload.Environments[key] = env
 	}
@@ -402,7 +407,7 @@ func (p *Promotion) argoAppURL(ns, app string) string {
 }
 
 type argoInfo struct {
-	app, ns, health, sync, role, provider, env, cluster, consoleURL string
+	app, ns, health, sync, role, provider, env, cluster, consoleURL, grafanaURL string
 }
 
 // argoByInstance maps each instance key to its core Argo Application, using the
@@ -453,6 +458,7 @@ func (p *Promotion) argoByInstance(ctx context.Context) map[string]argoInfo {
 			env:        labels[deliveryLabelPrefix+"env"],
 			cluster:    labels[deliveryLabelPrefix+"cluster"],
 			consoleURL: ann["link.argocd.argoproj.io/external-link"],
+			grafanaURL: ann["link.argocd.argoproj.io/grafana"],
 		}
 	}
 	return out

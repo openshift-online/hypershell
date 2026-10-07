@@ -3,8 +3,6 @@ package list
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/gatewayNetworks"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/gatewayReleases"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/gateways"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/managedClusters"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/roleBindings"
@@ -21,8 +19,6 @@ var Cmd = &cobra.Command{
 
 func init() {
 	Cmd.AddCommand(gateways.Cmd)
-	Cmd.AddCommand(gatewayNetworks.Cmd)
-	Cmd.AddCommand(gatewayReleases.Cmd)
 	Cmd.AddCommand(managedClusters.Cmd)
 	Cmd.AddCommand(roles.Cmd)
 	Cmd.AddCommand(roleBindings.Cmd)

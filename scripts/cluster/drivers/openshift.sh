@@ -1042,7 +1042,7 @@ seed_via_api() {
     echo "${resp}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true
   }
 
-  local seed_failed="" CLUSTER_ID="" RELEASE_ID="" GATEWAY_ID=""
+  local seed_failed="" CLUSTER_ID="" GATEWAY_ID=""
   local raw http body
 
   # The control plane registers local-openshift itself
@@ -1085,31 +1085,6 @@ seed_via_api() {
   fi
 
   if [[ -z "${seed_failed}" ]]; then
-    raw="$(api_exec GET /api/hypershell/v1/gateway_releases)"
-    http="$(printf '%s' "${raw}" | tail -1)"
-    body="$(printf '%s' "${raw}" | sed '$d')"
-    if [[ "${http}" == "200" ]]; then
-      RELEASE_ID="$(printf '%s' "${body}" | json_named_id dev-release)"
-    fi
-    if [[ -z "${RELEASE_ID}" ]]; then
-      info "Creating GatewayRelease..."
-      raw="$(api_exec POST /api/hypershell/v1/gateway_releases \
-        "{\"name\":\"dev-release\",\"image\":\"${GATEWAY_IMAGE}\"}")"
-      http="$(printf '%s' "${raw}" | tail -1)"
-      body="$(printf '%s' "${raw}" | sed '$d')"
-      RELEASE_ID="$(extract_id "${body}")"
-      if [[ -z "${RELEASE_ID}" ]]; then
-        warn "GatewayRelease creation failed (HTTP ${http}): ${body:-no response}"
-        seed_failed=true
-      else
-        success "GatewayRelease created: ${RELEASE_ID}"
-      fi
-    else
-      success "dev-release GatewayRelease already exists: ${RELEASE_ID}"
-    fi
-  fi
-
-  if [[ -z "${seed_failed}" ]]; then
     raw="$(api_exec GET /api/hypershell/v1/gateways)"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
@@ -1136,7 +1111,7 @@ seed_via_api() {
     local oidc
     oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     raw="$(api_exec POST /api/hypershell/v1/gateways \
-      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"release_id\":\"${RELEASE_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
+      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     GATEWAY_ID="$(extract_id "${body}")"

@@ -45,11 +45,17 @@ function node(overrides: Partial<MapNode> & { id: string }): MapNode {
     gateBadge: { tone: "unknown", labelKey: "unknown" },
     gateways: {},
     gatewaysTotal: 0,
+    gatewaysByCluster: [],
+    spokeAttribution: null,
     gatewayTone: "unknown",
     gatewayHistory: [],
     sandboxes: 0,
     sandboxesByCluster: [],
     sandboxHistory: [],
+    logins: null,
+    userHistory: [],
+    loginsHistory: [],
+    historyTimes: [],
     managedClusters: null,
     users: null,
     metrics: {
@@ -58,7 +64,13 @@ function node(overrides: Partial<MapNode> & { id: string }): MapNode {
       bff: { rate: 0, errorPct: 0, p95Ms: 0 },
       provisionP95Ms: null,
     },
-    links: { console: null, argo: null, pr: null, analysis: null },
+    links: {
+      console: null,
+      grafana: null,
+      argo: null,
+      pr: null,
+      analysis: null,
+    },
     ...overrides,
   };
 }

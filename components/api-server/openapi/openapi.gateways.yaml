@@ -232,14 +232,11 @@ components:
           required:
             - name
             - cluster_id
-            - release_id
             - namespace
           properties:
             name:
               type: string
             cluster_id:
-              type: string
-            release_id:
               type: string
             namespace:
               type: string
@@ -278,10 +275,6 @@ components:
               type: string
               readOnly: true
               description: Runtime version from the last successful gateway health response
-            observed_release_id:
-              type: string
-              readOnly: true
-              description: Release the control plane has rolled out and observed healthy, advanced only after a new revision passes its health gates; distinct from the desired release_id and populated by the control plane
             oidc:
               type: string
               readOnly: true
@@ -337,13 +330,10 @@ components:
       required:
         - name
         - cluster_id
-        - release_id
       properties:
         name:
           type: string
         cluster_id:
-          type: string
-        release_id:
           type: string
         external_dns:
           type: string
@@ -394,8 +384,6 @@ components:
         name:
           type: string
         cluster_id:
-          type: string
-        release_id:
           type: string
         external_dns:
           type: string

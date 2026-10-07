@@ -247,31 +247,33 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Sandbox widget: same inset card as .gatewayWidget so the two bands read as a pair,
- * stacked gateways-then-sandboxes. Its own top margin is dropped because the
- * gatewayWidget below it already supplies the separating gap. */
-.sandboxWidget {
-  background: rgba(0, 0, 0, 0.22);
-  border-radius: 10px;
-  padding: 14px 16px;
-}
-
-.sandboxBody {
-  display: flex;
-  flex-direction: column;
+/* Population metric tiles: sandboxes / users / logins as a row of square-aspect cards
+ * beneath the gateways donut. Three equal columns that collapse to a tight grid on
+ * narrow drawers; each tile is its own inset card so the populations read as peers. */
+.metricTiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
-/* Headline row: "Sandboxes" eyebrow on the left, the big total on the right. */
-.sandboxHead {
+/* One tile: eyebrow label (top), big number (middle), sparkline pinned to the base.
+ * aspect-ratio keeps the cards square-ish; min-height guards very narrow drawers. */
+.metricTile {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 4px;
+  aspect-ratio: 1 / 1;
+  min-height: 92px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-.sandboxTitle {
-  margin: 0;
+.metricTileLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--xs, 0.25rem);
   font-size: var(--pf-t--global--font--size--xs, 0.75rem);
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -279,75 +281,89 @@
   color: var(--pf-t--global--text--color--subtle, #9ca2a8);
 }
 
-.sandboxCount {
-  font-size: var(--pf-t--global--font--size--xl, 1.5rem);
+.metricTileValue {
+  font-size: var(--pf-t--global--font--size--2xl, 1.75rem);
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
-/* "Sandboxes by cluster" caption above the chin bars. */
-.sandboxChinTitle {
-  margin: 0;
-  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
-  font-weight: 600;
-  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+/* Positioned wrapper that pins the sparkline to the tile's base and anchors the
+ * shared-cursor overlay (crosshair + marker) to the exact chart area, so the dash's
+ * horizontal position lines up with the SVG samples. */
+.metricTileSparkWrap {
+  position: relative;
+  margin-top: auto;
+  width: 100%;
+  height: 28px;
 }
 
-/* The chin: one bar row per cluster, tight stack. */
-.sandboxChin {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* cluster label | proportional bar | count, counts right-aligned into a column. */
-.sandboxRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sandboxRowName {
-  flex: 0 0 auto;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
-  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
-}
-
-.sandboxRowTrack {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 8px;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.sandboxRowBar {
-  display: block;
+/* Sparkline fills the chart area and the full width; it is stretched
+ * (preserveAspectRatio="none" in the SVG), so a fixed height here is all it needs. */
+.metricTileSpark {
+  width: 100%;
   height: 100%;
-  border-radius: 4px;
-  min-width: 2px;
+  display: block;
 }
 
-.sandboxRowCount {
-  flex: 0 0 auto;
-  margin-left: auto;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+/* The shared temporal cursor's vertical dash, one per tile at the same sample index.
+ * A dashed line in the AAA-contrast regular text colour so it is clearly visible on the
+ * dark card over any accent hue. Extends a touch past the chart top/bottom so it reads
+ * as a full crosshair. Decorative: pointer-events off so it never eats hovers. */
+.metricTileCursor {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 0;
+  border-left: 1.5px dashed var(--pf-t--global--text--color--regular, #e0e0e0);
+  transform: translateX(-0.75px);
+  pointer-events: none;
 }
 
-/* Honest empty state when the instance reports no active sandboxes. */
-.sandboxEmpty {
-  margin: 0;
+/* The marker dot sitting on the sparkline at the active sample. Its hue is the tile's
+ * accent (set inline); a dark ring separates it from the line for contrast. Centred on
+ * the (x, y) sample point via the translate. Decorative. */
+.metricTileDot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(-50%, 50%);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+/* The focus ring for the interactive tile row, so keyboard users see where the shared
+ * cursor's focus lives. A high-contrast brand outline, offset clear of the cards. */
+.metricTiles:focus-visible {
+  outline: 2px solid var(--pf-t--global--color--brand--default, #0066cc);
+  outline-offset: 3px;
+  border-radius: 12px;
+}
+
+/* The "As of <date/time>" strip above the tiles: the hovered sample's moment, shown in
+ * the AAA-contrast regular text colour. Reserves its own height so the tiles don't jump
+ * when it toggles between the idle hint and the active timestamp. */
+.historyStrip {
+  min-height: 1.3rem;
+  margin-bottom: 6px;
   font-size: var(--pf-t--global--font--size--sm, 0.875rem);
-  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
+}
+
+/* The idle discoverability hint ("Hover or use arrow keys..."): lighter weight, italic,
+ * but still the regular text colour so it meets AAA contrast on the dark panel. */
+.historyHint {
+  font-weight: 400;
+  font-style: italic;
+}
+
+/* Field grid below the tiles. A clear gap keeps the first field ("Cluster") from
+ * crowding the tiles above it. */
+.nodeFields {
+  margin-top: var(--pf-t--global--spacer--lg, 1.5rem);
 }
 
 /* --- Links tab ------------------------------------------------------------
@@ -455,6 +471,74 @@
 
 .bundleHead .sectionTitle {
   margin: 0;
+}
+
+/* --- Managed-cluster (spoke) attribution ----------------------------------
+ * The hub's gateway/sandbox population split by the managed cluster it runs on.
+ * One row per cluster: the cluster name takes the slack and truncates; its gateway
+ * and sandbox counts are pinned to the right so the numbers line up down the list. */
+.spokeRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
+  padding: calc(var(--pf-t--global--spacer--xs, 0.25rem) / 1) 0;
+}
+
+.spokeRowName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* The counts band: muted, never wrapping, so a long cluster name clips instead. */
+.spokeRowCounts {
+  flex: 0 0 auto;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A decorative middot between the gateway and sandbox counts, drawn in CSS so the
+ * separator is never an untranslated JSX text node. */
+.spokeCountSep::before {
+  content: "\00B7";
+  margin: 0 0.4ch;
+}
+
+/* The hub's own row reads as the group's anchor: full-weight, not muted. */
+.spokeHubRow .spokeRowName {
+  font-weight: 700;
+}
+
+/* Co-located spokes nest UNDER the hub: an indent plus a hairline guide on the
+ * left edge, so the containment ("these run on the hub's cluster") reads visually. */
+.spokeNested {
+  margin-left: var(--pf-t--global--spacer--sm, 0.5rem);
+  padding-left: var(--pf-t--global--spacer--sm, 0.5rem);
+  border-left: 1px solid var(--pf-t--global--border--color--default, #3d3d3d);
+}
+
+/* A sub-group eyebrow (Remote / Unattributed): lighter + smaller than the section
+ * title, with air above it so each sub-group reads as its own band. */
+.spokeGroupTitle {
+  margin: var(--pf-t--global--spacer--sm, 0.5rem) 0
+    var(--pf-t--global--spacer--xs, 0.25rem) 0;
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+/* The "attribution unavailable" note: a muted caption above the flat fallback list. */
+.spokeUnavailable {
+  margin: 0 0 var(--pf-t--global--spacer--sm, 0.5rem) 0;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
 }
 
 .bundleCount {

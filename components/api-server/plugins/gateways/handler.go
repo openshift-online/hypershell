@@ -125,9 +125,6 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				}
 				found.ClusterId = *patch.ClusterId
 			}
-			if patch.ReleaseId != nil {
-				found.ReleaseId = *patch.ReleaseId
-			}
 			if patch.ExternalDns != nil {
 				found.ExternalDns = patch.ExternalDns
 			}
