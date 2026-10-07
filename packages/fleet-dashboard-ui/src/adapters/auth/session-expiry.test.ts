@@ -43,9 +43,10 @@ describe("session-expiry store", () => {
     expect(result.current).toBe(true);
   });
 
-  it("signInAgain navigates to the oauth-proxy sign-out so the stale cookie is cleared", async () => {
+  it("signInAgain signs out via the oauth-proxy /oauth prefix to clear the stale session", async () => {
     // A reload would leave the still-valid proxy cookie in place and loop straight back to 401;
-    // recovery has to route through sign_out (which clears the cookie) and return to the app.
+    // recovery has to route through the proxy's sign-out endpoint, which clears the cookie.
+    // The prefix is "/oauth" (ose-oauth-proxy default), not the upstream "/oauth2".
     // jsdom's window.location.assign is non-configurable, so swap the whole location object.
     const original = window.location;
     const assign = vi.fn();
@@ -56,7 +57,7 @@ describe("session-expiry store", () => {
     try {
       const { signInAgain } = await freshStore();
       signInAgain();
-      expect(assign).toHaveBeenCalledWith("/oauth2/sign_out?rd=/");
+      expect(assign).toHaveBeenCalledWith("/oauth/sign_out");
     } finally {
       Object.defineProperty(window, "location", {
         configurable: true,
