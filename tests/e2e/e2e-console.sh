@@ -383,18 +383,15 @@ else
   exit 1
 fi
 
-CLUSTER_OPTION_RE="^$(ab_regex_escape "$SEED_CLUSTER_NAME")( |$)"
-TOGGLE_REF=$(ab_ref button '^Select a cluster$' || true)
-OPTION_REF=""
-if [[ -n "$TOGGLE_REF" ]]; then
-  show_cmd "agent-browser click ${TOGGLE_REF}  # Select a cluster"
-  ab_ok click "$TOGGLE_REF" || true
-  OPTION_REF=$(ab_wait_ref option "$CLUSTER_OPTION_RE" 15 || true)
+PUBLIC_REF=$(ab_wait_ref radio '^Public$' 15 || true)
+AWS_REF=""
+if [[ -n "$PUBLIC_REF" ]] && show_cmd "agent-browser click ${PUBLIC_REF}  # Public" && ab_ok click "$PUBLIC_REF"; then
+  AWS_REF=$(ab_wait_ref radio '^Amazon Web Services$' 15 || true)
 fi
-if [[ -n "$OPTION_REF" ]] && show_cmd "agent-browser click ${OPTION_REF}  # ${SEED_CLUSTER_NAME}" && ab_ok click "$OPTION_REF"; then
-  pass "Selected cluster ${SEED_CLUSTER_NAME} in the Cluster typeahead"
+if [[ -n "$AWS_REF" ]] && show_cmd "agent-browser click ${AWS_REF}  # Amazon Web Services" && ab_ok click "$AWS_REF"; then
+  pass "Selected Public placement on Amazon Web Services"
 else
-  ab_fail "Cluster option ${SEED_CLUSTER_NAME} not found in the Cluster typeahead"
+  ab_fail "Public/Amazon Web Services placement was not available"
   exit 1
 fi
 
@@ -737,44 +734,31 @@ if [[ -n "$WORKSPACE" ]] && e2e_step long; then
 fi
 sep
 
-# ── 7. Cluster typeahead + CLI install docs ──────────────────────────────
-# CON-E2E-14: the gateway create form lists every registered ManagedCluster as a
-# selectable target, and the connection tab links to the external OpenShell CLI
-# install docs (opens in a new tab with a safe rel).
+# ── 7. Placement choices + CLI install docs ───────────────────────────────
+# The gateway create form exposes server-side placement choices, and the
+# connection tab links to the external OpenShell CLI install docs.
 
 echo ""
-e2e_area "7. Cluster Typeahead and CLI Install Docs"
+e2e_area "7. Placement Choices and CLI Install Docs"
 echo ""
 
 ab_use "$ADMIN_SESSION"
 
-# Cluster typeahead: the seeded cluster is listed and selectable. (Area 3 already
-# selects it to provision; here we assert the listing explicitly, and both
-# clusters under E2E_MULTICLUSTER.)
+# Placement choices: the managed public/AWS choice is listed and selectable.
 if ab_open "${CONSOLE_HOST}/gateways/new" \
     && ab_wait_ref textbox "$NAME_TEXTBOX" "$PAGE_TIMEOUT_S" >/dev/null; then
-  TA_TOGGLE=$(ab_ref button '^Select a cluster$' || true)
-  TA_OPTION=""
-  if [[ -n "$TA_TOGGLE" ]] && ab_ok click "$TA_TOGGLE"; then
-    TA_OPTION=$(ab_wait_ref option "^$(ab_regex_escape "$SEED_CLUSTER_NAME")( |\$)" 15 || true)
+  TA_PUBLIC=$(ab_wait_ref radio '^Public$' 15 || true)
+  TA_AWS=""
+  if [[ -n "$TA_PUBLIC" ]] && ab_ok click "$TA_PUBLIC"; then
+    TA_AWS=$(ab_wait_ref radio '^Amazon Web Services$' 15 || true)
   fi
-  if [[ -n "$TA_OPTION" ]]; then
-    pass "Cluster typeahead lists the registered cluster ${SEED_CLUSTER_NAME} as selectable"
+  if [[ -n "$TA_AWS" ]]; then
+    pass "Placement choices include Public on Amazon Web Services"
   else
-    ab_fail "Cluster typeahead did not list ${SEED_CLUSTER_NAME}"
-  fi
-  if e2e_truthy "${E2E_MULTICLUSTER}" && [[ -n "${E2E_SEED_CLUSTER_NAME_2:-}" ]]; then
-    TA_OPTION2=$(ab_wait_ref option "^$(ab_regex_escape "$E2E_SEED_CLUSTER_NAME_2")( |\$)" 15 || true)
-    if [[ -n "$TA_OPTION2" ]]; then
-      pass "Cluster typeahead also lists the second cluster ${E2E_SEED_CLUSTER_NAME_2} (E2E_MULTICLUSTER)"
-    else
-      ab_fail "Cluster typeahead did not list the second cluster ${E2E_SEED_CLUSTER_NAME_2}"
-    fi
-  else
-    dim "  Second-cluster typeahead check skipped (E2E_MULTICLUSTER unset)"
+    ab_fail "Public/Amazon Web Services placement was not available"
   fi
 else
-  ab_fail "Could not open the gateway create form for the cluster typeahead check"
+  ab_fail "Could not open the gateway create form for the placement check"
 fi
 
 # Install-docs link on the gateway detail (connection) view. It renders once the
