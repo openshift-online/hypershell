@@ -16,7 +16,9 @@
 
 HyperShell requires infrastructure-agnostic end-to-end testing that validates the full provisioning path: API creation of a Gateway, control plane reconciliation, gateway pod readiness, route connectivity, and sandbox lifecycle. The same test suite SHALL run against Kind (local development and CI, including the merge-queue gate) and OpenShift (manual on-demand runs; origin pull-request environments specified in `ephemeral-pr-environments.spec.md`; and the push-to-main and merge-queue CI gate specified here) with infrastructure-specific logic isolated behind a driver interface. A Kind CI workflow SHALL execute these tests automatically on pull requests that modify e2e-relevant components.
 
-The functional suite, the performance harness, and the managed-cluster matrix runner SHALL be implemented as **Go tests built on `github.com/stretchr/testify/suite`**, run through `go test`. This replaces the previous Bash implementation (`tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, and their `tests/e2e/lib.sh` / `tests/e2e/perf-lib.sh` helpers and `tests/e2e/drivers/*.sh`) in a single cutover (see [Shell Suite Removal](#requirement-shell-suite-removal)). Go is chosen for first-class concurrency (the performance harness and the matrix runner both fan work out across gateways and clusters), structured assertions, per-suite state that removes the process-global counters the Bash suite relied on, and direct use of the generated HyperShell Go SDK and `client-go`. The browser/console suite (`tests/e2e/e2e-console.sh`, specified in `e2e-console-browser-testing.spec.md`) remains Bash + `agent-browser` and is out of scope for this rewrite; it continues to consume the same driver selection and the `deploy/` structure this spec defines.
+The functional suite, the performance harness, and the managed-cluster matrix runner SHALL be implemented as **Go tests built on `github.com/stretchr/testify/suite`**, run through `go test`. This replaces the previous Bash implementation of those suites (`tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/perf-lib.sh`, and the heavy `tests/e2e/drivers/*.sh` driver contract) in a single cutover (see [Shell Suite Removal](#requirement-shell-suite-removal)). Go is chosen for first-class concurrency (the performance harness and the matrix runner both fan work out across gateways and clusters), structured assertions, per-suite state that removes the process-global counters the Bash suite relied on, and direct use of the generated HyperShell Go SDK and `client-go`.
+
+Two Bash artifacts are deliberately retained. The browser/console suite (`tests/e2e/e2e-console.sh`, specified in `e2e-console-browser-testing.spec.md`) remains Bash + `agent-browser`. And a thin **Bash smoke script** (`tests/e2e/smoke.sh`, `make e2e-smoke`) is kept to narrate the user-interaction story -- the sequence of commands a user actually types -- by echoing each command before it runs (see [Bash Smoke Script](#requirement-bash-smoke-script)). The Go suite is the authoritative gate; the smoke script is a demonstration and lightweight sanity check. Both Bash artifacts share a slim retained `tests/e2e/lib.sh` and the `deploy/` structure this spec defines.
 
 This spec defines the driver abstraction, test framework, CI workflow, and deploy restructuring required to run the same tests across Kind and OpenShift. The functional suite validates the full provisioning path -- gateway provisioning, infrastructure verification, route discovery, connectivity, sandbox lifecycle, and sandbox interaction -- plus the extended areas (ManagedCluster registration, release promotion, admin inventory) defined below.
 
@@ -24,7 +26,7 @@ HyperShell also needs a **performance test**. The performance test measures how 
 
 ### Scope
 
-This spec covers the **Go test framework and suite structure** (`testify/suite`), the **e2e driver interface contract** (for all targets), the **Kind driver**, the **OpenShift e2e driver**, the **managed-cluster matrix runner**, the **Kind-based CI workflow**, and the **infra-agnostic performance harness**. It does not cover the browser/console suite (`e2e-console-browser-testing.spec.md`), which stays Bash.
+This spec covers the **Go test framework and suite structure** (`testify/suite`), the **e2e driver interface contract** (for all targets), the **Kind driver**, the **OpenShift e2e driver**, the **managed-cluster matrix runner**, the **Kind-based CI workflow**, the **infra-agnostic performance harness**, and the retained **Bash smoke script** (`make e2e-smoke`). It does not cover the browser/console suite (`e2e-console-browser-testing.spec.md`), which stays Bash.
 
 This spec owns the driver interface contract and the **OpenShift e2e driver** (the `openshift` `E2EInfraDriver` implementation) so a user can run `make e2e` and `make e2e-performance` **manually** against any OpenShift cluster the user is already logged in to (via `oc login`) -- the target environment for scale and performance testing. Bring-up is a precondition: `make openshift-up` (specified in `openshift-development.spec.md`) deploys the blessed `deploy/openshift/` overlay into the current `oc` project (`OPENSHIFT_NAMESPACE` overrides), companion `${OPENSHIFT_NAMESPACE}-keycloak`, and the per-environment `${OPENSHIFT_NAMESPACE}-dev-*` cluster-scoped RBAC. This spec does not duplicate that lifecycle. Automated OpenShift pull-request CI is specified in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240).
 
@@ -48,11 +50,17 @@ tests/e2e/ (Go module: github.com/openshift-online/hypershell/tests/e2e)
     └── E2EInfraDriver selected by auto-detecting the KUBECONFIG context
         (E2E_INFRA_DRIVER overrides detection; kind | openshift)
 
+tests/e2e/smoke.sh (Bash user-interaction smoke; make e2e-smoke; demonstration + sanity check)
+    │
+    ├── sources tests/e2e/lib.sh (slim retained Bash helpers: show_cmd, retry, slim infra selection)
+    │
+    └── echoes each command before running it; Kind primary, OpenShift optional; NOT the gate
+
 tests/e2e/e2e-console.sh (browser suite: web console + OpenShell console; UNCHANGED, Bash)
     │
-    ├── sources tests/e2e/browser-lib.sh (agent-browser helpers)
+    ├── sources tests/e2e/lib.sh and tests/e2e/browser-lib.sh (agent-browser helpers)
     │
-    └── same driver selection semantics; uses the optional browser CA-bundle hook
+    └── same slim infra selection; uses the optional browser CA-bundle hook
 ```
 
 `e2e-console.sh` is specified in [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md) and remains Bash; it is not ported here but SHALL keep auto-detecting the same `kind`/`openshift` targets.
@@ -317,9 +325,9 @@ The OpenShift driver implements the same interface methods with OpenShift constr
 
 ### Requirement: Test Framework and Suite Structure
 
-The functional e2e suite SHALL be a Go test built on `github.com/stretchr/testify/suite`, invoked by a single `go test` entry point `TestE2E` that constructs the resolved `E2EInfraDriver` and runs `E2ESuite` via `suite.Run`. The 14 numbered areas (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) SHALL be realized as ordered steps of this one suite, not as independent top-level `Test*` functions, because they share mutable state (the provisioned gateway, acquired tokens, discovered endpoints) and MUST execute in order. The suite SHALL establish that shared state in `SetupSuite` (resolve driver, discover API host, acquire the admin token, seed cluster/release ids, and -- in long mode -- call `ConfigureNamespaceGCTiming`) and SHALL tear it down in `TearDownSuite` (restore GC timing, delete the suite's gateway and any extra gateways, `DeSeedTestUsers`), on every exit path.
+The functional e2e suite SHALL be a Go test built on `github.com/stretchr/testify/suite`, invoked by a single `go test` entry point `TestE2E` that constructs the resolved `E2EInfraDriver` and runs `E2ESuite` via `suite.Run`. The 14 numbered areas (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) SHALL be realized as named subtests of this one suite, not as independent top-level `Test*` functions, because they share setup state (acquired tokens, discovered endpoints, seeded ids). The suite SHALL establish that shared state in `SetupSuite` (resolve driver, discover API host, acquire the admin token, seed cluster/release ids, and -- in long mode -- call `ConfigureNamespaceGCTiming`) and SHALL tear it down in `TearDownSuite` (restore GC timing, delete the suite's gateways, `DeSeedTestUsers`), on every exit path.
 
-Area ordering SHALL be deterministic. The suite SHALL NOT rely on testify's alphabetical method ordering for correctness; it SHALL drive the areas in explicit sequence (for example a single ordered driver method that runs each area as a `t.Run` subtest, or `suite.SetupTest`-guarded sequencing), so the numbered areas always run 1 through 14 in order. Each area SHALL be a named subtest (`t.Run("area-07-sandbox-lifecycle", ...)`) so `go test -run` can target one area and so per-area pass/fail/skip is visible in the output. A failed assertion in an area SHALL NOT silently continue into dependent areas: the suite SHALL use `suite.Require()` (fail-fast) for preconditions a later area depends on and `suite.Assert()` for independent checks within an area.
+Areas SHALL run in the dependency-ordered / parallel structure defined by the [Concurrency Model](#requirement-concurrency-model): the state-dependent bring-up chain on the primary gateway runs sequentially, while read-only areas and own-gateway areas run as parallel subtests bounded by `E2E_CONCURRENCY`. The suite SHALL NOT rely on testify's alphabetical method ordering for correctness; it SHALL drive the areas explicitly (an ordered driver method running each area as a `t.Run` subtest, marking the independent ones `t.Parallel`), so the state-dependent ordering is honored and the parallelizable areas overlap. At `E2E_CONCURRENCY=1` the areas SHALL run strictly 1 through 14 in order. Each area SHALL be a named subtest (`t.Run("area-07-sandbox-lifecycle", ...)`) so `go test -run` can target one area and per-area pass/fail/skip is visible. A failed assertion in an area SHALL NOT silently continue into dependent areas: the suite SHALL use `suite.Require()` (fail-fast) for preconditions a later area depends on and `suite.Assert()` for independent checks within an area. The final summary SHALL list areas in canonical numbered order regardless of parallel completion order.
 
 `go test` SHALL remain the only entry point; there SHALL be no wrapper shell script that re-implements suite orchestration. `make e2e` SHALL invoke `go test ./tests/e2e/ -run TestE2E`. The suite SHALL honor the standard Go test timeout (`-timeout`) and SHALL propagate a `context.Context` derived from it into every `E2EInfraDriver` call and poll loop, so a hung infrastructure operation fails the run cleanly within the CI ceiling rather than hanging until the runner kills the job.
 
@@ -328,8 +336,8 @@ Area ordering SHALL be deterministic. The suite SHALL NOT rely on testify's alph
 - GIVEN the Go e2e module
 - WHEN a user runs `go test ./tests/e2e/ -run TestE2E`
 - THEN exactly one testify suite (`E2ESuite`) SHALL run
-- AND its 14 areas SHALL execute in numbered order as named subtests
-- AND `SetupSuite` state SHALL be shared across areas without re-provisioning the gateway per area
+- AND its 14 areas SHALL run as named subtests in the dependency-ordered / parallel structure of the Concurrency Model (strictly numbered order at `E2E_CONCURRENCY=1`)
+- AND `SetupSuite` state (tokens, endpoints, seed ids) SHALL be shared across areas; the read-only areas SHALL reuse the primary gateway rather than re-provisioning one each, while own-gateway areas provision their own
 
 #### Scenario: Setup Failure Still Tears Down
 
@@ -347,7 +355,7 @@ Area ordering SHALL be deterministic. The suite SHALL NOT rely on testify's alph
 
 ### Requirement: Command Logging and Demo Output
 
-The suite SHALL render every infrastructure or API operation it performs as a human-readable command line before executing it, so a captured run doubles as a demonstration of the commands a user would run by hand. This replaces the Bash `show_cmd` helper. A shared `CommandRunner` in `harness` SHALL log each step through `t.Log`/`t.Logf` (so output interleaves correctly with testify's per-subtest grouping and is attributed to the right area) in the form `$ <command>`, then run it. For operations that are not literal shell commands (SDK calls, Keycloak admin API calls), the runner SHALL log an equivalent illustrative command (for example the `curl` or `openshell` invocation a user would run) as a comment-prefixed line, matching the existing Bash suite's behavior.
+The suite SHALL render every infrastructure or API operation it performs as a human-readable command line before executing it, so a captured run doubles as a demonstration of the commands a user would run by hand. This mirrors the Bash `show_cmd` helper (which survives in the retained smoke script). A shared `CommandRunner` in `harness` SHALL log each step through `t.Log`/`t.Logf` (so output interleaves correctly with testify's per-subtest grouping and is attributed to the right area) in the form `$ <command>`, then run it. For operations that are not literal shell commands (SDK calls, Keycloak admin API calls), the runner SHALL log an equivalent illustrative command (for example the `curl` or `openshell` invocation a user would run) as a comment-prefixed line, matching the existing Bash suite's behavior.
 
 Color SHALL be emitted only when stdout is a TTY and `NO_COLOR` is unset; under `go test` output capture the runner SHALL emit plain text. Logging SHALL NOT swallow output: the command's stdout/stderr SHALL be captured and logged, and included in the failure message when the command fails. (There is no demo-pause/step-delay knob; the value is the captured command log, not a paced live playback.)
 
@@ -381,20 +389,59 @@ The run's overall result SHALL be `go test`'s exit status: zero only when no sub
 
 ### Requirement: Concurrency Model
 
-The framework SHALL use Go concurrency where the work is independent, and SHALL bound it. The functional suite's 14 areas SHALL run sequentially (they share one gateway and ordered state); the one intra-suite concurrency is the area-11a orphan reaper, which proceeds in the background (a goroutine seeded after provisioning) while areas 3--10 run, exactly as the Bash suite ran the reaper in parallel. Concurrency SHALL be expressed with `context`-aware primitives (`errgroup.Group` with `SetLimit`, or a semaphore channel); every goroutine SHALL honor the suite `context.Context` so a timeout or failure cancels outstanding work rather than leaking it past the test.
+The framework SHALL use Go concurrency to shorten wall-clock where the work is independent, and SHALL bound every fan-out by the single overarching `E2E_CONCURRENCY` limit (default `4`; `1` forces fully sequential execution for debugging or a capacity-constrained Kind cluster). Concurrency SHALL be expressed with `context`-aware primitives (`errgroup.Group` with `SetLimit`, or a semaphore channel); every goroutine SHALL honor the suite `context.Context` so a timeout or failure cancels outstanding work rather than leaking it past the test. Results SHALL be collected through channels or a mutex-guarded aggregator; no goroutine SHALL touch unsynchronized shared state. The overriding safety rule SHALL be: **a unit of work may run in parallel with another only if it is read-only against shared state, or it owns its own gateway/sandbox.** Anything that mutates shared per-gateway state (notably `active_sandbox_count`) or destroys the shared gateway SHALL NOT run concurrently with another user of that gateway.
 
-The performance harness and the matrix runner are the two places that fan out widely (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)). Both SHALL bound concurrency with the single overarching limit `E2E_CONCURRENCY` (default `4`; `1` forces sequential) rather than a per-subsystem knob, and SHALL NOT share unsynchronized mutable state across goroutines: per-gateway and per-cluster results SHALL be collected through channels or a mutex-guarded aggregator, replacing the Bash suites' process-global counters and per-cluster child processes. Each concurrent unit of work SHALL own a uniquely named gateway so parallel runs never collide, and SHALL tear its gateway down regardless of outcome.
+The functional suite SHALL exploit the following parallelization levers, all bounded by `E2E_CONCURRENCY` and all degrading to the ordered sequential run at `E2E_CONCURRENCY=1`:
+
+1. **Parallel setup fan-out.** `SetupSuite` SHALL acquire the admin, developer, and platform-admin tokens, discover the seeded cluster/release ids, extract the cluster CA, and (long mode) apply `ConfigureNamespaceGCTiming` concurrently in one `errgroup`, since these are independent. Gateway provisioning waits on the ids and admin token only.
+
+2. **A serial bring-up chain on the primary gateway.** The ordered lifecycle that genuinely depends step-on-step -- provision (area 2) -> token + CA (4) -> route discovery + CLI registration (5) -> connectivity (6) -> the `active_sandbox_count` accounting of sandbox lifecycle (7) -> delete-driven GC (11) -- SHALL stay sequential on that one gateway. These either mutate the shared gateway's sandbox count or destroy the gateway, so they cannot overlap each other.
+
+3. **A parallel read-only assertion group against the primary gateway.** Once the gateway is `Running` and the CLI is registered, the areas that only read/assert against it -- infrastructure verification (area 3), connectivity re-checks (6), sandbox interaction exec against an existing sandbox (8), and admin inventory + API validation (14) -- SHALL run as parallel subtests (`t.Run` + `t.Parallel`) bounded by `E2E_CONCURRENCY`, because none mutates the gateway or the sandbox count.
+
+4. **Own-gateway mutating areas fanned out in parallel.** The highest-value lever: areas that must mutate or destroy a gateway -- developer RBAC (area 9), platform-admin RBAC (10), gateway release promotion (13), and ManagedCluster registration side effects (12) -- SHALL each provision their **own** uniquely named gateway and run concurrently with each other and with the read-only group, bounded by `E2E_CONCURRENCY`. Because gateway provisioning is the dominant cost (~minutes each), provisioning these gateways concurrently up front collapses the critical path from the sum of the areas to roughly the slowest area. Each such area SHALL tear its own gateway down on every exit path (unique names make this collision-free, per lever 7's naming rule).
+
+5. **Intra-area fan-out.** Within an area, independent client-go/API checks SHALL use an `errgroup`: area 3's resource gets (Deployment, Service, TLS Secret, certgen Job, NetworkPolicy) SHALL be fetched concurrently; multi-sandbox steps and the multi-cluster promotion (area 13 under `E2E_MULTICLUSTER`) SHALL act on their independent targets concurrently.
+
+6. **Background orphan reaper.** The area-11a periodic-reaper wait SHALL proceed in a background goroutine seeded right after provisioning (bound to the suite context) while the other areas run, so the suite never blocks on the sweep interval; area 11 SHALL join that goroutine to assert the reap.
+
+The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
+
+7. **Collision-free naming and capacity.** Every concurrently-created gateway SHALL have a unique name (`<area-or-unit>-<runid>`), so parallel units never collide and cleanup is a prefix match. Because parallel own-gateway areas multiply the peak gateway count, the suite SHALL document that a small Kind cluster may need a lower `E2E_CONCURRENCY`; the default of `4` SHALL be safe on a typical Kind cluster, and larger clusters MAY raise it. Reporting SHALL remain deterministic despite parallel subtests: the final summary SHALL list areas in canonical numbered order regardless of completion order.
+
+#### Scenario: Sequential When Concurrency Is One
+
+- GIVEN `E2E_CONCURRENCY=1`
+- WHEN the functional suite runs
+- THEN every area SHALL run sequentially in numbered order (only the background orphan reaper still overlaps)
+- AND the run SHALL be byte-for-byte deterministic in ordering, for debugging
+
+#### Scenario: Read-Only Areas Run in Parallel Against the Primary Gateway
+
+- GIVEN the primary gateway is `Running` and the CLI is registered, with `E2E_CONCURRENCY=4`
+- WHEN the read-only assertion group runs (areas 3, 6, 8-exec, 14)
+- THEN those areas SHALL run as parallel subtests bounded by `E2E_CONCURRENCY`
+- AND none SHALL mutate the gateway or its `active_sandbox_count`
+- AND the `active_sandbox_count` accounting (area 7) SHALL NOT run concurrently with any other sandbox creator on that gateway
+
+#### Scenario: Mutating Areas Fan Out on Their Own Gateways
+
+- GIVEN `E2E_CONCURRENCY=4` in long mode
+- WHEN the own-gateway areas run (developer RBAC, platform-admin RBAC, release promotion)
+- THEN each SHALL provision a uniquely named gateway and run concurrently, bounded by `E2E_CONCURRENCY`
+- AND each SHALL delete its own gateway on every exit path
+- AND no area SHALL mutate or delete another area's gateway
 
 #### Scenario: Orphan Reaper Runs Concurrently With Later Areas
 
 - GIVEN a long-mode run has seeded the synthetic orphan namespace after provisioning
-- WHEN areas 3--10 run
+- WHEN the other areas run
 - THEN the orphan-reaper wait SHALL proceed in a background goroutine bound to the suite context
 - AND area 11 SHALL join that goroutine to assert the reap, rather than starting the wait only at area 11
 
 #### Scenario: Bounded Fan-Out Honors Cancellation
 
-- GIVEN the performance harness or matrix runner is fanning work out under its concurrency limit
+- GIVEN the performance harness or matrix runner is fanning work out under `E2E_CONCURRENCY`
 - WHEN the suite context is cancelled (timeout or a fatal failure)
 - THEN in-flight goroutines SHALL observe the cancellation and stop
 - AND the aggregator SHALL still record the units that completed, with no data race
@@ -477,7 +524,7 @@ The admin OIDC token from area 1 authenticates the API calls in areas 2--8, 11, 
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all 14 test areas SHALL be executed in sequence in long mode (short and perf run the `short`-tagged subset and skip the long-only areas 12--14)
+- THEN all 14 test areas SHALL be executed in long mode, in the dependency-ordered / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only areas 12--14)
 - AND results SHALL be reported as pass/fail counts with per-test detail
 
 #### Scenario: Gateway Provisioning
@@ -1345,7 +1392,9 @@ The runner SHALL fail closed: an unregistered, stale (`last_seen_at` beyond `E2E
 
 ### Requirement: Shell Suite Removal
 
-This rewrite SHALL replace the Bash functional and performance suites in a single cutover, not run them in parallel with the Go suite. On completion, `tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/lib.sh`, `tests/e2e/perf-lib.sh`, and `tests/e2e/drivers/kind.sh` / `tests/e2e/drivers/openshift.sh` SHALL be removed, and the associated `*_test.sh` unit tests for those scripts SHALL be removed or ported. `make e2e`, `make e2e-performance`, and the CI e2e workflow SHALL invoke `go test` targets exclusively; no Makefile target or workflow step SHALL invoke the removed scripts. Any Bash or Python machine-e2e helpers that back the removed suites (for example the gateway service-account machine-e2e path, `tests/e2e/gateway_service_account*`) SHALL be ported to Go or explicitly retained with a recorded reason; the cutover SHALL NOT silently drop their coverage, and any in-flight fix to the removed drivers (for example a kind-driver JWT-audience change) SHALL be carried into the Go driver. The removal SHALL land together with the Go suite reaching behavioral parity across all 14 areas, the performance harness, and the matrix runner, so the repository never carries two functional e2e implementations. The browser suite (`e2e-console.sh`, `browser-lib.sh`) and the ROKS variant are explicitly retained.
+This rewrite SHALL replace the Bash functional and performance suites in a single cutover, not run them in parallel with the Go suite. On completion, `tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/perf-lib.sh`, and `tests/e2e/drivers/kind.sh` / `tests/e2e/drivers/openshift.sh` (the full 14-method driver contract, now owned by `tests/e2e/driver/`) SHALL be removed, and the associated `*_test.sh` unit tests for those scripts SHALL be removed or ported. `make e2e`, `make e2e-performance`, and the CI e2e workflow SHALL invoke `go test` targets exclusively; no Makefile target or workflow step SHALL invoke the removed suites. Any Bash or Python machine-e2e helpers that back the removed suites (for example the gateway service-account machine-e2e path, `tests/e2e/gateway_service_account*`) SHALL be ported to Go or explicitly retained with a recorded reason; the cutover SHALL NOT silently drop their coverage, and any in-flight fix to the removed drivers (for example a kind-driver JWT-audience change) SHALL be carried into the Go driver. The removal SHALL land together with the Go suite reaching behavioral parity across all 14 areas, the performance harness, and the matrix runner, so the repository never carries two functional e2e implementations.
+
+Explicitly retained Bash: the browser suite (`e2e-console.sh`, `browser-lib.sh`), the new user-interaction smoke script (`smoke.sh`, see [Bash Smoke Script](#requirement-bash-smoke-script)), a slimmed `tests/e2e/lib.sh` holding the shared helpers those two use (`show_cmd` command echo, color output, retry/poll, pass/fail, and a slim Kind/OpenShift infra selection for host discovery, CLI binary, token acquisition, and an authenticated API call -- not the full driver contract), and the ROKS variant. The slim `lib.sh` SHALL NOT duplicate the Go driver's full contract; the authoritative driver abstraction lives only in Go.
 
 Because `/maintain-ci` governs component registration, the cutover SHALL update CI component paths and the shell-unit-test auto-discovery so the removed scripts are no longer referenced and the new Go module is covered by the Go unit/vet jobs.
 
@@ -1353,7 +1402,8 @@ Because `/maintain-ci` governs component registration, the cutover SHALL update 
 
 - GIVEN the rewrite has landed
 - WHEN the repository is searched for the removed scripts
-- THEN `tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/lib.sh`, `tests/e2e/perf-lib.sh`, and `tests/e2e/drivers/*.sh` SHALL be absent
+- THEN `tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/perf-lib.sh`, and `tests/e2e/drivers/*.sh` SHALL be absent
+- AND `tests/e2e/smoke.sh`, a slimmed `tests/e2e/lib.sh`, `tests/e2e/e2e-console.sh`, and `tests/e2e/browser-lib.sh` SHALL remain
 - AND no Makefile target or CI workflow SHALL reference them
 
 #### Scenario: Make Targets Invoke Go
@@ -1362,6 +1412,38 @@ Because `/maintain-ci` governs component registration, the cutover SHALL update 
 - WHEN a user runs `make e2e`, `make e2e-performance`, or `make e2e-matrix`
 - THEN each SHALL invoke the corresponding `go test` target
 - AND none SHALL invoke a removed shell script
+- AND `make e2e-smoke` SHALL invoke the retained `tests/e2e/smoke.sh`
+
+### Requirement: Bash Smoke Script
+
+The system SHALL retain a Bash user-interaction smoke script at `tests/e2e/smoke.sh`, run via `make e2e-smoke`, that walks the short happy-path a user follows and echoes each command (`show_cmd`) before running it, so the captured output reads as the sequence of commands a user would type. Its value is narrating the interaction story -- which the Go suite's `t.Log` stream conveys less vividly -- and serving as a lightweight local or manual sanity check. It SHALL NOT be the authoritative gate: the Go `E2ESuite` short mode remains the authoritative quick gate and the blocking CI check (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)). The smoke script SHALL NOT be required to reach or maintain full behavioral parity with the Go suite; it covers the happy path only.
+
+The script SHALL cover the core user-facing flow: acquire an OIDC token, create a gateway through the HyperShell API, install and register the `openshell` CLI, connect to the gateway, create a sandbox, exec a command inside it, delete the sandbox, and delete the gateway. It SHALL reuse the deployed environment (it SHALL NOT create a cluster) and the seeded cluster/release ids, the same preconditions the Go suite assumes. Kind SHALL be the primary target; the script MAY run against OpenShift. It SHALL use only the slim retained `tests/e2e/lib.sh` (`show_cmd`, retry/poll, pass/fail, and the slim Kind/OpenShift infra selection for host discovery, CLI binary, token, and an authenticated API call); it SHALL NOT reimplement the full driver contract, which lives only in Go.
+
+The script SHALL support a demo pause via `E2E_PAUSE` (default `0`, so an automated run is not slowed; set greater than zero to pace a live demo): when positive, the script SHALL sleep that many seconds after echoing each command. This is the one place the demo-pause behavior is retained; the Go `CommandRunner` has no pause.
+
+CI MAY run the smoke script non-blocking or on demand; a smoke failure SHALL NOT, by itself, fail the blocking e2e gate (the Go suite owns that). On `go test` or Makefile exit paths the script SHALL still clean up any gateway it created, honoring `E2E_SKIP_CLEANUP`.
+
+#### Scenario: Smoke Narrates the Command Flow
+
+- GIVEN a deployed Kind environment from `make kind-up`
+- WHEN a user runs `make e2e-smoke`
+- THEN the script SHALL echo each command with a `$ ` prefix before running it, in sequence (token, gateway create, CLI install/register, connect, sandbox create/exec/delete, gateway delete)
+- AND it SHALL delete the gateway it created on exit unless `E2E_SKIP_CLEANUP=1`
+
+#### Scenario: Demo Pause Opt-In
+
+- GIVEN `E2E_PAUSE=2`
+- WHEN a user runs `make e2e-smoke`
+- THEN the script SHALL pause two seconds after echoing each command
+- AND with `E2E_PAUSE` unset or `0` it SHALL NOT pause
+
+#### Scenario: Smoke Is Not the Gate
+
+- GIVEN the smoke script and the Go `E2ESuite` short mode both exist
+- WHEN CI runs
+- THEN the Go suite SHALL be the blocking e2e gate
+- AND a smoke-script failure SHALL NOT by itself fail that gate
 
 ## File Layout
 
@@ -1383,6 +1465,8 @@ tests/e2e/                 -- Go module: github.com/openshift-online/hypershell/
     report.go              -- pass/fail/skip summary (replaces Bash print_results)
   apiclient/
     client.go              -- thin wrapper over the generated sdk-go client
+  smoke.sh                 -- RETAINED Bash user-interaction smoke script (make e2e-smoke)
+  lib.sh                   -- RETAINED slim Bash helpers (show_cmd, retry, slim infra selection) for smoke.sh + e2e-console.sh
   e2e-console.sh           -- browser suite (UNCHANGED, Bash; e2e-console-browser-testing.spec.md)
   browser-lib.sh           -- agent-browser helpers for the browser suite (UNCHANGED, Bash)
 scripts/
@@ -1440,7 +1524,7 @@ deploy/
   pr-environment-destroy.yml -- ephemeral PR env teardown (closed: merge or close)
 ```
 
-The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/lib.sh`, `tests/e2e/perf-lib.sh`, and `tests/e2e/drivers/*.sh`) are removed by this rewrite in one cutover (see [Shell Suite Removal](#requirement-shell-suite-removal)). The ROKS variant remains. The browser suite (`e2e-console.sh`, `browser-lib.sh`) stays Bash.
+The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests/e2e/e2e-performance.sh`, `tests/e2e/perf-lib.sh`, and `tests/e2e/drivers/*.sh`) are removed by this rewrite in one cutover (see [Shell Suite Removal](#requirement-shell-suite-removal)). The ROKS variant remains. Retained Bash: the user-interaction smoke script (`smoke.sh`), the slimmed shared `lib.sh`, and the browser suite (`e2e-console.sh`, `browser-lib.sh`).
 
 ## Environment Variables
 
@@ -1457,6 +1541,7 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in step 11) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
 | `E2E_CONCURRENCY` | `4` | Overarching bound on parallel fan-out work: gateway create/provision/delete in the performance harness, and clusters run in parallel in the matrix runner. `1` forces sequential. There is no per-subsystem concurrency knob |
+| `E2E_PAUSE` | `0` | Bash smoke script only (`make e2e-smoke`): seconds to pause after echoing each command, for live demos. The Go suites have no pause |
 | `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for areas 1--8, 11, 13, and 14 |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (developer-owned default). Unused when `E2E_OIDC_GRANT=client_credentials`. A password-grant run against a CI-owned `pr-*` environment SHALL read Secret `hypershell-e2e-test-users` instead of this default (`ephemeral-test-credentials.spec.md`) |
 | `E2E_OIDC_GRANT` | `password` | Token grant for `acquire_oidc_token` and `acquire_gateway_token_with_role`: `password` (Kind and manual OpenShift) or `client_credentials` (GitHub-brokered pull-request environments, see `ephemeral-pr-environments.spec.md`) |
@@ -2109,9 +2194,10 @@ On failure, the harness SHALL collect diagnostics that explain resource pressure
 | Areas are ordered subtests of one suite, not independent tests | The 14 areas share mutable state (the provisioned gateway, tokens, endpoints) and must run in order. One `testify` suite with explicit ordering and `t.Run` subtests gives per-area visibility and `-run` targeting while keeping the shared setup in `SetupSuite`. Relying on `go test`'s default parallelism or testify's alphabetical ordering for these would be fragile |
 | Bounded concurrency via `errgroup`, aggregated through channels/mutex | Go's motivation for the rewrite is concurrency, but unbounded fan-out would flood the API server and control plane. `errgroup.SetLimit` bounded by a single overarching `E2E_CONCURRENCY` (not a per-subsystem knob) caps in-flight work in both the perf harness and the matrix runner; a context-aware group cancels cleanly on timeout. Per-unit results flow through a synchronized aggregator, which removes the process-global counters and per-cluster child processes the Bash matrix needed |
 | Checkpoint and matrix runs invoke the suite in-process | The Bash perf harness and matrix shelled out to child suite processes to isolate global counters. With per-suite state in Go, the harness and matrix call `E2ESuite` in-process, reusing the same assertion code with no fork overhead and no second copy of any check |
-| `CommandRunner` preserves the demo-log behavior | The Bash `show_cmd` echoed `$ cmd` so a run doubled as a command demo. A Go `CommandRunner` keeps the echo (logging the equivalent command through `t.Log` before running) but drops the Bash per-step `E2E_PAUSE` sleep: no one used the paced playback, and the value is the captured command log, not a timed demo |
-| Big-bang cutover, not parallel coexistence | Carrying two functional e2e implementations invites drift and doubles CI time. The Go suite lands at parity across all 14 areas, the perf harness, and the matrix runner, and the Bash suites are removed in the same change (see [Shell Suite Removal](#requirement-shell-suite-removal)). The browser suite stays Bash because it is `agent-browser`-driven and gains nothing from Go concurrency |
-| Browser suite stays Bash | `e2e-console.sh` drives headless Chromium through `agent-browser`; a Go port would reimplement that harness for no concurrency benefit. It keeps consuming the same driver selection and `deploy/` structure |
+| `CommandRunner` preserves the demo-log behavior | The Bash `show_cmd` echoed `$ cmd` so a run doubled as a command demo. A Go `CommandRunner` keeps the echo (logging the equivalent command through `t.Log` before running) but has no pause: in the Go suites the value is the captured command log, not a timed playback. The paced `E2E_PAUSE` demo pause is kept where it is actually useful -- the retained Bash smoke script -- not in the Go suites |
+| Big-bang cutover of the functional/perf suites | Carrying two implementations of the full functional and performance suites invites drift and doubles CI time. The Go suite lands at parity across all 14 areas, the perf harness, and the matrix runner, and the Bash functional/perf suites plus the heavy `drivers/*.sh` contract are removed in the same change (see [Shell Suite Removal](#requirement-shell-suite-removal)). This is a cutover of the suites, not of all Bash: the browser suite and a thin smoke script are kept (next rows) |
+| Browser suite stays Bash | `e2e-console.sh` drives headless Chromium through `agent-browser`; a Go port would reimplement that harness for no concurrency benefit. It keeps consuming the slim retained `lib.sh` infra selection and `deploy/` structure |
+| Bash smoke script retained for the interaction story | The team values a Bash artifact that shows the user-interaction story -- the literal commands a user types -- which a Go `t.Log` stream conveys less vividly. A thin `smoke.sh` (`make e2e-smoke`) keeps `show_cmd`-style command echo and the `E2E_PAUSE` demo pause for the happy path. It is a demonstration and lightweight sanity check, deliberately non-authoritative (the Go short mode is the gate), so it carries a tiny Bash surface without reintroducing a second full suite. It shares the slim `lib.sh` with the browser suite rather than the removed driver contract |
 | `E2E_INFRA_DRIVER` is auto-detected from the KUBECONFIG context, with an explicit override | `route.openshift.io` is a reliable, cheap signal for OpenShift, so a developer running against whichever cluster their context selects does not need to remember to set a flag. CI still sets `E2E_INFRA_DRIVER=kind` explicitly so the invocation stays self-documenting and does not depend on the runner's kubeconfig |
 | Tests live in `tests/e2e/` | A top-level `tests/` tree is the natural home for the Go e2e module, its drivers, and its helper packages. The ROKS variant stays until it is also retired or rehomed |
 | Shared test utilities in `tests/e2e/harness` | Pass/fail/skip reporting, demo logging, poll/retry, and the shared kube clients live in one package so the suite, perf harness, and matrix runner share a single implementation. This is the Go home of what `tests/e2e/lib.sh` held. Packages live under `tests/e2e/`, not a Go `internal/` tree, so the test-only helpers sit plainly in the e2e tree rather than behind import-visibility rules |
