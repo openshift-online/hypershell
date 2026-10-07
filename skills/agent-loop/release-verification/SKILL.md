@@ -2,8 +2,8 @@
 name: release-verification
 description: >
   Release Verification Workflow. Watches a published release bundle through
-  delivery and post-delivery analysis, then classifies the release as verified
-  or failed.
+  delivery and post-delivery analysis, then classifies the release as verified,
+  failed, or blocked.
 ---
 
 # Workflow
@@ -33,12 +33,12 @@ WRITE actions are labels and comments on `$GITHUB_ISSUE_URL`.
 This workflow is intentionally **generic**. It names no specific status checks,
 Application names, namespaces, or analysis resources, so that it applies to any
 delivery strategy. A repository supplies those specifics through the
-[Delivery Profile Overlay](#step-2-load-the-delivery-profile-overlay).
+[Release Strategy overlay](#step-2-load-the-release-strategy-overlay).
 
 ## Input
 
 ```text
-$GITHUB_ISSUE_URL $RELEASE_BUNDLE $GITOPS_REPO $RELEASE_STRATEGY_OVERLAY $KUBECONFIG [--dry-run]
+$GITHUB_ISSUE_URL $RELEASE_BUNDLE $GITOPS_REPO $KUBECONFIG [$RELEASE_STRATEGY_OVERLAY] [--dry-run]
 ```
 
 Supported arguments:
@@ -46,17 +46,19 @@ Supported arguments:
   comments are applied here.
 - RELEASE_BUNDLE -- the released bundle reference to verify. Eg `quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-api-server-main:release-bundle-20261006T213842000000Z-04477525054a5901`.
 - GITOPS_REPO -- the repository in which the release/promotion change is opened
-  and merged, and which MAY contain the Delivery Profile overlay.
+  and merged, and which MAY contain the Release Strategy overlay.
 - KUBECONFIG -- a kubeconfig granting read-only access to Argo CD and the kube
   resources of the environment to which `$RELEASE_BUNDLE` is delivered.
-- RELEASE_STRATEGY_OVERLAY -- a path relative to $GITOPS_REPO that contains the delivery profile overlay.
+- RELEASE_STRATEGY_OVERLAY -- [Optional] a path relative to `$GITOPS_REPO` to the
+  Release Strategy overlay. If omitted, the workflow runs with its generic
+  defaults.
 - --dry-run -- [Optional] Execute the workflow, but skip every WRITE action
-  (label and comment). All read and verify actions still run.
+  (labels, comments, issue creation). All read and verify actions still run.
 
 ## Time budget
 
 Each wait below has a timeout. Defaults are listed per step and MAY be
-overridden by the Delivery Profile. On timeout, the stage is `blocked` (see
+overridden by the Release Strategy. On timeout, the stage is `blocked` (see
 [Blocking](#blocking)) unless a positive failure signal was already observed, in
 which case it is `failed`.
 
@@ -79,8 +81,9 @@ Output: (`$LINKED_CHANGE`, `$ISSUE_CONTENTS`)
 This workflow is generic; the repository provides the concrete details of its
 release strategy through an optional overlay.
 
-Look for a Release Strategy in `$GITOPS_REPO` at `$RELEASE_STRATEGY_OVERLAY`. If one exists, read it and treat its
-instructions as **authoritative overrides and extensions** to the steps below.
+If `$RELEASE_STRATEGY_OVERLAY` is provided, read it from `$GITOPS_REPO` at that
+path and treat its instructions as **authoritative overrides and extensions** to
+the steps below. If it is omitted, proceed with the generic defaults.
 
 A Release Strategy MAY specify:
 - how to locate the release/promotion change for a given `$RELEASE_BUNDLE`;
@@ -143,7 +146,7 @@ environment converge on the released bundle:
 - the delivered revision/images correspond to `$RELEASE_BUNDLE`.
 
 Select the Application(s) and namespaces as directed by `$RELEASE_STRATEGY`;
-absent a Profile, infer them from `$RELEASE_CHANGE`.
+absent a Strategy, infer them from `$RELEASE_CHANGE`.
 
 - If an Application settles in a degraded or sync-error state, or converges on a
   revision that does not correspond to `$RELEASE_BUNDLE`, the release has
@@ -160,7 +163,7 @@ Output: (`$DELIVERED` (true), or `$FAILURE_RATIONALE`)
 
 Using `$KUBECONFIG`, confirm the post-delivery analysis associated with this
 delivery completes successfully. Identify the analysis as directed by
-`$RELEASE_STRATEGY`; absent a Profile, infer it from the delivered resources.
+`$RELEASE_STRATEGY`; absent a Strategy, infer it from the delivered resources.
 
 - If the analysis completes with a failing result, the release has `failed`.
   Record the rationale and continue to [Step 8](#step-8-communicate-outcome).
