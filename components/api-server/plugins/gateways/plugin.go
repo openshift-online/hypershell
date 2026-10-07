@@ -3,6 +3,7 @@ package gateways
 import (
 	"context"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
@@ -120,6 +121,7 @@ func init() {
 		var ownerBinding OwnerBindingCreator
 		var visibilityFilter GatewayVisibilityFilter
 		var ownerLookup GatewayOwnerLookup
+		var bindingLookup rbac.RoleBindingLookup
 		rbService := roleBindings.Service(envServices)
 		if rbService != nil {
 			ownerBinding = rbac.NewGatewayBootstrapper(rbService)
@@ -131,8 +133,10 @@ func init() {
 				return ids, nil
 			})
 			ownerLookup = rbService
+			bindingLookup = rbService
 		}
-		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, registeredClusterLookup(envServices))
+		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
+		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), enforceRBAC)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)

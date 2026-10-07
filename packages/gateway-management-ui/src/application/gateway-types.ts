@@ -9,6 +9,7 @@ export interface ProvisioningCondition {
 
 export interface GatewayRecord {
   activeSandboxCount?: number;
+  canDelete?: boolean;
   clusterId: string;
   consoleUrl?: string;
   createdAt?: string;

@@ -1127,6 +1127,10 @@
     "defaultMessage": "Gateway could not be deleted",
     "description": "Title shown when gateway deletion fails."
   },
+  "app.gateway.delete.notPermitted": {
+    "defaultMessage": "Only a gateway owner or platform admin can delete this gateway.",
+    "description": "Tooltip explaining why the Delete gateway action is disabled for a caller who lacks delete permission."
+  },
   "app.gateway.delete.pending": {
     "defaultMessage": "Deleting gateway",
     "description": "Accessible progress text while a gateway is being deleted."

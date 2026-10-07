@@ -31,6 +31,7 @@ Name | Type | Description | Notes
 **CreatedBy** | Pointer to **string** | Username of the user who provisioned this gateway, resolved from RBAC role bindings | [optional] [readonly] 
 **Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly] 
 **ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly] 
+**CanDelete** | Pointer to **bool** | Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
 
 ## Methods
 
@@ -710,6 +711,31 @@ SetObservedGeneration sets ObservedGeneration field to given value.
 `func (o *Gateway) HasObservedGeneration() bool`
 
 HasObservedGeneration returns a boolean if a field has been set.
+
+### GetCanDelete
+
+`func (o *Gateway) GetCanDelete() bool`
+
+GetCanDelete returns the CanDelete field if non-nil, zero value otherwise.
+
+### GetCanDeleteOk
+
+`func (o *Gateway) GetCanDeleteOk() (*bool, bool)`
+
+GetCanDeleteOk returns a tuple with the CanDelete field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetCanDelete
+
+`func (o *Gateway) SetCanDelete(v bool)`
+
+SetCanDelete sets CanDelete field to given value.
+
+### HasCanDelete
+
+`func (o *Gateway) HasCanDelete() bool`
+
+HasCanDelete returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

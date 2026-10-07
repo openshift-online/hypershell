@@ -265,6 +265,13 @@ export const messages = defineMessages({
       "Deleting {gatewayName} will permanently remove the gateway. This action cannot be undone.",
     description: "Warning shown before permanently deleting a gateway.",
   },
+  deleteGatewayNotPermitted: {
+    id: "app.gateway.delete.notPermitted",
+    defaultMessage:
+      "Only a gateway owner or platform admin can delete this gateway.",
+    description:
+      "Tooltip explaining why the Delete gateway action is disabled for a caller who lacks delete permission.",
+  },
   deleteGatewayTitle: {
     id: "app.gateway.delete.title",
     defaultMessage: "Delete {gatewayName}?",

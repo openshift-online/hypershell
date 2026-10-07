@@ -3333,6 +3333,13 @@ components:
             format: int64
             readOnly: true
             type: integer
+          can_delete:
+            description: Whether the authenticated caller is authorized to delete
+              this gateway (gateway owner or platform admin). Advertised so clients
+              can disable a delete affordance the API would reject; the server remains
+              authoritative.
+            readOnly: true
+            type: boolean
         required:
         - cluster_id
         - name
@@ -3346,6 +3353,7 @@ components:
         credential_driver: credential_driver
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
+        can_delete: true
         id: id
         href: href
         gateway_version: gateway_version
@@ -3400,6 +3408,7 @@ components:
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
+          can_delete: true
           id: id
           href: href
           gateway_version: gateway_version
@@ -3435,6 +3444,7 @@ components:
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
+          can_delete: true
           id: id
           href: href
           gateway_version: gateway_version

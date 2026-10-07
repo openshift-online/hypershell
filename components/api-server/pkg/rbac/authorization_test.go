@@ -119,6 +119,62 @@ func TestIsAuthorized_GatewayViewerCannotMutateGateway(t *testing.T) {
 	}
 }
 
+// TestCanDeleteGateway covers the Gateway.can_delete capability the REST API
+// advertises to clients. It must match isGatewayAuthorized(DELETE, ...) exactly,
+// including the case from the bug report: an owner who demotes their own access
+// to the "user" tier (gateway:viewer) can no longer delete, while a platform
+// admin retains the delete override.
+func TestCanDeleteGateway(t *testing.T) {
+	gwID := "gw-aaa"
+	otherID := "gw-bbb"
+	ptr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name     string
+		bindings []BindingSummary
+		want     bool
+	}{
+		{
+			name:     "owner can delete",
+			bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     true,
+		},
+		{
+			name:     "demoted owner now viewer cannot delete",
+			bindings: []BindingSummary{{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     false,
+		},
+		{
+			name:     "granted admin cannot delete",
+			bindings: []BindingSummary{{RoleName: "gateway:admin", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     false,
+		},
+		{
+			name:     "platform admin can delete any gateway",
+			bindings: []BindingSummary{{RoleName: "platform:admin", Scope: "global"}},
+			want:     true,
+		},
+		{
+			name:     "owner of a different gateway cannot delete",
+			bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: ptr(otherID)}},
+			want:     false,
+		},
+		{
+			name:     "no bindings cannot delete",
+			bindings: nil,
+			want:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CanDeleteGateway(tc.bindings, gwID); got != tc.want {
+				t.Errorf("CanDeleteGateway() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsAuthorized_NonCreatorCannotCreateGateways(t *testing.T) {
 	gwID := "gw-aaa"
 	bindings := []BindingSummary{

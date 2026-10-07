@@ -2,6 +2,7 @@ import { gatewayCanonicalPhases } from "./gateway-data";
 
 export interface GatewayConnection {
   activeSandboxCount?: number;
+  canDelete?: boolean;
   clusterId: string;
   clusterName: string;
   consoleUrl?: string;

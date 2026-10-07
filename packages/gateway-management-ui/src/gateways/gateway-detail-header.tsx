@@ -119,6 +119,10 @@ function GatewayDetailActions({
   const [isActionsOpen, setIsActionsOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
+  // Disable delete only when the server has explicitly told us the caller cannot
+  // delete. An absent capability (older server) leaves it enabled; the API 403
+  // remains authoritative either way.
+  const canDelete = gateway.canDelete !== false;
 
   return (
     <>
@@ -196,10 +200,23 @@ function GatewayDetailActions({
               </DropdownItem>
               <Divider component="li" />
               <DropdownItem
+                isAriaDisabled={!canDelete}
                 isDanger
                 onClick={() => {
+                  if (!canDelete) {
+                    return;
+                  }
                   setIsDeleteOpen(true);
                 }}
+                tooltipProps={
+                  canDelete
+                    ? undefined
+                    : {
+                        content: intl.formatMessage(
+                          messages.deleteGatewayNotPermitted,
+                        ),
+                      }
+                }
               >
                 <FormattedMessage {...messages.deleteGateway} />
               </DropdownItem>

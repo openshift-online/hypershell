@@ -442,6 +442,15 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	return hasGatewayCreator(bindings)
 }
 
+// CanDeleteGateway reports whether a caller holding bindings may DELETE the
+// gateway. It is the single source of truth shared by the DELETE authorization
+// middleware (isGatewayAuthorized) and the Gateway.can_delete capability the REST
+// API advertises, so a client's delete affordance never diverges from the check
+// the server actually enforces.
+func CanDeleteGateway(bindings []BindingSummary, gatewayID string) bool {
+	return isGatewayAuthorized(http.MethodDelete, gatewayID, bindings)
+}
+
 func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSummary) bool {
 	if hasPlatformAdmin(bindings) && (method == http.MethodGet || method == http.MethodDelete) {
 		return true

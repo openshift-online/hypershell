@@ -181,6 +181,9 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
 
   return {
     ...(activeSandboxCount !== undefined ? { activeSandboxCount } : {}),
+    ...(typeof gateway.can_delete === "boolean"
+      ? { canDelete: gateway.can_delete }
+      : {}),
     clusterId: gateway.cluster_id,
     ...(consoleUrl ? { consoleUrl } : {}),
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),

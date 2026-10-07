@@ -352,6 +352,8 @@ Gateway renaming SHALL use the existing `PATCH /gateways/{id}` contract and send
 
 Gateway deletion SHALL use the existing `DELETE /gateways/{id}` contract. Both delete entry points SHALL present the same explicit confirmation before commitment, prevent duplicate submission while deletion is pending, preserve the confirmation with recovery guidance on failure, and provide an accurate success notification after deletion. Successful deletion from a detail page SHALL return the user to the gateway collection and invalidate both collection and deleted-detail query state.
 
+Both delete entry points (the row actions menu and the detail header Actions dropdown) SHALL disable the delete action -- rather than hide it -- with an accessible explanation when the gateway's advertised `can_delete` capability is false (the caller is neither a `gateway:owner` nor a `platform:admin`; see platform `gateway-access-management.spec.md` GAM-01). A gateway whose `can_delete` is absent or true SHALL leave the action enabled. This mirrors the server authorization rather than replacing it; the API remains authoritative and SHALL still reject an unauthorized `DELETE` with `403`.
+
 The `Connection` tab SHALL show this OpenShell CLI installation command in a code block:
 
 ```bash
@@ -409,11 +411,11 @@ The gateway list SHALL:
 - Cancel in-flight search requests when new search input is received
 - Display total gateway count across all pages
 - Show pagination controls (page number, previous/next, items per page selector)
-- Render delete actions on all gateway rows for platform:admin users
+- Render the delete action on every visible gateway row, enabled only where the gateway's `can_delete` capability is true (the caller is a `gateway:owner` or `platform:admin`) and otherwise disabled with an accessible explanation
 - Require confirmation via a modal dialog before deleting any gateway
 - Display a platform:admin indicator (badge or status) when the user has this role
 
-Platform administrators SHALL be able to delete any gateway from the list view. The delete action SHALL:
+Platform administrators (and gateway owners, for gateways they own) SHALL be able to delete a gateway from the list view; the console SHALL gate the affordance on the gateway's `can_delete` capability as defined in WEB-UI-03. The delete action SHALL:
 
 - Trigger a confirmation modal with the gateway name
 - On confirmation, call `DELETE /api/hypershell/v1/gateways/{id}`
@@ -421,7 +423,7 @@ Platform administrators SHALL be able to delete any gateway from the list view. 
 - Invalidate the gateway collection query to refresh the list
 - Handle failures with clear error messaging and recovery guidance
 
-**Verification:** Authenticate as a platform:admin user with 100+ gateways in the system. Verify the list displays 20 items by default, search filters results with 300ms debounce, pagination controls work correctly, total count is accurate, and delete actions are visible and functional. Verify rapid search input cancels previous requests. Authenticate as a non-admin user and verify delete actions are not visible and the list shows only owned/viewable gateways.
+**Verification:** Authenticate as a platform:admin user with 100+ gateways in the system. Verify the list displays 20 items by default, search filters results with 300ms debounce, pagination controls work correctly, total count is accurate, and delete actions are enabled and functional. Verify rapid search input cancels previous requests. Authenticate as a non-admin user and verify the list shows only owned/viewable gateways, the delete action is enabled on gateways they own, and the delete action is disabled with an accessible explanation on gateways they can only view.
 
 #### Scenario: Platform admin sees all gateways with pagination
 
@@ -454,14 +456,15 @@ Platform administrators SHALL be able to delete any gateway from the list view. 
 - AND a success notification is displayed
 - AND the list is refreshed
 
-#### Scenario: Non-admin user does not see delete actions
+#### Scenario: Non-admin delete is gated by per-gateway ownership
 
-- GIVEN user A has `gateway:owner` on gw-1 only
+- GIVEN user A has `gateway:owner` on gw-1 and `gateway:viewer` on gw-2
 - AND user A does NOT have `platform:admin`
 - WHEN user A views the gateway list
-- THEN user A sees only gw-1
-- AND the delete action is not visible in the row actions menu
-- AND user A cannot delete gateways they do not own
+- THEN user A sees gw-1 and gw-2
+- AND the delete action for gw-1 (where `can_delete` is true) SHALL be enabled
+- AND the delete action for gw-2 (where `can_delete` is false) SHALL be disabled with an accessible explanation
+- AND the server SHALL reject a delete of gw-2 by user A with `403` regardless of the affordance
 
 ### Requirement WEB-UI-04: Gateway Placement Selection
 

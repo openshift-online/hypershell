@@ -378,6 +378,9 @@ export function toGatewayConnection(
     ...(typeof gateway.activeSandboxCount === "number"
       ? { activeSandboxCount: gateway.activeSandboxCount }
       : {}),
+    ...(typeof gateway.canDelete === "boolean"
+      ? { canDelete: gateway.canDelete }
+      : {}),
     clusterId,
     // The name is resolved from the ManagedCluster the id references.
     clusterName: "",

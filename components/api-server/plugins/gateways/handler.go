@@ -39,7 +39,40 @@ type gatewayHandler struct {
 	ownerBinding     OwnerBindingCreator
 	visibilityFilter GatewayVisibilityFilter
 	ownerLookup      GatewayOwnerLookup
+	bindingLookup    rbac.RoleBindingLookup
 	clusters         RegisteredClusterLookup
+	enforceRBAC      bool
+}
+
+// callerBindings loads the current caller's role bindings once, or nil when RBAC
+// is not enforced, no lookup is wired, or the caller is unidentified. Errors
+// degrade to nil, which is fail-closed for the can_delete capability: a gateway
+// the caller cannot be shown to own is reported as not deletable.
+func (h gatewayHandler) callerBindings(ctx context.Context) []rbac.BindingSummary {
+	if !h.enforceRBAC || h.bindingLookup == nil {
+		return nil
+	}
+	userID := rbac.GetUserIDFromContext(ctx)
+	if userID == "" {
+		return nil
+	}
+	bindings, err := h.bindingLookup.FindBindingsByUserID(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	return bindings
+}
+
+// callerCanDelete reports whether the caller holding bindings may DELETE the
+// gateway, mirroring the RBAC middleware's enforced check exactly
+// (rbac.CanDeleteGateway). Advertised as Gateway.can_delete so a client can
+// disable a delete affordance the server would reject. When RBAC is not enforced
+// the server permits every delete, so it reports true.
+func (h gatewayHandler) callerCanDelete(bindings []rbac.BindingSummary, gatewayID string) bool {
+	if !h.enforceRBAC {
+		return true
+	}
+	return rbac.CanDeleteGateway(bindings, gatewayID)
 }
 
 // validateGatewayPhaseValue rejects a phase outside the canonical vocabulary. An
@@ -54,14 +87,16 @@ func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
 	return nil
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, clusters RegisteredClusterLookup) *gatewayHandler {
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool) *gatewayHandler {
 	return &gatewayHandler{
 		gateway:          gateway,
 		generic:          generic,
 		ownerBinding:     ownerBinding,
 		visibilityFilter: visibilityFilter,
 		ownerLookup:      ownerLookup,
+		bindingLookup:    bindingLookup,
 		clusters:         clusters,
+		enforceRBAC:      enforceRBAC,
 	}
 }
 
@@ -91,7 +126,9 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			return PresentGateway(gatewayModel, ""), nil
+			// The creator just received a gateway:owner binding (or RBAC is off), so
+			// they can always delete what they just created.
+			return PresentGateway(gatewayModel, "", true), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -184,7 +221,8 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
-			return PresentGateway(gatewayModel, ""), nil
+			bindings := h.callerBindings(ctx)
+			return PresentGateway(gatewayModel, "", h.callerCanDelete(bindings, gatewayModel.ID)), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -255,8 +293,9 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 					ownerUsernames = owners
 				}
 			}
+			bindings := h.callerBindings(ctx)
 			for _, gateway := range gateways {
-				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID])
+				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID], h.callerCanDelete(bindings, gateway.ID))
 				gatewayList.Items = append(gatewayList.Items, converted)
 			}
 			if listArgs.Fields != nil {
@@ -298,7 +337,8 @@ func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {
 					gateway.ID, gateway.Name, username, userID)
 			}
 
-			return PresentGateway(gateway, ""), nil
+			bindings := h.callerBindings(ctx)
+			return PresentGateway(gateway, "", h.callerCanDelete(bindings, gateway.ID)), nil
 		},
 	}
 
