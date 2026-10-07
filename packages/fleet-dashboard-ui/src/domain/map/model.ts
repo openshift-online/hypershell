@@ -311,11 +311,12 @@ function sumClusterHistory(
 /**
  * The hub/physical-cluster card's population: everything the owning instance reports
  * EXCEPT the managed clusters broken out onto their own node (its remote spokes, which
- * live on a different physical cluster). So the card rolls up the hub's own gateways,
- * its co-located spokes AND the unattributed ("unknown") bucket into one count + one
- * pair of chins - each physical cluster showing only what runs on it. When nothing is
- * excluded (no sibling spoke node) it degrades to the instance totals verbatim, so a
- * plain hub with no broken-out spokes is byte-for-byte unchanged.
+ * live on a different physical cluster). `exclude` is a set of managed_cluster names the
+ * topology plane classed as remote spokes (see {@link buildMapModel}), so the card rolls
+ * up the hub's own gateways, its co-located spokes AND the unattributed ("unknown")
+ * bucket into one count + one pair of chins - each physical cluster showing only what
+ * runs on it. When nothing is excluded (no broken-out spoke) it degrades to the instance
+ * totals verbatim, so a plain hub with no broken-out spokes is byte-for-byte unchanged.
  */
 function hubRollup(
   fl: InstanceFleet,
@@ -359,9 +360,12 @@ function hubRollup(
 /**
  * A single managed cluster's slice of its owning hub instance: the one spoke's gateway
  * + sandbox counts and its own two chins, read from the hub's per-cluster breakdowns by
- * matching `cluster`. Drives a remote spoke's own node card (the spoke lives on a
- * different physical cluster than its hub, so it gets its own card instead of rolling
- * into the hub's). Empty when the hub reports nothing for that cluster.
+ * matching the `managed_cluster` key `cluster`. Drives a remote spoke's own node card
+ * (the spoke lives on a different physical cluster than its hub, so it gets its own card
+ * instead of rolling into the hub's). Empty when the hub reports nothing for that
+ * cluster. The caller only invokes this with a `cluster` the topology plane confirms is
+ * one of the hub's `remoteSpokes` (== the managed_cluster identity), so this never joins
+ * on a guessed key - see {@link buildMapModel}.
  */
 function spokeSlice(fl: InstanceFleet, cluster: string): NodeCounts {
   const gatewaysByCluster = fl.gatewaysByCluster.filter(
@@ -404,7 +408,7 @@ function buildNode(
   fleet: FleetData,
   columnKey: string,
   topology: InstanceTopology | null,
-  siblingSpokes: ReadonlySet<string>,
+  brokenOutSpokes: ReadonlySet<string>,
 ): MapNode {
   const provider = nonEmpty(env.provider);
   const isHub = isHubRole(env.role);
@@ -412,6 +416,12 @@ function buildNode(
   // broken out onto their own node; a spoke card reads its HUB instance (its column
   // key) and takes just its own slice. This is the whole point of the attribution:
   // each physical cluster shows only the gateways/sandboxes that run on it.
+  //
+  // `brokenOutSpokes` is the hub column's set of REMOTE spokes (per the topology plane,
+  // keyed by managed_cluster name) that also have their own node - the SAME identity
+  // classifySpokes attributes on, so the rollup/slice can never diverge from it. A spoke
+  // env that is NOT in that set (co-located, or no topology) rolls into the hub and its
+  // own card shows nothing, so each managed cluster's counts land on exactly one card.
   const owning = isHub
     ? findInstance(fleet.instances, env.name)
     : findInstance(fleet.instances, columnKey);
@@ -419,8 +429,10 @@ function buildNode(
     owning === null
       ? EMPTY_COUNTS
       : isHub
-        ? hubRollup(owning, siblingSpokes)
-        : spokeSlice(owning, env.name);
+        ? hubRollup(owning, brokenOutSpokes)
+        : brokenOutSpokes.has(env.name)
+          ? spokeSlice(owning, env.name)
+          : EMPTY_COUNTS;
   // Attribute (for the detail panel breakdown) only on the hub card, and only when it
   // actually carries a per-cluster breakdown; a single spoke slice has nothing to split
   // further. The hub classifies its ROLLED-UP rows (remote spokes already excluded), so
@@ -633,20 +645,29 @@ export function buildMapModel(
 ): MapModel {
   const envs = orderedEnvironments(promotion);
   const columnKeyByName = assignColumns(envs);
-  // Per column, the non-hub env names that get their OWN node card (remote spokes). A
-  // hub card rolls up everything on its physical cluster EXCEPT these, so each managed
-  // cluster's counts are drawn on exactly one card. Derived from runtime role + column
-  // data alone - no fleet names or hub table baked in (FIREWALL).
-  const siblingSpokesByColumn = new Map<string, Set<string>>();
+  // Per column, the spoke env names that get their OWN node card. A spoke breaks out of
+  // its hub ONLY when the topology plane classes it a REMOTE spoke (listed in the hub's
+  // `remoteSpokes`, keyed by managed_cluster name - the SAME identity classifySpokes
+  // attributes on) AND it actually has a node here. Everything else (co-located spokes,
+  // spokes the topology does not know, or any spoke when topology is absent) rolls into
+  // the hub, so each managed cluster's counts land on exactly one card and a mismatch
+  // between an env name and the managed_cluster identity can never silently resume the
+  // hub over-count this attribution fixes. FIREWALL: derived from runtime role + column
+  // + topology data alone - no fleet names or hub table baked in.
+  const brokenOutByColumn = new Map<string, Set<string>>();
   for (const env of envs) {
     if (isHubRole(env.role)) {
       continue;
     }
     const col = columnKeyByName.get(env.name) ?? env.name;
-    let set = siblingSpokesByColumn.get(col);
+    const remoteSpokes = topology[col]?.hub?.remoteSpokes ?? [];
+    if (!remoteSpokes.includes(env.name)) {
+      continue;
+    }
+    let set = brokenOutByColumn.get(col);
     if (!set) {
       set = new Set<string>();
-      siblingSpokesByColumn.set(col, set);
+      brokenOutByColumn.set(col, set);
     }
     set.add(env.name);
   }
@@ -658,7 +679,7 @@ export function buildMapModel(
       fleet,
       columnKey,
       topology[env.name] ?? null,
-      siblingSpokesByColumn.get(columnKey) ?? noSpokes,
+      brokenOutByColumn.get(columnKey) ?? noSpokes,
     );
   });
 

@@ -491,6 +491,23 @@ func TestFleetHistoryByCluster(t *testing.T) {
 	if want := []float64{2, 3}; !floatsEqual(f.SandboxHistory, want) {
 		t.Errorf("SandboxHistory total = %v, want %v", f.SandboxHistory, want)
 	}
+	// Symmetric check for the gateway chin: the per-cluster gateway-history rows sum
+	// back to the instance's GatewayHistory at every sample (spoke0{R4}+spoke1{R1,F1}
+	// = {R5,F1} at ts-100, {R4}+{R2} = {R6} at ts-200).
+	for i := range f.GatewayHistory {
+		var sum GatewayHistorySample
+		for _, c := range f.HistoryByCluster {
+			if i < len(c.GatewayHistory) {
+				sum.Running += c.GatewayHistory[i].Running
+				sum.Provisioning += c.GatewayHistory[i].Provisioning
+				sum.Failed += c.GatewayHistory[i].Failed
+			}
+		}
+		if sum != f.GatewayHistory[i] {
+			t.Errorf("GatewayHistory[%d] cluster-sum = %+v, want instance total %+v",
+				i, sum, f.GatewayHistory[i])
+		}
+	}
 }
 
 func floatsEqual(a, b []float64) bool {

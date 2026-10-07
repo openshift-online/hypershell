@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ZERO_RATE, type FleetData, type InstanceFleet } from "../fleet";
 import type { PromotionData, PromotionEnvironment } from "../promotion";
+import type { TopologyData } from "../topology";
 import { buildMapModel } from "./model";
 
 function env(
@@ -465,6 +466,19 @@ describe("buildMapModel - frontier", () => {
 });
 
 describe("buildMapModel - per-cluster attribution", () => {
+  // Topology marking hub0-spoke a REMOTE spoke of hub0 and hub0-co a co-located one.
+  // Breakout is driven off this (the managed_cluster identity), not the env name, so the
+  // rollup/slice attribute on the same key classifySpokes does.
+  function topo(): TopologyData {
+    return {
+      hub0: {
+        instance: "hub0",
+        hub: { instance: "hub0", dnsLabel: null, remoteSpokes: ["hub0-spoke"] },
+        spokes: [{ name: "hub0-co" }],
+      },
+    };
+  }
+
   // One hub ("hub0") with a remote spoke ("hub0-spoke") that stacks into its column by
   // name prefix. The hub instance reports three managed-cluster rows: its own controller
   // ("hub0-hub"), a co-located spoke ("hub0-co") and the remote spoke ("hub0-spoke").
@@ -551,7 +565,7 @@ describe("buildMapModel - per-cluster attribution", () => {
 
   it("rolls up the hub's own + co-located clusters, excluding the broken-out spoke", () => {
     const { promotion: p, fleet } = hubAndSpoke();
-    const hub = nodeById(buildMapModel(p, fleet), "hub0");
+    const hub = nodeById(buildMapModel(p, fleet, topo()), "hub0");
     // 3 (hub-own) + 2 (co-located) = 5; the remote spoke's 1 is NOT on this card.
     expect(hub.gatewaysTotal).toBe(5);
     expect(hub.gateways).toEqual({ running: 5 });
@@ -564,7 +578,7 @@ describe("buildMapModel - per-cluster attribution", () => {
 
   it("gives the remote spoke its own counts from the hub's per-cluster row", () => {
     const { promotion: p, fleet } = hubAndSpoke();
-    const spoke = nodeById(buildMapModel(p, fleet), "hub0-spoke");
+    const spoke = nodeById(buildMapModel(p, fleet, topo()), "hub0-spoke");
     expect(spoke.gatewaysTotal).toBe(1);
     expect(spoke.gateways).toEqual({ running: 1 });
     expect(spoke.sandboxes).toBe(1);
@@ -574,7 +588,7 @@ describe("buildMapModel - per-cluster attribution", () => {
 
   it("rolls up the hub's chin history across its clusters, excluding the spoke", () => {
     const { promotion: p, fleet } = hubAndSpoke();
-    const hub = nodeById(buildMapModel(p, fleet), "hub0");
+    const hub = nodeById(buildMapModel(p, fleet, topo()), "hub0");
     // hub-own(3,3) + co-located(2,2) at each sample; the spoke's 1 is excluded.
     expect(hub.gatewayHistory).toEqual([
       { running: 5, provisioning: 0, failed: 0 },
@@ -586,7 +600,7 @@ describe("buildMapModel - per-cluster attribution", () => {
 
   it("gives the remote spoke its own chin history, zero-filling missing samples", () => {
     const { promotion: p, fleet } = hubAndSpoke();
-    const spoke = nodeById(buildMapModel(p, fleet), "hub0-spoke");
+    const spoke = nodeById(buildMapModel(p, fleet, topo()), "hub0-spoke");
     expect(spoke.gatewayHistory).toEqual([
       { running: 1, provisioning: 0, failed: 0 },
       { running: 1, provisioning: 0, failed: 0 },
@@ -598,7 +612,7 @@ describe("buildMapModel - per-cluster attribution", () => {
 
   it("does not borrow the hub's control-plane metrics onto the spoke card", () => {
     const { promotion: p, fleet } = hubAndSpoke();
-    const spoke = nodeById(buildMapModel(p, fleet), "hub0-spoke");
+    const spoke = nodeById(buildMapModel(p, fleet, topo()), "hub0-spoke");
     // RED metrics, users and friends are hub-level, so the spoke card leaves them empty.
     expect(spoke.metrics.rpc).toEqual(ZERO_RATE);
     expect(spoke.users).toBeNull();
@@ -629,7 +643,7 @@ describe("buildMapModel - per-cluster attribution", () => {
       hub0: env({ name: "hub0", role: "hub" }),
       "hub0-spoke": env({ name: "hub0-spoke", role: "spoke" }),
     });
-    const hub = nodeById(buildMapModel(p, fleet), "hub0");
+    const hub = nodeById(buildMapModel(p, fleet, topo()), "hub0");
     // hub-own(3) + unknown(4) stay on the hub; only the spoke's 1 is split out.
     expect(hub.gatewaysTotal).toBe(7);
     expect(hub.gateways).toEqual({ running: 3, failed: 4 });
@@ -666,5 +680,46 @@ describe("buildMapModel - per-cluster attribution", () => {
       { running: 9, provisioning: 0, failed: 0 },
     ]);
     expect(hub.sandboxHistory).toEqual([4]);
+  });
+
+  it("rolls a spoke into the hub when topology does not class it remote", () => {
+    // Same fleet, but no topology: breakout is topology-driven, so with nothing marked
+    // remote the spoke's counts stay rolled into the hub and its own card shows nothing.
+    // This guards the Major finding: a spoke env is split out ONLY on the managed_cluster
+    // identity classifySpokes uses, never on a bare env-name match that could diverge.
+    const { promotion: p, fleet } = hubAndSpoke();
+    const model = buildMapModel(p, fleet);
+    const hub = nodeById(model, "hub0");
+    const spoke = nodeById(model, "hub0-spoke");
+    // Hub keeps the full instance total (all three clusters), unchanged from no-attribution.
+    expect(hub.gatewaysTotal).toBe(6);
+    expect(hub.gateways).toEqual({ running: 6 });
+    expect(hub.sandboxes).toBe(3);
+    // The spoke card borrows nothing - its counts live on the hub.
+    expect(spoke.gatewaysTotal).toBe(0);
+    expect(spoke.sandboxes).toBe(0);
+  });
+
+  it("rolls a co-located spoke with its own env into the hub, not its own card", () => {
+    // hub0-co has a promotion env here, but topology lists it co-located (not a remote
+    // spoke), so it must still roll into the hub and NOT be broken onto its own card.
+    const { fleet } = hubAndSpoke();
+    const p = promotion(["hub0", "hub0-co", "hub0-spoke"], {
+      hub0: env({ name: "hub0", role: "hub", provider: "ibm" }),
+      "hub0-co": env({ name: "hub0-co", role: "spoke", provider: "ibm" }),
+      "hub0-spoke": env({ name: "hub0-spoke", role: "spoke", provider: "aws" }),
+    });
+    const model = buildMapModel(p, fleet, topo());
+    const hub = nodeById(model, "hub0");
+    const co = nodeById(model, "hub0-co");
+    // Hub rolls up its own(3) + co-located(2) = 5; only the remote spoke's 1 is split out.
+    expect(hub.gatewaysTotal).toBe(5);
+    expect(hub.gatewaysByCluster.map((r) => r.managedCluster)).toEqual([
+      "hub0-hub",
+      "hub0-co",
+    ]);
+    // The co-located spoke's own node shows nothing (its counts are on the hub).
+    expect(co.gatewaysTotal).toBe(0);
+    expect(co.sandboxes).toBe(0);
   });
 });
