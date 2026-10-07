@@ -29,7 +29,7 @@ func (a *{{.Resource.Name}}API) Create(ctx context.Context, resource *types.{{.R
 		return nil, fmt.Errorf("marshal {{.Resource.Name | snakeCase}}: %w", err)
 	}
 	var result types.{{.Resource.Name}}
-	if err := a.client.do(ctx, http.MethodPost, "/{{.Resource.PathSegment}}", body, http.StatusCreated, &result); err != nil {
+	if err := a.client.do(ctx, http.MethodPost, "{{.Resource.AbsoluteCollectionPath}}", body, http.StatusCreated, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -37,7 +37,7 @@ func (a *{{.Resource.Name}}API) Create(ctx context.Context, resource *types.{{.R
 
 func (a *{{.Resource.Name}}API) Get(ctx context.Context, id string) (*types.{{.Resource.Name}}, error) {
 	var result types.{{.Resource.Name}}
-	if err := a.client.do(ctx, http.MethodGet, "/{{.Resource.PathSegment}}/"+url.PathEscape(id), nil, http.StatusOK, &result); err != nil {
+	if err := a.client.do(ctx, http.MethodGet, "{{.Resource.AbsoluteCollectionPath}}/"+url.PathEscape(id), nil, http.StatusOK, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -45,7 +45,7 @@ func (a *{{.Resource.Name}}API) Get(ctx context.Context, id string) (*types.{{.R
 
 func (a *{{.Resource.Name}}API) List(ctx context.Context, opts *types.ListOptions) (*types.{{.Resource.Name}}List, error) {
 	var result types.{{.Resource.Name}}List
-	if err := a.client.doWithQuery(ctx, http.MethodGet, "/{{.Resource.PathSegment}}", nil, http.StatusOK, &result, opts); err != nil {
+	if err := a.client.doWithQuery(ctx, http.MethodGet, "{{.Resource.AbsoluteCollectionPath}}", nil, http.StatusOK, &result, opts); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -59,7 +59,7 @@ func (a *{{.Resource.Name}}API) Update(ctx context.Context, id string, patch map
 		return nil, fmt.Errorf("marshal patch: %w", err)
 	}
 	var result types.{{.Resource.Name}}
-	if err := a.client.do(ctx, http.MethodPatch, "/{{.Resource.PathSegment}}/"+url.PathEscape(id), body, http.StatusOK, &result); err != nil {
+	if err := a.client.do(ctx, http.MethodPatch, "{{.Resource.AbsoluteCollectionPath}}/"+url.PathEscape(id), body, http.StatusOK, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -68,7 +68,7 @@ func (a *{{.Resource.Name}}API) Update(ctx context.Context, id string, patch map
 {{- if .Resource.HasDelete}}
 
 func (a *{{.Resource.Name}}API) Delete(ctx context.Context, id string) error {
-	return a.client.do(ctx, http.MethodDelete, "/{{.Resource.PathSegment}}/"+url.PathEscape(id), nil, http.StatusNoContent, nil)
+	return a.client.do(ctx, http.MethodDelete, "{{.Resource.AbsoluteCollectionPath}}/"+url.PathEscape(id), nil, http.StatusNoContent, nil)
 }
 {{end}}
 {{- if .Resource.HasStatusPatch}}
@@ -79,7 +79,7 @@ func (a *{{.Resource.Name}}API) UpdateStatus(ctx context.Context, id string, pat
 		return nil, fmt.Errorf("marshal status patch: %w", err)
 	}
 	var result types.{{.Resource.Name}}
-	if err := a.client.do(ctx, http.MethodPatch, "/{{.Resource.PathSegment}}/"+url.PathEscape(id)+"/status", body, http.StatusOK, &result); err != nil {
+	if err := a.client.do(ctx, http.MethodPatch, "{{.Resource.AbsoluteCollectionPath}}/"+url.PathEscape(id)+"/status", body, http.StatusOK, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -89,7 +89,7 @@ func (a *{{.Resource.Name}}API) UpdateStatus(ctx context.Context, id string, pat
 
 func (a *{{$.Resource.Name}}API) {{. | title}}(ctx context.Context, id string) (*types.{{$.Resource.Name}}, error) {
 	var result types.{{$.Resource.Name}}
-	if err := a.client.do(ctx, http.MethodPost, "/{{$.Resource.PathSegment}}/"+url.PathEscape(id)+"/{{.}}", nil, http.StatusOK, &result); err != nil {
+	if err := a.client.do(ctx, http.MethodPost, "{{$.Resource.AbsoluteCollectionPath}}/"+url.PathEscape(id)+"/{{.}}", nil, http.StatusOK, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil

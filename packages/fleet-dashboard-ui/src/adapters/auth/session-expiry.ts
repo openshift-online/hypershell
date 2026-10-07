@@ -6,8 +6,7 @@
 //
 // Cookies/OIDC are owned by the OpenShift oauth-proxy sidecar that fronts the whole origin;
 // the HTTP-only session cookie is not reachable from JS, so we cannot clear it ourselves.
-// The correct recovery is a full-document navigation (signInAgain), which the proxy answers
-// with its identity-provider redirect, minting a fresh session cookie.
+// Recovery therefore has to go through the proxy's own login endpoint - see signInAgain.
 
 import { useSyncExternalStore } from "react";
 
@@ -42,9 +41,17 @@ export function useSessionExpired(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 
-/** Re-run the oauth-proxy sign-in by reloading the top-level document. Unlike an XHR, a
- *  document navigation triggers the proxy's redirect to the identity provider, so the user
- *  lands back on the dashboard with a fresh session. */
+// The ose-oauth-proxy sidecar runs under the "/oauth" prefix (its OpenShift default; the
+// callback is "/oauth/callback"), NOT the upstream "/oauth2". "/oauth/sign_out" clears the
+// session cookie server-side and redirects to "/", where the proxy serves its login page.
+const SIGN_OUT_URL = "/oauth/sign_out";
+
+/** Recover from an expired session by signing out of the oauth-proxy. A plain reload is NOT
+ *  enough: the proxy's session cookie outlives the upstream access token (longer TTL, refresh
+ *  disabled), so a reload finds the cookie still valid, skips re-auth, and keeps forwarding the
+ *  dead token - the 401 just comes straight back. Navigating to the proxy's sign-out endpoint
+ *  clears that cookie (it is HTTP-only, so JS cannot) and returns to the app, where the proxy,
+ *  now seeing no session, serves its "Log in with OpenShift" page to start a fresh login. */
 export function signInAgain(): void {
-  window.location.reload();
+  window.location.assign(SIGN_OUT_URL);
 }

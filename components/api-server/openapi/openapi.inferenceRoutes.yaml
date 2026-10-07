@@ -1,5 +1,5 @@
 paths:
-  /api/hypershell/v1/inference_routes:
+  /api/hypershell/ext/inference_routes:
     get:
       operationId: listInferenceRoutes
       summary: Returns a list of inference routes
@@ -55,7 +55,7 @@ paths:
           $ref: 'openapi.yaml#/components/responses/ForbiddenError'
         '500':
           $ref: 'openapi.yaml#/components/responses/InternalServerError'
-  /api/hypershell/v1/inference_routes/{id}:
+  /api/hypershell/ext/inference_routes/{id}:
     get:
       operationId: getInferenceRoute
       summary: Get an inference route by ID
