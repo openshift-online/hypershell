@@ -385,10 +385,18 @@ fi
 
 PUBLIC_REF=$(ab_wait_ref radio '^Public$' 15 || true)
 AWS_REF=""
-if [[ -n "$PUBLIC_REF" ]] && show_cmd "agent-browser click ${PUBLIC_REF}  # Public" && ab_ok click "$PUBLIC_REF"; then
+if [[ -n "$PUBLIC_REF" ]] \
+    && ab_ok scrollintoview "$PUBLIC_REF" \
+    && ab_ok scroll down 240 \
+    && show_cmd "agent-browser click ${PUBLIC_REF}  # Public" \
+    && ab_ok click "$PUBLIC_REF"; then
   AWS_REF=$(ab_wait_ref radio '^Amazon Web Services$' 15 || true)
 fi
-if [[ -n "$AWS_REF" ]] && show_cmd "agent-browser click ${AWS_REF}  # Amazon Web Services" && ab_ok click "$AWS_REF"; then
+if [[ -n "$AWS_REF" ]] \
+    && ab_ok scrollintoview "$AWS_REF" \
+    && ab_ok scroll down 240 \
+    && show_cmd "agent-browser click ${AWS_REF}  # Amazon Web Services" \
+    && ab_ok click "$AWS_REF"; then
   pass "Selected Public placement on Amazon Web Services"
 else
   ab_fail "Public/Amazon Web Services placement was not available"
@@ -749,10 +757,16 @@ if ab_open "${CONSOLE_HOST}/gateways/new" \
     && ab_wait_ref textbox "$NAME_TEXTBOX" "$PAGE_TIMEOUT_S" >/dev/null; then
   TA_PUBLIC=$(ab_wait_ref radio '^Public$' 15 || true)
   TA_AWS=""
-  if [[ -n "$TA_PUBLIC" ]] && ab_ok click "$TA_PUBLIC"; then
+  if [[ -n "$TA_PUBLIC" ]] \
+      && ab_ok scrollintoview "$TA_PUBLIC" \
+      && ab_ok scroll down 240 \
+      && ab_ok click "$TA_PUBLIC"; then
     TA_AWS=$(ab_wait_ref radio '^Amazon Web Services$' 15 || true)
   fi
-  if [[ -n "$TA_AWS" ]]; then
+  if [[ -n "$TA_AWS" ]] \
+      && ab_ok scrollintoview "$TA_AWS" \
+      && ab_ok scroll down 240 \
+      && ab_ok click "$TA_AWS"; then
     pass "Placement choices include Public on Amazon Web Services"
   else
     ab_fail "Public/Amazon Web Services placement was not available"
