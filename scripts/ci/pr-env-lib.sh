@@ -310,23 +310,23 @@ pr_env_is_reapable() {
   (( now >= exp ))
 }
 
-# pr_env_is_pr_platform_namespace <name> - true for an ephemeral CI platform
+# pr_env_is_ci_platform_namespace <name> - true for an ephemeral CI platform
 # namespace (anything prefixed hypershell-ci-) only, not the companion
 # -keycloak namespace.
-pr_env_is_pr_platform_namespace() {
+pr_env_is_ci_platform_namespace() {
   [[ "$1" == "${PR_ENV_CI_NS_PREFIX}"* && "$1" != *-keycloak ]]
 }
 
 # pr_env_should_reap_instance_workload <workload-ns> <instance> <platform-exists>
 #
-# True when a control-plane-managed namespace is leftover from a pull-request
-# platform project that no longer exists. platform-exists is the string "true"
-# when kubectl can still get that instance's platform namespace. Local
-# openshift-up instances (alice, hyp4, hyp5) and a still-live PR platform are
-# retained.
+# True when a control-plane-managed namespace is leftover from an ephemeral CI
+# platform project (pull request, push-to-main, or merge-queue) that no
+# longer exists. platform-exists is the string "true" when kubectl can still
+# get that instance's platform namespace. Local openshift-up instances
+# (alice, hyp4, hyp5) and a still-live CI platform are retained.
 pr_env_should_reap_instance_workload() {
   local workload="$1" instance="$2" platform_exists="$3"
-  pr_env_is_pr_platform_namespace "${instance}" || return 1
+  pr_env_is_ci_platform_namespace "${instance}" || return 1
   [[ "${platform_exists}" == "true" ]] && return 1
   [[ "${workload}" != "${instance}" ]] || return 1
   [[ "${workload}" != "${instance}-keycloak" ]] || return 1

@@ -132,17 +132,17 @@ assert_not_reapable 'merge-queue env not yet expired' \
 assert_not_reapable 'main namespace not owned' \
   'hypershell-ci-main-abcdef1' 'false' 'main-abcdef1' "${past}" "${now}"
 
-assert_eq 'true' "$(pr_env_is_pr_platform_namespace 'hypershell-ci-pr-267' && echo true || echo false)" \
+assert_eq 'true' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-pr-267' && echo true || echo false)" \
   'pr platform namespace matches'
-assert_eq 'false' "$(pr_env_is_pr_platform_namespace 'hypershell-ci-pr-267-keycloak' && echo true || echo false)" \
+assert_eq 'false' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-pr-267-keycloak' && echo true || echo false)" \
   'keycloak companion is not a pr platform namespace'
-assert_eq 'false' "$(pr_env_is_pr_platform_namespace 'hyp5' && echo true || echo false)" \
+assert_eq 'false' "$(pr_env_is_ci_platform_namespace 'hyp5' && echo true || echo false)" \
   'hub namespace is not a pr platform namespace'
-assert_eq 'true' "$(pr_env_is_pr_platform_namespace 'hypershell-ci-main-abcdef1' && echo true || echo false)" \
+assert_eq 'true' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-main-abcdef1' && echo true || echo false)" \
   'main platform namespace matches'
-assert_eq 'false' "$(pr_env_is_pr_platform_namespace 'hypershell-ci-main-abcdef1-keycloak' && echo true || echo false)" \
+assert_eq 'false' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-main-abcdef1-keycloak' && echo true || echo false)" \
   'main keycloak companion is not a platform namespace'
-assert_eq 'true' "$(pr_env_is_pr_platform_namespace 'hypershell-ci-mq-abcdef1' && echo true || echo false)" \
+assert_eq 'true' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-mq-abcdef1' && echo true || echo false)" \
   'merge-queue platform namespace matches'
 
 if pr_env_should_reap_instance_workload 'openshell-aaa' 'hypershell-ci-pr-267' 'false'; then
