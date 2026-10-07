@@ -39,11 +39,11 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterRoutes("providerSpecs", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterPrefixedRoutes("providerSpecs", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
 		h := NewProviderSpecHandler(Service(envServices), generic.Service(envServices))
 
-		router := apiV1Router.PathPrefix("/provider_specs").Subrouter()
+		router := extRouter.PathPrefix("/provider_specs").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
 		router.HandleFunc("/{id}", h.Get).Methods(http.MethodGet)
 		router.HandleFunc("", h.Create).Methods(http.MethodPost)

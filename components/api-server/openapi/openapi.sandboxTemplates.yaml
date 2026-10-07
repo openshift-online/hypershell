@@ -1,5 +1,5 @@
 paths:
-  /api/hypershell/v1/sandbox_templates:
+  /api/hypershell/ext/sandbox_templates:
     get:
       operationId: listSandboxTemplates
       summary: Returns a list of sandbox templates
@@ -55,7 +55,7 @@ paths:
           $ref: 'openapi.yaml#/components/responses/ForbiddenError'
         '500':
           $ref: 'openapi.yaml#/components/responses/InternalServerError'
-  /api/hypershell/v1/sandbox_templates/{id}:
+  /api/hypershell/ext/sandbox_templates/{id}:
     get:
       operationId: getSandboxTemplate
       summary: Get a sandbox template by ID

@@ -1,5 +1,5 @@
 paths:
-  /api/hypershell/v1/provider_bindings:
+  /api/hypershell/ext/provider_bindings:
     get:
       operationId: listProviderBindings
       summary: Returns a list of provider bindings
@@ -55,7 +55,7 @@ paths:
           $ref: 'openapi.yaml#/components/responses/ForbiddenError'
         '500':
           $ref: 'openapi.yaml#/components/responses/InternalServerError'
-  /api/hypershell/v1/provider_bindings/{id}:
+  /api/hypershell/ext/provider_bindings/{id}:
     get:
       operationId: getProviderBinding
       summary: Get a provider binding by ID

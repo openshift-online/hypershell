@@ -11,40 +11,40 @@ export class {{.Resource.Name}}API {
   constructor(private readonly config: SDKClientConfig) {}
 
   async create(data: {{.Resource.Name}}CreateRequest, opts?: RequestOptions): Promise<{{.Resource.Name}}> {
-    return sdkFetch<{{.Resource.Name}}>(this.config, 'POST', '/{{.Resource.PathSegment}}', data, opts);
+    return sdkFetch<{{.Resource.Name}}>(this.config, 'POST', '{{.Resource.AbsoluteCollectionPath}}', data, opts);
   }
 
   async get(id: string, opts?: RequestOptions): Promise<{{.Resource.Name}}> {
-    return sdkFetch<{{.Resource.Name}}>(this.config, 'GET', `/{{.Resource.PathSegment}}/${id}`, undefined, opts);
+    return sdkFetch<{{.Resource.Name}}>(this.config, 'GET', `{{.Resource.AbsoluteCollectionPath}}/${id}`, undefined, opts);
   }
 
   async list(listOpts?: ListOptions, opts?: RequestOptions): Promise<{{.Resource.Name}}List> {
     const qs = buildQueryString(listOpts);
-    return sdkFetch<{{.Resource.Name}}List>(this.config, 'GET', `/{{.Resource.PathSegment}}${qs}`, undefined, opts);
+    return sdkFetch<{{.Resource.Name}}List>(this.config, 'GET', `{{.Resource.AbsoluteCollectionPath}}${qs}`, undefined, opts);
   }
 
 {{- if .Resource.HasPatch}}
 
   async update(id: string, patch: {{.Resource.Name}}PatchRequest, opts?: RequestOptions): Promise<{{.Resource.Name}}> {
-    return sdkFetch<{{.Resource.Name}}>(this.config, 'PATCH', `/{{.Resource.PathSegment}}/${id}`, patch, opts);
+    return sdkFetch<{{.Resource.Name}}>(this.config, 'PATCH', `{{.Resource.AbsoluteCollectionPath}}/${id}`, patch, opts);
   }
 {{end}}
 {{- if .Resource.HasDelete}}
 
   async delete(id: string, opts?: RequestOptions): Promise<void> {
-    return sdkFetch<void>(this.config, 'DELETE', `/{{.Resource.PathSegment}}/${id}`, undefined, opts);
+    return sdkFetch<void>(this.config, 'DELETE', `{{.Resource.AbsoluteCollectionPath}}/${id}`, undefined, opts);
   }
 {{end}}
 {{- if .Resource.HasStatusPatch}}
 
   async updateStatus(id: string, patch: {{.Resource.Name}}StatusPatchRequest, opts?: RequestOptions): Promise<{{.Resource.Name}}> {
-    return sdkFetch<{{.Resource.Name}}>(this.config, 'PATCH', `/{{.Resource.PathSegment}}/${id}/status`, patch, opts);
+    return sdkFetch<{{.Resource.Name}}>(this.config, 'PATCH', `{{.Resource.AbsoluteCollectionPath}}/${id}/status`, patch, opts);
   }
 {{end}}
 {{- range .Resource.Actions}}
 
   async {{.}}(id: string, opts?: RequestOptions): Promise<{{$.Resource.Name}}> {
-    return sdkFetch<{{$.Resource.Name}}>(this.config, 'POST', `/{{$.Resource.PathSegment}}/${id}/{{.}}`, undefined, opts);
+    return sdkFetch<{{$.Resource.Name}}>(this.config, 'POST', `{{$.Resource.AbsoluteCollectionPath}}/${id}/{{.}}`, undefined, opts);
   }
 {{end}}
 
