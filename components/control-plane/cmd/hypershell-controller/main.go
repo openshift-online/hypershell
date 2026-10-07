@@ -215,7 +215,6 @@ func main() {
 	}
 
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
-	networkReconciler := reconciler.NewGatewayNetworkReconciler(conn)
 
 	// Initialize Helm client for gateway deployments
 	helmClient := &helm.ShellClient{
@@ -314,7 +313,7 @@ func main() {
 		}
 		log.Fatalf("FATAL managed-cluster registration failed: %v", regErr)
 	}
-	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, backfill, release fan-out, and namespace GC to it", clusterID, cfg.ManagedClusterName)
+	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, backfill, and namespace GC to it", clusterID, cfg.ManagedClusterName)
 
 	if clientset != nil && dynamicClient != nil {
 		gr, grErr := reconciler.NewGatewayReconciler(
@@ -349,7 +348,7 @@ func main() {
 	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
 	defer gatewayQueue.Stop()
 
-	watchCount := 4 // managed clusters, gateway releases, gateways, networks
+	watchCount := 2 // managed clusters, gateways
 	if kcClient != nil {
 		watchCount++ // role bindings
 	}
@@ -386,7 +385,6 @@ func main() {
 		}
 	}()
 
-	releaseReconciler := reconciler.NewGatewayReleaseReconciler(conn, gatewayQueue, clusterID)
 	if kcClient != nil {
 		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn, clusterID)
 	}
@@ -394,14 +392,8 @@ func main() {
 	supervise("ManagedCluster watch", func(ctx context.Context) error {
 		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler)
 	})
-	supervise("GatewayRelease watch", func(ctx context.Context) error {
-		return watcher.WatchGatewayReleases(ctx, conn, releaseReconciler)
-	})
 	supervise("Gateway watch", func(ctx context.Context) error {
 		return watcher.WatchGateways(ctx, conn, gatewayQueue, clusterID)
-	})
-	supervise("GatewayNetwork watch", func(ctx context.Context) error {
-		return watcher.WatchGatewayNetworks(ctx, conn, networkReconciler)
 	})
 	if roleBindingReconciler != nil {
 		supervise("RoleBinding watch", func(ctx context.Context) error {

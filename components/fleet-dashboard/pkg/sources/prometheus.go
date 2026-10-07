@@ -25,14 +25,17 @@ import (
 // Prometheus queries the metrics receiver over its HTTP API. The instance
 // filter is built from discovery, never hard-coded.
 type Prometheus struct {
-	base          string
-	tokenFile     string
-	metric        string
-	instLabel     string
-	sandboxMetric string
-	clusterLabel  string
-	client        *http.Client
-	logger        *slog.Logger
+	base                string
+	tokenFile           string
+	metric              string
+	instLabel           string
+	sandboxMetric       string
+	clusterLabel        string
+	managedClusterLabel string
+	userMetric          string
+	userLoginsMetric    string
+	client              *http.Client
+	logger              *slog.Logger
 }
 
 // NewPrometheus builds a Prometheus source from config.
@@ -42,14 +45,17 @@ func NewPrometheus(c *config.Config) *Prometheus {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // opt-in for self-signed in-cluster endpoints
 	}
 	return &Prometheus{
-		base:          strings.TrimRight(c.PromURL, "/"),
-		tokenFile:     c.PromTokenFile,
-		metric:        c.GatewayMetric,
-		instLabel:     c.InstanceLabel,
-		sandboxMetric: c.SandboxMetric,
-		clusterLabel:  c.ClusterLabel,
-		client:        &http.Client{Timeout: 20 * time.Second, Transport: tr},
-		logger:        slog.Default(),
+		base:                strings.TrimRight(c.PromURL, "/"),
+		tokenFile:           c.PromTokenFile,
+		metric:              c.GatewayMetric,
+		instLabel:           c.InstanceLabel,
+		sandboxMetric:       c.SandboxMetric,
+		clusterLabel:        c.ClusterLabel,
+		managedClusterLabel: c.ManagedClusterLabel,
+		userMetric:          c.UserMetric,
+		userLoginsMetric:    c.UserLoginsMetric,
+		client:              &http.Client{Timeout: 20 * time.Second, Transport: tr},
+		logger:              slog.Default(),
 	}
 }
 
@@ -197,15 +203,21 @@ func (p *Prometheus) Instances(ctx context.Context) (any, error) {
 
 // InstanceFleet is the per-instance fleet health/throughput summary.
 type InstanceFleet struct {
-	Instance       string         `json:"instance"`
-	Gateways       map[string]int `json:"gateways"` // phase -> count
-	GatewaysTotal  int            `json:"gatewaysTotal"`
-	ManagedCluster float64        `json:"managedClusters"`
-	Users          float64        `json:"users"`
-	RPC            RateStats      `json:"rpc"`
-	Reconcile      RateStats      `json:"reconcile"`
-	BFF            RateStats      `json:"bff"`
-	ProvisionP95Ms float64        `json:"provisionP95Ms"`
+	Instance      string         `json:"instance"`
+	Gateways      map[string]int `json:"gateways"` // phase -> count
+	GatewaysTotal int            `json:"gatewaysTotal"`
+	// GatewaysByCluster breaks the instance's gateway counts down per managed
+	// cluster (spoke), attributed via the application-emitted managed_cluster label
+	// rather than the scrape-injected hub cluster label
+	// (gateway-managed-cluster-attribution.spec.md). Summing the rows recovers
+	// GatewaysTotal / Gateways.
+	GatewaysByCluster []ClusterGatewayCount `json:"gatewaysByCluster"`
+	ManagedCluster    float64               `json:"managedClusters"`
+	Users             float64               `json:"users"`
+	RPC               RateStats             `json:"rpc"`
+	Reconcile         RateStats             `json:"reconcile"`
+	BFF               RateStats             `json:"bff"`
+	ProvisionP95Ms    float64               `json:"provisionP95Ms"`
 	// GatewayHistory is per-phase gateway counts sampled oldest->newest over the
 	// last day, feeding the per-instance stacked "sand" sparkline on the map.
 	GatewayHistory []GatewayHistorySample `json:"gatewayHistory"`
@@ -219,13 +231,76 @@ type InstanceFleet struct {
 	// as GatewayHistory, so the sandbox "sand" sparkline (the lower node-card chin)
 	// shares the gateway sparkline's x-axis exactly and the two chins are comparable.
 	SandboxHistory []float64 `json:"sandboxHistory"`
+	// HistoryByCluster is the per-managed-cluster (spoke) decomposition of
+	// GatewayHistory + SandboxHistory, each row index-aligned to the SAME HistoryTimes
+	// axis as the instance totals. It lets the map project a spoke onto its OWN node
+	// card (its own two chins) and roll the remaining clusters up into the hub's
+	// physical-cluster card, so a spoke's counts are drawn on exactly one card
+	// (gateway-managed-cluster-attribution.spec.md). Summing the rows at each sample
+	// recovers GatewayHistory / SandboxHistory. Empty when no history is available.
+	HistoryByCluster []ClusterHistory `json:"historyByCluster"`
+	// Users is the instance's registered-user total; Logins is its rolling 7-day
+	// unique-login count. UserHistory and LoginsHistory are the same values sampled
+	// oldest->newest on the shared 24h/32-sample grid, feeding the detail panel's
+	// Users and Logins metric tiles (headline number + mini sparkline). Users is the
+	// long-standing scalar; the rest were added alongside the sandbox widget's model.
+	Logins        float64   `json:"logins"`
+	UserHistory   []float64 `json:"userHistory"`
+	LoginsHistory []float64 `json:"loginsHistory"`
+	// HistoryTimes is the canonical per-instance time axis (unix seconds, oldest->
+	// newest) that EVERY history series above is index-aligned to: HistoryTimes[i] is
+	// the timestamp of GatewayHistory[i], SandboxHistory[i], UserHistory[i] and
+	// LoginsHistory[i]. One shared 24h/32-sample grid lets the detail panel draw a
+	// shared temporal cursor across the sparklines and read each series (including the
+	// gateway phase mix for that moment) at the hovered sample. Empty when no history.
+	HistoryTimes []int64 `json:"historyTimes"`
 }
 
 // SandboxClusterCount is one managed cluster's active-sandbox count within an
-// instance. Cluster is the opaque scrape-injected cluster label value.
+// instance. Cluster is the opaque scrape-injected (hub) cluster label value,
+// retained for the legacy breakdown; ManagedCluster is the application-emitted
+// spoke name (== ManagedCluster.Name / GitOps spoke name) and is the correct key
+// for per-spoke attribution (gateway-managed-cluster-attribution.spec.md).
 type SandboxClusterCount struct {
-	Cluster string `json:"cluster"`
-	Count   int    `json:"count"`
+	Cluster        string `json:"cluster"`
+	ManagedCluster string `json:"managedCluster"`
+	Count          int    `json:"count"`
+}
+
+// managedClusterUnknown buckets samples whose managed_cluster label is absent or
+// empty. During rollout (before the api-server emits the label) a blank value maps
+// here, matching the api-server collector's own "unknown" bucket so the BFF
+// breakdown stays consistent with the metric source.
+const managedClusterUnknown = "unknown"
+
+// managedClusterOrUnknown normalizes a managed_cluster label value, mapping the
+// empty string to managedClusterUnknown.
+func managedClusterOrUnknown(mc string) string {
+	if mc == "" {
+		return managedClusterUnknown
+	}
+	return mc
+}
+
+// ClusterGatewayCount is one managed cluster's (spoke's) gateway counts within an
+// instance: ManagedCluster is the spoke name (managed_cluster label), Gateways is
+// phase->count, and Total is their sum.
+type ClusterGatewayCount struct {
+	ManagedCluster string         `json:"managedCluster"`
+	Gateways       map[string]int `json:"gateways"`
+	Total          int            `json:"total"`
+}
+
+// ClusterHistory is one managed cluster's (spoke's) gateway-phase + active-sandbox
+// history within an instance, both sampled oldest->newest and index-aligned to the
+// instance's shared HistoryTimes axis (ClusterHistory rows for the same instance all
+// share that axis, so GatewayHistory[i]/SandboxHistory[i] line up across clusters and
+// with the instance totals). Summing the rows at each sample recovers the instance's
+// GatewayHistory / SandboxHistory.
+type ClusterHistory struct {
+	ManagedCluster string                 `json:"managedCluster"`
+	GatewayHistory []GatewayHistorySample `json:"gatewayHistory"`
+	SandboxHistory []float64              `json:"sandboxHistory"`
 }
 
 // RateStats is a rate + error% + p95 latency triple.
@@ -287,74 +362,54 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 		return res, true
 	}
 
-	// Gateways by phase.
-	if res, ok := runInstant(fmt.Sprintf("sum by (%s,phase) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE)); ok {
+	// Gateways by phase, attributed to the managed cluster (spoke) each gateway
+	// runs on. Group by the application-emitted managed_cluster label (the spoke
+	// name) alongside phase; summing across managed clusters recovers the
+	// per-instance phase counts. Attributing by the scrape-injected cluster label
+	// instead would lump every spoke's gateways under the emitting hub
+	// (gateway-managed-cluster-attribution.spec.md).
+	if res, ok := runInstant(fmt.Sprintf("sum by (%s,%s,phase) (%s{%s=~%q})", p.instLabel, p.managedClusterLabel, p.metric, p.instLabel, nsRE)); ok {
+		// instance -> managed cluster -> phase -> count
+		byMC := map[string]map[string]map[string]int{}
 		for _, r := range res {
-			f := get(r.Metric[p.instLabel])
+			instKey := r.Metric[p.instLabel]
+			f := get(instKey)
 			phase := strings.ToLower(r.Metric["phase"])
+			mc := managedClusterOrUnknown(r.Metric[p.managedClusterLabel])
 			n := int(sampleValue(r.Value))
 			f.Gateways[phase] += n
 			f.GatewaysTotal += n
-		}
-	}
 
-	// Gateway-count history (newest sample last) for the per-instance "sand"
-	// sparkline. Option A: stateless - the full window is recomputed from
-	// Prometheus on every snapshot, so no history is buffered in-process.
-	// Best-effort like the instant sub-queries above.
-	{
-		const histWindow = 24 * time.Hour
-		const histSamples = 32
-		now := time.Now()
-		subTotal++
-		// Split history by phase so the sand chart can stack running/provisioning/
-		// failed over time (parity with the prototype). Range series come back one
-		// per (instance, phase); align them on the shared step grid by timestamp,
-		// since a phase that only appeared mid-window yields a shorter series.
-		expr := fmt.Sprintf("sum by (%s,phase) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE)
-		if res, err := p.queryRange(ctx, expr, now.Add(-histWindow), now, histWindow/histSamples); err != nil {
-			subErrs = append(subErrs, err)
-		} else {
-			// instance -> (timestamp -> stacked sample)
-			byTS := map[string]map[int64]*GatewayHistorySample{}
-			for _, r := range res {
-				inst := r.Metric[p.instLabel]
-				phase := strings.ToLower(r.Metric["phase"])
-				steps, ok := byTS[inst]
-				if !ok {
-					steps = map[int64]*GatewayHistorySample{}
-					byTS[inst] = steps
-				}
-				for _, v := range r.Values {
-					ts := sampleTime(v)
-					s, ok := steps[ts]
-					if !ok {
-						s = &GatewayHistorySample{}
-						steps[ts] = s
-					}
-					val := sampleValue(v)
-					switch phase {
-					case "running":
-						s.Running += val
-					case "provisioning":
-						s.Provisioning += val
-					case "failed":
-						s.Failed += val
-					}
-				}
+			clusters, ok := byMC[instKey]
+			if !ok {
+				clusters = map[string]map[string]int{}
+				byMC[instKey] = clusters
 			}
-			for inst, steps := range byTS {
-				tss := make([]int64, 0, len(steps))
-				for ts := range steps {
-					tss = append(tss, ts)
-				}
-				sort.Slice(tss, func(i, j int) bool { return tss[i] < tss[j] })
-				hist := make([]GatewayHistorySample, 0, len(tss))
-				for _, ts := range tss {
-					hist = append(hist, *steps[ts])
-				}
-				get(inst).GatewayHistory = hist
+			phases, ok := clusters[mc]
+			if !ok {
+				phases = map[string]int{}
+				clusters[mc] = phases
 			}
+			phases[phase] += n
+		}
+		// Flatten per instance into stable, busiest-first rows so a snapshot always
+		// renders the spokes in the same order.
+		for instKey, clusters := range byMC {
+			f := get(instKey)
+			for mc, phases := range clusters {
+				total := 0
+				for _, n := range phases {
+					total += n
+				}
+				f.GatewaysByCluster = append(f.GatewaysByCluster, ClusterGatewayCount{ManagedCluster: mc, Gateways: phases, Total: total})
+			}
+			sort.Slice(f.GatewaysByCluster, func(i, j int) bool {
+				a, b := f.GatewaysByCluster[i], f.GatewaysByCluster[j]
+				if a.Total != b.Total {
+					return a.Total > b.Total
+				}
+				return a.ManagedCluster < b.ManagedCluster
+			})
 		}
 	}
 
@@ -368,8 +423,10 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 	}
 	byNS(fmt.Sprintf("sum by (%s) (hypershell_managed_clusters_total{%s=~%q})", p.instLabel, p.instLabel, nsRE),
 		func(f *InstanceFleet, v float64) { f.ManagedCluster = v })
-	byNS(fmt.Sprintf("sum by (%s) (hypershell_users_registered_total{%s=~%q})", p.instLabel, p.instLabel, nsRE),
+	byNS(fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.userMetric, p.instLabel, nsRE),
 		func(f *InstanceFleet, v float64) { f.Users = v })
+	byNS(fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.userLoginsMetric, p.instLabel, nsRE),
+		func(f *InstanceFleet, v float64) { f.Logins = v })
 	byNS(fmt.Sprintf("1000 * histogram_quantile(0.95, sum by (%s,le) (rate(gateway_provision_duration_seconds_bucket{%s=~%q}[30m])))", p.instLabel, p.instLabel, nsRE),
 		func(f *InstanceFleet, v float64) { f.ProvisionP95Ms = v })
 
@@ -380,56 +437,250 @@ func (p *Prometheus) Fleet(ctx context.Context) (any, error) {
 	// Grafana "Sandboxes by cluster" panel. The per-instance total is summed in Go
 	// from the per-cluster rows (one query instead of two). Best-effort.
 	if res, ok := runInstant(fmt.Sprintf(
-		"sum by (%s,%s) (max by (%s,%s,gateway) (%s{%s=~%q}))",
-		p.instLabel, p.clusterLabel, p.clusterLabel, p.instLabel, p.sandboxMetric, p.instLabel, nsRE,
+		"sum by (%s,%s,%s) (max by (%s,%s,%s,gateway) (%s{%s=~%q}))",
+		p.instLabel, p.clusterLabel, p.managedClusterLabel,
+		p.clusterLabel, p.instLabel, p.managedClusterLabel,
+		p.sandboxMetric, p.instLabel, nsRE,
 	)); ok {
 		for _, r := range res {
 			f := get(r.Metric[p.instLabel])
-			cluster := r.Metric[p.clusterLabel]
 			n := int(sampleValue(r.Value))
-			f.SandboxesByCluster = append(f.SandboxesByCluster, SandboxClusterCount{Cluster: cluster, Count: n})
+			f.SandboxesByCluster = append(f.SandboxesByCluster, SandboxClusterCount{
+				Cluster:        r.Metric[p.clusterLabel],
+				ManagedCluster: managedClusterOrUnknown(r.Metric[p.managedClusterLabel]),
+				Count:          n,
+			})
 			f.Sandboxes += n
 		}
-		// Stable, meaningful order: busiest cluster first, ties broken by name so a
-		// given snapshot always renders the rows the same way.
+		// Stable, meaningful order: busiest first, ties broken by managed-cluster
+		// (spoke) then hub cluster name so a given snapshot always renders the rows
+		// the same way.
 		for _, f := range byInst {
 			sort.Slice(f.SandboxesByCluster, func(i, j int) bool {
 				a, b := f.SandboxesByCluster[i], f.SandboxesByCluster[j]
 				if a.Count != b.Count {
 					return a.Count > b.Count
 				}
+				if a.ManagedCluster != b.ManagedCluster {
+					return a.ManagedCluster < b.ManagedCluster
+				}
 				return a.Cluster < b.Cluster
 			})
 		}
 	}
 
-	// Sandbox-count history (newest sample last) for the per-instance sandbox "sand"
-	// sparkline - the lower node-card chin. Deliberately on the SAME 24h/32-sample grid
-	// as GatewayHistory above so the two chins share an x-axis exactly and are directly
-	// comparable. One series per instance: the TOTAL across clusters, deduping scrape
-	// replicas with the same inner max-by-(cluster,instance,gateway) the snapshot uses
-	// before summing the gateways. Best-effort like the other sub-queries.
+	// Per-instance history on ONE shared grid. All four series (the gateway phase mix,
+	// sandbox total, registered users and 7-day logins) are range-queried over the same
+	// 24h/32-sample window computed once here, then index-aligned to a single sorted
+	// timestamp axis (HistoryTimes) per instance. Aligning every series to one axis -
+	// rather than trusting each range query to return an identical grid - lets the
+	// detail panel draw a shared temporal cursor and read every series at the hovered
+	// sample, and keeps the two node-card chins (gateway + sandbox) sharing an x-axis.
+	// Each sub-query is best-effort; a failing one leaves its contribution zero-filled.
 	{
 		const histWindow = 24 * time.Hour
 		const histSamples = 32
 		now := time.Now()
-		subTotal++
-		expr := fmt.Sprintf(
-			"sum by (%s) (max by (%s,%s,gateway) (%s{%s=~%q}))",
-			p.instLabel, p.clusterLabel, p.instLabel, p.sandboxMetric, p.instLabel, nsRE,
-		)
-		if res, err := p.queryRange(ctx, expr, now.Add(-histWindow), now, histWindow/histSamples); err != nil {
-			subErrs = append(subErrs, err)
-		} else {
+		start := now.Add(-histWindow)
+		step := histWindow / histSamples
+
+		// instance -> timestamp -> accumulated sample across the four series.
+		type histPoint struct {
+			gw      GatewayHistorySample
+			sandbox float64
+			users   float64
+			logins  float64
+		}
+		byTS := map[string]map[int64]*histPoint{}
+		pointAt := func(inst string, ts int64) *histPoint {
+			steps, ok := byTS[inst]
+			if !ok {
+				steps = map[int64]*histPoint{}
+				byTS[inst] = steps
+			}
+			pt, ok := steps[ts]
+			if !ok {
+				pt = &histPoint{}
+				steps[ts] = pt
+			}
+			return pt
+		}
+
+		// Per-managed-cluster (spoke) history: the same gateway-phase + sandbox series
+		// split by the managed_cluster label, so each spoke's two chins can be drawn on
+		// its own node card and the rest rolled into the hub's card. instance -> managed
+		// cluster -> timestamp -> accumulated sample, folded onto the SAME axis below.
+		type clusterHistPoint struct {
+			gw      GatewayHistorySample
+			sandbox float64
+		}
+		byTSCluster := map[string]map[string]map[int64]*clusterHistPoint{}
+		clusterPointAt := func(inst, mc string, ts int64) *clusterHistPoint {
+			byMC, ok := byTSCluster[inst]
+			if !ok {
+				byMC = map[string]map[int64]*clusterHistPoint{}
+				byTSCluster[inst] = byMC
+			}
+			steps, ok := byMC[mc]
+			if !ok {
+				steps = map[int64]*clusterHistPoint{}
+				byMC[mc] = steps
+			}
+			pt, ok := steps[ts]
+			if !ok {
+				pt = &clusterHistPoint{}
+				steps[ts] = pt
+			}
+			return pt
+		}
+		// rangeIntoCluster is rangeInto's per-managed-cluster twin: it folds each
+		// (instance, managed cluster, timestamp) sample into the cluster point map.
+		// Best-effort, exactly like rangeInto.
+		rangeIntoCluster := func(expr string, add func(pt *clusterHistPoint, phase string, v float64)) {
+			subTotal++
+			res, err := p.queryRange(ctx, expr, start, now, step)
+			if err != nil {
+				subErrs = append(subErrs, err)
+				return
+			}
 			for _, r := range res {
-				f := get(r.Metric[p.instLabel])
-				// One series per instance; Prometheus returns values in ascending time
-				// order, which is the oldest->newest order the sparkline expects.
-				hist := make([]float64, 0, len(r.Values))
+				inst := r.Metric[p.instLabel]
+				mc := managedClusterOrUnknown(r.Metric[p.managedClusterLabel])
+				phase := strings.ToLower(r.Metric["phase"])
 				for _, v := range r.Values {
-					hist = append(hist, sampleValue(v))
+					add(clusterPointAt(inst, mc, sampleTime(v)), phase, sampleValue(v))
 				}
-				f.SandboxHistory = hist
+			}
+		}
+		// rangeInto runs one range query and folds each (instance, timestamp) sample
+		// into the shared point map via add. Best-effort: a query error is collected
+		// and that series simply stays zero across the axis.
+		rangeInto := func(expr string, add func(pt *histPoint, phase string, v float64)) {
+			subTotal++
+			res, err := p.queryRange(ctx, expr, start, now, step)
+			if err != nil {
+				subErrs = append(subErrs, err)
+				return
+			}
+			for _, r := range res {
+				inst := r.Metric[p.instLabel]
+				phase := strings.ToLower(r.Metric["phase"])
+				for _, v := range r.Values {
+					add(pointAt(inst, sampleTime(v)), phase, sampleValue(v))
+				}
+			}
+		}
+
+		// Gateway phase mix: one series per (instance, phase); stack the three plotted
+		// phases and ignore the rest, matching the node-card sand chart.
+		rangeInto(
+			fmt.Sprintf("sum by (%s,phase) (%s{%s=~%q})", p.instLabel, p.metric, p.instLabel, nsRE),
+			func(pt *histPoint, phase string, v float64) {
+				switch phase {
+				case "running":
+					pt.gw.Running += v
+				case "provisioning":
+					pt.gw.Provisioning += v
+				case "failed":
+					pt.gw.Failed += v
+				}
+			},
+		)
+		// Sandbox total across clusters, deduping scrape replicas with the same inner
+		// max-by-(cluster,instance,gateway) the instant snapshot uses before summing.
+		rangeInto(
+			fmt.Sprintf("sum by (%s) (max by (%s,%s,gateway) (%s{%s=~%q}))",
+				p.instLabel, p.clusterLabel, p.instLabel, p.sandboxMetric, p.instLabel, nsRE),
+			func(pt *histPoint, _ string, v float64) { pt.sandbox += v },
+		)
+		// Registered users and rolling 7-day unique logins.
+		rangeInto(
+			fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.userMetric, p.instLabel, nsRE),
+			func(pt *histPoint, _ string, v float64) { pt.users += v },
+		)
+		rangeInto(
+			fmt.Sprintf("sum by (%s) (%s{%s=~%q})", p.instLabel, p.userLoginsMetric, p.instLabel, nsRE),
+			func(pt *histPoint, _ string, v float64) { pt.logins += v },
+		)
+		// Per-managed-cluster gateway phase mix and sandbox total: the same two series as
+		// the instance totals above, but grouped by the managed_cluster label so each
+		// spoke keeps its own history. Summing across managed clusters recovers the
+		// instance series; attributing by the scrape-injected cluster label instead would
+		// collapse every spoke onto the hub (gateway-managed-cluster-attribution.spec.md).
+		rangeIntoCluster(
+			fmt.Sprintf("sum by (%s,%s,phase) (%s{%s=~%q})", p.instLabel, p.managedClusterLabel, p.metric, p.instLabel, nsRE),
+			func(pt *clusterHistPoint, phase string, v float64) {
+				switch phase {
+				case "running":
+					pt.gw.Running += v
+				case "provisioning":
+					pt.gw.Provisioning += v
+				case "failed":
+					pt.gw.Failed += v
+				}
+			},
+		)
+		rangeIntoCluster(
+			fmt.Sprintf("sum by (%s,%s) (max by (%s,%s,%s,gateway) (%s{%s=~%q}))",
+				p.instLabel, p.managedClusterLabel,
+				p.clusterLabel, p.instLabel, p.managedClusterLabel,
+				p.sandboxMetric, p.instLabel, nsRE),
+			func(pt *clusterHistPoint, _ string, v float64) { pt.sandbox += v },
+		)
+
+		// Emit each instance's series aligned to its sorted timestamp axis. A timestamp
+		// present in any series becomes a column in all of them (missing -> zero), so
+		// HistoryTimes[i] indexes the same moment in every array.
+		for inst, steps := range byTS {
+			tss := make([]int64, 0, len(steps))
+			for ts := range steps {
+				tss = append(tss, ts)
+			}
+			sort.Slice(tss, func(i, j int) bool { return tss[i] < tss[j] })
+			f := get(inst)
+			f.HistoryTimes = tss
+			f.GatewayHistory = make([]GatewayHistorySample, 0, len(tss))
+			f.SandboxHistory = make([]float64, 0, len(tss))
+			f.UserHistory = make([]float64, 0, len(tss))
+			f.LoginsHistory = make([]float64, 0, len(tss))
+			for _, ts := range tss {
+				pt := steps[ts]
+				f.GatewayHistory = append(f.GatewayHistory, pt.gw)
+				f.SandboxHistory = append(f.SandboxHistory, pt.sandbox)
+				f.UserHistory = append(f.UserHistory, pt.users)
+				f.LoginsHistory = append(f.LoginsHistory, pt.logins)
+			}
+
+			// Emit each managed cluster's history aligned to the SAME tss axis (a sample
+			// missing for a cluster is zero-filled), in stable managed-cluster order so a
+			// snapshot always renders the rows the same way. The axis comes from the
+			// instance totals, which are the sum over clusters, so every cluster timestamp
+			// is present in tss.
+			f.HistoryByCluster = nil
+			if byMC, ok := byTSCluster[inst]; ok {
+				mcs := make([]string, 0, len(byMC))
+				for mc := range byMC {
+					mcs = append(mcs, mc)
+				}
+				sort.Strings(mcs)
+				for _, mc := range mcs {
+					cSteps := byMC[mc]
+					ch := ClusterHistory{
+						ManagedCluster: mc,
+						GatewayHistory: make([]GatewayHistorySample, 0, len(tss)),
+						SandboxHistory: make([]float64, 0, len(tss)),
+					}
+					for _, ts := range tss {
+						if pt, ok := cSteps[ts]; ok {
+							ch.GatewayHistory = append(ch.GatewayHistory, pt.gw)
+							ch.SandboxHistory = append(ch.SandboxHistory, pt.sandbox)
+						} else {
+							ch.GatewayHistory = append(ch.GatewayHistory, GatewayHistorySample{})
+							ch.SandboxHistory = append(ch.SandboxHistory, 0)
+						}
+					}
+					f.HistoryByCluster = append(f.HistoryByCluster, ch)
+				}
 			}
 		}
 	}

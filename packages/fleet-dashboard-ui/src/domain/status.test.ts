@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { gatePhaseBadge, healthBadge, syncBadge } from "./status";
+import {
+  gatePhaseBadge,
+  healthBadge,
+  isHealthUnavailable,
+  syncBadge,
+} from "./status";
 
 describe("gatePhaseBadge", () => {
   it("maps passing phases to success", () => {
@@ -38,6 +43,23 @@ describe("healthBadge", () => {
   it("resolves unknown health to neutral", () => {
     expect(healthBadge("").tone).toBe("unknown");
     expect(healthBadge(null).tone).toBe("unknown");
+  });
+});
+
+describe("isHealthUnavailable", () => {
+  it("is true only when health resolves to the neutral/unknown tone", () => {
+    // Unavailable: Argo did not report a health we recognize (null/empty/garbage).
+    expect(isHealthUnavailable(null)).toBe(true);
+    expect(isHealthUnavailable("")).toBe(true);
+    expect(isHealthUnavailable("banana")).toBe(true);
+  });
+
+  it("is false for any known health, including Degraded", () => {
+    // Degraded is a KNOWN-bad health (solid red), not 'not reporting' (dashed red).
+    expect(isHealthUnavailable("Healthy")).toBe(false);
+    expect(isHealthUnavailable("Progressing")).toBe(false);
+    expect(isHealthUnavailable("Degraded")).toBe(false);
+    expect(isHealthUnavailable("Missing")).toBe(false);
   });
 });
 

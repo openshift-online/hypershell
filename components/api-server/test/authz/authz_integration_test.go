@@ -305,33 +305,6 @@ func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "re-pointing cluster_id: %v", err)
 }
 
-func TestGRPCControlPlaneCannotRewriteFleetWideReleases(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
-	a := registerSpoke(t, h, client)
-	admin := newPrincipal(t, h, "creator-"+strings.ToLower(api.NewID()), nil)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	release, err := pb.NewGatewayReleaseServiceClient(admin.conn).CreateGatewayRelease(ctx, &pb.CreateGatewayReleaseRequest{
-		Name: "rel-" + strings.ToLower(api.NewID())[:8], Image: "quay.io/good/gateway:1.0",
-	})
-	Expect(err).NotTo(HaveOccurred())
-
-	releases := pb.NewGatewayReleaseServiceClient(a.conn)
-	_, err = releases.UpdateGatewayRelease(ctx, &pb.UpdateGatewayReleaseRequest{
-		Id: release.GetGatewayRelease().GetMetadata().GetId(), Image: strPtr("quay.io/evil/gateway:1.0"),
-	})
-	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "a control plane rewrote a release image: %v", err)
-	_, err = releases.CreateGatewayRelease(ctx, &pb.CreateGatewayReleaseRequest{Name: "rel-evil", Image: "quay.io/evil/gateway:1.0"})
-	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "a control plane created a release: %v", err)
-
-	// The status write the release reconciler performs stays allowed.
-	_, err = releases.UpdateGatewayRelease(ctx, &pb.UpdateGatewayReleaseRequest{
-		Id: release.GetGatewayRelease().GetMetadata().GetId(), Status: strPtr("Active"),
-	})
-	Expect(err).NotTo(HaveOccurred())
-}
-
 // ---------------------------------------------------------------------------
 // Users on gRPC get the HTTP rules, not "creator may call anything"
 // ---------------------------------------------------------------------------

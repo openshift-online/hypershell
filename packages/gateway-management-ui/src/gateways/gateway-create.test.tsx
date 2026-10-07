@@ -49,7 +49,6 @@ const createdGateway = {
   name: "team-gateway",
   namespace: "openshell",
   phase: "",
-  releaseId: "",
   status: "",
 };
 

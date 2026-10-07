@@ -439,15 +439,6 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		return len(bindings) > 0
 	}
 
-	if resource == "gateway_releases" {
-		if hasPlatformAdmin(bindings) {
-			if method == http.MethodGet || method == http.MethodDelete {
-				return true
-			}
-		}
-		return hasGatewayCreator(bindings)
-	}
-
 	return hasGatewayCreator(bindings)
 }
 

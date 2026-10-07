@@ -105,12 +105,53 @@ func (d *gatewayDaoMock) CountByPhase(ctx context.Context) (map[string]int64, er
 	return counts, nil
 }
 
-func (d *gatewayDaoMock) SumActiveSandboxCount(ctx context.Context) (int64, error) {
-	var total int64
+// CountByClusterAndPhase groups by the gateway's cluster_id as a stand-in for the
+// resolved ManagedCluster name (the mock has no registry to join against); a blank
+// cluster_id buckets to managedClusterUnknown. NOTE: the real COALESCE(mc.name,
+// 'unknown') + LEFT JOIN managed_clusters ... AND mc.deleted_at IS NULL resolution
+// lives in the sqlGatewayDao and is only exercised by live-DB (integration) tests,
+// not these mock-backed unit tests.
+func (d *gatewayDaoMock) CountByClusterAndPhase(ctx context.Context) ([]ClusterPhaseCount, error) {
+	byCluster := map[string]map[string]int64{}
 	for _, gw := range d.gateways {
-		total += int64(derefCount(gw.ActiveSandboxCount))
+		cluster := gw.ClusterId
+		if cluster == "" {
+			cluster = managedClusterUnknown
+		}
+		phase := ""
+		if gw.Phase != nil {
+			phase = *gw.Phase
+		}
+		phases, ok := byCluster[cluster]
+		if !ok {
+			phases = map[string]int64{}
+			byCluster[cluster] = phases
+		}
+		phases[phase]++
 	}
-	return total, nil
+	var out []ClusterPhaseCount
+	for cluster, phases := range byCluster {
+		for phase, count := range phases {
+			out = append(out, ClusterPhaseCount{ClusterName: cluster, Phase: phase, Count: count})
+		}
+	}
+	return out, nil
+}
+
+func (d *gatewayDaoMock) SumActiveSandboxCountByCluster(ctx context.Context) ([]ClusterSandboxCount, error) {
+	byCluster := map[string]int64{}
+	for _, gw := range d.gateways {
+		cluster := gw.ClusterId
+		if cluster == "" {
+			cluster = managedClusterUnknown
+		}
+		byCluster[cluster] += int64(derefCount(gw.ActiveSandboxCount))
+	}
+	var out []ClusterSandboxCount
+	for cluster, count := range byCluster {
+		out = append(out, ClusterSandboxCount{ClusterName: cluster, Count: count})
+	}
+	return out, nil
 }
 
 func (d *gatewayDaoMock) findByNamespace(namespace string) *Gateway {

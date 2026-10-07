@@ -72,38 +72,35 @@ E2E_MODE=long
 
 # --- Seed ids for perf-mode throwaway gateway ---
 
-gw_json='{"items":[{"name":"perf-gw-canary","cluster_id":"cluster-1","release_id":"release-1"}]}'
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+gw_json='{"items":[{"name":"perf-gw-canary","cluster_id":"cluster-1"}]}'
+E2E_CLUSTER_ID=""
 e2e_apply_seed_ids_from_gateway_json "$gw_json" "perf-gw-canary"
-if [[ "$E2E_CLUSTER_ID" == "cluster-1" && "$E2E_RELEASE_ID" == "release-1" ]]; then
+if [[ "$E2E_CLUSTER_ID" == "cluster-1" ]]; then
   pass_u "seed ids copied from reused gateway JSON"
 else
-  fail_u "apply seed ids from gateway JSON failed: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+  fail_u "apply seed ids from gateway JSON failed: cluster=${E2E_CLUSTER_ID}"
 fi
 
 E2E_CLUSTER_ID="only-cluster"
-E2E_RELEASE_ID=""
 if e2e_seed_ids_ready; then
-  fail_u "seed ids should not be ready without release"
+  pass_u "seed ids are ready with only a cluster id (no release required)"
 else
-  pass_u "seed ids are incomplete when release is missing"
+  fail_u "seed ids should be ready with only a cluster id"
 fi
 
 _orig_discover=$(declare -f e2e_discover_seed_ids)
 e2e_discover_seed_ids() {
   E2E_CLUSTER_ID="cluster-x"
-  E2E_RELEASE_ID="release-x"
 }
-E2E_CLUSTER_ID="only-cluster"
-E2E_RELEASE_ID=""
-if e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "cluster-x" && "$E2E_RELEASE_ID" == "release-x" ]]; then
-  pass_u "ensure seed ids rediscovers when cluster is set but release is not"
+E2E_CLUSTER_ID=""
+if e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "cluster-x" ]]; then
+  pass_u "ensure seed ids rediscovers when cluster is not set"
 else
-  fail_u "ensure seed ids did not fill cluster/release: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+  fail_u "ensure seed ids did not fill cluster: cluster=${E2E_CLUSTER_ID}"
 fi
 eval "$_orig_discover"
 unset _orig_discover
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+E2E_CLUSTER_ID=""
 
 # --- E2E_ALLOW_UNSEEDED ---
 
@@ -121,16 +118,16 @@ fi
 _orig_discover=$(declare -f e2e_discover_seed_ids)
 _orig_fetch=$(declare -f e2e_fetch_seed_ids)
 e2e_discover_seed_ids() { fail_u "discover must not run when unseeded is allowed"; return 1; }
-e2e_fetch_seed_ids() { E2E_CLUSTER_ID="c-registered"; E2E_RELEASE_ID=""; return 1; }
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
-if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "c-registered" && -z "$E2E_RELEASE_ID" ]]; then
-  pass_u "ensure seed ids succeeds with a registered cluster and no release when unseeded is allowed"
+e2e_fetch_seed_ids() { E2E_CLUSTER_ID="c-registered"; return 0; }
+E2E_CLUSTER_ID=""
+if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "c-registered" ]]; then
+  pass_u "ensure seed ids succeeds with a registered cluster when unseeded is allowed"
 else
-  fail_u "ensure seed ids should accept an empty release when unseeded: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+  fail_u "ensure seed ids should accept a registered cluster when unseeded: cluster=${E2E_CLUSTER_ID}"
 fi
 
-e2e_fetch_seed_ids() { E2E_CLUSTER_ID=""; E2E_RELEASE_ID=""; return 1; }
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+e2e_fetch_seed_ids() { E2E_CLUSTER_ID=""; return 1; }
+E2E_CLUSTER_ID=""
 if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids >/dev/null 2>&1; then
   fail_u "ensure seed ids must fail without a registered cluster even when unseeded is allowed"
 else
@@ -138,40 +135,40 @@ else
 fi
 
 # Best-effort discovery still adopts ids when the platform does have inventory.
-e2e_fetch_seed_ids() { E2E_CLUSTER_ID="c-found"; E2E_RELEASE_ID="r-found"; return 0; }
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
-if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "c-found" && "$E2E_RELEASE_ID" == "r-found" ]]; then
+e2e_fetch_seed_ids() { E2E_CLUSTER_ID="c-found"; return 0; }
+E2E_CLUSTER_ID=""
+if E2E_ALLOW_UNSEEDED=1 e2e_ensure_seed_ids && [[ "$E2E_CLUSTER_ID" == "c-found" ]]; then
   pass_u "ensure seed ids adopts discovered ids when unseeded and inventory exists"
 else
-  fail_u "ensure seed ids should adopt discovered ids: cluster=${E2E_CLUSTER_ID} release=${E2E_RELEASE_ID}"
+  fail_u "ensure seed ids should adopt discovered ids: cluster=${E2E_CLUSTER_ID}"
 fi
 eval "$_orig_discover"
 eval "$_orig_fetch"
 unset _orig_discover _orig_fetch
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+E2E_CLUSTER_ID=""
 
-# Unseeded: the create body carries the registered cluster id and an empty
-# release_id verbatim (the API resolves it to the platform default image).
-E2E_CLUSTER_ID="c-registered" E2E_RELEASE_ID="" E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
+# The create body carries the registered cluster id only (no release_id since
+# GatewayRelease has been removed from the data model).
+E2E_CLUSTER_ID="c-registered" E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
 body=$(e2e_gateway_create_body gw-unseeded)
-if echo "$body" | grep -q '"cluster_id": "c-registered"' && echo "$body" | grep -q '"release_id": ""'; then
-  pass_u "gateway create body sends the registered cluster_id and an empty release_id when unseeded"
+if echo "$body" | grep -q '"cluster_id": "c-registered"' && ! echo "$body" | grep -q '"release_id"'; then
+  pass_u "gateway create body sends the registered cluster_id without a release_id"
 else
-  fail_u "gateway create body should send the cluster id and an empty release id: ${body:0:200}"
+  fail_u "gateway create body should send cluster_id without release_id: ${body:0:200}"
 fi
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+E2E_CLUSTER_ID=""
 
-E2E_CLUSTER_ID=c1 E2E_RELEASE_ID=r1 E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
+E2E_CLUSTER_ID=c1 E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
 body=$(e2e_gateway_create_body gw-test)
 if echo "$body" | grep -q '"cluster_id": "c1"' && ! echo "$body" | grep -q 'fleet_id' && ! echo "$body" | grep -q 'database_id'; then
   pass_u "gateway create body omits fleet_id and database_id"
 else
   fail_u "gateway create body unexpected: ${body:0:200}"
 fi
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+E2E_CLUSTER_ID=""
 mini=$(sed -n '/^perf_run_mini_test()/,/^}/p' "${SCRIPT_DIR}/../e2e-performance.sh")
-if echo "$mini" | grep -q 'E2E_CLUSTER_ID=' && echo "$mini" | grep -q 'E2E_RELEASE_ID=' && ! echo "$mini" | grep -q 'E2E_FLEET_ID=' && ! echo "$mini" | grep -q 'E2E_DATABASE_ID='; then
-  pass_u "checkpoint mini test forwards cluster/release ids and not fleet/database"
+if echo "$mini" | grep -q 'E2E_CLUSTER_ID=' && ! echo "$mini" | grep -q 'E2E_FLEET_ID=' && ! echo "$mini" | grep -q 'E2E_DATABASE_ID='; then
+  pass_u "checkpoint mini test forwards cluster id and not fleet/database"
 else
   fail_u "perf_run_mini_test seed id forwarding unexpected"
 fi
@@ -230,28 +227,26 @@ _orig_api_curl=$(declare -f api_curl || true)
 api_curl() {
   case "$1" in
     *managed_clusters) printf '%s' '{"kind":"ManagedClusterList","total":2,"items":[{"id":"c-manual","name":"local-openshift","oidc_subject":""},{"id":"c-os","name":"local-openshift","oidc_subject":"cp-sub"}]}' ;;
-    *gateway_releases) printf '%s' '{"kind":"GatewayReleaseList","total":1,"items":[{"id":"r-os","name":"dev-release"}]}' ;;
     *) printf '%s' '{"kind":"Error","reason":"unexpected url"}' ;;
   esac
 }
 _saved_seed_cluster="${E2E_SEED_CLUSTER_NAME-}"
-_saved_seed_release="${E2E_SEED_RELEASE_NAME-}"
-unset E2E_SEED_CLUSTER_NAME E2E_SEED_RELEASE_NAME
+unset E2E_SEED_CLUSTER_NAME
 E2E_INFRA_DRIVER=openshift API_HOST=https://example.invalid
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+E2E_CLUSTER_ID=""
 if e2e_discover_seed_ids \
-  && [[ "$E2E_CLUSTER_ID" == "c-os" && "$E2E_RELEASE_ID" == "r-os" && "$E2E_SEED_CLUSTER_NAME" == "local-openshift" ]]; then
-  pass_u "OpenShift discovery pins local-openshift / dev-release"
+  && [[ "$E2E_CLUSTER_ID" == "c-os" && "$E2E_SEED_CLUSTER_NAME" == "local-openshift" ]]; then
+  pass_u "OpenShift discovery pins local-openshift cluster"
 else
-  fail_u "OpenShift discovery pin failed: cluster=${E2E_CLUSTER_ID:-<empty>} release=${E2E_RELEASE_ID:-<empty>} name=${E2E_SEED_CLUSTER_NAME:-<empty>}"
+  fail_u "OpenShift discovery pin failed: cluster=${E2E_CLUSTER_ID:-<empty>} name=${E2E_SEED_CLUSTER_NAME:-<empty>}"
 fi
 
 api_curl() {
   printf '%s' '{"kind":"Error","code":"403","reason":"Forbidden"}'
 }
-unset E2E_SEED_CLUSTER_NAME E2E_SEED_RELEASE_NAME
+unset E2E_SEED_CLUSTER_NAME
 E2E_INFRA_DRIVER=openshift
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+E2E_CLUSTER_ID=""
 disc_err="$(e2e_discover_seed_ids 2>&1 || true)"
 if [[ "$disc_err" == *"error code=403 reason=Forbidden"* && "$disc_err" == *"make openshift-seed"* ]]; then
   pass_u "seed discovery failure names Error payloads and the re-seed hint"
@@ -269,13 +264,8 @@ if [[ -n "${_saved_seed_cluster}" ]]; then
 else
   unset E2E_SEED_CLUSTER_NAME
 fi
-if [[ -n "${_saved_seed_release}" ]]; then
-  E2E_SEED_RELEASE_NAME="${_saved_seed_release}"
-else
-  unset E2E_SEED_RELEASE_NAME
-fi
-unset _saved_seed_cluster _saved_seed_release
-E2E_CLUSTER_ID="" E2E_RELEASE_ID=""
+unset _saved_seed_cluster
+E2E_CLUSTER_ID=""
 unset E2E_INFRA_DRIVER API_HOST
 
 # --- Percentiles (nearest-rank: ceil(p/100*n) for 1..10 -> 5, 9, 10, 10) ---

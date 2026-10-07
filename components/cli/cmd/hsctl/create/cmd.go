@@ -5,8 +5,6 @@ import (
 
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/gateway"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/gatewayAccess"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/gatewayNetwork"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/gatewayRelease"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/managedCluster"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/role"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/create/roleBinding"
@@ -23,8 +21,6 @@ var Cmd = &cobra.Command{
 func init() {
 	Cmd.AddCommand(gateway.Cmd)
 	Cmd.AddCommand(gatewayAccess.Cmd)
-	Cmd.AddCommand(gatewayNetwork.Cmd)
-	Cmd.AddCommand(gatewayRelease.Cmd)
 	Cmd.AddCommand(managedCluster.Cmd)
 	Cmd.AddCommand(role.Cmd)
 	Cmd.AddCommand(roleBinding.Cmd)

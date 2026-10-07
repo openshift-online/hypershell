@@ -80,6 +80,8 @@ export interface PromotionEnvironment {
   readonly argoSync: string | null;
   /** Deep link to the instance's console, when the server supplies one. */
   readonly consoleUrl: string | null;
+  /** Deep link to the cluster's own Grafana, when the server supplies one. */
+  readonly grafanaUrl: string | null;
   /** Deep link to the Argo CD application, when the server supplies one. */
   readonly argoUrl: string | null;
   /** Open/closed/merged state of the promotion PR into this env, if any. */

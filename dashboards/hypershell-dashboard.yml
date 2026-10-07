@@ -84,7 +84,7 @@ data:
           "pluginVersion": "10.4.1",
           "targets": [
             {
-              "expr": "hypershell_gateways_total{phase=\"Running\"}",
+              "expr": "sum(hypershell_gateways_total{phase=\"Running\"})",
               "instant": true,
               "interval": "",
               "legendFormat": "",
@@ -190,7 +190,7 @@ data:
           "targets": [
             {
               "exemplar": true,
-              "expr": "hypershell_gateways_total",
+              "expr": "sum by (phase) (hypershell_gateways_total)",
               "interval": "",
               "legendFormat": "{{phase}}",
               "refId": "A"

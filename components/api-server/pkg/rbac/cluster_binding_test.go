@@ -159,7 +159,7 @@ func TestBindClusterCallerStream(t *testing.T) {
 	// Non-bound methods are never wrapped and never resolve the caller.
 	before := resolver.calls
 	base := &fakeServerStream{ctx: bearerContext(t, "cp-sub"), msg: &fakeScopedRequest{}}
-	ss, err := BindClusterCallerStream(base, "/hypershell.v1.GatewayReleaseService/WatchGatewayReleases", resolver)
+	ss, err := BindClusterCallerStream(base, "/hypershell.v1.SomethingUnknownService/WatchSomething", resolver)
 	if err != nil || ss != grpc.ServerStream(base) || resolver.calls != before {
 		t.Fatalf("non-bound method: stream wrapped or resolver called (err=%v calls=%d)", err, resolver.calls-before)
 	}

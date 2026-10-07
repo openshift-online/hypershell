@@ -380,11 +380,6 @@ export const messages = defineMessages({
     defaultMessage: "Check the values and try again.",
     description: "Recovery guidance when gateway provisioning fails.",
   },
-  gatewayReleaseId: {
-    id: "app.gateway.releaseId",
-    defaultMessage: "Gateway release ID",
-    description: "Label for a gateway's release identifier.",
-  },
   gatewayRenamed: {
     id: "app.gateway.renamed",
     defaultMessage: "Gateway renamed to {gatewayName}",

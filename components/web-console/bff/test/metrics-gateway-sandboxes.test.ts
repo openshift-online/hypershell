@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  activeSandboxesFleetQuery,
   attentionFleetQuery,
   gatewayActiveSandboxesPromql,
   gatewayExpiringSandboxesPromql,
@@ -56,6 +57,14 @@ describe("queryGatewaySandboxes", () => {
     expect(attentionFleetQuery(gatewayOrphanedSandboxesPromql, "hyp1")).toBe(
       'sum(max by (hypershell_cluster_id) (gateway_sandbox_orphaned{k8s_namespace_name="hyp1"}))',
     );
+    // Active sandboxes come from the api-server gauge (scrape `namespace` label),
+    // deduped per spoke with `max by (managed_cluster)` then summed across spokes.
+    expect(activeSandboxesFleetQuery()).toBe(
+      "sum(max by (managed_cluster) (hypershell_gateways_active_sandboxes_total))",
+    );
+    expect(activeSandboxesFleetQuery("hyp1")).toBe(
+      'sum(max by (managed_cluster) (hypershell_gateways_active_sandboxes_total{namespace="hyp1"}))',
+    );
   });
 
   it("scopes attention queries with k8s_namespace_name when namespace is set", async () => {
@@ -91,6 +100,15 @@ describe("queryGatewaySandboxes", () => {
         expect(query).toContain("max by (hypershell_cluster_id)");
         expect(query).not.toContain("{namespace=");
       }
+
+      // The active-sandbox query targets the api-server gauge: scrape `namespace`
+      // label and per-spoke dedupe via managed_cluster (not the OTLP attention path).
+      const activeQuery = queries.find((query) =>
+        query.includes("hypershell_gateways_active_sandboxes_total"),
+      );
+      expect(activeQuery).toBe(
+        'sum(max by (managed_cluster) (hypershell_gateways_active_sandboxes_total{namespace="hyp1"}))',
+      );
     } finally {
       prometheus.close();
     }

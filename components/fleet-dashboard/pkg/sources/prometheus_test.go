@@ -119,12 +119,14 @@ func TestFleetSandboxesByCluster(t *testing.T) {
 				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
 				`]}}`))
 		case strings.Contains(q, "active_sandboxes_total"):
-			// Two clusters, listed count-ascending on the wire to prove we re-sort
-			// busiest-first; "c-tie" shares c1's count to prove the name tie-break.
+			// Three spokes on the SAME scrape-injected hub cluster (c1), listed
+			// count-ascending on the wire to prove we re-sort busiest-first;
+			// "spoke-tie" shares spoke1's count to prove the managed-cluster name
+			// tie-break. Attribution is by managed_cluster, not the hub cluster.
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
-				`{"metric":{"namespace":"inst-a","cluster":"c1"},"value":[1,"3"]},` +
-				`{"metric":{"namespace":"inst-a","cluster":"c-tie"},"value":[1,"3"]},` +
-				`{"metric":{"namespace":"inst-a","cluster":"c2"},"value":[1,"7"]}` +
+				`{"metric":{"namespace":"inst-a","cluster":"c1","managed_cluster":"spoke1"},"value":[1,"3"]},` +
+				`{"metric":{"namespace":"inst-a","cluster":"c1","managed_cluster":"spoke-tie"},"value":[1,"3"]},` +
+				`{"metric":{"namespace":"inst-a","cluster":"c1","managed_cluster":"spoke2"},"value":[1,"7"]}` +
 				`]}}`))
 		default:
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
@@ -133,13 +135,14 @@ func TestFleetSandboxesByCluster(t *testing.T) {
 	defer srv.Close()
 
 	p := &Prometheus{
-		base:          srv.URL,
-		metric:        "hypershell_gateways_total",
-		instLabel:     "namespace",
-		sandboxMetric: "hypershell_gateways_active_sandboxes_total",
-		clusterLabel:  "cluster",
-		client:        srv.Client(),
-		logger:        slog.Default(),
+		base:                srv.URL,
+		metric:              "hypershell_gateways_total",
+		instLabel:           "namespace",
+		sandboxMetric:       "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:        "cluster",
+		managedClusterLabel: "managed_cluster",
+		client:              srv.Client(),
+		logger:              slog.Default(),
 	}
 
 	out, err := p.Fleet(context.Background())
@@ -157,7 +160,11 @@ func TestFleetSandboxesByCluster(t *testing.T) {
 	if f.Sandboxes != 13 {
 		t.Errorf("Sandboxes total = %d, want 13", f.Sandboxes)
 	}
-	want := []SandboxClusterCount{{"c2", 7}, {"c-tie", 3}, {"c1", 3}}
+	want := []SandboxClusterCount{
+		{Cluster: "c1", ManagedCluster: "spoke2", Count: 7},
+		{Cluster: "c1", ManagedCluster: "spoke-tie", Count: 3},
+		{Cluster: "c1", ManagedCluster: "spoke1", Count: 3},
+	}
 	if len(f.SandboxesByCluster) != len(want) {
 		t.Fatalf("SandboxesByCluster = %+v, want %+v", f.SandboxesByCluster, want)
 	}
@@ -166,6 +173,353 @@ func TestFleetSandboxesByCluster(t *testing.T) {
 			t.Errorf("SandboxesByCluster[%d] = %+v, want %+v", i, f.SandboxesByCluster[i], w)
 		}
 	}
+}
+
+// TestFleetGatewaysByCluster covers per-spoke gateway attribution: the gateway
+// phase gauge is grouped by the application-emitted managed_cluster label, folded
+// into per-spoke phase maps (busiest-first, ties by name), while the per-instance
+// phase totals are preserved. Every other sub-query is stubbed empty.
+func TestFleetGatewaysByCluster(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		case r.URL.Path == "/api/v1/query_range":
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+		case strings.Contains(q, "group by"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
+				`]}}`))
+		case strings.Contains(q, "phase"):
+			// spoke0: 2 Running; spoke1: 1 Running + 1 Failed (equal totals -> name
+			// tie-break puts spoke0 first).
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke0","phase":"Running"},"value":[1,"2"]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1","phase":"Running"},"value":[1,"1"]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1","phase":"Failed"},"value":[1,"1"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:                srv.URL,
+		metric:              "hypershell_gateways_total",
+		instLabel:           "namespace",
+		sandboxMetric:       "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:        "cluster",
+		managedClusterLabel: "managed_cluster",
+		client:              srv.Client(),
+		logger:              slog.Default(),
+	}
+
+	out, err := p.Fleet(context.Background())
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	fleet := out.(map[string]InstanceFleet)
+	f, ok := fleet["inst-a"]
+	if !ok {
+		t.Fatalf("no inst-a in fleet: %+v", fleet)
+	}
+
+	// Per-instance phase totals preserved (summed across spokes).
+	if f.GatewaysTotal != 4 {
+		t.Errorf("GatewaysTotal = %d, want 4", f.GatewaysTotal)
+	}
+	if f.Gateways["running"] != 3 || f.Gateways["failed"] != 1 {
+		t.Errorf("Gateways = %+v, want running:3 failed:1", f.Gateways)
+	}
+
+	// Per-spoke breakdown, busiest-first with name tie-break (spoke0 before spoke1).
+	if len(f.GatewaysByCluster) != 2 {
+		t.Fatalf("GatewaysByCluster = %+v, want 2 rows", f.GatewaysByCluster)
+	}
+	if f.GatewaysByCluster[0].ManagedCluster != "spoke0" || f.GatewaysByCluster[0].Total != 2 ||
+		f.GatewaysByCluster[0].Gateways["running"] != 2 {
+		t.Errorf("row[0] = %+v, want spoke0 total2 running2", f.GatewaysByCluster[0])
+	}
+	if f.GatewaysByCluster[1].ManagedCluster != "spoke1" || f.GatewaysByCluster[1].Total != 2 ||
+		f.GatewaysByCluster[1].Gateways["running"] != 1 || f.GatewaysByCluster[1].Gateways["failed"] != 1 {
+		t.Errorf("row[1] = %+v, want spoke1 total2 running1 failed1", f.GatewaysByCluster[1])
+	}
+}
+
+// TestFleetUsers covers the user-count sub-queries: the configurable registered-user
+// gauge folds into Users and the rolling unique-login gauge into Logins, each summed
+// per instance. Every other sub-query is stubbed empty so a partial snapshot still
+// assembles.
+func TestFleetUsers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		case r.URL.Path == "/api/v1/query_range":
+			// History range queries: no history in this test.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+		case strings.Contains(q, "group by"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
+				`]}}`))
+		case strings.Contains(q, "users_registered_total"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"31"]}` +
+				`]}}`))
+		case strings.Contains(q, "unique_logins"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"8"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:             srv.URL,
+		metric:           "hypershell_gateways_total",
+		instLabel:        "namespace",
+		sandboxMetric:    "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:     "cluster",
+		userMetric:       "hypershell_users_registered_total",
+		userLoginsMetric: "hypershell_users_unique_logins_last_7_days_total",
+		client:           srv.Client(),
+		logger:           slog.Default(),
+	}
+
+	out, err := p.Fleet(context.Background())
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	fleet, ok := out.(map[string]InstanceFleet)
+	if !ok {
+		t.Fatalf("Fleet returned %T, want map[string]InstanceFleet", out)
+	}
+	f, ok := fleet["inst-a"]
+	if !ok {
+		t.Fatalf("no inst-a in fleet: %+v", fleet)
+	}
+	if f.Users != 31 {
+		t.Errorf("Users = %v, want 31", f.Users)
+	}
+	if f.Logins != 8 {
+		t.Errorf("Logins = %v, want 8", f.Logins)
+	}
+}
+
+// TestFleetHistoryShared covers the unified history block: the four range series
+// (gateway phase mix, sandbox total, users, logins) must land on ONE sorted per-
+// instance timestamp axis (HistoryTimes) with every array index-aligned to it, so
+// HistoryTimes[i] indexes the same moment in all of them. The gateway phases stack
+// per timestamp; a phase absent at a step contributes zero.
+func TestFleetHistoryShared(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "phase"):
+			// Gateway phase mix: running at both steps, failed only at the first.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a","phase":"Running"},"values":[[100,"5"],[200,"6"]]},` +
+				`{"metric":{"namespace":"inst-a","phase":"failed"},"values":[[100,"1"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "active_sandboxes_total"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a"},"values":[[100,"2"],[200,"3"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "users_registered_total"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a"},"values":[[100,"7"],[200,"8"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "unique_logins"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a"},"values":[[100,"4"],[200,"5"]]}` +
+				`]}}`))
+		case strings.Contains(q, "group by"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:             srv.URL,
+		metric:           "hypershell_gateways_total",
+		instLabel:        "namespace",
+		sandboxMetric:    "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:     "cluster",
+		userMetric:       "hypershell_users_registered_total",
+		userLoginsMetric: "hypershell_users_unique_logins_last_7_days_total",
+		client:           srv.Client(),
+		logger:           slog.Default(),
+	}
+
+	out, err := p.Fleet(context.Background())
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	f := out.(map[string]InstanceFleet)["inst-a"]
+
+	if got := f.HistoryTimes; len(got) != 2 || got[0] != 100 || got[1] != 200 {
+		t.Fatalf("HistoryTimes = %v, want [100 200]", got)
+	}
+	wantGW := []GatewayHistorySample{{Running: 5, Failed: 1}, {Running: 6}}
+	if len(f.GatewayHistory) != len(wantGW) {
+		t.Fatalf("GatewayHistory = %+v, want %+v", f.GatewayHistory, wantGW)
+	}
+	for i, w := range wantGW {
+		if f.GatewayHistory[i] != w {
+			t.Errorf("GatewayHistory[%d] = %+v, want %+v", i, f.GatewayHistory[i], w)
+		}
+	}
+	// Every series is aligned to the same two-column axis.
+	if want := []float64{2, 3}; !floatsEqual(f.SandboxHistory, want) {
+		t.Errorf("SandboxHistory = %v, want %v", f.SandboxHistory, want)
+	}
+	if want := []float64{7, 8}; !floatsEqual(f.UserHistory, want) {
+		t.Errorf("UserHistory = %v, want %v", f.UserHistory, want)
+	}
+	if want := []float64{4, 5}; !floatsEqual(f.LoginsHistory, want) {
+		t.Errorf("LoginsHistory = %v, want %v", f.LoginsHistory, want)
+	}
+}
+
+// TestFleetHistoryByCluster covers the per-managed-cluster history decomposition: the
+// gateway-phase and sandbox range series grouped by managed_cluster must land on the
+// SAME per-instance timestamp axis as the totals (zero-filling a cluster's missing
+// samples), in stable managed-cluster order, so a spoke can be drawn on its own node
+// card and the rest rolled into the hub's. Summing the rows recovers the totals.
+func TestFleetHistoryByCluster(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		q := r.URL.Query().Get("query")
+		switch {
+		// Per-cluster branches first: they are the "phase"/"active_sandboxes_total"
+		// range queries that ALSO carry the managed_cluster grouping.
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "managed_cluster") && strings.Contains(q, "phase"):
+			// spoke0 runs two Running gateways at both steps; spoke1 one Running at both
+			// plus a failed one at the first step only. Summing recovers Running 5,6 /
+			// failed 1,0 - the instance totals below.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke0","phase":"Running"},"values":[[100,"4"],[200,"4"]]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1","phase":"Running"},"values":[[100,"1"],[200,"2"]]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1","phase":"failed"},"values":[[100,"1"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "managed_cluster") && strings.Contains(q, "active_sandboxes_total"):
+			// spoke1 has NO sandbox sample at ts 100: it must zero-fill, not drop a column.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke0"},"values":[[100,"2"],[200,"2"]]},` +
+				`{"metric":{"namespace":"inst-a","managed_cluster":"spoke1"},"values":[[200,"1"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "phase"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a","phase":"Running"},"values":[[100,"5"],[200,"6"]]},` +
+				`{"metric":{"namespace":"inst-a","phase":"failed"},"values":[[100,"1"]]}` +
+				`]}}`))
+		case r.URL.Path == "/api/v1/query_range" && strings.Contains(q, "active_sandboxes_total"):
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[` +
+				`{"metric":{"namespace":"inst-a"},"values":[[100,"2"],[200,"3"]]}` +
+				`]}}`))
+		case strings.Contains(q, "group by"):
+			// Instance discovery: one instance, inst-a.
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+				`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}` +
+				`]}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:                srv.URL,
+		metric:              "hypershell_gateways_total",
+		instLabel:           "namespace",
+		managedClusterLabel: "managed_cluster",
+		sandboxMetric:       "hypershell_gateways_active_sandboxes_total",
+		clusterLabel:        "cluster",
+		userMetric:          "hypershell_users_registered_total",
+		userLoginsMetric:    "hypershell_users_unique_logins_last_7_days_total",
+		client:              srv.Client(),
+		logger:              slog.Default(),
+	}
+
+	out, err := p.Fleet(context.Background())
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	f := out.(map[string]InstanceFleet)["inst-a"]
+
+	if got := f.HistoryTimes; len(got) != 2 || got[0] != 100 || got[1] != 200 {
+		t.Fatalf("HistoryTimes = %v, want [100 200]", got)
+	}
+	if len(f.HistoryByCluster) != 2 {
+		t.Fatalf("HistoryByCluster = %+v, want 2 rows", f.HistoryByCluster)
+	}
+	// Stable order: managed-cluster name ascending.
+	if f.HistoryByCluster[0].ManagedCluster != "spoke0" || f.HistoryByCluster[1].ManagedCluster != "spoke1" {
+		t.Fatalf("HistoryByCluster order = [%q %q], want [spoke0 spoke1]",
+			f.HistoryByCluster[0].ManagedCluster, f.HistoryByCluster[1].ManagedCluster)
+	}
+	s0, s1 := f.HistoryByCluster[0], f.HistoryByCluster[1]
+
+	wantG0 := []GatewayHistorySample{{Running: 4}, {Running: 4}}
+	for i, want := range wantG0 {
+		if s0.GatewayHistory[i] != want {
+			t.Errorf("spoke0 GatewayHistory[%d] = %+v, want %+v", i, s0.GatewayHistory[i], want)
+		}
+	}
+	wantG1 := []GatewayHistorySample{{Running: 1, Failed: 1}, {Running: 2}}
+	for i, want := range wantG1 {
+		if s1.GatewayHistory[i] != want {
+			t.Errorf("spoke1 GatewayHistory[%d] = %+v, want %+v", i, s1.GatewayHistory[i], want)
+		}
+	}
+	if want := []float64{2, 2}; !floatsEqual(s0.SandboxHistory, want) {
+		t.Errorf("spoke0 SandboxHistory = %v, want %v", s0.SandboxHistory, want)
+	}
+	// spoke1's missing ts-100 sandbox sample zero-fills to keep the shared axis.
+	if want := []float64{0, 1}; !floatsEqual(s1.SandboxHistory, want) {
+		t.Errorf("spoke1 SandboxHistory = %v, want %v", s1.SandboxHistory, want)
+	}
+	// The per-cluster rows sum back to the instance totals at every sample.
+	if want := []float64{2, 3}; !floatsEqual(f.SandboxHistory, want) {
+		t.Errorf("SandboxHistory total = %v, want %v", f.SandboxHistory, want)
+	}
+	// Symmetric check for the gateway chin: the per-cluster gateway-history rows sum
+	// back to the instance's GatewayHistory at every sample (spoke0{R4}+spoke1{R1,F1}
+	// = {R5,F1} at ts-100, {R4}+{R2} = {R6} at ts-200).
+	for i := range f.GatewayHistory {
+		var sum GatewayHistorySample
+		for _, c := range f.HistoryByCluster {
+			if i < len(c.GatewayHistory) {
+				sum.Running += c.GatewayHistory[i].Running
+				sum.Provisioning += c.GatewayHistory[i].Provisioning
+				sum.Failed += c.GatewayHistory[i].Failed
+			}
+		}
+		if sum != f.GatewayHistory[i] {
+			t.Errorf("GatewayHistory[%d] cluster-sum = %+v, want instance total %+v",
+				i, sum, f.GatewayHistory[i])
+		}
+	}
+}
+
+func floatsEqual(a, b []float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestQueryRangeStepFloor ensures a sub-second step is clamped to 1s so Prometheus

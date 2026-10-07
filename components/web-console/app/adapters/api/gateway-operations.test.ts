@@ -74,11 +74,9 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     name: "Team gateway",
     namespace: "openshell",
     observed_generation: 1,
-    observed_release_id: "",
     oidc: "",
     phase: "",
     provisioning_conditions: "",
-    release_id: "release-1",
     route: "",
     route_address: "",
     server_dns_names: "",
@@ -677,7 +675,7 @@ describe("gateway API operations adapter", () => {
   });
 
   it("provisions on the selected cluster with hidden request defaults", async () => {
-    gatewayApi.create.mockResolvedValue(gateway({ release_id: "" }));
+    gatewayApi.create.mockResolvedValue(gateway({}));
 
     await controlPlane.provisionGateway(
       {
@@ -691,7 +689,6 @@ describe("gateway API operations adapter", () => {
       {
         cluster_id: "cluster-east",
         name: "team-gateway",
-        release_id: "",
         route: '{"enabled":true}',
       },
       { signal: undefined },

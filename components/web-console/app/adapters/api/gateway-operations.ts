@@ -196,7 +196,6 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     ...(oidcIssuer ? { oidcIssuer } : {}),
     phase: gateway.phase,
     ...(provisioningConditions ? { provisioningConditions } : {}),
-    releaseId: gateway.release_id,
     status: gateway.status,
   };
 }
@@ -678,7 +677,6 @@ export function createGatewayControlPlaneAdapter(
             {
               cluster_id: input.clusterId,
               name: input.name,
-              release_id: "",
               route: JSON.stringify({ enabled: true }),
             },
             { signal: context.signal },

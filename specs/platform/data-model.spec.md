@@ -12,10 +12,21 @@ Gateways, clusters, releases, and networks are **top-level resources**. An earli
 Current model:
 
 - **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Also tracks provider, region, API server URL, and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
-- **GatewayRelease** - a versioned container image for gateway deployments. Supports rollout strategies with canary percent/duration controls.
-- **Gateway** - an API gateway instance deployed onto a specific cluster, using a specific release, within an API-assigned namespace. Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **Gateway** - an API gateway instance deployed onto a specific cluster within an API-assigned namespace. Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
-- **GatewayNetwork** - defines network connectivity topology between gateways. Supports tunnel modes and designates a hub gateway for hub-and-spoke or mesh networking.
+- **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate. Owns exactly one AgentWorkspace and one or more SecretSources.
+- **SandboxTemplate** - reusable OCI image + filesystem/network/process policy for agent worker sandboxes.
+- **ProviderSpec** - reusable capability definition (inference, source_control, or knowledge) shared across ProviderBindings.
+- **ProviderBinding** - wires a ProviderSpec into an AgentWorkspace with workspace-specific credential and refresh configuration.
+- **InferenceRoute** - designates the active ProviderBinding and model alias for LLM inference within an AgentWorkspace. At most one per AgentWorkspace.
+- **SecretSource** - abstract reference to a secret in an external backend (Vault, AWS Secrets Manager, Kubernetes). Owned by AgentRuntime; purpose enum drives controller-generated env var wiring.
+
+### Kinds Slated for Removal
+
+The following kinds are deprecated and will be removed in a future release. Their implementations are being deleted from all layers (API, gRPC, control plane, CLI). Do not create new dependencies on them.
+
+- **GatewayRelease** - Deprecated: Gateways specify images directly via `image`/`supervisor_image` fields. The release indirection layer (canary rollout via GatewayRelease) added complexity without product adoption. Direct image references are sufficient.
+- **GatewayNetwork** - Deprecated: The reconciler owns no Kubernetes resources and only validates topology fields. Real mesh/tunnel provisioning was never specified. Being removed until the product defines a concrete network membership and connectivity model.
 
 ## Entity Relationship Diagram
 
@@ -32,19 +43,6 @@ erDiagram
         string status
         string api_server_url
         time last_seen_at
-        time created_at
-        time updated_at
-        time deleted_at
-    }
-
-    GatewayRelease {
-        string ID PK
-        string name
-        string image
-        string rollout_strategy
-        int canary_percent
-        string canary_duration
-        string status
         time created_at
         time updated_at
         time deleted_at
@@ -97,22 +95,117 @@ erDiagram
         time deleted_at
     }
 
-    GatewayNetwork {
+    AgentRuntime {
         string ID PK
         string name
-        string topology
-        string tunnel_mode
-        string hub_gateway_id FK
+        string cluster_id FK
+        string gateway_id FK
+        string sandbox_template_id FK
+        string description
+        string cron
+        string coordinator_image
+        string concurrency_policy
+        int login_refresh_seconds
+        jsonb parameters
         string status
         time created_at
         time updated_at
         time deleted_at
     }
 
+    AgentWorkspace {
+        string ID PK
+        string agent_runtime_id FK
+        string gateway_id FK
+        string name
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    WorkspaceMembership {
+        string ID PK
+        string workspace_id FK
+        string subject
+        string role
+        time created_at
+        time updated_at
+    }
+
+    ProviderSpec {
+        string ID PK
+        string name
+        string category
+        jsonb capability
+        jsonb profile
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    ProviderBinding {
+        string ID PK
+        string workspace_id FK
+        string provider_spec_id FK
+        string secret_source_id FK
+        string name
+        jsonb refresh_strategy
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    InferenceRoute {
+        string ID PK
+        string workspace_id FK
+        string provider_binding_id FK
+        string model
+        time created_at
+        time updated_at
+    }
+
+    SandboxTemplate {
+        string ID PK
+        string name
+        string image
+        string name_prefix
+        jsonb policy
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    SecretSource {
+        string ID PK
+        string agent_runtime_id FK
+        string name
+        string purpose
+        string backend
+        string path
+        jsonb key_mappings
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
     ManagedCluster ||--o{ Gateway : "hosts"
-    GatewayRelease ||--o{ Gateway : "deployed_as"
     Gateway ||--o{ OpenShellGatewayServiceAccount : "authorizes"
-    Gateway ||--o| GatewayNetwork : "hub_gateway"
+    ManagedCluster ||--o{ AgentRuntime : "runs"
+    Gateway ||--o{ AgentRuntime : "connects_to"
+    SandboxTemplate ||--o{ AgentRuntime : "sandbox_for"
+    AgentRuntime ||--|| AgentWorkspace : "owns"
+    AgentRuntime ||--o{ SecretSource : "declares"
+    Gateway ||--o{ AgentWorkspace : "hosts"
+    AgentWorkspace ||--o{ WorkspaceMembership : "grants"
+    AgentWorkspace ||--o{ ProviderBinding : "activates"
+    AgentWorkspace ||--o| InferenceRoute : "routes_inference_via"
+    ProviderSpec ||--o{ ProviderBinding : "bound_by"
+    SecretSource ||--o{ ProviderBinding : "credentials_for"
+    ProviderBinding ||--o| InferenceRoute : "routed_by"
 ```
 
 ## Requirements
@@ -308,7 +401,9 @@ generation, under the same per-row lock that guards `generation`:
   `generation`
 - THEN the API server SHALL record `GatewayDeployed` as `Failed`
 
-### Requirement: Canary Release Strategy
+### Requirement: Canary Release Strategy [DEPRECATED - Slated for Removal]
+
+> **DEPRECATED - Slated for Removal**: This requirement belongs to GatewayRelease, which is being removed from the platform. See "Kinds Slated for Removal" above. The requirements below are historical; do not implement new features against this kind.
 
 A GatewayRelease SHALL support canary deployment via `rollout_strategy`, `canary_percent`, and `canary_duration` fields.
 
@@ -318,7 +413,9 @@ A GatewayRelease SHALL support canary deployment via `rollout_strategy`, `canary
 - THEN 10% of traffic SHALL route to the new version
 - AND after 30 minutes, the rollout SHALL proceed to full deployment
 
-### Requirement: Network Topology
+### Requirement: Network Topology [DEPRECATED - Slated for Removal]
+
+> **DEPRECATED - Slated for Removal**: This requirement belongs to GatewayNetwork, which is being removed from the platform. See "Kinds Slated for Removal" above. The requirements below are historical; do not implement new features against this kind.
 
 A GatewayNetwork SHALL define how gateways communicate. The `topology` field indicates the network shape and `tunnel_mode` the encapsulation method.
 
@@ -326,6 +423,293 @@ A GatewayNetwork SHALL define how gateways communicate. The `topology` field ind
 - GIVEN a GatewayNetwork with `topology: hub-spoke` and a `hub_gateway_id`
 - WHEN gateways join the network
 - THEN all spoke gateways SHALL route through the hub gateway
+
+### Requirement: AgentRuntime as a Top-Level Resource
+
+`AgentRuntime` SHALL be a top-level HyperShell API resource. It references a `ManagedCluster` (where its scheduling resources run), a `Gateway` (which it connects to), and a `SandboxTemplate` (the worker execution environment). It owns exactly one `AgentWorkspace` and one or more `SecretSource` declarations. Schedule configuration (cron expression, coordinator image, concurrency policy, login refresh interval) is embedded directly on `AgentRuntime`.
+
+An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provider driver names or credential environment variable names. Those are translation concerns of the controller.
+
+#### Scenario: Create AgentRuntime
+
+- GIVEN a valid `cluster_id`, `gateway_id`, and `sandbox_template_id`
+- AND a valid `cron` expression and `coordinator_image`
+- WHEN a POST request is made to `/api/hypershell/v1/agent_runtimes`
+- THEN a new `AgentRuntime` is created with status `Pending`
+- AND the controller begins reconciliation: applies cluster resources and provisions the `AgentWorkspace` on the gateway
+
+#### Scenario: Parameters Map Is Bounded
+
+- GIVEN an `AgentRuntime` create request with `parameters`
+- WHEN the API server validates the request
+- THEN `parameters` SHALL NOT contain keys that collide with the controller's reserved env var namespace (`GATEWAY_*`, `OIDC_*`, `OPENSHELL_*`)
+- AND the API server SHALL reject the request with 400 if any reserved key is present
+
+---
+
+### Requirement: AgentRuntime Cluster Resource Provisioning
+
+The controller SHALL apply the agent's scheduling resources directly to the target cluster's Kubernetes API using the same in-cluster credentials it uses for gateway infrastructure. The controller SHALL create or update the following resources on the target cluster:
+
+1. `Namespace` - the agent's Kubernetes namespace
+2. `ServiceAccount` - with `automountServiceAccountToken: false`
+3. `NetworkPolicy` - default-deny all ingress
+4. `ExternalSecret` resources - one per `SecretSource`
+5. `CronJob` - the coordinator (schedule from `AgentRuntime`, image from `coordinator_image`)
+
+#### Scenario: Cluster Resources Created on AgentRuntime Reconcile
+
+- GIVEN a new `AgentRuntime` with status `Pending`
+- WHEN the controller runs its reconcile loop
+- THEN a `Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources, and `CronJob` SHALL be created or updated directly on the target cluster
+- AND the `AgentRuntime` status SHALL transition to `Provisioning`
+
+#### Scenario: Cluster Resources Updated on AgentRuntime Change
+
+- GIVEN an `AgentRuntime` with status `Running`
+- WHEN the `cron` field is updated
+- THEN the controller SHALL update the `CronJob` directly on the target cluster
+
+#### Scenario: AgentRuntime Deletion Removes Cluster Resources
+
+- GIVEN an `AgentRuntime` with status `Running`
+- WHEN the `AgentRuntime` is deleted
+- THEN the controller SHALL delete all cluster resources (Namespace, ServiceAccount, NetworkPolicy, ExternalSecrets, CronJob)
+- AND the controller SHALL invoke the gateway API to delete the `AgentWorkspace` and its sub-resources
+- AND the `AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`, and `InferenceRoute` records SHALL be deleted from the database
+
+---
+
+### Requirement: Gateway-Side Provisioning
+
+The controller SHALL provision gateway-side objects (AgentWorkspace, WorkspaceMemberships, ProviderBindings, and InferenceRoute) via the gateway gRPC API as part of its normal reconcile loop. This is idempotent and uses the same mechanism as gateway database provisioning. Re-running when objects already exist SHALL succeed without error and SHALL update mutable fields (e.g., credential refresh strategy, model alias).
+
+#### Scenario: AgentWorkspace Is Created Alongside AgentRuntime
+
+- GIVEN an `AgentRuntime` in status `Provisioning`
+- WHEN the controller has applied scheduling resources to the cluster
+- AND the controller has provisioned the AgentWorkspace on the gateway
+- THEN the `AgentWorkspace` status SHALL transition to `Provisioned`
+- AND the `AgentRuntime` status SHALL transition to `Running`
+
+#### Scenario: Workspace Name Collision
+
+- GIVEN an `AgentWorkspace` already exists on the target `Gateway` with name `amber-reviews`
+- WHEN an `AgentRuntime` is created with `workspace.name = amber-reviews` on the same gateway
+- THEN the API server SHALL reject the request with 409
+- AND no `AgentRuntime` or `AgentWorkspace` record SHALL be persisted
+
+---
+
+### Requirement: WorkspaceMembership
+
+An `AgentWorkspace` SHALL have one or more `WorkspaceMembership` records, each binding an OIDC subject to a role. The subject is the UUID from the subject claim of the OIDC identity the agent uses to connect to the gateway.
+
+Valid roles are `admin` and `member`. An agent whose `ProviderBinding` requires credential rotation at runtime (for example, `refresh_strategy.type = service-account-jwt` or `app-installation-token`) SHALL have an `admin` membership, because the gateway restricts provider credential updates to workspace administrators.
+
+#### Scenario: Admin Role Required for Credential Refresh
+
+- GIVEN a `AgentWorkspace` with a `ProviderBinding` whose `refresh_strategy` is non-empty
+- WHEN the API server creates or updates the `WorkspaceMembership`
+- THEN the API server SHALL validate that at least one `WorkspaceMembership` has `role = admin`
+- AND SHALL return 422 if no admin membership is present
+
+---
+
+### Requirement: ProviderSpec Reusability
+
+`ProviderSpec` SHALL be a standalone, top-level resource that can be referenced by multiple `ProviderBinding` records across different workspaces and agent runtimes. It defines the capability type and access rules without any workspace-specific credential wiring.
+
+`ProviderSpec.category` SHALL be one of:
+- `inference` - LLM API access
+- `source_control` - VCS and code review APIs
+- `knowledge` - wiki, documentation, or search APIs
+
+`ProviderSpec.capability` is a category-discriminated JSON object that describes the capability in gateway-agnostic terms. It SHALL NOT contain gateway backend implementation details.
+
+For `inference`, capability fields are:
+
+| Field | Type | Description |
+|---|---|---|
+| `refresh_strategy` | string | Abstract credential refresh strategy: `service-account-jwt`, `oauth2-client-credentials`, `static-token` |
+| `config` | map | Non-secret, provider-type-specific configuration (e.g., `projectId`, `region`) |
+
+For `source_control` and `knowledge`, capability fields are:
+
+| Field | Type | Description |
+|---|---|---|
+| `host` | string | Primary hostname for this provider |
+| `auth_method` | string | Abstract authentication method: `app-installation-token`, `bearer`, `api-key` |
+| `allowed_operations` | array | List of `{methods[], paths[]}` rules defining what HTTP operations are permitted |
+| `allowed_graphql` | object | Optional `{queries[], mutations[]}` allow lists for GraphQL providers |
+| `binaries` | string[] | Executables in the sandbox that may call this provider |
+
+`ProviderSpec.profile` is an optional opaque JSON document passed through to the gateway provider registration step. Its schema is determined by the gateway backend; the HyperShell API treats it as an uninterpreted blob.
+
+#### Scenario: ProviderSpec Referenced by Multiple Bindings
+
+- GIVEN a `ProviderSpec` named `github-app-openshift-online`
+- WHEN two `AgentRuntime` instances each create a `ProviderBinding` referencing it
+- THEN both bindings SHALL reference the same `ProviderSpec` record
+- AND deleting one `ProviderBinding` SHALL NOT delete the `ProviderSpec`
+- AND the `ProviderSpec` SHALL only be deletable when no `ProviderBinding` references it
+
+#### Scenario: ProviderSpec Category Immutable After Binding
+
+- GIVEN a `ProviderSpec` with `category = inference`
+- AND one or more `ProviderBinding` records referencing it
+- WHEN a PATCH request attempts to change `category` to `source_control`
+- THEN the API server SHALL reject the request with 422
+
+---
+
+### Requirement: ProviderBinding
+
+A `ProviderBinding` wires a `ProviderSpec` into an `AgentWorkspace` with workspace-specific credential and refresh configuration. It references a `SecretSource` as its credential source. The controller uses the `SecretSource.purpose` to determine which field from the resolved secret carries the bearer token.
+
+`ProviderBinding.refresh_strategy` is an optional embedded object:
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Matches the `ProviderSpec.capability.refresh_strategy` (e.g., `service-account-jwt`) |
+| `material` | map | Non-secret parameters for the refresh strategy (e.g., `client_email`) |
+| `secret_material` | array | `{key, secret_source_id}` pairs for secret-valued refresh parameters (e.g., RSA private key) |
+
+The controller translates `refresh_strategy` to the gateway backend's refresh configuration. No backend-specific field names appear in this model.
+
+#### Scenario: ProviderBinding Created with Credential Reference
+
+- GIVEN a `ProviderSpec` with `category = inference`
+- AND a `SecretSource` with `purpose = service-account-key`
+- WHEN a `ProviderBinding` is created referencing both
+- THEN the controller generates an `ExternalSecret` from the `SecretSource`
+- AND provisions the provider on the gateway using the resolved secret as the credential
+- AND registers the `refresh_strategy` on the gateway for automatic token rotation
+
+---
+
+### Requirement: InferenceRoute
+
+An `AgentWorkspace` SHALL have at most one `InferenceRoute`, which designates the active `ProviderBinding` and model alias for all LLM inference calls made by sandboxes in that workspace. Changing the `InferenceRoute` redirects inference traffic without restarting any running sandboxes.
+
+`model` is a string alias that the gateway resolves to a model identifier on the bound provider. The HyperShell API does not validate model names; validation is deferred to the gateway at provisioning time.
+
+#### Scenario: One InferenceRoute Per Workspace
+
+- GIVEN an `AgentWorkspace` with an existing `InferenceRoute`
+- WHEN a second `InferenceRoute` is created for the same workspace
+- THEN the API server SHALL reject the request with 409
+
+#### Scenario: InferenceRoute Must Reference an Inference ProviderBinding
+
+- GIVEN a `ProviderBinding` referencing a `ProviderSpec` with `category = source_control`
+- WHEN an `InferenceRoute` is created referencing that binding
+- THEN the API server SHALL reject the request with 422
+
+---
+
+### Requirement: SandboxTemplate Reusability
+
+`SandboxTemplate` SHALL be a standalone, top-level resource reusable across `AgentRuntime` instances. It defines the ephemeral worker execution environment: an OCI image reference and a `SandboxPolicy`.
+
+`SandboxTemplate.name_prefix` is the prefix the coordinator uses when naming ephemeral sandbox instances. Stale sandbox cleanup identifies and removes sandboxes whose names begin with this prefix.
+
+`SandboxTemplate.policy` is an embedded JSON object with three sections:
+
+**Filesystem policy:**
+
+| Field | Type | Description |
+|---|---|---|
+| `read_only` | string[] | Absolute paths the sandbox process may read but not write |
+| `read_write` | string[] | Absolute paths the sandbox process may read and write |
+| `landlock` | string | Enforcement mode: `best_effort`, `strict`, or `disabled` |
+
+**Network policy** - an ordered list of named network groups:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Semantic label for this group (e.g., `claude_code`, `github_rest_api`) |
+| `hosts` | string[] | Allowed `hostname:port` pairs |
+| `methods` | string[] | Allowed HTTP methods; omit to allow all |
+| `paths` | string[] | Allowed URL path prefixes; omit to allow all paths on allowed hosts |
+| `binaries` | string[] | Executables permitted to use this network group |
+
+**Process policy:**
+
+| Field | Type | Description |
+|---|---|---|
+| `user` | string | Unix user name the sandbox process runs as |
+| `group` | string | Unix group name the sandbox process runs as |
+
+The sandbox network policy and the `ProviderBinding.capability.allowed_operations` serve different enforcement layers. Sandbox network policy is enforced at the OS process level inside the sandbox; provider allowed operations are enforced by the gateway mediator before forwarding requests to the external provider. Both must permit an operation for it to succeed.
+
+#### Scenario: SandboxTemplate Deletion Blocked by Active AgentRuntime
+
+- GIVEN a `SandboxTemplate` referenced by an `AgentRuntime` with status `Running`
+- WHEN a DELETE request is made for the `SandboxTemplate`
+- THEN the API server SHALL reject the request with 409
+- AND the response SHALL identify the blocking `AgentRuntime`
+
+---
+
+### Requirement: SecretSource
+
+A `SecretSource` is an abstract reference to a secret in an external secret backend (Vault, AWS Secrets Manager, or a Kubernetes Secret). The controller generates an `ExternalSecret` or direct `SecretReference` from it when producing the agent's scheduling resources.
+
+`SecretSource.purpose` is a semantic enum that drives both the generated `ExternalSecret` field mapping and the environment variable wiring in the CronJob. Supported values:
+
+| Purpose | Description | Controller-generated env vars |
+|---|---|---|
+| `gateway-identity` | Runtime gateway OIDC credential: endpoint, issuer, client_id, audience, client_secret | `GATEWAY_ENDPOINT`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`, `OPENSHELL_OIDC_CLIENT_SECRET` |
+| `service-account-key` | JSON key file for a cloud service account (e.g., GCP ADC JSON) | `SA_JSON_KEY_FILE` |
+| `app-private-key` | PEM RSA private key for a GitHub App or similar | `APP_PRIVATE_KEY_FILE` |
+| `api-key` | Single bearer token or API key | `API_KEY` |
+
+`SecretSource.backend` is one of `vault`, `aws-secrets-manager`, or `kubernetes`.
+
+`SecretSource.key_mappings` is an optional list of `{source_key, target_key}` pairs. When set, only the listed keys are extracted and renamed. When absent, all fields from the backend secret are extracted under their original names.
+
+#### Scenario: Purpose Drives Env Var Wiring Without Operator Annotation
+
+- GIVEN a `SecretSource` with `purpose = gateway-identity`
+- WHEN the controller generates scheduling resources for the `AgentRuntime`
+- THEN the generated `CronJob` SHALL include env vars `GATEWAY_ENDPOINT`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`, and `OPENSHELL_OIDC_CLIENT_SECRET` bound to the resolved `Secret`
+- AND the operator SHALL NOT need to specify env var names explicitly
+
+#### Scenario: Unknown Backend Path Fails at Provisioning, Not at Persist Time
+
+- GIVEN a `SecretSource` with a valid `path` that does not exist in the backend
+- WHEN the controller generates an `ExternalSecret`
+- THEN the `ExternalSecret` SHALL be created on the cluster
+- AND the `ExternalSecret` SHALL enter status `SecretSyncedError`
+- AND the `AgentRuntime` status SHALL reflect the sync failure
+- AND the `SecretSource` record itself SHALL remain in the database
+
+---
+
+### Requirement: AgentRuntime Status Lifecycle
+
+`AgentRuntime.status` SHALL progress through the following states:
+
+| Status | Description |
+|---|---|
+| `Pending` | Created; reconciliation not yet started |
+| `Provisioning` | Cluster resources applied; gateway-side provisioning not yet complete |
+| `Running` | Cluster resources and gateway-side workspace and providers provisioned; CronJob active |
+| `Degraded` | One or more SecretSources failed to sync, or gateway-side provisioning failed; CronJob may be running but agent cannot connect to the gateway |
+| `Terminating` | Delete in progress; cluster resources being removed, gateway-side cleanup in progress |
+
+A `Degraded` `AgentRuntime` SHALL surface the failing `SecretSource` name and the gateway-side error in the status message.
+
+#### Scenario: SecretSource Sync Failure Degrades AgentRuntime
+
+- GIVEN an `AgentRuntime` with status `Running`
+- WHEN a `SecretSource` backend path becomes unreachable and its `ExternalSecret` enters `SecretSyncedError`
+- THEN the `AgentRuntime` status SHALL transition to `Degraded`
+- AND the status message SHALL identify the failing `SecretSource` by name
+- AND the `CronJob` SHALL continue to run but its scheduled executions SHALL fail at gateway login
+
+---
 
 ## API Reference
 
@@ -338,13 +722,23 @@ All routes under `/api/hypershell/v1/`:
 | GET/POST | `/gateways/{gateway_id}/service_accounts` | List/Create gateway OpenShellGatewayServiceAccounts |
 | GET/DELETE | `/gateways/{gateway_id}/service_accounts/{service_account_id}` | Get/Delete an OpenShellGatewayServiceAccount |
 | POST | `/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke` | Permanently revoke an OpenShellGatewayServiceAccount |
-| GET/POST | `/gateway_networks` | List/Create |
-| GET/PATCH/DELETE | `/gateway_networks/{id}` | Get/Update/Delete |
-| GET/POST | `/gateway_releases` | List/Create |
-| GET/PATCH/DELETE | `/gateway_releases/{id}` | Get/Update/Delete |
+| ~~GET/POST~~ | ~~`/gateway_networks`~~ | ~~List/Create~~ [REMOVED] |
+| ~~GET/PATCH/DELETE~~ | ~~`/gateway_networks/{id}`~~ | ~~Get/Update/Delete~~ [REMOVED] |
+| ~~GET/POST~~ | ~~`/gateway_releases`~~ | ~~List/Create~~ [REMOVED] |
+| ~~GET/PATCH/DELETE~~ | ~~`/gateway_releases/{id}`~~ | ~~Get/Update/Delete~~ [REMOVED] |
 | GET/POST | `/managed_clusters` | List/Create |
 | GET/PATCH/DELETE | `/managed_clusters/{id}` | Get/Update/Delete |
 | POST | `/managed_clusters/registration` | Self-register spoke; idempotent on (oidc_subject, name); updates last_seen_at on every call |
+| GET/POST | `/agent_runtimes` | List/Create |
+| GET/PATCH/DELETE | `/agent_runtimes/{id}` | Get/Update/Delete |
+| GET/POST | `/sandbox_templates` | List/Create |
+| GET/PATCH/DELETE | `/sandbox_templates/{id}` | Get/Update/Delete |
+| GET/POST | `/provider_specs` | List/Create |
+| GET/PATCH/DELETE | `/provider_specs/{id}` | Get/Update/Delete |
+| GET/POST | `/agent_runtimes/{agent_runtime_id}/provider_bindings` | List/Create |
+| GET/PATCH/DELETE | `/agent_runtimes/{agent_runtime_id}/provider_bindings/{id}` | Get/Update/Delete |
+| GET/POST | `/agent_runtimes/{agent_runtime_id}/inference_routes` | List/Create |
+| GET/PATCH/DELETE | `/agent_runtimes/{agent_runtime_id}/inference_routes/{id}` | Get/Update/Delete |
 
 ## CLI Reference (`hsctl`)
 
@@ -372,25 +766,29 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 | `POST /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}/revoke` | `hsctl revoke serviceAccount <id> --gateway-id <gateway_id>` | ✅ implemented |
 | `DELETE /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{id}` | `hsctl delete serviceAccount <id> --gateway-id <gateway_id>` | ✅ implemented |
 
-#### Gateway Networks
+#### Gateway Networks [REMOVED]
+
+> **REMOVED**: GatewayNetwork is slated for deletion. These CLI commands will be removed.
 
 | REST API | `hsctl` Command | Status |
 |---|---|---|
-| `GET /api/hypershell/v1/gateway_networks` | `hsctl list gatewayNetworks` | ✅ implemented |
-| `GET /api/hypershell/v1/gateway_networks/{id}` | `hsctl get gatewayNetwork <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_networks` | `hsctl create gatewayNetwork --name <n> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateway_networks/{id}` | `hsctl update gatewayNetwork <id> [--topology <t>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateway_networks/{id}` | `hsctl delete gatewayNetwork <id>` | ✅ implemented |
+| `GET /api/hypershell/v1/gateway_networks` | `hsctl list gatewayNetworks` | [REMOVED] |
+| `GET /api/hypershell/v1/gateway_networks/{id}` | `hsctl get gatewayNetwork <id>` | [REMOVED] |
+| `POST /api/hypershell/v1/gateway_networks` | `hsctl create gatewayNetwork --name <n> --topology <t> [--tunnel-mode <m>] [--hub-gateway-id <g>]` | [REMOVED] |
+| `PATCH /api/hypershell/v1/gateway_networks/{id}` | `hsctl update gatewayNetwork <id> [--topology <t>]` | [REMOVED] |
+| `DELETE /api/hypershell/v1/gateway_networks/{id}` | `hsctl delete gatewayNetwork <id>` | [REMOVED] |
 
-#### Gateway Releases
+#### Gateway Releases [REMOVED]
+
+> **REMOVED**: GatewayRelease is slated for deletion. These CLI commands will be removed.
 
 | REST API | `hsctl` Command | Status |
 |---|---|---|
-| `GET /api/hypershell/v1/gateway_releases` | `hsctl list gatewayReleases` | ✅ implemented |
-| `GET /api/hypershell/v1/gateway_releases/{id}` | `hsctl get gatewayRelease <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateway_releases` | `hsctl create gatewayRelease --name <n> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateway_releases/{id}` | `hsctl update gatewayRelease <id> [--image <i>] [--rollout-strategy <s>]` | 🔲 planned |
-| `DELETE /api/hypershell/v1/gateway_releases/{id}` | `hsctl delete gatewayRelease <id>` | ✅ implemented |
+| `GET /api/hypershell/v1/gateway_releases` | `hsctl list gatewayReleases` | [REMOVED] |
+| `GET /api/hypershell/v1/gateway_releases/{id}` | `hsctl get gatewayRelease <id>` | [REMOVED] |
+| `POST /api/hypershell/v1/gateway_releases` | `hsctl create gatewayRelease --name <n> --image <i> [--rollout-strategy <s>] [--canary-percent <p>] [--canary-duration <d>]` | [REMOVED] |
+| `PATCH /api/hypershell/v1/gateway_releases/{id}` | `hsctl update gatewayRelease <id> [--image <i>] [--rollout-strategy <s>]` | [REMOVED] |
+| `DELETE /api/hypershell/v1/gateway_releases/{id}` | `hsctl delete gatewayRelease <id>` | [REMOVED] |
 
 #### Managed Clusters
 
@@ -451,9 +849,12 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 | Kind | Fields applied | Status |
 |---|---|---|
 | `Gateway` | `name`, `cluster_id`, `release_id`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata` | ✅ implemented |
-| `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | ✅ implemented |
-| `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | ✅ implemented |
+| `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | [REMOVED] |
+| `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | [REMOVED] |
 | `ManagedCluster` | `name`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | ✅ implemented |
+| `AgentRuntime` | `name`, `cluster_id`, `gateway_id`, `sandbox_template_id`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` | 🔲 planned |
+| `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
+| `ProviderSpec` | `name`, `category`, `capability`, `profile` | 🔲 planned |
 
 #### `-f` - File or Directory
 
@@ -636,6 +1037,15 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0
 |----------|-----------|
 | KSUID for all IDs | Sortable, globally unique, no coordination required |
 | Resources are top-level | Sector/Fleet grouping was removed; tenancy is enforced by RBAC (platform + per-gateway), not by a resource grouping |
-| Separate Release from Gateway | Decouples versioning from deployment; enables canary and rollback |
-| GatewayNetwork as explicit entity | Makes network topology declarative and auditable |
 | Secret references (not inline secrets) | Keeps secrets in K8s Secrets, not in the database |
+| Gateway-agnostic capability model | Provider driver names and credential env var conventions are implementation details of the gateway backend. Keeping them out of the API allows the controller to support multiple gateway implementations without API changes. |
+| ProviderSpec as a reusable top-level resource | The same GitHub App or Vertex AI project configuration is shared by multiple agent types. Centralizing it avoids duplication and makes rotation (e.g., new App installation ID) a single change. |
+| SandboxTemplate as a reusable top-level resource | Sandbox base image and policy evolve independently of which agents use them. Shared templates reduce blast radius when updating a sandbox image digest. |
+| SecretSource purpose enum for env var wiring | Requiring operators to spell out every env var binding is error-prone and duplicates knowledge that the controller already has from the purpose. The enum collapses this to a single semantic declaration. |
+| AgentWorkspace 1:1 with AgentRuntime | Workspaces are the gateway's isolation primitive. Sharing a workspace between agent types would mix their provider bindings and inference routes, defeating isolation. One-to-one ownership makes lifecycle management unambiguous. |
+| InferenceRoute capped at one per AgentWorkspace | A workspace has one active LLM at a time. Multiple routes would require the sandbox to select one, introducing configuration the agent author must manage. The controller updates the route atomically on any model change. |
+| login_refresh_seconds on AgentRuntime, not SandboxTemplate | Login renewal is a coordinator concern (CronJob lifecycle), not a sandbox policy concern. Embedding it on the AgentRuntime where the coordinator schedule lives keeps it co-located with the fields it relates to. |
+| No ManifestWork: controller applies cluster resources directly | The controller has direct cluster API access via in-cluster credentials, the same mechanism used for gateway infrastructure. ManifestWork would add an OCM dependency without architectural benefit. |
+| No bootstrap Job: controller provisions gateway-side objects via gRPC | Gateway-side workspace, members, and provider objects are provisioned by the controller through the gateway gRPC API in its normal reconcile loop, co-located with existing gateway database provisioning logic. An idempotent imperative Job on the cluster would tie provisioning to a specific OpenShell CLI version. |
+| Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
+| Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |

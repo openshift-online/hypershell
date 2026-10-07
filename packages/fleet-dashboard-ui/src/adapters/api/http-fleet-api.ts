@@ -3,8 +3,8 @@
 // fleet's identity comes back inside the JSON payloads, not the URLs.
 
 import type { Plane } from "../../domain/plane";
-import type { FleetApi, TopologyData } from "../../application/ports";
-import { mapFleet, mapInstances, mapPromotion } from "./wire";
+import type { FleetApi } from "../../application/ports";
+import { mapFleet, mapInstances, mapPromotion, mapTopology } from "./wire";
 
 export interface HttpFleetApiOptions {
   /** BFF base path, e.g. "/api". No trailing slash. */
@@ -47,13 +47,10 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
     return { ...envelope, data: mapData(envelope.data) };
   }
 
-  // Topology is not yet surfaced in the UI; it passes through untouched until its
-  // view (and mapper) exists.
   return {
     getFleet: (signal) => getPlane("/fleet", mapFleet, signal),
     getPromotion: (signal) => getPlane("/promotion", mapPromotion, signal),
-    getTopology: (signal) =>
-      getPlane<TopologyData>("/topology", (raw) => raw as TopologyData, signal),
+    getTopology: (signal) => getPlane("/topology", mapTopology, signal),
     getInstances: (signal) => getPlane("/instances", mapInstances, signal),
   };
 }

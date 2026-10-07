@@ -26,7 +26,7 @@ const (
 	spokeSub      = "spoke3-sub"
 	spokeUsername = "service-account-hypershell-hyp201-spoke3"
 	hubSA         = "service-account-hypershell-control-plane"
-	watchReleases = "/hypershell.v1.GatewayReleaseService/WatchGatewayReleases"
+	watchGateways = "/hypershell.v1.GatewayService/WatchGateways"
 )
 
 var controlPlaneOnlyMethods = []string{
@@ -110,7 +110,6 @@ var enforcedWithAllowlist = AuthzConfig{EnforceRBAC: true, ServiceAccounts: []st
 // cluster's gateways, fleet-wide reads, status writes, and its own record.
 func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 	ctx := grpcCallerContext(t, spokeUsername, spokeSub)
-	status2 := "Active"
 	tests := []struct {
 		name   string
 		method string
@@ -137,11 +136,6 @@ func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 		{"delete own cluster record", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "cluster-spoke3"}, codes.OK},
 		{"delete another cluster record", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "cluster-other"}, codes.PermissionDenied},
 		{"rename own cluster record", "/hypershell.v1.ManagedClusterService/UpdateManagedCluster", &pb.UpdateManagedClusterRequest{Id: "cluster-spoke3"}, codes.PermissionDenied},
-		{"release status write", "/hypershell.v1.GatewayReleaseService/UpdateGatewayRelease", &pb.UpdateGatewayReleaseRequest{Id: "r", Status: &status2}, codes.OK},
-		{"release image write", "/hypershell.v1.GatewayReleaseService/UpdateGatewayRelease", &pb.UpdateGatewayReleaseRequest{Id: "r", Status: &status2, Image: strPtr("evil")}, codes.PermissionDenied},
-		{"release create", "/hypershell.v1.GatewayReleaseService/CreateGatewayRelease", &pb.CreateGatewayReleaseRequest{}, codes.PermissionDenied},
-		{"network status write", "/hypershell.v1.GatewayNetworkService/UpdateGatewayNetwork", &pb.UpdateGatewayNetworkRequest{Id: "n", Status: &status2}, codes.OK},
-		{"network topology write", "/hypershell.v1.GatewayNetworkService/UpdateGatewayNetwork", &pb.UpdateGatewayNetworkRequest{Id: "n", Topology: strPtr("mesh")}, codes.PermissionDenied},
 		{"list role bindings", "/hypershell.v1.RoleBindingService/ListRoleBindings", &pb.ListRoleBindingsRequest{}, codes.OK},
 		{"unknown service", "/hypershell.v1.SomethingNew/DoIt", nil, codes.PermissionDenied},
 	}
@@ -154,7 +148,7 @@ func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 		})
 	}
 
-	for _, method := range []string{watchReleases, gatewaySvc("WatchGateways"), "/hypershell.v1.ManagedClusterService/WatchManagedClusters"} {
+	for _, method := range []string{watchGateways, gatewaySvc("WatchGateways"), "/hypershell.v1.ManagedClusterService/WatchManagedClusters"} {
 		if called, err := runStream(t, registeredSpokes(), fakeLookup{}, enforcedWithAllowlist, ctx, method); err != nil || !called {
 			t.Fatalf("stream %s: handler=%v err=%v", method, called, err)
 		}
@@ -206,7 +200,7 @@ func TestRegisteredClusterLookupErrorIsUnavailable(t *testing.T) {
 	if called || status.Code(err) != codes.Unavailable {
 		t.Fatalf("unary: handler=%v code=%s, want Unavailable", called, status.Code(err))
 	}
-	called, err = runStream(t, failing, fakeLookup{}, enforcedWithAllowlist, ctx, watchReleases)
+	called, err = runStream(t, failing, fakeLookup{}, enforcedWithAllowlist, ctx, watchGateways)
 	if called || status.Code(err) != codes.Unavailable {
 		t.Fatalf("stream: handler=%v code=%s, want Unavailable", called, status.Code(err))
 	}
@@ -232,7 +226,7 @@ func TestNilResolverPreservesAllowlistOnlyBehaviour(t *testing.T) {
 	if called, err := runUnary(t, nil, fakeLookup{}, nil, enforcedWithAllowlist, ctx, controlPlaneOnlyMethods[0], &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-own"}); called || status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("handler=%v code=%s, want PermissionDenied", called, status.Code(err))
 	}
-	if called, err := runStream(t, nil, fakeLookup{}, enforcedWithAllowlist, ctx, watchReleases); called || status.Code(err) != codes.PermissionDenied {
+	if called, err := runStream(t, nil, fakeLookup{}, enforcedWithAllowlist, ctx, watchGateways); called || status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("stream without bindings: handler=%v code=%s, want PermissionDenied", called, status.Code(err))
 	}
 	// The allowlist still works on its own.

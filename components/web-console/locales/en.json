@@ -1239,10 +1239,6 @@
     "defaultMessage": "Starting console",
     "description": "Active-state label for the console readiness provisioning step."
   },
-  "app.gateway.releaseId": {
-    "defaultMessage": "Gateway release ID",
-    "description": "Label for a gateway's release identifier."
-  },
   "app.gateway.rename": {
     "defaultMessage": "Rename gateway",
     "description": "Action that changes a gateway's name."

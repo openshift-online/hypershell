@@ -169,22 +169,10 @@ export const messages = defineMessages({
     defaultMessage: "Release",
     description: "Detail label for a release bundle's version.",
   },
-  detailSandboxBreakdown: {
-    id: "fleet.map.detail.sandboxBreakdown",
-    defaultMessage:
-      "{total, plural, one {# active sandbox} other {# active sandboxes}} across {clusters, number} clusters",
-    description:
-      "Accessible summary of an instance's active sandbox total and cluster spread.",
-  },
   detailSync: {
     id: "fleet.map.detail.sync",
     defaultMessage: "Sync status",
     description: "Detail label for an instance's Argo CD sync status.",
-  },
-  detailUsers: {
-    id: "fleet.map.detail.users",
-    defaultMessage: "Users",
-    description: "Detail label for the number of users on an instance.",
   },
   drawerClose: {
     id: "fleet.map.drawer.close",
@@ -228,6 +216,32 @@ export const messages = defineMessages({
     description:
       "Freshness indicator when the server is serving a last-good value.",
   },
+  historyAsOf: {
+    id: "fleet.map.history.asOf",
+    defaultMessage: "As of {time}",
+    description:
+      "Label above the population tiles showing the date/time of the history sample currently under the shared cursor.",
+  },
+  historyCursorGroup: {
+    id: "fleet.map.history.cursorGroup",
+    defaultMessage:
+      "Population history over the last day. Use the left and right arrow keys to inspect past values, Home and End for the oldest and newest, and Escape to clear.",
+    description:
+      "Accessible name for the interactive population-tiles region that hosts the shared temporal cursor.",
+  },
+  historyCursorHint: {
+    id: "fleet.map.history.cursorHint",
+    defaultMessage: "Hover or use arrow keys to inspect history",
+    description:
+      "Subtle hint shown above the population tiles when the shared cursor is not engaged.",
+  },
+  historyReadout: {
+    id: "fleet.map.history.readout",
+    defaultMessage:
+      "{time}: {sandboxes} sandboxes, {users} users, {logins} logins in the last 7 days",
+    description:
+      "Screen-reader announcement of the population values at the history sample under the shared cursor.",
+  },
   infoDigest: {
     id: "fleet.map.info.digest",
     defaultMessage:
@@ -254,6 +268,12 @@ export const messages = defineMessages({
     description:
       "Help tooltip for the Proposed (incoming) release field in the detail panel.",
   },
+  infoLogins: {
+    id: "fleet.map.info.logins",
+    defaultMessage:
+      "Distinct users who signed in to this instance at least once in the last 7 days - a rolling measure of active usage, not the total account count.",
+    description: "Help tooltip for the Logins tile in the detail panel.",
+  },
   infoPromotion: {
     id: "fleet.map.info.promotion",
     defaultMessage:
@@ -277,6 +297,12 @@ export const messages = defineMessages({
     defaultMessage:
       "Argo CD sync state of this instance's Application. Synced = the live cluster matches the desired Git manifests; OutOfSync = it has drifted or a change is pending.",
     description: "Help tooltip for the Sync field in the detail panel.",
+  },
+  infoUsers: {
+    id: "fleet.map.info.users",
+    defaultMessage:
+      "Total registered user accounts for this instance, whether or not they have signed in recently.",
+    description: "Help tooltip for the Users tile in the detail panel.",
   },
   legendFailed: {
     id: "fleet.map.legend.failed",
@@ -330,6 +356,16 @@ export const messages = defineMessages({
     defaultMessage: "Open the deployed web console",
     description: "Sub-label describing the HyperShell Instance link.",
   },
+  linkGrafana: {
+    id: "fleet.map.link.grafana",
+    defaultMessage: "Grafana",
+    description: "Link label for the cluster's own Grafana dashboards.",
+  },
+  linkGrafanaDesc: {
+    id: "fleet.map.link.grafana.desc",
+    defaultMessage: "Open observability dashboards",
+    description: "Sub-label describing the Grafana link.",
+  },
   linkPr: {
     id: "fleet.map.link.pr",
     defaultMessage: "Pull request",
@@ -362,6 +398,13 @@ export const messages = defineMessages({
     defaultMessage: "Fit to view",
     description: "Accessible label for the map's fit-to-view control.",
   },
+  mapHealthUnavailable: {
+    id: "fleet.map.healthUnavailable",
+    defaultMessage:
+      "{count, plural, one {# cluster is not reporting health} other {# clusters are not reporting health}}",
+    description:
+      "Severe banner shown on the map only when one or more instances have no Argo health at all; the cluster may be unreachable.",
+  },
   mapRegion: {
     id: "fleet.map.region",
     defaultMessage: "Promotion topology map",
@@ -376,6 +419,12 @@ export const messages = defineMessages({
     id: "fleet.map.control.zoomOut",
     defaultMessage: "Zoom out",
     description: "Accessible label for the map's zoom-out control.",
+  },
+  metricTileAria: {
+    id: "fleet.map.detail.metricTileAria",
+    defaultMessage: "{label}: {value}",
+    description:
+      "Accessible label pairing a population metric tile's name with its value.",
   },
   moreInfo: {
     id: "fleet.map.info.more",
@@ -410,24 +459,6 @@ export const messages = defineMessages({
     description:
       "Promotion-state label when an instance runs the frontier bundle.",
   },
-  sandboxByCluster: {
-    id: "fleet.map.sandbox.byCluster",
-    defaultMessage: "Sandboxes by cluster",
-    description:
-      "Eyebrow heading above the per-cluster active-sandbox bar chart.",
-  },
-  sandboxClusterRow: {
-    id: "fleet.map.sandbox.clusterRow",
-    defaultMessage:
-      "{cluster}: {count, plural, one {# sandbox} other {# sandboxes}}",
-    description:
-      "Accessible label for one cluster's row in the sandbox bar chart.",
-  },
-  sandboxNone: {
-    id: "fleet.map.sandbox.none",
-    defaultMessage: "No active sandboxes",
-    description: "Empty state when an instance has no active sandboxes.",
-  },
   sectionDeployedOn: {
     id: "fleet.section.deployedOn",
     defaultMessage: "Deployed on",
@@ -450,6 +481,18 @@ export const messages = defineMessages({
     defaultMessage: "Instances",
     description: "Heading for the managed instances section.",
   },
+  sectionLogins: {
+    id: "fleet.section.logins",
+    defaultMessage: "Logins 7d",
+    description:
+      "Label for the 7-day unique-login metric tile in the detail panel.",
+  },
+  sectionManagedClusters: {
+    id: "fleet.section.managedClusters",
+    defaultMessage: "Managed clusters",
+    description:
+      "Heading for the per-managed-cluster gateway/sandbox breakdown in the detail panel.",
+  },
   sectionMap: {
     id: "fleet.section.map",
     defaultMessage: "Promotion topology",
@@ -468,7 +511,69 @@ export const messages = defineMessages({
   sectionSandboxes: {
     id: "fleet.section.sandboxes",
     defaultMessage: "Sandboxes",
-    description: "Heading for the active-sandbox widget in the detail panel.",
+    description:
+      "Label for the active-sandbox metric tile in the detail panel.",
+  },
+  sectionUsers: {
+    id: "fleet.section.users",
+    defaultMessage: "Users",
+    description:
+      "Label for the registered-user metric tile in the detail panel.",
+  },
+  sessionExpiredBody: {
+    id: "fleet.session.expired.body",
+    defaultMessage: "Your session has expired. Sign in again to continue.",
+    description:
+      "Body of the full-page takeover shown when the BFF returns 401 for API calls.",
+  },
+  sessionExpiredTitle: {
+    id: "fleet.session.expired.title",
+    defaultMessage: "Session expired",
+    description:
+      "Title of the full-page takeover shown when the user's session is stale.",
+  },
+  sessionSignIn: {
+    id: "fleet.session.signIn",
+    defaultMessage: "Sign in again",
+    description:
+      "Button that reloads the document to re-run the oauth-proxy sign-in flow.",
+  },
+  spokeAttributionUnavailable: {
+    id: "fleet.spoke.attributionUnavailable",
+    defaultMessage:
+      "Cluster topology is unavailable, so these managed clusters could not be attributed to a hub.",
+    description:
+      "Note shown above an unattributed, flat list of managed clusters when topology data is missing.",
+  },
+  spokeGatewaysCount: {
+    id: "fleet.spoke.gatewaysCount",
+    defaultMessage: "{count, plural, one {# gateway} other {# gateways}}",
+    description:
+      "Gateway total shown to the right of a managed-cluster row in the detail panel.",
+  },
+  spokeRemote: {
+    id: "fleet.spoke.remote",
+    defaultMessage: "Remote",
+    description:
+      "Compact badge marking a managed cluster that runs remote from its hub.",
+  },
+  spokeRemoteGroup: {
+    id: "fleet.spoke.remoteGroup",
+    defaultMessage: "Remote",
+    description:
+      "Sub-heading for the group of managed clusters that run remote from the hub.",
+  },
+  spokeSandboxesCount: {
+    id: "fleet.spoke.sandboxesCount",
+    defaultMessage: "{count, plural, one {# sandbox} other {# sandboxes}}",
+    description:
+      "Sandbox total shown to the right of a managed-cluster row in the detail panel.",
+  },
+  spokeUnattributedGroup: {
+    id: "fleet.spoke.unattributedGroup",
+    defaultMessage: "Unattributed",
+    description:
+      "Sub-heading for managed clusters present in the metrics but absent from the hub's topology.",
   },
   statusDegraded: {
     id: "fleet.status.degraded",

@@ -8,7 +8,13 @@
 // wire spells `activeGates`), throwing at render time.
 
 import type { InstancesData } from "../../application/ports";
-import type { FleetData, InstanceFleet, RateStats } from "../../domain/fleet";
+import type {
+  ClusterHistory,
+  FleetData,
+  GatewayClusterBreakdown,
+  InstanceFleet,
+  RateStats,
+} from "../../domain/fleet";
 import type {
   PromotionData,
   PromotionEnvironment,
@@ -16,6 +22,12 @@ import type {
   PullRequest,
   ReleaseBundle,
 } from "../../domain/promotion";
+import type {
+  InstanceTopology,
+  TopologyData,
+  TopologyHub,
+  TopologySpoke,
+} from "../../domain/topology";
 
 /** A pull request within a release bundle, as the delivery GitHub App reports it. */
 interface WirePR {
@@ -61,6 +73,7 @@ interface WirePromotionEnvironment {
   readonly argoHealth?: string;
   readonly argoSync?: string;
   readonly consoleUrl?: string;
+  readonly grafanaUrl?: string;
   readonly argoUrl?: string;
   readonly prState?: string;
   readonly prUrl?: string;
@@ -117,6 +130,7 @@ function mapEnvironment(
     argoHealth: nullableString(env.argoHealth),
     argoSync: nullableString(env.argoSync),
     consoleUrl: nullableString(env.consoleUrl),
+    grafanaUrl: nullableString(env.grafanaUrl),
     argoUrl: nullableString(env.argoUrl),
     prState: nullableString(env.prState),
     prUrl: nullableString(env.prUrl),
@@ -186,6 +200,7 @@ interface WireInstanceFleet {
   readonly instance?: string;
   readonly gateways?: Readonly<Record<string, number>> | null;
   readonly gatewaysTotal?: number;
+  readonly gatewaysByCluster?: readonly WireGatewayClusterBreakdown[] | null;
   readonly managedClusters?: number;
   readonly users?: number;
   readonly rpc?: WireRateStats | null;
@@ -196,6 +211,11 @@ interface WireInstanceFleet {
   readonly sandboxes?: number;
   readonly sandboxesByCluster?: readonly WireSandboxClusterCount[] | null;
   readonly sandboxHistory?: readonly number[] | null;
+  readonly historyByCluster?: readonly WireClusterHistory[] | null;
+  readonly logins?: number;
+  readonly userHistory?: readonly number[] | null;
+  readonly loginsHistory?: readonly number[] | null;
+  readonly historyTimes?: readonly number[] | null;
 }
 
 interface WireGatewayHistorySample {
@@ -205,8 +225,25 @@ interface WireGatewayHistorySample {
 }
 
 interface WireSandboxClusterCount {
+  // `managedCluster` is the spoke name (the correct key); `cluster` is the legacy
+  // scrape-injected HUB label, ignored for attribution (see mapInstanceFleet).
+  readonly managedCluster?: string;
   readonly cluster?: string;
   readonly count?: number;
+}
+
+/** One managed cluster's gateway phase breakdown on the wire (/api/fleet). */
+interface WireGatewayClusterBreakdown {
+  readonly managedCluster?: string;
+  readonly gateways?: Readonly<Record<string, number>> | null;
+  readonly total?: number;
+}
+
+/** One managed cluster's gateway + sandbox history on the wire (/api/fleet). */
+interface WireClusterHistory {
+  readonly managedCluster?: string;
+  readonly gatewayHistory?: readonly WireGatewayHistorySample[] | null;
+  readonly sandboxHistory?: readonly number[] | null;
 }
 
 /** `/api/fleet` is a map keyed by instance name; the domain uses a flat list. */
@@ -214,6 +251,17 @@ type WireFleet = Readonly<Record<string, WireInstanceFleet>>;
 
 function num(v: number | undefined): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+/** Project a wire phase-count record into a numified phase map (absent -> {}). */
+function mapPhaseCounts(
+  raw: Readonly<Record<string, number>> | null | undefined,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [phase, count] of Object.entries(raw ?? {})) {
+    out[phase] = num(count);
+  }
+  return out;
 }
 
 function mapRate(raw: WireRateStats | null | undefined): RateStats {
@@ -235,6 +283,15 @@ function mapInstanceFleet(key: string, raw: WireInstanceFleet): InstanceFleet {
     provider: null,
     gateways,
     gatewaysTotal: num(raw.gatewaysTotal),
+    // Per-spoke gateway breakdown: keep rows with a managed-cluster (spoke) name;
+    // numify every phase count so each row is fully shaped.
+    gatewaysByCluster: (raw.gatewaysByCluster ?? [])
+      .map((g): GatewayClusterBreakdown => ({
+        managedCluster: g.managedCluster ?? "",
+        gateways: mapPhaseCounts(g.gateways),
+        total: num(g.total),
+      }))
+      .filter((g) => g.managedCluster !== ""),
     managedClusters:
       typeof raw.managedClusters === "number" ? raw.managedClusters : null,
     users: typeof raw.users === "number" ? raw.users : null,
@@ -249,10 +306,32 @@ function mapInstanceFleet(key: string, raw: WireInstanceFleet): InstanceFleet {
       failed: num(s.failed),
     })),
     sandboxes: num(raw.sandboxes),
+    // Attribute per spoke by the application-emitted `managedCluster` name, NOT the
+    // legacy scrape-injected `cluster` (hub) label; drop rows with no spoke name.
     sandboxesByCluster: (raw.sandboxesByCluster ?? [])
-      .map((s) => ({ cluster: s.cluster ?? "", count: num(s.count) }))
-      .filter((s) => s.cluster !== ""),
+      .map((s) => ({
+        managedCluster: s.managedCluster ?? "",
+        count: num(s.count),
+      }))
+      .filter((s) => s.managedCluster !== ""),
     sandboxHistory: (raw.sandboxHistory ?? []).map((v) => num(v)),
+    // Per-spoke history: keep rows with a managed-cluster name; numify both aligned
+    // series so each row is fully shaped (same keep-named-rows rule as the breakdowns).
+    historyByCluster: (raw.historyByCluster ?? [])
+      .map((c): ClusterHistory => ({
+        managedCluster: c.managedCluster ?? "",
+        gatewayHistory: (c.gatewayHistory ?? []).map((s) => ({
+          running: num(s.running),
+          provisioning: num(s.provisioning),
+          failed: num(s.failed),
+        })),
+        sandboxHistory: (c.sandboxHistory ?? []).map((v) => num(v)),
+      }))
+      .filter((c) => c.managedCluster !== ""),
+    logins: typeof raw.logins === "number" ? raw.logins : null,
+    userHistory: (raw.userHistory ?? []).map((v) => num(v)),
+    loginsHistory: (raw.loginsHistory ?? []).map((v) => num(v)),
+    historyTimes: (raw.historyTimes ?? []).map((v) => num(v)),
   };
 }
 
@@ -262,6 +341,103 @@ export function mapFleet(raw: unknown): FleetData {
     .map(([key, rec]) => mapInstanceFleet(key, rec))
     .sort((a, b) => a.instance.localeCompare(b.instance));
   return { instances };
+}
+
+/** The hub block inside a topology.json document (snake_case, as authored). */
+interface WireTopologyHub {
+  readonly instance?: string;
+  readonly dns_label?: string;
+  readonly remote_spokes?: readonly string[] | null;
+}
+
+/** A co-located spoke inside a topology.json document. */
+interface WireTopologySpoke {
+  readonly name?: string;
+}
+
+/** A decoded topology.json document (the `topology` field of an /api/topology entry). */
+interface WireTopologyDoc {
+  readonly hub?: WireTopologyHub | null;
+  readonly spokes?: readonly WireTopologySpoke[] | null;
+}
+
+/** One /api/topology entry: provenance plus the raw topology/clone documents. */
+interface WireTopologyEntry {
+  readonly instance?: string;
+  // The BFF serves topology.json verbatim as embedded JSON; tolerate a string too
+  // (a server that passed the raw text through) by parsing it defensively.
+  readonly topology?: WireTopologyDoc | string | null;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+/** Parse a topology document that may arrive as an object or a JSON string. */
+function parseTopologyDoc(
+  raw: WireTopologyDoc | string | null | undefined,
+): WireTopologyDoc | null {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  if (typeof raw === "string") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return raw;
+}
+
+function mapTopologyHub(
+  raw: WireTopologyHub | null | undefined,
+): TopologyHub | null {
+  if (!raw || typeof raw.instance !== "string" || raw.instance === "") {
+    return null;
+  }
+  return {
+    instance: raw.instance,
+    dnsLabel: nullableString(raw.dns_label),
+    remoteSpokes: (raw.remote_spokes ?? []).filter(
+      (s): s is string => typeof s === "string" && s !== "",
+    ),
+  };
+}
+
+function mapTopologyEntry(
+  key: string,
+  entry: WireTopologyEntry,
+): InstanceTopology {
+  const doc = parseTopologyDoc(entry.topology);
+  const spokes: TopologySpoke[] = (doc?.spokes ?? [])
+    .map((s): TopologySpoke => ({
+      name: typeof s.name === "string" ? s.name : "",
+    }))
+    .filter((s) => s.name !== "");
+  return {
+    instance: entry.instance && entry.instance !== "" ? entry.instance : key,
+    hub: mapTopologyHub(doc?.hub),
+    spokes,
+  };
+}
+
+/**
+ * Project the /api/topology record (instance -> entry) into the domain's topology
+ * map. Every entry is parsed defensively: a malformed document degrades to an empty
+ * topology for that instance rather than throwing, so one bad entry never blanks the
+ * plane (data-architecture.spec §3.2 treats topology as data that may be stale/bad).
+ */
+export function mapTopology(raw: unknown): TopologyData {
+  const out: Record<string, InstanceTopology> = {};
+  if (!isRecord(raw)) {
+    return out;
+  }
+  for (const [key, entry] of Object.entries(raw)) {
+    out[key] = mapTopologyEntry(key, isRecord(entry) ? entry : {});
+  }
+  return out;
 }
 
 export function mapInstances(raw: unknown): InstancesData {

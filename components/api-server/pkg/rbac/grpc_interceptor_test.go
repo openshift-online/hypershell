@@ -87,8 +87,6 @@ func TestAuthorizeUserGRPC(t *testing.T) {
 		{"admin deletes a cluster", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "c"}, []BindingSummary{adminBinding}, codes.OK},
 		{"no RoleBinding service for users", "/hypershell.v1.RoleBindingService/ListRoleBindings", &pb.ListRoleBindingsRequest{}, []BindingSummary{creatorBinding, adminBinding}, codes.PermissionDenied},
 		{"no RoleBinding watch for users", "/hypershell.v1.RoleBindingService/WatchRoleBindings", nil, []BindingSummary{adminBinding}, codes.PermissionDenied},
-		{"admin reads releases", "/hypershell.v1.GatewayReleaseService/ListGatewayReleases", &pb.ListGatewayReleasesRequest{}, []BindingSummary{adminBinding}, codes.OK},
-		{"admin alone cannot change a release", "/hypershell.v1.GatewayReleaseService/UpdateGatewayRelease", &pb.UpdateGatewayReleaseRequest{}, []BindingSummary{adminBinding}, codes.PermissionDenied},
 		{"unknown service denied", "/hypershell.v1.SomethingNew/DoIt", nil, []BindingSummary{creatorBinding, adminBinding}, codes.PermissionDenied},
 		{"health with a binding", "/grpc.health.v1.Health/Check", nil, []BindingSummary{creatorBinding}, codes.OK},
 		{"no bindings denied", gatewaySvc("GetGateway"), get, nil, codes.NotFound},

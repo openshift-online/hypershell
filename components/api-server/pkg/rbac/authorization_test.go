@@ -164,16 +164,6 @@ func TestIsAuthorized_NoBindingsCanListGateways(t *testing.T) {
 	}
 }
 
-func TestIsAuthorized_GatewayViewerCannotAccessGatewayReleases(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: strPtr("gw-1")},
-	}
-
-	if isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
-		t.Error("gateway:viewer must not access gateway_releases")
-	}
-}
-
 func TestIsAuthorized_GatewayOwnerCannotAccessManagedClusters(t *testing.T) {
 	bindings := []BindingSummary{
 		{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-1")},
@@ -181,56 +171,6 @@ func TestIsAuthorized_GatewayOwnerCannotAccessManagedClusters(t *testing.T) {
 
 	if isAuthorized(http.MethodGet, "managed_clusters", "", "", bindings, nil) {
 		t.Error("gateway:owner must not access managed_clusters without gateway:creator")
-	}
-}
-
-func TestIsAuthorized_GatewayCreatorCanAccessGatewayReleases(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "gateway:creator", Scope: "global"},
-	}
-
-	if !isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
-		t.Error("gateway:creator should access gateway_releases")
-	}
-}
-
-func TestIsAuthorized_PlatformAdminCanListGatewayReleases(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if !isAuthorized(http.MethodGet, "gateway_releases", "", "", bindings, nil) {
-		t.Error("platform:admin should list gateway_releases")
-	}
-}
-
-func TestIsAuthorized_PlatformAdminCanGetGatewayRelease(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if !isAuthorized(http.MethodGet, "gateway_releases", "release-1", "", bindings, nil) {
-		t.Error("platform:admin should get gateway_releases by id")
-	}
-}
-
-func TestIsAuthorized_PlatformAdminCanDeleteGatewayRelease(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if !isAuthorized(http.MethodDelete, "gateway_releases", "release-1", "", bindings, nil) {
-		t.Error("platform:admin should delete gateway_releases")
-	}
-}
-
-func TestIsAuthorized_PlatformAdminCannotCreateGatewayRelease(t *testing.T) {
-	bindings := []BindingSummary{
-		{RoleName: "platform:admin", Scope: "global"},
-	}
-
-	if isAuthorized(http.MethodPost, "gateway_releases", "", "", bindings, nil) {
-		t.Error("platform:admin must not create gateway_releases without gateway:creator")
 	}
 }
 
