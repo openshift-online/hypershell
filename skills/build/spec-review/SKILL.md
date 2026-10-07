@@ -47,3 +47,6 @@ Output: `$REVIEW_VERDICT` - One of
 _Note: Create `$REVIEW_VERDICT` label if not exist._
 
 Place label `$REVIEW_VERDICT` on `$GITHUB_ISSUE_URL` and `$GITHUB_PR_URL`
+
+IF `$REVIEW_VERDICT`  == `agent/review-spec-rejected`:
+- Write rejection rationale as a comment on the PR. Use simplified technical english, and inline code review comments if applicable.
