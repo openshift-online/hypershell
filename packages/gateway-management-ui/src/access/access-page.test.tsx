@@ -160,7 +160,7 @@ describe("AccessPage", () => {
     });
     expect(controls.length).toBeGreaterThanOrEqual(1);
     controls.forEach((control) => {
-      expect(control.disabled).toBe(true);
+      expect(control.getAttribute("aria-disabled")).toBe("true");
     });
   });
 
@@ -176,7 +176,7 @@ describe("AccessPage", () => {
     });
     expect(ownerControls.length).toBeGreaterThanOrEqual(1);
     ownerControls.forEach((control) => {
-      expect(control.disabled).toBe(true);
+      expect(control.getAttribute("aria-disabled")).toBe("true");
     });
     // The user row remains actionable.
     expect(

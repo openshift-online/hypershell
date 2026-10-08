@@ -157,7 +157,7 @@ The console SHALL rely on server authorization as the source of truth: it SHALL 
 
 ### Requirement: GAM-UI-08 -- Last-Owner Protection in the UI
 
-When a user is the **last remaining owner**, that row's role control and Remove access action SHALL be disabled with an accessible explanation that a gateway must keep at least one owner (GAM-07). This mirrors the server guarantee rather than replacing it; if the server rejects a mutation with `409`, the console SHALL surface a localized explanation. When more than one owner exists, owner rows SHALL be demotable/removable by owner callers.
+When a user is the **last remaining owner**, that row's role control and Remove access action SHALL be disabled with an accessible explanation that a gateway must keep at least one owner (GAM-07). The explanation SHALL be surfaced as a tooltip on hover and focus over the disabled role control and Remove access action (the control stays focusable, e.g. aria-disabled, so the reason is announced), consistent with the disabled "Delete gateway" affordance (WEB-UI-03). The same disabled-with-tooltip treatment SHALL apply to owner rows a non-owner caller may not manage (GAM-UI-07). This mirrors the server guarantee rather than replacing it; if the server rejects a mutation with `409`, the console SHALL surface a localized explanation. When more than one owner exists, owner rows SHALL be demotable/removable by owner callers.
 
 #### Scenario: Sole owner controls are disabled
 

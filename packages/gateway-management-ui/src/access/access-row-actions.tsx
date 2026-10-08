@@ -11,6 +11,7 @@ import {
   SelectOption,
   MenuToggle,
   type MenuToggleElement,
+  Tooltip,
 } from "@patternfly/react-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
@@ -63,20 +64,32 @@ export function AccessRoleControl({
     retry: false,
   });
 
-  const disabled = disabledReason !== null || mutation.isPending;
   const label = roleLabel(intl.formatMessage, grant.role);
   const controlLabel = `${intl.formatMessage(messages.accessChangeRoleLabel)}: ${userDisplayName(grant)}`;
 
+  // When the row cannot be managed (e.g. the last remaining owner, GAM-UI-08, or
+  // an owner row for a non-owner caller), present the current role as a disabled
+  // control with a tooltip explaining why, mirroring the disabled "Delete gateway"
+  // affordance. isAriaDisabled keeps it focusable so the reason is announced.
+  if (disabledReason !== null) {
+    return (
+      <Tooltip content={disabledReason}>
+        <Button aria-label={disabledReason} isAriaDisabled variant="plain">
+          {label}
+        </Button>
+      </Tooltip>
+    );
+  }
+
   const toggle = (toggleRef: React.Ref<MenuToggleElement>) => (
     <MenuToggle
-      aria-label={disabledReason ?? controlLabel}
-      isDisabled={disabled}
+      aria-label={controlLabel}
+      isDisabled={mutation.isPending}
       isExpanded={isOpen}
       onClick={() => {
         setIsOpen((open) => !open);
       }}
       ref={toggleRef}
-      title={disabledReason ?? undefined}
       variant="plainText"
     >
       {label}
@@ -145,20 +158,33 @@ export function AccessRemoveAction({
     disabledReason ??
     `${intl.formatMessage(messages.accessRemove)}: ${userDisplayName(grant)}`;
 
+  // The last remaining owner (and owner rows for non-owner callers) cannot be
+  // removed (GAM-UI-08). Disable the action and explain why with a tooltip, as the
+  // disabled "Delete gateway" affordance does. isAriaDisabled keeps it focusable.
+  const removeButton = (
+    <Button
+      aria-label={removeLabel}
+      isAriaDisabled={disabledReason !== null}
+      isDanger
+      onClick={() => {
+        if (disabledReason !== null) {
+          return;
+        }
+        setIsOpen(true);
+      }}
+      variant="link"
+    >
+      {intl.formatMessage(messages.accessRemove)}
+    </Button>
+  );
+
   return (
     <>
-      <Button
-        aria-label={removeLabel}
-        isDanger
-        isDisabled={disabledReason !== null}
-        onClick={() => {
-          setIsOpen(true);
-        }}
-        title={disabledReason ?? undefined}
-        variant="link"
-      >
-        {intl.formatMessage(messages.accessRemove)}
-      </Button>
+      {disabledReason !== null ? (
+        <Tooltip content={disabledReason}>{removeButton}</Tooltip>
+      ) : (
+        removeButton
+      )}
       {isOpen ? (
         <Modal
           aria-describedby={descriptionId}
