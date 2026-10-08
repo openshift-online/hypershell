@@ -7,6 +7,7 @@ package harness
 
 import (
 	"fmt"
+	"os"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -34,8 +35,15 @@ type Clients struct {
 // missing or unreachable cluster as a failed assertion with context.
 func NewClients() (*Clients, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	overrides := &clientcmd.ConfigOverrides{}
+	// E2E_KUBECONTEXT pins the suite to a specific context regardless of the
+	// kubeconfig's current-context, so a run targets the intended cluster even when
+	// another session has switched the active context.
+	if ctxName := os.Getenv("E2E_KUBECONTEXT"); ctxName != "" {
+		overrides.CurrentContext = ctxName
+	}
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		loadingRules, &clientcmd.ConfigOverrides{},
+		loadingRules, overrides,
 	).ClientConfig()
 	if err != nil {
 		return nil, fmt.Errorf("resolve KUBECONFIG context: %w", err)

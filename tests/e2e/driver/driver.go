@@ -60,6 +60,10 @@ type E2EInfraDriver interface {
 	// OIDC + authenticated API access. Grant selected by E2E_OIDC_GRANT.
 	AcquireOIDCToken(ctx context.Context, user Credentials) (Token, error)
 	AcquireGatewayTokenWithRole(ctx context.Context, user Credentials, clientID, role string) (Token, error)
+	// AcquireClientCredentialsToken mints a token via the client-credentials grant
+	// for a confidential OIDC client, for example the control-plane registrar
+	// (E2E_REGISTRAR_CLIENT_ID) used by the ManagedCluster /registration checks.
+	AcquireClientCredentialsToken(ctx context.Context, clientID, clientSecret string) (Token, error)
 	APIClient(ctx context.Context, tok Token) (*apiclient.Client, error)
 
 	// Keycloak role helpers (idempotent).

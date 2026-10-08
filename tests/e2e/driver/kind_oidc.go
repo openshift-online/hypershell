@@ -92,6 +92,16 @@ func (d *kindDriver) AcquireOIDCToken(ctx context.Context, user Credentials) (To
 	}
 }
 
+// AcquireClientCredentialsToken mints a token via the client-credentials grant for
+// a confidential client (for example the control-plane registrar).
+func (d *kindDriver) AcquireClientCredentialsToken(ctx context.Context, clientID, clientSecret string) (Token, error) {
+	return d.postToken(ctx, d.tokenEndpoint(), map[string]string{
+		"grant_type":    grantClientCredentials,
+		"client_id":     clientID,
+		"client_secret": clientSecret,
+	})
+}
+
 // clientCredentialsToken acquires an admin API token via the hypershell-e2e
 // service-account client-credentials grant.
 func (d *kindDriver) clientCredentialsToken(ctx context.Context) (Token, error) {
