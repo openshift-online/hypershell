@@ -635,6 +635,9 @@ jobs:
           E2E_PROVISION_TIMEOUT: "300"
           E2E_SANDBOX_TIMEOUT: "180"
           E2E_CONSOLE_READY_TIMEOUT: "300"
+          # show_cmd sleeps E2E_PAUSE seconds (default 1, demo pacing) after every
+          # command it echoes: about 70 of them in the bash suite, ~70s of idle.
+          E2E_PAUSE: "0"
           E2E_CONSOLE_ARTIFACT_DIR: ${{ github.workspace }}/e2e-console-artifacts
           # Empty when the Playwright cache has no Chromium; the console suite
           # then runs `agent-browser install` itself.
@@ -650,7 +653,7 @@ jobs:
           else
             bash tests/e2e/run-parallel.sh \
               "openshell=bash tests/e2e/e2e-openshell.sh" \
-              "console=E2E_MODE=short E2E_PAUSE=0 bash tests/e2e/e2e-console.sh"
+              "console=E2E_MODE=short bash tests/e2e/e2e-console.sh"
           fi
 
       # Browser-driven distributed-trace verification (WEB-TRACE-10): drive a
@@ -923,6 +926,8 @@ jobs:
         id: e2e-suite
         env:
           E2E_INFRA_DRIVER: openshift
+          # No demo pacing: show_cmd would otherwise sleep 1s per echoed command.
+          E2E_PAUSE: "0"
           TERM: dumb
           NO_COLOR: "1"
         run: |

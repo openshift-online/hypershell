@@ -1286,6 +1286,7 @@ deploy/
 | `SSL_CERT_FILE` | (set by the suite) | Path to the extracted cluster CA so the openshell CLI trusts the gateway's TLS cert (replaces the removed `OPENSHELL_GATEWAY_INSECURE` bypass) |
 | `E2E_CONSOLE_URL` | `https://console.hypershell.localhost` | Base URL of the deployed web console for the browser trace verification |
 | `E2E_JAEGER_URL` | `https://jaeger.hypershell.localhost` | Base URL of the Jaeger query API queried by the trace verification |
+| `E2E_PAUSE` | `1` | Seconds `show_cmd` sleeps after echoing each command (demo pacing). CI SHALL set `0` for every e2e suite step (Kind and OpenShift), since the bash suite echoes about 70 commands per run and the default would add about 70 seconds of idle time |
 | `E2E_DISRUPTIVE_GATE_FILE` | (unset) | Set by `tests/e2e/run-parallel.sh` when suites run concurrently. The bash suite waits for this file to exist before area 12g scales the control plane to zero; unset (standalone run) means no wait |
 | `E2E_DISRUPTIVE_GATE_TIMEOUT` | `900` | Seconds the bash suite waits for `E2E_DISRUPTIVE_GATE_FILE` before warning and continuing |
 | `E2E_PARALLEL_HEARTBEAT` | `60` | Seconds between "still running" lines printed by `run-parallel.sh` |
