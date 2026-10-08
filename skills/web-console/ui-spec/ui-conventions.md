@@ -61,11 +61,17 @@ web-console mockup or shared component.
 
 ## Status and shared actions
 
-- Show a healthy status with the green PatternFly check-circle treatment beside
-  the `Healthy` label.
-- Use the green check-circle treatment for a good or clear state, the amber
-  warning-triangle treatment for a warning state, and the red error-circle
-  treatment for a danger state.
+- Use the shared `HealthStatus` mockup component for recurring health and
+  status treatments. Pass an explicit semantic appearance rather than
+  choosing an icon in page-owned markup.
+- Use a red circle with an exclamation mark (`ExclamationCircleIcon`) for
+  danger, error, failed, or otherwise unhealthy states.
+- Use a yellow triangle with an exclamation mark (`ExclamationTriangleIcon`)
+  for warning, degraded, or otherwise impaired states.
+- Use a green circle with a checkmark (`CheckCircleIcon`) for good, healthy,
+  or clear states. The default label is `Healthy`.
+- Keep the icon and label together as one status treatment. Do not use color
+  alone to communicate status.
 - For summary headings such as Needs attention, derive the icon from the
   highest-severity item: danger takes precedence over warning, and warning
   takes precedence over good.
