@@ -78,9 +78,20 @@ stamp_namespace() {
 
 stamp_namespace "${platform_ns}"
 stamp_namespace "${keycloak_ns}"
-"${KUBECTL}" label namespace "${keycloak_ns}" \
-  "${PR_ENV_CI_KEYCLOAK_LABEL}=${PR_ENV_CI_KEYCLOAK_VALUE}" \
-  --overwrite
+
+# GitHub-brokered login (ci-keycloak -> ESO projects hypershell-github-oauth
+# and the e2e client secret) is only wired up for pull requests, which are
+# the only environments a human reviews via the web console. Labeling a
+# push-to-main/merge-queue keycloak namespace here would make
+# github_idp_enabled true in scripts/cluster/drivers/openshift.sh without the
+# matching hypershell-e2e-client secret (only ensured by the PR-only
+# "Wait for ESO secrets and ensure e2e client" step), failing
+# `make openshift-seed` under SEED_STRICT=true.
+if [[ -n "${PR_NUMBER:-}" ]]; then
+  "${KUBECTL}" label namespace "${keycloak_ns}" \
+    "${PR_ENV_CI_KEYCLOAK_LABEL}=${PR_ENV_CI_KEYCLOAK_VALUE}" \
+    --overwrite
+fi
 
 # Publish the resolved facts for later workflow steps (comment, summary).
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

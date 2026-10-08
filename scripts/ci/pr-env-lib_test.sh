@@ -525,6 +525,62 @@ case "${stamp_step}" in
     PASS=$((PASS + 1))
     ;;
 esac
+
+# --- stamp-pr-env.sh: ci-keycloak label must stay PR-only ---
+#
+# Labeling a push-to-main/merge-queue keycloak namespace hypershell.redhat.io/
+# ci-keycloak=true makes ESO project the GitHub OAuth secret into it, which
+# flips github_idp_enabled() to true in scripts/cluster/drivers/openshift.sh
+# without the matching hypershell-e2e-client secret (only the PR-only "Wait
+# for ESO secrets and ensure e2e client" step provisions that), failing
+# `make openshift-seed` under SEED_STRICT=true. Regression: PR #471's
+# merge-queue run (hypershell-ci-mq-369542e, run 37821568691) broke exactly
+# this way when the whole stamping step was made unconditional.
+stub_kubectl_dir="$(mktemp -d)"
+trap 'rm -rf "${stub_kubectl_dir}"' EXIT
+labeled_log="${stub_kubectl_dir}/labeled.txt"
+cat > "${stub_kubectl_dir}/kubectl" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1 $2" == "label namespace" ]]; then
+  printf '%s %s\n' "$3" "$4" >> "${LABELED_LOG}"
+fi
+exit 0
+STUB
+chmod +x "${stub_kubectl_dir}/kubectl"
+
+: > "${labeled_log}"
+LABELED_LOG="${labeled_log}" PR_NUMBER=232 PR_ENV_KUBECTL="${stub_kubectl_dir}/kubectl" \
+  bash "${SCRIPT_DIR}/stamp-pr-env.sh" >/dev/null
+if grep -q 'hypershell-ci-pr-232-keycloak hypershell.redhat.io/ci-keycloak=true' "${labeled_log}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: stamp-pr-env.sh does not label a PR keycloak namespace ci-keycloak'
+fi
+
+: > "${labeled_log}"
+LABELED_LOG="${labeled_log}" PR_NUMBER= GITHUB_EVENT_NAME=merge_group \
+  GITHUB_SHA='abcdef1234567890deadbeef' PR_ENV_KUBECTL="${stub_kubectl_dir}/kubectl" \
+  bash "${SCRIPT_DIR}/stamp-pr-env.sh" >/dev/null
+if grep -q 'ci-keycloak' "${labeled_log}"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: stamp-pr-env.sh labeled a merge-queue keycloak namespace ci-keycloak, enabling GitHub IdP without an e2e client secret'
+else
+  PASS=$((PASS + 1))
+fi
+
+: > "${labeled_log}"
+LABELED_LOG="${labeled_log}" PR_NUMBER= GITHUB_EVENT_NAME=push \
+  GITHUB_SHA='abcdef1234567890deadbeef' PR_ENV_KUBECTL="${stub_kubectl_dir}/kubectl" \
+  bash "${SCRIPT_DIR}/stamp-pr-env.sh" >/dev/null
+if grep -q 'ci-keycloak' "${labeled_log}"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: stamp-pr-env.sh labeled a push-to-main keycloak namespace ci-keycloak, enabling GitHub IdP without an e2e client secret'
+else
+  PASS=$((PASS + 1))
+fi
+rm -rf "${stub_kubectl_dir}"
+trap - EXIT
 if grep -q 'PR_ENV_PHASE=destroyed' "${SCRIPT_DIR}/../../.github/workflows/pr-environment-commands.yml"; then
   PASS=$((PASS + 1))
 else
