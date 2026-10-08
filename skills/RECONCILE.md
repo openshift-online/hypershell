@@ -252,7 +252,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | SA-1 | Synchronous provisioning and one-time delivery | Present | - | `plugins/serviceAccounts/`, `pkg/keycloak/service_accounts.go` | SA-W1..W3 |
-| SA-2 | Federated Keycloak is the identity system of record | Present | - | `deploy/base/api-server.yaml`, `pkg/keycloak/service_accounts.go` | SA-W3 |
+| SA-2 | Federated Keycloak is the identity system of record | Present | - | `deploy/base/applications/api-server.yaml`, `pkg/keycloak/service_accounts.go` | SA-W3 |
 | SA-3 | Client Credentials token issuance | Present | - | `pkg/keycloak/service_accounts.go`, lifecycle sweep | SA-W3 |
 | SA-4 | Single-gateway isolation | Present | - | `pkg/keycloak/service_accounts.go` | SA-W3 |
 | SA-5 | User-selected, RBAC-capped OpenShell role | Present | - | `pkg/rbac/authorization.go`, `plugins/serviceAccounts/service.go` | SA-W3 |
@@ -348,7 +348,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| D1 | Admin Credential Mount | Present | Files read from `GATEWAY_DATABASE_ADMIN_DIR` on every operation; Secret volume in `deploy/base/controller.yaml` | `gateway/database.go`, `config/config.go` | EXT-DB ✅ |
+| D1 | Admin Credential Mount | Present | Files read from `GATEWAY_DATABASE_ADMIN_DIR` on every operation; Secret volume in `deploy/base/platform-resources/controller.yaml` | `gateway/database.go`, `config/config.go` | EXT-DB ✅ |
 | D2 | Startup Precondition | Present | Required files, PEM `sslrootcert`, port range and `sslmode=verify-full` validated; `log.Fatalf` on failure; no connection at startup | `cmd/hypershell-controller/main.go`, `gateway/database.go` | EXT-DB ✅ |
 | D3 | Per-Gateway Database Provisioning | Present | `CREATE ROLE ... LOGIN`, `GRANT gw_<id> TO <admin>`, `CREATE DATABASE ... OWNER`, `REVOKE/GRANT CONNECT`; password reuse + `ALTER ROLE` repair | `gateway/database.go` | EXT-DB ✅ |
 | D4 | Gateway Credentials Secret (uri, sslmode=require) | Present | Tenant Secret carries `sslmode=require` and `uri` with no `sslrootcert`; no admin values. Helm chart's `server.externalDbSecret` reads only the `uri` key | `gateway/database.go` | EXT-DB ✅ |
@@ -450,7 +450,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | DASH-01 | Gateway phase Prometheus collector (`hypershell_gateways_total`) | Present | - | `plugins/gateways/metrics.go`, `dao.go:CountByPhase` | - |
-| DASH-02 | Metrics server bind `0.0.0.0:4433` | Present | - | `deploy/base/api-server.yaml` | - |
+| DASH-02 | Metrics server bind `0.0.0.0:4433` | Present | - | `deploy/base/applications/api-server.yaml` | - |
 | DASH-03 | Prometheus Operator and instance | Present | - | `deploy/kind/prometheus-operator/prometheus-operator-bundle.yaml`, `deploy/base/prometheus/` | - |
 | DASH-04 | ServiceMonitor scrape configuration | Present | - | `deploy/base/prometheus/servicemonitor.yaml` | - |
 | DASH-05 | BFF metrics proxy `GET /api/metrics/gateways` | Present | - | `bff/src/metrics-gateways.ts`, `bff/src/app.ts`, `bff/test/metrics-gateways.test.ts` | - |

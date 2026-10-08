@@ -120,6 +120,24 @@ export function TopologyMap({
   } = useMapViewport(layout.width, layout.height, containerAspect);
   const [selection, setSelection] = useState<MapSelection | null>(null);
 
+  // Esc closes the details drawer. PatternFly's inline Drawer does not trap focus
+  // or handle Escape itself, so we listen at the document level, but only while a
+  // selection is open, leaving Esc untouched when the panel is closed.
+  useEffect(() => {
+    if (selection === null) {
+      return;
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelection(null);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [selection]);
+
   // Promotion fly-ins: identicons arc from the promoting-FROM node to the node they
   // land on, and each landing jolts the whole canvas (screen shake). Both collapse to
   // nothing under prefers-reduced-motion (handled in useFlights + CSS).
