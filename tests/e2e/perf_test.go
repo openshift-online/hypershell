@@ -71,7 +71,6 @@ type perfHarness struct {
 	clients   *harness.Clients
 	admin     *apiclient.Client
 	clusterID string
-	releaseID string
 
 	count       int
 	batchSize   int
@@ -107,7 +106,7 @@ func newPerfHarness(b *testing.B) *perfHarness {
 	if err != nil {
 		b.Fatalf("build API client: %v", err)
 	}
-	clusterID, releaseID, err := perfSeedIDs(ctx, api, d.Name())
+	clusterID, err := perfSeedIDs(ctx, api, d.Name())
 	if err != nil {
 		b.Fatalf("discover seed ids: %v", err)
 	}
@@ -117,7 +116,6 @@ func newPerfHarness(b *testing.B) *perfHarness {
 		clients:     clients,
 		admin:       api,
 		clusterID:   clusterID,
-		releaseID:   releaseID,
 		count:       intEnv("E2E_PERF_GATEWAY_COUNT", 5),
 		batchSize:   intEnv("E2E_PERF_BATCH_SIZE", 5),
 		concurrency: intEnv("E2E_CONCURRENCY", 4),
@@ -157,7 +155,7 @@ func (h *perfHarness) scaleUp(b *testing.B) {
 }
 
 func (h *perfHarness) provisionOne(ctx context.Context, b *testing.B, name string) {
-	body := map[string]string{"name": name, "cluster_id": h.clusterID, "release_id": h.releaseID, "route": `{"enabled":true}`}
+	body := map[string]string{"name": name, "cluster_id": h.clusterID, "route": `{"enabled":true}`}
 	createStart := time.Now()
 	status, resp, err := h.admin.RawJSON(ctx, "POST", "/gateways", body)
 	if err != nil || status != 201 {
@@ -343,18 +341,17 @@ func computeStats(durs []time.Duration) perfStats {
 	}
 }
 
-// perfSeedIDs resolves the seeded cluster and release ids for the perf fleet.
-func perfSeedIDs(ctx context.Context, api *apiclient.Client, driverName string) (clusterID, releaseID string, err error) {
+// perfSeedIDs resolves the seeded cluster id for the perf fleet.
+func perfSeedIDs(ctx context.Context, api *apiclient.Client, driverName string) (clusterID string, err error) {
 	clusterName := "local-kind"
 	if driverName == "openshift" {
 		clusterName = "local-openshift"
 	}
 	clusterName = envOrDefault("E2E_SEED_CLUSTER_NAME", clusterName)
-	releaseName := envOrDefault("E2E_SEED_RELEASE_NAME", "dev-release")
 
 	clusters, err := api.ManagedClusters().List(ctx, nil)
 	if err != nil {
-		return "", "", fmt.Errorf("list managed clusters: %w", err)
+		return "", fmt.Errorf("list managed clusters: %w", err)
 	}
 	for _, c := range clusters.Items {
 		if c.OidcSubject == "" {
@@ -364,17 +361,8 @@ func perfSeedIDs(ctx context.Context, api *apiclient.Client, driverName string) 
 			clusterID = c.ID
 		}
 	}
-	releases, err := api.GatewayReleases().List(ctx, nil)
-	if err != nil {
-		return "", "", fmt.Errorf("list gateway releases: %w", err)
+	if clusterID == "" {
+		return "", fmt.Errorf("missing seed id (cluster=%q)", clusterID)
 	}
-	for _, r := range releases.Items {
-		if r.Name == releaseName || releaseID == "" {
-			releaseID = r.ID
-		}
-	}
-	if clusterID == "" || releaseID == "" {
-		return "", "", fmt.Errorf("missing seed ids (cluster=%q release=%q)", clusterID, releaseID)
-	}
-	return clusterID, releaseID, nil
+	return clusterID, nil
 }

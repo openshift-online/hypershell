@@ -1,7 +1,7 @@
 // Package apiclient is a thin wrapper over the generated HyperShell Go SDK
 // (components/sdk-go). It embeds the SDK client so the suite uses the typed
-// resource APIs (Gateways, ManagedClusters, GatewayReleases, GatewayNetworks,
-// Users, RoleBindings) directly, and adds a raw authenticated request helper for
+// resource APIs (Gateways, ManagedClusters, Users, RoleBindings) directly, and
+// adds a raw authenticated request helper for
 // the handful of endpoints the typed SDK does not cover (the unauthenticated 401
 // probe, POST /managed_clusters/registration, and phase-write validation).
 package apiclient
