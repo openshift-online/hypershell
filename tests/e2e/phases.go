@@ -20,23 +20,20 @@ import (
 	"github.com/openshift-online/hypershell/tests/e2e/harness"
 )
 
-// discoverSeedIDs resolves the seeded managed-cluster and gateway-release ids the
-// suite provisions gateways against, selecting by E2E_SEED_CLUSTER_NAME /
-// E2E_SEED_RELEASE_NAME (driver-specific defaults) and requiring a registered
-// cluster (non-empty oidc_subject).
-func (s *E2ESuite) discoverSeedIDs(ctx context.Context) (clusterID, releaseID string, err error) {
-	defClusterName, defReleaseName := s.seedDefaults()
-	clusterName := envOrDefault("E2E_SEED_CLUSTER_NAME", defClusterName)
-	releaseName := envOrDefault("E2E_SEED_RELEASE_NAME", defReleaseName)
+// discoverSeedIDs resolves the seeded managed-cluster id the suite provisions
+// gateways against, selecting by E2E_SEED_CLUSTER_NAME (driver-specific default)
+// and requiring a registered cluster (non-empty oidc_subject).
+func (s *E2ESuite) discoverSeedIDs(ctx context.Context) (clusterID string, err error) {
+	clusterName := envOrDefault("E2E_SEED_CLUSTER_NAME", s.seedDefaults())
 
-	// The matrix runner pins the cluster id directly; only the release is discovered.
+	// The matrix runner pins the cluster id directly.
 	if s.clusterIDOverride != "" {
 		clusterID = s.clusterIDOverride
 	}
 
 	clusters, err := s.admin.ManagedClusters().List(ctx, nil)
 	if err != nil {
-		return "", "", fmt.Errorf("list managed clusters: %w", err)
+		return "", fmt.Errorf("list managed clusters: %w", err)
 	}
 	for _, c := range clusters.Items {
 		if clusterID != "" {
@@ -54,26 +51,9 @@ func (s *E2ESuite) discoverSeedIDs(ctx context.Context) (clusterID, releaseID st
 		}
 	}
 	if clusterID == "" {
-		return "", "", fmt.Errorf("no registered managed cluster found (wanted %q; re-seed with `make %s-seed`)", clusterName, s.driver.Name())
+		return "", fmt.Errorf("no registered managed cluster found (wanted %q; re-seed with `make %s-seed`)", clusterName, s.driver.Name())
 	}
-
-	releases, err := s.admin.GatewayReleases().List(ctx, nil)
-	if err != nil {
-		return "", "", fmt.Errorf("list gateway releases: %w", err)
-	}
-	for _, r := range releases.Items {
-		if r.Name == releaseName {
-			releaseID = r.ID
-			break
-		}
-		if releaseID == "" {
-			releaseID = r.ID
-		}
-	}
-	if releaseID == "" {
-		return "", "", fmt.Errorf("no gateway release found (wanted %q; re-seed with `make %s-seed`)", releaseName, s.driver.Name())
-	}
-	return clusterID, releaseID, nil
+	return clusterID, nil
 }
 
 // --- Phase P0: preflight gate ---
@@ -166,7 +146,6 @@ func (s *E2ESuite) p0_2EnvironmentReadiness(t *testing.T) {
 	s.Assert().GreaterOrEqual(len(nps.Items), 1, "platform namespace should have baseline NetworkPolicies")
 
 	s.Assert().NotEmpty(s.clusterID, "seeded cluster id")
-	s.Assert().NotEmpty(s.releaseID, "seeded release id")
 }
 
 // --- Phase P1: primary gateway up and reachable ---
@@ -319,7 +298,6 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	createBody := map[string]string{
 		"name":       "e2e-dev-create-" + s.runID,
 		"cluster_id": s.clusterID,
-		"release_id": s.releaseID,
 		"route":      `{"enabled":true}`,
 		"oidc":       s.gatewayOIDCConfig(),
 	}
@@ -383,7 +361,7 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 // follow-ups.
 func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	ctx := t.Context()
-	defClusterName, _ := s.seedDefaults()
+	defClusterName := s.seedDefaults()
 	clusterName := envOrDefault("E2E_SEED_CLUSTER_NAME", defClusterName)
 
 	// 12a: the seeded cluster is registered (non-empty oidc_subject, fresh last_seen).
@@ -424,58 +402,13 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 
 	// 12e: gateway-create rejects an empty cluster_id.
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", map[string]string{
-		"name": "e2e-nocluster-" + s.runID, "cluster_id": "", "release_id": s.releaseID,
+		"name": "e2e-nocluster-" + s.runID, "cluster_id": "",
 	})
 	s.Require().NoError(err, "gateway create with empty cluster_id")
 	s.Assert().Equalf(http.StatusBadRequest, st, "empty cluster_id must be 400 (body: %s)", string(body))
 	s.Assert().Containsf(strings.ToLower(string(body)), "cluster_id", "400 reason should name cluster_id (body: %s)", string(body))
 
 	t.Log("NOTE: gRPC WatchGateways identity rejection and controller reconnect convergence are follow-ups")
-}
-
-// p2_5ReleasePromotion validates a revision-aware, last-good-preserving rollout:
-// repointing release_id drives observed_release_id to the new release, and a
-// failed (unpullable) rollout preserves the last-good observed release rather than
-// moving the gateway to the bad image. Owns its own gateway.
-func (s *E2ESuite) p2_5ReleasePromotion(t *testing.T) {
-	ctx := t.Context()
-
-	// Reuse the seeded release's (pullable) image for release B so only the
-	// release id changes.
-	seeded, err := s.admin.GatewayReleases().Get(ctx, s.releaseID)
-	s.Require().NoError(err, "get seeded release")
-	goodImage := seeded.Image
-	s.Require().NotEmpty(goodImage, "seeded release image")
-
-	relB := s.createRelease(t, "e2e-rel-b-"+s.runID, goodImage)
-	s.pollReleaseStatus(t, relB, "Available")
-
-	gw := s.createGatewayWithRelease(t, "e2e-promote-"+s.runID, s.releaseID)
-	s.trackGateway(gw.ID)
-	s.waitGatewayRunning(t, gw.ID)
-
-	// Promote A -> B; observed_release_id converges to B.
-	s.patchGatewayRelease(t, gw.ID, relB)
-	s.pollObservedRelease(t, gw.ID, relB)
-
-	// Failed rollout: an unpullable release must NOT move the gateway off the
-	// last-good release (D-E2E-DEGRADED: a failed rollout keeps last-good serving).
-	relBad := s.createRelease(t, "e2e-rel-bad-"+s.runID, "quay.io/openshift-online/hypershell-nonexistent:e2e-"+s.runID)
-	s.patchGatewayRelease(t, gw.ID, relBad)
-	// Sample for a window: observed_release_id must never flip to the bad release.
-	for range 6 {
-		cur, err := s.admin.Gateways().Get(ctx, gw.ID)
-		s.Require().NoError(err, "get gateway during failed rollout")
-		s.Require().NotEqualf(relBad, cur.ObservedReleaseID, "observed_release_id must not move to the failed release (phase %s)", cur.Phase)
-		time.Sleep(5 * time.Second)
-	}
-	cur, err := s.admin.Gateways().Get(ctx, gw.ID)
-	s.Require().NoError(err)
-	s.Assert().Equal(relB, cur.ObservedReleaseID, "observed_release_id stays on last-good release B")
-
-	// Recover back to B.
-	s.patchGatewayRelease(t, gw.ID, relB)
-	s.pollObservedRelease(t, gw.ID, relB)
 }
 
 // p3_1AdminInventory verifies the admin-only /users boundary (non-admin 403,
@@ -522,27 +455,21 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 // --- low-level helpers ---
 
 // createGateway provisions a gateway via the create endpoint, sending only the
-// create-request fields (name, cluster_id, release_id). It uses the raw helper
+// create-request fields (name, cluster_id, route, oidc). route and oidc are
+// JSON-encoded string fields (matching the seed and the API schema):
+// route.enabled=true makes the control plane create the gateway's GRPCRoute, and
+// the oidc config (issuer/audience) lets the gateway validate the CLI's bearer
+// token. namespace is server-derived and must not be sent. It uses the raw helper
 // rather than the SDK's Create, which also serializes server-managed fields (for
 // example the readOnly namespace) that the strict create endpoint rejects.
 func (s *E2ESuite) createGateway(t *testing.T, name string) *sdktypes.Gateway {
-	return s.createGatewayWithRelease(t, name, s.releaseID)
-}
-
-// createGatewayWithRelease provisions a gateway on a specific release. route and
-// oidc are JSON-encoded string fields (matching the seed and the API schema):
-// route.enabled=true makes the control plane create the gateway's GRPCRoute, and
-// the oidc config (issuer/audience) lets the gateway validate the CLI's bearer
-// token. namespace is server-derived and must not be sent.
-func (s *E2ESuite) createGatewayWithRelease(t *testing.T, name, releaseID string) *sdktypes.Gateway {
 	body := map[string]string{
 		"name":       name,
 		"cluster_id": s.clusterID,
-		"release_id": releaseID,
 		"route":      `{"enabled":true}`,
 		"oidc":       s.gatewayOIDCConfig(),
 	}
-	s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s cluster=%s release=%s", s.apiHost, name, s.clusterID, releaseID)
+	s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s cluster=%s", s.apiHost, name, s.clusterID)
 	status, resp, err := s.admin.RawJSON(t.Context(), http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create gateway request")
 	s.Require().Equalf(http.StatusCreated, status, "create gateway status (body: %s)", string(resp))
@@ -570,50 +497,6 @@ func (s *E2ESuite) apiClientForCreds(t *testing.T, creds driver.Credentials) *ap
 	api, err := s.driver.APIClient(t.Context(), tok)
 	s.Require().NoErrorf(err, "build API client for %s", creds.Username)
 	return api
-}
-
-// createRelease creates a GatewayRelease and returns its id.
-func (s *E2ESuite) createRelease(t *testing.T, name, image string) string {
-	s.runner.Show("POST /gateway_releases  # name=%s image=%s", name, image)
-	status, resp, err := s.admin.RawJSON(t.Context(), http.MethodPost, "/gateway_releases", map[string]string{"name": name, "image": image})
-	s.Require().NoError(err, "create release request")
-	s.Require().Equalf(http.StatusCreated, status, "create release status (body: %s)", string(resp))
-	var rel sdktypes.GatewayRelease
-	s.Require().NoError(json.Unmarshal(resp, &rel), "unmarshal release")
-	s.Require().NotEmpty(rel.ID, "created release id")
-	return rel.ID
-}
-
-// pollReleaseStatus waits until the release reaches the wanted status.
-func (s *E2ESuite) pollReleaseStatus(t *testing.T, id, want string) {
-	err := harness.Poll(t.Context(), 5*time.Second, 120*time.Second, func(ctx context.Context) (bool, error) {
-		rel, err := s.admin.GatewayReleases().Get(ctx, id)
-		if err != nil {
-			return false, nil
-		}
-		return rel.Status == want, nil
-	})
-	s.Require().NoErrorf(err, "release %s never reached status %q", id, want)
-}
-
-// patchGatewayRelease repoints a gateway's release_id.
-func (s *E2ESuite) patchGatewayRelease(t *testing.T, gatewayID, releaseID string) {
-	s.runner.Show("PATCH /gateways/%s {\"release_id\":%q}", gatewayID, releaseID)
-	_, err := s.admin.Gateways().Update(t.Context(), gatewayID, map[string]any{"release_id": releaseID})
-	s.Require().NoError(err, "patch gateway release_id")
-}
-
-// pollObservedRelease waits until the gateway's observed_release_id converges to
-// the wanted release.
-func (s *E2ESuite) pollObservedRelease(t *testing.T, gatewayID, want string) {
-	err := harness.Poll(t.Context(), 5*time.Second, 180*time.Second, func(ctx context.Context) (bool, error) {
-		gw, err := s.admin.Gateways().Get(ctx, gatewayID)
-		if err != nil {
-			return false, nil
-		}
-		return gw.ObservedReleaseID == want, nil
-	})
-	s.Require().NoErrorf(err, "gateway %s observed_release_id never reached %q", gatewayID, want)
 }
 
 // waitGatewayRunning polls the gateway until it reaches Running or the provision
@@ -644,10 +527,7 @@ func (s *E2ESuite) waitGatewayRunning(t *testing.T, id string) *sdktypes.Gateway
 // recent controller logs, so a provisioning timeout is debuggable from the run.
 func (s *E2ESuite) dumpGatewayDiagnostics(t *testing.T, id string, gw *sdktypes.Gateway) {
 	if gw != nil {
-		t.Logf("DIAG gateway %s phase=%q namespace=%q observed_release=%q", id, gw.Phase, gw.Namespace, gw.ObservedReleaseID)
-		for _, c := range gw.ProvisioningConditions {
-			t.Logf("DIAG   condition %s=%s %s", c.Type, c.ConditionStatus, c.Message)
-		}
+		t.Logf("DIAG gateway %s phase=%q namespace=%q conditions=%s", id, gw.Phase, gw.Namespace, gw.ProvisioningConditions)
 	}
 	if logs, err := s.podLogs(context.Background(), s.driver.PlatformNamespace(), "app=hypershell-controller", 40); err == nil {
 		t.Logf("DIAG controller logs (tail):\n%s", logs)

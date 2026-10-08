@@ -54,7 +54,6 @@ type E2ESuite struct {
 	adminToken driver.Token
 	admin      *apiclient.Client
 	clusterID  string
-	releaseID  string
 
 	// clusterIDOverride, when set (by the matrix runner), pins the suite to a
 	// specific cluster id instead of discovering the seeded one. nameSuffix is
@@ -117,10 +116,10 @@ func (s *E2ESuite) SetupSuite() {
 	s.Require().NoError(err, "build admin API client")
 	s.admin = api
 
-	clusterID, releaseID, err := s.discoverSeedIDs(s.ctx)
-	s.Require().NoError(err, "discover seeded cluster/release ids")
-	s.clusterID, s.releaseID = clusterID, releaseID
-	s.T().Logf("seed ids: cluster=%s release=%s", clusterID, releaseID)
+	clusterID, err := s.discoverSeedIDs(s.ctx)
+	s.Require().NoError(err, "discover seeded cluster id")
+	s.clusterID = clusterID
+	s.T().Logf("seed ids: cluster=%s", clusterID)
 
 	if s.mode == modeLong {
 		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
@@ -183,7 +182,6 @@ func (s *E2ESuite) TestPhases() {
 	s.step("P2.2", "rbac-enforcement", tagLong, s.p2_2RBACEnforcement)
 	s.step("P2.3", "deletion-namespace-gc", tagShort, s.p2_3DeletionAndGC)
 	s.step("P2.4", "managedcluster-lifecycle", tagLong, s.p2_4ManagedClusterLifecycle)
-	s.step("P2.5", "release-promotion", tagLong, s.p2_5ReleasePromotion)
 
 	// Phase P3 -- read-only verification.
 	s.step("P3.1", "admin-inventory-validation", tagLong, s.p3_1AdminInventory)
@@ -325,11 +323,11 @@ func durationSecondsEnv(key string, def time.Duration) time.Duration {
 	return def
 }
 
-// seedDefaults returns the driver-specific default seed names.
-func (s *E2ESuite) seedDefaults() (clusterName, releaseName string) {
+// seedDefaults returns the driver-specific default seed cluster name.
+func (s *E2ESuite) seedDefaults() (clusterName string) {
 	clusterName = "local-kind"
 	if s.driver.Name() == "openshift" {
 		clusterName = "local-openshift"
 	}
-	return clusterName, "dev-release"
+	return clusterName
 }
