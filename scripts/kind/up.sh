@@ -70,6 +70,18 @@ for i in $(seq 1 15); do
 done
 echo ""
 
+# --- Start Keycloak early ---
+# Keycloak is the slowest workload to become ready (two image pulls plus a
+# start-dev boot) and depends on nothing below, so apply it now and let it come
+# up while cloud-provider-kind, the infrastructure and the stand-in PostgreSQL
+# are set up. deploy/kind/keycloak is the same kustomization the full overlay
+# includes, so the "Deploying Components" apply renders an identical Deployment
+# and does not roll it again. Readiness is waited on further down.
+header "Keycloak"
+info "Applying Keycloak early so it boots during infrastructure setup..."
+kustomize build --load-restrictor=LoadRestrictionsNone deploy/kind/keycloak | kube apply -f -
+echo ""
+
 # --- Verify and start cloud-provider-kind ---
 header "cloud-provider-kind"
 CPK_RUNNING=false
@@ -272,6 +284,10 @@ EXTERNAL_PG_NS="external-cloud-db"
 EXTERNAL_PG_PASSWORD="hypershell-kind-admin-password"
 EXTERNAL_PG_HOST="postgres.${EXTERNAL_PG_NS}.svc.cluster.local"
 EXTERNAL_PG_TLS_SECRET="postgres-tls"
+# registry.access.redhat.com/hi/postgresql:18.4, multi-arch (amd64 + arm64)
+# manifest list digest. Shared by the stand-in server and the verify-full probe
+# pod below so the probe reuses the image the node already pulled.
+EXTERNAL_PG_IMAGE="registry.access.redhat.com/hi/postgresql@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09"
 GATEWAY_DB_ADMIN_SECRET="hypershell-gateway-database-admin"
 info "Deploying standalone PostgreSQL in namespace '${EXTERNAL_PG_NS}'..."
 kube create namespace "${EXTERNAL_PG_NS}" --dry-run=client -o yaml | kube apply -f -
@@ -293,7 +309,7 @@ else
   success "TLS Secret '${EXTERNAL_PG_TLS_SECRET}' created"
 fi
 
-kube apply -f - <<'EXTERNAL_PG_EOF'
+kube apply -f - <<EXTERNAL_PG_EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -324,9 +340,7 @@ spec:
         fsGroup: 999
       containers:
         - name: postgres
-          # registry.access.redhat.com/hi/postgresql:18.4, multi-arch
-          # (amd64 + arm64) manifest list digest.
-          image: registry.access.redhat.com/hi/postgresql@sha256:9b1917bf15a3b3a6a99b94ab75db1bfde3f434990e881c69d527417d2c035a09
+          image: ${EXTERNAL_PG_IMAGE}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -388,7 +402,7 @@ success "Stand-in PostgreSQL ready (ssl=on)"
 
 # The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
 # mounted from its own namespace at /etc/hypershell/gateway-database
-# (deploy/base/controller.yaml), and refuses to start without it. It must exist
+# (deploy/base/platform-resources/controller.yaml), and refuses to start without it. It must exist
 # BEFORE the kustomize apply below so the controller pod can mount it. Its
 # sslrootcert is the CA that signed the stand-in server's certificate, and
 # sslmode is pinned to verify-full: the controller rejects anything weaker.
@@ -426,10 +440,18 @@ metadata:
   namespace: ${KIND_NAMESPACE}
 spec:
   restartPolicy: Never
+  # Same image and restricted SecurityContext as the stand-in server above.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
   containers:
     - name: probe
-      image: postgres:15
+      image: ${EXTERNAL_PG_IMAGE}
       imagePullPolicy: IfNotPresent
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
       env:
         - name: PGPASSWORD
           valueFrom:
@@ -466,7 +488,7 @@ while (( SECONDS < _probe_deadline )); do
   if [[ "${_probe_phase}" == "Failed" ]]; then
     break
   fi
-  sleep 2
+  sleep 1
 done
 if [[ -z "${_probe_ok}" ]]; then
   error "verify-full probe against ${EXTERNAL_PG_HOST} failed (phase=${_probe_phase:-unknown})"
@@ -542,15 +564,6 @@ restore_swaps_after_reconcile
 pin_controller_gateway_db_hosts "${EXTERNAL_PG_NS}" "${EXTERNAL_PG_HOST}"
 
 # The stand-in PostgreSQL server was provisioned and waited on above.
-
-if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
-  info "Waiting for Keycloak..."
-  kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
-  success "Keycloak ready"
-fi
-# Test-tier users are reconciled after DNS/port-forward, not here. The
-# Deployment being Available does not mean https://keycloak.hypershell.localhost
-# answers yet (seed.sh documents the same gateway-route race).
 
 # --- Prometheus monitoring stack ---
 # Applied after the main components so the hypershell-system namespace and
@@ -689,6 +702,21 @@ else
   # by deploy/kind/kustomization.yaml and must remain when tracing is off.
   echo ""
 fi
+
+# --- Wait for Keycloak ---
+# Deliberately after the Prometheus and Jaeger steps: neither needs Keycloak, so
+# their applies and the Jaeger rollout overlap its boot instead of queueing
+# behind it. Everything from here on (the API server restart for JWKS, the
+# controller's OIDC registration) does need it.
+if [[ -z "${KIND_KEYCLOAK_URL:-}" ]]; then
+  info "Waiting for Keycloak..."
+  kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=180s
+  success "Keycloak ready"
+fi
+# Test-tier users are reconciled after DNS/port-forward, not here. The
+# Deployment being Available does not mean https://keycloak.hypershell.localhost
+# answers yet (seed.sh documents the same gateway-route race).
+echo ""
 
 # --- Gateway trusted CA (self-signed CA for OIDC over HTTPS) ---
 # The gateway pod validates OIDC tokens against the canonical HTTPS issuer

@@ -191,7 +191,7 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:fd0090fbaf1f5aa9e05f7c66d1078b83acc247407ed51ec531a76e3af5a27775
+  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16
   ```
 - WHEN a user runs `hsctl apply -k overlays/tenant-a/`
 - THEN the CLI SHALL render the kustomization and POST the Gateway resource to the API server
@@ -379,7 +379,7 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 - THEN validation SHALL fail with a descriptive error
 - AND the Gateway SHALL not be reconciled until the configuration is corrected
 
-> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.2-rhaiv.0`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
+> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.2-rhaiv.7`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
 
 #### Scenario: Invalid DNS name
 
@@ -422,7 +422,7 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:fd0090fbaf1f5aa9e05f7c66d1078b83acc247407ed51ec531a76e3af5a27775
+  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16
   serverDnsNames: []
   ```
 - AND a tenant overlay patches the DNS names:
@@ -659,13 +659,27 @@ topology                   = "single-cluster"
 image = "<supervisor-image>"
 ```
 
-The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to the value of the `GATEWAY_SUPERVISOR_IMAGE` environment variable on the control-plane deployment (see `deploy/base/controller.yaml`). The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
+The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to the value of the `GATEWAY_SUPERVISOR_IMAGE` environment variable on the control-plane deployment (see `deploy/base/platform-resources/controller.yaml`). The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
 
 The control plane SHALL also pass `GATEWAY_SANDBOX_RUNTIME_IMAGE` into the OpenShell Helm chart as `sandboxRuntime.image.{registry,repository,tag}` on every install and upgrade, pinned to the same OpenShell build (`OPENSHELL_TAG`) as the supervisor. The sandbox runtime and the supervisor speak a versioned boundary protocol; when the runtime is left to the chart default, which resolves to a moving upstream `dev` tag, it skews from the pinned supervisor and every sandbox stays in `Provisioning` with `attachment denied: ... control request payload digest mismatch`.
 
 The `default_image` field (the sandbox base image) resolves in this order: the Gateway resource's `sandbox_image` field, when set; otherwise the `GATEWAY_SANDBOX_IMAGE` environment variable on the control-plane deployment, when set (see [`global-architecture.spec.md`](./global-architecture.spec.md) "Sandbox Base Image Supports an In-Cluster Registry" - this override lets clusters that cannot reach `ghcr.io` point at a mirrored image); otherwise the published default `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`. A per-Gateway `sandbox_image` always overrides the cluster-wide `GATEWAY_SANDBOX_IMAGE` mirror, the same precedence order `image`/`GATEWAY_IMAGE` and `supervisor_image`/`GATEWAY_SUPERVISOR_IMAGE` already follow.
 
 The control plane SHALL pass that resolved sandbox image into the OpenShell Helm chart as `server.sandboxImage` on every install and upgrade, the same way it supplies `image.repository`/`image.tag` and `supervisor.image.repository`/`supervisor.image.tag`. The chart SHALL render `server.sandboxImage` into `[openshell.gateway].default_image` in the `openshell-gateway-config` ConfigMap. The control plane SHALL NOT write `default_image` by patching a static ConfigMap or SSA placeholder after Helm has rendered the release. A change to `sandbox_image` SHALL be treated as a desired-spec change that causes a Helm upgrade, the same way a change to `image` or `supervisor_image` does.
+
+#### Sandbox Runtime Class (optional)
+
+The control plane MAY pass a Kubernetes `RuntimeClass` name to the OpenShell Helm chart as `server.defaultRuntimeClassName`, sourced from the `GATEWAY_SANDBOX_RUNTIME_CLASS` environment variable on the control-plane deployment. When set, every sandbox pod provisioned by every gateway on the cluster carries `runtimeClassName: <value>`, routing sandbox scheduling through the named runtime.
+
+When `GATEWAY_SANDBOX_RUNTIME_CLASS` is unset or empty (the default), the control plane omits `server.defaultRuntimeClassName` from the Helm values entirely, which causes the chart to omit the `runtimeClassName` field from sandbox pods. Kubernetes then schedules sandboxes using the cluster's default RuntimeClass (typically `runc`).
+
+**Kata Containers:** Setting `GATEWAY_SANDBOX_RUNTIME_CLASS=kata` (or `kata-remote`) enables hardware-enforced VM isolation for every sandbox. Each sandbox pod runs inside a lightweight VM with its own kernel rather than sharing the host kernel. This requires:
+1. The [OpenShift Sandboxed Containers Operator](https://docs.openshift.com/container-platform/latest/sandboxed_containers/sandboxed-containers-overview.html) (or equivalent) installed on the cluster, which creates the `kata` `RuntimeClass` object.
+2. Worker nodes configured to support hardware virtualization (KVM).
+
+`GATEWAY_SANDBOX_RUNTIME_CLASS` is a cluster-wide setting: all gateways on the cluster use the same sandbox RuntimeClass. Per-gateway runtime class selection is not supported.
+
+The chart renders this value into `[openshell.gateway].default_runtime_class_name` in the `openshell-gateway-config` ConfigMap. The chart accepts any valid `RuntimeClass` name; HyperShell does not validate that the named `RuntimeClass` exists on the cluster at reconcile time.
 
 #### OIDC Section (conditional)
 
@@ -804,9 +818,10 @@ Control Plane
 
 | Variable | Default | Description |
 |---|---|---|
-| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
-| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
+| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
+| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.7@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_IMAGE` | *(unset - published community default)* | Sandbox base image used when a Gateway resource does not specify `sandbox_image`. Passed to the chart as `server.sandboxImage`. See [`global-architecture.spec.md`](./global-architecture.spec.md). |
+| `GATEWAY_SANDBOX_RUNTIME_CLASS` | *(unset - cluster default RuntimeClass)* | Kubernetes `RuntimeClass` name applied to every sandbox pod on the cluster (e.g. `kata`, `kata-remote`). Passed to the chart as `server.defaultRuntimeClassName`. Omitted from chart values when unset, so sandbox pods carry no `runtimeClassName` field and the cluster default (runc) is used. Requires the named `RuntimeClass` to exist on the cluster. |
 | `GATEWAY_RESOURCES` | *(unset - requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`)* | Gateway container requests and limits as a JSON Kubernetes `ResourceRequirements` object, e.g. `{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}`. Replaces the defaults entirely (not merged). MUST set `limits.memory`; no request may exceed its limit; `claims` is not supported. An invalid value fails controller startup. Applied to every gateway on the cluster on its next reconcile (Helm upgrade, which restarts the gateway pod). The Kind overlay (`deploy/kind`) sets lower requests (`cpu: 50m`, `memory: 128Mi`) with the default limits, so more gateways fit on the single Kind node. |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
@@ -818,7 +833,7 @@ Control Plane
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:fd0090fbaf1f5aa9e05f7c66d1078b83acc247407ed51ec531a76e3af5a27775
+image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 oidc:
@@ -942,6 +957,7 @@ helm template openshell-gateway oci://ghcr.io/nvidia/openshell/helm-chart \
 | Helm `--set` value | HyperShell equivalent | Implementation location |
 |---|---|---|
 | `server.sandboxImage` | Resolved sandbox base image: `Gateway.sandbox_image` when set, else `GATEWAY_SANDBOX_IMAGE`, else the published community default. The chart renders this into `gateway.toml` `default_image` | `internal/helm/values.go` |
+| `server.defaultRuntimeClassName` | `GATEWAY_SANDBOX_RUNTIME_CLASS` env var; omitted from values when unset. The chart conditionally renders this into `gateway.toml` `default_runtime_class_name` and sets `runtimeClassName` on sandbox pods | `internal/helm/values.go` |
 | `podLabels["hypershell.redhat.io/openshell-dev-build"]` | `Gateway.dev_build`; set only when true | `internal/helm/values.go` |
 | `podAnnotations["hypershell.redhat.io/openshell-dev-build-*"]` | `Gateway.dev_build_metadata.{ref,sha,repo}` | `internal/helm/values.go` |
 | `pkiInitJob.serverDnsNames={...}` | `serverDnsNames` field on the Gateway API resource; substituted into cert-manager Certificate SANs at reconcile time | `internal/reconciler/gateway_reconciler.go` |

@@ -101,6 +101,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**DeleteSecretSource**](docs/DefaultAPI.md#deletesecretsource) | **Delete** /api/hypershell/ext/secret_sources/{id} | Delete a secret source
 *DefaultAPI* | [**GetAgentRuntime**](docs/DefaultAPI.md#getagentruntime) | **Get** /api/hypershell/ext/agent_runtimes/{id} | Get an agent runtime by ID
 *DefaultAPI* | [**GetGateway**](docs/DefaultAPI.md#getgateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
+*DefaultAPI* | [**GetGatewayPlacementAvailability**](docs/DefaultAPI.md#getgatewayplacementavailability) | **Get** /api/hypershell/v1/gateways/placement-availability | Returns current provider placement eligibility
 *DefaultAPI* | [**GetGatewayServiceAccount**](docs/DefaultAPI.md#getgatewayserviceaccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 *DefaultAPI* | [**GetInferenceRoute**](docs/DefaultAPI.md#getinferenceroute) | **Get** /api/hypershell/ext/inference_routes/{id} | Get an inference route by ID
 *DefaultAPI* | [**GetManagedCluster**](docs/DefaultAPI.md#getmanagedcluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
@@ -159,6 +160,8 @@ Class | Method | HTTP request | Description
  - [GatewayDirectoryUserList](docs/GatewayDirectoryUserList.md)
  - [GatewayList](docs/GatewayList.md)
  - [GatewayPatchRequest](docs/GatewayPatchRequest.md)
+ - [GatewayPlacementAvailability](docs/GatewayPlacementAvailability.md)
+ - [GatewayPlacementIntent](docs/GatewayPlacementIntent.md)
  - [InferenceRoute](docs/InferenceRoute.md)
  - [InferenceRouteList](docs/InferenceRouteList.md)
  - [List](docs/List.md)

@@ -10,6 +10,7 @@ export type GatewayAction =
   | "create-service-account"
   | "delete-service-account"
   | "find-placements"
+  | "placement-availability"
   | "get"
   | "get-placement"
   | "get-placements"

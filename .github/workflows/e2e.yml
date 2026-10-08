@@ -1,10 +1,10 @@
 name: E2E
 
-# Reusable final stage of the Tests pipeline. Invoked by
-# .github/workflows/tests.yml only after the Unit stage succeeds
-# (parent-level `needs: [detect-changes, unit]`), so Kind never spins up
-# against a SHA whose unit tests are failing -- no wasted e2e run, and no
-# in-workflow poller waiting on that gate. It does NOT wait on the separate
+# Reusable e2e stage of the Tests pipeline. Invoked by
+# .github/workflows/tests.yml concurrently with the Unit stage (parent-level
+# `needs: detect-changes` only), so the slow cluster setup overlaps unit
+# instead of waiting on it; a failing unit stage does not stop it from
+# starting, but still fails the Tests CI Gate. It does NOT wait on the separate
 # Checks workflow (.github/workflows/checks.yml, lint/policy/drift) -- that
 # workflow runs fully concurrently with Tests as its own top-level entry in
 # the PR checks list, and GitHub Actions `needs:` cannot gate across
@@ -18,8 +18,7 @@ name: E2E
 # `checks: read` permission and the wait-on-check-action steps below remain:
 # they gate on Konflux image builds, which this workflow cannot order with
 # `needs:`. Deploy OpenShift Environment lives in this workflow so OpenShift can
-# `needs:` it instead of polling a separate PR Environment workflow, and so
-# unit failure (this stage never starts) skips deploy. After the suite, the
+# `needs:` it instead of polling a separate PR Environment workflow. After the suite, the
 # OpenShift job tears the environment down unless the pull request is marked
 # retained (/pr-extend). Origin pull requests deploy hypershell-ci-pr-<n>;
 # push to main deploys hypershell-ci-main-<short-sha>; a merge queue entry
@@ -31,8 +30,9 @@ name: E2E
 # retainment label, so teardown always runs for them. Fork PRs skip deploy
 # and OpenShift (no per-PR environment; a fork PR cannot enter the merge
 # queue either). The Kind job runs the bash suite (tests/e2e/e2e-openshell.sh)
-# and, outside merge_group, the Playwright trace verification and the
-# agent-browser console suite (tests/e2e/e2e-console.sh). The OpenShift job
+# and, outside merge_group, the agent-browser console suite
+# (tests/e2e/e2e-console.sh) concurrently with it, then the Playwright trace
+# verification. The OpenShift job
 # runs only the bash suite: its GitHub-brokered login cannot be completed by
 # a headless browser.
 on:
@@ -422,12 +422,12 @@ jobs:
     # hold: kind-up runs first and overlaps the remote build, the
     # wait-on-check-action steps then block for whatever build time is left (up
     # to the 900s discovery ceiling plus the build itself), and only then does
-    # the bash e2e suite run followed by the browser trace verification (Node
-    # install, Chromium download, Playwright run) and the console browser suite
-    # (a second gateway provision, console readiness, and delete-driven GC,
-    # about 10 minutes). 60 minutes covers that combined budget with headroom;
-    # 45 min was the ceiling before the console suite, and 25 min before the
-    # Konflux wait moved in.
+    # the browser toolchain is installed (Node, Chromium) and the bash e2e suite
+    # runs concurrently with the console browser suite (a second gateway
+    # provision, console readiness, and delete-driven GC), followed by the
+    # browser trace verification (Playwright run). 60 minutes covers that
+    # combined budget with headroom; 45 min was the ceiling before the console
+    # suite, and 25 min before the Konflux wait moved in.
     timeout-minutes: 60
     permissions:
       contents: read
@@ -449,6 +449,29 @@ jobs:
           go install sigs.k8s.io/kind@v0.32.0
           kind version
 
+      # make kind-up builds cloud-provider-kind from the pinned fork commit
+      # (CLOUD_PROVIDER_KIND_REF in the Makefile), about a minute of clone and
+      # compile per run. Cache the binary keyed on that commit: kind-prereqs
+      # skips the build when the binary's stamped vcs.revision already matches
+      # the pin, and rebuilds when it does not, so a stale entry costs a
+      # rebuild rather than running the wrong build. Only the default branch
+      # writes the cache, so PR runs cannot poison it.
+      - name: Resolve cloud-provider-kind pin
+        id: cpk-ref
+        run: |
+          ref="$(sed -n 's/^CLOUD_PROVIDER_KIND_REF?=//p' Makefile)"
+          if [[ -z "${ref}" ]]; then
+            echo "::error::CLOUD_PROVIDER_KIND_REF not found in Makefile"
+            exit 1
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+      - name: Restore cloud-provider-kind cache
+        id: cpk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin/cloud-provider-kind
+          key: cloud-provider-kind-${{ runner.os }}-${{ runner.arch }}-${{ steps.cpk-ref.outputs.ref }}
+
       # The e2e test installs the CLI from the observed gateway version.
 
       - name: Create Kind cluster with OIDC
@@ -464,6 +487,13 @@ jobs:
           # runs it once the working-tree images are swapped in.
           SKIP_SEED: "true"
         run: make kind-up
+
+      - name: Save cloud-provider-kind cache
+        if: github.ref == 'refs/heads/main' && steps.cpk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin/cloud-provider-kind
+          key: ${{ steps.cpk-cache.outputs.cache-primary-key }}
 
       # Block until each triggered component build has concluded.
       # wait-on-check-action waits for the named check to both appear and finish,
@@ -557,37 +587,11 @@ jobs:
           SEED_STRICT: "true"
         run: make kind-seed
 
-      - name: Run e2e tests
-        env:
-          E2E_INFRA_DRIVER: kind
-          E2E_OPENSHELL_INSTALL: always
-          # Test the candidate installer before its public main URL is available.
-          OPENSHELL_INSTALL_SCRIPT_URL: file://${{ github.workspace }}/scripts/install-openshell.sh
-          E2E_PROVISION_TIMEOUT: "300"
-          E2E_SANDBOX_TIMEOUT: "180"
-          # Force plain, non-graphical output from the openshell CLI. Off a TTY
-          # its miette-style renderer wraps long diagnostics with a box-drawing
-          # gutter (│) at an assumed 80-col width, which garbles captured logs.
-          TERM: dumb
-          NO_COLOR: "1"
-        run: bash tests/e2e/e2e-openshell.sh
-
-      # Browser-driven distributed-trace verification (WEB-TRACE-10): drive a
-      # real gateway workflow in the deployed console, then assert one trace in
-      # Jaeger joins the browser and the BFF. Reuses the same Node + Chromium
-      # setup the web-console lint job uses.
-      #
-      # These steps run on pull_request, push, and workflow_dispatch -- NOT
-      # merge_group. The trace path is already gated at pull_request time
-      # against the freshly built PR image and re-verified on push to main
-      # against the post-merge image, so re-running it on the merge gate is
-      # redundant coverage that would add a Node install, a Chromium download,
-      # and a Playwright run to every merge. It is also not always testable
-      # there: when a merge batch does not touch web-console the console image
-      # falls back to baseline, which lags main and cannot contain
-      # not-yet-merged tracing code, so the deployed console would emit no
-      # spans and the assertion would test the wrong artifact.
-
+      # Browser toolchain for the trace verification and the console suite. It is
+      # installed before the e2e suites so the console browser suite can run
+      # alongside the bash suite below instead of after it (the installs are
+      # unchanged, only moved earlier). Skipped on merge_group, like both
+      # browser suites.
       - name: Set up Node.js
         if: github.event_name != 'merge_group'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -626,14 +630,11 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ steps.playwright-chromium-cache.outputs.cache-primary-key }}
-      - name: Verify end-to-end traces reach Jaeger
-        if: github.event_name != 'merge_group'
-        run: pnpm --filter @openshift-online/hypershell-web-console test:e2e:live
 
       # Browser e2e of the web console and the per-gateway OpenShell console
       # through agent-browser (e2e-console-browser-testing.spec.md). Same
       # pull_request/push-only gate and rationale as the trace verification
-      # above: browser coverage is proven at PR time against the PR image and
+      # below: browser coverage is proven at PR time against the PR image and
       # re-verified on push to main. Reuses the Node toolchain and the Chromium
       # the Playwright step cached, so there is no second browser download; the
       # agent-browser version is the one pinned in dependency-age-tools.json.
@@ -647,22 +648,63 @@ jobs:
         id: chromium-path
         if: github.event_name != 'merge_group'
         run: echo "path=$(find ~/.cache/ms-playwright -type f -name chrome -path '*/chromium-*' 2>/dev/null | head -1)" >> "$GITHUB_OUTPUT"
-      - name: Run console browser e2e
-        id: e2e-console
-        if: github.event_name != 'merge_group'
+
+      # Run the bash suite and, outside merge_group, the console browser suite
+      # concurrently against the same cluster (tests/e2e/run-parallel.sh). The two
+      # own different gateways (e2e-gw-* and e2e-console-gw-*), browser sessions
+      # and temp directories. The bash suite holds its area 12g control-plane
+      # scale-down until the console suite has exited (E2E_DISRUPTIVE_GATE_FILE),
+      # so the console suite never loses the controller mid-run. On merge_group
+      # only the bash suite runs. E2E_MODE=short applies to the console suite only.
+      - name: Run e2e tests
         env:
           E2E_INFRA_DRIVER: kind
-          E2E_MODE: short
+          E2E_OPENSHELL_INSTALL: always
+          # Test the candidate installer before its public main URL is available.
+          OPENSHELL_INSTALL_SCRIPT_URL: file://${{ github.workspace }}/scripts/install-openshell.sh
           E2E_PROVISION_TIMEOUT: "300"
+          E2E_SANDBOX_TIMEOUT: "180"
           E2E_CONSOLE_READY_TIMEOUT: "300"
+          # show_cmd sleeps E2E_PAUSE seconds (default 1, demo pacing) after every
+          # command it echoes: about 70 of them in the bash suite, ~70s of idle.
           E2E_PAUSE: "0"
           E2E_CONSOLE_ARTIFACT_DIR: ${{ github.workspace }}/e2e-console-artifacts
-          # Empty when the Playwright cache has no Chromium; the suite then runs
-          # `agent-browser install` itself.
+          # Empty when the Playwright cache has no Chromium; the console suite
+          # then runs `agent-browser install` itself.
           AGENT_BROWSER_EXECUTABLE_PATH: ${{ steps.chromium-path.outputs.path }}
+          # Force plain, non-graphical output from the openshell CLI. Off a TTY
+          # its miette-style renderer wraps long diagnostics with a box-drawing
+          # gutter (│) at an assumed 80-col width, which garbles captured logs.
           TERM: dumb
           NO_COLOR: "1"
-        run: bash tests/e2e/e2e-console.sh
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
+            bash tests/e2e/e2e-openshell.sh
+          else
+            bash tests/e2e/run-parallel.sh \
+              "openshell=bash tests/e2e/e2e-openshell.sh" \
+              "console=E2E_MODE=short bash tests/e2e/e2e-console.sh"
+          fi
+
+      # Browser-driven distributed-trace verification (WEB-TRACE-10): drive a
+      # real gateway workflow in the deployed console, then assert one trace in
+      # Jaeger joins the browser and the BFF. Reuses the same Node + Chromium
+      # setup the web-console lint job uses.
+      #
+      # These steps run on pull_request, push, and workflow_dispatch -- NOT
+      # merge_group. The trace path is already gated at pull_request time
+      # against the freshly built PR image and re-verified on push to main
+      # against the post-merge image, so re-running it on the merge gate is
+      # redundant coverage that would add a Node install, a Chromium download,
+      # and a Playwright run to every merge. It is also not always testable
+      # there: when a merge batch does not touch web-console the console image
+      # falls back to baseline, which lags main and cannot contain
+      # not-yet-merged tracing code, so the deployed console would emit no
+      # spans and the assertion would test the wrong artifact.
+
+      - name: Verify end-to-end traces reach Jaeger
+        if: github.event_name != 'merge_group'
+        run: pnpm --filter @openshift-online/hypershell-web-console test:e2e:live
 
       - name: Collect diagnostics
         if: failure()
@@ -758,7 +800,7 @@ jobs:
       # Screenshots, URL, accessibility snapshot, and console/page errors the
       # console browser suite captured for each failed step (CON-E2E-11).
       - name: Upload console browser artifacts
-        if: failure() && steps.e2e-console.outcome == 'failure'
+        if: failure() && hashFiles('e2e-console-artifacts/**') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-console-artifacts-${{ matrix.database-provider }}
@@ -774,8 +816,7 @@ jobs:
   # merge-queue commit SHA, so unrelated runs (including two merge queue
   # entries validated concurrently) never cancel each other while repeats of
   # the same target still serialize. Same plan-images / should_run gate as
-  # Kind and OpenShift. Runs after Unit because this workflow is only called
-  # then. Shares pr-env-<n> (or pr-env-main) with /pr-extend, /pr-destroy,
+  # Kind and OpenShift. Runs concurrently with Unit. Shares pr-env-<n> (or pr-env-main) with /pr-extend, /pr-destroy,
   # and close so those cannot race an in-flight deploy. Kind runs in
   # parallel with this job. Fork PRs skip it (no per-PR environment; a fork
   # PR cannot enter the merge queue either).
@@ -811,6 +852,7 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_ENV_RETAINED_MAX_HOURS: ${{ vars.PR_ENV_RETAINED_MAX_HOURS || '72' }}
       PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
+      PR_ENV_MAIN_MQ_MAX_HOURS: ${{ vars.PR_ENV_MAIN_MQ_MAX_HOURS || '4' }}
       PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
       PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config
@@ -915,6 +957,8 @@ jobs:
         id: e2e-suite
         env:
           E2E_INFRA_DRIVER: openshift
+          # No demo pacing: show_cmd would otherwise sleep 1s per echoed command.
+          E2E_PAUSE: "0"
           TERM: dumb
           NO_COLOR: "1"
         run: |

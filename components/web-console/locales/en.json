@@ -1727,6 +1727,18 @@
     "defaultMessage": "Gateway details",
     "description": "Metadata title for a user-facing gateway details page."
   },
+  "app.page.gatewayProvision.awsProvider": {
+    "defaultMessage": "Amazon Web Services",
+    "description": "AWS cloud provider option."
+  },
+  "app.page.gatewayProvision.awsProviderDescription": {
+    "defaultMessage": "For workloads that rely heavily on AWS services or data.",
+    "description": "Description of the AWS provider option."
+  },
+  "app.page.gatewayProvision.cloudProvider": {
+    "defaultMessage": "Cloud provider",
+    "description": "Cloud provider for public gateway placement."
+  },
   "app.page.gatewayProvision.description": {
     "defaultMessage": "Configure a new OpenShell gateway.",
     "description": "Supporting text on the gateway provisioning page."
@@ -1739,13 +1751,85 @@
     "defaultMessage": "Gateway could not be provisioned",
     "description": "Title shown when gateway provisioning fails."
   },
+  "app.page.gatewayProvision.ibmCloudProvider": {
+    "defaultMessage": "IBM Cloud",
+    "description": "IBM Cloud provider option."
+  },
+  "app.page.gatewayProvision.ibmCloudProviderDescription": {
+    "defaultMessage": "The default home for gateways. General-purpose workloads with no special network or data needs.",
+    "description": "Description of the IBM Cloud provider option."
+  },
+  "app.page.gatewayProvision.localDevelopment": {
+    "defaultMessage": "Local development",
+    "description": "Form group label for local Kind placement."
+  },
+  "app.page.gatewayProvision.localKindPlacement": {
+    "defaultMessage": "Use local-kind",
+    "description": "Local Kind placement option."
+  },
+  "app.page.gatewayProvision.localKindPlacementDescription": {
+    "defaultMessage": "Use the local Kind cluster for development.",
+    "description": "Description of local Kind placement."
+  },
+  "app.page.gatewayProvision.networkAccess": {
+    "defaultMessage": "Network access",
+    "description": "Network exposure mode for a gateway."
+  },
+  "app.page.gatewayProvision.noEligibleCluster": {
+    "defaultMessage": "no eligible managed cluster is connected.",
+    "description": "Provider unavailability reason when no matching connected cluster exists."
+  },
+  "app.page.gatewayProvision.noManagedPlacement": {
+    "defaultMessage": "No managed placement is currently available.",
+    "description": "Warning shown when no provider or local development placement can be selected."
+  },
   "app.page.gatewayProvision.pending": {
     "defaultMessage": "Provisioning gateway",
     "description": "Accessible progress text while a gateway is provisioning."
   },
+  "app.page.gatewayProvision.placementAvailabilityError": {
+    "defaultMessage": "Placement availability could not be loaded. Cloud placement is disabled until availability can be verified.",
+    "description": "Warning shown when current gateway placement availability cannot be retrieved."
+  },
+  "app.page.gatewayProvision.placementHelp": {
+    "defaultMessage": "A matching managed cluster is selected at random for the chosen network and provider.",
+    "description": "Explanation of automatic gateway placement."
+  },
+  "app.page.gatewayProvision.publicNetwork": {
+    "defaultMessage": "Public",
+    "description": "Public network placement option."
+  },
+  "app.page.gatewayProvision.publicNetworkDescription": {
+    "defaultMessage": "Accessible through a public endpoint.",
+    "description": "Description of public network placement."
+  },
   "app.page.gatewayProvision.title": {
     "defaultMessage": "Provision gateway",
     "description": "Page title and action for provisioning a gateway."
+  },
+  "app.page.gatewayProvision.unavailableNetwork": {
+    "defaultMessage": "{network} is unavailable: {reason}",
+    "description": "Explanation shown when a network cannot currently accept placement."
+  },
+  "app.page.gatewayProvision.unavailableProvider": {
+    "defaultMessage": "{provider} is unavailable: {reason}",
+    "description": "Explanation shown when a provider cannot currently accept placement."
+  },
+  "app.page.gatewayProvision.vpnNetwork": {
+    "defaultMessage": "VPN",
+    "description": "VPN network placement option."
+  },
+  "app.page.gatewayProvision.vpnNetworkDescription": {
+    "defaultMessage": "For gateways that need to reach GitLab and other internal Red Hat services.",
+    "description": "Description of VPN placement."
+  },
+  "app.page.gatewayProvision.vpnRequiresAws": {
+    "defaultMessage": "VPN placement requires AWS.",
+    "description": "Explanation shown when IBM Cloud is disabled for VPN."
+  },
+  "app.page.gatewayProvision.vpnRequiresLabel": {
+    "defaultMessage": "Red Hat VPN required",
+    "description": "Label shown above the VPN placement guidance."
   },
   "app.page.gateways.description": {
     "defaultMessage": "HyperShell gateways.",

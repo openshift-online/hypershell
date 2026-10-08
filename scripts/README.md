@@ -38,6 +38,21 @@ make hooks-install
 
 Run the hook suite manually with `make hooks-run`.
 
+## Generated CLI and terminal UI
+
+`generate-cli.sh` and `generate-tui.sh` regenerate the `hsctl` commands and the
+terminal UI descriptor with the rh-trex-ai generators. Both source
+`lib/trex-checkout.sh`, which checks out rh-trex-ai at the commit recorded in
+`rh-trex-ai.ref` (a full SHA) into `~/.cache/hypershell/rh-trex-ai`, and refuses
+a checkout whose files were modified. Run them through `make generate-cli` and
+`make generate-tui`; pass `--check` (the `generate-*-check` targets) to fail on
+drift instead of writing. `trex-checkout.sh` prints the checkout path for
+callers such as the dependency age check, which also scans the generators' own
+Go module graphs. `generate-cli.sh` lists the files and commands that are
+hand-maintained, and `--check` also fails on resource commands the generator no
+longer emits. See the CLI and Terminal UI section of `DEVELOPMENT.md` for the
+workflow and for updating the pin.
+
 ## Whitelist guidance
 
 When an unavoidable usage needs an exception, add an entry to the root-level

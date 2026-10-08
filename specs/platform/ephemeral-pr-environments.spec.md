@@ -56,7 +56,7 @@ images, swaps those images into the environment, and posts a pull-request commen
 telling the developer how to log in and how to `/pr-extend`. Tests / E2E / OpenShift
 then runs the OpenShift e2e suite against the live namespace (the same
 `plan-images` / `should_run` gate Kind uses, which also gates Deploy PR
-environment, and only after Unit succeeds so a red unit job never deploys).
+environment, and concurrently with Unit, so the deploy does not wait on it).
 Unless the pull request is marked retained, CI then destroys the environment.
 The per-PR namespace is deterministic from the
 pull-request number, so a retained pull request reuses the same environment
@@ -194,10 +194,10 @@ gateway and database namespaces, and per-namespace swaps), so a torn-down
 ephemeral cycle leaves no HyperShell-owned residue.
 
 Deploy OpenShift Environment and Tests / E2E / OpenShift SHALL run as jobs of
-`.github/workflows/e2e.yml`, the Tests e2e stage invoked after Unit succeeds
+`.github/workflows/e2e.yml`, the Tests e2e stage invoked concurrently with Unit
 (`e2e-testing.spec.md`). They SHALL share that workflow's `plan-images`
 `should_run` gate, so an e2e-irrelevant pull request does not consume a
-cluster namespace, and a unit failure never deploys. OpenShift SHALL
+cluster namespace; a unit failure does not stop the deploy, and the existing teardown still destroys the unretained environment. OpenShift SHALL
 `needs:` Deploy OpenShift Environment; there SHALL be no cross-workflow poller
 between deploy and the suite. `/pr-extend` and `/pr-destroy` live in
 `.github/workflows/pr-environment-commands.yml` (`issue_comment`). A dedicated
@@ -1481,7 +1481,7 @@ the shared harness and this workflow.
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
 | In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment as the last step of Tests / E2E / OpenShift unless retained, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
-| Deploy lives in the e2e stage after Unit, not a parallel PR Environment workflow | A separate workflow would deploy even when Unit fails and would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate means unit failure skips deploy, OpenShift can `needs:` deploy, and teardown can be a last step of the suite job |
+| Deploy lives in the e2e stage, concurrent with Unit, not a parallel PR Environment workflow | A separate workflow would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate lets OpenShift `needs:` deploy and teardown be a last step of the suite job. It starts without waiting for Unit so the slow deploy overlaps the unit stage, at the cost of deploying for a SHA whose unit tests later fail |
 | Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |

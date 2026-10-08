@@ -26,6 +26,7 @@ type Resource struct {
 	Models             []Model
 	ListParameters     []Field
 	Fields             []Field
+	CreateFields       []Field
 	RequiredFields     []string
 	PatchFields        []Field
 	StatusPatchFields  []Field

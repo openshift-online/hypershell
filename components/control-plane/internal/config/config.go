@@ -39,7 +39,9 @@ type Config struct {
 	// unregistered (unfiltered) mode, and a cluster id is never read from
 	// configuration. Sourced from HYPERSHELL_MANAGED_CLUSTER_NAME.
 	// See specs/platform/control-plane.spec.md ("Mandatory Cluster Identity").
-	ManagedClusterName string
+	ManagedClusterName       string
+	ManagedClusterProvider   string
+	ManagedClusterVisibility string
 
 	// OIDC client credentials used both for registration and as per-RPC bearer
 	// credentials on every gRPC call (including the watch streams). All three
@@ -97,6 +99,12 @@ type Config struct {
 	// ResourceRequirements); nil when unset, so the chart values use
 	// helm.DefaultGatewayResources. See specs/platform/openshell-gateway.spec.md.
 	GatewayResources *corev1.ResourceRequirements
+
+	// SandboxRuntimeClass is the Kubernetes RuntimeClass applied to every sandbox
+	// pod created by any gateway on this cluster. Sourced from
+	// GATEWAY_SANDBOX_RUNTIME_CLASS; empty string uses the cluster default (runc).
+	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
+	SandboxRuntimeClass string
 }
 
 func Load() (*Config, error) {
@@ -106,6 +114,8 @@ func Load() (*Config, error) {
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
 		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
 		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
+		ManagedClusterProvider:           strings.ToLower(strings.TrimSpace(getEnv("HYPERSHELL_MANAGED_CLUSTER_PROVIDER", ""))),
+		ManagedClusterVisibility:         strings.ToLower(strings.TrimSpace(getEnv("HYPERSHELL_MANAGED_CLUSTER_VISIBILITY", ""))),
 		OIDCIssuer:                       getEnv("OIDC_ISSUER", ""),
 		OIDCClientID:                     getEnv("OIDC_CLIENT_ID", ""),
 		OIDCClientSecret:                 getEnv("OIDC_CLIENT_SECRET", ""),
@@ -128,6 +138,7 @@ func Load() (*Config, error) {
 		ExternalCAIssuerKind: getEnv("EXTERNAL_CA_ISSUER_KIND", "ClusterIssuer"),
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
+		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
 	}
 
 	if cfg.GRPCServerAddr == "" {
@@ -140,6 +151,8 @@ func Load() (*Config, error) {
 	// the first missing variable.
 	required := []struct{ name, value string }{
 		{"HYPERSHELL_MANAGED_CLUSTER_NAME", cfg.ManagedClusterName},
+		{"HYPERSHELL_MANAGED_CLUSTER_PROVIDER", cfg.ManagedClusterProvider},
+		{"HYPERSHELL_MANAGED_CLUSTER_VISIBILITY", cfg.ManagedClusterVisibility},
 		{"OIDC_ISSUER", cfg.OIDCIssuer},
 		{"OIDC_CLIENT_ID", cfg.OIDCClientID},
 		{"OIDC_CLIENT_SECRET", cfg.OIDCClientSecret},
@@ -148,6 +161,12 @@ func Load() (*Config, error) {
 		if strings.TrimSpace(r.value) == "" {
 			return nil, fmt.Errorf("%s is required: every control plane registers with the hub as a managed cluster (specs/platform/control-plane.spec.md, Mandatory Cluster Identity)", r.name)
 		}
+	}
+	if (cfg.ManagedClusterProvider != "aws" && cfg.ManagedClusterProvider != "ibm" && cfg.ManagedClusterProvider != "kind") ||
+		(cfg.ManagedClusterVisibility != "public" && cfg.ManagedClusterVisibility != "vpn") ||
+		(cfg.ManagedClusterProvider == "ibm" && cfg.ManagedClusterVisibility == "vpn") ||
+		(cfg.ManagedClusterProvider == "kind" && cfg.ManagedClusterVisibility != "public") {
+		return nil, fmt.Errorf("invalid managed cluster placement: provider=%q visibility=%q", cfg.ManagedClusterProvider, cfg.ManagedClusterVisibility)
 	}
 
 	// An invalid GATEWAY_RESOURCES fails startup rather than falling back to the

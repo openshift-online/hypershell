@@ -42,6 +42,8 @@ type gatewayHandler struct {
 	bindingLookup    rbac.RoleBindingLookup
 	clusters         RegisteredClusterLookup
 	enforceRBAC      bool
+	placement        PlacementResolver
+	availability     PlacementAvailabilityResolver
 }
 
 // callerBindings loads the current caller's role bindings once, or nil when RBAC
@@ -87,6 +89,22 @@ func (h gatewayHandler) callerCanEdit(bindings []rbac.BindingSummary, gatewayID 
 	return rbac.CanEditGateway(bindings, gatewayID)
 }
 
+func (h gatewayHandler) GetPlacementAvailability(w http.ResponseWriter, r *http.Request) {
+	if h.availability == nil {
+		handlers.HandleGet(w, r, &handlers.HandlerConfig{Action: func() (interface{}, *errors.ServiceError) {
+			return nil, errors.GeneralError("gateway placement resolver is unavailable")
+		}, ErrorHandler: handlers.HandleError})
+		return
+	}
+	handlers.HandleGet(w, r, &handlers.HandlerConfig{Action: func() (interface{}, *errors.ServiceError) {
+		availability, svcErr := h.availability(r.Context())
+		if svcErr != nil {
+			return nil, svcErr
+		}
+		return availability, nil
+	}, ErrorHandler: handlers.HandleError})
+}
+
 // validateGatewayPhaseValue rejects a phase outside the canonical vocabulary. An
 // absent or empty phase is accepted so the field stays optional.
 func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
@@ -99,8 +117,8 @@ func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
 	return nil
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool) *gatewayHandler {
-	return &gatewayHandler{
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
+	h := &gatewayHandler{
 		gateway:          gateway,
 		generic:          generic,
 		ownerBinding:     ownerBinding,
@@ -109,7 +127,10 @@ func NewGatewayHandler(gateway GatewayService, generic services.GenericService, 
 		bindingLookup:    bindingLookup,
 		clusters:         clusters,
 		enforceRBAC:      enforceRBAC,
+		placement:        placement,
+		availability:     availability,
 	}
+	return h
 }
 
 func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -120,6 +141,18 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			gatewayModel := ConvertGateway(gateway)
+			placement := gateway.GetPlacement()
+			if placementErr := validatePlacementIntent(placement); placementErr != nil {
+				return nil, placementErr
+			}
+			if h.placement == nil {
+				return nil, errors.GeneralError("gateway placement resolver is unavailable")
+			}
+			clusterID, placementErr := h.placement(ctx, placement)
+			if placementErr != nil {
+				return nil, placementErr
+			}
+			gatewayModel.ClusterId = clusterID
 			if phaseErr := validateGatewayPhaseValue(gatewayModel.Phase); phaseErr != nil {
 				return nil, phaseErr
 			}

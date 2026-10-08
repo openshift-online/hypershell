@@ -328,6 +328,27 @@ e2e_multi_identity() {
   [[ "${E2E_MODE}" != "short" ]]
 }
 
+# e2e_wait_disruptive_gate - block until it is safe to disturb the shared control
+# plane (scale it to zero). When another suite runs concurrently against the same
+# cluster (tests/e2e/run-parallel.sh), that runner exports
+# E2E_DISRUPTIVE_GATE_FILE and creates the file once the other suites have exited.
+# With the variable unset (a standalone run) this returns at once. After
+# E2E_DISRUPTIVE_GATE_TIMEOUT seconds (default 900) it warns and proceeds rather
+# than hanging the run.
+e2e_wait_disruptive_gate() {
+  local gate="${E2E_DISRUPTIVE_GATE_FILE:-}"
+  [[ -n "$gate" && ! -e "$gate" ]] || return 0
+  local deadline=$(($(date +%s) + ${E2E_DISRUPTIVE_GATE_TIMEOUT:-900}))
+  dim "  Waiting for the concurrent suites to finish before disturbing the control plane..."
+  while [[ ! -e "$gate" ]]; do
+    if [[ $(date +%s) -ge $deadline ]]; then
+      orange "  Concurrent suites still running after ${E2E_DISRUPTIVE_GATE_TIMEOUT:-900}s; continuing anyway"
+      return 0
+    fi
+    sleep 2
+  done
+}
+
 e2e_utc_now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
@@ -775,16 +796,18 @@ print(obj.get('cluster_id', '') or '')
   [[ -z "${E2E_CLUSTER_ID:-}" && -n "$cluster" ]] && E2E_CLUSTER_ID="$cluster"
 }
 
-# Print a gateway create body that reuses the seeded cluster id.
+# Print a gateway create body using the deployment's placement intent.
 e2e_gateway_create_body() {
   local name="${1:?gateway name required}"
   GW_NAME="$name" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
-    E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" python3 -c "
+    E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER:-}" python3 -c "
 import json, os
+placement = ({'mode': 'local-kind'} if os.environ['E2E_INFRA_DRIVER'] == 'kind'
+             else {'network': 'public', 'provider': 'aws'})
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': os.environ['E2E_CLUSTER_ID'],
+    'placement': placement,
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],

@@ -21,6 +21,7 @@ export type {
   GatewayOperations,
   GatewayPage as GatewayPageResult,
   GatewayPlacement,
+  GatewayPlacementAvailability,
   GatewayPlacementOptions,
   GatewayProvisionInput,
   ProvisioningCondition,

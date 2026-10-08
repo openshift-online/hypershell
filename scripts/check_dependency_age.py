@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import sys
 import tempfile
 import urllib.error
@@ -39,10 +40,26 @@ def parse_time(value):
     return dt.datetime.fromisoformat(value).astimezone(UTC)
 
 
+FETCH_ATTEMPTS = 4
+
+
 def fetch_json(url):
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https":
         raise RuntimeError("dependency metadata URL must use HTTPS")
+    # A registry or CDN can return a complete HTTP response whose body is cut
+    # short, which curl's own retries do not see. Retry when the body is not
+    # valid JSON before failing the check.
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            return json.loads(_fetch_body(url))
+        except json.JSONDecodeError:
+            if attempt == FETCH_ATTEMPTS:
+                raise
+            time.sleep(attempt)
+
+
+def _fetch_body(url):
     if shutil.which("curl"):
         result = subprocess.run(
             [
@@ -67,10 +84,10 @@ def fetch_json(url):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        return json.loads(result.stdout)
+        return result.stdout
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+        return response.read().decode("utf-8")
 
 
 def repository_files(root, pattern):
@@ -379,7 +396,10 @@ def go_modules(go_mod, repository_root=None):
         if module.get("Main"):
             continue
         replacement = module.get("Replace") or {}
-        if replacement.get("Dir"):
+        # A replacement directory is a local path; a version replacement also gets
+        # a Dir once its source is in the module cache, and must still be checked,
+        # or the result would depend on whether the cache is warm.
+        if replacement.get("Dir") and not replacement.get("Version"):
             continue
         resolved = replacement if replacement.get("Version") else module
         if not resolved.get("Version"):
@@ -542,7 +562,20 @@ def main(argv=None):
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--skip-npm", action="store_true")
     parser.add_argument("--skip-go", action="store_true")
+    parser.add_argument(
+        "--external-repo",
+        type=Path,
+        help="checkout of another repository whose Go modules run as build tools",
+    )
+    parser.add_argument(
+        "--external-go-mod",
+        action="append",
+        default=[],
+        help="go.mod, relative to --external-repo, to check like a repository module",
+    )
     args = parser.parse_args(argv)
+    if args.external_go_mod and not args.external_repo:
+        parser.error("--external-go-mod requires --external-repo")
 
     if args.min_age_days < 0:
         parser.error("--min-age-days must not be negative")
@@ -614,9 +647,16 @@ def main(argv=None):
                     failures.append(failure)
 
     if not args.skip_go:
-        for go_mod in repository_files(root, "**/go.mod"):
+        go_mods = [(go_mod, root) for go_mod in repository_files(root, "**/go.mod")]
+        if args.external_repo:
+            external_root = args.external_repo.resolve()
+            go_mods.extend(
+                (external_root / relative, external_root)
+                for relative in args.external_go_mod
+            )
+        for go_mod, module_root in go_mods:
             try:
-                modules = go_modules(go_mod, root)
+                modules = go_modules(go_mod, module_root)
             except (json.JSONDecodeError, subprocess.CalledProcessError) as exc:
                 details = getattr(exc, "stderr", "") or str(exc)
                 failures.append(f"Go module graph failed for {go_mod}: {details.strip()}")

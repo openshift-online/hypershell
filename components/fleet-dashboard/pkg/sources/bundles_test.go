@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -35,21 +36,27 @@ func TestNewGitHubBundlesDisabled(t *testing.T) {
 }
 
 // TestGitHubBundlesEnrich exercises the full enrich path against a fake GitHub
-// API: it resolves each release's date, orders oldest-first, attaches the PRs of
-// the newer build (parsed from the "(#n)" trailer, newest-first, with author and
-// constructed URL), forwards the installation token, and caches results.
+// API: it resolves each release's date from the GITOPS repo (authenticated with
+// the installation token), orders oldest-first, and attaches the newer build's
+// PRs by diffing the UPSTREAM product-source revisions (ManifestsRev) over the
+// public upstream repo UNAUTHENTICATED (parsed from the "(#n)" trailer,
+// newest-first, with author and a URL pointing at the upstream repo). Results
+// are cached.
 func TestGitHubBundlesEnrich(t *testing.T) {
 	var calls int32
-	tokenSeen := ""
+	var mu sync.Mutex
+	authByPath := map[string]string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&calls, 1)
-		tokenSeen = r.Header.Get("Authorization")
+		mu.Lock()
+		authByPath[r.URL.Path] = r.Header.Get("Authorization")
+		mu.Unlock()
 		switch r.URL.Path {
 		case "/repos/acme/gitops/commits/oldsha0001":
 			_, _ = w.Write([]byte(`{"commit":{"author":{"date":"2026-09-01T00:00:00Z"}}}`))
 		case "/repos/acme/gitops/commits/newsha0002":
 			_, _ = w.Write([]byte(`{"commit":{"author":{"date":"2026-09-10T00:00:00Z"}}}`))
-		case "/repos/acme/gitops/compare/oldsha0001...newsha0002":
+		case "/repos/acme/hypershell/compare/oldrev0001...newrev0002":
 			_, _ = w.Write([]byte(`{"commits":[
 				{"commit":{"message":"First change (#101)","author":{"date":"2026-09-05T00:00:00Z"}},"author":{"login":"alice"}},
 				{"commit":{"message":"Merge branch 'main'","author":{"date":"2026-09-06T00:00:00Z"}},"author":{"login":"bot"}},
@@ -68,6 +75,7 @@ func TestGitHubBundlesEnrich(t *testing.T) {
 
 	g := NewGitHubBundles(&config.Config{
 		GitHubRepo:      "acme/gitops",
+		UpstreamRepo:    "acme/hypershell",
 		GitHubAPIBase:   srv.URL,
 		GitHubTokenFile: tokFile,
 	})
@@ -76,14 +84,21 @@ func TestGitHubBundlesEnrich(t *testing.T) {
 	}
 
 	releases := map[string]*Release{
-		"oldsha0001": {Version: "oldsha00", SHA: "oldsha0001"},
-		"newsha0002": {Version: "newsha00", SHA: "newsha0002"},
+		"oldsha0001": {Version: "oldsha00", SHA: "oldsha0001", ManifestsRev: "oldrev0001"},
+		"newsha0002": {Version: "newsha00", SHA: "newsha0002", ManifestsRev: "newrev0002"},
 	}
 	ctx := context.Background()
 	g.Enrich(ctx, releases)
 
-	if tokenSeen != "Bearer inst-token-123" {
-		t.Errorf("installation token not forwarded: %q", tokenSeen)
+	// Dates come from the gitops repo, authenticated with the installation token.
+	if got := authByPath["/repos/acme/gitops/commits/newsha0002"]; got != "Bearer inst-token-123" {
+		t.Errorf("gitops date call should forward the installation token, got %q", got)
+	}
+	// The upstream compare is a PUBLIC repo read -- no token (the installation
+	// token is scoped to the gitops repo and must not leak to, or 403 against, a
+	// different repo).
+	if got := authByPath["/repos/acme/hypershell/compare/oldrev0001...newrev0002"]; got != "" {
+		t.Errorf("upstream compare should be unauthenticated, got auth %q", got)
 	}
 	if got := releases["oldsha0001"].Date; got != "2026-09-01T00:00:00Z" {
 		t.Errorf("old date: %q", got)
@@ -107,9 +122,10 @@ func TestGitHubBundlesEnrich(t *testing.T) {
 	if prs[1].Title != "First change" || prs[1].Author != "alice" {
 		t.Errorf("PR #101 title/author: %q / %q", prs[1].Title, prs[1].Author)
 	}
-	// The test API base is the httptest server, so the derived HTML base is that
-	// server (htmlBaseFrom's github.com path is covered separately).
-	if want := srv.URL + "/acme/gitops/pull/101"; prs[1].URL != want {
+	// PR links point at the UPSTREAM repo, not the gitops repo. The test API base
+	// is the httptest server, so the derived HTML base is that server
+	// (htmlBaseFrom's github.com path is covered separately).
+	if want := srv.URL + "/acme/hypershell/pull/101"; prs[1].URL != want {
 		t.Errorf("PR #101 url: %q, want %q", prs[1].URL, want)
 	}
 	if prs[0].Title != "Second change" {
@@ -134,7 +150,7 @@ func TestGitHubBundlesEnrich(t *testing.T) {
 // yields the expected newest-first result.
 func TestComparePRsSortedByMergeTime(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/repos/acme/gitops/compare/base...head" {
+		if r.URL.Path == "/repos/acme/hypershell/compare/base...head" {
 			// Deliberately scrambled: dates do not increase with position, and the
 			// PR number order does not match the merge-time order either.
 			_, _ = w.Write([]byte(`{"commits":[
@@ -149,8 +165,8 @@ func TestComparePRsSortedByMergeTime(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL})
-	prs := g.comparePRs(context.Background(), "base", "head")
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", UpstreamRepo: "acme/hypershell", GitHubAPIBase: srv.URL})
+	prs := g.comparePRs(context.Background(), "acme/hypershell", "", "base", "head")
 
 	wantNums := []int{150, 200, 300} // newest merge time first
 	if len(prs) != len(wantNums) {
@@ -170,6 +186,29 @@ func prNums(prs []PR) []int {
 		out[i] = p.Number
 	}
 	return out
+}
+
+// TestGitHubBundlesNoUpstreamRev confirms a bundle without upstream provenance
+// (ManifestsRev empty -- a short-SHA fallback or a lock predating bundle
+// provenance) is skipped: it is never diffed, so no compare call is made and it
+// carries no PRs. Both releases are dated, so only the missing revision prevents
+// the diff.
+func TestGitHubBundlesNoUpstreamRev(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("no HTTP call expected (dates preset, one release lacks ManifestsRev), got %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	g := NewGitHubBundles(&config.Config{GitHubRepo: "acme/gitops", UpstreamRepo: "acme/hypershell", GitHubAPIBase: srv.URL})
+	releases := map[string]*Release{
+		"a": {SHA: "a", Date: "2026-09-01T00:00:00Z", ManifestsRev: "rev-a"},
+		"b": {SHA: "b", Date: "2026-09-02T00:00:00Z"}, // no ManifestsRev
+	}
+	g.Enrich(context.Background(), releases)
+	if releases["a"].PRs != nil || releases["b"].PRs != nil {
+		t.Errorf("no PRs expected when a bundle lacks upstream provenance: a=%+v b=%+v", releases["a"].PRs, releases["b"].PRs)
+	}
 }
 
 // TestGitHubBundlesSingleRelease confirms a lone release (no prior build) does

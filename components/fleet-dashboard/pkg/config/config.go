@@ -81,6 +81,15 @@ type Config struct {
 	GitHubRepo      string // owner/repo - REQUIRED to enable; no default (firewall)
 	GitHubTokenFile string
 	GitHubAPIBase   string
+	// UpstreamRepo is the PUBLIC product source repo (owner/repo) whose merged
+	// pull requests compose a release bundle -- the "In this bundle" list. Unlike
+	// GitHubRepo (the gitops repo, a fleet-identifying value that must arrive from
+	// config), the product source is public and NOT fleet-identifying, so it
+	// carries a compiled-in default. Read UNAUTHENTICATED by default (public repo);
+	// UpstreamTokenFile stays empty unless an operator points this at a repo that
+	// needs auth (e.g. a mirror).
+	UpstreamRepo      string
+	UpstreamTokenFile string
 	// ReleaseHistoryLimit caps how many distinct release bundles the freight bar
 	// shows (currently-deployed plus previously-deployed history cards). Reuses the
 	// release-lock resolver, so it only takes effect when GitHubRepo is set.
@@ -143,6 +152,10 @@ func Load() (*Config, error) {
 		GitHubRepo:      env("FD_GITHUB_REPO", ""),
 		GitHubTokenFile: env("FD_GITHUB_TOKEN_FILE", ""),
 		GitHubAPIBase:   env("FD_GITHUB_API_BASE", "https://api.github.com"),
+		// openshift-online/hypershell is the public product source and is NOT
+		// fleet-identifying, so it is safe to compile in as the default (firewall).
+		UpstreamRepo:      env("FD_UPSTREAM_REPO", "openshift-online/hypershell"),
+		UpstreamTokenFile: env("FD_UPSTREAM_TOKEN_FILE", ""),
 
 		ReleaseHistoryLimit: envInt("FD_RELEASE_HISTORY_LIMIT", 10),
 		RefreshFleet:        envDuration("FD_REFRESH_FLEET", 15*time.Second),

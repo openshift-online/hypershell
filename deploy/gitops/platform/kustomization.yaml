@@ -29,3 +29,7 @@ patches:
                 env:
                   - name: HYPERSHELL_MANAGED_CLUSTER_NAME
                     value: "hub"
+                  - name: HYPERSHELL_MANAGED_CLUSTER_PROVIDER
+                    value: "aws"
+                  - name: HYPERSHELL_MANAGED_CLUSTER_VISIBILITY
+                    value: "public"

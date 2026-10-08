@@ -11,7 +11,8 @@ import (
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c := &Gateway{}
 	c.Name = gateway.Name
-	c.ClusterId = gateway.ClusterId
+	// Placement resolves the concrete cluster in the create handler before the
+	// Gateway model is persisted.
 	c.ExternalDns = gateway.ExternalDns
 	c.TlsMode = gateway.TlsMode
 	c.ServiceType = gateway.ServiceType
