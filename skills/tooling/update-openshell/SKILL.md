@@ -422,6 +422,25 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
 
+- **v0.1.2-rhaiv.7 (2026-10-08, v0.1.2-rhaiv.0 -> v0.1.2-rhaiv.7, user-directed):**
+  Clean mechanical bump. NVIDIA v0.1.2 release notes cover only docs, supervisor network fix,
+  homebrew config migration, sandbox reaper perf - no contract surface changes. No RBAC
+  escalation (runtimeclasses/priorityclasses/pods were already in controller-rbac.yaml from
+  v0.1.2-rhaiv.0). `go build/vet/test` and `make check` all passed with no code changes.
+  Footprint: OPENSHELL_VERSION, deploy/base/control-plane/deployment.yaml,
+  deploy/base/platform-resources/controller.yaml, deploy/ibm/kustomization.yaml,
+  components/pr-test/e2e-openshell-roks.sh, specs/platform/openshell-gateway.spec.md,
+  specs/platform/data-model.spec.md, specs/platform/openshell-gateway-credentials.spec.md,
+  specs/platform/openshell-image-auto-update.spec.md, skills/deploy/ibm-cluster/SKILL.md,
+  skills/deploy/deploy-cluster/SKILL.md, skills/deploy/gcp-cluster/SKILL.md,
+  charts/openshell/ (vendored via make vendor-openshell-chart).
+  Digests: gateway sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16,
+  supervisor sha256:7e81f0c38e18c076472ec2364494c3ae6481d421b60d771e0f04f21039e7ef8e,
+  sandbox sha256:9188961848d3952f6343132a1746e18cf862f106454a3cb803c12ddfd5b7990a.
+  Console image unchanged (no proto surface change in v0.1.2 rhaiv patches).
+  Issue #366 not closed - it predates this run and remains open tracking the rhaiv.2
+  contract-surface issue; that issue's notes are superseded by the clean rhaiv.7 bump.
+
 - **Skill correction (2026-09-30, rhaiv-exit-condition bug):** Agent ran the nightly
   update-openshell job with current pin `v0.1.2-rhaiv.0` and latest midstream tag
   `v0.1.2-rhaiv.2`. It correctly fetched both, but then concluded "no update needed"

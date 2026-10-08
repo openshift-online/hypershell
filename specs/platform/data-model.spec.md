@@ -255,7 +255,7 @@ All fields in the table below SHALL be part of the REST and gRPC Gateway create 
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:fd0090fbaf1f5aa9e05f7c66d1078b83acc247407ed51ec531a76e3af5a27775`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/controller.yaml`) |
 | `sandbox_image` | string | Sandbox base image the gateway uses when launching sandboxes (default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`). Control plane passes the resolved value as Helm `server.sandboxImage`. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |

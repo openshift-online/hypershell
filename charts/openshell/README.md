@@ -189,6 +189,7 @@ See [`values.yaml`](values.yaml) for source defaults. Selected overlays:
 - [`ci/values-cert-manager.yaml`](ci/values-cert-manager.yaml) - cert-manager integration
 - [`ci/values-keycloak.yaml`](ci/values-keycloak.yaml) - Keycloak OIDC integration
 - [`ci/values-high-availability.yaml`](ci/values-high-availability.yaml) - CI overlay for multi-replica external PostgreSQL testing
+- [`ci/values-autoscaling.yaml`](ci/values-autoscaling.yaml) - CI overlay for rendering the optional gateway HorizontalPodAutoscaler
 - [`ci/values-spire.yaml`](ci/values-spire.yaml) - SPIFFE/SPIRE provider token grants
 - [`ci/values-spire-stack.yaml`](ci/values-spire-stack.yaml) - SPIRE hardened chart values for local development
 
@@ -275,6 +276,32 @@ DNS name while connecting directly to the owning pod. Custom TLS Secrets must
 include that Service DNS name in the server certificate and provide the CA and
 client credentials configured by `server.tls`.
 
+Set `autoscaling.enabled=true` to render an `autoscaling/v2`
+HorizontalPodAutoscaler for the gateway workload. The Deployment or
+StatefulSet then omits `spec.replicas`, and the chart applies its
+multi-replica checks to `autoscaling.maxReplicas`. CPU and memory targets
+need a matching `resources.requests` entry, or a `resources.limits` entry,
+which Kubernetes copies into the request. Add custom metrics from a metrics
+adapter with `autoscaling.metrics`. See the
+[High Availability guide](https://docs.nvidia.com/openshell/latest/kubernetes/high-availability)
+for the metrics to scale and alert on.
+
+Enabling autoscaling on an existing release removes `spec.replicas` from the
+workload in that upgrade. Kubernetes can reset the workload to one replica
+until the HPA scales it back to at least `autoscaling.minReplicas`, which
+disconnects supervisor sessions from the other gateway pods; they reconnect to the remaining replica. Enable autoscaling
+when you install the chart, or during a maintenance window. On an existing
+release, upgrade with `--reset-then-reuse-values`, which needs Helm 3.14 or
+later. With an older Helm, save the values with
+`helm get values <release> -o yaml > values.yaml` and upgrade with
+`--reset-values -f values.yaml`. `--reuse-values` keeps the
+previous chart version's defaults, which lack the autoscaling values,
+including the scale-down `behavior`, when that release predates them. For background, refer to
+[Migrating Deployments and StatefulSets to horizontal autoscaling](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/#migrating-deployments-and-statefulsets-to-horizontal-autoscaling).
+Disabling autoscaling renders `spec.replicas` from `replicaCount` again,
+which defaults to 1, so set `replicaCount` to the replica count you want in
+that upgrade.
+
 ## Secret bootstrap
 
 By default, a pre-install/pre-upgrade hook Job runs `openshell-gateway generate-certs`
@@ -311,6 +338,13 @@ discovery endpoint or its TLS CA.
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for the gateway pod. |
 | agentSandbox.preflight.enabled | bool | `true` | Check the live cluster for a supported Agent Sandbox API before rendering gateway resources. Disable only for offline rendering and linting. |
+| autoscaling.behavior | object | `{"scaleDown":{"policies":[{"periodSeconds":120,"type":"Pods","value":1}],"stabilizationWindowSeconds":300}}` | HPA scaling behavior. Scale-down hands the removed pod's supervisor sessions to the remaining replicas, so the default removes at most one replica every two minutes after a five-minute stabilization window. Helm merges maps: set autoscaling.behavior.scaleDown to null to drop the default. |
+| autoscaling.enabled | bool | `false` | Render a HorizontalPodAutoscaler and stop rendering spec.replicas. |
+| autoscaling.maxReplicas | int | `4` | Maximum gateway replicas. Each replica opens its own PostgreSQL connection pool; size the database for rollouts at this count, as the High Availability guide describes. |
+| autoscaling.metrics | list | `[]` | Additional autoscaling/v2 MetricSpec entries appended verbatim, such as Pods metrics served by prometheus-adapter. |
+| autoscaling.minReplicas | int | `2` | Minimum gateway replicas. Use 2 or more to survive a pod failure. |
+| autoscaling.targetCPUUtilizationPercentage | int | `80` | Target average CPU utilization, as a percentage of resources.requests.cpu. Set to null to disable. Requires resources.requests.cpu, or resources.limits.cpu, which Kubernetes copies into the request. |
+| autoscaling.targetMemoryUtilizationPercentage | int | `nil` | Target average memory utilization, as a percentage of resources.requests.memory. Null disables it. Requires resources.requests.memory, or resources.limits.memory, which Kubernetes copies into the request. |
 | certManager.caSecretName | string | `"openshell-ca-tls"` | Secret created for the intermediate CA (Certificate with isCA: true). |
 | certManager.certificateDuration | string | `"8760h"` | Duration for cert-manager-issued certificates. |
 | certManager.certificateRenewBefore | string | `"720h"` | Renewal window for cert-manager-issued certificates. |
@@ -341,6 +375,7 @@ discovery endpoint or its TLS CA.
 | grpcRoute.gateway.name | string | `""` | Name of the Gateway resource. Defaults to the chart fullname. |
 | grpcRoute.gateway.namespace | string | `""` | Namespace of the Gateway referenced by the GRPCRoute parentRef. Defaults to the release namespace. |
 | grpcRoute.hostnames | list | `[]` | Hostnames the GRPCRoute matches on. Leave empty to match all hosts. |
+| grpcRoute.replicaRouting.enabled | bool | `false` | Route requests carrying an `x-openshell-replica` header straight to that gateway replica. The CLI sets the header on long-lived sandbox connections (SSH, port forwards, exec) using the owner the gateway reports, so they skip the relay through a peer replica. Renders one Service per replica. Requires workload.kind=statefulset, workload.allowMultiReplicaStatefulSet=true, and at most 15 replicas. |
 | imagePullSecrets | list | `[]` | Image pull secrets attached to gateway and helper pods. |
 | nameOverride | string | `"openshell"` | Override the chart name used in generated resource names. |
 | networkPolicy.enabled | bool | `true` | Restrict SSH ingress on sandbox pods to the gateway. In managed mode, the driver applies the equivalent policy to each workspace namespace. |
@@ -355,7 +390,7 @@ discovery endpoint or its TLS CA.
 | pkiInitJob.timeoutSeconds | int | `120` | Maximum time in seconds for the certgen hook to poll for cert-manager certificates. When using cert-manager with BackendTLSPolicy, the hook polls for this many seconds waiting for the certificate to be issued, then creates the backend CA ConfigMap. The Job deadline is set to (timeoutSeconds + 30) to allow time for ConfigMap creation and cleanup. Increase this if cert-manager takes longer than 120 seconds to issue certificates. |
 | podAnnotations | object | `{}` | Extra annotations to add to the gateway pod. |
 | podLabels | object | `{}` | Extra labels to add to the gateway pod. |
-| podLifecycle.terminationGracePeriodSeconds | int | `5` | Grace period, in seconds, before Kubernetes terminates the gateway pod. |
+| podLifecycle.terminationGracePeriodSeconds | int | `30` | Maximum time, in seconds, Kubernetes waits for the gateway to exit before killing it. The gateway exits as soon as shutdown completes; the limit covers supervisor session cleanup and draining queued OCSF records. |
 | podSecurityContext.fsGroup | int | `1000` | fsGroup assigned to the gateway pod. |
 | probes.liveness.failureThreshold | int | `3` | Liveness probe failure threshold before the container is restarted. |
 | probes.liveness.initialDelaySeconds | int | `2` | Liveness probe initial delay, in seconds. |
@@ -420,12 +455,21 @@ discovery endpoint or its TLS CA.
 | server.enableUserNamespaces | bool | `false` | Enable Kubernetes user namespace isolation (hostUsers: false) for sandbox pods. Requires Kubernetes 1.33+ with user namespace support available (beta through 1.35, GA in 1.36+), plus a supporting container runtime and Linux 5.12+. When enabled, container UID 0 maps to an unprivileged host UID and capabilities become namespaced. |
 | server.enableWebsocketTunnel | bool | `false` | Enable the WebSocket tunnel used by CLI/SDK clients behind an authenticated edge proxy. Leave disabled for direct gateway installs. |
 | server.externalDbSecret | string | `""` | Name of a pre-existing Opaque Secret containing a PostgreSQL connection URI (key: uri). When set, the gateway reads OPENSHELL_DB_URL from this Secret instead of using dbUrl. The Secret must contain a `uri` key, e.g. postgresql://user:pass@host:5432/dbname. |
+| server.extraVolumeMounts | list | `[]` | Additional volume mounts for the gateway container. |
+| server.extraVolumes | list | `[]` | Additional volumes for the gateway pod. |
 | server.grpcEndpoint | string | `""` | gRPC endpoint sandboxes call back into the gateway. Leave empty to derive it from the chart fullname, release namespace, service port, and disableTls flag, for example https://openshell.openshell.svc.cluster.local:8080. Override only when sandboxes must reach the gateway via a different hostname (e.g. an external ingress or a host alias). |
 | server.grpcRateLimit.requests | int | `0` | Maximum gRPC requests allowed per window. Must be positive (alongside windowSeconds) to enable rate limiting; 0 (default) disables it. |
 | server.grpcRateLimit.windowSeconds | int | `0` | gRPC rate-limit window length in seconds. Must be positive (alongside requests) to enable rate limiting; 0 (default) disables it. |
 | server.hostGatewayIP | string | `""` | Host gateway IP for sandbox pod hostAliases. When set, sandbox pods get hostAliases entries mapping host.docker.internal and host.openshell.internal to this IP, allowing them to reach services running on the Docker host. Auto-detected by the cluster entrypoint script. |
 | server.logLevel | string | `"info"` | Gateway log level. |
 | server.name | string | `""` | Operator-facing gateway name. Defaults to the chart fullname so all replicas in one installation share an identity. Set explicitly when one telemetry collector receives spans from multiple namespaces or clusters. |
+| server.ocsfLog.enabled | bool | `false` | Write gateway OCSF events as JSONL. |
+| server.ocsfLog.maxFiles | int | `7` | Rotated files retained when rotation is daily. |
+| server.ocsfLog.path | string | `"/tmp/gateway-ocsf.jsonl"` | OCSF JSONL path. The default is writable in the gateway container but does not persist across restarts. To keep records, mount a volume with server.extraVolumes and server.extraVolumeMounts and set a path on it. When replicas share the volume, set subPathExpr: $(OPENSHELL_POD_NAME) on the mount so each replica writes its own file. |
+| server.ocsfLog.queueCapacity | int | `10000` | Maximum records waiting for the file writer. |
+| server.ocsfLog.queueMaxBytes | int | `16777216` | Maximum encoded bytes waiting for the file writer. |
+| server.ocsfLog.rotation | string | `"daily"` | Rotate the active file daily in UTC, or never. |
+| server.ocsfLog.schemaVersion | string | `""` | Optional OCSF downgrade target. Empty emits native OCSF 1.8.0. Supported values: "1.1", "1.3". |
 | server.oidc.adminRole | string | `""` | Role name for admin access. Leave empty (with userRole also empty) for authentication-only mode. Both must be set or both empty. |
 | server.oidc.audience | string | `"openshell-cli"` | Expected audience claim for the API resource server. This should match the server's --oidc-audience, NOT the CLI client ID. |
 | server.oidc.caConfigMapName | string | `""` | Name of a ConfigMap containing a CA certificate bundle (key: ca.crt) for verifying the OIDC issuer's TLS certificate. Required when the issuer uses a non-public CA (e.g. OpenShift ingress, private PKI). |
@@ -441,6 +485,7 @@ discovery endpoint or its TLS CA.
 | server.policyValidationFailureMode | string | `"fail_closed"` | Posture when a candidate sandbox policy fails validation. `fail_closed` deactivates the previous policy; `retain_last_valid` keeps it active. |
 | server.providerTokenGrants.spiffe.enabled | bool | `false` | Mount the SPIFFE Workload API socket into gateway and sandbox pods for dynamic provider token grants. |
 | server.providerTokenGrants.spiffe.workloadApiSocketPath | string | `"/spiffe-workload-api/spire-agent.sock"` | Path to the SPIFFE Workload API socket mounted into gateway and sandbox pods. |
+| server.sandboxGid | string | `""` | GID for sandbox pods (`sandbox_gid`). Empty (default) = same as sandboxUid. Must be an integer between 1 and 4294967294. |
 | server.sandboxImagePullSecrets | list | `[]` | Image pull secrets attached to sandbox pods. Referenced Secrets must exist in the sandbox namespace. |
 | server.sandboxJwt.gatewayId | string | `""` | Stable gateway identity embedded in iss/aud of every minted token. Defaults to the release name so HA replicas share identity. |
 | server.sandboxJwt.k8sSaTokenTtlSecs | int | `3600` | Lifetime (seconds) of the projected ServiceAccount token kubelet writes into each sandbox pod for the IssueSandboxToken bootstrap exchange. Kubelet enforces a minimum of 600s; the driver clamps values outside [600, 86400]. Default 3600 - generous, since the supervisor consumes the token within seconds of pod start. |
@@ -448,6 +493,7 @@ discovery endpoint or its TLS CA.
 | server.sandboxJwt.signingSecretName | string | `""` | Name of the Opaque Secret holding the signing key material. Empty falls back to the chart fullname with "-jwt-keys" appended. |
 | server.sandboxJwt.ttlSecs | int | `3600` | Token TTL in seconds. Defaults to 3600 (1h). |
 | server.sandboxNamespace | string | `""` | Namespace where sandbox pods are created. Defaults to the Helm release namespace (.Release.Namespace) when left empty. |
+| server.sandboxUid | string | `""` | UID for sandbox pods (`sandbox_uid`). Empty (default) = use the OpenShift SCC namespace annotation if present, otherwise the driver default. Must be an integer between 1 and 4294967294. |
 | server.telemetryEnabled | bool | `true` | Enable anonymous OpenShell telemetry from the gateway and the sandbox supervisors it launches. |
 | server.tls.certSecretName | string | `"openshell-server-tls"` | K8s secret (type kubernetes.io/tls) with tls.crt and tls.key for the server. |
 | server.tls.clientCaSecretName | string | `"openshell-server-client-ca"` | K8s secret with ca.crt for client certificate verification (mTLS). Only used when enableMtls is true. Set to "" to disable client certificate verification for HTTPS-only mode. |
