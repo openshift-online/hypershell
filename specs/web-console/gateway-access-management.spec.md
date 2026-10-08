@@ -95,6 +95,8 @@ Assigning a role to a newly selected user SHALL use a modal containing a **radio
 
 Changing an existing grant's role SHALL use the inline role control in that row (GAM-UI-02), offering the same role set the caller may assign. Selecting a different role SHALL change the user's access (GAM-05). The change SHALL reflect in the row on success.
 
+When the caller changes **their own** role (the row's user is the signed-in user), the console SHALL require a confirmation modal before applying the change, warning that it alters the caller's own access, because self-demotion is easy to do by accident. Changing another user's role SHALL NOT require this confirmation. Self-recognition is a client-side convenience (the host supplies the caller's identity); the server remains authoritative for the change itself.
+
 Role submissions SHALL disable their confirm/select control while in flight and SHALL surface a localized error (keeping the user's selection) on failure.
 
 #### Scenario: Owner assigns the Owner role via the radio modal
@@ -108,6 +110,18 @@ Role submissions SHALL disable their confirm/select control while in flight and 
 
 - GIVEN a non-owner admin opens the role modal or inline role control
 - THEN only **User** and **Admin** SHALL be selectable (no Owner option)
+
+#### Scenario: Changing your own role requires confirmation
+
+- GIVEN an owner is viewing the access list and there is more than one owner
+- WHEN that owner selects a different role on their own row
+- THEN a confirmation modal SHALL appear and the change SHALL NOT be applied until confirmed
+- AND confirming SHALL apply the change; cancelling SHALL leave the role unchanged
+
+#### Scenario: Changing another user's role does not require confirmation
+
+- GIVEN an owner selects a different role on another user's row
+- THEN the change SHALL be applied without the self-change confirmation modal
 
 #### Scenario: Change a role inline
 

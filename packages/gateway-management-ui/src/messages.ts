@@ -1215,6 +1215,25 @@ export const messages = defineMessages({
     defaultMessage: "Change role",
     description: "Accessible label for the inline role control.",
   },
+  accessSelfRoleChangeTitle: {
+    id: "app.gateway.access.selfRoleChange.title",
+    defaultMessage: "Change your own role?",
+    description:
+      "Title of the confirmation modal shown when a user changes their own access role.",
+  },
+  accessSelfRoleChangeBody: {
+    id: "app.gateway.access.selfRoleChange.body",
+    defaultMessage:
+      "You are about to change your own role on this gateway to {role}. This may reduce your own access. Do you want to continue?",
+    description:
+      "Body of the confirmation modal shown when a user changes their own access role.",
+  },
+  accessSelfRoleChangeConfirm: {
+    id: "app.gateway.access.selfRoleChange.confirm",
+    defaultMessage: "Change my role",
+    description:
+      "Confirm button in the modal shown when a user changes their own access role.",
+  },
   accessRemove: {
     id: "app.gateway.access.remove",
     defaultMessage: "Remove access",

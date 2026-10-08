@@ -102,7 +102,7 @@ const operations: GatewayOperations = {
   searchGatewayDirectory: mocks.search,
 };
 
-function renderPage() {
+function renderPage(currentUser?: { username?: string }) {
   const queryClient = new QueryClient({
     defaultOptions: {
       mutations: { retry: false },
@@ -113,6 +113,7 @@ function renderPage() {
     <IntlProvider locale="en">
       <QueryClientProvider client={queryClient}>
         <GatewayUiProvider
+          currentUser={currentUser}
           gateways={operations}
           navigation={{
             collectionHref: "/",
@@ -230,6 +231,58 @@ describe("AccessPage", () => {
     await waitFor(() => {
       expect(mocks.change).toHaveBeenCalledWith("gateway-1", "u-user", "admin");
     });
+  });
+
+  it("confirms before a user changes their own role", async () => {
+    const user1 = userEvent.setup();
+    // Two owners so the self owner row is editable (not the last owner), and the
+    // caller is the second owner.
+    mocks.list.mockResolvedValue(
+      accessPage([creator, secondOwner], ownerCapabilities),
+    );
+    renderPage({ username: "owner2" });
+    await screen.findByText("Owen Two");
+
+    await user1.click(
+      screen.getByRole("button", { name: "Change role: Owen Two" }),
+    );
+    await user1.click(screen.getByRole("option", { name: "Admin" }));
+
+    // The change is held until the user confirms in the modal.
+    const dialog = await screen.findByRole("dialog", {
+      name: "Change your own role?",
+    });
+    expect(mocks.change).not.toHaveBeenCalled();
+
+    await user1.click(
+      within(dialog).getByRole("button", { name: "Change my role" }),
+    );
+    await waitFor(() => {
+      expect(mocks.change).toHaveBeenCalledWith(
+        "gateway-1",
+        "u-owner-2",
+        "admin",
+      );
+    });
+  });
+
+  it("changes another user's role without a confirmation modal", async () => {
+    const user1 = userEvent.setup();
+    mocks.list.mockResolvedValue(accessPage([user], ownerCapabilities));
+    // The caller is someone other than the row being edited.
+    renderPage({ username: "owner2" });
+    await screen.findByText("Uma User");
+
+    await user1.click(
+      screen.getByRole("button", { name: "Change role: Uma User" }),
+    );
+    await user1.click(screen.getByRole("option", { name: "Admin" }));
+    await waitFor(() => {
+      expect(mocks.change).toHaveBeenCalledWith("gateway-1", "u-user", "admin");
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "Change your own role?" }),
+    ).toBeNull();
   });
 
   it("removes access with confirmation", async () => {

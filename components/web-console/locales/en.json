@@ -903,6 +903,18 @@
     "defaultMessage": "Select a role",
     "description": "Label for the role radio group in the grant modal."
   },
+  "app.gateway.access.selfRoleChange.body": {
+    "defaultMessage": "You are about to change your own role on this gateway to {role}. This may reduce your own access. Do you want to continue?",
+    "description": "Body of the confirmation modal shown when a user changes their own access role."
+  },
+  "app.gateway.access.selfRoleChange.confirm": {
+    "defaultMessage": "Change my role",
+    "description": "Confirm button in the modal shown when a user changes their own access role."
+  },
+  "app.gateway.access.selfRoleChange.title": {
+    "defaultMessage": "Change your own role?",
+    "description": "Title of the confirmation modal shown when a user changes their own access role."
+  },
   "app.gateway.access.tab": {
     "defaultMessage": "Manage access",
     "description": "Label for the gateway detail Manage access tab."

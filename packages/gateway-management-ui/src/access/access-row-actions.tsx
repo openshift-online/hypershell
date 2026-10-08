@@ -45,10 +45,18 @@ export function AccessRoleControl({
   onActionError: (message: string | null) => void;
 }) {
   const intl = useIntl();
-  const { gateways } = useGatewayUi();
+  const { currentUser, gateways } = useGatewayUi();
   const queryClient = useQueryClient();
+  const confirmTitleId = useId();
+  const confirmBodyId = useId();
   const [isOpen, setIsOpen] = useState(false);
+  const [pendingSelfRole, setPendingSelfRole] =
+    useState<GatewayAccessRole | null>(null);
   const roles = assignableRoles(capabilities);
+  // Changing your OWN access is easy to do by accident (e.g. demoting yourself),
+  // so a self role change is confirmed before it is applied.
+  const isSelf =
+    currentUser?.username?.toLowerCase() === grant.username.toLowerCase();
   const mutation = useMutation({
     mutationFn: (role: GatewayAccessRole) =>
       gateways.changeGatewayAccessRole(gatewayId, grant.userId, role),
@@ -97,31 +105,100 @@ export function AccessRoleControl({
   );
 
   return (
-    <Select
-      id={`gateway-access-role-${grant.userId}`}
-      isOpen={isOpen}
-      onOpenChange={setIsOpen}
-      onSelect={(_event, value) => {
-        setIsOpen(false);
-        if (typeof value === "string" && value !== grant.role) {
-          mutation.mutate(value as GatewayAccessRole);
-        }
-      }}
-      selected={grant.role}
-      toggle={toggle}
-    >
-      <SelectList>
-        {roles.map((role) => (
-          <SelectOption
-            isSelected={role === grant.role}
-            key={role}
-            value={role}
-          >
-            {roleLabel(intl.formatMessage, role)}
-          </SelectOption>
-        ))}
-      </SelectList>
-    </Select>
+    <>
+      <Select
+        id={`gateway-access-role-${grant.userId}`}
+        isOpen={isOpen}
+        onOpenChange={setIsOpen}
+        onSelect={(_event, value) => {
+          setIsOpen(false);
+          if (typeof value === "string" && value !== grant.role) {
+            const nextRole = value as GatewayAccessRole;
+            if (isSelf) {
+              // Confirm before changing your own access (see isSelf above).
+              setPendingSelfRole(nextRole);
+            } else {
+              mutation.mutate(nextRole);
+            }
+          }
+        }}
+        selected={grant.role}
+        toggle={toggle}
+      >
+        <SelectList>
+          {roles.map((role) => (
+            <SelectOption
+              isSelected={role === grant.role}
+              key={role}
+              value={role}
+            >
+              {roleLabel(intl.formatMessage, role)}
+            </SelectOption>
+          ))}
+        </SelectList>
+      </Select>
+      {pendingSelfRole ? (
+        <Modal
+          aria-describedby={confirmBodyId}
+          aria-labelledby={confirmTitleId}
+          isOpen
+          onClose={
+            mutation.isPending
+              ? undefined
+              : () => {
+                  setPendingSelfRole(null);
+                }
+          }
+          variant={ModalVariant.small}
+        >
+          <ModalHeader
+            labelId={confirmTitleId}
+            title={intl.formatMessage(messages.accessSelfRoleChangeTitle)}
+          />
+          <ModalBody>
+            <p id={confirmBodyId}>
+              {intl.formatMessage(messages.accessSelfRoleChangeBody, {
+                role: roleLabel(intl.formatMessage, pendingSelfRole),
+              })}
+            </p>
+            {mutation.isError ? (
+              <Alert
+                isInline
+                title={actionErrorMessage(intl.formatMessage, mutation.error)}
+                variant="danger"
+              />
+            ) : null}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              isDanger
+              isDisabled={mutation.isPending}
+              isLoading={mutation.isPending}
+              onClick={() => {
+                mutation.mutate(pendingSelfRole, {
+                  onSuccess: () => {
+                    setPendingSelfRole(null);
+                  },
+                });
+              }}
+              variant="primary"
+            >
+              {intl.formatMessage(messages.accessSelfRoleChangeConfirm)}
+            </Button>
+            <Button
+              isDisabled={mutation.isPending}
+              onClick={() => {
+                mutation.reset();
+                setPendingSelfRole(null);
+              }}
+              variant="link"
+            >
+              {intl.formatMessage(messages.cancel)}
+            </Button>
+          </ModalFooter>
+        </Modal>
+      ) : null}
+    </>
   );
 }
 
