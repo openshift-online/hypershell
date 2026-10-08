@@ -64,8 +64,8 @@ GW_OIDC_CLIENT_ID=""
 # Mirrored gateway images (ROKS nodes can only pull the internal registry). Used
 # only when this run has to CREATE the gateway; ignored when it already exists.
 REG_MIRROR="${REG_MIRROR:-image-registry.openshift-image-registry.svc:5000/openshift}"
-GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.1.2-rhaiv.0}"
-GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.1.2-rhaiv.0}"
+GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.1.2-rhaiv.7}"
+GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.1.2-rhaiv.7}"
 
 PASS=0
 FAIL=0

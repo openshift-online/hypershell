@@ -1,7 +1,7 @@
 # OpenShell upstream coordinates. Gateway, supervisor, sandbox runtime, and CLI image tags
 # and the chart ref use OPENSHELL_TAG. The console image is pinned by digest
 # (it uses its own tagging scheme). Update this file when bumping versions.
-OPENSHELL_TAG=v0.1.2-rhaiv.0
+OPENSHELL_TAG=v0.1.2-rhaiv.7
 OPENSHELL_CHART_REPO=https://github.com/opendatahub-io/openshell.git
 OPENSHELL_GATEWAY_IMAGE=quay.io/opendatahub/odh-openshell-gateway
 OPENSHELL_SUPERVISOR_IMAGE=quay.io/opendatahub/odh-openshell-supervisor
