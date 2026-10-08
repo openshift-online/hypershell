@@ -1760,9 +1760,21 @@ except Exception:
   sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" > "${DEV_SB_FULL_LOG}" 2>/dev/null || true
   rm -f "${DEV_SB_LOG}" 2>/dev/null || true
 
+  # Best-effort cleanup of the developer sandbox. The create assertion above is
+  # already decided, so a failed delete (e.g. a gateway timeout) is reported as a
+  # warning instead of failing the step, but is never reported as success.
+  dev_sandbox_cleanup() {
+    local out
+    if out=$("${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1); then
+      dim "    Developer sandbox ${DEV_SANDBOX} deleted"
+    else
+      dim "    WARNING: could not delete developer sandbox ${DEV_SANDBOX} (may leak): ${out:0:200}"
+    fi
+  }
+
   if [[ "$DEV_POD_CREATED" == "true" ]]; then
     pass "Developer user: sandbox create allowed (user_role member of 'default')"
-    "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
+    dev_sandbox_cleanup
   elif echo "$DEV_SB_ERR" | grep -qE "Created sandbox: ${DEV_SANDBOX}"; then
     # The gateway accepted the create request, which is what this step asserts: a
     # workspace member with user_role MAY create sandboxes. The CLI has no terminal
@@ -1770,7 +1782,7 @@ except Exception:
     # may be gone again before the next pod poll; scheduling the pod is covered by
     # the admin sandbox lifecycle step.
     pass "Developer user: sandbox create allowed (user_role member of 'default'; sandbox allocated)"
-    "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
+    dev_sandbox_cleanup
   elif echo "$DEV_SB_ERR" | grep -qiE "not a member|permissiondenied|permission denied|not authorized|unauthorized|forbidden|denied"; then
     # A granted workspace member was still denied -> membership grant or user_role
     # mapping is misconfigured.
