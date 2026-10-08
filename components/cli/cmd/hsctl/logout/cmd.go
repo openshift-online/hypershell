@@ -1,21 +1,25 @@
 package logout
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/openshift-online/hypershell/components/cli/pkg/auth"
 	"github.com/openshift-online/hypershell/components/cli/pkg/config"
+	"github.com/openshift-online/hypershell/components/cli/pkg/oidc"
 )
 
 var Cmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Log out",
-	Long:  "Log out, revoking the token at the identity provider and removing credentials from the config file.",
-	Args:  cobra.NoArgs,
-	RunE:  run,
+	Long: "Log out, removing credentials from the config file. When the login used OpenID Connect,\n" +
+		"the refresh token is first revoked at the issuer; a revocation failure only prints a warning.",
+	Args: cobra.NoArgs,
+	RunE: run,
 }
 
 func run(cmd *cobra.Command, argv []string) error {
@@ -24,18 +28,29 @@ func run(cmd *cobra.Command, argv []string) error {
 		return fmt.Errorf("can't load configuration file: %w", err)
 	}
 
-	// Revoke the refresh token at Keycloak (best-effort; continue even if it fails)
-	if cfg.RefreshToken != "" && cfg.IssuerURL != "" && cfg.ClientID != "" {
-		if revokeErr := auth.Revoke(cfg.IssuerURL, cfg.ClientID, cfg.RefreshToken, cfg.Insecure); revokeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not revoke token: %v\n", revokeErr)
-		}
+	if cfg.CanRefresh() {
+		revoke(cfg)
 	}
 
 	cfg.Disarm()
 
-	if err := config.Save(cfg); err != nil {
+	err = config.Save(cfg)
+	if err != nil {
 		return fmt.Errorf("can't save configuration file: %w", err)
 	}
 
 	return nil
+}
+
+// revoke is best effort: the local credentials are cleared either way.
+func revoke(cfg *config.Config) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	client := oidc.NewClient(cfg.IssuerURL, cfg.ClientID, cfg.Insecure)
+	err := client.Revoke(ctx, cfg.RefreshToken)
+	switch {
+	case err == nil, errors.Is(err, oidc.ErrNoRevocationEndpoint):
+	default:
+		fmt.Fprintf(os.Stderr, "Warning: couldn't revoke the refresh token at the issuer: %v\n", err)
+	}
 }

@@ -12,5 +12,12 @@
     "version": "v1.11.0",
     "reason": "The current telemetry dependency graph resolves this transitive version within the cooldown window.",
     "compensatingVerification": "The module is checksum-locked; API server and control plane vet and golangci-lint checks cover the resolved graph."
+  },
+  {
+    "kind": "go",
+    "name": "github.com/openshift-online/rh-trex-ai/components/api-server",
+    "version": "v0.0.0-20261007150231-ff48c5631a19",
+    "reason": "HyperShell generates its CLI and terminal UI with the rh-trex-ai generators and links the terminal UI runtime from the same commit: PR 58 (generated OIDC login, logout, whoami and token refresh, delete and update commands, config file name and OIDC client ID options, the tuicmd package). It merged to main as ff48c56 and the framework publishes no tag for this module path, so a pseudo-version is required. The commit is under the 14 day minimum age until 2026-10-21; remove this entry then if no newer pin replaced it.",
+    "compensatingVerification": "The dependency is commit-pinned by full SHA in scripts/rh-trex-ai.ref and components/cli/go.mod. make check regenerates the CLI and the TUI descriptor from that same commit and fails on any difference, and the hsctl unit tests run against that exact commit."
   }
 ]

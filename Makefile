@@ -128,7 +128,7 @@ help:
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
 	@echo "    build-api-server         Build API server container image"
-	@echo "    build-cli                Build CLI binary"
+	@echo "    build-cli                Regenerate the generated commands, then build the CLI binary"
 	@echo "    build-controller         Build control plane container image"
 	@echo "    build-web-console        Build web console container image"
 	@echo ""
@@ -194,7 +194,9 @@ build-controller:
 		-f components/control-plane/Dockerfile .
 
 .PHONY: build-cli
-build-cli:
+# Regenerate first so the binary always matches the OpenAPI description and the
+# pinned rh-trex-ai generators (the first run needs network access).
+build-cli: generate-cli
 	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hsctl
 
 .PHONY: build-web-console
@@ -232,8 +234,13 @@ test-dependency-age-policy:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_dependency_age.py
 
 .PHONY: check-dependency-age
+# The pinned rh-trex-ai generators run during make check, hooks and CI, so their
+# module graphs are held to the same age policy as repository modules.
 check-dependency-age: test-dependency-age-policy
-	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS)
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_dependency_age.py --min-age-days $(DEPENDENCY_MIN_AGE_DAYS) \
+		--external-repo "$$(scripts/trex-checkout.sh)" \
+		--external-go-mod scripts/cli-generator/go.mod \
+		--external-go-mod scripts/tui-generator/go.mod
 
 .PHONY: sync-openshell-version
 sync-openshell-version:
@@ -258,8 +265,12 @@ test-openshell-version-policy:
 check-openshell-version: test-openshell-version-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
 
+.PHONY: check-cli-drift
+check-cli-drift: generate-tui-check
+	scripts/generate-cli.sh --check
+
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-openshell-version test-release-bundle
+check: check-forbidden-terms check-dependency-pins check-ci-components check-dependency-age check-openshell-version check-cli-drift test-release-bundle
 
 # ============================================================================
 # Git hooks
@@ -357,7 +368,6 @@ unit-test-all: install-js ci-test
 	cd components/api-server && $(MAKE) test
 	cd components/control-plane && go test ./...
 	cd components/cli && go test ./...
-	cd scripts/cli-generator && go test ./...
 	cd scripts/sdk-generator && go test ./...
 	$(PNPM) run test:web
 
@@ -577,18 +587,24 @@ openshift-web-console-down:
 openshift-test:
 	@bash scripts/cluster/lib_test.sh
 
-generate-cli:
-	cd scripts/cli-generator && go run . \
-		--spec ../../components/api-server/openapi/openapi.yaml \
-		--out ../../components/cli \
-		--binary hsctl \
-		--project hypershell \
-		--api-prefix /api/hypershell/v1 \
-		--module github.com/openshift-online/hypershell/components/cli
-	gofmt -w components/cli
+# Regenerate the hsctl CLI and TUI descriptor with the rh-trex-ai generators
+# pinned in scripts/rh-trex-ai.ref. The -check variants fail when stale.
+.PHONY: generate-cli generate-cli-check
+generate-cli: generate-tui
+	scripts/generate-cli.sh
+
+generate-cli-check:
+	scripts/generate-cli.sh --check
 
 generate-sdk-go:
 	$(MAKE) -C components/api-server generate-sdk
+
+.PHONY: generate-tui generate-tui-check
+generate-tui:
+	scripts/generate-tui.sh
+
+generate-tui-check:
+	scripts/generate-tui.sh --check
 # ============================================================================
 # E2E Tests
 # ============================================================================

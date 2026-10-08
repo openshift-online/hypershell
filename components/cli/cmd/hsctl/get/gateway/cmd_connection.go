@@ -31,7 +31,7 @@ func init() {
 			return err
 		}
 
-		conn, err := connection.NewConnection().Config(cfg).Build()
+		conn, err := connection.NewConnectionBuilder().Config(cfg).Build()
 		if err != nil {
 			return err
 		}
