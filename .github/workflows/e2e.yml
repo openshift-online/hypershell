@@ -449,6 +449,29 @@ jobs:
           go install sigs.k8s.io/kind@v0.32.0
           kind version
 
+      # make kind-up builds cloud-provider-kind from the pinned fork commit
+      # (CLOUD_PROVIDER_KIND_REF in the Makefile), about a minute of clone and
+      # compile per run. Cache the binary keyed on that commit: kind-prereqs
+      # skips the build when the binary's stamped vcs.revision already matches
+      # the pin, and rebuilds when it does not, so a stale entry costs a
+      # rebuild rather than running the wrong build. Only the default branch
+      # writes the cache, so PR runs cannot poison it.
+      - name: Resolve cloud-provider-kind pin
+        id: cpk-ref
+        run: |
+          ref="$(sed -n 's/^CLOUD_PROVIDER_KIND_REF?=//p' Makefile)"
+          if [[ -z "${ref}" ]]; then
+            echo "::error::CLOUD_PROVIDER_KIND_REF not found in Makefile"
+            exit 1
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+      - name: Restore cloud-provider-kind cache
+        id: cpk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin/cloud-provider-kind
+          key: cloud-provider-kind-${{ runner.os }}-${{ runner.arch }}-${{ steps.cpk-ref.outputs.ref }}
+
       # The e2e test installs the CLI from the observed gateway version.
 
       - name: Create Kind cluster with OIDC
@@ -464,6 +487,13 @@ jobs:
           # runs it once the working-tree images are swapped in.
           SKIP_SEED: "true"
         run: make kind-up
+
+      - name: Save cloud-provider-kind cache
+        if: github.ref == 'refs/heads/main' && steps.cpk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin/cloud-provider-kind
+          key: ${{ steps.cpk-cache.outputs.cache-primary-key }}
 
       # Block until each triggered component build has concluded.
       # wait-on-check-action waits for the named check to both appear and finish,
