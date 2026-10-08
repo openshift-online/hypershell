@@ -51,4 +51,5 @@ ELSE:
 
 ### Step 4: Update Issue State
 
+Remove label `agent/review-spec-rejected` from `$GITHUB_ISSUE_URL` if present.
 Place label `agent/reviewable-spec` on `$GITHUB_ISSUE_URL`.
