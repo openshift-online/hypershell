@@ -141,19 +141,22 @@ Writing `RESULT_FILE` is a local file write, not a GitHub mutation; do it even u
 ## Step 9: Re-queue for review
 
 After writing `RESULT_FILE`, update the linked issue's labels so the appropriate review agent
-picks the work up again. Determine the PR type from the head branch name:
-- If head branch matches `implementer/spec-*` → spec PR; re-queue for spec-review.
-- If head branch matches `implementer/code-*` → code PR; re-queue for code-review.
+picks the work up again.
 
 Find the linked issue number by reading the PR body for a closing keyword (`Closes #N`,
 `Fixes #N`, or `Resolves #N`), or by searching issues for one linked to this PR's branch.
 
+Determine the pipeline phase from the linked issue's labels -- do NOT use the branch name,
+since both spec and code work share the same `implementer/spec-*` branch:
+- If the issue has `agent/review-spec-approved` → code phase; re-queue for code-review.
+- Otherwise → spec phase; re-queue for spec-review.
+
 **When `outcome` is `amended`, `defended`, or `mixed`** (work progressed or defended):
 - Remove `agent/needs-review-response` from the issue (if present).
-- For a **code PR**: remove `agent/review-code-rejected` from the issue (if present). Ensure
-  `agent/reviewable-code` is present on the issue so `code-review` re-runs.
-- For a **spec PR**: remove `agent/review-spec-rejected` from the issue (if present). Ensure
-  `agent/reviewable-spec` is present on the issue so `spec-review` re-runs.
+- For a **code phase** issue: remove `agent/review-code-rejected` from the issue (if present).
+  Ensure `agent/reviewable-code` is present on the issue so `code-review` re-runs.
+- For a **spec phase** issue: remove `agent/review-spec-rejected` from the issue (if present).
+  Ensure `agent/reviewable-spec` is present on the issue so `spec-review` re-runs.
 
 **When `outcome` is `blocked` or `escalated`**: Do not alter review labels -- leave the issue
 in its current state for a human to unblock.
