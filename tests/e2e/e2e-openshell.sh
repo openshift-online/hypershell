@@ -1719,27 +1719,53 @@ except Exception:
   # sandbox create blocks (interactive), so background it and poll for the pod.
   DEV_POD_CREATED=false
   DEV_SB_EARLY_EXIT=false
-  DEV_DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  DEV_START=$(date +%s)
+  DEV_DEADLINE=$((DEV_START + E2E_SANDBOX_TIMEOUT))
+  DEV_TRACE=""
   while [[ $(date +%s) -lt $DEV_DEADLINE ]]; do
-    if $CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -qi "default--${DEV_SANDBOX}"; then
+    DEV_PODS=$($CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -i "default--${DEV_SANDBOX}" || true)
+    if [[ -n "$DEV_PODS" ]]; then
+      DEV_TRACE+="t+$(($(date +%s) - DEV_START))s pod=$(echo "$DEV_PODS" | awk '{print $1":"$3}' | head -1); "
       DEV_POD_CREATED=true
       break
     fi
     if ! kill -0 "$DEV_SB_PID" 2>/dev/null; then
+      DEV_TRACE+="t+$(($(date +%s) - DEV_START))s no pod, CLI process gone; "
       DEV_SB_EARLY_EXIT=true
       break
     fi
-    sleep 5
+    DEV_TRACE+="t+$(($(date +%s) - DEV_START))s no pod, CLI running; "
+    sleep 2
   done
 
-  kill "$DEV_SB_PID" 2>/dev/null || true
-  wait "$DEV_SB_PID" 2>/dev/null || true
+  DEV_SB_RC=""
+  if [[ "$DEV_SB_EARLY_EXIT" == "true" ]]; then
+    # The CLI already ended on its own: its exit status says whether it failed.
+    wait "$DEV_SB_PID" 2>/dev/null; DEV_SB_RC=$?
+  else
+    kill "$DEV_SB_PID" 2>/dev/null || true
+    wait "$DEV_SB_PID" 2>/dev/null || true
+  fi
 
-  DEV_SB_ERR=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
+  # Drop the containerized CLI's benign start-up warnings (amd64 image on an arm64
+  # host, disabled TLS verification) so the 200 character excerpt below is the
+  # actual error, not the warnings that precede it.
+  DEV_SB_ERR=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" 2>/dev/null \
+    | grep -vE '^WARNING: image platform| WARN openshell_cli::tls' | tr '\n' ' ' | tr -s ' ')
+  DEV_SB_FULL_LOG="${TMPDIR:-/tmp}/e2e-dev-sandbox-create.log"
+  sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" > "${DEV_SB_FULL_LOG}" 2>/dev/null || true
   rm -f "${DEV_SB_LOG}" 2>/dev/null || true
 
   if [[ "$DEV_POD_CREATED" == "true" ]]; then
     pass "Developer user: sandbox create allowed (user_role member of 'default')"
+    "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
+  elif echo "$DEV_SB_ERR" | grep -qE "Created sandbox: ${DEV_SANDBOX}"; then
+    # The gateway accepted the create request, which is what this step asserts: a
+    # workspace member with user_role MAY create sandboxes. The CLI has no terminal
+    # here, so it can end on its own once the sandbox is allocated, and the sandbox
+    # may be gone again before the next pod poll; scheduling the pod is covered by
+    # the admin sandbox lifecycle step.
+    pass "Developer user: sandbox create allowed (user_role member of 'default'; sandbox allocated)"
     "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
   elif echo "$DEV_SB_ERR" | grep -qiE "not a member|permissiondenied|permission denied|not authorized|unauthorized|forbidden|denied"; then
     # A granted workspace member was still denied -> membership grant or user_role
@@ -1754,7 +1780,9 @@ except Exception:
     else
       fail_test "Developer user: sandbox not created within ${E2E_SANDBOX_TIMEOUT}s"
     fi
-    dim "    ${DEV_SB_ERR:0:200}"
+    dim "    CLI exit status: ${DEV_SB_RC:-still running}; poll timeline: ${DEV_TRACE}"
+    dim "    last CLI output: $(printf '%s' "${DEV_SB_ERR}" | tail -c 600)"
+    dim "    full CLI output: ${DEV_SB_FULL_LOG}"
   fi
   fi
 
