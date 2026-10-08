@@ -41,10 +41,16 @@ while IFS= read -r issue_json && (( emitted < MAX_ITEMS )); do
   issue_number=$(printf '%s' "$issue_json" | jq -r '.number')
   issue_url=$(printf '%s' "$issue_json" | jq -r '.url')
 
-  # Find the linked PR: look for open PRs on branch implementer/spec-<number>.
+  # Find the linked PR: match open PRs whose head branch is implementer/spec-<number>
+  # or implementer/spec-<number>-<slug>. GitHub's head= filter is exact-match only,
+  # so we list all open PRs and prefix-filter in jq.
   pr_data=$(gh api --paginate \
-    "repos/$REPOSITORY/pulls?state=open&head=${REPOSITORY%%/*}:implementer/spec-$issue_number&per_page=10" \
-    --jq 'first | {pr_number: .number, pr_url: .html_url} // empty' 2>/dev/null || true)
+    "repos/$REPOSITORY/pulls?state=open&per_page=100" \
+    --jq '.[]' 2>/dev/null | \
+    jq -s --arg exact "implementer/spec-${issue_number}" \
+          --arg prefix "implementer/spec-${issue_number}-" \
+    '[.[] | select(.head.ref == $exact or (.head.ref | startswith($prefix))) | {pr_number: .number, pr_url: .html_url}] | first // empty' \
+    2>/dev/null || true)
 
   if [[ -z "$pr_data" ]]; then
     # Fall back: search PRs that mention this issue number in their body.
