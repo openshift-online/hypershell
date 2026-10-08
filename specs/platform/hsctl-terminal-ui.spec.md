@@ -116,3 +116,7 @@ error dialog and the user SHALL be told to run `hsctl login`.
 - GIVEN the user stays in `hsctl tui` longer than the access token lifetime
 - WHEN the next request is made
 - THEN the token SHALL be renewed and the request SHALL succeed without restarting the command
+
+## CLI distribution
+
+The terminal UI ships inside the `hsctl` executable. Platform builds, Quay image packaging, bundle membership, and GitHub release assets SHALL follow [hsctl and HyperShell bundle releases](hsctl-release.spec.md).
