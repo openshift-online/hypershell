@@ -25,6 +25,8 @@ printf 'Review-response discovery: scanning %s for PRs with agent/needs-review-r
 
 readonly prs_file=/tmp/review-response-prs.json
 
+# agent/needs-review-response is applied by the-labeler (hypershell-gitops/bases/agents/the-labeler)
+# when a human posts CHANGES_REQUESTED on a bot-authored PR.
 gh api --paginate \
   "repos/$REPOSITORY/pulls?state=open&sort=created&direction=asc&per_page=100" \
   --jq '.[] | select(.user.login == "hypershell-builder[bot]") | select(.labels | map(.name) | contains(["agent/needs-review-response"])) | {number: .number, url: .html_url, pr_number: .number}' \
