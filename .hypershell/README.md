@@ -7,12 +7,18 @@ of the core platform.
 
 ## agents/
 
-Each subdirectory under `agents/` corresponds to one named agent in the SDLC
-automation pipeline. Only `skills/agent-loop/` agents belong here. General
-platform skills (amber-review, plan/spec, build/reconcile, tooling/, etc.)
+Each subdirectory under `agents/` is one named agent. Two agent categories exist:
+
+- **SDLC pipeline agents** (`skills/agent-loop/` driven) -- process individual GitHub issues/PRs
+  through a label state machine. Coordinator runs `discover.sh` to fan out, then one sandbox per item.
+- **Cron-driven reviewer agents** -- run on a schedule, fan out over all open PRs, and are
+  orchestrated by a separate gitops outer runner rather than the SDLC coordinator.
+  Their `discover.sh` and `run.sh` contracts differ from the SDLC pattern.
+
+General platform skills (amber-review, plan/spec, build/reconcile, tooling/, etc.)
 remain in `skills/`.
 
-### Defined Agents
+### SDLC Pipeline Agents
 
 | Agent | Queue label(s) | Output label(s) |
 |-------|----------------|-----------------|
@@ -22,6 +28,12 @@ remain in `skills/`.
 | `code-implementation` | `agent/review-spec-approved` (no `agent/reviewable-code`) | `agent/reviewable-code` |
 | `code-review` | `agent/reviewable-code` (no verdict) | `agent/review-code-approved`, `agent/review-code-rejected` |
 | `release-verification` | `agent/release-pending` (no verdict) | `agent/release-verified`, `agent/release-verification-failed` |
+
+### Cron-driven Reviewer Agents
+
+| Agent | Trigger | Scope |
+|-------|---------|-------|
+| `reviewer` | cron (every 5 min) | all open PRs in `REPOSITORY` |
 
 ### Label state machine
 
@@ -142,3 +154,83 @@ The gitops coordinator:
 The coordinator is responsible for: gateway login, `openshell` installation,
 sandbox lifecycle, secret injection, and GitHub App token refresh. These
 concerns do not belong in `discover.sh` or `run.sh`.
+
+---
+
+## Reviewer agent contract
+
+The `reviewer` agent has a different contract from SDLC pipeline agents. It is
+orchestrated by a gitops outer `run.sh` (not the SDLC coordinator), and its
+`discover.sh` and `run.sh` run inside **OpenShell sandboxes** rather than
+coordinator-local processes.
+
+### reviewer/discover.sh
+
+Runs inside a **discovery sandbox**. Scans all open PRs for ones that need an
+Amber review at their current head SHA.
+
+#### Inputs (environment variables)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `REPOSITORY` | yes | `owner/repo` |
+| `SKIP_DRAFT_PRS` | yes | `true` or `false` |
+| `MAX_REVIEWS_PER_RUN` | yes | Maximum PRs to emit per run |
+| `COMMENT_ORG_MEMBERS` | no | `true` (default) -- include org members as allowed comment authors |
+| `COMMENT_ALLOWED_AUTHORS` | no | Comma-separated extra GitHub accounts to allow |
+| `GITHUB_APP_SLUG` | no | GitHub App slug; used to derive bot login when `GET /user` is forbidden |
+
+#### Outputs
+
+- **stdout**: TSV rows, one per PR needing review: `pr_number<TAB>head_sha`. Empty means no work.
+- **stderr**: human-readable progress.
+- **exit code**: non-zero on fatal API or data-validation errors (unlike SDLC discover.sh, which is always 0).
+
+The TSV format is used instead of JSON because each row carries exactly two
+values (PR number and head SHA) that the outer runner splits and passes as
+separate `--env` flags to the review sandbox.
+
+### reviewer/run.sh
+
+Runs inside a **per-PR review sandbox**. Invokes Claude (via `inference.local`)
+to perform the Amber review and post it to GitHub.
+
+#### Inputs (environment variables)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `REPOSITORY` | yes | `owner/repo` |
+| `PR_NUMBER` | yes | PR to review |
+| `EXPECTED_HEAD_SHA` | yes | Head SHA at discovery time; review is aborted if it changes |
+| `SKIP_DRAFT_PRS` | yes | `true` or `false` |
+| `HYPERSHELL_REF` | yes | Branch/ref to clone as the trusted instruction source |
+| `CLAUDE_MODEL` | yes | Model ID |
+| `CLAUDE_MAX_ATTEMPTS` | yes | Retry limit for transient model errors |
+| `CLAUDE_RETRY_DELAY_SECONDS` | yes | Base delay between retries |
+| `GITHUB_APP_SLUG` | no | GitHub App slug for bot-login derivation |
+
+#### Outputs
+
+- **GitHub**: a submitted pull request review + status comment on the PR.
+- **No `/tmp/result.json`**: the review outcome is the GitHub review itself, not a local file. The outer runner observes the sandbox exit code.
+- **exit code**: `0` on success or graceful skip (PR closed, head changed, draft). Non-zero on Claude failure or unexpected state.
+
+#### Claude invocation
+
+```bash
+ANTHROPIC_BASE_URL=https://inference.local \
+  ANTHROPIC_API_KEY=unused \
+  claude --bare \
+  --model "$CLAUDE_MODEL" \
+  --dangerously-skip-permissions \
+  -p "$prompt"
+```
+
+`--bare` (not `--verbose --output-format stream-json`) because output is not parsed
+by a harness -- it is logged for human inspection only. The prompt is a fully
+inline heredoc that directs Claude to read
+`skills/review/amber-review/SKILL.md` from the trusted clone.
+
+There is no `SKILL.md` in `agents/reviewer/` because the Amber review skill is a
+general platform skill in `skills/review/amber-review/` that predates the agent
+convention. The inline prompt references it directly from the trusted clone path.
