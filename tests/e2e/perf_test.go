@@ -17,23 +17,53 @@ import (
 	"github.com/openshift-online/hypershell/tests/e2e/harness"
 )
 
-// TestPerformance is the performance harness entry point. It provisions a fleet of
-// gateways in bounded-concurrency batches, measures provision latency, writes a
-// results JSON, tears the fleet down, and (optionally) gates on SLOs. It is
-// infra-agnostic: it uses the resolved E2EInfraDriver and the shared API client,
-// and runs against whatever cluster the KUBECONFIG context selects.
+// BenchmarkGatewayProvisioning is the performance harness: a true Go benchmark
+// that provisions a fleet of gateways in bounded-concurrency batches, reports
+// provision-latency and throughput via b.ReportMetric (so `go test -bench` output
+// and benchstat give native reporting + run comparison), writes a results JSON for
+// dev->prod promotion gating, tears the fleet down, and fails the benchmark when
+// optional SLOs are not met.
+//
+// It is a one-shot scale test, so run it with -benchtime 1x (make e2e-performance
+// does): the fleet is provisioned once per benchmark iteration. It is
+// infra-agnostic -- it uses the resolved E2EInfraDriver and runs against whatever
+// cluster the KUBECONFIG context selects.
 //
 // Env: E2E_PERF_GATEWAY_COUNT (default 5), E2E_PERF_BATCH_SIZE (default 5),
 // E2E_CONCURRENCY (default 4), E2E_PROVISION_TIMEOUT (seconds, default 180),
 // E2E_PERF_RESULTS_DIR (default perf-results), E2E_PERF_MIN_SUCCESS_RATE (optional,
 // percent), E2E_PERF_MAX_PROVISION_P99 (optional, seconds).
-func TestPerformance(t *testing.T) {
-	h := newPerfHarness(t)
-	defer h.cleanup()
+func BenchmarkGatewayProvisioning(b *testing.B) {
+	h := newPerfHarness(b)
+	b.Cleanup(h.cleanup)
 
-	h.scaleUp(t)
-	h.report(t)
-	h.gateSLOs(t)
+	b.ResetTimer() // exclude harness/token/seed setup from the benchmark timer
+	for range b.N {
+		h.scaleUp(b)
+	}
+	b.StopTimer() // exclude reporting + teardown
+
+	stats := computeStats(h.runningLat)
+	provisioned := len(h.runningLat)
+	successRate := 0.0
+	if h.count > 0 {
+		successRate = float64(provisioned) / float64(h.count) * 100
+	}
+	throughputPerMin := 0.0
+	if stats.Max > 0 {
+		throughputPerMin = float64(provisioned) / stats.Max * 60
+	}
+
+	// Native benchmark metrics (b.ReportMetric replaces the old custom report; the
+	// default ns/op reflects total fleet provisioning wall time).
+	b.ReportMetric(stats.P50, "ttr_p50_sec")
+	b.ReportMetric(stats.P99, "ttr_p99_sec")
+	b.ReportMetric(stats.Max, "ttr_max_sec")
+	b.ReportMetric(throughputPerMin, "gw/min")
+	b.ReportMetric(successRate, "success%")
+
+	h.writeResults(b, successRate, throughputPerMin, stats)
+	h.gateSLOs(b, provisioned, stats, successRate)
 }
 
 type perfHarness struct {
@@ -56,31 +86,30 @@ type perfHarness struct {
 	failures   int
 }
 
-func newPerfHarness(t *testing.T) *perfHarness {
+func newPerfHarness(b *testing.B) *perfHarness {
 	ctx := context.Background()
 	clients, err := harness.NewClients()
 	if err != nil {
-		t.Fatalf("build Kubernetes clients: %v", err)
+		b.Fatalf("build Kubernetes clients: %v", err)
 	}
 	d, err := driver.Resolve(ctx, clients, os.Getenv("E2E_INFRA_DRIVER"))
 	if err != nil {
-		t.Fatalf("resolve infra driver: %v", err)
+		b.Fatalf("resolve infra driver: %v", err)
 	}
 	adminTok, err := d.AcquireOIDCToken(ctx, driver.Credentials{
 		Username: envOrDefault("E2E_OIDC_USERNAME", "admin"),
 		Password: envOrDefault("E2E_OIDC_PASSWORD", "admin"),
 	})
 	if err != nil {
-		t.Fatalf("acquire admin token: %v", err)
+		b.Fatalf("acquire admin token: %v", err)
 	}
 	api, err := d.APIClient(ctx, adminTok)
 	if err != nil {
-		t.Fatalf("build API client: %v", err)
+		b.Fatalf("build API client: %v", err)
 	}
-
 	clusterID, releaseID, err := perfSeedIDs(ctx, api, d.Name())
 	if err != nil {
-		t.Fatalf("discover seed ids: %v", err)
+		b.Fatalf("discover seed ids: %v", err)
 	}
 
 	h := &perfHarness{
@@ -101,13 +130,13 @@ func newPerfHarness(t *testing.T) *perfHarness {
 	if h.batchSize < 1 {
 		h.batchSize = h.count
 	}
-	t.Logf("perf harness: driver=%s count=%d batch=%d concurrency=%d", d.Name(), h.count, h.batchSize, h.concurrency)
+	b.Logf("perf harness: driver=%s count=%d batch=%d concurrency=%d", d.Name(), h.count, h.batchSize, h.concurrency)
 	return h
 }
 
 // scaleUp provisions the fleet in batches, each batch fanned out to the
 // concurrency limit, recording per-gateway create and time-to-Running latency.
-func (h *perfHarness) scaleUp(t *testing.T) {
+func (h *perfHarness) scaleUp(b *testing.B) {
 	ctx := context.Background()
 	for start := 0; start < h.count; start += h.batchSize {
 		end := min(start+h.batchSize, h.count)
@@ -120,19 +149,19 @@ func (h *perfHarness) scaleUp(t *testing.T) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				h.provisionOne(ctx, t, fmt.Sprintf("perf-%s-%d", h.runID, i))
+				h.provisionOne(ctx, b, fmt.Sprintf("perf-%s-%d", h.runID, i))
 			}()
 		}
 		wg.Wait()
 	}
 }
 
-func (h *perfHarness) provisionOne(ctx context.Context, t *testing.T, name string) {
+func (h *perfHarness) provisionOne(ctx context.Context, b *testing.B, name string) {
 	body := map[string]string{"name": name, "cluster_id": h.clusterID, "release_id": h.releaseID, "route": `{"enabled":true}`}
 	createStart := time.Now()
 	status, resp, err := h.admin.RawJSON(ctx, "POST", "/gateways", body)
 	if err != nil || status != 201 {
-		t.Logf("perf: create %s failed (status %d): %v", name, status, err)
+		b.Logf("perf: create %s failed (status %d): %v", name, status, err)
 		h.recordFailure()
 		return
 	}
@@ -152,7 +181,7 @@ func (h *perfHarness) provisionOne(ctx context.Context, t *testing.T, name strin
 		return g.Phase == "Running", nil
 	})
 	if err != nil {
-		t.Logf("perf: gateway %s never reached Running", name)
+		b.Logf("perf: gateway %s never reached Running", name)
 		h.recordFailure()
 		return
 	}
@@ -186,6 +215,7 @@ type perfResults struct {
 	Provisioned      int       `json:"provisioned"`
 	Failed           int       `json:"failed"`
 	SuccessRatePct   float64   `json:"success_rate_pct"`
+	ThroughputPerMin float64   `json:"throughput_per_min"`
 	Concurrency      int       `json:"concurrency"`
 	BatchSize        int       `json:"batch_size"`
 	TimeToRunningSec perfStats `json:"time_to_running_seconds"`
@@ -200,16 +230,11 @@ type perfStats struct {
 	Max float64 `json:"max"`
 }
 
-// report computes metrics, logs a summary, and writes a results JSON.
-func (h *perfHarness) report(t *testing.T) {
+// writeResults writes the results JSON consumed by promotion gating, and logs a
+// one-line summary.
+func (h *perfHarness) writeResults(b *testing.B, successRate, throughputPerMin float64, ttr perfStats) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	provisioned := len(h.runningLat)
-	successRate := 0.0
-	if h.count > 0 {
-		successRate = float64(provisioned) / float64(h.count) * 100
-	}
 	res := perfResults{
 		SchemaVersion:    1,
 		Driver:           h.driver.Name(),
@@ -218,56 +243,46 @@ func (h *perfHarness) report(t *testing.T) {
 		Provisioned:      provisioned,
 		Failed:           h.failures,
 		SuccessRatePct:   successRate,
+		ThroughputPerMin: throughputPerMin,
 		Concurrency:      h.concurrency,
 		BatchSize:        h.batchSize,
-		TimeToRunningSec: computeStats(h.runningLat),
+		TimeToRunningSec: ttr,
 		CreateLatencySec: computeStats(h.createLat),
 	}
+	h.mu.Unlock()
 
-	t.Logf("perf results: provisioned=%d/%d failed=%d success=%.1f%% ttr(p50=%.1fs p99=%.1fs max=%.1fs)",
-		provisioned, h.count, h.failures, successRate,
-		res.TimeToRunningSec.P50, res.TimeToRunningSec.P99, res.TimeToRunningSec.Max)
+	b.Logf("perf results: provisioned=%d/%d failed=%d success=%.1f%% ttr(p50=%.1fs p99=%.1fs max=%.1fs) throughput=%.1f gw/min",
+		provisioned, h.count, res.Failed, successRate, ttr.P50, ttr.P99, ttr.Max, throughputPerMin)
 
 	dir := envOrDefault("E2E_PERF_RESULTS_DIR", "perf-results")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Logf("WARN create perf results dir: %v", err)
+		b.Logf("WARN create perf results dir: %v", err)
 		return
 	}
 	path := filepath.Join(dir, fmt.Sprintf("%s-%s.json", h.driver.Name(), time.Now().UTC().Format("20060102-150405")))
 	payload, _ := json.MarshalIndent(res, "", "  ")
 	if err := os.WriteFile(path, payload, 0o644); err != nil {
-		t.Logf("WARN write perf results: %v", err)
+		b.Logf("WARN write perf results: %v", err)
 		return
 	}
-	t.Logf("perf results written to %s", path)
+	b.Logf("perf results written to %s", path)
 }
 
-// gateSLOs fails the test when optional SLO thresholds are set and not met.
-func (h *perfHarness) gateSLOs(t *testing.T) {
-	h.mu.Lock()
-	provisioned := len(h.runningLat)
-	stats := computeStats(h.runningLat)
-	failures := h.failures
-	h.mu.Unlock()
-
+// gateSLOs fails the benchmark when optional SLO thresholds are set and not met.
+func (h *perfHarness) gateSLOs(b *testing.B, provisioned int, stats perfStats, successRate float64) {
 	if provisioned == 0 {
-		t.Fatalf("perf: no gateways provisioned (failed=%d)", failures)
+		b.Fatalf("perf: no gateways provisioned (failed=%d)", h.failures)
 	}
 	if v := os.Getenv("E2E_PERF_MIN_SUCCESS_RATE"); v != "" {
 		var minRate float64
-		if _, err := fmt.Sscanf(v, "%f", &minRate); err == nil {
-			got := float64(provisioned) / float64(h.count) * 100
-			if got < minRate {
-				t.Errorf("perf SLO: success rate %.1f%% < required %.1f%%", got, minRate)
-			}
+		if _, err := fmt.Sscanf(v, "%f", &minRate); err == nil && successRate < minRate {
+			b.Errorf("perf SLO: success rate %.1f%% < required %.1f%%", successRate, minRate)
 		}
 	}
 	if v := os.Getenv("E2E_PERF_MAX_PROVISION_P99"); v != "" {
 		var maxP99 float64
-		if _, err := fmt.Sscanf(v, "%f", &maxP99); err == nil {
-			if stats.P99 > maxP99 {
-				t.Errorf("perf SLO: time-to-running p99 %.1fs > max %.1fs", stats.P99, maxP99)
-			}
+		if _, err := fmt.Sscanf(v, "%f", &maxP99); err == nil && stats.P99 > maxP99 {
+			b.Errorf("perf SLO: time-to-running p99 %.1fs > max %.1fs", stats.P99, maxP99)
 		}
 	}
 }

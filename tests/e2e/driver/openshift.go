@@ -383,7 +383,7 @@ func postTokenForm(ctx context.Context, client *http.Client, endpoint string, fi
 	if err != nil {
 		return Token{}, fmt.Errorf("token request to %s: %w", endpoint, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var tr tokenResponse
 	if err := json.Unmarshal(body, &tr); err != nil {
@@ -421,7 +421,7 @@ func kcDoJSON(ctx context.Context, client *http.Client, method, rawURL, adminTok
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	return resp.StatusCode, respBody, nil
 }
