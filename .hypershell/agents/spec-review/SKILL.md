@@ -48,5 +48,9 @@ _Note: Create `$REVIEW_VERDICT` label if not exist._
 
 Place label `$REVIEW_VERDICT` on `$GITHUB_ISSUE_URL` and `$GITHUB_PR_URL`
 
-IF `$REVIEW_VERDICT`  == `agent/review-spec-rejected`:
+IF `$REVIEW_VERDICT` == `agent/review-spec-approved`:
+- Remove label `agent/reviewable-spec` from `$GITHUB_ISSUE_URL`.
+
+IF `$REVIEW_VERDICT` == `agent/review-spec-rejected`:
+- Remove label `agent/reviewable-spec` from `$GITHUB_ISSUE_URL`.
 - Write rejection rationale as a comment on the PR. Use [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English), and inline code review comments if applicable.

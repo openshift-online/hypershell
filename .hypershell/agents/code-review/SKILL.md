@@ -60,6 +60,12 @@ _Note: If a label does not exist, create it._
 
 Apply `$VERDICT` label to `$GITHUB_ISSUE_URL`.
 
+IF `$VERDICT` == `agent/review-code-approved`:
+- Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
+- Merge `$LINKED_PR` via squash merge: `gh pr merge $PR_NUMBER --squash --repo $REPOSITORY`
+- Apply label `agent/merged` to `$GITHUB_ISSUE_URL`.
+
 IF `$VERDICT` == `agent/review-code-rejected`:
+- Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
 - Add a comment to `$GITHUB_ISSUE_URL` communicating `$REJECTION_RATIONALE` that
   adheres to the [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English) standard.
