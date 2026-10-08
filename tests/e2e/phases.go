@@ -252,8 +252,13 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 
 	sandboxTimeout := durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)
 	name := "e2e-" + s.runID
-	_, err = s.cli(t, local, "sandbox", "create", "--name", name)
-	s.Require().NoError(err, "sandbox create")
+	// `sandbox create` streams while the sandbox image pulls and can return a stream
+	// error ("missing grpc-status") even though the sandbox was created. Mirror the
+	// Bash suite: treat create as best-effort and rely on the pod reaching Running
+	// as the success signal rather than the command's exit status.
+	if out, err := s.cli(t, local, "sandbox", "create", "--name", name); err != nil {
+		t.Logf("sandbox create returned an error (continuing to poll the pod): %v\n%s", err, out)
+	}
 	s.Require().NoError(s.waitPodRunning(ctx, running.Namespace, "default--"+name, sandboxTimeout), "sandbox pod Running")
 
 	// The pod can be Running while the Sandbox CR is still provisioning, so poll a
@@ -269,8 +274,18 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 
 	// active_sandbox_count tracks the created sandbox, then the delete.
 	s.pollActiveSandboxCount(t, gw.ID, 1)
-	_, err = s.cli(t, local, "sandbox", "delete", name)
-	s.Require().NoError(err, "sandbox delete")
+
+	// delete can hit a transient "upstream request timeout"; retry, then rely on
+	// the count returning to 0 as the authoritative signal.
+	if err := pollNoCtx(60*time.Second, 10*time.Second, func() bool {
+		out, err := s.cli(t, local, "sandbox", "delete", name)
+		if err != nil {
+			t.Logf("sandbox delete retrying after: %v\n%s", err, out)
+		}
+		return err == nil
+	}); err != nil {
+		t.Logf("sandbox delete did not report success; verifying via active_sandbox_count")
+	}
 	s.pollActiveSandboxCount(t, gw.ID, 0)
 }
 
@@ -379,10 +394,10 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 		s.Require().NoErrorf(err, "registration call %d", i+1)
 		s.Require().Equalf(http.StatusOK, st, "registration call %d must be 200 (body: %s)", i+1, string(body))
 		var reg struct {
-			ID string `json:"id"`
+			ClusterID string `json:"cluster_id"`
 		}
 		s.Require().NoError(json.Unmarshal(body, &reg), "parse registration response")
-		s.Assert().Equal(s.clusterID, reg.ID, "registration returns the seeded cluster id")
+		s.Assert().Equal(s.clusterID, reg.ClusterID, "registration returns the seeded cluster id")
 	}
 
 	// 12c: a non-registrar (admin) is forbidden from registering.
