@@ -78,7 +78,7 @@ func (d *kindDriver) kcDo(ctx context.Context, method, rawURL, adminTok string, 
 	if err != nil {
 		return 0, nil, fmt.Errorf("%s %s: %w", method, rawURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	return resp.StatusCode, respBody, nil
 }

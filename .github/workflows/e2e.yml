@@ -29,11 +29,11 @@ name: E2E
 # serialize. Neither main nor a merge queue entry ever carries the
 # retainment label, so teardown always runs for them. Fork PRs skip deploy
 # and OpenShift (no per-PR environment; a fork PR cannot enter the merge
-# queue either). The Kind job runs the bash suite (tests/e2e/e2e-openshell.sh)
+# queue either). The Kind job runs the Go E2ESuite (make e2e -> go test TestE2E)
 # and, outside merge_group, the agent-browser console suite
 # (tests/e2e/e2e-console.sh) concurrently with it, then the Playwright trace
 # verification. The OpenShift job
-# runs only the bash suite: its GitHub-brokered login cannot be completed by
+# runs only the Go E2ESuite: its GitHub-brokered login cannot be completed by
 # a headless browser.
 on:
   workflow_call:
@@ -615,7 +615,7 @@ jobs:
 
       # Browser toolchain for the trace verification and the console suite. It is
       # installed before the e2e suites so the console browser suite can run
-      # alongside the bash suite below instead of after it (the installs are
+      # alongside the Go suite below instead of after it (the installs are
       # unchanged, only moved earlier). Skipped on merge_group, like both
       # browser suites.
       - name: Set up Node.js
@@ -675,13 +675,14 @@ jobs:
         if: github.event_name != 'merge_group'
         run: echo "path=$(find ~/.cache/ms-playwright -type f -name chrome -path '*/chromium-*' 2>/dev/null | head -1)" >> "$GITHUB_OUTPUT"
 
-      # Run the bash suite and, outside merge_group, the console browser suite
+      # Run the Go E2ESuite and, outside merge_group, the console browser suite
       # concurrently against the same cluster (tests/e2e/run-parallel.sh). The two
       # own different gateways (e2e-gw-* and e2e-console-gw-*), browser sessions
-      # and temp directories. The bash suite holds its area 12g control-plane
-      # scale-down until the console suite has exited (E2E_DISRUPTIVE_GATE_FILE),
-      # so the console suite never loses the controller mid-run. On merge_group
-      # only the bash suite runs. E2E_MODE=short applies to the console suite only.
+      # and temp directories. The Go suite holds its control-plane scale-down
+      # (P2 managedcluster reconnect) until the console suite has exited
+      # (E2E_DISRUPTIVE_GATE_FILE), so the console suite never loses the
+      # controller mid-run. On merge_group only the Go suite runs.
+      # E2E_MODE=short applies to the console suite only.
       - name: Run e2e tests
         env:
           E2E_INFRA_DRIVER: kind
@@ -705,10 +706,10 @@ jobs:
           NO_COLOR: "1"
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
-            bash tests/e2e/e2e-openshell.sh
+            make e2e
           else
             bash tests/e2e/run-parallel.sh \
-              "openshell=bash tests/e2e/e2e-openshell.sh" \
+              "e2e=make e2e" \
               "console=E2E_MODE=short bash tests/e2e/e2e-console.sh"
           fi
 
@@ -983,10 +984,16 @@ jobs:
         id: e2e-suite
         env:
           E2E_INFRA_DRIVER: openshift
-          # No demo pacing: show_cmd would otherwise sleep 1s per echoed command.
-          E2E_PAUSE: "0"
+          # Use the openshell CLI installed above rather than the version-matched
+          # container image path (the runner has the native binary on PATH).
+          OPENSHELL_BIN: openshell
+          E2E_PROVISION_TIMEOUT: "300"
+          E2E_SANDBOX_TIMEOUT: "300"
           TERM: dumb
           NO_COLOR: "1"
+        # The Go E2ESuite (TestE2E) is the functional gate; it auto-detects the
+        # openshift driver. GitHub-brokered pull-request environments use the
+        # client-credentials grant (ephemeral-pr-environments.spec.md).
         run: |
           if [[ -n "${PR_NUMBER}" ]]; then
             secret="$(bash scripts/ci/read-e2e-client-secret.sh)"
@@ -995,7 +1002,7 @@ jobs:
             export E2E_OIDC_SA_CLIENT_ID=hypershell-e2e
             export E2E_OIDC_SA_CLIENT_SECRET="${secret}"
           fi
-          bash tests/e2e/e2e-openshell.sh
+          make e2e
 
       - name: Collect diagnostics
         if: steps.e2e-suite.outcome == 'failure'

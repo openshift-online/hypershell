@@ -81,9 +81,9 @@ The development lifecycle follows 5 steps, each backed by a skill:
 Origin pull-request OpenShift e2e is the ephemeral PR environment workflow
 (`specs/platform/ephemeral-pr-environments.spec.md`): deploy, Tests / E2E /
 OpenShift, destroy unless `/pr-extend`. Manual OpenShift e2e runs use
-`E2E_INFRA_DRIVER=openshift bash tests/e2e/e2e-openshell.sh`; the legacy
-`components/pr-test/e2e-openshell.sh` script it replaced has been removed
-(HYPERSHELL-250). The ROKS variant `e2e-openshell-roks.sh` is unchanged.
+`E2E_INFRA_DRIVER=openshift make e2e` (the Go E2ESuite, `tests/e2e/`); the legacy
+`components/pr-test/e2e-openshell.sh` script and the Bash suite it replaced have
+been removed (HYPERSHELL-250). The ROKS variant `e2e-openshell-roks.sh` is unchanged.
 
 `/reconcile` is the top-level entrypoint. It reads `skills/RECONCILE.md` for checkpoint
 state (coverage summary, gap table, wave plan), then executes waves to close gaps.

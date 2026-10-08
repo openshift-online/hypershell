@@ -86,7 +86,7 @@ func (c *Client) RawJSON(ctx context.Context, method, path string, body any) (in
 	if err != nil {
 		return 0, nil, fmt.Errorf("%s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return resp.StatusCode, nil, fmt.Errorf("read response body: %w", err)

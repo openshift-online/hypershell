@@ -129,7 +129,7 @@ func (s *E2ESuite) assertBFFLogin(t *testing.T, consoleHost string) {
 	if !s.Assert().NoError(err, "BFF /auth/login") {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	s.Assert().Equal(http.StatusFound, resp.StatusCode, "BFF /auth/login must 302")
 	s.Assert().Contains(resp.Header.Get("Location"), "code_challenge_method=S256", "PKCE challenge method in redirect")
 }
@@ -668,7 +668,7 @@ func (s *E2ESuite) rawGet(url, token string) (int, []byte, error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return resp.StatusCode, body, nil
 }
@@ -689,7 +689,7 @@ func (s *E2ESuite) podLogsSince(ctx context.Context, ns, selector string, since 
 	if err != nil {
 		return "", fmt.Errorf("stream logs: %w", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var b strings.Builder
 	if _, err := io.Copy(&b, io.LimitReader(stream, 1<<20)); err != nil {
 		return "", fmt.Errorf("read logs: %w", err)
@@ -712,7 +712,7 @@ func (s *E2ESuite) podLogs(ctx context.Context, ns, selector string, tail int64)
 	if err != nil {
 		return "", fmt.Errorf("stream logs: %w", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var b strings.Builder
 	if _, err := io.Copy(&b, io.LimitReader(stream, 1<<20)); err != nil {
 		return "", fmt.Errorf("read logs: %w", err)

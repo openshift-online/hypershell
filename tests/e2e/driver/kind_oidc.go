@@ -54,7 +54,7 @@ func (d *kindDriver) postToken(ctx context.Context, endpoint string, fields map[
 	if err != nil {
 		return Token{}, fmt.Errorf("token request to %s: %w", endpoint, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
 	var tr tokenResponse
