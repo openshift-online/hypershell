@@ -474,9 +474,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
           description: |
-            Validation errors occurred, including a cluster_id that is empty or does not
-            reference a ManagedCluster with a registered control plane (non-empty
-            oidc_subject). On update, cluster_id is validated only when it changes.
+            Validation errors occurred, including an invalid or unavailable placement
+            intent. The backend resolves a valid intent to a registered ManagedCluster
+            before creating the gateway.
         "401":
           content:
             application/json:
@@ -504,6 +504,31 @@ paths:
       security:
       - Bearer: []
       summary: Create a new gateway
+  /api/hypershell/v1/gateways/placement-availability:
+    get:
+      operationId: getGatewayPlacementAvailability
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayPlacementAvailability"
+          description: Current backend placement eligibility
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error evaluating placement availability
+      security:
+      - Bearer: []
+      summary: Returns current provider placement eligibility
   /api/hypershell/v1/gateways/{id}:
     delete:
       operationId: deleteGateway
@@ -2826,6 +2851,15 @@ components:
           name:
             type: string
           provider:
+            description: Cloud provider capability used for gateway placement.
+            type: string
+          visibility:
+            description: Network visibility supported by this control plane for gateway
+              placement.
+            enum:
+            - public
+            - vpn
+            readOnly: true
             type: string
           region:
             type: string
@@ -2852,6 +2886,7 @@ components:
         - provider
         type: object
       example:
+        visibility: public
         kind: kind
         created_at: 2000-01-23T04:56:07.000+00:00
         oidc_subject: oidc_subject
@@ -2884,7 +2919,8 @@ components:
         id: id
         href: href
         items:
-        - kind: kind
+        - visibility: public
+          kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
@@ -2897,7 +2933,8 @@ components:
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - kind: kind
+        - visibility: public
+          kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
@@ -2934,6 +2971,8 @@ components:
       type: object
     ManagedClusterRegistrationRequest:
       example:
+        visibility: public
+        provider: aws
         name: name
         description: description
       properties:
@@ -2943,6 +2982,19 @@ components:
           type: string
         description:
           description: Optional description of the spoke.
+          type: string
+        provider:
+          description: Cloud provider hosting this control plane.
+          enum:
+          - aws
+          - ibm
+          - kind
+          type: string
+        visibility:
+          description: Network visibility supported for gateways on this control plane.
+          enum:
+          - public
+          - vpn
           type: string
       required:
       - name
@@ -3224,6 +3276,66 @@ components:
           type: string
         credential_driver:
           type: string
+      type: object
+    GatewayPlacementIntent:
+      description: Exactly one of network/provider or mode must be supplied.
+      example:
+        mode: local-kind
+        provider: aws
+        network: public
+      nullable: true
+      oneOf: []
+      properties:
+        network:
+          enum:
+          - public
+          - vpn
+          type: string
+        provider:
+          description: IBM Cloud supports public placement only; VPN requires AWS.
+          enum:
+          - aws
+          - ibm
+          type: string
+        mode:
+          enum:
+          - local-kind
+          type: string
+      type: object
+    GatewayPlacementAvailability:
+      example:
+        aws_public: true
+        aws_reason: no-eligible-cluster
+        local_kind: true
+        ibm_reason: no-eligible-cluster
+        ibm_public: true
+        aws_vpn: true
+        ibm_vpn: true
+      properties:
+        aws_public:
+          type: boolean
+        aws_vpn:
+          type: boolean
+        ibm_public:
+          type: boolean
+        ibm_vpn:
+          type: boolean
+        local_kind:
+          type: boolean
+        aws_reason:
+          enum:
+          - no-eligible-cluster
+          type: string
+        ibm_reason:
+          enum:
+          - no-eligible-cluster
+          type: string
+      required:
+      - aws_public
+      - aws_vpn
+      - ibm_public
+      - ibm_vpn
+      - local_kind
       type: object
     OpenShellGatewayServiceAccountRole:
       enum:
@@ -4381,18 +4493,21 @@ components:
         credential_driver: credential_driver
         oidc: oidc
         supervisor_image: supervisor_image
-        cluster_id: cluster_id
         service_type: service_type
         tls_mode: tls_mode
         route: route
         name: name
+        placement:
+          mode: local-kind
+          provider: aws
+          network: public
         external_dns: external_dns
         status: status
       properties:
         name:
           type: string
-        cluster_id:
-          type: string
+        placement:
+          $ref: "#/components/schemas/GatewayPlacementIntent"
         external_dns:
           type: string
         tls_mode:
@@ -4424,8 +4539,8 @@ components:
           description: JSON-encoded credential storage driver configuration
           type: string
       required:
-      - cluster_id
       - name
+      - placement
       type: object
     Gateway_allOf_provisioning_conditions:
       example:

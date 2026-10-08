@@ -10,7 +10,8 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**Provider** | **string** |  | 
+**Provider** | **string** | Cloud provider capability used for gateway placement. | 
+**Visibility** | Pointer to **string** | Network visibility supported by this control plane for gateway placement. | [optional] [readonly] 
 **Region** | Pointer to **string** |  | [optional] 
 **KubeconfigSecret** | **string** |  | 
 **Status** | Pointer to **string** |  | [optional] 
@@ -201,6 +202,31 @@ and a boolean to check if the value has been set.
 
 SetProvider sets Provider field to given value.
 
+
+### GetVisibility
+
+`func (o *ManagedCluster) GetVisibility() string`
+
+GetVisibility returns the Visibility field if non-nil, zero value otherwise.
+
+### GetVisibilityOk
+
+`func (o *ManagedCluster) GetVisibilityOk() (*string, bool)`
+
+GetVisibilityOk returns a tuple with the Visibility field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetVisibility
+
+`func (o *ManagedCluster) SetVisibility(v string)`
+
+SetVisibility sets Visibility field to given value.
+
+### HasVisibility
+
+`func (o *ManagedCluster) HasVisibility() bool`
+
+HasVisibility returns a boolean if a field has been set.
 
 ### GetRegion
 

@@ -18,6 +18,7 @@ const gatewayApi = {
   delete: vi.fn(),
   get: vi.fn(),
   list: vi.fn(),
+  placementAvailability: vi.fn(),
   update: vi.fn(),
 };
 const managedClusterApi = {
@@ -112,6 +113,7 @@ function managedCluster(
     region: "us-east-1",
     status: "Ready",
     updated_at: null,
+    visibility: "public",
     ...overrides,
   };
 }
@@ -666,25 +668,53 @@ describe("gateway API operations adapter", () => {
     );
   });
 
-  it("provisions on the selected cluster with hidden request defaults", async () => {
+  it("provisions from placement intent with hidden request defaults", async () => {
     gatewayApi.create.mockResolvedValue(gateway({}));
 
     await controlPlane.provisionGateway(
       {
-        clusterId: "cluster-east",
         name: "team-gateway",
+        placement: { network: "public", provider: "aws" },
       },
       context,
     );
 
     expect(gatewayApi.create).toHaveBeenCalledWith(
       {
-        cluster_id: "cluster-east",
         name: "team-gateway",
+        placement: { network: "public", provider: "aws" },
         route: '{"enabled":true}',
       },
       { signal: undefined },
     );
+  });
+
+  it("maps backend placement availability", async () => {
+    gatewayApi.placementAvailability.mockResolvedValue({
+      aws_public: true,
+      aws_vpn: true,
+      ibm_public: false,
+      ibm_vpn: false,
+      local_kind: true,
+    });
+
+    if (controlPlane.getGatewayPlacementAvailability === undefined) {
+      throw new Error("placement availability operation is unavailable");
+    }
+    await expect(
+      controlPlane.getGatewayPlacementAvailability(context),
+    ).resolves.toEqual({
+      awsPublic: true,
+      awsVpn: true,
+      awsReason: undefined,
+      ibmPublic: false,
+      ibmVpn: false,
+      ibmReason: undefined,
+      localKind: true,
+    });
+    expect(gatewayApi.placementAvailability).toHaveBeenCalledWith({
+      signal: undefined,
+    });
   });
 
   it("maps detail, rename, and deletion operations", async () => {

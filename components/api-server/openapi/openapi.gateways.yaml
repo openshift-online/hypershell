@@ -59,9 +59,9 @@ paths:
                 $ref: '#/components/schemas/Gateway'
         '400':
           description: |
-            Validation errors occurred, including a cluster_id that is empty or does not
-            reference a ManagedCluster with a registered control plane (non-empty
-            oidc_subject). On update, cluster_id is validated only when it changes.
+            Validation errors occurred, including an invalid or unavailable placement
+            intent. The backend resolves a valid intent to a registered ManagedCluster
+            before creating the gateway.
           content:
             application/json:
               schema:
@@ -86,6 +86,31 @@ paths:
                 $ref: 'openapi.yaml#/components/schemas/Error'
         '500':
           description: An unexpected error occurred creating the gateway
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+  /api/hypershell/v1/gateways/placement-availability:
+    get:
+      operationId: getGatewayPlacementAvailability
+      summary: Returns current provider placement eligibility
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: Current backend placement eligibility
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayPlacementAvailability'
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          description: Unexpected error evaluating placement availability
           content:
             application/json:
               schema:
@@ -329,12 +354,12 @@ components:
       type: object
       required:
         - name
-        - cluster_id
+        - placement
       properties:
         name:
           type: string
-        cluster_id:
-          type: string
+        placement:
+          $ref: '#/components/schemas/GatewayPlacementIntent'
         external_dns:
           type: string
         tls_mode:
@@ -365,6 +390,51 @@ components:
         credential_driver:
           type: string
           description: JSON-encoded credential storage driver configuration
+    GatewayPlacementIntent:
+      type: object
+      description: Exactly one of network/provider or mode must be supplied.
+      oneOf:
+        - title: Managed placement
+          required: [network, provider]
+          not:
+            required: [mode]
+        - title: Local Kind placement
+          required: [mode]
+          not:
+            anyOf:
+              - required: [network]
+              - required: [provider]
+      properties:
+        network:
+          type: string
+          enum: [public, vpn]
+        provider:
+          type: string
+          enum: [aws, ibm]
+          description: IBM Cloud supports public placement only; VPN requires AWS.
+        mode:
+          type: string
+          enum: [local-kind]
+    GatewayPlacementAvailability:
+      type: object
+      required: [aws_public, aws_vpn, ibm_public, ibm_vpn, local_kind]
+      properties:
+        aws_public:
+          type: boolean
+        aws_vpn:
+          type: boolean
+        ibm_public:
+          type: boolean
+        ibm_vpn:
+          type: boolean
+        local_kind:
+          type: boolean
+        aws_reason:
+          type: string
+          enum: [no-eligible-cluster]
+        ibm_reason:
+          type: string
+          enum: [no-eligible-cluster]
     # NEW SCHEMA START
     GatewayList:
     # NEW SCHEMA END

@@ -13,6 +13,7 @@ type ManagedCluster struct {
 	hypershellapi.TraceMeta
 	Name             string     `json:"name"`
 	Provider         string     `json:"provider"`
+	Visibility       string     `json:"visibility" gorm:"column:visibility"`
 	Region           *string    `json:"region"`
 	KubeconfigSecret string     `json:"kubeconfig_secret"`
 	Status           *string    `json:"status"`

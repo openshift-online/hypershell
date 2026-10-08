@@ -151,6 +151,11 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Workload configuration
 	setNestedValue(values, "deployment", "workload", "kind")
 	setNestedValue(values, 1, "replicaCount")
+	// Keep the gateway workload requests and limits explicit.
+	setNestedValue(values, map[string]interface{}{
+		"requests": map[string]interface{}{"cpu": "100m", "memory": "256Mi"},
+		"limits":   map[string]interface{}{"cpu": "500m", "memory": "512Mi"},
+	}, "resources")
 
 	// Gateway container resources. Always set: the upstream chart defaults to
 	// `resources: {}`, which would run the gateway BestEffort.
