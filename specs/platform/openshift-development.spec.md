@@ -841,10 +841,10 @@ The environment SHALL provide, and the Go OpenShift driver SHALL rely on:
   on the system trust store; when it serves a private CA, the driver extracts that CA
   and points `SSL_CERT_FILE` at it. The suite SHALL NOT set `OPENSHELL_GATEWAY_INSECURE`.
 
-The OpenShift e2e suite SHALL run with `go test ./tests/e2e/ -run TestE2E` against a
+The OpenShift e2e suite SHALL run with `go -C tests/e2e test . -run TestE2E` against a
 KUBECONFIG context pointed at the OpenShift cluster -- the suite auto-detects the
 OpenShift driver from that context, or a caller MAY force it explicitly with
-`E2E_INFRA_DRIVER=openshift go test ./tests/e2e/ -run TestE2E` -- and SHALL exercise
+`E2E_INFRA_DRIVER=openshift go -C tests/e2e test . -run TestE2E` -- and SHALL exercise
 the same phases (P0--P3) the Kind suite exercises, so one suite validates both targets.
 
 #### Scenario: Discover the API host on OpenShift
@@ -857,7 +857,7 @@ the same phases (P0--P3) the Kind suite exercises, so one suite validates both t
 #### Scenario: Same suite runs on both drivers
 
 - GIVEN the Go e2e suite is infrastructure-agnostic
-- WHEN a developer runs `go test ./tests/e2e/ -run TestE2E` with `E2E_INFRA_DRIVER=openshift`
+- WHEN a developer runs `go -C tests/e2e test . -run TestE2E` with `E2E_INFRA_DRIVER=openshift`
 - THEN the suite runs the same phases (P0--P3) it runs with `E2E_INFRA_DRIVER=kind`
 - AND the test logic is not changed between the two runs
 

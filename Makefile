@@ -644,7 +644,7 @@ e2e:
 	@echo ""
 	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
 		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
-		go test ./tests/e2e/ -run TestE2E -failfast -v -timeout $(E2E_GO_TIMEOUT)
+		go -C tests/e2e test . -run TestE2E -failfast -v -timeout $(E2E_GO_TIMEOUT)
 
 # Managed-cluster matrix runner: runs the single-cluster E2ESuite once per
 # registered ManagedCluster and reports a per-cluster pass/fail/skip matrix.
@@ -655,7 +655,7 @@ e2e-matrix:
 	@echo ""
 	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
 		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
-		go test ./tests/e2e/ -run TestMatrix -v -timeout $(E2E_GO_TIMEOUT)
+		go -C tests/e2e test . -run TestMatrix -v -timeout $(E2E_GO_TIMEOUT)
 
 # Bash user-interaction smoke script (happy path; demonstration + sanity check).
 # Not the authoritative gate -- the Go suite short mode is. Honors E2E_PAUSE.
@@ -687,7 +687,7 @@ e2e-performance:
 	# -benchtime 1x: provision the fleet once (this is a one-shot scale test, not a
 	# repeated micro-benchmark). b.ReportMetric surfaces ttr p50/p99, throughput,
 	# and success rate; compare runs with `benchstat`.
-	@go test ./tests/e2e/ -run '^$$' -bench '^BenchmarkGatewayProvisioning$$' -benchtime 1x -v -timeout $(E2E_GO_TIMEOUT)
+	@go -C tests/e2e test . -run '^$$' -bench '^BenchmarkGatewayProvisioning$$' -benchtime 1x -v -timeout $(E2E_GO_TIMEOUT)
 
 # Browser-driven end-to-end trace verification (WEB-TRACE-10). Requires a Kind
 # cluster brought up with tracing enabled (KIND_JAEGER=true make kind-up), so
