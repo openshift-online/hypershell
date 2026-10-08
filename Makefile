@@ -622,14 +622,39 @@ generate-tui-check:
 # (route.openshift.io => openshift, otherwise kind). Set E2E_INFRA_DRIVER
 # on the command line to override.
 
+# The functional e2e suite is the Go testify suite (TestE2E). It auto-detects the
+# infra driver from the current KUBECONFIG context (override with E2E_INFRA_DRIVER).
+# -failfast aborts on the first failing step (see the Three-Outcome Reporting
+# requirement in specs/platform/e2e-testing.spec.md).
+E2E_GO_TIMEOUT ?= 35m
 .PHONY: e2e
 e2e:
 	@echo ""
-	@echo "==> Running E2E tests"
+	@echo "==> Running E2E suite (go test TestE2E)"
 	@echo ""
-	@E2E_PROVISION_TIMEOUT=300 \
-		E2E_SANDBOX_TIMEOUT=180 \
-		bash tests/e2e/e2e-openshell.sh
+	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
+		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
+		go test ./tests/e2e/ -run TestE2E -failfast -v -timeout $(E2E_GO_TIMEOUT)
+
+# Managed-cluster matrix runner: runs the single-cluster E2ESuite once per
+# registered ManagedCluster and reports a per-cluster pass/fail/skip matrix.
+.PHONY: e2e-matrix
+e2e-matrix:
+	@echo ""
+	@echo "==> Running E2E matrix (go test TestMatrix)"
+	@echo ""
+	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
+		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
+		go test ./tests/e2e/ -run TestMatrix -v -timeout $(E2E_GO_TIMEOUT)
+
+# Bash user-interaction smoke script (happy path; demonstration + sanity check).
+# Not the authoritative gate -- the Go suite short mode is. Honors E2E_PAUSE.
+.PHONY: e2e-smoke
+e2e-smoke:
+	@echo ""
+	@echo "==> Running E2E smoke (bash user-interaction walkthrough)"
+	@echo ""
+	@bash tests/e2e/smoke.sh
 
 # Browser-driven e2e of the HyperShell web console and the per-gateway OpenShell
 # console (agent-browser headless Chromium). Requires port 443 forwarding from
@@ -647,9 +672,9 @@ e2e-console:
 .PHONY: e2e-performance
 e2e-performance:
 	@echo ""
-	@echo "==> Running E2E performance harness"
+	@echo "==> Running E2E performance harness (go test TestPerformance)"
 	@echo ""
-	@bash tests/e2e/e2e-performance.sh
+	@go test ./tests/e2e/ -run TestPerformance -v -timeout $(E2E_GO_TIMEOUT)
 
 .PHONY: e2e-performance-report
 e2e-performance-report:

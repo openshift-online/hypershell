@@ -56,6 +56,12 @@ type E2ESuite struct {
 	clusterID  string
 	releaseID  string
 
+	// clusterIDOverride, when set (by the matrix runner), pins the suite to a
+	// specific cluster id instead of discovering the seeded one. nameSuffix is
+	// appended to the run id so each per-cluster suite's gateway names are unique.
+	clusterIDOverride string
+	nameSuffix        string
+
 	// primary is the P1 gateway the read-only steps reuse.
 	primary driver.GatewayRef
 	// primaryGatewayToken is the per-gateway admin token acquired in P1.3 for the
@@ -90,6 +96,9 @@ func (s *E2ESuite) SetupSuite() {
 	s.mode = envOrDefault("E2E_MODE", modeLong)
 	s.concurrency = intEnv("E2E_CONCURRENCY", 4)
 	s.runID = strconv.FormatInt(time.Now().Unix()%100000, 10)
+	if s.nameSuffix != "" {
+		s.runID = s.runID + "-" + s.nameSuffix
+	}
 
 	s.T().Logf("e2e mode=%s concurrency=%d driver=%s runID=%s", s.mode, s.concurrency, s.driver.Name(), s.runID)
 
