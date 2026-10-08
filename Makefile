@@ -6,11 +6,6 @@ DEPENDENCY_MIN_AGE_DAYS=14
 PNPM_MIN_VERSION=11.15.1
 PNPM?=pnpm
 
-# TUI/CLI generator repository
-# PR #57 (interface-based design) is in fork until merged to upstream
-TREX_REPO?=https://github.com/rh-amarin/rh-trex-ai
-export TREX_REPO
-
 # --- Image registry and tags ---
 IMAGE_REGISTRY?=quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main
 IMAGE_TAG?=latest

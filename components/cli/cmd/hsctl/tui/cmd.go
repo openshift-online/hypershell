@@ -26,6 +26,9 @@ func session() (tuicmd.Session, error) {
 	if err != nil {
 		return tuicmd.Session{}, err
 	}
+	if cfg == nil {
+		return tuicmd.Session{}, fmt.Errorf("not logged in, run the 'login' command")
+	}
 	if armed, reason := cfg.Armed(); !armed {
 		return tuicmd.Session{}, fmt.Errorf("not logged in, %s, run the 'login' command", reason)
 	}
