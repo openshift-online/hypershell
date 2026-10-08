@@ -12,6 +12,12 @@ description: >
 
 Help the user create or change a spec that describes desired system behavior.
 
+Note: Specifications are not purely additive. They codify _repository intent_ and
+therefore must necessarily be utterly coherent and consistent always. More concretely,
+most spec additions are accompanied by deletions & modifications in other specs. To that end, be
+extremely thorough to understand the entire specification landscape when executing this
+workflow.
+
 ## User Input
 
 ```text

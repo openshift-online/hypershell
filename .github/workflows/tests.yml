@@ -9,15 +9,15 @@ name: Tests
 # that pattern for Unit vs Checks. Each triggers its own `detect-changes`
 # job rather than sharing one, which is the cost of that split. The one
 # exception is Tests / E2E / OpenShift, which needs the Deploy OpenShift
-# Environment job in e2e.yml (same should_run gate, after Unit) because
+# Environment job in e2e.yml (same should_run gate) because
 # that environment is the suite's target.
 #
 # Within this workflow, unit and e2e are reusable workflows (on:
-# workflow_call) wired with native `needs:` gating: e2e joins on unit
-# (`needs: [detect-changes, unit]`) so Kind is never created for a SHA whose
-# unit tests are failing -- no wasted e2e run, and no in-workflow poller. It
-# no longer waits on Checks; a lint/policy/drift failure alone will not stop
-# e2e from starting.
+# workflow_call) that both depend only on detect-changes, so they run
+# concurrently: e2e's slow cluster setup overlaps the unit stage. The cost is
+# that a SHA whose unit tests fail still spends an e2e run; the Tests CI Gate
+# fails on either stage. e2e does not wait on Checks either; a
+# lint/policy/drift failure alone will not stop e2e from starting.
 #
 # Change detection runs exactly once here (the detect-changes job) and is
 # passed into each stage as inputs; the stage workflows no longer detect
@@ -110,18 +110,11 @@ jobs:
 
   e2e:
     name: E2E
-    needs:
-      - detect-changes
-      - unit
-    # GitHub Actions' default `needs:` behavior skips a job if ANY needed job
-    # failed OR was skipped. When a PR touches only e2e-owned paths (no
-    # unit-tested component changed), every job inside the reusable `unit`
-    # workflow is individually if:-skipped, and that skip propagates to the
-    # `unit` caller job's own result -- which would silently skip `e2e` too
-    # without this explicit override. Only an actual `unit` failure (not a
-    # skip) should block e2e; detect-changes failing/cancelling still does,
-    # since it never legitimately skips.
-    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && needs.unit.result != 'failure' }}
+    # Runs concurrently with unit: it needs only change detection, so the
+    # slow cluster setup (Kind creation, OpenShift deploy) overlaps the unit
+    # stage instead of waiting on it. A unit failure no longer stops e2e from
+    # starting; it still fails the Tests CI Gate below.
+    needs: detect-changes
     uses: ./.github/workflows/e2e.yml
     permissions:
       contents: read

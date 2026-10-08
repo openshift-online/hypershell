@@ -72,12 +72,21 @@ type contentsResponse struct {
 
 // releaseLock is the subset of versions/hypershell-release-lock.json we read:
 // the bundle reference's tag (human version + timestamp) and digest (the stable
-// bundle identity).
+// bundle identity), plus the manifests git revision -- the PUBLIC product source
+// commit the bundle was built from, which the BundleEnricher diffs against the
+// previous bundle to list the PRs "in this bundle".
 type releaseLock struct {
 	Reference struct {
 		Tag    string `json:"tag"`
 		Digest string `json:"digest"`
 	} `json:"reference"`
+	Bundle struct {
+		Manifests struct {
+			Git struct {
+				Revision string `json:"revision"`
+			} `json:"git"`
+		} `json:"manifests"`
+	} `json:"bundle"`
 }
 
 // Resolve implements VersionResolver. It returns the release bundle sha deploys,
@@ -167,11 +176,12 @@ func (g *GitHubLockResolver) resolveUncached(ctx context.Context, sha string) *R
 		return fallback(sha)
 	}
 	return &Release{
-		Version: versionFromTag(tag),
-		Tag:     tag,
-		Digest:  digest,
-		Date:    dateFromTag(tag),
-		SHA:     shortSHA(sha),
+		Version:      versionFromTag(tag),
+		Tag:          tag,
+		Digest:       digest,
+		Date:         dateFromTag(tag),
+		SHA:          shortSHA(sha),
+		ManifestsRev: strings.TrimSpace(lock.Bundle.Manifests.Git.Revision),
 	}
 }
 

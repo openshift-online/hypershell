@@ -64,9 +64,18 @@ type Release struct {
 	// fallback, where SHA is the only identity.
 	Digest string `json:"digest,omitempty"`
 	// PRs is the set of pull requests this build introduced since the previous
-	// build (Bundle tab). Populated by a BundleEnricher; nil when GitHub
-	// enrichment is disabled or there is no prior build to diff against.
+	// build (Bundle tab, "In this bundle"). These are UPSTREAM product-source PRs
+	// (openshift-online/hypershell) -- the changes the bundle actually ships -- not
+	// the gitops lock-bump PR that promoted it. Populated by a BundleEnricher; nil
+	// when GitHub enrichment is disabled or there is no prior build to diff against.
 	PRs []PR `json:"prs,omitempty"`
+	// ManifestsRev is the PUBLIC product source revision the bundle's manifests
+	// were built from (the lock's bundle.manifests.git.revision). The
+	// BundleEnricher diffs consecutive bundles' ManifestsRev over the upstream repo
+	// to list the PRs "in this bundle". Internal only (not serialized): the UI
+	// consumes PRs. Empty under the short-SHA fallback or a lock without bundle
+	// provenance.
+	ManifestsRev string `json:"-"`
 }
 
 // ShortSHAResolver is the default resolver: version == first 8 chars of the SHA.

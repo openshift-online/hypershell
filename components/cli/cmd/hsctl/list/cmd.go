@@ -7,7 +7,6 @@ import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/managedClusters"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/roleBindings"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/roles"
-	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/serviceAccounts"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/users"
 )
 
@@ -23,5 +22,4 @@ func init() {
 	Cmd.AddCommand(roles.Cmd)
 	Cmd.AddCommand(roleBindings.Cmd)
 	Cmd.AddCommand(users.Cmd)
-	Cmd.AddCommand(serviceAccounts.Cmd)
 }

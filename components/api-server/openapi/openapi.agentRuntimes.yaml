@@ -1,5 +1,5 @@
 paths:
-  /api/hypershell/v1/agent_runtimes:
+  /api/hypershell/ext/agent_runtimes:
     get:
       operationId: listAgentRuntimes
       summary: Returns a list of agent runtimes
@@ -55,7 +55,7 @@ paths:
           $ref: 'openapi.yaml#/components/responses/ForbiddenError'
         '500':
           $ref: 'openapi.yaml#/components/responses/InternalServerError'
-  /api/hypershell/v1/agent_runtimes/{id}:
+  /api/hypershell/ext/agent_runtimes/{id}:
     get:
       operationId: getAgentRuntime
       summary: Get an agent runtime by ID

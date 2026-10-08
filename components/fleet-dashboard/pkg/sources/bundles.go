@@ -63,7 +63,15 @@ var prSuffix = regexp.MustCompile(`\s*\(#(\d+)\)\s*$`)
 type GitHubBundles struct {
 	base     string // API base, e.g. https://api.github.com (no trailing slash)
 	htmlBase string // HTML base for PR links, e.g. https://github.com
-	repo     string // owner/repo (fleet-identifying: supplied by config, never compiled in)
+	repo     string // gitops owner/repo (fleet-identifying: supplied by config, never compiled in)
+
+	// upstreamRepo is the PUBLIC product source repo (owner/repo) whose merged PRs
+	// compose a bundle ("In this bundle"). Not fleet-identifying, so it carries a
+	// compiled-in default. Read with upstreamTokenFile, which is empty by default
+	// (public repo, unauthenticated) -- the gitops installation token is scoped to
+	// repo and would not authorize a different repo anyway.
+	upstreamRepo      string
+	upstreamTokenFile string
 
 	tokenFile string
 	client    *http.Client
@@ -71,7 +79,7 @@ type GitHubBundles struct {
 
 	mu    sync.Mutex
 	dates map[string]string // sha -> commit author date (immutable)
-	prs   map[string][]PR   // "base...head" -> PRs (immutable)
+	prs   map[string][]PR   // "repo:base...head" -> PRs (immutable)
 }
 
 // NewGitHubBundles builds a GitHubBundles enricher from config, or returns nil
@@ -83,15 +91,24 @@ func NewGitHubBundles(c *config.Config) *GitHubBundles {
 		return nil
 	}
 	base := strings.TrimRight(c.GitHubAPIBase, "/")
+	// openshift-online/hypershell is the public product source and is NOT
+	// fleet-identifying, so it is safe to default in code (firewall) when config
+	// (which Load() already defaults) leaves it blank, e.g. in tests.
+	upstream := strings.Trim(c.UpstreamRepo, "/")
+	if upstream == "" {
+		upstream = "openshift-online/hypershell"
+	}
 	return &GitHubBundles{
-		base:      base,
-		htmlBase:  htmlBaseFrom(base),
-		repo:      strings.Trim(c.GitHubRepo, "/"),
-		tokenFile: c.GitHubTokenFile,
-		client:    &http.Client{Timeout: 15 * time.Second},
-		logger:    slog.Default(),
-		dates:     map[string]string{},
-		prs:       map[string][]PR{},
+		base:              base,
+		htmlBase:          htmlBaseFrom(base),
+		repo:              strings.Trim(c.GitHubRepo, "/"),
+		upstreamRepo:      upstream,
+		upstreamTokenFile: c.UpstreamTokenFile,
+		tokenFile:         c.GitHubTokenFile,
+		client:            &http.Client{Timeout: 15 * time.Second},
+		logger:            slog.Default(),
+		dates:             map[string]string{},
+		prs:               map[string][]PR{},
 	}
 }
 
@@ -123,8 +140,12 @@ func (g *GitHubBundles) ResolveDates(ctx context.Context, releases map[string]*R
 }
 
 // Enrich implements BundleEnricher. It orders the releases oldest-first and
-// attaches to each the PRs merged since the previous build (compare prev...cur).
-// The oldest release keeps nil PRs (there is no prior build to diff against).
+// attaches to each the UPSTREAM product-source PRs the bundle introduced since
+// the previous build -- the changes "in this bundle". These come from comparing
+// consecutive bundles' manifests revisions (ManifestsRev) over the public
+// upstream repo, NOT from the gitops lock-bump commits. The oldest release keeps
+// nil PRs (there is no prior build to diff against); a release without upstream
+// provenance (fallback/older lock) is skipped.
 //
 // Callers run this over the FULL release set (currently-deployed bundles plus
 // merged-in history), AFTER history is merged, so a fleet fully converged on a
@@ -136,36 +157,37 @@ func (g *GitHubBundles) Enrich(ctx context.Context, releases map[string]*Release
 	}
 	g.ResolveDates(ctx, releases)
 
-	// Keep only releases we could place on the timeline. The map is keyed by
-	// release identity (bundle digest when resolved, else SHA), so we diff on each
-	// release's own gitops commit (r.SHA), not the key.
+	// Keep only releases we could place on the timeline (dated) AND diff (an
+	// upstream manifests revision). The map is keyed by release identity (bundle
+	// digest when resolved, else SHA); we order by build date and diff on each
+	// release's own upstream revision (r.ManifestsRev), not the key.
 	type dated struct {
-		sha  string
+		rev  string // upstream product-source revision (bundle.manifests.git.revision)
 		date string
 		rel  *Release
 	}
 	var ordered []dated
 	for _, r := range releases {
-		if r == nil || r.SHA == "" || r.Date == "" {
+		if r == nil || r.Date == "" || r.ManifestsRev == "" {
 			continue
 		}
-		ordered = append(ordered, dated{sha: r.SHA, date: r.Date, rel: r})
+		ordered = append(ordered, dated{rev: r.ManifestsRev, date: r.Date, rel: r})
 	}
 	if len(ordered) < 2 {
 		return
 	}
 
-	// Oldest first; tie-break on sha for a stable order.
+	// Oldest first; tie-break on the revision for a stable order.
 	sort.Slice(ordered, func(i, j int) bool {
 		if ordered[i].date != ordered[j].date {
 			return ordered[i].date < ordered[j].date
 		}
-		return ordered[i].sha < ordered[j].sha
+		return ordered[i].rev < ordered[j].rev
 	})
 
 	for i := 1; i < len(ordered); i++ {
-		prev, cur := ordered[i-1].sha, ordered[i].sha
-		ordered[i].rel.PRs = g.comparePRs(ctx, prev, cur)
+		prev, cur := ordered[i-1].rev, ordered[i].rev
+		ordered[i].rel.PRs = g.comparePRs(ctx, g.upstreamRepo, g.upstreamTokenFile, prev, cur)
 	}
 }
 
@@ -215,12 +237,13 @@ type compareResponse struct {
 	} `json:"commits"`
 }
 
-// comparePRs returns the PRs introduced between base and head (exclusive of
-// base, inclusive of head), newest first. Non-PR commits (no "(#n)" trailer,
-// e.g. merge commits) are skipped. Cached forever: the diff between two fixed
-// commits is immutable.
-func (g *GitHubBundles) comparePRs(ctx context.Context, base, head string) []PR {
-	key := base + "..." + head
+// comparePRs returns the PRs introduced in repo between base and head (exclusive
+// of base, inclusive of head), newest first. Non-PR commits (no "(#n)" trailer,
+// e.g. merge commits) are skipped. tokenFile is empty for the public upstream
+// repo (unauthenticated). Cached forever, keyed by repo+range: the diff between
+// two fixed commits is immutable.
+func (g *GitHubBundles) comparePRs(ctx context.Context, repo, tokenFile, base, head string) []PR {
+	key := repo + ":" + base + "..." + head
 	g.mu.Lock()
 	if prs, ok := g.prs[key]; ok {
 		g.mu.Unlock()
@@ -229,8 +252,8 @@ func (g *GitHubBundles) comparePRs(ctx context.Context, base, head string) []PR 
 	g.mu.Unlock()
 
 	var cmp compareResponse
-	u := fmt.Sprintf("%s/repos/%s/compare/%s...%s", g.base, g.repo, base, head)
-	if !g.getJSON(ctx, u, &cmp) {
+	u := fmt.Sprintf("%s/repos/%s/compare/%s...%s", g.base, repo, base, head)
+	if !getGitHubJSON(ctx, g.client, tokenFile, g.logger, u, &cmp) {
 		return nil
 	}
 
@@ -251,7 +274,7 @@ func (g *GitHubBundles) comparePRs(ctx context.Context, base, head string) []PR 
 		pr := PR{
 			Number:   num,
 			Title:    strings.TrimSpace(prSuffix.ReplaceAllString(subject, "")),
-			URL:      fmt.Sprintf("%s/%s/pull/%d", g.htmlBase, g.repo, num),
+			URL:      fmt.Sprintf("%s/%s/pull/%d", g.htmlBase, repo, num),
 			MergedAt: c.Commit.Author.Date,
 		}
 		if c.Author != nil {

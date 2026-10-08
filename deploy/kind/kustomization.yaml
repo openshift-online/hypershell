@@ -11,7 +11,9 @@ resources:
   # sslmode=verify-full, sslrootcert=the stand-in CA) in hypershell-system
   # before this overlay is applied, because deploy/base/controller.yaml mounts
   # it and the controller refuses to start without it.
-  - ../base/keycloak/
+  # keycloak/ wraps ../base/keycloak with the Kind issuer patch; up.sh also
+  # applies it on its own early so Keycloak boots during infrastructure setup.
+  - keycloak/
   - ../base
   - certificates.yaml
   - gateway.yaml
@@ -211,29 +213,6 @@ patches:
                     value: "true"
                   - name: RBAC_SERVICE_ACCOUNTS
                     value: "service-account-hypershell-control-plane"
-  # --- Keycloak: fixed HTTPS issuer reachable in-cluster and from host ---
-  # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
-  # requiring config.issuer == discovery.issuer == token.iss, so the issuer
-  # must be a single URL reachable over HTTPS both in-cluster (via CoreDNS ->
-  # gateway LB) and from the host (via the gateway LB :443). The LB terminates
-  # TLS with the *.hypershell.localhost cert and forwards to keycloak-service:8080;
-  # Keycloak stays plain HTTP internally and honors X-Forwarded-Proto
-  # (KC_PROXY_HEADERS=xforwarded). This value matches E2E_OIDC_ISSUER and the
-  # seeded gateway OIDC issuer.
-  - patch: |
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: keycloak
-        namespace: keycloak
-      spec:
-        template:
-          spec:
-            containers:
-              - name: keycloak
-                env:
-                  - name: KC_HOSTNAME
-                    value: "https://keycloak.hypershell.localhost"
   - target:
       kind: Deployment
       name: hypershell-api-server
