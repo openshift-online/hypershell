@@ -25,11 +25,12 @@ printf 'Code-implementation discovery: scanning %s.\n' "$REPOSITORY" >&2
 
 readonly work_file=/tmp/code-impl-candidates.json
 
-# Issues with agent/review-spec-approved, without agent/reviewable-code or agent/review-code-approved.
-# Includes issues with agent/review-code-rejected so the implementation retries after a rejection.
+# Issues with agent/review-spec-approved, without agent/reviewable-code, agent/review-code-approved,
+# or agent/blocked. Includes agent/review-code-rejected issues so implementation retries after
+# rejection, but agent/blocked stops retries until a human intervenes.
 gh api --paginate \
   "repos/$REPOSITORY/issues?state=open&labels=agent/review-spec-approved&sort=created&direction=asc&per_page=100" \
-  --jq '.[] | select(.labels | map(.name) | (contains(["agent/reviewable-code"]) or contains(["agent/review-code-approved"])) | not) | {number: .number, url: .html_url, title: .title}' \
+  --jq '.[] | select(.labels | map(.name) | (contains(["agent/reviewable-code"]) or contains(["agent/review-code-approved"]) or contains(["agent/blocked"])) | not) | {number: .number, url: .html_url, title: .title}' \
   > "$work_file" 2>/dev/null || true
 
 total=$(wc -l < "$work_file" | tr -d ' ')

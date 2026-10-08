@@ -62,10 +62,17 @@ Apply `$VERDICT` label to `$GITHUB_ISSUE_URL`.
 
 IF `$VERDICT` == `agent/review-code-approved`:
 - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
-- Merge `$LINKED_PR` via squash merge: `gh pr merge $PR_NUMBER --squash --repo $REPOSITORY`
-- Apply label `agent/merged` to `$GITHUB_ISSUE_URL`.
+- The PR is ready to merge. A human must perform the merge.
 
 IF `$VERDICT` == `agent/review-code-rejected`:
-- Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
-- Add a comment to `$GITHUB_ISSUE_URL` communicating `$REJECTION_RATIONALE` that
-  adheres to the [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English) standard.
+- Count prior rejections: fetch the issue event timeline and count how many times
+  `agent/review-code-rejected` has been applied (including this one).
+- If the rejection count is 3 or more:
+  - Apply label `agent/blocked` to `$GITHUB_ISSUE_URL` instead of re-queuing.
+  - Add a comment explaining the issue has been rejected 3 or more times and needs
+    human review before the agent retries.
+  - STOP. Do not remove `agent/reviewable-code`; leave the issue in a blocked state.
+- Otherwise:
+  - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
+  - Add a comment to `$GITHUB_ISSUE_URL` communicating `$REJECTION_RATIONALE` that
+    adheres to the [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English) standard.

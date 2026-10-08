@@ -142,8 +142,8 @@ Writing `RESULT_FILE` is a local file write, not a GitHub mutation; do it even u
 
 After writing `RESULT_FILE`, update the linked issue's labels so the appropriate review agent
 picks the work up again. Determine the PR type from the head branch name:
-- If head branch contains `implementer/spec/` → spec PR; re-queue for spec-review.
-- If head branch contains `implementer/code/` or `agent/work/issue/` → code PR; re-queue for code-review.
+- If head branch matches `implementer/spec-*` → spec PR; re-queue for spec-review.
+- If head branch matches `implementer/code-*` or `agent/work/issue/*` → code PR; re-queue for code-review.
 
 Find the linked issue number by reading the PR body for a closing keyword (`Closes #N`,
 `Fixes #N`, or `Resolves #N`), or by searching issues for one linked to this PR's branch.
