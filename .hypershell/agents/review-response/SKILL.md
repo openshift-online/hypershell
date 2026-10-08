@@ -126,12 +126,18 @@ the deterministic driver reports from it and does **not** trust this turn's exit
 Write a single JSON object:
 
 ```json
-{"status": "<status>", "summary": "<summary>", "commit_sha": "<sha>"}
+{"status": "<outcome>", "summary": "<summary>", "commit_sha": "<sha>"}
 ```
 
-- `status:` one of `success` (amended, defended, or mixed -- work progressed), `no-new-feedback`
-  (nothing to do this round), `blocked` (a write was rejected -- never report `success` if
-  the push failed), or `failed` (unexpected error).
+- `status:` use the same outcome vocabulary as Step 9 -- one of:
+  - `amended` -- you pushed fixes and resolved those threads
+  - `defended` -- you replied with evidence, no code change
+  - `mixed` -- some threads amended, some defended
+  - `escalated` -- raised a `needs-decision` question; no code pushed
+  - `no-new-feedback` -- nothing to address this round
+  - `blocked` -- a write was rejected (push, reply, or label write failed); never report
+    `amended` if the push failed
+  - `failed` -- unexpected script error before completing Step 9
 - `commit_sha:` the head commit you pushed when you amended; omit or leave empty otherwise.
   The driver verifies it against the API, so it must be a real commit you actually pushed.
 - `summary:` one line under 100 characters for a human Slack reader, e.g.
@@ -155,17 +161,17 @@ since both spec and code work share the same `implementer/spec-*` branch:
 - If the issue has `agent/review-spec-approved` → code phase; re-queue for code-review.
 - Otherwise → spec phase; re-queue for spec-review.
 
-**When `outcome` is `amended`, `defended`, or `mixed`** (work progressed or defended):
+**When `status` is `amended`, `defended`, or `mixed`** (work progressed or defended):
 - Remove `agent/needs-review-response` from the issue (if present).
 - For a **code phase** issue: remove `agent/review-code-rejected` from the issue (if present).
   Ensure `agent/reviewable-code` is present on the issue so `code-review` re-runs.
 - For a **spec phase** issue: remove `agent/review-spec-rejected` from the issue (if present).
   Ensure `agent/reviewable-spec` is present on the issue so `spec-review` re-runs.
 
-**When `outcome` is `blocked` or `escalated`**: Do not alter review labels -- leave the issue
-in its current state for a human to unblock.
+**When `status` is `blocked`, `escalated`, or `failed`**: Do not alter review labels --
+leave the issue in its current state for a human to unblock.
 
-**When `outcome` is `no-new-feedback`**: Remove `agent/needs-review-response` from the issue.
+**When `status` is `no-new-feedback`**: Remove `agent/needs-review-response` from the issue.
 No other label change needed.
 
 _Note: Create any missing label create-if-missing. A 404 or 422 on a label removal means it
