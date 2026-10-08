@@ -47,6 +47,9 @@ heartbeat="${E2E_PARALLEL_HEARTBEAT:-60}"
 
 pids=()
 stop_children() {
+  # bash < 4.4 treats an empty array as unset under `set -u`; a signal can land
+  # before the first suite has started.
+  ((${#pids[@]})) || return 0
   local pid
   for pid in "${pids[@]}"; do
     kill "$pid" 2>/dev/null || true
