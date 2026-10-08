@@ -74,6 +74,9 @@ type E2ESuite struct {
 	// cliKubeconfigPath caches a temp kubeconfig pinned to E2E_KUBECONTEXT for the
 	// CLI wrapper's kubectl.
 	cliKubeconfigPath string
+	// openshiftCLIImage caches the gateway-version-matched openshell CLI image used
+	// by the OpenShift CLI path.
+	openshiftCLIImage string
 
 	mu              sync.Mutex
 	createdGateways []string // gateway ids to clean up on teardown
@@ -217,8 +220,30 @@ func (s *E2ESuite) step(id, slug, tag string, fn func(t *testing.T)) {
 				s.reporter.Record(id, slug, harness.OutcomePass, "")
 			}
 		}()
+		// Refresh the admin token at the start of each step so a long run (whose
+		// earlier steps can exceed the token TTL) does not hit 401s later.
+		s.refreshAdminToken()
 		fn(t)
 	})
+}
+
+// refreshAdminToken re-acquires the admin token and rebuilds the admin API client.
+// Best-effort: on failure it leaves the existing client in place and the step
+// surfaces any resulting auth error.
+func (s *E2ESuite) refreshAdminToken() {
+	if s.driver == nil {
+		return
+	}
+	tok, err := s.driver.AcquireOIDCToken(s.ctx, s.adminCreds())
+	if err != nil {
+		return
+	}
+	api, err := s.driver.APIClient(s.ctx, tok)
+	if err != nil {
+		return
+	}
+	s.adminToken = tok
+	s.admin = api
 }
 
 // modeAllows reports whether a step with the given tag runs in the active mode.

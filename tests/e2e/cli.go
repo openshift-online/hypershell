@@ -197,9 +197,53 @@ func (s *E2ESuite) registerGateway(t *testing.T, ref driver.GatewayRef, endpoint
 // cli runs `openshell -g <local> <args...>` with the CLI environment and returns
 // combined output.
 func (s *E2ESuite) cli(t *testing.T, local string, args ...string) (string, error) {
+	// On OpenShift (no explicit OPENSHELL_BIN) run the gateway-version-matched CLI
+	// image via the container engine: the Homebrew CLI can be a different build than
+	// the downstream gateway and skew the sandbox protobuf. The gateway is reachable
+	// over public DNS, so no cluster network wiring is needed.
+	if s.driver.Name() == "openshift" && os.Getenv("OPENSHELL_BIN") == "" {
+		return s.cliOpenShift(t, local, args...)
+	}
 	full := append([]string{"-g", local}, args...)
-	bin := s.resolveOpenshellBin()
-	return s.runCmdEnv(t.Context(), s.cliEnv(t), bin, full...)
+	return s.runCmdEnv(t.Context(), s.cliEnv(t), s.resolveOpenshellBin(), full...)
+}
+
+// cliOpenShift runs the openshell CLI image (matched to the gateway version) under
+// the container engine, mounting the host openshell config.
+func (s *E2ESuite) cliOpenShift(t *testing.T, local string, args ...string) (string, error) {
+	image := s.gatewayCLIImage(t, strings.TrimSuffix(local, "-openshell"))
+	home, err := os.UserHomeDir()
+	s.Require().NoError(err, "resolve home dir")
+	engine := envOrDefault("CONTAINER_ENGINE", "podman")
+	full := []string{
+		"run", "--rm",
+		"-e", "OPENSHELL_GATEWAY_INSECURE=true",
+		"-e", "HOME=/home/cli",
+		"-v", filepath.Join(home, ".config", "openshell") + ":/home/cli/.config/openshell",
+		image, "-g", local,
+	}
+	full = append(full, args...)
+	return s.runCmdEnv(t.Context(), os.Environ(), engine, full...)
+}
+
+// gatewayCLIImage derives the openshell CLI image matching the gateway deployed in
+// ns (same registry/tag as the gateway image, with the component swapped to -cli).
+// Cached for the suite lifetime.
+func (s *E2ESuite) gatewayCLIImage(t *testing.T, ns string) string {
+	if s.openshiftCLIImage != "" {
+		return s.openshiftCLIImage
+	}
+	dep, err := s.clients.Kube.AppsV1().Deployments(ns).Get(t.Context(), "openshell-gateway", metav1.GetOptions{})
+	s.Require().NoError(err, "get gateway deployment to derive CLI image")
+	gwImage := dep.Spec.Template.Spec.Containers[0].Image
+	// Strip any @sha256 digest, swap the component name to the CLI image.
+	if i := strings.Index(gwImage, "@"); i >= 0 {
+		gwImage = gwImage[:i]
+	}
+	cliImage := strings.Replace(gwImage, "odh-openshell-gateway", "odh-openshell-cli", 1)
+	s.openshiftCLIImage = cliImage
+	t.Logf("openshift CLI image: %s", cliImage)
+	return cliImage
 }
 
 // runCmdEnv runs a command with an explicit environment through the CommandRunner,
