@@ -27,7 +27,14 @@ type Clients struct {
 	// Gateway serves the Gateway API resources (Gateway, GRPCRoute, HTTPRoute)
 	// with the typed clientset, matching the control-plane's idiom.
 	Gateway gatewayclient.Interface
+	// contextNamespace is the namespace of the resolved KUBECONFIG context (the
+	// OpenShift driver uses it as the default platform namespace / oc project).
+	contextNamespace string
 }
+
+// ContextNamespace returns the namespace from the resolved KUBECONFIG context, or
+// "" when the context sets none.
+func (c *Clients) ContextNamespace() string { return c.contextNamespace }
 
 // NewClients builds the shared clients from the current KUBECONFIG context (the
 // same context kubectl would use), honoring KUBECONFIG and the current-context
@@ -42,12 +49,12 @@ func NewClients() (*Clients, error) {
 	if ctxName := os.Getenv("E2E_KUBECONTEXT"); ctxName != "" {
 		overrides.CurrentContext = ctxName
 	}
-	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		loadingRules, overrides,
-	).ClientConfig()
+	deferred := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
+	cfg, err := deferred.ClientConfig()
 	if err != nil {
 		return nil, fmt.Errorf("resolve KUBECONFIG context: %w", err)
 	}
+	ctxNamespace, _, _ := deferred.Namespace()
 
 	kube, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
@@ -59,7 +66,7 @@ func NewClients() (*Clients, error) {
 		return nil, fmt.Errorf("build Gateway API client: %w", err)
 	}
 
-	return &Clients{Config: cfg, Kube: kube, Gateway: gw}, nil
+	return &Clients{Config: cfg, Kube: kube, Gateway: gw, contextNamespace: ctxNamespace}, nil
 }
 
 // ServesAPIGroup reports whether the cluster the clients point at serves the
