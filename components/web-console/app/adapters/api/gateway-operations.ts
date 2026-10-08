@@ -184,6 +184,9 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     ...(typeof gateway.can_delete === "boolean"
       ? { canDelete: gateway.can_delete }
       : {}),
+    ...(typeof gateway.can_edit === "boolean"
+      ? { canEdit: gateway.can_edit }
+      : {}),
     clusterId: gateway.cluster_id,
     ...(consoleUrl ? { consoleUrl } : {}),
     ...(gateway.created_at ? { createdAt: gateway.created_at } : {}),

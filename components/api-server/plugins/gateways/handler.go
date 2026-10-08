@@ -75,6 +75,18 @@ func (h gatewayHandler) callerCanDelete(bindings []rbac.BindingSummary, gatewayI
 	return rbac.CanDeleteGateway(bindings, gatewayID)
 }
 
+// callerCanEdit reports whether the caller holding bindings may modify (PATCH,
+// e.g. rename) the gateway, mirroring the enforced check (rbac.CanEditGateway).
+// Advertised as Gateway.can_edit so a client can disable an edit affordance the
+// server would reject. When RBAC is not enforced every edit is permitted, so it
+// reports true.
+func (h gatewayHandler) callerCanEdit(bindings []rbac.BindingSummary, gatewayID string) bool {
+	if !h.enforceRBAC {
+		return true
+	}
+	return rbac.CanEditGateway(bindings, gatewayID)
+}
+
 // validateGatewayPhaseValue rejects a phase outside the canonical vocabulary. An
 // absent or empty phase is accepted so the field stays optional.
 func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
@@ -127,8 +139,8 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// The creator just received a gateway:owner binding (or RBAC is off), so
-			// they can always delete what they just created.
-			return PresentGateway(gatewayModel, "", true), nil
+			// they can always delete and edit what they just created.
+			return PresentGateway(gatewayModel, "", true, true), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -222,7 +234,7 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			bindings := h.callerBindings(ctx)
-			return PresentGateway(gatewayModel, "", h.callerCanDelete(bindings, gatewayModel.ID)), nil
+			return PresentGateway(gatewayModel, "", h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID)), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -295,7 +307,7 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			}
 			bindings := h.callerBindings(ctx)
 			for _, gateway := range gateways {
-				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID], h.callerCanDelete(bindings, gateway.ID))
+				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID], h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID))
 				gatewayList.Items = append(gatewayList.Items, converted)
 			}
 			if listArgs.Fields != nil {
@@ -338,7 +350,7 @@ func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {
 			}
 
 			bindings := h.callerBindings(ctx)
-			return PresentGateway(gateway, "", h.callerCanDelete(bindings, gateway.ID)), nil
+			return PresentGateway(gateway, "", h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID)), nil
 		},
 	}
 

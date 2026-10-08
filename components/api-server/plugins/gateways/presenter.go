@@ -32,10 +32,11 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	return c
 }
 
-func PresentGateway(gateway *Gateway, createdBy string, canDelete bool) openapi.Gateway {
+func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit bool) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
 		CanDelete:          openapi.PtrBool(canDelete),
+		CanEdit:            openapi.PtrBool(canEdit),
 		Id:                 reference.Id,
 		Kind:               reference.Kind,
 		Href:               reference.Href,

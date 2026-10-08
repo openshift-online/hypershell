@@ -3340,6 +3340,13 @@ components:
               authoritative.
             readOnly: true
             type: boolean
+          can_edit:
+            description: "Whether the authenticated caller is authorized to modify\
+              \ this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised\
+              \ so clients can disable an edit affordance the API would reject; the\
+              \ server remains authoritative."
+            readOnly: true
+            type: boolean
         required:
         - cluster_id
         - name
@@ -3372,6 +3379,7 @@ components:
           message: message
         kind: kind
         console_address: console_address
+        can_edit: true
         route_address: route_address
         oidc: oidc
         created_by: created_by
@@ -3427,6 +3435,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          can_edit: true
           route_address: route_address
           oidc: oidc
           created_by: created_by
@@ -3463,6 +3472,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          can_edit: true
           route_address: route_address
           oidc: oidc
           created_by: created_by

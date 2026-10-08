@@ -32,6 +32,7 @@ Name | Type | Description | Notes
 **Generation** | Pointer to **int64** | Monotonic desired-state revision, incremented by the API server on any desired-spec change | [optional] [readonly] 
 **ObservedGeneration** | Pointer to **int64** | Generation the control plane last successfully applied; converged when equal to generation | [optional] [readonly] 
 **CanDelete** | Pointer to **bool** | Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
+**CanEdit** | Pointer to **bool** | Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative. | [optional] [readonly] 
 
 ## Methods
 
@@ -736,6 +737,31 @@ SetCanDelete sets CanDelete field to given value.
 `func (o *Gateway) HasCanDelete() bool`
 
 HasCanDelete returns a boolean if a field has been set.
+
+### GetCanEdit
+
+`func (o *Gateway) GetCanEdit() bool`
+
+GetCanEdit returns the CanEdit field if non-nil, zero value otherwise.
+
+### GetCanEditOk
+
+`func (o *Gateway) GetCanEditOk() (*bool, bool)`
+
+GetCanEditOk returns a tuple with the CanEdit field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetCanEdit
+
+`func (o *Gateway) SetCanEdit(v bool)`
+
+SetCanEdit sets CanEdit field to given value.
+
+### HasCanEdit
+
+`func (o *Gateway) HasCanEdit() bool`
+
+HasCanEdit returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

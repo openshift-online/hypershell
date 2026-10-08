@@ -1267,6 +1267,10 @@
     "defaultMessage": "Gateway could not be renamed",
     "description": "Title shown when gateway renaming fails."
   },
+  "app.gateway.rename.notPermitted": {
+    "defaultMessage": "Only a gateway owner or admin can rename this gateway.",
+    "description": "Tooltip explaining why the Rename gateway action is disabled for a caller who lacks edit permission."
+  },
   "app.gateway.rename.pending": {
     "defaultMessage": "Renaming gateway",
     "description": "Accessible progress text while a gateway is being renamed."

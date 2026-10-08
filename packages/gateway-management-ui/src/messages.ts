@@ -542,6 +542,12 @@ export const messages = defineMessages({
     defaultMessage: "Rename gateway",
     description: "Action that changes a gateway's name.",
   },
+  renameGatewayNotPermitted: {
+    id: "app.gateway.rename.notPermitted",
+    defaultMessage: "Only a gateway owner or admin can rename this gateway.",
+    description:
+      "Tooltip explaining why the Rename gateway action is disabled for a caller who lacks edit permission.",
+  },
   renameGatewayTitle: {
     id: "app.gateway.rename.title",
     defaultMessage: "Rename {gatewayName}",

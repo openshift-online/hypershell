@@ -59,6 +59,8 @@ The platform SHALL define a per-gateway built-in role `gateway:admin` representi
 
 The Gateway REST resource SHALL advertise a read-only, per-caller `can_delete` boolean on `GET` (list and single) responses, computed from the authenticated caller's current bindings with the **same check that authorizes `DELETE`** (`gateway:owner` on that gateway, or `platform:admin`). `can_delete` is advisory: it exists so clients (console, CLI) can disable a delete affordance the API would reject, and SHALL NOT weaken enforcement. The API server SHALL remain the authorization boundary and SHALL enforce delete authorization on `DELETE` regardless of `can_delete`. When RBAC enforcement is disabled, every delete is permitted, so `can_delete` SHALL be `true`.
 
+The Gateway REST resource SHALL likewise advertise a read-only, per-caller `can_edit` boolean, computed from the **same check that authorizes `PATCH`** (`gateway:owner` or `gateway:admin` on that gateway; a `gateway:viewer` and a `platform:admin` without a per-gateway binding may not edit). It is advisory in the same way (clients disable an edit/rename affordance the API would reject) and SHALL NOT weaken enforcement; the server stays authoritative on `PATCH`. When RBAC enforcement is disabled, `can_edit` SHALL be `true`.
+
 `gateway:admin` SHALL be stored and granted exactly like other per-gateway bindings: a `RoleBinding` with `scope=gateway` and a `gateway_id`. It SHALL NOT be a JWT-synced role and SHALL NOT be assignable via Keycloak realm roles.
 
 A user holding `gateway:admin` on a gateway SHALL see that gateway in list and get results (gateway visibility follows any per-gateway binding).
@@ -85,6 +87,15 @@ A user holding `gateway:admin` on a gateway SHALL see that gateway in list and g
 - AND a `DELETE /api/hypershell/v1/gateways/gw-1` by user A SHALL return `403`
 - WHEN user C (a `gateway:owner`) or a `platform:admin` calls `GET /api/hypershell/v1/gateways/gw-1`
 - THEN the response `can_delete` SHALL be `true`
+
+#### Scenario: can_edit reflects the caller's edit authorization
+
+- GIVEN user V holds `gateway:viewer` on gw-1
+- WHEN user V calls `GET /api/hypershell/v1/gateways/gw-1`
+- THEN the response `can_edit` SHALL be `false`
+- AND a `PATCH /api/hypershell/v1/gateways/gw-1` by user V SHALL return `403`
+- WHEN a `gateway:owner` or `gateway:admin` of gw-1 calls `GET /api/hypershell/v1/gateways/gw-1`
+- THEN the response `can_edit` SHALL be `true`
 
 ---
 

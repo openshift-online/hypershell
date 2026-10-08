@@ -451,6 +451,15 @@ func CanDeleteGateway(bindings []BindingSummary, gatewayID string) bool {
 	return isGatewayAuthorized(http.MethodDelete, gatewayID, bindings)
 }
 
+// CanEditGateway reports whether a caller holding bindings may modify (PATCH) the
+// gateway, e.g. rename it. Like CanDeleteGateway it mirrors the enforced check
+// (isGatewayAuthorized) so the Gateway.can_edit capability the REST API advertises
+// never diverges from authorization: gateway:owner and gateway:admin may edit;
+// gateway:viewer and a platform:admin without a per-gateway binding may not.
+func CanEditGateway(bindings []BindingSummary, gatewayID string) bool {
+	return isGatewayAuthorized(http.MethodPatch, gatewayID, bindings)
+}
+
 func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSummary) bool {
 	if hasPlatformAdmin(bindings) && (method == http.MethodGet || method == http.MethodDelete) {
 		return true

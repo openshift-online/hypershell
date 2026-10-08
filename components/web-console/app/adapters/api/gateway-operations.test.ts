@@ -60,6 +60,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
   return {
     active_sandbox_count: 0,
     can_delete: false,
+    can_edit: false,
     cluster_id: "",
     console_address: "",
     created_at: null,
