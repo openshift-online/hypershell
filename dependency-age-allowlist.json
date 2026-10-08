@@ -12,5 +12,12 @@
     "version": "v1.11.0",
     "reason": "The current telemetry dependency graph resolves this transitive version within the cooldown window.",
     "compensatingVerification": "The module is checksum-locked; API server and control plane vet and golangci-lint checks cover the resolved graph."
+  },
+  {
+    "kind": "go",
+    "name": "github.com/rh-amarin/rh-trex-ai/components/api-server",
+    "version": "v0.0.0-20261007144355-9dcb81d79b36",
+    "reason": "Temporary replacement for github.com/openshift-online/rh-trex-ai/components/api-server in components/cli. HyperShell adopts the generated CLI and terminal UI from openshift-online/rh-trex-ai#58 (config store and token provider hooks, proxy-aware default HTTP client, generated delete and update commands, the TUI runtime and TokenProvider), which is unmerged, so the commit exists only on the PR branch of a fork and no tag exists. Remove this entry and the replace directive when #58 merges and the pin moves to the merged upstream commit.",
+    "compensatingVerification": "The dependency is commit-pinned by full SHA in scripts/rh-trex-ai.ref and components/cli/go.mod. make check regenerates the CLI and the TUI descriptor from that same commit and fails on any difference, and the hsctl unit tests run against that exact commit."
   }
 ]

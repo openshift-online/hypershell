@@ -21,6 +21,10 @@ select.
   - [OpenShift per-component swap](#openshift-per-component-swap)
   - [OpenShift environment variables](#openshift-environment-variables)
 - [Gateway Access](#gateway-access)
+- [CLI and Terminal UI](#cli-and-terminal-ui)
+  - [Regenerating](#regenerating)
+  - [Updating the rh-trex-ai pin](#updating-the-rh-trex-ai-pin)
+  - [Customizing generated code](#customizing-generated-code)
 - [Testing](#testing)
 - [Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)
   - [Keep or destroy the environment](#keep-or-destroy-the-environment)
@@ -278,10 +282,9 @@ if that legacy path already exists) and uses the `hypershell-cli` Keycloak clien
 
 Check identity with `hsctl whoami` and log out with `hsctl logout`.
 
-Run `./components/cli/hsctl ui` for an interactive terminal view of gateways,
-managed clusters, releases, and networks that refreshes in place and can
-provision and delete gateways. Press `?` inside it for key bindings. The
-behavior is specified in `specs/platform/hsctl-terminal-ui.spec.md`.
+Run `./components/cli/hsctl tui` for an interactive terminal view of every API
+resource that refreshes in place. Press `?` inside it for key bindings. See
+[CLI and Terminal UI](#cli-and-terminal-ui) for how it is generated.
 
 ### Hot reload and OIDC
 
@@ -592,12 +595,96 @@ curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
 
 Wait ~30s for the control plane to reconcile, then port-forward and register.
 
+## CLI and Terminal UI
+
+Most of `hsctl` is generated from the API's OpenAPI description
+(`components/api-server/openapi/`) by the rh-trex-ai generators. Roughly half of
+the files in `components/cli` are generated; the rest are hand-written.
+
+| Part | Source | Where |
+|------|--------|-------|
+| `list`, `get`, `create`, `update`, `delete` commands per resource, `login` (static token and OIDC), `logout`, `whoami`, `config`, `completion`, `version`, shared packages (`pkg/config`, `pkg/connection`, `pkg/oidc`, `pkg/output` and others) | rh-trex-ai `cli-generator` | `components/cli/cmd/hsctl/...`, `components/cli/pkg/...` |
+| Terminal UI descriptor | rh-trex-ai `tui-generator` | `components/cli/data/generated/tui/` |
+| `apply`, `revoke`, the service account commands, the `tui` wrapper, `main.go` | hand-written | `components/cli/cmd/hsctl/...`, `pkg/serviceaccount`, `pkg/gatewayconnect` |
+
+`update` and `delete` exist only for resources whose OpenAPI description declares
+the operation. `delete` asks for confirmation and fails without a terminal
+unless `--yes` is given; `update` sends only the flags that are set, or a
+`--body` JSON file.
+
+### Regenerating
+
+After changing anything under `components/api-server/openapi/`:
+
+```bash
+make generate-cli    # hsctl commands and the terminal UI descriptor
+make generate-tui    # only the terminal UI descriptor
+```
+
+Commit the result. Never edit a generated file by hand. `make check`, the git
+hooks and CI fail when a generated file differs from a fresh generation
+(`make generate-cli-check`, `make generate-tui-check`), and when a resource
+command is left behind after its resource or operation left the spec.
+
+The generators run from a checkout of rh-trex-ai at the commit in
+`scripts/rh-trex-ai.ref`, cached in `~/.cache/hypershell/rh-trex-ai` (override
+with `TREX_CACHE`, `TREX_REPO`, or `TREX_REF` for one run). The first run needs
+network access. The cache is refused if its files were modified, so remove the
+directory when that happens.
+
+### Updating the rh-trex-ai pin
+
+The generators and the terminal UI runtime must come from the same commit:
+
+1. Put the full 40 character commit SHA in `scripts/rh-trex-ai.ref`.
+2. Set the `rh-trex-ai/components/api-server` version in `components/cli/go.mod`
+   to the matching pseudo-version, then run `go mod tidy` in `components/cli`.
+3. Run `make generate-cli`, review the diff, and run
+   `cd components/cli && go test ./...` and `make check`.
+
+While the rh-trex-ai change is unmerged, `go.mod` replaces the framework with a
+fork commit and `dependency-age-allowlist.json` carries a matching exception
+(the commit is under the 14 day minimum age). Each new pin changes the
+pseudo-version, so update both together. When the change merges, point the pin
+at the merged upstream commit, remove the `replace`, and delete the exception.
+
+### Customizing generated code
+
+Generated files are never patched. `scripts/generate-cli.sh` passes two options to
+the generator instead:
+
+- `--config-name hypershell`: the config file is `$HYPERSHELL_CONFIG`,
+  `~/.hypershell.json`, or `~/.config/hypershell/config.json`, so logins saved by
+  earlier versions keep working.
+- `--oidc-client-id hypershell-cli`: the HyperShell Keycloak client becomes the
+  `login --client-id` default.
+
+Token refresh, OIDC login and logout, and `whoami` come from the generator
+(`pkg/oidc`, `pkg/connection`, `pkg/config`), including saving a rotated refresh
+token. The terminal UI reuses the generated token provider
+(`connection.NewConfigTokenProvider`). Hooks (`config.SetStore`,
+`connection.SetHTTPClientFactory`, `connection.SetTokenProviderFactory`) are
+available if a future need arises.
+
+Generated commands are registered by the generated `cmd/hsctl/generated_commands.go`,
+which `main.go` calls once (`addGeneratedCommands(root)`); a new resource needs no
+edit to `main.go`. A hand-written command is registered from `main.go` (or a
+registration file next to the generated parent, as
+`delete/service_account_registration.go` does). A
+hand-written resource command that lives beside generated ones must also be
+listed in `HAND_MAINTAINED_COMMANDS` in `scripts/generate-cli.sh`, or the drift
+check will report it as left over. Files the generator must not overwrite are
+listed in `HAND_MAINTAINED` in the same script.
+
+The terminal UI behavior is specified in
+`specs/platform/hsctl-terminal-ui.spec.md`.
+
 ## Testing
 
 ### Unit tests
 
-Run the full local unit test suite (API server, control plane, CLI/SDK
-generators, frontend packages, and shell tests) before pushing:
+Run the full local unit test suite (API server, control plane, CLI, SDK
+generator, frontend packages, and shell tests) before pushing:
 
 ```bash
 make unit-test-all
@@ -605,7 +692,7 @@ make unit-test-all
 
 | Target | Runs |
 |--------|------|
-| `make unit-test-all` | Every unit test suite: `install-js`, `make ci-test`, `components/api-server` (`make test`), `components/control-plane` (`go test ./...`), `components/cli`, `scripts/cli-generator`, `scripts/sdk-generator` (`go test ./...`), and `pnpm run test:web` (frontend packages) |
+| `make unit-test-all` | Every unit test suite: `install-js`, `make ci-test`, `components/api-server` (`make test`), `components/control-plane` (`go test ./...`), `components/cli`, `scripts/sdk-generator` (`go test ./...`), and `pnpm run test:web` (frontend packages) |
 | `make ci-test` | Only the auto-discovered `*_test.sh` shell unit tests (see below) |
 
 Component-scoped runs are also available:
