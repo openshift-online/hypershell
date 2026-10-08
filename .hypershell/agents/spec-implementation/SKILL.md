@@ -43,7 +43,7 @@ IF `$EXISTING_PR` IS NOT NULL:
 - Update PR body to match actual diff, if necessary.
 
 ELSE:
-- Create a new branch for the issue of form `agent/work/issue/($JIRA_ISSUE ?? $ISSUE_NUMBER)`
+- Create a new branch of the form `implementer/spec-($JIRA_ISSUE ?? $ISSUE_NUMBER)`
 - Push to branch
 - Open Pull Request, link it to the issue
 - PR Body must conform to [SIMPLIFIED TECHNICAL ENGLISH STANDARD](https://en.wikipedia.org/wiki/Simplified_Technical_English).
