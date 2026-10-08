@@ -852,6 +852,7 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_ENV_RETAINED_MAX_HOURS: ${{ vars.PR_ENV_RETAINED_MAX_HOURS || '72' }}
       PR_ENV_UNRETAINED_MAX_HOURS: ${{ vars.PR_ENV_UNRETAINED_MAX_HOURS || '24' }}
+      PR_ENV_MAIN_MQ_MAX_HOURS: ${{ vars.PR_ENV_MAIN_MQ_MAX_HOURS || '4' }}
       PR_ENV_GITHUB_ORG: ${{ vars.PR_ENV_GITHUB_ORG || 'openshift-online' }}
       PR_ENV_GITHUB_ALLOWLIST: ${{ vars.PR_ENV_GITHUB_ALLOWLIST }}
       KUBECONFIG: ${{ github.workspace }}/.kube/config

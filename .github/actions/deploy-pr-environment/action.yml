@@ -140,8 +140,12 @@ runs:
           "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"hypershell.redhat.io/oauth-secret\":\"${hash}\"}}}}}"
         oc rollout status deploy/keycloak -n "${kc_ns}" --timeout=600s
 
+    # Runs for every deploy, not just pull requests: push-to-main and
+    # merge-queue namespaces need the same owned/expires-at stamp so the
+    # out-of-band reaper has a backstop for them too (ephemeral-pr-
+    # environments.spec.md). stamp-pr-env.sh falls back to GITHUB_EVENT_NAME /
+    # GITHUB_SHA when inputs.pr_number is empty.
     - name: Stamp namespace group (identity + timebox)
-      if: inputs.pr_number != ''
       id: stamp
       shell: bash
       env:
