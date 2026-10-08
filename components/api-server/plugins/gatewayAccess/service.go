@@ -78,7 +78,6 @@ type GrantItem struct {
 	Name          *string
 	Email         *string
 	Role          string
-	IsCreator     bool
 	GrantedAt     time.Time
 }
 
@@ -178,13 +177,9 @@ func (s *service) List(ctx context.Context, gatewayID, callerUserID string, opts
 	if err != nil {
 		return nil, 0, Capabilities{}, serverError("unable to list gateway access")
 	}
-	creatorID, err := s.dao.creatorUserID(ctx, gatewayID)
-	if err != nil {
-		return nil, 0, Capabilities{}, serverError("unable to resolve gateway creator")
-	}
 	items := make([]GrantItem, 0, len(rows))
 	for _, r := range rows {
-		items = append(items, grantItemFromRow(r, creatorID))
+		items = append(items, grantItemFromRow(r))
 	}
 	tier, aerr := s.callerTier(ctx, callerUserID, gatewayID)
 	if aerr != nil {
@@ -387,14 +382,10 @@ func (s *service) grantItem(ctx context.Context, gatewayID, userID string) (Gran
 	if !found {
 		return GrantItem{}, serverError("grant not found after write")
 	}
-	creatorID, err := s.dao.creatorUserID(ctx, gatewayID)
-	if err != nil {
-		return GrantItem{}, serverError("unable to resolve gateway creator")
-	}
-	return grantItemFromRow(row, creatorID), nil
+	return grantItemFromRow(row), nil
 }
 
-func grantItemFromRow(r accessRow, creatorID string) GrantItem {
+func grantItemFromRow(r accessRow) GrantItem {
 	return GrantItem{
 		RoleBindingID: r.RoleBindingID,
 		UserID:        r.UserID,
@@ -402,7 +393,6 @@ func grantItemFromRow(r accessRow, creatorID string) GrantItem {
 		Name:          r.Name,
 		Email:         r.Email,
 		Role:          roleNameToTier(r.RoleName),
-		IsCreator:     r.UserID == creatorID && r.RoleName == roles.RoleGatewayOwner,
 		GrantedAt:     r.GrantedAt,
 	}
 }

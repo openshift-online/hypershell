@@ -10,14 +10,13 @@ Name | Type | Description | Notes
 **Name** | Pointer to **NullableString** |  | [optional] 
 **Email** | Pointer to **NullableString** |  | [optional] 
 **Role** | [**GatewayAccessRole**](GatewayAccessRole.md) |  | 
-**IsCreator** | **bool** |  | 
 **GrantedAt** | **time.Time** |  | 
 
 ## Methods
 
 ### NewGatewayAccessListItem
 
-`func NewGatewayAccessListItem(roleBindingId string, userId string, username string, role GatewayAccessRole, isCreator bool, grantedAt time.Time, ) *GatewayAccessListItem`
+`func NewGatewayAccessListItem(roleBindingId string, userId string, username string, role GatewayAccessRole, grantedAt time.Time, ) *GatewayAccessListItem`
 
 NewGatewayAccessListItem instantiates a new GatewayAccessListItem object
 This constructor will assign default values to properties that have it defined,
@@ -180,26 +179,6 @@ and a boolean to check if the value has been set.
 `func (o *GatewayAccessListItem) SetRole(v GatewayAccessRole)`
 
 SetRole sets Role field to given value.
-
-
-### GetIsCreator
-
-`func (o *GatewayAccessListItem) GetIsCreator() bool`
-
-GetIsCreator returns the IsCreator field if non-nil, zero value otherwise.
-
-### GetIsCreatorOk
-
-`func (o *GatewayAccessListItem) GetIsCreatorOk() (*bool, bool)`
-
-GetIsCreatorOk returns a tuple with the IsCreator field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetIsCreator
-
-`func (o *GatewayAccessListItem) SetIsCreator(v bool)`
-
-SetIsCreator sets IsCreator field to given value.
 
 
 ### GetGrantedAt

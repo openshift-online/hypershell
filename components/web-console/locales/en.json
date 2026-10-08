@@ -763,10 +763,6 @@
     "defaultMessage": "Name",
     "description": "Access table column for the user's display name."
   },
-  "app.gateway.access.creatorMarker": {
-    "defaultMessage": "Creator",
-    "description": "Marker shown on the row of the gateway creator."
-  },
   "app.gateway.access.description": {
     "defaultMessage": "Manage who can access this gateway and at what role.",
     "description": "Description under the Manage access heading."
@@ -922,6 +918,18 @@
   "app.gateway.access.viewerReadOnly": {
     "defaultMessage": "You have read-only access to this list.",
     "description": "Notice shown to viewers who cannot manage access."
+  },
+  "app.gateway.access.workspaceGrant.intro": {
+    "defaultMessage": "This user cannot use the gateway until they are added to a workspace. A user with admin access on this gateway must run the below commands (change the workspace name if needed):",
+    "description": "Instructions for adding a newly granted user to an OpenShell workspace."
+  },
+  "app.gateway.access.workspaceGrant.lookupPending": {
+    "defaultMessage": "Looking up the user's subject ID...",
+    "description": "Loading text shown while resolving a user's subject for the workspace command."
+  },
+  "app.gateway.access.workspaceGrant.subjectUnavailable": {
+    "defaultMessage": "Could not determine this user's subject ID. The identity directory may be unavailable; try again.",
+    "description": "Error shown when a user's subject cannot be resolved for the workspace command."
   },
   "app.gateway.cliConnection": {
     "defaultMessage": "CLI connection",

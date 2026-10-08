@@ -35,7 +35,6 @@ function setup() {
   const renameGateway = vi.fn().mockResolvedValue(gateway);
   const grant = {
     grantedAt: "2026-08-06T18:00:00.000Z",
-    isCreator: false,
     role: "user" as const,
     roleBindingId: "rb-1",
     userId: "user-1",

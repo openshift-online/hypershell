@@ -28,7 +28,6 @@ type GatewayAccessListItem struct {
 	Name          NullableString    `json:"name,omitempty"`
 	Email         NullableString    `json:"email,omitempty"`
 	Role          GatewayAccessRole `json:"role"`
-	IsCreator     bool              `json:"is_creator"`
 	GrantedAt     time.Time         `json:"granted_at"`
 }
 
@@ -38,13 +37,12 @@ type _GatewayAccessListItem GatewayAccessListItem
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayAccessListItem(roleBindingId string, userId string, username string, role GatewayAccessRole, isCreator bool, grantedAt time.Time) *GatewayAccessListItem {
+func NewGatewayAccessListItem(roleBindingId string, userId string, username string, role GatewayAccessRole, grantedAt time.Time) *GatewayAccessListItem {
 	this := GatewayAccessListItem{}
 	this.RoleBindingId = roleBindingId
 	this.UserId = userId
 	this.Username = username
 	this.Role = role
-	this.IsCreator = isCreator
 	this.GrantedAt = grantedAt
 	return &this
 }
@@ -239,30 +237,6 @@ func (o *GatewayAccessListItem) SetRole(v GatewayAccessRole) {
 	o.Role = v
 }
 
-// GetIsCreator returns the IsCreator field value
-func (o *GatewayAccessListItem) GetIsCreator() bool {
-	if o == nil {
-		var ret bool
-		return ret
-	}
-
-	return o.IsCreator
-}
-
-// GetIsCreatorOk returns a tuple with the IsCreator field value
-// and a boolean to check if the value has been set.
-func (o *GatewayAccessListItem) GetIsCreatorOk() (*bool, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.IsCreator, true
-}
-
-// SetIsCreator sets field value
-func (o *GatewayAccessListItem) SetIsCreator(v bool) {
-	o.IsCreator = v
-}
-
 // GetGrantedAt returns the GrantedAt field value
 func (o *GatewayAccessListItem) GetGrantedAt() time.Time {
 	if o == nil {
@@ -307,7 +281,6 @@ func (o GatewayAccessListItem) ToMap() (map[string]interface{}, error) {
 		toSerialize["email"] = o.Email.Get()
 	}
 	toSerialize["role"] = o.Role
-	toSerialize["is_creator"] = o.IsCreator
 	toSerialize["granted_at"] = o.GrantedAt
 	return toSerialize, nil
 }
@@ -321,7 +294,6 @@ func (o *GatewayAccessListItem) UnmarshalJSON(data []byte) (err error) {
 		"user_id",
 		"username",
 		"role",
-		"is_creator",
 		"granted_at",
 	}
 

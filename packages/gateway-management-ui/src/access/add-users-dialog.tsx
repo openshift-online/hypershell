@@ -45,6 +45,7 @@ import {
   roleDescription,
   roleLabel,
 } from "./access-role";
+import { WorkspaceAccessCommand } from "./workspace-access-command";
 
 const loadingValue = Symbol();
 const noResultsValue = Symbol();
@@ -239,13 +240,22 @@ export function AddUsersDialog({
       });
     },
     onSuccess: async () => {
-      onClose();
       await queryClient.invalidateQueries({
         queryKey: accessListQueryRoot(gatewayId),
       });
+      // A user granted the "user" role still needs to be added to a workspace
+      // before they can use the gateway, so keep the dialog open to show the
+      // admin command. Other roles are management-plane only, so close as usual.
+      if (role !== "user") {
+        onClose();
+      }
     },
     retry: false,
   });
+
+  // After a successful "user" grant, swap the form for the workspace-access
+  // command (the directory selection still holds the resolved subject).
+  const showWorkspaceStep = mutation.isSuccess && role === "user";
 
   const close = () => {
     mutation.reset();
@@ -257,74 +267,94 @@ export function AddUsersDialog({
       aria-labelledby={titleId}
       isOpen={isOpen}
       onClose={mutation.isPending ? undefined : close}
-      variant={ModalVariant.small}
+      variant={showWorkspaceStep ? ModalVariant.medium : ModalVariant.small}
     >
       <ModalHeader
         labelId={titleId}
-        title={intl.formatMessage(messages.accessAddUsers)}
+        title={intl.formatMessage(
+          showWorkspaceStep
+            ? messages.grantWorkspaceAccess
+            : messages.accessAddUsers,
+        )}
       />
       <ModalBody>
-        <Form>
-          <FormGroup
-            fieldId="gateway-access-directory"
-            label={intl.formatMessage(messages.accessDirectorySearchLabel)}
-          >
-            <DirectoryTypeahead
-              gatewayId={gatewayId}
-              onSelect={setSelected}
-              selected={selected}
-            />
-          </FormGroup>
-          {selected ? (
+        {showWorkspaceStep ? (
+          <WorkspaceAccessCommand subject={selected?.subject} />
+        ) : (
+          <Form>
             <FormGroup
-              label={intl.formatMessage(messages.accessSelectRole)}
-              role="radiogroup"
+              fieldId="gateway-access-directory"
+              label={intl.formatMessage(messages.accessDirectorySearchLabel)}
             >
-              <Stack hasGutter>
-                {roles.map((candidateRole) => (
-                  <StackItem key={candidateRole}>
-                    <Radio
-                      description={roleDescription(
-                        intl.formatMessage,
-                        candidateRole,
-                      )}
-                      id={`gateway-access-role-${candidateRole}`}
-                      isChecked={role === candidateRole}
-                      label={roleLabel(intl.formatMessage, candidateRole)}
-                      name="gateway-access-role"
-                      onChange={() => {
-                        setRole(candidateRole);
-                      }}
-                    />
-                  </StackItem>
-                ))}
-              </Stack>
+              <DirectoryTypeahead
+                gatewayId={gatewayId}
+                onSelect={setSelected}
+                selected={selected}
+              />
             </FormGroup>
-          ) : null}
-          {mutation.isError ? (
-            <Alert
-              isInline
-              title={actionErrorMessage(intl.formatMessage, mutation.error)}
-              variant="danger"
-            />
-          ) : null}
-        </Form>
+            {selected ? (
+              <FormGroup
+                label={intl.formatMessage(messages.accessSelectRole)}
+                role="radiogroup"
+              >
+                <Stack hasGutter>
+                  {roles.map((candidateRole) => (
+                    <StackItem key={candidateRole}>
+                      <Radio
+                        description={roleDescription(
+                          intl.formatMessage,
+                          candidateRole,
+                        )}
+                        id={`gateway-access-role-${candidateRole}`}
+                        isChecked={role === candidateRole}
+                        label={roleLabel(intl.formatMessage, candidateRole)}
+                        name="gateway-access-role"
+                        onChange={() => {
+                          setRole(candidateRole);
+                        }}
+                      />
+                    </StackItem>
+                  ))}
+                </Stack>
+              </FormGroup>
+            ) : null}
+            {mutation.isError ? (
+              <Alert
+                isInline
+                title={actionErrorMessage(intl.formatMessage, mutation.error)}
+                variant="danger"
+              />
+            ) : null}
+          </Form>
+        )}
       </ModalBody>
       <ModalFooter>
-        <Button
-          isDisabled={!selected || mutation.isPending}
-          isLoading={mutation.isPending}
-          onClick={() => {
-            mutation.mutate();
-          }}
-          spinnerAriaValueText={intl.formatMessage(messages.accessGranting)}
-          variant="primary"
-        >
-          {intl.formatMessage(messages.accessGrant)}
-        </Button>
-        <Button isDisabled={mutation.isPending} onClick={close} variant="link">
-          {intl.formatMessage(messages.cancel)}
-        </Button>
+        {showWorkspaceStep ? (
+          <Button onClick={close} variant="primary">
+            {intl.formatMessage(messages.close)}
+          </Button>
+        ) : (
+          <>
+            <Button
+              isDisabled={!selected || mutation.isPending}
+              isLoading={mutation.isPending}
+              onClick={() => {
+                mutation.mutate();
+              }}
+              spinnerAriaValueText={intl.formatMessage(messages.accessGranting)}
+              variant="primary"
+            >
+              {intl.formatMessage(messages.accessGrant)}
+            </Button>
+            <Button
+              isDisabled={mutation.isPending}
+              onClick={close}
+              variant="link"
+            >
+              {intl.formatMessage(messages.cancel)}
+            </Button>
+          </>
+        )}
       </ModalFooter>
     </Modal>
   );

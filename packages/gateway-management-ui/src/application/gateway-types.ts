@@ -199,7 +199,6 @@ export type GatewayAccessRole = "admin" | "owner" | "user";
 export interface GatewayAccessGrantRecord {
   email?: string;
   grantedAt: string;
-  isCreator: boolean;
   name?: string;
   role: GatewayAccessRole;
   roleBindingId: string;

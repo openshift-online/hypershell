@@ -4160,7 +4160,6 @@ components:
         user_id: user_id
         name: name
         role_binding_id: role_binding_id
-        is_creator: true
         email: email
         username: username
       properties:
@@ -4178,14 +4177,11 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/GatewayAccessRole"
-        is_creator:
-          type: boolean
         granted_at:
           format: date-time
           type: string
       required:
       - granted_at
-      - is_creator
       - role
       - role_binding_id
       - user_id
@@ -4200,7 +4196,6 @@ components:
         user_id: user_id
         name: name
         role_binding_id: role_binding_id
-        is_creator: true
         email: email
         username: username
     GatewayAccessCapabilities:
@@ -4234,7 +4229,6 @@ components:
           user_id: user_id
           name: name
           role_binding_id: role_binding_id
-          is_creator: true
           email: email
           username: username
         - granted_at: 2000-01-23T04:56:07.000+00:00
@@ -4242,7 +4236,6 @@ components:
           user_id: user_id
           name: name
           role_binding_id: role_binding_id
-          is_creator: true
           email: email
           username: username
       properties:

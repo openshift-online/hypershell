@@ -1151,11 +1151,6 @@ export const messages = defineMessages({
     defaultMessage: "Read-only access to the gateway.",
     description: "User role description in the role picker.",
   },
-  accessCreatorMarker: {
-    id: "app.gateway.access.creatorMarker",
-    defaultMessage: "Creator",
-    description: "Marker shown on the row of the gateway creator.",
-  },
   accessFindPeople: {
     id: "app.gateway.access.findPeople",
     defaultMessage: "Find people...",
@@ -1337,6 +1332,26 @@ export const messages = defineMessages({
     id: "app.gateway.access.viewerReadOnly",
     defaultMessage: "You have read-only access to this list.",
     description: "Notice shown to viewers who cannot manage access.",
+  },
+  accessWorkspaceGrantIntro: {
+    id: "app.gateway.access.workspaceGrant.intro",
+    defaultMessage:
+      "This user cannot use the gateway until they are added to a workspace. A user with admin access on this gateway must run the below commands (change the workspace name if needed):",
+    description:
+      "Instructions for adding a newly granted user to an OpenShell workspace.",
+  },
+  accessWorkspaceLookupPending: {
+    id: "app.gateway.access.workspaceGrant.lookupPending",
+    defaultMessage: "Looking up the user's subject ID...",
+    description:
+      "Loading text shown while resolving a user's subject for the workspace command.",
+  },
+  accessWorkspaceSubjectUnavailable: {
+    id: "app.gateway.access.workspaceGrant.subjectUnavailable",
+    defaultMessage:
+      "Could not determine this user's subject ID. The identity directory may be unavailable; try again.",
+    description:
+      "Error shown when a user's subject cannot be resolved for the workspace command.",
   },
   /* eslint-enable sort-keys */
 });

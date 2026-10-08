@@ -70,34 +70,27 @@ func accessSvc(dir gatewayAccess.DirectoryResolver) gatewayAccess.Service {
 	return gatewayAccess.ServiceFrom(&environments.Environment().Services)
 }
 
-func TestAccessList_EnrichedTiersAndCreator(t *testing.T) {
+func TestAccessList_EnrichedTiers(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
 	gw := "gw-list-enriched"
 
-	creator := seed(t, gw, "creator-user", roles.RoleGatewayOwner)
+	owner := seed(t, gw, "first-owner", roles.RoleGatewayOwner)
 	seed(t, gw, "second-owner", roles.RoleGatewayOwner)
 	seed(t, gw, "an-admin", roles.RoleGatewayAdmin)
 	seed(t, gw, "viewer-one", roles.RoleGatewayViewer)
 	seed(t, gw, "viewer-two", roles.RoleGatewayViewer)
 
 	svc := accessSvc(realm())
-	items, total, caps, aerr := svc.List(context.Background(), gw, creator, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	items, total, caps, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	Expect(aerr).To(BeNil())
 	Expect(total).To(Equal(int64(5)))
 	Expect(items).To(HaveLen(5))
 
-	creators := 0
 	tiers := map[string]int{}
 	for _, it := range items {
 		tiers[it.Role]++
-		if it.IsCreator {
-			creators++
-			Expect(it.Role).To(Equal(gatewayAccess.TierOwner))
-			Expect(it.UserID).To(Equal(creator))
-		}
 	}
-	Expect(creators).To(Equal(1))
 	Expect(tiers[gatewayAccess.TierOwner]).To(Equal(2))
 	Expect(tiers[gatewayAccess.TierAdmin]).To(Equal(1))
 	Expect(tiers[gatewayAccess.TierUser]).To(Equal(2))

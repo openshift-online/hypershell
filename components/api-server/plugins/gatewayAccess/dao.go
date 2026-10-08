@@ -111,25 +111,6 @@ func (d *dao) getForUser(ctx context.Context, gatewayID, userID string) (accessR
 	return rows[0], true, nil
 }
 
-// creatorUserID returns the user_id of the earliest-created gateway:owner
-// binding, which is the creator (the auto-provisioned first owner). Empty when
-// the gateway has no owner.
-func (d *dao) creatorUserID(ctx context.Context, gatewayID string) (string, error) {
-	var ids []string
-	err := (*d.sessionFactory).New(ctx).
-		Table("role_bindings AS rb").
-		Joins("JOIN roles r ON r.id = rb.role_id AND r.deleted_at IS NULL").
-		Where("rb.gateway_id = ? AND rb.scope = ? AND rb.deleted_at IS NULL AND r.name = ?", gatewayID, roleBindings.ScopeGateway, roles.RoleGatewayOwner).
-		Order("rb.created_at ASC").
-		Order("rb.id ASC").
-		Limit(1).
-		Pluck("rb.user_id", &ids).Error
-	if err != nil || len(ids) == 0 {
-		return "", err
-	}
-	return ids[0], nil
-}
-
 // ownerUserIDs returns the distinct user_ids holding gateway:owner on the
 // gateway. Used for last-owner protection (GAM-07).
 func (d *dao) ownerUserIDs(ctx context.Context, gatewayID string) ([]string, error) {

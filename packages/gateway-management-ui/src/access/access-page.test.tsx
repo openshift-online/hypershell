@@ -15,7 +15,6 @@ import { AccessPage } from "./access-page";
 
 const creator: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
-  isCreator: true,
   name: "Olivia Owner",
   role: "owner",
   roleBindingId: "rb-owner",
@@ -24,7 +23,6 @@ const creator: GatewayAccessGrantRecord = {
 };
 const secondOwner: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
-  isCreator: false,
   name: "Owen Two",
   role: "owner",
   roleBindingId: "rb-owner-2",
@@ -33,7 +31,6 @@ const secondOwner: GatewayAccessGrantRecord = {
 };
 const admin: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
-  isCreator: false,
   name: "Amy Admin",
   role: "admin",
   roleBindingId: "rb-admin",
@@ -42,7 +39,6 @@ const admin: GatewayAccessGrantRecord = {
 };
 const user: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
-  isCreator: false,
   name: "Uma User",
   role: "user",
   roleBindingId: "rb-user",
@@ -141,14 +137,12 @@ describe("AccessPage", () => {
     mocks.revoke.mockResolvedValue(undefined);
   });
 
-  it("renders names, user IDs, roles, and marks the creator", async () => {
+  it("renders names, user IDs, and roles", async () => {
     renderPage();
     expect(await screen.findByText("Olivia Owner")).toBeTruthy();
     expect(screen.getByText("owner1")).toBeTruthy();
     expect(screen.getByText("Amy Admin")).toBeTruthy();
     expect(screen.getByText("Uma User")).toBeTruthy();
-    // Exactly one Creator marker.
-    expect(screen.getAllByText("Creator")).toHaveLength(1);
   });
 
   it("disables the sole owner's controls", async () => {
@@ -332,6 +326,75 @@ describe("AccessPage", () => {
         username: "dana",
       });
     });
+  });
+
+  it("shows the workspace-access command after granting the user role", async () => {
+    const user1 = userEvent.setup();
+    mocks.search.mockResolvedValue([
+      { name: "Dana Scully", subject: "sub-dana", username: "dana" },
+    ]);
+    renderPage();
+    await screen.findByText("Olivia Owner");
+
+    await user1.click(screen.getByRole("button", { name: "Add users" }));
+    const dialog = screen.getByRole("dialog", { name: "Add users" });
+    await user1.click(
+      within(dialog).getByRole("combobox", {
+        name: "Search the identity directory",
+      }),
+    );
+    await user1.click(await screen.findByText(/Dana Scully/u));
+    await user1.click(within(dialog).getByRole("radio", { name: /User/u }));
+    await user1.click(
+      within(dialog).getByRole("button", { name: "Grant access" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.grant).toHaveBeenCalledWith("gateway-1", {
+        role: "user",
+        subject: "sub-dana",
+        username: "dana",
+      });
+    });
+    // The dialog stays open and shows the copyable workspace membership command.
+    expect(
+      await screen.findByText(/openshell workspace member add/u),
+    ).toBeTruthy();
+    expect(screen.getByText(/--subject sub-dana/u)).toBeTruthy();
+    expect(screen.getByText(/WORKSPACE_NAME='default'/u)).toBeTruthy();
+  });
+
+  it("re-opens the workspace-access command from a row icon", async () => {
+    const user1 = userEvent.setup();
+    mocks.list.mockResolvedValue(
+      accessPage([creator, admin, user], ownerCapabilities),
+    );
+    mocks.search.mockResolvedValue([
+      { name: "Uma User", subject: "sub-uma", username: "user1" },
+    ]);
+    renderPage();
+    await screen.findByText("Uma User");
+
+    // The copy icon only appears on rows with the user role (owner/admin rows
+    // are management-plane and do not need workspace membership).
+    expect(
+      screen.getAllByRole("button", {
+        name: "Copy workspace access command",
+      }),
+    ).toHaveLength(1);
+
+    await user1.click(
+      screen.getByRole("button", { name: "Copy workspace access command" }),
+    );
+    expect(
+      await screen.findByText(/openshell workspace member add/u),
+    ).toBeTruthy();
+    expect(screen.getByText(/--subject sub-uma/u)).toBeTruthy();
+    expect(mocks.search).toHaveBeenCalledWith(
+      "gateway-1",
+      "user1",
+      expect.any(AbortSignal),
+    );
   });
 
   it("hides the Owner option from a non-owner admin", async () => {

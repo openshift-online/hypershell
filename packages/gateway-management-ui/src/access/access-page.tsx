@@ -4,14 +4,11 @@ import {
   Content,
   Flex,
   FlexItem,
-  Label,
   MenuToggle,
   Select,
   SelectList,
   SelectOption,
   Spinner,
-  Split,
-  SplitItem,
   Stack,
   StackItem,
   Title,
@@ -46,6 +43,7 @@ import {
 import { AccessRemoveAction, AccessRoleControl } from "./access-row-actions";
 import { roleLabel, rowDisabledReason } from "./access-role";
 import { AddUsersDialog } from "./add-users-dialog";
+import { GrantWorkspaceAccessAction } from "./workspace-access-command";
 
 function RoleFilter({
   onChange,
@@ -191,20 +189,7 @@ export function AccessPage({
     {
       id: "name",
       label: intl.formatMessage(messages.accessUserName),
-      render: (grant) => (
-        <Split hasGutter>
-          <SplitItem>
-            {grant.name?.trim() ? grant.name : grant.username}
-          </SplitItem>
-          {grant.isCreator ? (
-            <SplitItem>
-              <Label isCompact>
-                {intl.formatMessage(messages.accessCreatorMarker)}
-              </Label>
-            </SplitItem>
-          ) : null}
-        </Split>
-      ),
+      render: (grant) => (grant.name?.trim() ? grant.name : grant.username),
       sortable: false,
       width: 35,
     },
@@ -220,18 +205,34 @@ export function AccessPage({
       label: intl.formatMessage(messages.accessRoleColumn),
       render: (grant) =>
         canManage && capabilities ? (
-          <AccessRoleControl
-            capabilities={capabilities}
-            disabledReason={rowDisabledReason(
-              intl.formatMessage,
-              grant,
-              capabilities,
-              ownerCount,
-            )}
-            gatewayId={gatewayId}
-            grant={grant}
-            onActionError={setActionError}
-          />
+          <Flex
+            alignItems={{ default: "alignItemsCenter" }}
+            flexWrap={{ default: "nowrap" }}
+            spaceItems={{ default: "spaceItemsSm" }}
+          >
+            <FlexItem>
+              <AccessRoleControl
+                capabilities={capabilities}
+                disabledReason={rowDisabledReason(
+                  intl.formatMessage,
+                  grant,
+                  capabilities,
+                  ownerCount,
+                )}
+                gatewayId={gatewayId}
+                grant={grant}
+                onActionError={setActionError}
+              />
+            </FlexItem>
+            {grant.role === "user" ? (
+              <FlexItem>
+                <GrantWorkspaceAccessAction
+                  gatewayId={gatewayId}
+                  grant={grant}
+                />
+              </FlexItem>
+            ) : null}
+          </Flex>
         ) : (
           roleLabel(intl.formatMessage, grant.role)
         ),

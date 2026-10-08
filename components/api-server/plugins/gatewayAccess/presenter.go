@@ -9,7 +9,6 @@ type grantItemResponse struct {
 	Name          *string   `json:"name,omitempty"`
 	Email         *string   `json:"email,omitempty"`
 	Role          string    `json:"role"`
-	IsCreator     bool      `json:"is_creator"`
 	GrantedAt     time.Time `json:"granted_at"`
 }
 

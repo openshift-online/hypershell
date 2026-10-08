@@ -796,7 +796,6 @@ describe("gateway API operations adapter", () => {
         {
           email: null,
           granted_at: "2026-10-01T00:00:00Z",
-          is_creator: true,
           name: "Ann Owner",
           role: "owner",
           role_binding_id: "rb-1",
@@ -826,7 +825,6 @@ describe("gateway API operations adapter", () => {
       canManageOwners: true,
     });
     expect(page.items[0]).toMatchObject({
-      isCreator: true,
       name: "Ann Owner",
       role: "owner",
       roleBindingId: "rb-1",
@@ -840,7 +838,6 @@ describe("gateway API operations adapter", () => {
     gatewayAccessApi.create.mockResolvedValue({
       email: "dana@example.com",
       granted_at: "2026-10-02T00:00:00Z",
-      is_creator: false,
       name: "Dana",
       role: "user",
       role_binding_id: "rb-2",

@@ -223,7 +223,6 @@ function toAccessGrantRecord(
   return {
     ...(email ? { email } : {}),
     grantedAt: item.granted_at,
-    isCreator: item.is_creator,
     ...(name ? { name } : {}),
     role: item.role,
     roleBindingId: item.role_binding_id,
