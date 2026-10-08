@@ -102,7 +102,8 @@ PR opened/updated
     │
     ├── scripts/kind/set-component-images.sh (swap in Konflux-built images by digest)
     │
-    ├── E2E_INFRA_DRIVER=kind bash tests/e2e/e2e-openshell.sh
+    ├── bash tests/e2e/run-parallel.sh: e2e-openshell.sh (E2E_INFRA_DRIVER=kind) and,
+    │     outside merge_group, e2e-console.sh (E2E_MODE=short) concurrently
     │
     ├── [on failure: collect diagnostic artifacts]
     │
@@ -921,14 +922,23 @@ The system SHALL provide a reusable GitHub Actions workflow at `.github/workflow
 
 `e2e.yml` SHALL run a job named `Deploy OpenShift Environment` (check: Tests / E2E / Deploy OpenShift Environment) and a job named `OpenShift` (check: Tests / E2E / OpenShift) on origin `pull_request` events, on every merge-queue entry (`merge_group`), and on push to `main`. Both SHALL run only when `plan-images` sets `should_run=true`, matching Kind, so an e2e-irrelevant origin PR or merge-queue entry skips deploy and the OpenShift suite as well as Kind. Push to `main` always sets `should_run=true`. OpenShift SHALL declare `needs: [plan-images, deploy]` and SHALL start only after that deploy job succeeds. After the suite, including on failure or cancel, OpenShift SHALL destroy the unretained environment as `ephemeral-pr-environments.spec.md` defines; a teardown failure SHALL fail the OpenShift check. The only skip for that teardown is a retained pull request (`pr-environment/pr-extended`). Origin pull requests SHALL deploy `hypershell-ci-pr-<n>` with GitHub-brokered OAuth and the access comment. Push to `main` SHALL deploy `hypershell-ci-main-<short-sha>`, and a merge-queue entry SHALL deploy `hypershell-ci-mq-<short-sha>` (first 7 characters of the commit SHA), neither with OAuth or a pull-request comment; neither ever carries the retainment label, so teardown always runs for them. The per-commit namespace SHALL keep a cancelled older run's `openshift-down` from deleting a newer deploy's namespace. Concurrency SHALL key on the PR number, `main`, or the merge-queue commit SHA (`pr-env-mq-<sha>`) with `cancel-in-progress`, so rapid pushes to the same target still serialize while two merge-queue entries validated concurrently never cancel each other's deploy. There SHALL NOT be a separate OpenShift-on-main or OpenShift-on-merge-queue workflow: the same two Tests / E2E jobs cover all three events, so pull requests do not list a skipped dedicated check for either. Fork PRs SHALL skip those jobs (no per-PR environment; a fork PR cannot enter the merge queue either).
 
-Outside `merge_group`, the Kind job SHALL also run the console browser suite after the trace verification, as [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md) (CON-E2E-12) specifies. The OpenShift job SHALL NOT run it.
+Outside `merge_group`, the Kind job SHALL also run the console browser suite concurrently with the bash suite, as [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md) (CON-E2E-12) specifies. The Kind job SHALL install the browser toolchain (Node, Chromium, `agent-browser`) before the e2e suites and SHALL start both suites through `tests/e2e/run-parallel.sh`, which captures each suite's output to its own log, replays the logs when all suites have exited, and fails if any suite failed. The trace verification runs after both suites. The OpenShift job SHALL NOT run the console suite. The two suites share one cluster and SHALL NOT interfere: they use distinct gateway names (`e2e-gw-*` and `e2e-console-gw-*`), separate browser sessions, and separate temporary files. The bash suite's area 12g scales the control plane to zero, which stalls any other suite on the cluster, so `run-parallel.sh` SHALL export `E2E_DISRUPTIVE_GATE_FILE` and create that file only once every suite other than the first has exited, and `e2e-openshell.sh` SHALL wait for it (up to `E2E_DISRUPTIVE_GATE_TIMEOUT`, default 900 seconds, then warn and continue) before scaling the control plane down. With no runner (a standalone run) the wait SHALL return immediately.
 
 #### Scenario: PR Triggers Workflow
 
 - GIVEN a pull request is opened or updated
 - AND Konflux has built images for changed components
 - WHEN the `e2e` stage runs
-- THEN it SHALL: check out the repository, use the changed-component flags passed in as inputs, create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind`, and report the CI status
+- THEN it SHALL: check out the repository, use the changed-component flags passed in as inputs, create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `tests/e2e/e2e-openshell.sh` with `E2E_INFRA_DRIVER=kind` concurrently with `tests/e2e/e2e-console.sh` through `tests/e2e/run-parallel.sh`, and report the CI status
+
+#### Scenario: Bash And Console Suites Run Concurrently On Kind
+
+- GIVEN a pull request or push to `main` (not `merge_group`) whose Kind job reaches the e2e suites
+- WHEN the Kind job runs `tests/e2e/run-parallel.sh` with the bash suite first and the console suite second
+- THEN both suites SHALL start at the same time against the same cluster
+- AND the bash suite SHALL wait at area 12g until the console suite has exited before scaling the control plane to zero
+- AND the step SHALL fail if either suite exits non-zero, with each suite's output replayed from its own log and a result line per suite
+- AND on `merge_group` only the bash suite SHALL run
 
 #### Scenario: OpenShift E2E Needs Deploy OpenShift Environment
 
@@ -1276,6 +1286,9 @@ deploy/
 | `SSL_CERT_FILE` | (set by the suite) | Path to the extracted cluster CA so the openshell CLI trusts the gateway's TLS cert (replaces the removed `OPENSHELL_GATEWAY_INSECURE` bypass) |
 | `E2E_CONSOLE_URL` | `https://console.hypershell.localhost` | Base URL of the deployed web console for the browser trace verification |
 | `E2E_JAEGER_URL` | `https://jaeger.hypershell.localhost` | Base URL of the Jaeger query API queried by the trace verification |
+| `E2E_DISRUPTIVE_GATE_FILE` | (unset) | Set by `tests/e2e/run-parallel.sh` when suites run concurrently. The bash suite waits for this file to exist before area 12g scales the control plane to zero; unset (standalone run) means no wait |
+| `E2E_DISRUPTIVE_GATE_TIMEOUT` | `900` | Seconds the bash suite waits for `E2E_DISRUPTIVE_GATE_FILE` before warning and continuing |
+| `E2E_PARALLEL_HEARTBEAT` | `60` | Seconds between "still running" lines printed by `run-parallel.sh` |
 
 The console browser suite (`tests/e2e/e2e-console.sh`) adds the following; see
 [e2e-console-browser-testing.spec.md](e2e-console-browser-testing.spec.md#environment-variables).

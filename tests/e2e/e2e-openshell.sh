@@ -2477,6 +2477,10 @@ print(json.dumps({
   # is unavailable") -- the deletion cannot be initiated during the outage on this
   # platform. Delete-driven namespace reaping on the live watch is covered by
   # area 11 (watch-delete-events.spec.md) and the periodic reaper.
+  #
+  # Scaling the control plane to zero stalls every other suite sharing the
+  # cluster, so when one runs concurrently (run-parallel.sh) wait for it first.
+  e2e_wait_disruptive_gate
   if [[ -z "${E2E_CLUSTER_ID:-}" ]]; then
     fail_test "Skipped reconnect convergence: no registered cluster_id discovered"
   else
