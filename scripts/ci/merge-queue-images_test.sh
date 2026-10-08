@@ -71,6 +71,21 @@ mq_plan_wait_wc() {
   mq_plan_awk | grep -q 'if \[\[ "${KONFLUX_WEB_CONSOLE}" == "true" \]\]'
 }
 
+mq_base_images_are_lazy() {
+  mq_plan_awk | awk '
+    /if \[\[ "\$\{KONFLUX_API_SERVER\}" == "true" \]\]/ { api = 1 }
+    api && /^[[:space:]]+else$/ { api_else = 1 }
+    api_else && /api_img="\$\(base_image_ref hypershell-api-server-main/ { api_base = 1 }
+    /if \[\[ "\$\{KONFLUX_CONTROL_PLANE\}" == "true" \]\]/ { cp = 1 }
+    cp && /^[[:space:]]+else$/ { cp_else = 1 }
+    cp_else && /cp_img="\$\(base_image_ref hypershell-control-plane-main/ { cp_base = 1 }
+    /if \[\[ "\$\{KONFLUX_WEB_CONSOLE\}" == "true" \]\]/ { wc = 1 }
+    wc && /^[[:space:]]+else$/ { wc_else = 1 }
+    wc_else && /wc_img="\$\(base_image_ref hypershell-web-console-main/ { wc_base = 1 }
+    END { exit (api_base && cp_base && wc_base) ? 0 : 1 }
+  '
+}
+
 pipeline_image_inputs() {
   rg -o '"[^"]+"\.pathChanged\(\)' "$1" |
     sed -E 's/^"([^"]+)"\.pathChanged\(\)$/\1/' |
@@ -94,6 +109,8 @@ assert_ok "merge_group waits for control-plane only when its image inputs change
 assert_ok "merge_group waits for web-console only when its image inputs changed" mq_plan_wait_wc
 assert_ok "merge_group resolves unchanged images from the accepted base" \
   grep -q 'base_image_ref' "${E2E_YML}"
+assert_ok "merge_group resolves base images only when no candidate overrides them" \
+  mq_base_images_are_lazy
 assert_ok "merge_group planner receives the accepted base SHA" \
   grep -q 'MERGE_GROUP_BASE_SHA: \${{ github.event.merge_group.base_sha }}' "${E2E_YML}"
 assert_ok "accepted base images are digest pinned" \
