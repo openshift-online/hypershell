@@ -135,7 +135,7 @@ Each grant item SHALL expose:
 | `role_binding_id` | string | The backing RoleBinding id; informational only. Change (GAM-05) and revoke (GAM-06) are keyed by `user_id` in the URL and operate on all of that user's bindings on the gateway, not by `role_binding_id` |
 | `user_id` | string | HyperShell User id |
 | `username` | string | `User.username` (= Keycloak `preferred_username`); the console "User ID" column |
-| `name` | string | `User.name` display name, when present; the console "User name" column |
+| `name` | string | `User.name` display name, when present; the console "Name" column |
 | `email` | string | Optional |
 | `role` | string | `owner`, `admin`, or `user` (the console tier) mapping to `gateway:owner`, `gateway:admin`, `gateway:viewer` |
 | `is_creator` | boolean | `true` for the owner who created the gateway (informational only; see GAM-07) |

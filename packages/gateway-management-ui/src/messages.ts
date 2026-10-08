@@ -1101,7 +1101,7 @@ export const messages = defineMessages({
   },
   accessUserName: {
     id: "app.gateway.access.column.userName",
-    defaultMessage: "User name",
+    defaultMessage: "Name",
     description: "Access table column for the user's display name.",
   },
   accessUserId: {

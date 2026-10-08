@@ -39,7 +39,7 @@ Each row SHALL show:
 
 | Column | Source (GAM-03) |
 | --- | --- |
-| User name | `name` (display name) |
+| Name | `name` (display name) |
 | User ID | `username` |
 | Role | `role` (`owner`, `admin`, or `user`), rendered as an inline control per GAM-UI-05 |
 | (row action) | Remove access per GAM-UI-06 |

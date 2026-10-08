@@ -760,7 +760,7 @@
     "description": "Access table column for the username."
   },
   "app.gateway.access.column.userName": {
-    "defaultMessage": "User name",
+    "defaultMessage": "Name",
     "description": "Access table column for the user's display name."
   },
   "app.gateway.access.creatorMarker": {
