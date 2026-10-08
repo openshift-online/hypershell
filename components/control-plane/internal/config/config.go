@@ -93,6 +93,12 @@ type Config struct {
 	// ResourceRequirements); nil when unset, so the chart values use
 	// helm.DefaultGatewayResources. See specs/platform/openshell-gateway.spec.md.
 	GatewayResources *corev1.ResourceRequirements
+
+	// SandboxRuntimeClass is the Kubernetes RuntimeClass applied to every sandbox
+	// pod created by any gateway on this cluster. Sourced from
+	// GATEWAY_SANDBOX_RUNTIME_CLASS; empty string uses the cluster default (runc).
+	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
+	SandboxRuntimeClass string
 }
 
 func Load() (*Config, error) {
@@ -122,6 +128,7 @@ func Load() (*Config, error) {
 		ExternalCAIssuerKind: getEnv("EXTERNAL_CA_ISSUER_KIND", "ClusterIssuer"),
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
+		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
 	}
 
 	if cfg.GRPCServerAddr == "" {

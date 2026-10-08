@@ -667,6 +667,20 @@ The `default_image` field (the sandbox base image) resolves in this order: the G
 
 The control plane SHALL pass that resolved sandbox image into the OpenShell Helm chart as `server.sandboxImage` on every install and upgrade, the same way it supplies `image.repository`/`image.tag` and `supervisor.image.repository`/`supervisor.image.tag`. The chart SHALL render `server.sandboxImage` into `[openshell.gateway].default_image` in the `openshell-gateway-config` ConfigMap. The control plane SHALL NOT write `default_image` by patching a static ConfigMap or SSA placeholder after Helm has rendered the release. A change to `sandbox_image` SHALL be treated as a desired-spec change that causes a Helm upgrade, the same way a change to `image` or `supervisor_image` does.
 
+#### Sandbox Runtime Class (optional)
+
+The control plane MAY pass a Kubernetes `RuntimeClass` name to the OpenShell Helm chart as `server.defaultRuntimeClassName`, sourced from the `GATEWAY_SANDBOX_RUNTIME_CLASS` environment variable on the control-plane deployment. When set, every sandbox pod provisioned by every gateway on the cluster carries `runtimeClassName: <value>`, routing sandbox scheduling through the named runtime.
+
+When `GATEWAY_SANDBOX_RUNTIME_CLASS` is unset or empty (the default), the control plane omits `server.defaultRuntimeClassName` from the Helm values entirely, which causes the chart to omit the `runtimeClassName` field from sandbox pods. Kubernetes then schedules sandboxes using the cluster's default RuntimeClass (typically `runc`).
+
+**Kata Containers:** Setting `GATEWAY_SANDBOX_RUNTIME_CLASS=kata` (or `kata-remote`) enables hardware-enforced VM isolation for every sandbox. Each sandbox pod runs inside a lightweight VM with its own kernel rather than sharing the host kernel. This requires:
+1. The [OpenShift Sandboxed Containers Operator](https://docs.openshift.com/container-platform/latest/sandboxed_containers/sandboxed-containers-overview.html) (or equivalent) installed on the cluster, which creates the `kata` `RuntimeClass` object.
+2. Worker nodes configured to support hardware virtualization (KVM).
+
+`GATEWAY_SANDBOX_RUNTIME_CLASS` is a cluster-wide setting: all gateways on the cluster use the same sandbox RuntimeClass. Per-gateway runtime class selection is not supported.
+
+The chart renders this value into `[openshell.gateway].default_runtime_class_name` in the `openshell-gateway-config` ConfigMap. The chart accepts any valid `RuntimeClass` name; HyperShell does not validate that the named `RuntimeClass` exists on the cluster at reconcile time.
+
 #### OIDC Section (conditional)
 
 When `oidc.issuer` is set on the Gateway resource, the reconciler injects the OIDC section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
@@ -807,6 +821,7 @@ Control Plane
 | `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
 | `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.7@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_IMAGE` | *(unset - published community default)* | Sandbox base image used when a Gateway resource does not specify `sandbox_image`. Passed to the chart as `server.sandboxImage`. See [`global-architecture.spec.md`](./global-architecture.spec.md). |
+| `GATEWAY_SANDBOX_RUNTIME_CLASS` | *(unset - cluster default RuntimeClass)* | Kubernetes `RuntimeClass` name applied to every sandbox pod on the cluster (e.g. `kata`, `kata-remote`). Passed to the chart as `server.defaultRuntimeClassName`. Omitted from chart values when unset, so sandbox pods carry no `runtimeClassName` field and the cluster default (runc) is used. Requires the named `RuntimeClass` to exist on the cluster. |
 | `GATEWAY_RESOURCES` | *(unset - requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`)* | Gateway container requests and limits as a JSON Kubernetes `ResourceRequirements` object, e.g. `{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}`. Replaces the defaults entirely (not merged). MUST set `limits.memory`; no request may exceed its limit; `claims` is not supported. An invalid value fails controller startup. Applied to every gateway on the cluster on its next reconcile (Helm upgrade, which restarts the gateway pod). The Kind overlay (`deploy/kind`) sets lower requests (`cpu: 50m`, `memory: 128Mi`) with the default limits, so more gateways fit on the single Kind node. |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
@@ -942,6 +957,7 @@ helm template openshell-gateway oci://ghcr.io/nvidia/openshell/helm-chart \
 | Helm `--set` value | HyperShell equivalent | Implementation location |
 |---|---|---|
 | `server.sandboxImage` | Resolved sandbox base image: `Gateway.sandbox_image` when set, else `GATEWAY_SANDBOX_IMAGE`, else the published community default. The chart renders this into `gateway.toml` `default_image` | `internal/helm/values.go` |
+| `server.defaultRuntimeClassName` | `GATEWAY_SANDBOX_RUNTIME_CLASS` env var; omitted from values when unset. The chart conditionally renders this into `gateway.toml` `default_runtime_class_name` and sets `runtimeClassName` on sandbox pods | `internal/helm/values.go` |
 | `podLabels["hypershell.redhat.io/openshell-dev-build"]` | `Gateway.dev_build`; set only when true | `internal/helm/values.go` |
 | `podAnnotations["hypershell.redhat.io/openshell-dev-build-*"]` | `Gateway.dev_build_metadata.{ref,sha,repo}` | `internal/helm/values.go` |
 | `pkiInitJob.serverDnsNames={...}` | `serverDnsNames` field on the Gateway API resource; substituted into cert-manager Certificate SANs at reconcile time | `internal/reconciler/gateway_reconciler.go` |

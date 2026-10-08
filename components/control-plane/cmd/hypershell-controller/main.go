@@ -317,6 +317,7 @@ func main() {
 			databaseConfig,
 			clusterID,
 			cfg.GatewayResources,
+			cfg.SandboxRuntimeClass,
 		)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)
