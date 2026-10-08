@@ -75,9 +75,23 @@ func (r *CommandRunner) Run(ctx context.Context, name string, args ...string) (s
 
 // RunWithInput is Run with stdin supplied.
 func (r *CommandRunner) RunWithInput(ctx context.Context, stdin, name string, args ...string) (string, error) {
+	return r.run(ctx, nil, stdin, name, args...)
+}
+
+// RunWithEnv runs a command with an explicit environment (for example the openshell
+// CLI, which needs SSL_CERT_FILE and the TLS bypass), echoing it and capturing
+// combined output.
+func (r *CommandRunner) RunWithEnv(ctx context.Context, env []string, name string, args ...string) (string, error) {
+	return r.run(ctx, env, "", name, args...)
+}
+
+func (r *CommandRunner) run(ctx context.Context, env []string, stdin, name string, args ...string) (string, error) {
 	r.Show("%s %s", name, strings.Join(args, " "))
 
 	cmd := exec.CommandContext(ctx, name, args...)
+	if env != nil {
+		cmd.Env = env
+	}
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}

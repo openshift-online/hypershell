@@ -46,6 +46,9 @@ type E2ESuite struct {
 	concurrency int
 	ctx         context.Context
 	runID       string
+	// startedAt bounds log scans (for example the control-plane Unauthenticated
+	// check) to activity during this run, ignoring stale pre-run log noise.
+	startedAt time.Time
 
 	apiHost    string
 	adminToken driver.Token
@@ -55,6 +58,16 @@ type E2ESuite struct {
 
 	// primary is the P1 gateway the read-only steps reuse.
 	primary driver.GatewayRef
+	// primaryGatewayToken is the per-gateway admin token acquired in P1.3 for the
+	// CLI steps (P1.4/P1.5).
+	primaryGatewayToken driver.Token
+	// primaryLocalName is the CLI's local handle for the primary gateway.
+	primaryLocalName string
+	// caFilePath caches the cluster CA written to disk for the CLI's SSL_CERT_FILE.
+	caFilePath string
+	// cliKubeconfigPath caches a temp kubeconfig pinned to E2E_KUBECONTEXT for the
+	// CLI wrapper's kubectl.
+	cliKubeconfigPath string
 
 	mu              sync.Mutex
 	createdGateways []string // gateway ids to clean up on teardown
@@ -71,6 +84,7 @@ func newE2ESuite(d driver.E2EInfraDriver, clients *harness.Clients) *E2ESuite {
 // still runs.
 func (s *E2ESuite) SetupSuite() {
 	s.ctx = context.Background()
+	s.startedAt = time.Now()
 	s.runner = harness.NewCommandRunner(s.T().Logf)
 	s.reporter = harness.NewReporter()
 	s.mode = envOrDefault("E2E_MODE", modeLong)
@@ -213,6 +227,20 @@ func (s *E2ESuite) adminCreds() driver.Credentials {
 	return driver.Credentials{
 		Username: envOrDefault("E2E_OIDC_USERNAME", "admin"),
 		Password: envOrDefault("E2E_OIDC_PASSWORD", "admin"),
+	}
+}
+
+func (s *E2ESuite) devCreds() driver.Credentials {
+	return driver.Credentials{
+		Username: envOrDefault("E2E_DEV_USERNAME", "developer"),
+		Password: envOrDefault("E2E_DEV_PASSWORD", "developer"),
+	}
+}
+
+func (s *E2ESuite) platformAdminCreds() driver.Credentials {
+	return driver.Credentials{
+		Username: envOrDefault("E2E_PLATFORM_ADMIN_USERNAME", "platform-admin"),
+		Password: envOrDefault("E2E_PLATFORM_ADMIN_PASSWORD", "platform-admin"),
 	}
 }
 
