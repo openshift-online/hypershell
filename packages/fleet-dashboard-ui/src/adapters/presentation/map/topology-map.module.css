@@ -22,9 +22,24 @@
    use-map-viewport) so the content scales up to fill it, centered. Both the canvas and the
    panel fill this height; the panel scrolls WITHIN itself instead of growing the page. */
 .stage {
+  position: relative;
   width: 100%;
   flex: 1 1 auto;
   min-height: 360px;
+}
+
+/* Anchor the drawer to the stage's box with absolute inset:0 so its height is DEFINITE
+   (not derived from flex-basis). Firefox will not resolve the inner height:100% chain
+   against a parent whose height comes only from `flex: 1 1 auto` - so for short-content
+   bundles it let the panel shrink to its content, which collapsed the resize splitter and
+   parked its (centered) handle at the top of the column. A definite inset:0 box resolves
+   height:100% in every engine, so the panel - and thus the full-height splitter - always
+   fills the stage regardless of how many PRs the bundle lists. (Chromium already honored
+   the flex-derived height; this just makes Firefox agree.) The stage keeps its own height
+   from the flex column even with only an absolutely-positioned child. */
+.stage > :global(.pf-v6-c-drawer) {
+  position: absolute;
+  inset: 0;
 }
 
 /* Make the drawer and its columns fill the fixed stage height. min-height:0 lets
@@ -33,19 +48,26 @@
    the canvas's direct parent) MUST be in this list: without min-height:0 it refuses
    to shrink below the SVG's intrinsic size, so it overflows and grows an internal
    scrollbar. That scrollbar steals width from the canvas, which re-fits the viewBox
-   to a now-wrong aspect - so "reset view" appeared to throw the scene off-screen. */
+   to a now-wrong aspect - so "reset view" appeared to throw the scene off-screen.
+   __panel-main is the inner wrapper PatternFly 6.6 inserts between __panel and the
+   panel __body; WITHOUT it in this height chain the panel body's height:100% resolves
+   against an auto-height parent, so the panel grows to its (tall) content instead of
+   scrolling - stretching the whole stage past the viewport. It must be here too. */
 .stage :global(.pf-v6-c-drawer),
 .stage :global(.pf-v6-c-drawer__main),
 .stage :global(.pf-v6-c-drawer__content),
 .stage :global(.pf-v6-c-drawer__body),
-.stage :global(.pf-v6-c-drawer__panel) {
+.stage :global(.pf-v6-c-drawer__panel),
+.stage :global(.pf-v6-c-drawer__panel-main) {
   height: 100%;
   min-height: 0;
 }
 
 /* The canvas's parent never scrolls: the canvas clips its own overflow instead, so
-   no stray scrollbar can resize it out from under the viewBox fit. */
-.stage :global(.pf-v6-c-drawer__body) {
+   no stray scrollbar can resize it out from under the viewBox fit. Scoped to the
+   CONTENT body (canvas) via the direct-child selector so it never lands on the panel
+   body - which also carries .pf-v6-c-drawer__body and must stay scrollable. */
+.stage :global(.pf-v6-c-drawer__content > .pf-v6-c-drawer__body) {
   overflow: hidden;
 }
 
@@ -96,6 +118,51 @@
   right: 10px;
   z-index: 2;
   opacity: 0.9;
+}
+
+/* Fleet-level "health unavailable" banner: a prominent pill centered at the top of the
+   canvas, shown only when >=1 instance reports no Argo health. Color is NOT the sole
+   carrier - it pairs an exclamation icon with explicit count text (brand-color spec
+   UI-BRAND-03). The background danger color is set inline from TONE_COLOR so it matches
+   the node attention rings exactly. A slow glow pulse marks it as a severe, live signal;
+   it holds steady under prefers-reduced-motion. */
+.healthAlert {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 120px);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  animation: health-alert-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes health-alert-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.35),
+      0 0 10px 1px rgba(0, 0, 0, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.35),
+      0 0 16px 4px rgba(201, 70, 30, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .healthAlert {
+    animation: none;
+  }
 }
 
 /* Attention ring on a node with degraded health or a failed gateway. It flashes

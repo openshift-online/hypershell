@@ -11,7 +11,6 @@ const gateway = {
   name: "openshell-gateway-test",
   namespace: "openshell",
   phase: "Running",
-  release_id: "release-1",
   service_type: "",
   status: "Ready",
   tls_mode: "",
@@ -479,7 +478,6 @@ test("provisions a gateway on an existing managed cluster", async ({
         name: "team-gateway",
         namespace: "openshell",
         phase: "",
-        release_id: "",
         service_type: "",
         status: "",
         tls_mode: "",
@@ -533,7 +531,6 @@ test("provisions a gateway on an existing managed cluster", async ({
   expect(requestBody).toEqual({
     cluster_id: "cluster-east",
     name: "team-gateway",
-    release_id: "",
     route: '{"enabled":true}',
   });
 });

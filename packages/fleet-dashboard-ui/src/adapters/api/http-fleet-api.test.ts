@@ -52,7 +52,7 @@ describe("createHttpFleetApi", () => {
     const controller = new AbortController();
     const fetchImpl = vi.fn().mockResolvedValue(
       okResponse({
-        data: { nodes: [], edges: [] },
+        data: {},
         generatedAt: "2026-01-01T00:00:00Z",
         stale: false,
         error: null,

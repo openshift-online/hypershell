@@ -1,3 +1,16 @@
+/* The detail-panel header: a flexing title column beside a fixed close button.
+ * Both the left group and the title item must carry min-width:0 so the title can
+ * shrink below its content width and let PatternFly Truncate drop its middle
+ * ellipsis; without this the long bundle digest would wrap or shove the close
+ * button off the row instead of truncating. */
+.headerMain {
+  min-width: 0;
+}
+
+.headerTitle {
+  min-width: 0;
+}
+
 /* PR rows in the bundle tab. Each row rides a single line that grows with the
  * drawer; the title truncates in the MIDDLE so both its start and its tail stay
  * legible, while the "#<number>" prefix is pinned and never clipped. The middle
@@ -7,30 +20,41 @@
 .prLink {
   display: flex;
   align-items: baseline;
-  gap: var(--pf-t--global--spacer--xs, 0.25rem);
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
   max-width: 100%;
   min-width: 0;
-  color: var(--pf-t--global--text--color--link--default, #0066cc);
   text-decoration: none;
 }
 
-.prLink:hover,
-.prLink:focus-visible {
-  color: var(--pf-t--global--text--color--link--hover, #004d99);
-  text-decoration: underline;
-}
-
-/* Pinned issue number: fixed width, tabular figures so rows align. */
+/* Pinned issue number: the secondary half of the row. Muted, lighter-weight and
+ * tabular (so rows align), it reads as a quiet reference beside the title rather
+ * than competing with it. */
 .prNum {
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
 }
 
-/* The title's middle-truncation container. min-width:0 lets it shrink below its
- * content width so the head span can actually clip. */
+/* The title is the row's headline AND its middle-truncation container: regular
+ * (bright) text carrying the link affordance, laid out as a flex row so the head
+ * span can clip and the tail stays pinned. min-width:0 lets it shrink below its
+ * content width. Hovering the whole row underlines and brand-colours the title;
+ * the muted number stays put, keeping the hierarchy intact. */
 .prTitle {
   display: flex;
   min-width: 0;
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
+}
+
+.prLink:hover .prTitle,
+.prLink:focus-visible .prTitle {
+  color: var(--pf-t--global--text--color--link--hover, #73bcf7);
+  text-decoration: underline;
+}
+
+.prLink:focus-visible {
+  outline: none;
 }
 
 .prHead {
@@ -43,6 +67,37 @@
 .prTail {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+/* The PR hover card: the full title stacked above a clearly separate byline, so
+ * the two bits of information read as distinct lines rather than one run-on. */
+.prTip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.prTipTitle {
+  font-weight: 600;
+}
+
+/* The byline, set off from the title by a hairline rule and a little top padding.
+ * No colour override: a PatternFly tooltip renders on the INVERSE surface (light in
+ * the dark theme), so the canvas `text--color--subtle`/`regular` tokens used here
+ * before were light-on-light and failed contrast. Inheriting the tooltip's own
+ * foreground keeps the whole byline AAA-legible; the smaller font-size lets the "by"
+ * recede without lowering its contrast. */
+.prTipAuthor {
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--pf-t--global--border--color--default, #3d3d3d);
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+}
+
+/* The author handle: bolder than the surrounding "by" so the name is where the eye
+ * lands. Weight alone carries the emphasis - no colour change, so it stays at the
+ * tooltip's full-contrast foreground. */
+.prTipHandle {
+  font-weight: 600;
 }
 
 /* A section zone inside the detail panel (Deployed on / In this bundle): clear
@@ -190,4 +245,302 @@
   margin-left: auto;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+/* Population metric tiles: sandboxes / users / logins as a row of square-aspect cards
+ * beneath the gateways donut. Three equal columns that collapse to a tight grid on
+ * narrow drawers; each tile is its own inset card so the populations read as peers. */
+.metricTiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* One tile: eyebrow label (top), big number (middle), sparkline pinned to the base.
+ * aspect-ratio keeps the cards square-ish; min-height guards very narrow drawers. */
+.metricTile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  aspect-ratio: 1 / 1;
+  min-height: 92px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.metricTileLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--xs, 0.25rem);
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+.metricTileValue {
+  font-size: var(--pf-t--global--font--size--2xl, 1.75rem);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Positioned wrapper that pins the sparkline to the tile's base and anchors the
+ * shared-cursor overlay (crosshair + marker) to the exact chart area, so the dash's
+ * horizontal position lines up with the SVG samples. */
+.metricTileSparkWrap {
+  position: relative;
+  margin-top: auto;
+  width: 100%;
+  height: 28px;
+}
+
+/* Sparkline fills the chart area and the full width; it is stretched
+ * (preserveAspectRatio="none" in the SVG), so a fixed height here is all it needs. */
+.metricTileSpark {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* The shared temporal cursor's vertical dash, one per tile at the same sample index.
+ * A dashed line in the AAA-contrast regular text colour so it is clearly visible on the
+ * dark card over any accent hue. Extends a touch past the chart top/bottom so it reads
+ * as a full crosshair. Decorative: pointer-events off so it never eats hovers. */
+.metricTileCursor {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 0;
+  border-left: 1.5px dashed var(--pf-t--global--text--color--regular, #e0e0e0);
+  transform: translateX(-0.75px);
+  pointer-events: none;
+}
+
+/* The marker dot sitting on the sparkline at the active sample. Its hue is the tile's
+ * accent (set inline); a dark ring separates it from the line for contrast. Centred on
+ * the (x, y) sample point via the translate. Decorative. */
+.metricTileDot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(-50%, 50%);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+/* The focus ring for the interactive tile row, so keyboard users see where the shared
+ * cursor's focus lives. A high-contrast brand outline, offset clear of the cards. */
+.metricTiles:focus-visible {
+  outline: 2px solid var(--pf-t--global--color--brand--default, #0066cc);
+  outline-offset: 3px;
+  border-radius: 12px;
+}
+
+/* The "As of <date/time>" strip above the tiles: the hovered sample's moment, shown in
+ * the AAA-contrast regular text colour. Reserves its own height so the tiles don't jump
+ * when it toggles between the idle hint and the active timestamp. */
+.historyStrip {
+  min-height: 1.3rem;
+  margin-bottom: 6px;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
+}
+
+/* The idle discoverability hint ("Hover or use arrow keys..."): lighter weight, italic,
+ * but still the regular text colour so it meets AAA contrast on the dark panel. */
+.historyHint {
+  font-weight: 400;
+  font-style: italic;
+}
+
+/* Field grid below the tiles. A clear gap keeps the first field ("Cluster") from
+ * crowding the tiles above it. */
+.nodeFields {
+  margin-top: var(--pf-t--global--spacer--lg, 1.5rem);
+}
+
+/* --- Links tab ------------------------------------------------------------
+ * A stacked list of link "cards" with a clear primary/secondary hierarchy. The
+ * instance (its live front door) is the headline action; Argo CD / pull request /
+ * analysis are operational follow-ups grouped under an "Operations" eyebrow below
+ * it. Each card shows an icon, a bold label with a muted sub-label, and a trailing
+ * external-link glyph, so the row reads as one obvious click target. */
+.linkList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
+}
+
+.linkCard {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--md, 1rem);
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--pf-t--global--border--color--default, #3d3d3d);
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.linkCard:hover,
+.linkCard:focus-visible {
+  background: var(
+    --pf-t--global--background--color--secondary--default,
+    rgba(255, 255, 255, 0.04)
+  );
+  border-color: var(--pf-t--global--border--color--brand--default, #0066cc);
+  outline: none;
+}
+
+/* The primary (instance) card leads the list: brand-tinted and a touch heavier.
+ * A translucent BRAND-BLUE tint over the dark drawer - NOT the PF `highlight`
+ * background token, which resolves to a bright amber that fails text contrast
+ * (AAA, and AA for the sub-label) under the light label/desc colours. The blue
+ * tint composites to a dark blue-grey, so the light text keeps > 7:1 contrast,
+ * while the brand border + larger label still make this card lead the list. */
+.linkCardPrimary {
+  background: rgba(0, 102, 204, 0.16);
+  border-color: var(--pf-t--global--border--color--brand--default, #0066cc);
+}
+
+/* On the tinted primary card the muted sub-label would only reach ~5.6:1; lift it
+ * to the regular (bright) text colour so it clears AAA (hierarchy is still carried
+ * by the label's heavier weight and larger size). */
+.linkCardPrimary .linkCardDesc {
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
+}
+
+.linkCardIcon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--pf-t--global--icon--color--brand--default, #0066cc);
+}
+
+.linkCardBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.linkCardLabel {
+  font-weight: 600;
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
+}
+
+.linkCardPrimary .linkCardLabel {
+  font-size: var(--pf-t--global--font--size--md, 1rem);
+}
+
+.linkCardDesc {
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+.linkCardChevron {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--pf-t--global--icon--color--subtle, #8a8d90);
+}
+
+/* The "Operations" eyebrow sits between the primary link and the operational group. */
+.linkGroupTitle {
+  margin-top: var(--pf-t--global--spacer--sm, 0.5rem);
+  margin-bottom: 0;
+}
+
+/* --- Bundle tab heading ---------------------------------------------------
+ * One band: identicon, the "In this bundle" eyebrow, and the PR count pinned to
+ * the right as a badge so the bundle's size reads at a glance. */
+.bundleHead {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
+  margin-bottom: var(--pf-t--global--spacer--sm, 0.5rem);
+}
+
+.bundleHead .sectionTitle {
+  margin: 0;
+}
+
+/* --- Managed-cluster (spoke) attribution ----------------------------------
+ * The hub's gateway/sandbox population split by the managed cluster it runs on.
+ * One row per cluster: the cluster name takes the slack and truncates; its gateway
+ * and sandbox counts are pinned to the right so the numbers line up down the list. */
+.spokeRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pf-t--global--spacer--sm, 0.5rem);
+  padding: calc(var(--pf-t--global--spacer--xs, 0.25rem) / 1) 0;
+}
+
+.spokeRowName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* The counts band: muted, never wrapping, so a long cluster name clips instead. */
+.spokeRowCounts {
+  flex: 0 0 auto;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A decorative middot between the gateway and sandbox counts, drawn in CSS so the
+ * separator is never an untranslated JSX text node. */
+.spokeCountSep::before {
+  content: "\00B7";
+  margin: 0 0.4ch;
+}
+
+/* The hub's own row reads as the group's anchor: full-weight, not muted. */
+.spokeHubRow .spokeRowName {
+  font-weight: 700;
+}
+
+/* Co-located spokes nest UNDER the hub: an indent plus a hairline guide on the
+ * left edge, so the containment ("these run on the hub's cluster") reads visually. */
+.spokeNested {
+  margin-left: var(--pf-t--global--spacer--sm, 0.5rem);
+  padding-left: var(--pf-t--global--spacer--sm, 0.5rem);
+  border-left: 1px solid var(--pf-t--global--border--color--default, #3d3d3d);
+}
+
+/* A sub-group eyebrow (Remote / Unattributed): lighter + smaller than the section
+ * title, with air above it so each sub-group reads as its own band. */
+.spokeGroupTitle {
+  margin: var(--pf-t--global--spacer--sm, 0.5rem) 0
+    var(--pf-t--global--spacer--xs, 0.25rem) 0;
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+/* The "attribution unavailable" note: a muted caption above the flat fallback list. */
+.spokeUnavailable {
+  margin: 0 0 var(--pf-t--global--spacer--sm, 0.5rem) 0;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+  color: var(--pf-t--global--text--color--subtle, #9ca2a8);
+}
+
+.bundleCount {
+  margin-left: auto;
 }

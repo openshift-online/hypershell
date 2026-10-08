@@ -235,7 +235,7 @@ printf '  %s\n' "9. Developer user RBAC verification"
 printf '  %s\n' "10. Platform admin RBAC verification"
 printf '  %s\n' "11. Gateway deletion + namespace garbage collection"
 printf '  %s\n' "12. ManagedCluster registration + control-plane identity [long]"
-printf '  %s\n' "13. Gateway release promotion + reconciled status [long]"
+printf '  %s\n' "13. Gateway release promotion + reconciled status [skipped - GatewayRelease removed]"
 printf '  %s\n' "14. Admin inventory + API validation [long]"
 echo ""
 dim  "  Driver:            ${E2E_INFRA_DRIVER}"
@@ -441,14 +441,10 @@ for gw in data.get('items', []):
   e2e_apply_seed_ids_from_gateway_json "$EXISTING_GW" "$GW_NAME"
 else
   if ! e2e_ensure_seed_ids; then
-    fail_test "Could not discover seeded cluster/release ids"
+    fail_test "Could not discover seeded cluster id"
     exit 1
   fi
-  if [[ -z "${E2E_RELEASE_ID}" ]]; then
-    dim "  Creating gateway on registered cluster_id=${E2E_CLUSTER_ID} without a seeded release (release_id=''); the platform default gateway image is used"
-  else
-    dim "  Using cluster_id=${E2E_CLUSTER_ID} release_id=${E2E_RELEASE_ID}; the gateway database is provisioned by the control plane"
-  fi
+  dim "  Creating gateway on registered cluster_id=${E2E_CLUSTER_ID}; the gateway database is provisioned by the control plane"
 
   show_cmd "api_curl -X POST ${API_HOST}/api/hypershell/v1/gateways -d '{name: ${GW_NAME}, oidc: ...}'"
   GW_CREATE_BODY=$(e2e_gateway_create_body "$GW_NAME")
@@ -1723,28 +1719,70 @@ except Exception:
   # sandbox create blocks (interactive), so background it and poll for the pod.
   DEV_POD_CREATED=false
   DEV_SB_EARLY_EXIT=false
-  DEV_DEADLINE=$(($(date +%s) + E2E_SANDBOX_TIMEOUT))
+  DEV_START=$(date +%s)
+  DEV_DEADLINE=$((DEV_START + E2E_SANDBOX_TIMEOUT))
+  DEV_TRACE=""
   while [[ $(date +%s) -lt $DEV_DEADLINE ]]; do
-    if $CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -qi "default--${DEV_SANDBOX}"; then
+    DEV_PODS=$($CLI get pods -n "$GW_NAMESPACE" --no-headers 2>/dev/null | grep -i "default--${DEV_SANDBOX}" || true)
+    if [[ -n "$DEV_PODS" ]]; then
+      DEV_TRACE+="t+$(($(date +%s) - DEV_START))s pod=$(echo "$DEV_PODS" | awk '{print $1":"$3}' | head -1); "
       DEV_POD_CREATED=true
       break
     fi
     if ! kill -0 "$DEV_SB_PID" 2>/dev/null; then
+      DEV_TRACE+="t+$(($(date +%s) - DEV_START))s no pod, CLI process gone; "
       DEV_SB_EARLY_EXIT=true
       break
     fi
-    sleep 5
+    DEV_TRACE+="t+$(($(date +%s) - DEV_START))s no pod, CLI running; "
+    sleep 2
   done
 
-  kill "$DEV_SB_PID" 2>/dev/null || true
-  wait "$DEV_SB_PID" 2>/dev/null || true
+  DEV_SB_RC=""
+  if [[ "$DEV_SB_EARLY_EXIT" == "true" ]]; then
+    # The CLI already ended on its own: its exit status says whether it failed.
+    # `|| DEV_SB_RC=$?` captures a non-zero status without tripping errexit.
+    DEV_SB_RC=0
+    wait "$DEV_SB_PID" 2>/dev/null || DEV_SB_RC=$?
+  else
+    kill "$DEV_SB_PID" 2>/dev/null || true
+    wait "$DEV_SB_PID" 2>/dev/null || true
+  fi
 
-  DEV_SB_ERR=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
+  # Drop the containerized CLI's benign start-up warnings (amd64 image on an arm64
+  # host, disabled TLS verification) so the 200 character excerpt below is the
+  # actual error, not the warnings that precede it.
+  # grep -v exits 1 when nothing is left (warning-only or empty log); guard it so
+  # pipefail/errexit does not abort the run.
+  DEV_SB_ERR=$({ sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" 2>/dev/null \
+    | grep -vE '^WARNING: image platform| WARN openshell_cli::tls' | tr '\n' ' ' | tr -s ' '; } || true)
+  DEV_SB_FULL_LOG="${TMPDIR:-/tmp}/e2e-dev-sandbox-create.log"
+  sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" > "${DEV_SB_FULL_LOG}" 2>/dev/null || true
   rm -f "${DEV_SB_LOG}" 2>/dev/null || true
+
+  # Best-effort cleanup of the developer sandbox. The create assertion above is
+  # already decided, so a failed delete (e.g. a gateway timeout) is reported as a
+  # warning instead of failing the step, but is never reported as success.
+  dev_sandbox_cleanup() {
+    local out
+    if out=$("${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1); then
+      dim "    Developer sandbox ${DEV_SANDBOX} deleted"
+    else
+      dim "    WARNING: could not delete developer sandbox ${DEV_SANDBOX} (may leak): ${out:0:200}"
+    fi
+  }
 
   if [[ "$DEV_POD_CREATED" == "true" ]]; then
     pass "Developer user: sandbox create allowed (user_role member of 'default')"
-    "${OPENSHELL_BIN}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
+    dev_sandbox_cleanup
+  elif echo "$DEV_SB_ERR" | grep -qE "Created sandbox: ${DEV_SANDBOX}"; then
+    # The gateway accepted the create request, which is what this step asserts: a
+    # workspace member with user_role MAY create sandboxes. The CLI has no terminal
+    # here, so it can end on its own once the sandbox is allocated, and the sandbox
+    # may be gone again before the next pod poll; scheduling the pod is covered by
+    # the admin sandbox lifecycle step.
+    pass "Developer user: sandbox create allowed (user_role member of 'default'; sandbox allocated)"
+    dev_sandbox_cleanup
   elif echo "$DEV_SB_ERR" | grep -qiE "not a member|permissiondenied|permission denied|not authorized|unauthorized|forbidden|denied"; then
     # A granted workspace member was still denied -> membership grant or user_role
     # mapping is misconfigured.
@@ -1758,7 +1796,9 @@ except Exception:
     else
       fail_test "Developer user: sandbox not created within ${E2E_SANDBOX_TIMEOUT}s"
     fi
-    dim "    ${DEV_SB_ERR:0:200}"
+    dim "    CLI exit status: ${DEV_SB_RC:-still running}; poll timeline: ${DEV_TRACE}"
+    dim "    last CLI output: $(printf '%s' "${DEV_SB_ERR}" | tail -c 600)"
+    dim "    full CLI output: ${DEV_SB_FULL_LOG}"
   fi
   fi
 
@@ -1793,7 +1833,6 @@ import json, os
 body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': os.environ['E2E_CLUSTER_ID'],
-    'release_id': 'e2e-release',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -1965,7 +2004,6 @@ import json, os
 body = {
     'name': os.environ['GW_NAME'],
     'cluster_id': os.environ['E2E_CLUSTER_ID'],
-    'release_id': 'e2e-release',
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
@@ -2358,7 +2396,6 @@ import json, os
 print(json.dumps({
     'name': os.environ['GW_NAME'],
     'cluster_id': '',
-    'release_id': '',
     'oidc': json.dumps({'issuer': os.environ['E2E_OIDC_ISSUER'], 'audience': os.environ['E2E_OIDC_CLIENT_ID'],
                         'roles_claim': 'groups', 'admin_role': 'hypershell-admins', 'user_role': 'hypershell-users'}),
     'route': json.dumps({'enabled': True}),
@@ -2388,7 +2425,6 @@ import json, os
 print(json.dumps({
     'name': os.environ['GW_NAME'],
     'cluster_id': os.environ['PH_ID'],
-    'release_id': '',
     'oidc': json.dumps({'issuer': os.environ['E2E_OIDC_ISSUER'], 'audience': os.environ['E2E_OIDC_CLIENT_ID'],
                         'roles_claim': 'groups', 'admin_role': 'hypershell-admins', 'user_role': 'hypershell-users'}),
     'route': json.dumps({'enabled': True}),
@@ -2485,6 +2521,10 @@ print(json.dumps({
   # is unavailable") -- the deletion cannot be initiated during the outage on this
   # platform. Delete-driven namespace reaping on the live watch is covered by
   # area 11 (watch-delete-events.spec.md) and the periodic reaper.
+  #
+  # Scaling the control plane to zero stalls every other suite sharing the
+  # cluster, so when one runs concurrently (run-parallel.sh) wait for it first.
+  e2e_wait_disruptive_gate
   if [[ -z "${E2E_CLUSTER_ID:-}" ]]; then
     fail_test "Skipped reconnect convergence: no registered cluster_id discovered"
   else
@@ -2557,16 +2597,15 @@ fi
 sep
 
 # ── 13. Gateway release promotion + reconciled status ───────────────────────
-# Area 13 closes the gateway-release-rollout gap (promotion) and asserts the
-# control plane's reconciled status write-back for releases and networks
-# (gateway-release-reconciliation / gateway-network-reconciliation). Long only.
+# Area 13 tested GatewayRelease and GatewayNetwork which were removed from the
+# data model (feat/adlc-agent-runtime-spec). The area is permanently skipped.
 
 echo ""
 e2e_area "13. Gateway Release Promotion + Reconciled Status"
 echo ""
 
-if ! e2e_step long; then
-  dim "  Skipped (E2E_MODE=${E2E_MODE}): area 13 creates releases/networks and rolls a gateway"
+if true; then
+  dim "  Skipped: GatewayRelease and GatewayNetwork kinds were removed from the data model"
 else
   acquire_oidc_token 2>/dev/null || true
   e2e_ensure_seed_ids || true

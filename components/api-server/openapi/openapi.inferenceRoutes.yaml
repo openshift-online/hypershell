@@ -1,0 +1,178 @@
+paths:
+  /api/hypershell/ext/inference_routes:
+    get:
+      operationId: listInferenceRoutes
+      summary: Returns a list of inference routes
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: A JSON array of inference route objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InferenceRouteList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+    post:
+      operationId: createInferenceRoute
+      summary: Create a new inference route
+      security:
+        - Bearer: []
+      requestBody:
+        description: InferenceRoute data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InferenceRoute'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InferenceRoute'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/ext/inference_routes/{id}:
+    get:
+      operationId: getInferenceRoute
+      summary: Get an inference route by ID
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: InferenceRoute found by ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InferenceRoute'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No inference route with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteInferenceRoute
+      summary: Delete an inference route
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: InferenceRoute deleted successfully
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No inference route with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+components:
+  schemas:
+    InferenceRoute:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - workspace_id
+            - provider_binding_id
+            - model
+          properties:
+            workspace_id:
+              type: string
+            provider_binding_id:
+              type: string
+            model:
+              type: string
+              description: Model alias for LLM inference within the agent workspace
+    InferenceRouteList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/InferenceRoute'
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

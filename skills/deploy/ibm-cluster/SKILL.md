@@ -384,11 +384,11 @@ secrets are unnecessary):
 skopeo copy --remove-signatures --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
   docker://docker.io/library/postgres:18 docker://$REG/openshift/postgres:18
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:fd0090fbaf1f5aa9e05f7c66d1078b83acc247407ed51ec531a76e3af5a27775    docker://$REG/openshift/openshell-gateway:v0.1.2-rhaiv.0
+  docker://quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16    docker://$REG/openshift/openshell-gateway:v0.1.2-rhaiv.7
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.0@sha256:31c77a215c927a7aafe5a8aa68ca8610fd13f3bb1587e1836e60f5242b148109 docker://$REG/openshift/openshell-supervisor:v0.1.2-rhaiv.0
+  docker://quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.7@sha256:7e81f0c38e18c076472ec2364494c3ae6481d421b60d771e0f04f21039e7ef8e docker://$REG/openshift/openshell-supervisor:v0.1.2-rhaiv.7
 skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell create token pusher)" \
-  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.2-rhaiv.0@sha256:283838f9787bdd876ec8f110a5d5b5c752082a410f75173f0abf2533ae651989 docker://$REG/openshift/openshell-sandbox-runtime:v0.1.2-rhaiv.0
+  docker://quay.io/opendatahub/odh-openshell-sandbox:v0.1.2-rhaiv.7@sha256:9188961848d3952f6343132a1746e18cf862f106454a3cb803c12ddfd5b7990a docker://$REG/openshift/openshell-sandbox-runtime:v0.1.2-rhaiv.7
 oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, openshell-sandbox-runtime, postgres
 ```
 
@@ -440,7 +440,7 @@ must keep aligned with this cluster:
 
 The control plane reads the gateway's own `image` and `supervisor_image` fields
 and requires them to be set explicitly. Required environment variables `GATEWAY_IMAGE` and
-`GATEWAY_SUPERVISOR_IMAGE` (set in `deploy/base/controller.yaml`) define the authoritative
+`GATEWAY_SUPERVISOR_IMAGE` (set in `deploy/base/platform-resources/controller.yaml`) define the authoritative
 image sources and have no fallback defaults; set both to the mirrored internal refs, and pass
 `namespace` explicitly (the deployed API image still validates it as required despite the
 OpenAPI `readOnly` marking):

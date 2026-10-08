@@ -5,7 +5,7 @@ import {
   governingInstance,
   orderedEnvironments,
 } from "../../domain/promotion";
-import { mapFleet, mapInstances, mapPromotion } from "./wire";
+import { mapFleet, mapInstances, mapPromotion, mapTopology } from "./wire";
 
 // Fixtures use deliberately fictional environment/instance names (alpha/beta/
 // gamma) and a fake release id. The fleet-dashboard source is public, so real
@@ -151,6 +151,8 @@ describe("mapFleet", () => {
     expect(inst?.gatewayHistory).toEqual([]);
     expect(inst?.managedClusters).toBeNull();
     expect(inst?.role).toBeNull();
+    expect(inst?.sandboxes).toBe(0);
+    expect(inst?.sandboxesByCluster).toEqual([]);
   });
 
   it("carries metrics, totals and history through", () => {
@@ -159,6 +161,10 @@ describe("mapFleet", () => {
         gateways: { running: 3, failed: 1 },
         gatewaysTotal: 4,
         users: 12,
+        logins: 5,
+        userHistory: [10, 11, 12],
+        loginsHistory: [3, 4, 5],
+        historyTimes: [100, 200, 300],
         rpc: { rate: 2, errorPct: 0.5, p95Ms: 40 },
         provisionP95Ms: 120,
         gatewayHistory: [
@@ -166,13 +172,37 @@ describe("mapFleet", () => {
           { running: 2, provisioning: 1 },
           { failed: 4 },
         ],
+        sandboxes: 9,
+        sandboxesByCluster: [
+          { managedCluster: "c2", count: 6 },
+          { managedCluster: "c1", count: 3 },
+          // A row with no managed-cluster label is dropped (identity-less, unplottable).
+          { count: 2 },
+        ],
+        gatewaysByCluster: [
+          { managedCluster: "c1", gateways: { running: 2 }, total: 2 },
+          // A row with no managed-cluster label is dropped (unattributable).
+          { gateways: { running: 5 }, total: 5 },
+        ],
       },
     });
     const inst = data.instances[0];
     expect(inst?.gatewaysTotal).toBe(4);
     expect(inst?.users).toBe(12);
+    expect(inst?.logins).toBe(5);
+    expect(inst?.userHistory).toEqual([10, 11, 12]);
+    expect(inst?.loginsHistory).toEqual([3, 4, 5]);
+    expect(inst?.historyTimes).toEqual([100, 200, 300]);
     expect(inst?.rpc.p95Ms).toBe(40);
     expect(inst?.provisionP95Ms).toBe(120);
+    expect(inst?.sandboxes).toBe(9);
+    expect(inst?.sandboxesByCluster).toEqual([
+      { managedCluster: "c2", count: 6 },
+      { managedCluster: "c1", count: 3 },
+    ]);
+    expect(inst?.gatewaysByCluster).toEqual([
+      { managedCluster: "c1", gateways: { running: 2 }, total: 2 },
+    ]);
     // Missing phase fields default to 0 (num()), so every sample is fully shaped.
     expect(inst?.gatewayHistory).toEqual([
       { running: 1, provisioning: 0, failed: 0 },
@@ -203,5 +233,61 @@ describe("mapInstances", () => {
   it("tolerates a null/absent list", () => {
     expect(mapInstances({}).instances).toEqual([]);
     expect(mapInstances({ instances: null }).instances).toEqual([]);
+  });
+});
+
+describe("mapTopology", () => {
+  it("projects an embedded-object topology document (snake_case -> camelCase)", () => {
+    const data = mapTopology({
+      alpha: {
+        instance: "alpha",
+        topology: {
+          hub: {
+            instance: "alpha",
+            dns_label: "alpha",
+            remote_spokes: ["gamma", ""],
+          },
+          spokes: [{ name: "beta" }, { name: "" }],
+        },
+      },
+    });
+
+    expect(data.alpha).toEqual({
+      instance: "alpha",
+      hub: { instance: "alpha", dnsLabel: "alpha", remoteSpokes: ["gamma"] },
+      spokes: [{ name: "beta" }],
+    });
+  });
+
+  it("parses a topology document passed through as a JSON string", () => {
+    const data = mapTopology({
+      alpha: {
+        topology: JSON.stringify({
+          hub: { instance: "alpha", remote_spokes: [] },
+          spokes: [{ name: "beta" }],
+        }),
+      },
+    });
+
+    expect(data.alpha?.hub?.instance).toBe("alpha");
+    expect(data.alpha?.hub?.dnsLabel).toBeNull();
+    expect(data.alpha?.spokes.map((s) => s.name)).toEqual(["beta"]);
+  });
+
+  it("degrades a malformed entry to an empty topology without throwing", () => {
+    const data = mapTopology({
+      alpha: { topology: "{not json" },
+      beta: { topology: null },
+      gamma: 42,
+    });
+
+    expect(data.alpha).toEqual({ instance: "alpha", hub: null, spokes: [] });
+    expect(data.beta).toEqual({ instance: "beta", hub: null, spokes: [] });
+    expect(data.gamma).toEqual({ instance: "gamma", hub: null, spokes: [] });
+  });
+
+  it("tolerates a null/non-record payload", () => {
+    expect(mapTopology(null)).toEqual({});
+    expect(mapTopology("nope")).toEqual({});
   });
 });

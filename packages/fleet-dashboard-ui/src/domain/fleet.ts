@@ -18,6 +18,45 @@ export interface GatewayHistorySample {
   readonly failed: number;
 }
 
+/**
+ * One managed cluster's active-sandbox count within an instance. `managedCluster`
+ * is the application-emitted spoke name (the `managed_cluster` label == GitOps spoke
+ * name) - the correct attribution key. The legacy scrape-injected `cluster` label is
+ * the emitting HUB's identity, not the spoke, so it is deliberately NOT carried here
+ * (gateway-managed-cluster-attribution.spec). No cluster identity is baked in.
+ */
+export interface SandboxClusterCount {
+  readonly managedCluster: string;
+  readonly count: number;
+}
+
+/**
+ * One managed cluster's gateway phase breakdown within an instance, keyed by the
+ * spoke name (the `managed_cluster` label). Summing `total` across the rows recovers
+ * the instance's {@link InstanceFleet.gatewaysTotal}. No cluster identity is baked in.
+ */
+export interface GatewayClusterBreakdown {
+  readonly managedCluster: string;
+  readonly gateways: GatewayPhaseCounts;
+  readonly total: number;
+}
+
+/**
+ * One managed cluster's (spoke's) gateway-phase + active-sandbox history within an
+ * instance, both oldest-first and index-aligned to the instance's shared
+ * {@link InstanceFleet.historyTimes} axis (every row for an instance shares that axis).
+ * Lets the map draw a spoke's own two chin sparklines on its node card and roll the
+ * remaining clusters up into the hub's card, so a spoke's counts land on exactly one
+ * card. Summing the rows at each sample recovers the instance's
+ * {@link InstanceFleet.gatewayHistory} / {@link InstanceFleet.sandboxHistory}. No
+ * cluster identity is baked in.
+ */
+export interface ClusterHistory {
+  readonly managedCluster: string;
+  readonly gatewayHistory: readonly GatewayHistorySample[];
+  readonly sandboxHistory: readonly number[];
+}
+
 /** A rate + error% + p95-latency triple, as the BFF reports per control-plane. */
 export interface RateStats {
   readonly rate: number;
@@ -36,6 +75,12 @@ export interface InstanceFleet {
   readonly gateways: GatewayPhaseCounts;
   /** Total gateways across phases, as the server sums them. */
   readonly gatewaysTotal: number;
+  /**
+   * Gateway phase counts broken down per managed cluster (spoke), busiest-first as
+   * the server orders them. Summing the rows recovers {@link gateways}. Empty when
+   * the server reports no per-spoke breakdown (the UI degrades to the instance total).
+   */
+  readonly gatewaysByCluster: readonly GatewayClusterBreakdown[];
   readonly managedClusters: number | null;
   readonly users: number | null;
   /** api-server (gRPC) RED metrics. */
@@ -51,6 +96,43 @@ export interface InstanceFleet {
    * Empty when the server reports no history (the UI degrades to an absent spark).
    */
   readonly gatewayHistory: readonly GatewayHistorySample[];
+  /** Total active agent sandboxes across the instance's gateways. */
+  readonly sandboxes: number;
+  /**
+   * Active sandboxes broken down per managed cluster, busiest-first as the server
+   * orders them. Empty when the server reports none (the UI degrades gracefully).
+   */
+  readonly sandboxesByCluster: readonly SandboxClusterCount[];
+  /**
+   * Total active-sandbox count over the last day, oldest-first, on the SAME grid as
+   * {@link gatewayHistory} so the two node-card sparklines share an x-axis. Drives the
+   * lower sandbox "sand" sparkline. May be empty when no history is available.
+   */
+  readonly sandboxHistory: readonly number[];
+  /**
+   * Per-managed-cluster (spoke) decomposition of {@link gatewayHistory} +
+   * {@link sandboxHistory}, each row index-aligned to {@link historyTimes}. Drives the
+   * map's per-node chins: a spoke onto its own card, the rest rolled into the hub's.
+   * Empty when the server reports no per-cluster history.
+   */
+  readonly historyByCluster: readonly ClusterHistory[];
+  /** Rolling 7-day unique-login count, or null when unknown. */
+  readonly logins: number | null;
+  /**
+   * Registered-user total over the last day, oldest-first, on the SAME grid as
+   * {@link sandboxHistory}, driving the Users metric tile's mini sparkline. May be
+   * empty when no history is available.
+   */
+  readonly userHistory: readonly number[];
+  /** Rolling 7-day unique-login count over the last day, oldest-first, same grid. */
+  readonly loginsHistory: readonly number[];
+  /**
+   * The shared time axis (unix seconds, oldest-first) that every history series above
+   * is index-aligned to: historyTimes[i] is the timestamp of gatewayHistory[i],
+   * sandboxHistory[i], userHistory[i] and loginsHistory[i]. Drives the detail panel's
+   * shared temporal cursor. Empty when the server reports no history.
+   */
+  readonly historyTimes: readonly number[];
 }
 
 export interface FleetData {

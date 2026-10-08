@@ -229,7 +229,6 @@ func (s *sqlGatewayService) SetGatewayVersion(ctx context.Context, id, version s
 // workload and must not advance generation. See data-model.spec.md.
 func desiredStateChanged(current, next *Gateway) bool {
 	return current.ClusterId != next.ClusterId ||
-		current.ReleaseId != next.ReleaseId ||
 		!strEq(current.ExternalDns, next.ExternalDns) ||
 		!strEq(current.TlsMode, next.TlsMode) ||
 		!strEq(current.ServiceType, next.ServiceType) ||

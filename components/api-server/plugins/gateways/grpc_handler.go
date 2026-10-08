@@ -61,9 +61,6 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := grpcutil.ValidateStringField("cluster_id", req.ClusterId, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("release_id", req.ReleaseId, true); err != nil {
-		return nil, err
-	}
 	if err := validateGatewayPhase(req.Phase); err != nil {
 		return nil, err
 	}
@@ -80,7 +77,6 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	gateway := &Gateway{
 		Name:           req.Name,
 		ClusterId:      req.ClusterId,
-		ReleaseId:      req.ReleaseId,
 		ExternalDns:    req.ExternalDns,
 		TlsMode:        req.TlsMode,
 		ServiceType:    req.ServiceType,
@@ -112,11 +108,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 			return nil, err
 		}
 	}
-	if req.ReleaseId != nil {
-		if err := grpcutil.ValidateStringField("release_id", *req.ReleaseId, false); err != nil {
-			return nil, err
-		}
-	}
 	if req.ExternalDns != nil {
 		if err := grpcutil.ValidateStringField("external_dns", *req.ExternalDns, false); err != nil {
 			return nil, err
@@ -129,11 +120,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.ServiceType != nil {
 		if err := grpcutil.ValidateStringField("service_type", *req.ServiceType, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.ObservedReleaseId != nil {
-		if err := grpcutil.ValidateStringField("observed_release_id", *req.ObservedReleaseId, false); err != nil {
 			return nil, err
 		}
 	}
@@ -166,9 +152,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 		}
 		gateway.ClusterId = *req.ClusterId
 	}
-	if req.ReleaseId != nil {
-		gateway.ReleaseId = *req.ReleaseId
-	}
 	if req.ExternalDns != nil {
 		gateway.ExternalDns = req.ExternalDns
 	}
@@ -197,12 +180,6 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	}
 	if req.ConsoleAddress != nil {
 		gateway.ConsoleAddress = req.ConsoleAddress
-	}
-	// observed_release_id is control-plane-owned: the control plane advances it
-	// (via this whole-row path, like phase/status/route_address) only after a new
-	// revision passes its health gates. It is readOnly to REST clients.
-	if req.ObservedReleaseId != nil {
-		gateway.ObservedReleaseId = req.ObservedReleaseId
 	}
 	if req.Oidc != nil {
 		gateway.Oidc = req.Oidc

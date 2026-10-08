@@ -14,6 +14,7 @@ import {
   DrawerPanelContent,
 } from "@patternfly/react-core";
 import CompressArrowsAltIcon from "@patternfly/react-icons/dist/esm/icons/compress-arrows-alt-icon";
+import ExclamationCircleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-circle-icon";
 import SearchMinusIcon from "@patternfly/react-icons/dist/esm/icons/search-minus-icon";
 import SearchPlusIcon from "@patternfly/react-icons/dist/esm/icons/search-plus-icon";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +25,8 @@ import { computeLayout, type NodeBox } from "../../../domain/map/layout";
 import { buildMapModel } from "../../../domain/map/model";
 import type { FleetData } from "../../../domain/fleet";
 import type { PromotionData } from "../../../domain/promotion";
+import type { TopologyData } from "../../../domain/topology";
+import { isHealthUnavailable } from "../../../domain/status";
 import { messages } from "../../../messages";
 import {
   EDGE_STROKE,
@@ -31,6 +34,7 @@ import {
   promotionRing,
   TEXT_COLOR,
   TEXT_SUBTLE,
+  TONE_COLOR,
 } from "./colors";
 import { MapEdges } from "./edges";
 import { MapFlights } from "./flights";
@@ -46,6 +50,8 @@ import { useMapViewport } from "./use-map-viewport";
 export interface TopologyMapProps {
   readonly promotion: PromotionData;
   readonly fleet: FleetData;
+  /** Per-hub spoke layout, used to attribute gateways/sandboxes to their spoke. */
+  readonly topology: TopologyData;
 }
 
 /** Cubic bezier with horizontal control handles, from (x1,y1) to (x2,y2). */
@@ -57,13 +63,24 @@ function hBezier(x1: number, y1: number, x2: number, y2: number): string {
 export function TopologyMap({
   promotion,
   fleet,
+  topology,
 }: TopologyMapProps): React.ReactElement {
   const intl = useIntl();
   const model = useMemo(
-    () => buildMapModel(promotion, fleet),
-    [promotion, fleet],
+    () => buildMapModel(promotion, fleet, topology),
+    [promotion, fleet, topology],
   );
   const layout = useMemo(() => computeLayout(model), [model]);
+
+  // Fleet-level severe signal: how many instances report NO Argo health at all (the
+  // "unknown" tone). Distinct from "Degraded" - absent health means the dashboard can't
+  // reach the cluster's Argo, so its state is genuinely unknown. Surfaced as a banner
+  // ONLY when there is at least one, because it's a loud "something may be unreachable"
+  // alert, not a routine status (per the node-level flashing ring in map-node).
+  const unavailableCount = useMemo(
+    () => model.nodes.filter((n) => isHealthUnavailable(n.argoHealth)).length,
+    [model.nodes],
+  );
 
   // Track the canvas box's live pixel aspect ratio so the viewBox can be re-fit to
   // it: the box fills the screen height (constant) while its width flexes when the
@@ -102,6 +119,24 @@ export function TopologyMap({
     didPan,
   } = useMapViewport(layout.width, layout.height, containerAspect);
   const [selection, setSelection] = useState<MapSelection | null>(null);
+
+  // Esc closes the details drawer. PatternFly's inline Drawer does not trap focus
+  // or handle Escape itself, so we listen at the document level, but only while a
+  // selection is open, leaving Esc untouched when the panel is closed.
+  useEffect(() => {
+    if (selection === null) {
+      return;
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelection(null);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [selection]);
 
   // Promotion fly-ins: identicons arc from the promoting-FROM node to the node they
   // land on, and each landing jolts the whole canvas (screen shake). Both collapse to
@@ -231,6 +266,21 @@ export function TopologyMap({
           >
             <DrawerContentBody>
               <div ref={canvasRef} className={styles.canvas}>
+                {unavailableCount > 0 ? (
+                  <div
+                    className={styles.healthAlert}
+                    role="status"
+                    style={{ background: TONE_COLOR.danger }}
+                  >
+                    <ExclamationCircleIcon />
+                    <span>
+                      {intl.formatMessage(messages.mapHealthUnavailable, {
+                        count: unavailableCount,
+                      })}
+                    </span>
+                  </div>
+                ) : null}
+
                 <div className={styles.toolbar}>
                   <Button
                     variant="control"

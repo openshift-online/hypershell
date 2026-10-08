@@ -23,7 +23,6 @@ export interface GatewayRecord {
   oidcIssuer?: string;
   phase?: string;
   provisioningConditions?: readonly ProvisioningCondition[];
-  releaseId: string;
   status?: string;
 }
 

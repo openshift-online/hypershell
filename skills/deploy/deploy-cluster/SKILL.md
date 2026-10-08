@@ -222,21 +222,21 @@ echo "Open in browser: $CONSOLE_URL"
 
 ## Gateway Image Environment Variables
 
-The controller uses two **required** environment variables (set in `deploy/base/controller.yaml`)
+The controller uses two **required** environment variables (set in `deploy/base/platform-resources/controller.yaml`)
 to provision tenant gateways. These have **no fallback defaults** if unset, gateway
 reconciliation fails immediately:
 
 ```yaml
 env:
   - name: GATEWAY_IMAGE
-    value: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0@sha256:...
+    value: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:...
   - name: GATEWAY_SUPERVISOR_IMAGE
-    value: quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.0@sha256:...
+    value: quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.7@sha256:...
 ```
 
 When a gateway is created, the controller reads these environment variables to determine
 which image(s) to deploy. To update to a new upstream OpenShell release, update these
-values in `deploy/base/controller.yaml` and reapply the deployment.
+values in `deploy/base/platform-resources/controller.yaml` and reapply the deployment.
 
 ## OpenShift-Specific Differences from Kind
 

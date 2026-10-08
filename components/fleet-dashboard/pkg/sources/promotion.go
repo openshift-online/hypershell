@@ -64,9 +64,18 @@ type Release struct {
 	// fallback, where SHA is the only identity.
 	Digest string `json:"digest,omitempty"`
 	// PRs is the set of pull requests this build introduced since the previous
-	// build (Bundle tab). Populated by a BundleEnricher; nil when GitHub
-	// enrichment is disabled or there is no prior build to diff against.
+	// build (Bundle tab, "In this bundle"). These are UPSTREAM product-source PRs
+	// (openshift-online/hypershell) -- the changes the bundle actually ships -- not
+	// the gitops lock-bump PR that promoted it. Populated by a BundleEnricher; nil
+	// when GitHub enrichment is disabled or there is no prior build to diff against.
 	PRs []PR `json:"prs,omitempty"`
+	// ManifestsRev is the PUBLIC product source revision the bundle's manifests
+	// were built from (the lock's bundle.manifests.git.revision). The
+	// BundleEnricher diffs consecutive bundles' ManifestsRev over the upstream repo
+	// to list the PRs "in this bundle". Internal only (not serialized): the UI
+	// consumes PRs. Empty under the short-SHA fallback or a lock without bundle
+	// provenance.
+	ManifestsRev string `json:"-"`
 }
 
 // ShortSHAResolver is the default resolver: version == first 8 chars of the SHA.
@@ -154,6 +163,10 @@ type Environment struct {
 	Env        string `json:"env,omitempty"`
 	Cluster    string `json:"cluster,omitempty"`
 	ConsoleURL string `json:"consoleUrl,omitempty"`
+	// GrafanaURL deep-links to the cluster's own per-cluster Grafana instance. Like
+	// ConsoleURL it is the raw value of an Argo "extra link" annotation, so gitops
+	// stays authoritative for the host (no hostname pattern is baked in here).
+	GrafanaURL string `json:"grafanaUrl,omitempty"`
 }
 
 // Gate is a promoter commit status.
@@ -234,13 +247,17 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			env.Env = a.env
 			env.Cluster = a.cluster
 			env.ConsoleURL = a.consoleURL
+			env.GrafanaURL = a.grafanaURL
 		}
 		payload.Environments[key] = env
 	}
 
-	// Enrich release bundles (dates + PR lists) best-effort before frontier
-	// selection, which depends on the date the enricher fills in.
-	p.bundler.Enrich(ctx, payload.Releases)
+	// Resolve bundle dates best-effort before frontier selection, which depends on
+	// the date. (A lock resolver already fills Date from the bundle tag; this only
+	// matters in the short-SHA fallback.) PR lists are diffed later, after history
+	// is merged, so a fleet converged on one bundle still has a prior bundle to
+	// diff the frontier against.
+	p.bundler.ResolveDates(ctx, payload.Releases)
 
 	// Frontier = newest release by bundle date across the DEPLOYED envs (computed
 	// before history is merged, so a dimmed previously-deployed card never becomes
@@ -258,6 +275,12 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 	// not just what is live right now. These arrive with no environment pointing
 	// at them, so the UI renders them as dimmed, zero-deployment cards.
 	p.mergeHistory(ctx, &payload)
+
+	// Diff PR lists over the full set (deployed + history), so the frontier's "in
+	// this bundle" list is populated even when every environment runs the same
+	// bundle (the single-deployed-bundle case has no peer to diff against until
+	// history is present).
+	p.bundler.Enrich(ctx, payload.Releases)
 	return payload, nil
 }
 
@@ -393,7 +416,7 @@ func (p *Promotion) argoAppURL(ns, app string) string {
 }
 
 type argoInfo struct {
-	app, ns, health, sync, role, provider, env, cluster, consoleURL string
+	app, ns, health, sync, role, provider, env, cluster, consoleURL, grafanaURL string
 }
 
 // argoByInstance maps each instance key to its core Argo Application, using the
@@ -444,6 +467,7 @@ func (p *Promotion) argoByInstance(ctx context.Context) map[string]argoInfo {
 			env:        labels[deliveryLabelPrefix+"env"],
 			cluster:    labels[deliveryLabelPrefix+"cluster"],
 			consoleURL: ann["link.argocd.argoproj.io/external-link"],
+			grafanaURL: ann["link.argocd.argoproj.io/grafana"],
 		}
 	}
 	return out

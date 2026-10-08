@@ -10,8 +10,6 @@ import (
 
 	// Link every plugin the real server links (cmd/hypershell/main.go) so REST
 	// routes, gRPC services, and the RBAC middleware and interceptors all run.
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayReleases"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"

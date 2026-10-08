@@ -341,7 +341,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check shell syntax
-        run: bash -n components/pr-test/e2e-openshell.sh
+        run: bash -n components/pr-test/e2e-openshell-roks.sh
 
   lint-web-console:
     name: Web console quality gates

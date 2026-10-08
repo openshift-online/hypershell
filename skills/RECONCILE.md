@@ -58,6 +58,7 @@ skills/
 | Domain | Specs | Requirements | Present | Partial | Missing | Deferred | Coverage |
 |--------|-------|-------------|---------|---------|---------|----------|----------|
 | Platform - Data Model | 1 | 12 | 11 | 1 | 0 | 0 | 96% |
+| Platform - Data Model (Kind Removal) | 1 | 20 | 0 | 0 | 20 | 0 | 0% |
 | Platform - Control Plane | 1 | 13 | 8 | 1 | 4 | 0 | 65% |
 | Platform - Gateway (core) | 1 | 18 | 12 | 3 | 3 | 0 | 75% |
 | Platform - Gateway DB | 1 | 12 | 10 | 2 | 0 | 0 | 83% |
@@ -95,7 +96,7 @@ skills/
 | Platform - Gateway Sandbox Active Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - Hub Cluster Utilization Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - OpenShell Branch Build | 1 | ~12 | 0 | 0 | ~12 | 0 | 0% |
-| **TOTAL (analyzed rows)** | **42** | **364** | **310** | **22** | **27** | **5** | **85%** |
+| **TOTAL (analyzed rows)** | **43** | **384** | **310** | **22** | **47** | **5** | **81%** |
 | **TOTAL (all 48 groups)** | **48** | **~424** | **?** | **?** | **?** | **?** | **Pending** |
 
 ### Spec Dependency Order
@@ -119,6 +120,35 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 ---
 
 ## Gap Table
+
+### Kind Removal: GatewayRelease + GatewayNetwork
+
+These items track deletion of deprecated kinds across all implementation layers.
+Execution order is the reverse of creation: FE -> CLI -> CP (watcher+reconciler) -> BE+gRPC (plugin, handler, presenter, migration) -> SDK (generated types) -> API (OpenAPI routes+schema).
+Database tables are dropped via a final migration after confirmed zero rows.
+
+| # | Kind | Layer | Action | Status | Code Location | Wave |
+|---|------|-------|--------|--------|---------------|------|
+| RM-1 | GatewayRelease | FE | Remove any UI references (list/detail views, selectors) | Missing | `components/web-console/` | RM-W1 |
+| RM-2 | GatewayNetwork | FE | Remove any UI references | Missing | `components/web-console/` | RM-W1 |
+| RM-3 | GatewayRelease | CLI | Delete `hsctl create/get/list/delete gatewayRelease` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
+| RM-4 | GatewayNetwork | CLI | Delete `hsctl create/get/list/delete gatewayNetwork` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
+| RM-5 | GatewayRelease | CP | Delete `GatewayReleaseReconciler`, `WatchGatewayReleases`, `gateway_version_selection_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
+| RM-6 | GatewayNetwork | CP | Delete `GatewayNetworkReconciler`, `WatchGatewayNetworks`, `gateway_network_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
+| RM-7 | GatewayRelease | CP | Remove `release_id` propagation from `GatewayReconciler`; keep `image` path only | Missing | `components/control-plane/internal/reconciler/reconciler.go` | RM-W3 |
+| RM-8 | GatewayRelease | BE | Delete `components/api-server/plugins/gatewayReleases/` plugin entirely | Missing | `components/api-server/plugins/gatewayReleases/` | RM-W4 |
+| RM-9 | GatewayNetwork | BE | Delete `components/api-server/plugins/gatewayNetworks/` plugin entirely | Missing | `components/api-server/plugins/gatewayNetworks/` | RM-W4 |
+| RM-10 | GatewayRelease | gRPC | Delete `gateway_releases.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayReleases/grpc_*` | RM-W4 |
+| RM-11 | GatewayNetwork | gRPC | Delete `gateway_networks.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayNetworks/grpc_*` | RM-W4 |
+| RM-12 | GatewayRelease | API | Remove `/gateway_releases` routes and `GatewayRelease` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
+| RM-13 | GatewayNetwork | API | Remove `/gateway_networks` routes and `GatewayNetwork` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
+| RM-14 | GatewayRelease | SDK | Regenerate Go + TS SDKs (generated files will drop GatewayRelease types automatically) | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
+| RM-15 | GatewayNetwork | SDK | Regenerate Go + TS SDKs | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
+| RM-16 | GatewayRelease | DB | Add migration to drop `gateway_releases` table (after zero-row verification) | Missing | `components/api-server/plugins/gatewayReleases/migration.go` | RM-W6 |
+| RM-17 | GatewayNetwork | DB | Add migration to drop `gateway_networks` table | Missing | `components/api-server/plugins/gatewayNetworks/migration.go` | RM-W6 |
+| RM-18 | Gateway | BE | Remove `release_id` field from Gateway model, handler, and migration (nullable FK to removed table) | Missing | `components/api-server/plugins/gateways/` | RM-W4 |
+| RM-19 | Gateway | API | Remove `release_id` from OpenAPI Gateway schema, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
+| RM-20 | GatewayRelease+GatewayNetwork | RBAC | Remove both from `grpc_authorization.go` control-plane identity allow-list | Missing | `components/api-server/pkg/rbac/grpc_authorization.go` | RM-W4 |
 
 ### generated-gateway-config-validation.spec.md (HYPERSHELL-179)
 
@@ -205,7 +235,7 @@ The first gap analysis found a race between the event-driven reconciler and the 
 | OS-4 | Keycloak Namespace | Present | `${OPENSHIFT_NAMESPACE}-keycloak` via `oc new-project`; apply while that project is selected, then switch back; OIDC issuer from Keycloak Route; `KC_HOSTNAME` is host-only; `keycloak-allow-platform` NetworkPolicy lets platform pods reach JWKS/Admin API; console redirect URIs and API seeding use host `curl` against Routes (API server image has no curl) | `rewrite-namespaces.py`, `drivers/openshift.sh`, `deploy/openshift/keycloak-networkpolicy.yaml` | OS-W2 |
 | OS-5 | Component Swap on OpenShift | Present | Build, push immutable commit+namespace identity, per-namespace `.openshift-swaps/`, reconcile preserves swaps | `drivers/openshift.sh`, `Makefile` | OS-W2 |
 | OS-E2E-1 | OpenShift E2E Driver | Partial | Manual `make e2e` / `make e2e-performance` against a pre-deployed cluster. Out of scope for OS-W2. | `tests/e2e/drivers/openshift.sh` | OS-W1 |
-| OS-7 | E2E Script Consolidation | Missing | Intentionally deferred: not local-dev lifecycle | `components/pr-test/` | Future |
+| OS-7 | E2E Script Consolidation | Present | `components/pr-test/e2e-openshell.sh` removed (HYPERSHELL-250); only the out-of-scope ROKS script remains under `components/pr-test/`, rescoped `pr_test`/`lint-pr-test` CI wiring | `components/pr-test/`, `tests/e2e/drivers/openshift.sh` | W5 (HYPERSHELL-250) |
 | OS-8 | Ephemeral CI Environment Provisioning | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
 | OS-9 | Environment Access Handoff | Missing | Intentionally deferred: CI-only | - | Future |
 | OS-10 | Blessed OpenShift Overlay | Partial | Namespace parameterization, Routes, SCC RoleBindings; `API_ENV=development_oidc` in the overlay (not `oc set env`); gateway base domain discovered from the shared Gateway listener (not `GATEWAY_API_BASE_DOMAIN`). Drift-check CI job deferred. | `deploy/openshift/`, `rewrite-namespaces.py` | OS-W2 |
@@ -215,14 +245,14 @@ The first gap analysis found a race between the event-driven reconciler and the 
 | OS-14 | Standalone Seed Command (`make openshift-seed`) | Missing | Seeds domain resources into an existing environment without re-applying the overlay; stops when environment is absent; always seeds (ignores `SKIP_SEED`); honors `SEED_STRICT`; idempotent | - | Future |
 | OS-15 | Lifecycle Library Unit Tests (`make openshift-test`) | Missing | No-cluster unit/static harness covering pure helpers, namespace rewriter, and source-level safety invariants (teardown==down, never delete unprefixed `hypershell-controller` RBAC, swaps never use internal registry) | - | Future |
 
-Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemented. E2E driver completion beyond the OS-W1 manual slice, legacy `pr-test` consolidation, ephemeral CI, access handoff, overlay drift CI, and the OpenShift e2e workflow remain out of scope for this wave.
+Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemented. E2E driver completion beyond the OS-W1 manual slice, ephemeral CI, access handoff, overlay drift CI, and the OpenShift e2e workflow remain out of scope for this wave. Legacy `pr-test` consolidation (OS-7) closed under HYPERSHELL-250.
 
 ### openshell-gateway-service-accounts.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | SA-1 | Synchronous provisioning and one-time delivery | Present | - | `plugins/serviceAccounts/`, `pkg/keycloak/service_accounts.go` | SA-W1..W3 |
-| SA-2 | Federated Keycloak is the identity system of record | Present | - | `deploy/base/api-server.yaml`, `pkg/keycloak/service_accounts.go` | SA-W3 |
+| SA-2 | Federated Keycloak is the identity system of record | Present | - | `deploy/base/applications/api-server.yaml`, `pkg/keycloak/service_accounts.go` | SA-W3 |
 | SA-3 | Client Credentials token issuance | Present | - | `pkg/keycloak/service_accounts.go`, lifecycle sweep | SA-W3 |
 | SA-4 | Single-gateway isolation | Present | - | `pkg/keycloak/service_accounts.go` | SA-W3 |
 | SA-5 | User-selected, RBAC-capped OpenShell role | Present | - | `pkg/rbac/authorization.go`, `plugins/serviceAccounts/service.go` | SA-W3 |
@@ -230,7 +260,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | SA-7 | Replacement-based credential rotation | Present | - | `plugins/serviceAccounts/`, `components/cli/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W3..W5 |
 | SA-8 | Gateway lifecycle cleanup | Present | - | `plugins/gateways/deletion_cleanup.go`, `control-plane/internal/keycloak/client.go` | SA-W3 |
 | SA-9 | Secret-safe management UI | Present | - | `packages/gateway-management-ui/src/service-accounts/`, `components/web-console/` | SA-W5 |
-| SA-10 | CLI and CI workflow | Present | - | `scripts/cli-generator/`, `components/cli/cmd/hsctl/{create,list,get,revoke,delete}/`, `components/cli/pkg/serviceaccount/` | SA-W4 |
+| SA-10 | CLI and CI workflow | Present | - | `scripts/generate-cli.sh`, `components/cli/cmd/hsctl/{create,list,get,revoke,delete}/`, `components/cli/pkg/serviceaccount/` | SA-W4 |
 | SA-11 | Workspace membership is a separate grant | Present | - | `plugins/serviceAccounts/presenter.go`, `components/cli/pkg/serviceaccount/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W1, W4, W5 |
 | SA-12 | Scopes are not configurable in version 1 | Present | - | `openapi.serviceAccounts.yaml`, `pkg/keycloak/service_accounts.go` | SA-W1, W3 |
 | SA-13 | Auditability and secret redaction | Present | - | `plugins/serviceAccounts/`, `pkg/keycloak/`, generated SDKs, `components/web-console/bff/`, `packages/gateway-management-ui/src/service-accounts/` | SA-W3, W5 |
@@ -318,7 +348,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| D1 | Admin Credential Mount | Present | Files read from `GATEWAY_DATABASE_ADMIN_DIR` on every operation; Secret volume in `deploy/base/controller.yaml` | `gateway/database.go`, `config/config.go` | EXT-DB ✅ |
+| D1 | Admin Credential Mount | Present | Files read from `GATEWAY_DATABASE_ADMIN_DIR` on every operation; Secret volume in `deploy/base/platform-resources/controller.yaml` | `gateway/database.go`, `config/config.go` | EXT-DB ✅ |
 | D2 | Startup Precondition | Present | Required files, PEM `sslrootcert`, port range and `sslmode=verify-full` validated; `log.Fatalf` on failure; no connection at startup | `cmd/hypershell-controller/main.go`, `gateway/database.go` | EXT-DB ✅ |
 | D3 | Per-Gateway Database Provisioning | Present | `CREATE ROLE ... LOGIN`, `GRANT gw_<id> TO <admin>`, `CREATE DATABASE ... OWNER`, `REVOKE/GRANT CONNECT`; password reuse + `ALTER ROLE` repair | `gateway/database.go` | EXT-DB ✅ |
 | D4 | Gateway Credentials Secret (uri, sslmode=require) | Present | Tenant Secret carries `sslmode=require` and `uri` with no `sslrootcert`; no admin values. Helm chart's `server.externalDbSecret` reads only the `uri` key | `gateway/database.go` | EXT-DB ✅ |
@@ -420,7 +450,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | DASH-01 | Gateway phase Prometheus collector (`hypershell_gateways_total`) | Present | - | `plugins/gateways/metrics.go`, `dao.go:CountByPhase` | - |
-| DASH-02 | Metrics server bind `0.0.0.0:4433` | Present | - | `deploy/base/api-server.yaml` | - |
+| DASH-02 | Metrics server bind `0.0.0.0:4433` | Present | - | `deploy/base/applications/api-server.yaml` | - |
 | DASH-03 | Prometheus Operator and instance | Present | - | `deploy/kind/prometheus-operator/prometheus-operator-bundle.yaml`, `deploy/base/prometheus/` | - |
 | DASH-04 | ServiceMonitor scrape configuration | Present | - | `deploy/base/prometheus/servicemonitor.yaml` | - |
 | DASH-05 | BFF metrics proxy `GET /api/metrics/gateways` | Present | - | `bff/src/metrics-gateways.ts`, `bff/src/app.ts`, `bff/test/metrics-gateways.test.ts` | - |
@@ -717,7 +747,7 @@ Ephemeral-by-default pull-request environments on a shared OpenShift cluster. Bu
 | PR-ENV-8 | GitHub-brokered Keycloak (GitHub IdP, org gate + allowlist, stable callback, password form hidden) | Present | **Declarative IdP:** GitHub IdP enables when ESO Secret `hypershell-github-oauth` has `client_id`. Org/allowlist and per-PR `hypershell-e2e` secret live in CI-owned `hypershell-e2e-client`. Kind/local have no OAuth Secret, so the IdP stays off. **Org-gate enforcement:** BFF checks org membership / allowlist after OIDC callback. **Login page:** `theme/login.css` hides the username/password form when the GitHub IdP is present so human contributors cannot fall back to a test-tier password (#342). Unit-tested. | `deploy/base/keycloak/keycloak.yaml`, `deploy/base/keycloak/theme/login.css`, `components/web-console/bff/src/github-org-gate.ts`, `scripts/cluster/drivers/openshift.sh`, `.github/actions/deploy-pr-environment/action.yml` | W2 ✅ |
 | PR-ENV-9 | Admin roles + developer-tier impersonation (seeded dev principal, interactive + token-exchange) | Present | Base realm grants `platform:admin`+`gateway:creator` on GitHub broker login; human test-tier users are not in the realm import. Lifecycle seed creates them (ESO passwords on CI-owned, static on developer-owned). `hypershell-e2e` has impersonation + token exchange. Seeded users last until the environment is destroyed; e2e does not de-seed. **Interactive (#342):** on first GitHub broker login the realm also grants `view-users`, `query-users`, and `impersonation` realm-management client roles, so a GitHub user can open `/admin/hypershell/console/` and impersonate `developer` or `platform-admin` without a password; master-realm `/admin/` is not the path. The `impersonation` role is realm-wide (no target-scoped form without FGAP). Token-exchange does not extend to other GitHub-brokered users. Inert on Kind (IdP disabled). | `deploy/base/keycloak/keycloak.yaml`, `deploy/base/keycloak/render-realm-config.py`, `scripts/cluster/reconcile-test-users.sh`, `tests/e2e/drivers/openshift.sh` | W2 ✅ |
 | PR-ENV-10 | Automated E2E auth: grant-agnostic driver (`E2E_OIDC_GRANT`), `hypershell-e2e` client-credentials + token-exchange (= D-E2E-OIDC) | Present | `_driver_acquire_oidc_token` dispatches password/client_credentials (admin CC + developer token-exchange impersonation); CI reads the client secret from the Keycloak namespace after `openshift-up`. Unit-tested (`openshift_driver_test.sh`). | `tests/e2e/drivers/kind.sh`, `tests/e2e/lib.sh`, `deploy/base/keycloak/keycloak.yaml`, `scripts/ci/read-e2e-client-secret.sh`, `tests/e2e/openshift_driver_test.sh` | W1 ✅ |
-| PR-ENV-11 | Legacy `pr-test` deprecation notice + docs | Present | Deprecation header on `components/pr-test/e2e-openshell.sh` (names shared harness; excludes ROKS); DEVELOPMENT.md, CLAUDE.md, and full-stack-pipeline skill point at `tests/e2e/e2e-openshell.sh` + this workflow; ROKS/GCP variants + `pr_test` CI wiring untouched | `components/pr-test/e2e-openshell.sh`, `DEVELOPMENT.md`, `CLAUDE.md`, `skills/build/full-stack-pipeline/SKILL.md` | W5 ✅ |
+| PR-ENV-11 | Legacy `pr-test` removal + docs | Present | `components/pr-test/e2e-openshell.sh` deleted (HYPERSHELL-250); `lint-pr-test` now syntax-checks `e2e-openshell-roks.sh`; DEVELOPMENT.md, CLAUDE.md, `ephemeral-pr-environments.spec.md`, `openshift-development.spec.md`, `e2e-testing.spec.md`, and full-stack-pipeline skill point at `tests/e2e/e2e-openshell.sh` + this workflow; ROKS/GCP variants + rescoped `pr_test` CI wiring untouched | `.github/workflows/checks.yml`, `DEVELOPMENT.md`, `CLAUDE.md`, `skills/build/full-stack-pipeline/SKILL.md` | W5 ✅ |
 
 **Human-provisioned prerequisites (not code):** GitHub OAuth App (client id/secret) + one stable callback URL, CI cluster kubeconfig/token in AWS Secrets Manager, the `openshift-online` org gate + allowlist values, and deploying/syncing the reaper onto the target cluster via hypershell-gitops.
 
@@ -1457,6 +1487,7 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-10-02 | working tree | HYPERSHELL-250: retire legacy `components/pr-test/e2e-openshell.sh` | OS-7 Missing -> Present; PR-ENV-11 updated | Verified the shared harness (`tests/e2e/e2e-openshell.sh` areas 1-11) is a strict superset of the legacy script's 8 areas before removing it. Deleted `components/pr-test/e2e-openshell.sh`; repointed `lint-pr-test` in `.github/workflows/checks.yml` to syntax-check `e2e-openshell-roks.sh` (the `pr_test` component/CI wiring stays, rescoped to ROKS, since that script still lives under `components/pr-test/`); updated the "Legacy pr-test Deprecation" requirement in `ephemeral-pr-environments.spec.md` to "Legacy pr-test Removal" (and matching scenarios), plus mirrored language in `openshift-development.spec.md` and `e2e-testing.spec.md`; updated `CLAUDE.md`, `DEVELOPMENT.md`, and `skills/build/full-stack-pipeline/SKILL.md` to drop deprecation framing and point only at the shared harness. ROKS and GCP skill docs untouched. |
 | 2026-10-01 | working tree (on `addb9509`) | Waves E2E-W4 + CON-W2: close #413 e2e coverage gaps (areas 12-14 + console areas 7/11) | e2e-testing areas 6->14 (E2E-14/16/17/18/19 Present); console CON-E2E-13/14 Present | Added e2e areas 12-14 to `e2e-openshell.sh` (ManagedCluster registration, CP reconnect + gRPC identity rejection, release promotion, reconciled release/network status, admin `/v1/users` + unknown-phase), helpers in `lib.sh` (`e2e_json_field`, `e2e_poll_resource_status`, status predicates, new env defaults) and `drivers/kind.sh` (`acquire_registrar_token`); console areas 7 (typeahead + install-docs link) and 11 (fleet-dashboard promotion, skip-gated). Verified on local Kind: long run 90 passed / 2 failed (1 pre-existing area-9 flake; 1 promotion assertion since fixed), short 20/0, console unit 56/0, shell unit tests pass. Two divergences recorded (D-E2E-DELETE-CP: gateway DELETE needs the CP so delete-while-disconnected is infeasible; D-E2E-DEGRADED: failed rollout stays Running-on-last-good, not Degraded). Deferred: E2E-15 multi-cluster, E2E-20 qualification. Fixed a `set -e` abort bug (bare `$(e2e_wait_gateway_running/e2e_poll_resource_status)` assignments now `|| true`). |
 | 2026-09-23 | working tree | HYPERSHELL-334: standing CI secrets + test-tier credentials | Ephemeral CI Secrets 5/5, Test Credentials 12/12, PR-ENV 100% | Moved cluster login and GitHub OAuth off Actions secrets onto AWS SM + GitHub OIDC + ESO. Realm no longer ships human test-tier passwords. CI-owned seed reads `hypershell-e2e-test-users`; seeded users last until namespace destroy; Kind/local keep admin/admin. Rebased onto `b152182c`. Ops must apply TF, put SM values, delete Actions secrets. |
 | 2026-09-22 | `5e14f29b` | RECONCILE.md checkpoint update: registered 6 new spec files, updated E2E-9 for 3-mode split, added E2E-13 (macOS CLI container), DM-3g/h/i (new Gateway fields), OS-14/OS-15 (openshift-seed/test) | 84% (analyzed rows unchanged; 6 new specs pending full analysis) | Codebase commit advanced from `464ec5e` to `5e14f29b`. New specs from commits: `85927b3c` (gateway-provision-outcomes, gateway-release-distribution), `be0bf2ea` (gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends), `630a5ed1` (openshell-branch-build - spec only, 0% implemented). |

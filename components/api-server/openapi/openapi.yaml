@@ -32,10 +32,6 @@ paths:
     $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters~1registration'
   /api/hypershell/v1/managed_clusters/{id}:
     $ref: 'openapi.managedClusters.yaml#/paths/~1api~1hypershell~1v1~1managed_clusters~1{id}'
-  /api/hypershell/v1/gateway_releases:
-    $ref: 'openapi.gatewayReleases.yaml#/paths/~1api~1hypershell~1v1~1gateway_releases'
-  /api/hypershell/v1/gateway_releases/{id}:
-    $ref: 'openapi.gatewayReleases.yaml#/paths/~1api~1hypershell~1v1~1gateway_releases~1{id}'
   /api/hypershell/v1/gateways:
     $ref: 'openapi.gateways.yaml#/paths/~1api~1hypershell~1v1~1gateways'
   /api/hypershell/v1/gateways/{id}:
@@ -46,10 +42,6 @@ paths:
     $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}'
   /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke:
     $ref: 'openapi.serviceAccounts.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1service_accounts~1{service_account_id}~1revoke'
-  /api/hypershell/v1/gateway_networks:
-    $ref: 'openapi.gatewayNetworks.yaml#/paths/~1api~1hypershell~1v1~1gateway_networks'
-  /api/hypershell/v1/gateway_networks/{id}:
-    $ref: 'openapi.gatewayNetworks.yaml#/paths/~1api~1hypershell~1v1~1gateway_networks~1{id}'
   /api/hypershell/v1/roles:
     $ref: 'openapi.roles.yaml#/paths/~1api~1hypershell~1v1~1roles'
   /api/hypershell/v1/roles/{id}:
@@ -62,6 +54,30 @@ paths:
     $ref: 'openapi.users.yaml#/paths/~1api~1hypershell~1v1~1users'
   /api/hypershell/v1/users/{id}:
     $ref: 'openapi.users.yaml#/paths/~1api~1hypershell~1v1~1users~1{id}'
+  /api/hypershell/ext/agent_runtimes:
+    $ref: 'openapi.agentRuntimes.yaml#/paths/~1api~1hypershell~1ext~1agent_runtimes'
+  /api/hypershell/ext/agent_runtimes/{id}:
+    $ref: 'openapi.agentRuntimes.yaml#/paths/~1api~1hypershell~1ext~1agent_runtimes~1{id}'
+  /api/hypershell/ext/sandbox_templates:
+    $ref: 'openapi.sandboxTemplates.yaml#/paths/~1api~1hypershell~1ext~1sandbox_templates'
+  /api/hypershell/ext/sandbox_templates/{id}:
+    $ref: 'openapi.sandboxTemplates.yaml#/paths/~1api~1hypershell~1ext~1sandbox_templates~1{id}'
+  /api/hypershell/ext/provider_specs:
+    $ref: 'openapi.providerSpecs.yaml#/paths/~1api~1hypershell~1ext~1provider_specs'
+  /api/hypershell/ext/provider_specs/{id}:
+    $ref: 'openapi.providerSpecs.yaml#/paths/~1api~1hypershell~1ext~1provider_specs~1{id}'
+  /api/hypershell/ext/provider_bindings:
+    $ref: 'openapi.providerBindings.yaml#/paths/~1api~1hypershell~1ext~1provider_bindings'
+  /api/hypershell/ext/provider_bindings/{id}:
+    $ref: 'openapi.providerBindings.yaml#/paths/~1api~1hypershell~1ext~1provider_bindings~1{id}'
+  /api/hypershell/ext/inference_routes:
+    $ref: 'openapi.inferenceRoutes.yaml#/paths/~1api~1hypershell~1ext~1inference_routes'
+  /api/hypershell/ext/inference_routes/{id}:
+    $ref: 'openapi.inferenceRoutes.yaml#/paths/~1api~1hypershell~1ext~1inference_routes~1{id}'
+  /api/hypershell/ext/secret_sources:
+    $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1ext~1secret_sources'
+  /api/hypershell/ext/secret_sources/{id}:
+    $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1ext~1secret_sources~1{id}'
   # AUTO-ADD NEW PATHS
 components:
   schemas:
@@ -114,12 +130,6 @@ components:
       $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterRegistrationRequest'
     ManagedClusterRegistrationResponse:
       $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterRegistrationResponse'
-    GatewayRelease:
-      $ref: 'openapi.gatewayReleases.yaml#/components/schemas/GatewayRelease'
-    GatewayReleaseList:
-      $ref: 'openapi.gatewayReleases.yaml#/components/schemas/GatewayReleaseList'
-    GatewayReleasePatchRequest:
-      $ref: 'openapi.gatewayReleases.yaml#/components/schemas/GatewayReleasePatchRequest'
     Gateway:
       $ref: 'openapi.gateways.yaml#/components/schemas/Gateway'
     GatewayList:
@@ -148,12 +158,6 @@ components:
       $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountCapabilities'
     OpenShellGatewayServiceAccountList:
       $ref: 'openapi.serviceAccounts.yaml#/components/schemas/OpenShellGatewayServiceAccountList'
-    GatewayNetwork:
-      $ref: 'openapi.gatewayNetworks.yaml#/components/schemas/GatewayNetwork'
-    GatewayNetworkList:
-      $ref: 'openapi.gatewayNetworks.yaml#/components/schemas/GatewayNetworkList'
-    GatewayNetworkPatchRequest:
-      $ref: 'openapi.gatewayNetworks.yaml#/components/schemas/GatewayNetworkPatchRequest'
     Role:
       $ref: 'openapi.roles.yaml#/components/schemas/Role'
     RoleList:
@@ -166,6 +170,40 @@ components:
       $ref: 'openapi.users.yaml#/components/schemas/User'
     UserList:
       $ref: 'openapi.users.yaml#/components/schemas/UserList'
+    AgentRuntime:
+      $ref: 'openapi.agentRuntimes.yaml#/components/schemas/AgentRuntime'
+    AgentRuntimeList:
+      $ref: 'openapi.agentRuntimes.yaml#/components/schemas/AgentRuntimeList'
+    AgentRuntimePatchRequest:
+      $ref: 'openapi.agentRuntimes.yaml#/components/schemas/AgentRuntimePatchRequest'
+    SandboxTemplate:
+      $ref: 'openapi.sandboxTemplates.yaml#/components/schemas/SandboxTemplate'
+    SandboxTemplateList:
+      $ref: 'openapi.sandboxTemplates.yaml#/components/schemas/SandboxTemplateList'
+    SandboxTemplatePatchRequest:
+      $ref: 'openapi.sandboxTemplates.yaml#/components/schemas/SandboxTemplatePatchRequest'
+    ProviderSpec:
+      $ref: 'openapi.providerSpecs.yaml#/components/schemas/ProviderSpec'
+    ProviderSpecList:
+      $ref: 'openapi.providerSpecs.yaml#/components/schemas/ProviderSpecList'
+    ProviderSpecPatchRequest:
+      $ref: 'openapi.providerSpecs.yaml#/components/schemas/ProviderSpecPatchRequest'
+    ProviderBinding:
+      $ref: 'openapi.providerBindings.yaml#/components/schemas/ProviderBinding'
+    ProviderBindingList:
+      $ref: 'openapi.providerBindings.yaml#/components/schemas/ProviderBindingList'
+    ProviderBindingPatchRequest:
+      $ref: 'openapi.providerBindings.yaml#/components/schemas/ProviderBindingPatchRequest'
+    InferenceRoute:
+      $ref: 'openapi.inferenceRoutes.yaml#/components/schemas/InferenceRoute'
+    InferenceRouteList:
+      $ref: 'openapi.inferenceRoutes.yaml#/components/schemas/InferenceRouteList'
+    SecretSource:
+      $ref: 'openapi.secretSources.yaml#/components/schemas/SecretSource'
+    SecretSourceList:
+      $ref: 'openapi.secretSources.yaml#/components/schemas/SecretSourceList'
+    SecretSourcePatchRequest:
+      $ref: 'openapi.secretSources.yaml#/components/schemas/SecretSourcePatchRequest'
     # AUTO-ADD NEW SCHEMAS
   parameters:
     id:

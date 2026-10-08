@@ -65,7 +65,7 @@ func run(cmd *cobra.Command, argv []string) error {
 		return err
 	}
 
-	conn, err := connection.NewConnection().Config(cfg).Build()
+	conn, err := connection.NewConnectionBuilder().Config(cfg).Build()
 	if err != nil {
 		return err
 	}
@@ -287,12 +287,16 @@ func getName(resource Resource) string {
 
 func isSupportedKind(kind string) bool {
 	supportedKinds := map[string]bool{
-		"Gateway":        true,
-		"GatewayNetwork": true,
-		"GatewayRelease": true,
-		"ManagedCluster": true,
-		"Role":           true,
-		"RoleBinding":    true,
+		"Gateway":         true,
+		"ManagedCluster":  true,
+		"Role":            true,
+		"RoleBinding":     true,
+		"AgentRuntime":    true,
+		"SandboxTemplate": true,
+		"ProviderSpec":    true,
+		"ProviderBinding": true,
+		"InferenceRoute":  true,
+		"SecretSource":    true,
 	}
 	return supportedKinds[kind]
 }
@@ -310,16 +314,24 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 	switch kind {
 	case "Gateway":
 		basePath = urls.GatewaysPath
-	case "GatewayNetwork":
-		basePath = urls.GatewayNetworksPath
-	case "GatewayRelease":
-		basePath = urls.GatewayReleasesPath
 	case "ManagedCluster":
 		basePath = urls.ManagedClustersPath
 	case "Role":
 		basePath = urls.RolesPath
 	case "RoleBinding":
 		basePath = urls.RoleBindingsPath
+	case "AgentRuntime":
+		basePath = urls.AgentRuntimesPath
+	case "SandboxTemplate":
+		basePath = urls.SandboxTemplatesPath
+	case "ProviderSpec":
+		basePath = urls.ProviderSpecsPath
+	case "ProviderBinding":
+		basePath = urls.ProviderBindingsPath
+	case "InferenceRoute":
+		basePath = urls.InferenceRoutesPath
+	case "SecretSource":
+		basePath = urls.SecretSourcesPath
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", kind)
 	}

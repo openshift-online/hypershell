@@ -12,19 +12,28 @@ import (
 	pkgcmd "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/cmd"
 
 	_ "github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayNetworks"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayReleases"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/inferenceRoutes"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/otel"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/providerBindings"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/providerSpecs"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roles"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/sandboxTemplates"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/secretSources"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/serviceAccounts"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	_ "github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
 	_ "github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
+
+// Release-flow probe (2026-10-02, inert): a comment-only touch to mint a new
+// release bundle and verify the end-to-end path -- Konflux build -> Snapshot ->
+// Release -> Renovate bump in hypershell-gitops -> gated promotion through the
+// hyp0 -> hyp1 -> hyp2 DAG. No runtime behavior changes.
 
 // rh-trex-ai includes HTTP request headers and request and response bodies at
 // verbosity 10. HyperShell has endpoints that return one-time credentials, so

@@ -1,0 +1,233 @@
+paths:
+  /api/hypershell/ext/provider_specs:
+    get:
+      operationId: listProviderSpecs
+      summary: Returns a list of provider specs
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: A JSON array of provider spec objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderSpecList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+    post:
+      operationId: createProviderSpec
+      summary: Create a new provider spec
+      security:
+        - Bearer: []
+      requestBody:
+        description: ProviderSpec data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderSpec'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderSpec'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/ext/provider_specs/{id}:
+    get:
+      operationId: getProviderSpec
+      summary: Get a provider spec by ID
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: ProviderSpec found by ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderSpec'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No provider spec with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    patch:
+      operationId: updateProviderSpec
+      summary: Update a provider spec
+      security:
+        - Bearer: []
+      requestBody:
+        description: Updated provider spec data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderSpecPatchRequest'
+      responses:
+        '200':
+          description: ProviderSpec updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderSpec'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No provider spec with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteProviderSpec
+      summary: Delete a provider spec
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: ProviderSpec deleted successfully
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No provider spec with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+components:
+  schemas:
+    ProviderSpec:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - name
+            - category
+          properties:
+            name:
+              type: string
+            category:
+              type: string
+              enum:
+                - inference
+                - source_control
+                - knowledge
+            capability:
+              type: string
+              description: JSON-encoded capability definition (gateway-agnostic, category-discriminated)
+            profile:
+              type: string
+              description: JSON-encoded opaque profile passed through to the gateway provider registration step
+            status:
+              type: string
+              readOnly: true
+    ProviderSpecList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProviderSpec'
+    ProviderSpecPatchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        capability:
+          type: string
+        profile:
+          type: string
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

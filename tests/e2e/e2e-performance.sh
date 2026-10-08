@@ -125,7 +125,6 @@ perf_export_child_env() {
   export E2E_OIDC_USERNAME="${E2E_OIDC_USERNAME:-}"
   export E2E_OIDC_PASSWORD="${E2E_OIDC_PASSWORD:-}"
   export E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}"
-  export E2E_RELEASE_ID="${E2E_RELEASE_ID:-}"
   export E2E_PERF_PROVISION_TIMEOUT="${E2E_PERF_PROVISION_TIMEOUT:-}"
   export E2E_HS_NAMESPACE="${E2E_HS_NAMESPACE:-}"
   if [[ -n "${OPENSHIFT_NAMESPACE:-}" ]]; then
@@ -368,7 +367,6 @@ perf_run_mini_test() {
     E2E_PAUSE=0 \
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
-    E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
     bash "${SCRIPT_DIR}/e2e-openshell.sh"
   PERF_MINI_RC=$?
   set -e
@@ -438,7 +436,6 @@ dim "  Checkpoint:        ${E2E_PERF_CHECKPOINT}"
 dim "  Functional:        ${E2E_PERF_RUN_FUNCTIONAL}"
 dim "  Results:           ${PERF_RESULTS_FILE}"
 dim "  cluster_id:        ${E2E_CLUSTER_ID}"
-dim "  release_id:        ${E2E_RELEASE_ID}"
 echo ""
 sep
 
@@ -610,7 +607,6 @@ if [[ "${E2E_PERF_RUN_FUNCTIONAL}" == "1" && "$PERF_STOPPED_EARLY" != "true" ]];
     E2E_PAUSE=0 \
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER}" \
     E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" \
-    E2E_RELEASE_ID="${E2E_RELEASE_ID}" \
     bash "${SCRIPT_DIR}/e2e-openshell.sh"
   func_rc=$?
   set -e

@@ -1,0 +1,232 @@
+paths:
+  /api/hypershell/ext/sandbox_templates:
+    get:
+      operationId: listSandboxTemplates
+      summary: Returns a list of sandbox templates
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: A JSON array of sandbox template objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxTemplateList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+    post:
+      operationId: createSandboxTemplate
+      summary: Create a new sandbox template
+      security:
+        - Bearer: []
+      requestBody:
+        description: SandboxTemplate data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SandboxTemplate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxTemplate'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/ext/sandbox_templates/{id}:
+    get:
+      operationId: getSandboxTemplate
+      summary: Get a sandbox template by ID
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: SandboxTemplate found by ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxTemplate'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No sandbox template with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    patch:
+      operationId: updateSandboxTemplate
+      summary: Update a sandbox template
+      security:
+        - Bearer: []
+      requestBody:
+        description: Updated sandbox template data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SandboxTemplatePatchRequest'
+      responses:
+        '200':
+          description: SandboxTemplate updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxTemplate'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No sandbox template with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteSandboxTemplate
+      summary: Delete a sandbox template
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: SandboxTemplate deleted successfully
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No sandbox template with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+components:
+  schemas:
+    SandboxTemplate:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - name
+            - image
+          properties:
+            name:
+              type: string
+            image:
+              type: string
+              description: OCI image for agent worker sandboxes
+            name_prefix:
+              type: string
+              description: Prefix applied to sandbox pod names
+            policy:
+              type: string
+              description: JSON-encoded filesystem, network, and process policy for sandboxes
+            status:
+              type: string
+              readOnly: true
+    SandboxTemplateList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/SandboxTemplate'
+    SandboxTemplatePatchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        image:
+          type: string
+        name_prefix:
+          type: string
+        policy:
+          type: string
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

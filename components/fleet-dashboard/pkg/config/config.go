@@ -57,6 +57,21 @@ type Config struct {
 	// Metric conventions (product-level; safe defaults)
 	GatewayMetric string
 	InstanceLabel string
+	// SandboxMetric is the per-gateway active-sandbox gauge. ClusterLabel is the
+	// SCRAPE-INJECTED label carrying the emitting hub's cluster identity (NOT the
+	// spoke a gateway runs on); kept for the legacy per-cluster sandbox breakdown.
+	// ManagedClusterLabel is the APPLICATION-EMITTED label naming the managed
+	// cluster (spoke) each gateway runs on (== ManagedCluster.Name / GitOps spoke
+	// name); it is the correct dimension for per-spoke attribution
+	// (gateway-managed-cluster-attribution.spec.md).
+	SandboxMetric       string
+	ClusterLabel        string
+	ManagedClusterLabel string
+	// UserMetric is the registered-user total gauge; UserLoginsMetric is the
+	// rolling 7-day unique-login count. Both carry the same instance label as the
+	// sandbox gauge, so they fold into the per-instance fleet record the same way.
+	UserMetric       string
+	UserLoginsMetric string
 
 	// Auth (backend defense-in-depth gate, §3.4)
 	AuthEnabled bool
@@ -66,6 +81,15 @@ type Config struct {
 	GitHubRepo      string // owner/repo - REQUIRED to enable; no default (firewall)
 	GitHubTokenFile string
 	GitHubAPIBase   string
+	// UpstreamRepo is the PUBLIC product source repo (owner/repo) whose merged
+	// pull requests compose a release bundle -- the "In this bundle" list. Unlike
+	// GitHubRepo (the gitops repo, a fleet-identifying value that must arrive from
+	// config), the product source is public and NOT fleet-identifying, so it
+	// carries a compiled-in default. Read UNAUTHENTICATED by default (public repo);
+	// UpstreamTokenFile stays empty unless an operator points this at a repo that
+	// needs auth (e.g. a mirror).
+	UpstreamRepo      string
+	UpstreamTokenFile string
 	// ReleaseHistoryLimit caps how many distinct release bundles the freight bar
 	// shows (currently-deployed plus previously-deployed history cards). Reuses the
 	// release-lock resolver, so it only takes effect when GitHubRepo is set.
@@ -112,6 +136,11 @@ func Load() (*Config, error) {
 		TopologyLabelSelector: env("FD_TOPOLOGY_LABEL_SELECTOR", "delivery.hypershell.app/topology=true"),
 		GatewayMetric:         env("FD_GATEWAY_METRIC", "hypershell_gateways_total"),
 		InstanceLabel:         env("FD_INSTANCE_LABEL", "namespace"),
+		SandboxMetric:         env("FD_SANDBOX_METRIC", "hypershell_gateways_active_sandboxes_total"),
+		ClusterLabel:          env("FD_CLUSTER_LABEL", "cluster"),
+		ManagedClusterLabel:   env("FD_MANAGED_CLUSTER_LABEL", "managed_cluster"),
+		UserMetric:            env("FD_USER_METRIC", "hypershell_users_registered_total"),
+		UserLoginsMetric:      env("FD_USER_LOGINS_METRIC", "hypershell_users_unique_logins_last_7_days_total"),
 		AuthEnabled:           envBool("FD_AUTH_ENABLED", true),
 		SAR: SubjectAccessReview{
 			Verb:      env("FD_SAR_VERB", "get"),
@@ -123,6 +152,10 @@ func Load() (*Config, error) {
 		GitHubRepo:      env("FD_GITHUB_REPO", ""),
 		GitHubTokenFile: env("FD_GITHUB_TOKEN_FILE", ""),
 		GitHubAPIBase:   env("FD_GITHUB_API_BASE", "https://api.github.com"),
+		// openshift-online/hypershell is the public product source and is NOT
+		// fleet-identifying, so it is safe to compile in as the default (firewall).
+		UpstreamRepo:      env("FD_UPSTREAM_REPO", "openshift-online/hypershell"),
+		UpstreamTokenFile: env("FD_UPSTREAM_TOKEN_FILE", ""),
 
 		ReleaseHistoryLimit: envInt("FD_RELEASE_HISTORY_LIMIT", 10),
 		RefreshFleet:        envDuration("FD_REFRESH_FLEET", 15*time.Second),

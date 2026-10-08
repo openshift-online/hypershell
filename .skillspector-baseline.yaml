@@ -128,6 +128,12 @@ rules:
 - id: "PE3"
   path: "skills/deploy/ibm-cluster/SKILL.md"
   reason: "Guide-only IBM deploy steps for admin kubeconfig, registry SA token, and gcloud ADC - operator runs commands, no agent credential access"
+- id: "PE3"
+  path: ".hypershell/agents/release-verification/SKILL.md"
+  reason: "Read-only kubeconfig accepted as a documented skill input for Argo CD/kube verification - no agent credential access"
+- id: "PE3"
+  path: ".hypershell/agents/release-verification/run.sh"
+  reason: "KUBECONFIG passed through to claude runtime context block verbatim - run.sh never reads or logs the credential value"
 
 # SC2: curl/python one-liners against in-cluster Keycloak and API for setup
 # verification - not fetching or executing external scripts.

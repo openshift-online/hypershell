@@ -8,6 +8,25 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
 import type { ServerConfig } from "../src/config.js";
 
+async function waitFor(
+  predicate: () => Promise<boolean>,
+  {
+    timeoutMs = 2_000,
+    stepMs = 10,
+  }: { timeoutMs?: number; stepMs?: number } = {},
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await predicate()) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error("condition was not met before the timeout");
+    }
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+  }
+}
+
 describe("web-console BFF", () => {
   let app: FastifyInstance;
   let apiServer: Server;
@@ -284,6 +303,133 @@ describe("web-console BFF", () => {
       stalledServer.closeAllConnections();
       await new Promise<void>((resolve) => {
         stalledServer.close(() => {
+          resolve();
+        });
+      });
+    }
+  });
+
+  it("refreshes the API build version into the served index without a BFF restart", async () => {
+    let reportedVersion = "aaaaaaa";
+    const versionServer = createServer((request, response) => {
+      if (request.url === "/api/hypershell") {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ version: reportedVersion }));
+        return;
+      }
+      response.statusCode = 404;
+      response.end("{}");
+    });
+    await new Promise<void>((resolve) =>
+      versionServer.listen(0, "127.0.0.1", resolve),
+    );
+    const address = versionServer.address();
+    if (!address || typeof address === "string") {
+      throw new Error("version server did not bind");
+    }
+    const config: ServerConfig = {
+      apiOrigin: `http://127.0.0.1:${String(address.port)}`,
+      apiTimeoutMs: 100,
+      // Tiny interval so the background refresh runs within the test window.
+      apiVersionRefreshIntervalMs: 20,
+      host: "127.0.0.1",
+      logLevel: "silent",
+      nodeEnv: "test",
+      port: 8080,
+      prometheusQueryTimeoutMs: 10_000,
+      prometheusUrl: "http://127.0.0.1:9090",
+      sessionTtlSeconds: 28_800,
+      staticRoot,
+      webVersion: "unknown",
+    };
+    const refreshingApp = await buildApp(config);
+    try {
+      const initial = await refreshingApp.inject({ method: "GET", url: "/" });
+      expect(initial.body).toContain(
+        "&quot;apiVersion&quot;:&quot;aaaaaaa&quot;",
+      );
+
+      // The api-server is rolled to a new build; the BFF must pick it up on a
+      // later refresh and re-render the served index in place -- no restart.
+      reportedVersion = "bbbbbbb";
+      await waitFor(async () => {
+        const response = await refreshingApp.inject({
+          method: "GET",
+          url: "/",
+        });
+        return response.body.includes(
+          "&quot;apiVersion&quot;:&quot;bbbbbbb&quot;",
+        );
+      });
+    } finally {
+      await refreshingApp.close();
+      await new Promise<void>((resolve) => {
+        versionServer.close(() => {
+          resolve();
+        });
+      });
+    }
+  });
+
+  it("keeps the last known API build version when a refresh probe fails", async () => {
+    let healthy = true;
+    const flakyServer = createServer((request, response) => {
+      if (request.url === "/api/hypershell") {
+        if (!healthy) {
+          response.statusCode = 503;
+          response.end("{}");
+          return;
+        }
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ version: "ccccccc" }));
+        return;
+      }
+      response.statusCode = 404;
+      response.end("{}");
+    });
+    await new Promise<void>((resolve) =>
+      flakyServer.listen(0, "127.0.0.1", resolve),
+    );
+    const address = flakyServer.address();
+    if (!address || typeof address === "string") {
+      throw new Error("flaky server did not bind");
+    }
+    const config: ServerConfig = {
+      apiOrigin: `http://127.0.0.1:${String(address.port)}`,
+      apiTimeoutMs: 100,
+      apiVersionRefreshIntervalMs: 20,
+      host: "127.0.0.1",
+      logLevel: "silent",
+      nodeEnv: "test",
+      port: 8080,
+      prometheusQueryTimeoutMs: 10_000,
+      prometheusUrl: "http://127.0.0.1:9090",
+      sessionTtlSeconds: 28_800,
+      staticRoot,
+      webVersion: "unknown",
+    };
+    const flakyApp = await buildApp(config);
+    try {
+      const initial = await flakyApp.inject({ method: "GET", url: "/" });
+      expect(initial.body).toContain(
+        "&quot;apiVersion&quot;:&quot;ccccccc&quot;",
+      );
+
+      // Subsequent probes fail; the display must hold the last known value
+      // rather than regressing a good build to "unknown".
+      healthy = false;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const after = await flakyApp.inject({ method: "GET", url: "/" });
+      expect(after.body).toContain(
+        "&quot;apiVersion&quot;:&quot;ccccccc&quot;",
+      );
+      expect(after.body).not.toContain(
+        "&quot;apiVersion&quot;:&quot;unknown&quot;",
+      );
+    } finally {
+      await flakyApp.close();
+      await new Promise<void>((resolve) => {
+        flakyServer.close(() => {
           resolve();
         });
       });

@@ -6,6 +6,7 @@
 // is translated; all values are opaque server data.
 
 import {
+  Badge,
   Button,
   Content,
   DescriptionList,
@@ -24,7 +25,9 @@ import {
   TabTitleText,
   Title,
   Tooltip,
+  Truncate,
 } from "@patternfly/react-core";
+import ChartLineIcon from "@patternfly/react-icons/dist/esm/icons/chart-line-icon";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
 import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
 import LongArrowAltRightIcon from "@patternfly/react-icons/dist/esm/icons/long-arrow-alt-right-icon";
@@ -38,6 +41,7 @@ import {
   deployedFor,
   seedForBundle,
 } from "../../../domain/map/bundles";
+import type { GatewayPhaseCounts } from "../../../domain/fleet";
 import { otherGateways } from "../../../domain/fleet";
 import { shortDigest } from "../../../domain/map/digest";
 import { identiName } from "../../../domain/map/identiname";
@@ -47,6 +51,11 @@ import type {
   PullRequest,
   ReleaseBundle,
 } from "../../../domain/promotion";
+import {
+  hasSpokeRows,
+  type SpokeAttribution,
+  type SpokeRow,
+} from "../../../domain/spoke-attribution";
 import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
 import { StatusLabel } from "../status-label";
@@ -54,6 +63,8 @@ import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import styles from "./map-details.module.css";
+import { MetricTiles } from "./metric-tiles";
+import { ReleaseTime } from "./release-time";
 
 /**
  * The release-bundle identicon, inline. A release bundle is always identified by
@@ -279,19 +290,26 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
         const tailLen = Math.min(PR_TITLE_TAIL, pr.title.length);
         const head = pr.title.slice(0, pr.title.length - tailLen);
         const tail = pr.title.slice(pr.title.length - tailLen);
+        // The card separates the PR identity (number + full title) from its
+        // authorship: the title is the headline line, the author sits beneath it
+        // as a distinct, muted byline with the handle emphasised.
+        const tipTitle = `${num} ${pr.title}`;
         const hover = (
-          <>
-            {`${num} ${pr.title}`}
+          <span className={styles.prTip}>
+            <span className={styles.prTipTitle}>{tipTitle}</span>
             {pr.author ? (
-              <>
-                <br />
+              <span className={styles.prTipAuthor}>
                 <FormattedMessage
                   {...messages.prAuthoredBy}
-                  values={{ author: pr.author }}
+                  values={{
+                    author: (
+                      <span className={styles.prTipHandle}>{pr.author}</span>
+                    ),
+                  }}
                 />
-              </>
+              </span>
             ) : null}
-          </>
+          </span>
         );
         return (
           <ListItem key={pr.number}>
@@ -328,49 +346,72 @@ function BundleContents({
   seed?: string;
   onSelectBundle?: (seed: string) => void;
 }): React.ReactElement {
+  const intl = useIntl();
   const prs = bundle?.prs ?? [];
+  // The heading reads as one band: identicon, "In this bundle" eyebrow, then the
+  // PR count pinned to the right as a badge so the tab's size is legible at a glance.
+  const prCountSummary = intl.formatMessage(messages.bundlePrSummary, {
+    count: prs.length,
+  });
   return (
     <>
-      <Flex
-        alignItems={{ default: "alignItemsCenter" }}
-        spaceItems={{ default: "spaceItemsSm" }}
-        className="pf-v6-u-mb-sm"
-      >
+      <div className={styles.bundleHead}>
         {seed ? (
-          <FlexItem>
-            <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
-          </FlexItem>
+          <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
         ) : null}
-        <FlexItem>
-          <h4 className={styles.sectionTitle}>
-            <FormattedMessage {...messages.sectionInBundle} />
-            {prs.length > 0 ? (
-              <Content component="small" className="pf-v6-u-ml-sm">
-                <FormattedMessage
-                  {...messages.bundlePrSummary}
-                  values={{ count: prs.length }}
-                />
-              </Content>
-            ) : null}
-          </h4>
-        </FlexItem>
-      </Flex>
+        <h4 className={styles.sectionTitle}>
+          <FormattedMessage {...messages.sectionInBundle} />
+        </h4>
+        {prs.length > 0 ? (
+          // The badge's visible text is the bare count; aria-label gives it the
+          // full "N pull requests" accessible name (title alone is not reliably
+          // announced on a non-interactive element).
+          <Badge
+            isRead
+            className={styles.bundleCount}
+            aria-label={prCountSummary}
+            title={prCountSummary}
+          >
+            {prs.length}
+          </Badge>
+        ) : null}
+      </div>
       <PrList prs={prs} />
     </>
   );
 }
 
-function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
+function GatewaySummary({
+  node,
+  active,
+}: {
+  node: MapNode;
+  active: number | null;
+}): React.ReactElement {
   const intl = useIntl();
+  // When the shared cursor is engaged over a sample this instance has gateway history
+  // for, the donut, legend and total all read that moment's phase mix; otherwise the
+  // live snapshot. The historical samples carry only the three charted phases, so
+  // "other" is nil at a historical sample and the total is their sum.
+  const hist =
+    active !== null && active < node.gatewayHistory.length
+      ? node.gatewayHistory[active]
+      : null;
   const g = node.gateways;
-  const running = g.running ?? 0;
-  const provisioning = g.provisioning ?? 0;
-  const failed = g.failed ?? 0;
+  const running = hist ? hist.running : (g.running ?? 0);
+  const provisioning = hist ? hist.provisioning : (g.provisioning ?? 0);
+  const failed = hist ? hist.failed : (g.failed ?? 0);
   // Gateways in any phase beyond the three named rows, so the legend sums to the
   // donut's centre total instead of under-counting it.
-  const other = otherGateways(g);
+  const other = hist ? 0 : otherGateways(g);
+  const total = hist ? running + provisioning + failed : node.gatewaysTotal;
+  // The donut takes a phase-count record; project the history sample into one so the
+  // ring redraws for the hovered moment, else the live phase counts.
+  const counts: GatewayPhaseCounts = hist
+    ? { running, provisioning, failed }
+    : g;
   const label = intl.formatMessage(messages.detailGatewayBreakdown, {
-    total: node.gatewaysTotal,
+    total,
     running,
     provisioning,
     failed,
@@ -413,7 +454,7 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
           aria-label={label}
           style={{ color: TEXT_COLOR }}
         >
-          <GatewayDonut counts={g} cx={48} cy={48} radius={44} />
+          <GatewayDonut counts={counts} cx={48} cy={48} radius={44} />
         </svg>
       </div>
       <ul className={styles.gatewayLegend}>
@@ -431,6 +472,123 @@ function GatewaySummary({ node }: { node: MapNode }): React.ReactElement {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** One managed-cluster row: the cluster name (+ optional role badge) with its gateway
+ *  and sandbox counts pinned to the right. */
+function SpokeCountRow({
+  row,
+  badge,
+  hub = false,
+}: {
+  row: SpokeRow;
+  badge?: React.ReactNode;
+  hub?: boolean;
+}): React.ReactElement {
+  const className = [styles.spokeRow, hub ? styles.spokeHubRow : null]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <div className={className}>
+      <span className={styles.spokeRowName}>
+        <Truncate content={row.managedCluster} position="middle" />
+      </span>
+      {badge}
+      <span className={styles.spokeRowCounts}>
+        <span>
+          <FormattedMessage
+            {...messages.spokeGatewaysCount}
+            values={{ count: row.gatewaysTotal }}
+          />
+        </span>
+        {/* The middot separator is drawn in CSS (::before) so it is decorative,
+            not an untranslated JSX text node. */}
+        <span className={styles.spokeCountSep}>
+          <FormattedMessage
+            {...messages.spokeSandboxesCount}
+            values={{ count: row.sandboxes }}
+          />
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The hub instance's gateway + sandbox population, split by the managed cluster it
+ * runs on: the hub's own row, co-located spokes nested beneath it, and remote spokes
+ * in their own group. When topology was unavailable the rows list flat under an
+ * "attribution unavailable" note. Renders nothing unless there is at least one spoke
+ * row (a plain instance with no managed clusters shows no section).
+ */
+function SpokeAttributionSection({
+  attribution,
+}: {
+  attribution: SpokeAttribution;
+}): React.ReactElement | null {
+  if (!hasSpokeRows(attribution)) {
+    return null;
+  }
+  const remoteBadge = (
+    <Label color="purple" isCompact variant="outline">
+      <FormattedMessage {...messages.spokeRemote} />
+    </Label>
+  );
+  return (
+    <div className={styles.section}>
+      <h4 className={styles.sectionTitle}>
+        <FormattedMessage {...messages.sectionManagedClusters} />
+      </h4>
+
+      {!attribution.hasTopology ? (
+        <>
+          <p className={styles.spokeUnavailable}>
+            <FormattedMessage {...messages.spokeAttributionUnavailable} />
+          </p>
+          {attribution.unknown.map((row) => (
+            <SpokeCountRow key={row.managedCluster} row={row} />
+          ))}
+        </>
+      ) : (
+        <>
+          {attribution.hubOwn ? (
+            <SpokeCountRow row={attribution.hubOwn} hub />
+          ) : null}
+          {attribution.coLocated.length > 0 ? (
+            <div className={styles.spokeNested}>
+              {attribution.coLocated.map((row) => (
+                <SpokeCountRow key={row.managedCluster} row={row} />
+              ))}
+            </div>
+          ) : null}
+          {attribution.remote.length > 0 ? (
+            <>
+              <h5 className={styles.spokeGroupTitle}>
+                <FormattedMessage {...messages.spokeRemoteGroup} />
+              </h5>
+              {attribution.remote.map((row) => (
+                <SpokeCountRow
+                  key={row.managedCluster}
+                  row={row}
+                  badge={remoteBadge}
+                />
+              ))}
+            </>
+          ) : null}
+          {attribution.unknown.length > 0 ? (
+            <>
+              <h5 className={styles.spokeGroupTitle}>
+                <FormattedMessage {...messages.spokeUnattributedGroup} />
+              </h5>
+              {attribution.unknown.map((row) => (
+                <SpokeCountRow key={row.managedCluster} row={row} />
+              ))}
+            </>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }
@@ -597,11 +755,6 @@ function NodeFields({
           {node.managedClusters}
         </Row>
       ) : null}
-      {node.users !== null ? (
-        <Row term={<FormattedMessage {...messages.detailUsers} />}>
-          {node.users}
-        </Row>
-      ) : null}
       <Row term={<FormattedMessage {...messages.detailMetrics} />}>
         <FormattedMessage
           {...messages.detailMetricTriple}
@@ -616,26 +769,97 @@ function NodeFields({
   );
 }
 
-function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
+/** One link as a full-width "card" row: an icon, a bold label with a muted
+ *  sub-label beneath it, and a trailing external-link glyph. `primary` gives the
+ *  main instance link a brand-tinted, heavier treatment so it sits visually above
+ *  the operational links. Renders nothing when the href is absent. */
+function LinkCard({
+  href,
+  icon,
+  label,
+  desc,
+  primary = false,
+}: {
+  href: string | null;
+  icon: React.ReactNode;
+  label: React.ReactNode;
+  desc: React.ReactNode;
+  primary?: boolean;
+}): React.ReactElement | null {
+  if (!href) {
+    return null;
+  }
   return (
-    <Flex spaceItems={{ default: "spaceItemsSm" }}>
-      <Link
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className={[styles.linkCard, primary ? styles.linkCardPrimary : null]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <span className={styles.linkCardIcon} aria-hidden="true">
+        {icon}
+      </span>
+      <span className={styles.linkCardBody}>
+        <span className={styles.linkCardLabel}>{label}</span>
+        <span className={styles.linkCardDesc}>{desc}</span>
+      </span>
+      <span className={styles.linkCardChevron} aria-hidden="true">
+        <ExternalLinkAltIcon />
+      </span>
+    </a>
+  );
+}
+
+function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
+  // The instance's own front door is the headline action; Argo/PR/analysis are
+  // operational follow-ups, grouped under their own eyebrow below it. The group
+  // heading only shows when at least one operational link is present.
+  const hasOps =
+    Boolean(node.links.grafana) ||
+    Boolean(node.links.argo) ||
+    Boolean(node.links.pr) ||
+    Boolean(node.links.analysis);
+  return (
+    <div className={styles.linkList}>
+      <LinkCard
         href={node.links.console}
+        primary
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkConsole} />}
+        desc={<FormattedMessage {...messages.linkConsoleDesc} />}
       />
-      <Link
+      {hasOps ? (
+        <h4 className={[styles.sectionTitle, styles.linkGroupTitle].join(" ")}>
+          <FormattedMessage {...messages.linksOperations} />
+        </h4>
+      ) : null}
+      <LinkCard
+        href={node.links.grafana}
+        icon={<ChartLineIcon />}
+        label={<FormattedMessage {...messages.linkGrafana} />}
+        desc={<FormattedMessage {...messages.linkGrafanaDesc} />}
+      />
+      <LinkCard
         href={node.links.argo}
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkArgo} />}
+        desc={<FormattedMessage {...messages.linkArgoDesc} />}
       />
-      <Link
+      <LinkCard
         href={node.links.pr}
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkPr} />}
+        desc={<FormattedMessage {...messages.linkPrDesc} />}
       />
-      <Link
+      <LinkCard
         href={node.links.analysis}
+        icon={<ExternalLinkAltIcon />}
         label={<FormattedMessage {...messages.linkAnalysis} />}
+        desc={<FormattedMessage {...messages.linkAnalysisDesc} />}
       />
-    </Flex>
+    </div>
   );
 }
 
@@ -649,6 +873,17 @@ function NodeDetails({
   onSelectBundle: (seed: string) => void;
 }): React.ReactElement {
   const [activeKey, setActiveKey] = useState<string | number>("details");
+  // The shared temporal cursor's sample index, lifted here so the gateways donut and
+  // the population tiles read the same moment. Null = cursor idle (live snapshot).
+  const [active, setActive] = useState<number | null>(null);
+  // Reset the cursor when a different node is selected so a stale index never leaks
+  // across nodes. Done during render (the React-recommended "adjust state when a prop
+  // changes" pattern) rather than in an effect, so there is no extra render pass.
+  const [prevNodeId, setPrevNodeId] = useState(node.id);
+  if (prevNodeId !== node.id) {
+    setPrevNodeId(node.id);
+    setActive(null);
+  }
   const bundle = node.digest ? releaseByDigest[node.digest] : undefined;
   return (
     <Tabs
@@ -667,9 +902,15 @@ function NodeDetails({
       >
         <div className="pf-v6-u-mt-md">
           <div className={styles.gatewayWidget}>
-            <GatewaySummary node={node} />
+            <GatewaySummary node={node} active={active} />
           </div>
           <div className="pf-v6-u-mt-md">
+            <MetricTiles node={node} active={active} onActive={setActive} />
+          </div>
+          {node.spokeAttribution ? (
+            <SpokeAttributionSection attribution={node.spokeAttribution} />
+          ) : null}
+          <div className={styles.nodeFields}>
             <NodeFields node={node} onSelectBundle={onSelectBundle} />
           </div>
         </div>
@@ -842,7 +1083,7 @@ function BundleDetails({
         ) : null}
         {bundle.date ? (
           <Row term={<FormattedMessage {...messages.detailDate} />}>
-            {bundle.date}
+            <ReleaseTime iso={bundle.date} mode="full" />
           </Row>
         ) : null}
       </DescriptionList>
@@ -902,20 +1143,31 @@ export function MapDetails({
       <Flex
         justifyContent={{ default: "justifyContentSpaceBetween" }}
         alignItems={{ default: "alignItemsCenter" }}
+        spaceItems={{ default: "spaceItemsSm" }}
+        flexWrap={{ default: "nowrap" }}
       >
-        <FlexItem>
+        <FlexItem grow={{ default: "grow" }} className={styles.headerMain}>
           <Flex
             alignItems={{ default: "alignItemsCenter" }}
             spaceItems={{ default: "spaceItemsSm" }}
+            flexWrap={{ default: "nowrap" }}
           >
             {selection.kind === "bundle" ? (
               <FlexItem>
                 <BundleIdenticon seed={selection.id} />
               </FlexItem>
             ) : null}
-            <FlexItem>
+            <FlexItem grow={{ default: "grow" }} className={styles.headerTitle}>
+              {/* The title (a node id or a long bundle digest) always fits the
+                  available width on one line: PatternFly Truncate keeps the head
+                  and a fixed tail and drops a middle ellipsis in between, scaling
+                  responsively as the drawer resizes. Short titles show in full. */}
               <Title headingLevel="h3" size="lg">
-                {title}
+                <Truncate
+                  content={title}
+                  position="middle"
+                  trailingNumChars={12}
+                />
               </Title>
             </FlexItem>
           </Flex>

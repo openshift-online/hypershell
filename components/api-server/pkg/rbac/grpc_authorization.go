@@ -16,8 +16,7 @@ import (
 //
 //   - A registered control plane (its JWT sub is a ManagedCluster's
 //     oidc_subject) may read fleet-wide records it reconciles from, write only
-//     gateways assigned to its own cluster, write only the status of releases
-//     and networks, and delete only its own ManagedCluster record.
+//     gateways assigned to its own cluster, and delete only its own ManagedCluster record.
 //   - An RBAC_SERVICE_ACCOUNTS account that has not registered keeps the
 //     bootstrap exemption, except that it may not create, change, or delete
 //     ManagedCluster records.
@@ -136,34 +135,6 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			}
 		}
 		return denied()
-	case "GatewayReleaseService":
-		if isReadMethodName(method) {
-			return nil
-		}
-		if method == "UpdateGatewayRelease" {
-			r, ok := req.(*pb.UpdateGatewayReleaseRequest)
-			if !ok {
-				return unexpectedRequest()
-			}
-			if isReleaseStatusOnlyUpdate(r) {
-				return nil
-			}
-		}
-		return denied()
-	case "GatewayNetworkService":
-		if isReadMethodName(method) {
-			return nil
-		}
-		if method == "UpdateGatewayNetwork" {
-			r, ok := req.(*pb.UpdateGatewayNetworkRequest)
-			if !ok {
-				return unexpectedRequest()
-			}
-			if isNetworkStatusOnlyUpdate(r) {
-				return nil
-			}
-		}
-		return denied()
 	case "RoleBindingService":
 		if method == "ListRoleBindings" || method == "WatchRoleBindings" {
 			// Scoped to the caller's cluster by the caller binding.
@@ -172,17 +143,6 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 		return denied()
 	}
 	return denied()
-}
-
-// A release or network is fleet-wide: a control plane reports validation or
-// reconcile status on it, never its definition (image, rollout, gateways).
-func isReleaseStatusOnlyUpdate(r *pb.UpdateGatewayReleaseRequest) bool {
-	return r.Status != nil && r.Name == nil && r.Image == nil && r.RolloutStrategy == nil &&
-		r.CanaryPercent == nil && r.CanaryDuration == nil
-}
-
-func isNetworkStatusOnlyUpdate(r *pb.UpdateGatewayNetworkRequest) bool {
-	return r.Status != nil && r.Name == nil && r.Topology == nil && r.TunnelMode == nil && r.HubGatewayId == nil
 }
 
 func requireGatewayOnCluster(ctx context.Context, gateways GatewayClusterResolver, gatewayID, clusterID string, deny func() error) error {
@@ -269,13 +229,6 @@ func authorizeUserGRPC(fullMethod string, req interface{}, bindings []BindingSum
 			return allowIf(hasDashboardInventoryAccess(bindings, nil))
 		}
 		return allowIf(hasPlatformAdmin(bindings))
-	case "GatewayReleaseService":
-		if hasPlatformAdmin(bindings) && (isReadMethodName(method) || strings.HasPrefix(method, "Delete")) {
-			return nil
-		}
-		return allowIf(hasGatewayCreator(bindings))
-	case "GatewayNetworkService":
-		return allowIf(hasGatewayCreator(bindings))
 	case "RoleBindingService":
 		// Unfiltered by user or gateway; users manage bindings over HTTP.
 		return denied()

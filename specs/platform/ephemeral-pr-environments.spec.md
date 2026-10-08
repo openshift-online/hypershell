@@ -56,7 +56,7 @@ images, swaps those images into the environment, and posts a pull-request commen
 telling the developer how to log in and how to `/pr-extend`. Tests / E2E / OpenShift
 then runs the OpenShift e2e suite against the live namespace (the same
 `plan-images` / `should_run` gate Kind uses, which also gates Deploy PR
-environment, and only after Unit succeeds so a red unit job never deploys).
+environment, and concurrently with Unit, so the deploy does not wait on it).
 Unless the pull request is marked retained, CI then destroys the environment.
 The per-PR namespace is deterministic from the
 pull-request number, so a retained pull request reuses the same environment
@@ -96,9 +96,9 @@ This spec covers:
 - the GitHub-brokered Keycloak authentication model for these environments,
   including the GitHub OAuth App, the stable callback, admin authorization, and
   developer-tier testing by impersonation, and
-- the deprecation of the legacy `components/pr-test/e2e-openshell.sh` script in
+- the removal of the legacy `components/pr-test/e2e-openshell.sh` script in
   favor of the shared e2e harness and this workflow (the ROKS variant is out of
-  scope).
+  scope and was not removed).
 
 This spec does not redefine `make openshift-up`, the `deploy/openshift/` overlay,
 the ephemeral-namespace isolation rules, the cluster-scoped RBAC handling, or
@@ -194,10 +194,10 @@ gateway and database namespaces, and per-namespace swaps), so a torn-down
 ephemeral cycle leaves no HyperShell-owned residue.
 
 Deploy OpenShift Environment and Tests / E2E / OpenShift SHALL run as jobs of
-`.github/workflows/e2e.yml`, the Tests e2e stage invoked after Unit succeeds
+`.github/workflows/e2e.yml`, the Tests e2e stage invoked concurrently with Unit
 (`e2e-testing.spec.md`). They SHALL share that workflow's `plan-images`
 `should_run` gate, so an e2e-irrelevant pull request does not consume a
-cluster namespace, and a unit failure never deploys. OpenShift SHALL
+cluster namespace; a unit failure does not stop the deploy, and the existing teardown still destroys the unretained environment. OpenShift SHALL
 `needs:` Deploy OpenShift Environment; there SHALL be no cross-workflow poller
 between deploy and the suite. `/pr-extend` and `/pr-destroy` live in
 `.github/workflows/pr-environment-commands.yml` (`issue_comment`). A dedicated
@@ -1397,91 +1397,67 @@ appear in logs, the pull-request comment, or public artifacts.
 - WHEN a reader inspects the job logs, the pull-request comment, and public artifacts
 - THEN that secret does not appear in any of them
 
-### Requirement: Legacy pr-test Deprecation
+### Requirement: Legacy pr-test Removal
 
-This spec's workflow SHALL be the canonical pull-request e2e path, superseding the
-legacy `components/pr-test/e2e-openshell.sh` script. That script is a hardcoded
-OpenShift pull-request e2e script that predates the infra-agnostic suite and does
-the job this workflow now owns. Some team members still run it directly, so it
-SHALL NOT be removed yet; it SHALL be marked deprecated and kept working, and it
-SHALL be removed in the future once that manual usage has migrated to the shared
-harness. `openshift-development.spec.md` and `e2e-testing.spec.md` now defer this
-deprecation window to this spec: removal of `e2e-openshell.sh` remains the
-eventual goal; this spec is the living document that times it. During the
-window those specs SHALL NOT require the script or the `pr_test` component to
-already be gone.
+This spec's workflow is the canonical pull-request e2e path, superseding the
+legacy `components/pr-test/e2e-openshell.sh` script that predated the
+infra-agnostic suite. That script has been removed (HYPERSHELL-250) now that
+this workflow and the shared harness (`tests/e2e/e2e-openshell.sh` with
+`E2E_INFRA_DRIVER=openshift`) cover the same ground and manual usage has
+migrated. `openshift-development.spec.md` and `e2e-testing.spec.md` defer to
+this spec as the record of that removal.
 
 The ROKS variant `components/pr-test/e2e-openshell-roks.sh` is OUT OF SCOPE for
-this spec. It targets IBM ROKS, which this pull-request ephemeral-environment
-workflow does not cover, so this spec neither supersedes nor deprecates it. The
-`pr_test` component and its CI wiring (`.github/component-paths.json` `pr_test`
-entry, the `lint-pr-test` job, and component detection) SHALL remain in place --
-both because the deprecated `e2e-openshell.sh` is retained and because the ROKS
-script continues to live under the same component.
+this spec and is NOT removed: it targets IBM ROKS, which this pull-request
+ephemeral-environment workflow does not cover. The `pr_test` component and its
+CI wiring (`.github/component-paths.json` `pr_test` entry, the `lint-pr-test`
+job, and component detection) SHALL remain in place solely because the ROKS
+script still lives under that component; the `lint-pr-test` job SHALL syntax-check
+`e2e-openshell-roks.sh` instead of the removed script.
 
-Deprecation of `e2e-openshell.sh` means it stays in place and runnable and every
-authoritative reference marks it deprecated in favor of the shared harness and this
-workflow. The script SHALL carry a deprecation notice at the top of the file that
-names the canonical replacement (`tests/e2e/e2e-openshell.sh` with
-`E2E_INFRA_DRIVER=openshift`, driven for pull requests by this workflow), and the
-prose that documents it -- `CLAUDE.md`, `DEVELOPMENT.md`, and the skills that
-mention `components/pr-test` (for example the deploy-cluster skills and
-`skills/RECONCILE.md`) -- SHALL mark the pull-request OpenShift e2e usage
-deprecated and point at the replacement, while leaving ROKS guidance unchanged.
+Every authoritative reference to the removed script -- `CLAUDE.md`,
+`DEVELOPMENT.md`, and the skills that mentioned `components/pr-test/e2e-openshell.sh`
+(for example `skills/RECONCILE.md` and `skills/build/full-stack-pipeline/SKILL.md`)
+-- SHALL point at the shared harness and this workflow as the canonical
+pull-request e2e path, while leaving ROKS guidance unchanged.
 
-New work SHALL NOT depend on `components/pr-test/e2e-openshell.sh`. The
-pull-request e2e path, new CI jobs, and new documentation SHALL use the shared
-harness and this workflow, not the legacy script. The deprecated script SHALL NOT
-be extended with new test areas; area coverage grows in the shared harness
-(`tests/e2e/`) so the two paths do not diverge further. During the deprecation window,
-this spec does NOT require consolidating its logic into
-`tests/e2e/drivers/openshift.sh`. Removal is deferred, not cancelled: once manual
-usage has migrated, a later change SHALL remove `e2e-openshell.sh`, and it SHALL
-remove the `pr_test` component and its CI wiring only once the ROKS variant is also
-retired or rehomed (the ROKS script is the other reason the component still
-exists).
+New work SHALL NOT depend on `components/pr-test/e2e-openshell.sh` (it no longer
+exists). The pull-request e2e path, new CI jobs, and new documentation SHALL use
+the shared harness and this workflow.
 
-#### Scenario: Legacy OpenShift script remains runnable but deprecated
+#### Scenario: Legacy OpenShift script has been removed
 
-- GIVEN a team member still runs `components/pr-test/e2e-openshell.sh` directly
+- GIVEN `components/pr-test/e2e-openshell.sh` predated the shared harness
 - WHEN this spec is in effect
-- THEN the script SHALL remain present and runnable
-- AND it SHALL carry a deprecation notice naming the canonical replacement
-- AND the `pr_test` CI wiring SHALL remain intact so the script does not rot
+- THEN the script SHALL NOT be present in the repository
+- AND no CI workflow or component registration SHALL reference it
 
 #### Scenario: ROKS script is untouched
 
 - GIVEN `components/pr-test/e2e-openshell-roks.sh` targets IBM ROKS
 - WHEN this spec is in effect
-- THEN the ROKS script SHALL be neither deprecated nor removed by this spec
+- THEN the ROKS script SHALL be neither removed nor modified by this spec
 - AND its documentation and usage guidance SHALL remain unchanged
+- AND the `pr_test` component and `lint-pr-test` CI job SHALL remain, scoped to
+  that script
 
-#### Scenario: Documentation marks the OpenShift pr-test script deprecated
+#### Scenario: Documentation points only at the canonical path
 
-- GIVEN `CLAUDE.md`, `DEVELOPMENT.md`, and the skills reference
+- GIVEN `CLAUDE.md`, `DEVELOPMENT.md`, and the skills that used to reference
   `components/pr-test/e2e-openshell.sh`
 - WHEN a reader consults them
-- THEN those references SHALL mark that OpenShift pull-request script deprecated
-- AND SHALL point at the shared harness and this workflow as the canonical
-  pull-request e2e path
+- THEN those references SHALL point at the shared harness and this workflow as
+  the canonical pull-request e2e path
 - AND ROKS references to `e2e-openshell-roks.sh` SHALL remain unchanged
-- AND the `pr_test` component SHALL NOT be marked deprecated while the ROKS
-  script still lives there
-
-#### Scenario: Removal is deferred, not cancelled
-
-- GIVEN `e2e-openshell.sh` is deprecated but still in manual use
-- WHEN the deprecation window is in effect
-- THEN the script SHALL remain until that usage migrates to the shared harness
-- AND removal SHALL remain the eventual goal, consistent with
-  `openshift-development.spec.md` and `e2e-testing.spec.md`
+- AND the `pr_test` component SHALL NOT be described as deprecated while the
+  ROKS script still lives there
 
 #### Scenario: New work uses the canonical path
 
 - GIVEN a change adds a pull-request e2e test area or CI job
 - WHEN the change is made
 - THEN it SHALL use `tests/e2e/` and this spec's workflow
-- AND it SHALL NOT extend `components/pr-test/e2e-openshell.sh` with new coverage
+- AND it SHALL NOT depend on or recreate `components/pr-test/e2e-openshell.sh`
 
 ## Design Decisions
 
@@ -1504,7 +1480,7 @@ exists).
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
 | In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment as the last step of Tests / E2E / OpenShift unless retained, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
-| Deploy lives in the e2e stage after Unit, not a parallel PR Environment workflow | A separate workflow would deploy even when Unit fails and would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate means unit failure skips deploy, OpenShift can `needs:` deploy, and teardown can be a last step of the suite job |
+| Deploy lives in the e2e stage, concurrent with Unit, not a parallel PR Environment workflow | A separate workflow would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate lets OpenShift `needs:` deploy and teardown be a last step of the suite job. It starts without waiting for Unit so the slow deploy overlaps the unit stage, at the cost of deploying for a SHA whose unit tests later fail |
 | Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
@@ -1513,4 +1489,4 @@ exists).
 | Area 9 grants `openshell-user` on the gateway client before token exchange | Kind already uses `assign_gateway_client_role` because there is no user-id discovery path to create a `gateway:viewer` RoleBinding for a non-owner. The OpenShift driver does the same so a brokered PR env has a specified path to an `openshell-user` token. That grant is not a Keycloak realm-role seed |
 | Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
 | Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |
-| Deprecate `e2e-openshell.sh` now, remove it later; leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded. Team members still run it, so it is deprecated first (notice + docs pointing at the shared harness) and removed later once that usage migrates. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component stays until both scripts are gone |
+| Remove `e2e-openshell.sh` (HYPERSHELL-250); leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded and, with manual usage migrated, removed outright rather than kept deprecated indefinitely. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component and `lint-pr-test` job stay, rescoped to `e2e-openshell-roks.sh`, until that script is also retired or rehomed |

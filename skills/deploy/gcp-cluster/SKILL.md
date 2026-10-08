@@ -402,7 +402,7 @@ CLUSTER_ID=$(curl -sk "$API/managed_clusters" -H "Authorization: Bearer $TOKEN" 
 # GatewayRelease
 RELEASE=$(curl -sk -X POST "$API/gateway_releases" -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" \
-  -d "{\"name\":\"openshell-0.1.2\",\"image\":\"quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0\"}")
+  -d "{\"name\":\"openshell-0.1.2\",\"image\":\"quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7\"}")
 RELEASE_ID=$(echo "$RELEASE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 
 echo "Cluster=$CLUSTER_ID Release=$RELEASE_ID"
@@ -417,7 +417,7 @@ GATEWAY=$(curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' \
   \"cluster_id\": \"$CLUSTER_ID\",
   \"release_id\": \"$RELEASE_ID\",
   \"namespace\": \"openshell-gcptest\",
-  \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.0\",
+  \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7\",
   \"route\": \"{\\\"enabled\\\": true}\"
 }")
 echo "$GATEWAY" | python3 -m json.tool
