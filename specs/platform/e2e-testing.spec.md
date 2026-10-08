@@ -150,7 +150,7 @@ PR opened/updated
     │
     ├── scripts/kind/set-component-images.sh (swap in Konflux-built images by digest)
     │
-    ├── bash tests/e2e/run-parallel.sh: E2E_INFRA_DRIVER=kind go test ./tests/e2e/ -run TestE2E
+    ├── bash tests/e2e/run-parallel.sh: E2E_INFRA_DRIVER=kind go -C tests/e2e test . -run TestE2E
     │     -v -timeout 20m and, outside merge_group, e2e-console.sh (E2E_MODE=short) concurrently
     │
     ├── [on failure: collect diagnostic artifacts]
@@ -329,12 +329,12 @@ The functional e2e suite SHALL be a Go test built on `github.com/stretchr/testif
 
 Steps SHALL run in the fail-fast / parallel structure defined by the [Concurrency Model](#requirement-concurrency-model): the serial preflight and primary-gateway bring-up gate (P0, P1) runs sequentially, while the hard-behavior steps (P2) and read-only verification (P3) run as parallel subtests bounded by `E2E_CONCURRENCY`. The suite SHALL NOT rely on testify's alphabetical method ordering for correctness; it SHALL drive the steps explicitly (an ordered driver method running each step as a `t.Run` subtest, marking the independent ones `t.Parallel`), so the state-dependent ordering is honored and the parallelizable steps overlap. At `E2E_CONCURRENCY=1` the steps SHALL run strictly in canonical phase order (P0.1, P0.2, P1.1, ... P3.1). Each step SHALL be a named subtest (`t.Run("p2.1-sandbox-lifecycle", ...)`) so `go test -run` can target one step and per-step pass/fail/skip is visible. A failed assertion in a step SHALL NOT silently continue into dependent steps: the suite SHALL use `suite.Require()` (fail-fast) for preconditions a later step depends on and `suite.Assert()` for independent checks within a step. The final summary SHALL list steps in canonical phase order regardless of parallel completion order.
 
-`go test` SHALL remain the only entry point; there SHALL be no wrapper shell script that re-implements suite orchestration. `make e2e` SHALL invoke `go test ./tests/e2e/ -run TestE2E -failfast` (see [Three-Outcome Reporting](#requirement-three-outcome-reporting) for the fail-fast behavior). The suite SHALL honor the standard Go test timeout (`-timeout`) and SHALL propagate a `context.Context` derived from it into every `E2EInfraDriver` call and poll loop, so a hung infrastructure operation fails the run cleanly within the CI ceiling rather than hanging until the runner kills the job.
+`go test` SHALL remain the only entry point; there SHALL be no wrapper shell script that re-implements suite orchestration. Because the suite is its own Go module, `make e2e` SHALL invoke `go -C tests/e2e test . -run TestE2E -failfast` (see [Three-Outcome Reporting](#requirement-three-outcome-reporting) for the fail-fast behavior). The suite SHALL honor the standard Go test timeout (`-timeout`) and SHALL propagate a `context.Context` derived from it into every `E2EInfraDriver` call and poll loop, so a hung infrastructure operation fails the run cleanly within the CI ceiling rather than hanging until the runner kills the job.
 
 #### Scenario: Single Suite Entry Point
 
 - GIVEN the Go e2e module
-- WHEN a user runs `go test ./tests/e2e/ -run TestE2E`
+- WHEN a user runs `go -C tests/e2e test . -run TestE2E`
 - THEN exactly one testify suite (`E2ESuite`) SHALL run
 - AND its phase steps (P0--P3) SHALL run as named subtests in the fail-fast / parallel structure of the Concurrency Model (strict phase order at `E2E_CONCURRENCY=1`)
 - AND `SetupSuite` state (tokens, endpoints, seed ids) SHALL be shared across steps; the read-only steps SHALL reuse the primary gateway rather than re-provisioning one each, while own-gateway steps provision their own
@@ -349,7 +349,7 @@ Steps SHALL run in the fail-fast / parallel structure defined by the [Concurrenc
 #### Scenario: Targeting a Single Step
 
 - GIVEN the suite exposes each phase step as a named subtest
-- WHEN a developer runs `go test ./tests/e2e/ -run TestE2E/p2.1`
+- WHEN a developer runs `go -C tests/e2e test . -run TestE2E/p2.1`
 - THEN only the setup required for that step and the step itself SHALL run
 - AND the output SHALL name the step that ran
 
@@ -1122,7 +1122,7 @@ Outside `merge_group`, the Kind job SHALL also run the console browser suite con
 - GIVEN a pull request is opened or updated
 - AND Konflux has built images for changed components
 - WHEN the `e2e` stage runs
-- THEN it SHALL: check out the repository, use the changed-component flags passed in as inputs, create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `go test ./tests/e2e/ -run TestE2E` with `E2E_INFRA_DRIVER=kind` concurrently with `tests/e2e/e2e-console.sh` through `tests/e2e/run-parallel.sh`, and report the CI status
+- THEN it SHALL: check out the repository, use the changed-component flags passed in as inputs, create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `go -C tests/e2e test . -run TestE2E` with `E2E_INFRA_DRIVER=kind` concurrently with `tests/e2e/e2e-console.sh` through `tests/e2e/run-parallel.sh`, and report the CI status
 
 #### Scenario: Go And Console Suites Run Concurrently On Kind
 
@@ -1140,7 +1140,7 @@ Outside `merge_group`, the Kind job SHALL also run the console browser suite con
 - WHEN Tests / E2E / OpenShift is evaluated
 - THEN it SHALL have required `plan-images` with `should_run=true`, matching Kind
 - AND it SHALL `needs:` that deploy job rather than polling a check
-- AND it SHALL then run `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials go test ./tests/e2e/ -run TestE2E` against the per-PR namespace
+- AND it SHALL then run `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials go -C tests/e2e test . -run TestE2E` against the per-PR namespace
 - AND after the suite, including on failure or cancel, it SHALL destroy the environment unless the pull request is marked retained
 - AND a fork PR, or an origin PR with `should_run=false`, SHALL skip this job
 - AND a failing `unit` stage SHALL NOT skip deploy or this job; it fails only through the `Tests CI Gate` check
@@ -1716,7 +1716,7 @@ The harness holds no infrastructure-specific logic. It calls only `E2EInfraDrive
 
 ### Requirement: Performance Test Entry Point
 
-The system SHALL provide a `make e2e-performance` target. The target SHALL run the performance harness via `go test ./tests/e2e/ -run TestPerformance`. The target SHALL auto-detect the driver from the current KUBECONFIG context, the same pattern as the `make e2e` target. A user SHALL be able to override the driver on the command line with `E2E_INFRA_DRIVER`. This lets the same target run against any OpenShift cluster (see [Custom OpenShift Runs](#requirement-custom-openshift-runs)).
+The system SHALL provide a `make e2e-performance` target. The target SHALL run the performance harness via `go -C tests/e2e test . -run TestPerformance`. The target SHALL auto-detect the driver from the current KUBECONFIG context, the same pattern as the `make e2e` target. A user SHALL be able to override the driver on the command line with `E2E_INFRA_DRIVER`. This lets the same target run against any OpenShift cluster (see [Custom OpenShift Runs](#requirement-custom-openshift-runs)).
 
 `TestPerformance` SHALL be an ordinary `go test` test function (`func TestPerformance(t *testing.T)`), not a `testing.B` benchmark. A Go benchmark is the wrong tool here: `testing.B` controls iteration count (`b.N`), reports `ns/op` for fast in-process code, and is driven by `-bench`, whereas this harness provisions a cluster-scale gateway fleet once, measures wall-clock provisioning latency and throughput, and emits a versioned JSON report (see [Performance Results Consumption](#requirement-performance-results-consumption)). It is therefore a long-running test that owns its own timing and reporting, gated by `-run TestPerformance` and the `go test -timeout` ceiling. The dedicated entry point also means the perf depth is selected by running `TestPerformance`, not by setting `E2E_MODE`.
 
@@ -1833,7 +1833,7 @@ Setting `E2E_PERF_BATCH_SIZE` greater than or equal to `E2E_PERF_GATEWAY_COUNT` 
 
 ### Requirement: E2E Short and Long Modes
 
-The e2e suite SHALL support three run depths: `long`, `short`, and `perf`. The user-facing `E2E_MODE` variable SHALL select only `long` (the default) or `short`. The `perf` depth SHALL NOT be a user-settable `E2E_MODE` value: it is set in-process by the performance harness (`TestPerformance`) when it runs `E2ESuite` as a checkpoint, so an ordinary `go test ./tests/e2e/ -run TestE2E` never needs it and users do not pass it. The depth is chosen per step: each phase step (and each sub-check within it) SHALL declare the minimum depth it belongs to. A check tagged `short` runs at every depth; one tagged `long` runs only at long depth. Long therefore runs every check (the full behavior), and both `short` and `perf` run the `short`-tagged subset of every phase -- a slice of each portion of the test, exercising each phase's essential path while skipping its deep or slow checks.
+The e2e suite SHALL support three run depths: `long`, `short`, and `perf`. The user-facing `E2E_MODE` variable SHALL select only `long` (the default) or `short`. The `perf` depth SHALL NOT be a user-settable `E2E_MODE` value: it is set in-process by the performance harness (`TestPerformance`) when it runs `E2ESuite` as a checkpoint, so an ordinary `go -C tests/e2e test . -run TestE2E` never needs it and users do not pass it. The depth is chosen per step: each phase step (and each sub-check within it) SHALL declare the minimum depth it belongs to. A check tagged `short` runs at every depth; one tagged `long` runs only at long depth. Long therefore runs every check (the full behavior), and both `short` and `perf` run the `short`-tagged subset of every phase -- a slice of each portion of the test, exercising each phase's essential path while skipping its deep or slow checks.
 
 When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so the CI e2e job and the final run of the performance harness are unchanged. At `short` depth (or the harness-set `perf` depth), the suite SHALL run only the `short`-tagged steps, in the suite's normal order, and SHALL `t.Skip` the long-only steps (a skip, never a silent pass; see [Three-Outcome Reporting](#requirement-three-outcome-reporting)). The suite SHALL fail fast (`t.Fatal`, non-zero `go test` exit) in `SetupSuite` if `E2E_MODE` is set to any value other than `short` or `long`. Depth tagging SHALL be expressed in Go (a step helper that takes the minimum depth and calls `t.Skip` when the active depth is lower), so all depths run the same assertion code; there SHALL be no second copy of any check.
 
