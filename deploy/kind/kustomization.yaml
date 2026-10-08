@@ -9,7 +9,7 @@ resources:
   # hypershell-db-app at it. up.sh also creates the controller's
   # hypershell-gateway-database-admin Secret (host/port/user/password/dbname,
   # sslmode=verify-full, sslrootcert=the stand-in CA) in hypershell-system
-  # before this overlay is applied, because deploy/base/controller.yaml mounts
+  # before this overlay is applied, because deploy/base/platform-resources/controller.yaml mounts
   # it and the controller refuses to start without it.
   # keycloak/ wraps ../base/keycloak with the Kind issuer patch; up.sh also
   # applies it on its own early so Keycloak boots during infrastructure setup.
@@ -145,7 +145,7 @@ patches:
   # Appending --enable-jwt=true is index-independent: --enable-jwt is a pflag
   # BoolVar, and repeated single-value flags are last-value-wins, so the
   # appended true overrides the base --enable-jwt=false no matter where it sits
-  # in deploy/base/api-server.yaml's command array.
+  # in deploy/base/applications/api-server.yaml's command array.
   - target:
       kind: Deployment
       name: hypershell-api-server
