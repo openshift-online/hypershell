@@ -8,7 +8,7 @@ of the core platform.
 ## agents/
 
 Each subdirectory under `agents/` corresponds to one named agent in the SDLC
-automation pipeline. Only `skills/agent-loop/` agents belong here. General
+automation pipeline. Agents may use skills or deterministic scripts. General
 platform skills (amber-review, plan/spec, build/reconcile, tooling/, etc.)
 remain in `skills/`.
 
@@ -21,6 +21,7 @@ remain in `skills/`.
 | `spec-review` | `agent/reviewable-spec` (no verdict) | `agent/review-spec-approved`, `agent/review-spec-rejected` |
 | `code-implementation` | `agent/review-spec-approved` (no `agent/reviewable-code`) | `agent/reviewable-code` |
 | `code-review` | `agent/reviewable-code` (no verdict) | `agent/review-code-approved`, `agent/review-code-rejected` |
+| `merge-pr` | `agent/review-code-approved` | `agent/merged`, or `agent/cant-merge` on CI failure, conflicts, or queue removal |
 | `release-verification` | `agent/release-pending` (no verdict) | `agent/release-verified`, `agent/release-verification-failed` |
 
 ### Label state machine
@@ -43,7 +44,10 @@ code-implementation ◄───────────────────
     │ agent/reviewable-code
     ▼
 code-review ──────────────────────────── agent/review-code-rejected
-    │ agent/review-code-approved → PR merged
+    │ agent/review-code-approved
+    ▼
+merge-pr ────────────────────────────── agent/cant-merge
+    │ PR enqueued → agent/merged
     ▼
 release-verification
     │
@@ -88,7 +92,9 @@ The `gh` CLI is pre-authenticated in the coordinator pod.
 ## run.sh contract
 
 `run.sh` runs **inside an OpenShell sandbox** after the coordinator uploads it.
-It invokes Claude against one work item using the `inference.local` gateway.
+Skill-based agents invoke Claude against one work item using the `inference.local`
+gateway. `merge-pr` executes deterministic GitHub API calls and requires `gh` and
+`jq`, with no `SKILL.md`, inference gateway, or `CLAUDE_MODEL` dependency.
 
 ### Inputs (environment variables)
 
@@ -99,6 +105,21 @@ It invokes Claude against one work item using the `inference.local` gateway.
 | `DRY_RUN` | yes | `true` or `false` |
 | `CLAUDE_MODEL` | yes | Set by coordinator in sandbox env |
 | Agent-specific | varies | See each agent's `run.sh` for required vars (e.g. `ITEM_URL`, `PR_URL`) |
+
+`merge-pr` requires `REPOSITORY`, `ITEM_NUMBER`, and `DRY_RUN`. It finds PRs from
+issue timeline references and PR URLs in the issue body, limited to the same
+repository. Missing or ambiguous links are skipped. Pending CI, draft PRs, and
+unknown mergeability wait for a future run. Already queued PRs and PRs closed
+without merging are skipped. Once the linked PR merges, approval is replaced
+with `agent/merged`. Discovery includes closed issues because merging can
+automatically close the issue. Approved issues stay discoverable while queued so later queue
+removal can be detected from GitHub's timeline across sandbox restarts. A new
+approval after a removal permits another enqueue attempt. CI failures, conflicts,
+and queue removals replace approval with `agent/cant-merge` on the issue, creating
+the label if needed. API failures report infrastructure errors and preserve
+approval for retry. Dry runs perform reads and write the result file, but make no
+GitHub changes. Enqueue uses GitHub's `enqueuePullRequest` mutation with the
+expected head commit; it never merges directly.
 
 ### Outputs
 
