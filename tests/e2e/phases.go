@@ -295,12 +295,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	s.Assert().Equalf(http.StatusOK, st, "developer must list gateways (body: %s)", string(body))
 
 	// Developer gateway-create: environment-dependent on the RBAC default.
-	createBody := map[string]string{
-		"name":       "e2e-dev-create-" + s.runID,
-		"cluster_id": s.clusterID,
-		"route":      `{"enabled":true}`,
-		"oidc":       s.gatewayOIDCConfig(),
-	}
+	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
 	st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", createBody)
 	s.Require().NoError(err, "developer POST /gateways")
 	if s.rbacDefaultIncludesCreator(t) {
@@ -356,7 +351,7 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 // p2_4ManagedClusterLifecycle validates ManagedCluster registration and the
 // control-plane identity rules via the REST API: the seeded cluster is registered,
 // /registration is idempotent for the registrar and rejects non-registrars (403)
-// and name collisions (409), and gateway-create rejects an empty cluster_id (400).
+// and name collisions (409), and gateway-create rejects an invalid placement (400).
 // The gRPC WatchGateways identity checks and controller reconnect convergence are
 // follow-ups.
 func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
@@ -400,13 +395,14 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	s.Require().NoError(err, "registrar name-collision attempt")
 	s.Assert().Equalf(http.StatusConflict, st, "registrar name collision must be 409 (body: %s)", string(body))
 
-	// 12e: gateway-create rejects an empty cluster_id.
-	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", map[string]string{
-		"name": "e2e-nocluster-" + s.runID, "cluster_id": "",
-	})
-	s.Require().NoError(err, "gateway create with empty cluster_id")
-	s.Assert().Equalf(http.StatusBadRequest, st, "empty cluster_id must be 400 (body: %s)", string(body))
-	s.Assert().Containsf(strings.ToLower(string(body)), "cluster_id", "400 reason should name cluster_id (body: %s)", string(body))
+	// 12e: placement, rather than a caller-supplied cluster id, selects the
+	// registered control plane. Unsupported placement requests are rejected.
+	invalidPlacement := gatewayCreateRequestForDriver("e2e-invalid-placement-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	invalidPlacement.Placement = gatewayPlacementIntent{Network: "invalid", Provider: "aws"}
+	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", invalidPlacement)
+	s.Require().NoError(err, "gateway create with invalid placement")
+	s.Assert().Equalf(http.StatusBadRequest, st, "invalid placement must be 400 (body: %s)", string(body))
+	s.Assert().Containsf(strings.ToLower(string(body)), "placement", "400 reason should name placement (body: %s)", string(body))
 
 	t.Log("NOTE: gRPC WatchGateways identity rejection and controller reconnect convergence are follow-ups")
 }
@@ -454,8 +450,41 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 
 // --- low-level helpers ---
 
-// createGateway provisions a gateway via the create endpoint, sending only the
-// create-request fields (name, cluster_id, route, oidc). route and oidc are
+// gatewayPlacementIntent is the client-selected placement intent. The API server
+// resolves it to a registered managed-cluster id during gateway creation.
+type gatewayPlacementIntent struct {
+	Mode     string `json:"mode,omitempty"`
+	Network  string `json:"network,omitempty"`
+	Provider string `json:"provider,omitempty"`
+}
+
+// gatewayCreateRequest contains only fields accepted by GatewayCreateRequest.
+// In particular, cluster_id is server-derived from Placement and must not be
+// sent by callers.
+type gatewayCreateRequest struct {
+	Name      string                 `json:"name"`
+	Placement gatewayPlacementIntent `json:"placement"`
+	Route     string                 `json:"route"`
+	OIDC      string                 `json:"oidc,omitempty"`
+}
+
+// gatewayCreateRequestForDriver builds the infra-specific create payload used by
+// functional and performance e2e tests. Kind resolves the local development
+// control plane; OpenShift resolves an available public AWS control plane.
+func gatewayCreateRequestForDriver(name, driverName, oidc string) gatewayCreateRequest {
+	placement := gatewayPlacementIntent{Network: "public", Provider: "aws"}
+	if driverName == "kind" {
+		placement = gatewayPlacementIntent{Mode: "local-kind"}
+	}
+	return gatewayCreateRequest{
+		Name:      name,
+		Placement: placement,
+		Route:     `{"enabled":true}`,
+		OIDC:      oidc,
+	}
+}
+
+// createGateway provisions a gateway via the create endpoint. Route and OIDC are
 // JSON-encoded string fields (matching the seed and the API schema):
 // route.enabled=true makes the control plane create the gateway's GRPCRoute, and
 // the oidc config (issuer/audience) lets the gateway validate the CLI's bearer
@@ -463,13 +492,8 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 // rather than the SDK's Create, which also serializes server-managed fields (for
 // example the readOnly namespace) that the strict create endpoint rejects.
 func (s *E2ESuite) createGateway(t *testing.T, name string) *sdktypes.Gateway {
-	body := map[string]string{
-		"name":       name,
-		"cluster_id": s.clusterID,
-		"route":      `{"enabled":true}`,
-		"oidc":       s.gatewayOIDCConfig(),
-	}
-	s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s cluster=%s", s.apiHost, name, s.clusterID)
+	body := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
+	s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s placement=%+v", s.apiHost, name, body.Placement)
 	status, resp, err := s.admin.RawJSON(t.Context(), http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create gateway request")
 	s.Require().Equalf(http.StatusCreated, status, "create gateway status (body: %s)", string(resp))

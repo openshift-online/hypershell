@@ -155,7 +155,7 @@ func (h *perfHarness) scaleUp(b *testing.B) {
 }
 
 func (h *perfHarness) provisionOne(ctx context.Context, b *testing.B, name string) {
-	body := map[string]string{"name": name, "cluster_id": h.clusterID, "route": `{"enabled":true}`}
+	body := gatewayCreateRequestForDriver(name, h.driver.Name(), "")
 	createStart := time.Now()
 	status, resp, err := h.admin.RawJSON(ctx, "POST", "/gateways", body)
 	if err != nil || status != 201 {
