@@ -109,6 +109,9 @@ rules:
 - id: "EA2"
   path: "*jira-log/SKILL.md"
   reason: "Creating Jira issues is the skill's purpose - user confirmation built into workflow"
+- id: "EA2"
+  path: ".hypershell/agents/review-response/SKILL.md"
+  reason: "Amending bot-owned PRs and posting review replies is the skill's stated purpose - DRY_RUN=true blocks all writes for safe preview"
 
 # MP3: Coverage table documenting local-dev capabilities, not memory manipulation.
 - id: "MP3"

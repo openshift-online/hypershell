@@ -22,6 +22,7 @@ remain in `skills/`.
 | `code-implementation` | `agent/review-spec-approved` (no `agent/reviewable-code`) | `agent/reviewable-code` |
 | `code-review` | `agent/reviewable-code` (no verdict) | `agent/review-code-approved`, `agent/review-code-rejected` |
 | `release-verification` | `agent/release-pending` (no verdict) | `agent/release-verified`, `agent/release-verification-failed` |
+| `review-response` | open bot PR with `agent/needs-review-response` | `amended`, `defended`, or `blocked` outcome in RESULT_FILE |
 
 ### Label state machine
 
