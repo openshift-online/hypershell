@@ -133,7 +133,7 @@ help:
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
 	@echo "    build-api-server         Build API server container image"
-	@echo "    build-cli                Build CLI binary"
+	@echo "    build-cli                Regenerate the generated commands, then build the CLI binary"
 	@echo "    build-controller         Build control plane container image"
 	@echo "    build-web-console        Build web console container image"
 	@echo ""
@@ -199,7 +199,9 @@ build-controller:
 		-f components/control-plane/Dockerfile .
 
 .PHONY: build-cli
-build-cli:
+# Regenerate first so the binary always matches the OpenAPI description and the
+# pinned rh-trex-ai generators (the first run needs network access).
+build-cli: generate-cli
 	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hsctl
 
 .PHONY: build-web-console

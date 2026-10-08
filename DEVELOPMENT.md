@@ -267,7 +267,8 @@ session management during `make kind-up`.
 
 ### hsctl login (management API)
 
-Build the CLI with `make build-cli`, then authenticate against the Kind cluster:
+Build the CLI with `make build-cli` (it regenerates the generated commands first, so
+it always matches the OpenAPI description), then authenticate against the Kind cluster:
 
 ```bash
 ./components/cli/hsctl login \
