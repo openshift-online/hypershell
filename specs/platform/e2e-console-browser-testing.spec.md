@@ -354,14 +354,20 @@ gateway namespace.
 
 ### Requirement CON-E2E-12: CI Integration
 
-`.github/workflows/e2e.yml` SHALL run the console suite in the Kind job after
-the existing trace verification step, with the same `if: github.event_name != 'merge_group'`
-gate and rationale (browser coverage is proven at PR time and re-verified on
-push to `main`). It SHALL install the pinned agent-browser through npm using the
-Node toolchain already set up for the Playwright step, reuse that step's cached
-Chromium via `AGENT_BROWSER_EXECUTABLE_PATH` when present (falling back to
-`agent-browser install`), run `E2E_MODE=short`, and wire the artifact upload from
-CON-E2E-11. A Makefile target `e2e-console` SHALL exist. `dependency-age-tools.json`
+`.github/workflows/e2e.yml` SHALL run the console suite in the Kind job
+concurrently with the bash suite (`tests/e2e/e2e-openshell.sh`), both started
+through `tests/e2e/run-parallel.sh` (see `e2e-testing.spec.md`, CI E2E
+Workflow), with the same `if: github.event_name != 'merge_group'` gate and
+rationale (browser coverage is proven at PR time and re-verified on push to
+`main`). It SHALL install the pinned agent-browser through npm using the Node
+toolchain set up for the Playwright step, with both installed before the suites
+start, reuse that step's cached Chromium via `AGENT_BROWSER_EXECUTABLE_PATH`
+when present (falling back to `agent-browser install`), run `E2E_MODE=short` for
+the console suite only, and wire the artifact upload from CON-E2E-11, which
+SHALL run when the artifact directory has content on a failed job. The console
+suite owns gateways named `e2e-console-gw-*`, so it does not collide with the
+bash suite's gateway. The bash suite holds its control-plane scale-down (area
+12g) until this suite has exited. A Makefile target `e2e-console` SHALL exist. `dependency-age-tools.json`
 SHALL pin the `agent-browser` npm version.
 
 The OpenShift job SHALL NOT run the console suite (see
@@ -621,7 +627,10 @@ Add the help line next to `e2e` and `e2e-tracing`.
 
 ### CI (`.github/workflows/e2e.yml`, Kind job)
 
-Insert after "Verify end-to-end traces reach Jaeger":
+Insert before "Verify end-to-end traces reach Jaeger", with the browser
+toolchain steps ahead of the suites; the console suite is started together with
+the bash suite by `tests/e2e/run-parallel.sh` in the "Run e2e tests" step
+rather than as a separate step (shown here as the separate steps it replaced):
 
 ```yaml
       # Browser e2e of both consoles through agent-browser. Same PR/push-only gate
