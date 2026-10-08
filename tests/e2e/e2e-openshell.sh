@@ -1741,7 +1741,9 @@ except Exception:
   DEV_SB_RC=""
   if [[ "$DEV_SB_EARLY_EXIT" == "true" ]]; then
     # The CLI already ended on its own: its exit status says whether it failed.
-    wait "$DEV_SB_PID" 2>/dev/null; DEV_SB_RC=$?
+    # `|| DEV_SB_RC=$?` captures a non-zero status without tripping errexit.
+    DEV_SB_RC=0
+    wait "$DEV_SB_PID" 2>/dev/null || DEV_SB_RC=$?
   else
     kill "$DEV_SB_PID" 2>/dev/null || true
     wait "$DEV_SB_PID" 2>/dev/null || true
@@ -1750,8 +1752,10 @@ except Exception:
   # Drop the containerized CLI's benign start-up warnings (amd64 image on an arm64
   # host, disabled TLS verification) so the 200 character excerpt below is the
   # actual error, not the warnings that precede it.
-  DEV_SB_ERR=$(sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" 2>/dev/null \
-    | grep -vE '^WARNING: image platform| WARN openshell_cli::tls' | tr '\n' ' ' | tr -s ' ')
+  # grep -v exits 1 when nothing is left (warning-only or empty log); guard it so
+  # pipefail/errexit does not abort the run.
+  DEV_SB_ERR=$({ sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" 2>/dev/null \
+    | grep -vE '^WARNING: image platform| WARN openshell_cli::tls' | tr '\n' ' ' | tr -s ' '; } || true)
   DEV_SB_FULL_LOG="${TMPDIR:-/tmp}/e2e-dev-sandbox-create.log"
   sed 's/\x1b\[[0-9;]*m//g' "${DEV_SB_LOG}" > "${DEV_SB_FULL_LOG}" 2>/dev/null || true
   rm -f "${DEV_SB_LOG}" 2>/dev/null || true
