@@ -29,11 +29,19 @@ func (s *E2ESuite) discoverSeedIDs(ctx context.Context) (clusterID, releaseID st
 	clusterName := envOrDefault("E2E_SEED_CLUSTER_NAME", defClusterName)
 	releaseName := envOrDefault("E2E_SEED_RELEASE_NAME", defReleaseName)
 
+	// The matrix runner pins the cluster id directly; only the release is discovered.
+	if s.clusterIDOverride != "" {
+		clusterID = s.clusterIDOverride
+	}
+
 	clusters, err := s.admin.ManagedClusters().List(ctx, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("list managed clusters: %w", err)
 	}
 	for _, c := range clusters.Items {
+		if clusterID != "" {
+			break // pinned by the matrix runner
+		}
 		if c.OidcSubject == "" {
 			continue // not registered
 		}
@@ -251,7 +259,9 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	s.cliStatusConnected(t, local, durationSecondsEnv("E2E_CONNECT_TIMEOUT", 90*time.Second))
 
 	sandboxTimeout := durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)
-	name := "e2e-" + s.runID
+	// Sandbox names have a 19-char maximum, so use a short unique token rather than
+	// the full run id (which carries a cluster suffix under the matrix runner).
+	name := fmt.Sprintf("sb-%06d", time.Now().UnixNano()%1000000)
 	// `sandbox create` streams while the sandbox image pulls and can return a stream
 	// error ("missing grpc-status") even though the sandbox was created. Mirror the
 	// Bash suite: treat create as best-effort and rely on the pod reaching Running
