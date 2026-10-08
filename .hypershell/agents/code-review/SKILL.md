@@ -60,6 +60,23 @@ _Note: If a label does not exist, create it._
 
 Apply `$VERDICT` label to `$GITHUB_ISSUE_URL`.
 
+IF `$VERDICT` == `agent/review-code-approved`:
+- Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
+- The PR is ready to merge. A human must perform the merge.
+
 IF `$VERDICT` == `agent/review-code-rejected`:
-- Add a comment to `$GITHUB_ISSUE_URL` communicating `$REJECTION_RATIONALE` that
-  adheres to the [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English) standard.
+- Count prior rejections: fetch the issue event timeline. Count how many times
+  `agent/review-code-rejected` has been applied **since the most recent removal
+  of `agent/blocked`** (or since the beginning of the timeline if `agent/blocked`
+  has never been removed). Include this rejection in the count.
+- If the rejection count is 3 or more:
+  - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
+  - Apply label `agent/blocked` to `$GITHUB_ISSUE_URL` instead of re-queuing.
+  - Add a comment explaining the issue has been rejected 3 or more times and needs
+    human review before the agent retries. Tell the human to remove `agent/blocked`
+    and `agent/review-code-rejected` to resume the loop.
+  - STOP.
+- Otherwise:
+  - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
+  - Add a comment to `$GITHUB_ISSUE_URL` communicating `$REJECTION_RATIONALE` that
+    adheres to the [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English) standard.
