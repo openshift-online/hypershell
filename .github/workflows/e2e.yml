@@ -159,6 +159,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           PUSH_SHA: ${{ github.sha }}
           DETECT_API_SERVER: ${{ inputs.api_server }}
@@ -172,6 +173,34 @@ jobs:
           baseline_api="${BASELINE_REGISTRY}/hypershell-api-server-main:latest"
           baseline_cp="${BASELINE_REGISTRY}/hypershell-control-plane-main:latest"
           baseline_wc="${BASELINE_REGISTRY}/hypershell-web-console-main:latest"
+
+          # base_image_ref <component image name> <release baseline ref>
+          #
+          # Merge-queue images that the current batch does not change must be
+          # the accepted base, not a tag that can move while the queue is
+          # running. Main's Konflux build produces a commit-tagged image when
+          # that component changed. Components without such a tag use the
+          # release baseline, resolved to a digest here. The result is always
+          # immutable before Kind or OpenShift starts.
+          base_image_ref() {
+            local component="$1" fallback="$2"
+            local candidate="${KONFLUX_REGISTRY}/${component}:${MERGE_GROUP_BASE_SHA}"
+            local selected="${fallback}" digest
+
+            if skopeo inspect --raw "docker://${candidate}" >/dev/null 2>&1; then
+              selected="${candidate}"
+              echo "  ${component} -> accepted base ${selected}" >&2
+            else
+              echo "  ${component} has no accepted-base tag; resolving release baseline" >&2
+            fi
+
+            digest="$(skopeo inspect --format '{{.Digest}}' "docker://${selected}")"
+            if [[ "${digest}" != sha256:* ]]; then
+              echo "ERROR: could not resolve immutable digest for ${selected}" >&2
+              return 1
+            fi
+            printf '%s@%s\n' "${selected%:*}" "${digest}"
+          }
 
           # Default: nothing to wait for. The e2e-kind job waits for Konflux builds
           # sequentially before e2e tests when the current event triggers a
@@ -193,16 +222,19 @@ jobs:
 
           # Shared e2e-relevant gate for pull_request and merge_group. detect-
           # components tracks api_server, control_plane, e2e, and pr_test
-          # (broad: Makefile, deploy, tests, workflow files). Web-console is
-          # narrower: only Konflux CEL paths, so an SDK/lockfile-only change
-          # does not spin Kind. merge_group uses the batch diff against
+          # (broad: Makefile, deploy, tests, workflow files). The Konflux
+          # flags add image-input-only changes, such as a component pipeline
+          # definition. merge_group uses the batch diff against
           # merge_group.base_sha, so a docs PR batched with a component change
           # still runs.
           detect_e2e_relevant=false
           if [[ "${DETECT_API_SERVER:-false}" == "true" || \
                 "${DETECT_CONTROL_PLANE:-false}" == "true" || \
                 "${DETECT_E2E:-false}" == "true" || \
-                "${DETECT_PR_TEST:-false}" == "true" ]]; then
+                "${DETECT_PR_TEST:-false}" == "true" || \
+                "${KONFLUX_API_SERVER:-false}" == "true" || \
+                "${KONFLUX_CONTROL_PLANE:-false}" == "true" || \
+                "${KONFLUX_WEB_CONSOLE:-false}" == "true" ]]; then
             detect_e2e_relevant=true
           fi
 
@@ -222,12 +254,7 @@ jobs:
               cp_konflux="${KONFLUX_CONTROL_PLANE}"
               wc_konflux="${KONFLUX_WEB_CONSOLE}"
 
-              e2e_relevant=false
-              if [[ "${detect_e2e_relevant}" == "true" || "${wc_konflux}" == "true" ]]; then
-                e2e_relevant=true
-              fi
-
-              if [[ "${e2e_relevant}" != "true" ]]; then
+              if [[ "${detect_e2e_relevant}" != "true" ]]; then
                 echo "No e2e-relevant components changed"
                 echo "should_run=false" >> "${GITHUB_OUTPUT}"
                 exit 0
@@ -305,50 +332,47 @@ jobs:
               ;;
 
             merge_group)
-              # GitHub merge queue builds images through the dedicated Konflux
-              # merge-queue pipelines (.tekton/*-merge-queue.yaml): a push to
-              # gh-readonly-queue/main/... runs every component's
-              # hypershell-<component>-main-on-merge-queue pipeline and pushes
-              # an ephemeral on-merge-queue-<merge_sha>, distinct from the PR
-              # pipelines' on-pr-<head_sha> so a merge-queue image is never
-              # confused with an already-tested PR image. The on-push pipelines
-              # require target_branch == "main" and never fire here. Kind must
-              # consume those merge-queue images for every component, not
-              # baseline :latest: the merge commit's tree can already contain a
-              # fix that :latest has not promoted yet.
-              #
-              # Same e2e-relevant skip as pull_request, against the merge batch
-              # (detect-components and detect-konflux already diff
-              # merge_group.base_sha...merge_group.head_sha). Kind and OpenShift remain the
-              # merge-queue gate when those paths change; a docs-only batch must
-              # not occupy three Kind runners or a shared-cluster namespace.
-              # Tests CI Gate is the required check, so a skipped e2e job does
-              # not leave the queue pending.
-              # should_run is path-gated by detect_e2e_relevant /
-              # KONFLUX_WEB_CONSOLE. Merge-queue Konflux pipelines fire for
-              # every component (no pathChanged), so wait flags must not follow
-              # those detect flags: otherwise a docs-only batch would occupy
-              # runners, and an e2e-relevant batch would still fall back to
-              # :latest for unchanged components.
-              if [[ "${detect_e2e_relevant}" != "true" && "${KONFLUX_WEB_CONSOLE}" != "true" ]]; then
+              # The merge queue builds only images whose inputs changed in the
+              # speculative batch. All others use the accepted base commit's
+              # digest, so a docs-only entry neither starts Konflux work nor
+              # waits for it. This uses the same changed-file set as the
+              # merge-queue PipelineRuns: base_sha...head_sha.
+              if [[ "${detect_e2e_relevant}" != "true" ]]; then
                 echo "No e2e-relevant components changed in merge batch"
                 echo "should_run=false" >> "${GITHUB_OUTPUT}"
                 exit 0
               fi
+
               tag="on-merge-queue-${konflux_ref}"
-              echo "wait_api_server=true" >> "${GITHUB_OUTPUT}"
-              echo "wait_control_plane=true" >> "${GITHUB_OUTPUT}"
-              echo "wait_web_console=true" >> "${GITHUB_OUTPUT}"
-              api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
-              cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
-              wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
+              api_img="$(base_image_ref hypershell-api-server-main "${baseline_api}")"
+              cp_img="$(base_image_ref hypershell-control-plane-main "${baseline_cp}")"
+              wc_img="$(base_image_ref hypershell-web-console-main "${baseline_wc}")"
+
+              if [[ "${KONFLUX_API_SERVER}" == "true" ]]; then
+                api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
+                echo "wait_api_server=true" >> "${GITHUB_OUTPUT}"
+                echo "  api-server -> ${api_img} (waiting for Konflux build)"
+              fi
+              if [[ "${KONFLUX_CONTROL_PLANE}" == "true" ]]; then
+                cp_img="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${tag}"
+                echo "wait_control_plane=true" >> "${GITHUB_OUTPUT}"
+                echo "  control-plane -> ${cp_img} (waiting for Konflux build)"
+              fi
+              if [[ "${KONFLUX_WEB_CONSOLE}" == "true" ]]; then
+                wc_img="${KONFLUX_REGISTRY}/hypershell-web-console-main:${tag}"
+                echo "wait_web_console=true" >> "${GITHUB_OUTPUT}"
+                echo "  web-console -> ${wc_img} (waiting for Konflux build)"
+              fi
+
               echo "  api-server -> ${api_img}"
               echo "  control-plane -> ${cp_img}"
               echo "  web-console -> ${wc_img}"
-              echo "should_run=true" >> "${GITHUB_OUTPUT}"
-              echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
-              echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
-              echo "web_console_image=${wc_img}" >> "${GITHUB_OUTPUT}"
+              {
+                echo "should_run=true"
+                echo "api_server_image=${api_img}"
+                echo "control_plane_image=${cp_img}"
+                echo "web_console_image=${wc_img}"
+              } >> "${GITHUB_OUTPUT}"
               ;;
 
             push)
