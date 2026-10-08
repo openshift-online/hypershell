@@ -22,6 +22,11 @@ const (
 	defaultSearchLimit     = 50
 )
 
+// startupRetryInterval is the cadence used while the snapshot is still empty at
+// startup (e.g. the Keycloak realm import has not finished when the control
+// plane comes up). It is a var so tests can shrink it.
+var startupRetryInterval = 10 * time.Second
+
 // lister is the slice of the Keycloak client the projection depends on.
 type lister interface {
 	ListRealmUsers(ctx context.Context) ([]keycloak.RealmUser, error)
@@ -44,9 +49,24 @@ func NewProjection(l lister, interval time.Duration) *Projection {
 }
 
 // Run refreshes immediately, then on the configured interval until ctx is done.
+// While the snapshot is still empty it retries on the shorter startupRetryInterval
+// so the console "Add users" picker is not blank for a full refresh interval after
+// a fresh deploy, when Keycloak may not have finished importing the realm yet.
 func (p *Projection) Run(ctx context.Context) error {
 	log.Printf("INFO keycloak directory projection started (interval=%s)", p.interval)
 	p.refreshOnce(ctx)
+	// ponytail: fast-poll while empty; a realm that is genuinely empty keeps
+	// polling at startupRetryInterval forever rather than falling back to the
+	// steady interval - fine, deployed realms always have users, and the first
+	// one then shows up within startupRetryInterval instead of p.interval.
+	for len(p.snapshot()) == 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(startupRetryInterval):
+			p.refreshOnce(ctx)
+		}
+	}
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 	for {
