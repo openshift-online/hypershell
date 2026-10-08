@@ -1143,7 +1143,7 @@ Outside `merge_group`, the Kind job SHALL also run the console browser suite con
 - AND it SHALL then run `E2E_INFRA_DRIVER=openshift E2E_OIDC_GRANT=client_credentials go test ./tests/e2e/ -run TestE2E` against the per-PR namespace
 - AND after the suite, including on failure or cancel, it SHALL destroy the environment unless the pull request is marked retained
 - AND a fork PR, or an origin PR with `should_run=false`, SHALL skip this job
-- AND a failing `unit` stage SHALL skip deploy and this job
+- AND a failing `unit` stage SHALL NOT skip deploy or this job; it fails only through the `Tests CI Gate` check
 
 #### Scenario: Push to main uses the same OpenShift jobs
 
