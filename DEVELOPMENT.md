@@ -607,6 +607,17 @@ the files in `components/cli` are generated; the rest are hand-written.
 | Terminal UI descriptor | rh-trex-ai `tui-generator` | `components/cli/data/generated/tui/` |
 | `apply`, `revoke`, the service account commands, the `tui` wrapper, `main.go` | hand-written | `components/cli/cmd/hsctl/...`, `pkg/serviceaccount`, `pkg/gatewayconnect` |
 
+The extension kinds (`AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`) are served under
+`/api/hypershell/ext/`, but the generator handles a single API prefix and
+produces only the `/api/hypershell/v1/` kinds. Their commands (`create`, `get`,
+`list`, `delete`) are therefore hand-written in the same shape, their URLs are in
+`pkg/urls/ext.go`, and `cmd/hsctl/extgroup` registers them and splits the help of
+`get`, `list`, `create` and `delete` into a core section and an experimental
+extensions section. They have no `update` command. A new extension kind needs its
+command files, a line in each `ext_registration.go`, its paths in `ext.go`, and an
+entry in `HAND_MAINTAINED_COMMANDS` in `scripts/generate-cli.sh`.
+
 `update` and `delete` exist only for resources whose OpenAPI description declares
 the operation. `delete` asks for confirmation and fails without a terminal
 unless `--yes` is given; `update` sends only the flags that are set, or a
@@ -642,11 +653,16 @@ The generators and the terminal UI runtime must come from the same commit:
 3. Run `make generate-cli`, review the diff, and run
    `cd components/cli && go test ./...` and `make check`.
 
-While the rh-trex-ai change is unmerged, `go.mod` replaces the framework with a
-fork commit and `dependency-age-allowlist.json` carries a matching exception
-(the commit is under the 14 day minimum age). Each new pin changes the
-pseudo-version, so update both together. When the change merges, point the pin
-at the merged upstream commit, remove the `replace`, and delete the exception.
+Pin a commit on the upstream `main` branch of `openshift-online/rh-trex-ai`.
+The framework publishes no tag for this module, so `go.mod` uses a pseudo-version
+(`go get github.com/openshift-online/rh-trex-ai/components/api-server@<sha>` prints
+it). A commit younger than the 14 day dependency minimum age needs an exception
+in `dependency-age-allowlist.json` with a reason and compensating verification;
+remove it once the commit is old enough, or when a newer pin replaces it.
+
+`components/api-server` pins the framework separately in its own `go.mod`, because
+it links the server framework, not the generators. It may be on a different commit
+than the CLI, so check that it still builds before moving it.
 
 ### Customizing generated code
 

@@ -15,9 +15,9 @@
   },
   {
     "kind": "go",
-    "name": "github.com/rh-amarin/rh-trex-ai/components/api-server",
-    "version": "v0.0.0-20261007144355-9dcb81d79b36",
-    "reason": "Temporary replacement for github.com/openshift-online/rh-trex-ai/components/api-server in components/cli. HyperShell adopts the generated CLI and terminal UI from openshift-online/rh-trex-ai#58 (config store and token provider hooks, proxy-aware default HTTP client, generated delete and update commands, the TUI runtime and TokenProvider), which is unmerged, so the commit exists only on the PR branch of a fork and no tag exists. Remove this entry and the replace directive when #58 merges and the pin moves to the merged upstream commit.",
+    "name": "github.com/openshift-online/rh-trex-ai/components/api-server",
+    "version": "v0.0.0-20261007150231-ff48c5631a19",
+    "reason": "HyperShell generates its CLI and terminal UI with the rh-trex-ai generators and links the terminal UI runtime from the same commit: PR 58 (generated OIDC login, logout, whoami and token refresh, delete and update commands, config file name and OIDC client ID options, the tuicmd package). It merged to main as ff48c56 and the framework publishes no tag for this module path, so a pseudo-version is required. The commit is under the 14 day minimum age until 2026-10-21; remove this entry then if no newer pin replaced it.",
     "compensatingVerification": "The dependency is commit-pinned by full SHA in scripts/rh-trex-ai.ref and components/cli/go.mod. make check regenerates the CLI and the TUI descriptor from that same commit and fails on any difference, and the hsctl unit tests run against that exact commit."
   }
 ]

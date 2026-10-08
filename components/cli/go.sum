@@ -57,8 +57,8 @@ github.com/muesli/termenv v0.16.0 h1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc
 github.com/muesli/termenv v0.16.0/go.mod h1:ZRfOIKPFDYQoDFF4Olj7/QJbW60Ol/kL1pU3VfY/Cnk=
 github.com/nwidger/jsoncolor v0.3.2 h1:rVJJlwAWDJShnbTYOQ5RM7yTA20INyKXlJ/fg4JMhHQ=
 github.com/nwidger/jsoncolor v0.3.2/go.mod h1:Cs34umxLbJvgBMnVNVqhji9BhoT/N/KinHqZptQ7cf4=
-github.com/rh-amarin/rh-trex-ai/components/api-server v0.0.0-20261007144355-9dcb81d79b36 h1:u5AYaqzDQ2edvv8+3313FckHt6sYJ+Sj7tr910rPD7A=
-github.com/rh-amarin/rh-trex-ai/components/api-server v0.0.0-20261007144355-9dcb81d79b36/go.mod h1:aVTKx/HdepL+zJggFXb+HSA8p9cdcEeYGPPcGHRA3To=
+github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261007150231-ff48c5631a19 h1:ya9XsnYnP1BSlkqoQ+CRVIN5x+K4pLWjxIs1oEM0rE8=
+github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261007150231-ff48c5631a19/go.mod h1:aVTKx/HdepL+zJggFXb+HSA8p9cdcEeYGPPcGHRA3To=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
