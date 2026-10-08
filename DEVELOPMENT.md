@@ -930,7 +930,7 @@ embeds that URL in the token's `iss` claim.
 ### Keycloak admin console redirect loop
 
 If the Keycloak admin console (`/admin/`) redirects in a loop, verify that the
-`KC_HOSTNAME` env var patched by `deploy/kind/kustomization.yaml` is set to
+`KC_HOSTNAME` env var patched by `deploy/kind/keycloak/kustomization.yaml` is set to
 `https://keycloak.hypershell.localhost`. Restart the Keycloak deployment
 after changes:
 

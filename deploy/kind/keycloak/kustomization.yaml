@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Kind's Keycloak, split out of ../kustomization.yaml so scripts/kind/up.sh can
+# apply it on its own right after the cluster is created. Keycloak depends on
+# nothing else in the overlay and is the slowest workload to become ready
+# (two image pulls plus a start-dev boot), so starting it first lets it come up
+# while the infrastructure and the stand-in PostgreSQL are installed. The
+# parent overlay includes this directory, so both applies render the same
+# Deployment and the later one does not roll Keycloak a second time.
+resources:
+  - ../../base/keycloak/
+patches:
+  # --- Keycloak: fixed HTTPS issuer reachable in-cluster and from host ---
+  # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
+  # requiring config.issuer == discovery.issuer == token.iss, so the issuer
+  # must be a single URL reachable over HTTPS both in-cluster (via CoreDNS ->
+  # gateway LB) and from the host (via the gateway LB :443). The LB terminates
+  # TLS with the *.hypershell.localhost cert and forwards to keycloak-service:8080;
+  # Keycloak stays plain HTTP internally and honors X-Forwarded-Proto
+  # (KC_PROXY_HEADERS=xforwarded). This value matches E2E_OIDC_ISSUER and the
+  # seeded gateway OIDC issuer.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: keycloak
+        namespace: keycloak
+      spec:
+        template:
+          spec:
+            containers:
+              - name: keycloak
+                env:
+                  - name: KC_HOSTNAME
+                    value: "https://keycloak.hypershell.localhost"
