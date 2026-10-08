@@ -65,8 +65,10 @@ IF `$VERDICT` == `agent/review-code-approved`:
 - The PR is ready to merge. A human must perform the merge.
 
 IF `$VERDICT` == `agent/review-code-rejected`:
-- Count prior rejections: fetch the issue event timeline and count how many times
-  `agent/review-code-rejected` has been applied (including this one).
+- Count prior rejections: fetch the issue event timeline. Count how many times
+  `agent/review-code-rejected` has been applied **since the most recent removal
+  of `agent/blocked`** (or since the beginning of the timeline if `agent/blocked`
+  has never been removed). Include this rejection in the count.
 - If the rejection count is 3 or more:
   - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
   - Apply label `agent/blocked` to `$GITHUB_ISSUE_URL` instead of re-queuing.

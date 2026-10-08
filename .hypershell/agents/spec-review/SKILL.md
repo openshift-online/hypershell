@@ -52,5 +52,17 @@ IF `$REVIEW_VERDICT` == `agent/review-spec-approved`:
 - Remove label `agent/reviewable-spec` from `$GITHUB_ISSUE_URL`.
 
 IF `$REVIEW_VERDICT` == `agent/review-spec-rejected`:
-- Remove label `agent/reviewable-spec` from `$GITHUB_ISSUE_URL`.
-- Write rejection rationale as a comment on the PR. Use [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English), and inline code review comments if applicable.
+- Count prior spec rejections: fetch the issue event timeline. Count how many times
+  `agent/review-spec-rejected` has been applied **since the most recent removal
+  of `agent/blocked`** (or since the beginning of the timeline if `agent/blocked`
+  has never been removed). Include this rejection in the count.
+- If the rejection count is 3 or more:
+  - Remove label `agent/reviewable-spec` from `$GITHUB_ISSUE_URL`.
+  - Apply label `agent/blocked` to `$GITHUB_ISSUE_URL`.
+  - Add a comment explaining the spec has been rejected 3 or more times and needs
+    human review before the agent retries. Tell the human to remove `agent/blocked`
+    and `agent/review-spec-rejected` to resume the loop.
+  - STOP.
+- Otherwise:
+  - Remove label `agent/reviewable-spec` from `$GITHUB_ISSUE_URL`.
+  - Write rejection rationale as a comment on the PR. Use [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English), and inline code review comments if applicable.

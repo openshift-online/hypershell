@@ -121,16 +121,19 @@ as non-fatal and fall back to the reply timestamps).
 
 ## Report the outcome (RESULT_FILE)
 
-If the Runtime context provides `RESULT_FILE`, write your outcome there as the last thing
-you do -- the deterministic driver reports from it and does **not** trust this turn's exit
-code. Write exactly these `key: value` lines:
+If the Runtime context provides `RESULT_FILE`, write your outcome there before Step 9 --
+the deterministic driver reports from it and does **not** trust this turn's exit code.
+Write a single JSON object:
 
-- `outcome:` one of `amended` (you pushed fixes and resolved those threads), `defended`
-  (you replied with evidence, no code change), `mixed` (some amended, some defended),
-  `escalated` (raised a `needs-decision` question), `no-new-feedback` (nothing to do this
-  round), or `blocked` (a write was rejected -- never report `amended` if the push failed).
-- `commit_sha:` the head commit you pushed when you amended; empty otherwise. The driver
-  verifies it against the API, so it must be a real commit you actually pushed.
+```json
+{"status": "<status>", "summary": "<summary>", "commit_sha": "<sha>"}
+```
+
+- `status:` one of `success` (amended, defended, or mixed -- work progressed), `no-new-feedback`
+  (nothing to do this round), `blocked` (a write was rejected -- never report `success` if
+  the push failed), or `failed` (unexpected error).
+- `commit_sha:` the head commit you pushed when you amended; omit or leave empty otherwise.
+  The driver verifies it against the API, so it must be a real commit you actually pushed.
 - `summary:` one line under 100 characters for a human Slack reader, e.g.
   `amended PR #241: fixed 2 review threads, defended 1` or
   `push blocked (token read-only) -- no changes landed`.
@@ -140,8 +143,9 @@ Writing `RESULT_FILE` is a local file write, not a GitHub mutation; do it even u
 
 ## Step 9: Re-queue for review
 
-After writing `RESULT_FILE`, update the linked issue's labels so the appropriate review agent
-picks the work up again.
+After writing `RESULT_FILE`, update the linked issue's labels so the appropriate review
+agent picks the work up again. Writing `RESULT_FILE` happens before these label mutations,
+so the driver always has an outcome even if label writes fail.
 
 Find the linked issue number by reading the PR body for a closing keyword (`Closes #N`,
 `Fixes #N`, or `Resolves #N`), or by searching issues for one linked to this PR's branch.
