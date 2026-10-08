@@ -1,8 +1,8 @@
 name: Unit
 
 # Reusable unit-test stage of the Tests pipeline. Invoked by
-# .github/workflows/tests.yml, which gates the E2E stage on this stage alone
-# (`needs: [detect-changes, unit]`). The separate Checks workflow
+# .github/workflows/tests.yml, which runs it concurrently with the E2E stage
+# (both depend only on detect-changes). The separate Checks workflow
 # (.github/workflows/checks.yml, lint/policy/drift) runs fully concurrently
 # with Tests as its own top-level entry in the PR checks list -- GitHub
 # Actions `needs:` cannot gate across independently-triggered workflows

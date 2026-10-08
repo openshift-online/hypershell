@@ -1,10 +1,10 @@
 name: E2E
 
-# Reusable final stage of the Tests pipeline. Invoked by
-# .github/workflows/tests.yml only after the Unit stage succeeds
-# (parent-level `needs: [detect-changes, unit]`), so Kind never spins up
-# against a SHA whose unit tests are failing -- no wasted e2e run, and no
-# in-workflow poller waiting on that gate. It does NOT wait on the separate
+# Reusable e2e stage of the Tests pipeline. Invoked by
+# .github/workflows/tests.yml concurrently with the Unit stage (parent-level
+# `needs: detect-changes` only), so the slow cluster setup overlaps unit
+# instead of waiting on it; a failing unit stage does not stop it from
+# starting, but still fails the Tests CI Gate. It does NOT wait on the separate
 # Checks workflow (.github/workflows/checks.yml, lint/policy/drift) -- that
 # workflow runs fully concurrently with Tests as its own top-level entry in
 # the PR checks list, and GitHub Actions `needs:` cannot gate across
@@ -18,8 +18,7 @@ name: E2E
 # `checks: read` permission and the wait-on-check-action steps below remain:
 # they gate on Konflux image builds, which this workflow cannot order with
 # `needs:`. Deploy OpenShift Environment lives in this workflow so OpenShift can
-# `needs:` it instead of polling a separate PR Environment workflow, and so
-# unit failure (this stage never starts) skips deploy. After the suite, the
+# `needs:` it instead of polling a separate PR Environment workflow. After the suite, the
 # OpenShift job tears the environment down unless the pull request is marked
 # retained (/pr-extend). Origin pull requests deploy hypershell-ci-pr-<n>;
 # push to main deploys hypershell-ci-main-<short-sha>; a merge queue entry
@@ -774,8 +773,7 @@ jobs:
   # merge-queue commit SHA, so unrelated runs (including two merge queue
   # entries validated concurrently) never cancel each other while repeats of
   # the same target still serialize. Same plan-images / should_run gate as
-  # Kind and OpenShift. Runs after Unit because this workflow is only called
-  # then. Shares pr-env-<n> (or pr-env-main) with /pr-extend, /pr-destroy,
+  # Kind and OpenShift. Runs concurrently with Unit. Shares pr-env-<n> (or pr-env-main) with /pr-extend, /pr-destroy,
   # and close so those cannot race an in-flight deploy. Kind runs in
   # parallel with this job. Fork PRs skip it (no per-PR environment; a fork
   # PR cannot enter the merge queue either).
