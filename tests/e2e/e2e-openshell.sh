@@ -2308,6 +2308,84 @@ print(json.dumps({'name':os.environ['GW_NAME'],'cluster_id':os.environ['E2E_CLUS
     fi
   fi
 
+  # == Scenario 4: a platform:admin manages access on a gateway it does NOT own ==
+  #    (gateway-access-management.spec.md GAM-08). A plain creator (${E2E_GAM_USER})
+  #    creates her own gateway and is its sole owner; the admin user (platform:admin,
+  #    E2E_OIDC_USERNAME) holds no binding on it, yet may add a user through the access
+  #    facade exactly like an owner, without being on the access list.
+  acquire_oidc_token "$E2E_GAM_USER" "$E2E_GAM_USER" 2>/dev/null || true
+  GAM_ALICE_API_TOKEN="${_OIDC_ACCESS_TOKEN}"
+  acquire_oidc_token 2>/dev/null || true  # restore admin token (platform:admin)
+  if [[ -z "$GAM_ALICE_API_TOKEN" ]]; then
+    fail_test "Access management: could not acquire ${E2E_GAM_USER} API token to create her gateway"
+  else
+    # 1. ${E2E_GAM_USER} creates a gateway (kind grants gateway:creator by default)
+    #    and becomes its first and only gateway:owner.
+    GAM_PA_GW_NAME="e2e-padmin-gw-$(date +%s | tail -c5)"
+    GAM_PA_GW_BODY=$(GW_NAME="$GAM_PA_GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
+      E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}" python3 -c "
+import json, os
+print(json.dumps({'name':os.environ['GW_NAME'],'cluster_id':os.environ['E2E_CLUSTER_ID'],
+  'oidc':json.dumps({'issuer':os.environ['E2E_OIDC_ISSUER'],'audience':os.environ['E2E_OIDC_CLIENT_ID'],
+    'roles_claim':'groups','admin_role':'hypershell-admins','user_role':'hypershell-users'}),
+  'route':json.dumps({'enabled':True})}))")
+    show_cmd "POST ${API_HOST}/api/hypershell/v1/gateways (as ${E2E_GAM_USER}) -> expect 201"
+    GAM_PA_RESP_F=$(mktemp)
+    GAM_PA_GW_STATUS=$(_driver_curl -o "$GAM_PA_RESP_F" -w '%{http_code}' -X POST \
+      "${API_HOST}/api/hypershell/v1/gateways" \
+      -H "Authorization: Bearer ${GAM_ALICE_API_TOKEN}" -H "Content-Type: application/json" \
+      -d "$GAM_PA_GW_BODY" 2>/dev/null || true)
+    GAM_PA_GW_ID=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('id',''))" "$GAM_PA_RESP_F" 2>/dev/null || true)
+    rm -f "$GAM_PA_RESP_F"
+    if [[ "$GAM_PA_GW_STATUS" =~ ^2 && -n "$GAM_PA_GW_ID" ]]; then
+      E2E_EXTRA_GW_IDS+=("$GAM_PA_GW_ID")  # fail-safe cleanup
+      pass "${E2E_GAM_USER} created her own gateway ${GAM_PA_GW_NAME} (HTTP ${GAM_PA_GW_STATUS})"
+    else
+      fail_test "Access management: ${E2E_GAM_USER} gateway create returned HTTP ${GAM_PA_GW_STATUS:-none}"
+      GAM_PA_GW_ID=""
+    fi
+
+    if [[ -n "$GAM_PA_GW_ID" ]]; then
+      # 2. the admin user (platform:admin) is NOT on ${E2E_GAM_USER}'s access list. It
+      #    may read the list (platform:admin, GAM-03); ${E2E_GAM_USER} is the sole owner.
+      GAM_PA_ADMIN_ROLE=$(gam_user_role "$GAM_PA_GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_OIDC_USERNAME")
+      GAM_PA_ALICE_ROLE=$(gam_user_role "$GAM_PA_GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_USER")
+      if [[ -z "$GAM_PA_ADMIN_ROLE" && "$GAM_PA_ALICE_ROLE" == "owner" ]]; then
+        pass "Platform admin (${E2E_OIDC_USERNAME}) is not listed on ${E2E_GAM_USER}'s gateway (owner=${E2E_GAM_USER})"
+      else
+        fail_test "Access management: expected ${E2E_OIDC_USERNAME} absent and ${E2E_GAM_USER}=owner, got admin='${GAM_PA_ADMIN_ROLE}' ${E2E_GAM_USER}='${GAM_PA_ALICE_ROLE}'"
+      fi
+
+      # 3. the admin user (platform:admin, no binding here) adds ${E2E_GAM_ADMIN} as a
+      #    user -- the owner-equivalent access management of GAM-08.
+      gam_wait_directory "$GAM_PA_GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_ADMIN" || true
+      show_cmd "POST .../gateways/${GAM_PA_GW_ID}/access {user: ${E2E_GAM_ADMIN}, role: user} (as platform admin ${E2E_OIDC_USERNAME})"
+      GAM_CODE=$(gam_grant "$GAM_PA_GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_ADMIN" user)
+      if [[ "$GAM_CODE" =~ ^2 ]]; then
+        pass "Platform admin (${E2E_OIDC_USERNAME}) added ${E2E_GAM_ADMIN} as a user on a gateway it does not own (HTTP ${GAM_CODE})"
+      else
+        fail_test "Access management: platform-admin grant of ${E2E_GAM_ADMIN} returned HTTP ${GAM_CODE:-none} (want 2xx)"
+        dim "    ${GAM_LAST_BODY:0:200}"
+      fi
+      if [[ "$(gam_user_role "$GAM_PA_GW_ID" "$GAM_OWNER_API_TOKEN" "$E2E_GAM_ADMIN")" == "user" ]]; then
+        pass "${E2E_GAM_ADMIN} now holds the 'user' tier on ${E2E_GAM_USER}'s gateway"
+      else
+        fail_test "Access management: ${E2E_GAM_ADMIN} is not listed as 'user' after the platform-admin grant"
+      fi
+
+      # cleanup: delete ${E2E_GAM_USER}'s gateway as the platform admin (GAM-01).
+      GAM_PA_DEL_F=$(mktemp)
+      GAM_PA_DEL_CODE=$(_driver_curl -o "$GAM_PA_DEL_F" -w '%{http_code}' -X DELETE \
+        "${API_HOST}/api/hypershell/v1/gateways/${GAM_PA_GW_ID}" \
+        -H "Authorization: Bearer ${GAM_OWNER_API_TOKEN}" 2>/dev/null || true)
+      rm -f "$GAM_PA_DEL_F"
+      if [[ "$GAM_PA_DEL_CODE" == "204" || "$GAM_PA_DEL_CODE" == "200" ]]; then
+        GAM_NEW_EXTRA=(); for _x in "${E2E_EXTRA_GW_IDS[@]}"; do [[ "$_x" != "$GAM_PA_GW_ID" ]] && GAM_NEW_EXTRA+=("$_x"); done
+        E2E_EXTRA_GW_IDS=("${GAM_NEW_EXTRA[@]}")
+      fi
+    fi
+  fi
+
   acquire_oidc_token 2>/dev/null || true  # restore admin token for later areas
 fi
 sep
