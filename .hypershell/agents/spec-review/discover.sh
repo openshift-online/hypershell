@@ -41,9 +41,9 @@ while IFS= read -r issue_json && (( emitted < MAX_ITEMS )); do
   issue_number=$(printf '%s' "$issue_json" | jq -r '.number')
   issue_url=$(printf '%s' "$issue_json" | jq -r '.url')
 
-  # Find the linked PR: look for open PRs on branch agent/work/issue/<number> or matching issue ref.
+  # Find the linked PR: look for open PRs on branch implementer/spec-<number>.
   pr_data=$(gh api --paginate \
-    "repos/$REPOSITORY/pulls?state=open&head=${REPOSITORY%%/*}:agent/work/issue/$issue_number&per_page=10" \
+    "repos/$REPOSITORY/pulls?state=open&head=${REPOSITORY%%/*}:implementer/spec-$issue_number&per_page=10" \
     --jq 'first | {pr_number: .number, pr_url: .html_url} // empty' 2>/dev/null || true)
 
   if [[ -z "$pr_data" ]]; then
