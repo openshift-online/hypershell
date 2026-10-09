@@ -1,6 +1,6 @@
 # Release bundle
 
-This pipeline publishes the four Snapshot images after a successful Konflux
+This pipeline publishes the six Snapshot images after a successful Konflux
 managed release as one OCI artifact. It uses the existing API server build repository:
 
 ```text
@@ -36,10 +36,10 @@ The publisher requires all of these conditions:
 
 - The Release uses `hypershell-releaseplan` in `hcm-eng-prod-tenant`.
 - The managed pipeline has status `True` and reason `Succeeded`.
-- The Snapshot contains exactly the four expected components.
+- The Snapshot contains exactly the six expected components.
 - The release lists at least one image, with no unknown or duplicate components.
 - Each image listed in the release matches the Snapshot digest and release repository.
-- All four Snapshot digests are available in their fixed release repositories.
+- All six Snapshot digests are available in their fixed release repositories.
 - Each source revision belongs to the history of `hypershell` main.
 - Any event-type metadata identifies a push event.
 
@@ -59,7 +59,7 @@ it writes the bundle. An omitted image that is unavailable there stops publicati
 the publisher does not substitute a tag or another digest.
 
 Konflux can keep an earlier image for an unchanged component. The bundle keeps
-all four source revisions. A Snapshot can also contain an earlier image while
+all six source revisions. A Snapshot can also contain an earlier image while
 another component build is still running. This pipeline preserves the accepted
 Snapshot; it does not add a test that waits for all builds from one commit.
 
@@ -125,8 +125,8 @@ and [Promoter delivery specification](https://github.com/openshift-online/hypers
 1. Merge the source PR and then the tenant config MR.
 2. Let a main component build complete and pass the configured release checks.
 3. Check the final PipelineRun. Its `bundle` result must contain an OCI digest.
-4. Download that digest and check the four component digests and source revisions.
-5. Verify Renovate expands the four-component bundle and the existing GitOps
+4. Download that digest and check the six component digests and source revisions.
+5. Verify Renovate expands the six-component bundle and the existing GitOps
    promotion checks accept it.
 
 No cluster login is required to submit these changes. The first Konflux run is
@@ -152,7 +152,7 @@ References:
 ## CLI and GitHub release
 
 See [the release specification](../../specs/platform/hsctl-release.spec.md).
-The CLI is the fourth required component. Its released image contains all five
+The CLI and both agent runtime images are required bundle components. Its released image contains all five
 platform binaries under `/releases/`; the publisher extracts these by digest.
 The default runtime container is Linux amd64. Downloads cover Linux and macOS
 amd64/arm64 and Windows amd64. Download a binary, rename it to `hsctl` (or
@@ -178,8 +178,8 @@ creates a new identity, even for the same Snapshot. Old bundles are not backfill
 
 ### Rollout order
 
-1. Merge GitOps reader compatibility first: accept historical three-component
-   bundles and new four-component bundles, retaining the CLI without deploying it.
+1. Merge GitOps reader compatibility first: accept historical three- and four-component
+   bundles and new six-component bundles, retaining the CLI and agent runtimes without deploying them.
 2. Create and install a release GitHub App on `openshift-online/hypershell`
    with repository Contents read/write, permitted to create `release-bundle-*`
    tags. Have the approved secret delivery mechanism provision
@@ -187,26 +187,26 @@ creates a new identity, even for the same Snapshot. Old bundles are not backfill
    `installation-id`, and `private-key.pem`. The publisher exchanges a signed App
    JWT for a fresh token restricted to this repository and Contents write on each
    run. The token stays in process memory; it is not a stored secret.
-3. Add the CLI managed release mapping with the same destination and tag policy
+3. Add the CLI and agent runtime managed release mappings with the same destination and tag policy
    as the existing services.
-4. Merge the application source changes and the tenant CLI Component/ImageRepository
-   registration. The initial CLI build must complete and be promoted before a
-   four-component bundle can succeed. During this transition, incomplete Snapshots
+4. Merge the application source changes and the tenant CLI and agent runtime Component/ImageRepository
+   registrations. All initial builds must complete and be promoted before a
+   six-component bundle can succeed. During this transition, incomplete Snapshots
    fail closed; existing deployed bundles remain usable.
 5. Verify the first final PipelineRun, its Quay bundle, the corresponding GitHub
    release and seven assets. Check the attached `bundle.json` matches the OCI
    layer byte-for-byte and every download matches `SHA256SUMS`.
-6. Ensure downstream bundle consumers tolerate four components and select the
-   three deployable services by name. CLI inclusion does not create a workload.
+6. Ensure downstream bundle consumers tolerate six components and select the
+   three deployable services by name. CLI and agent runtime inclusion does not create a workload.
 
 This source change does not provision secrets or apply the external tenant and
 managed configuration. Those configuration changes require their own merges.
 
-### Pending GitHub App provisioning
+### GitHub App provisioning
 
-The App and credential are not provisioned yet. The pipeline declares the secret
-contract above; it cannot publish GitHub releases until that secret exists.
-No secret values or guessed Vault paths are included in these changes.
+The App and tenant credential were provisioned, and live GitHub release publication
+succeeded on 2026-10-09. The agent runtime extension reuses that secret contract.
+No new GitHub credentials are required.
 
 The [RelEng secret SOP](https://gitlab.cee.redhat.com/konflux/docs/sop/-/blob/main/releng/secrets.md#managing-secrets)
 uses AppSRE Vault and ExternalSecret resources in `konflux-release-data` to
@@ -222,3 +222,6 @@ App and installation IDs are supplied as `GITHUB_APP_ID` and
 `GITHUB_INSTALLATION_ID`. A replacement private key can be delivered through the
 same secret mechanism without changing the pipeline. GitHub tokens expire after
 one hour; each retry obtains a new token and resumes the existing release.
+
+For the agent runtime rollout and separate tenant/managed MRs, see
+[`components/agents/README.md`](../../components/agents/README.md).

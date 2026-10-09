@@ -460,7 +460,7 @@ def main() -> int:
             path = Path(relative_path)
             if _is_action_config(relative_path):
                 violations.extend(_workflow_violations(relative_path, lines))
-            if path.name.lower().startswith("dockerfile"):
+            if path.name.lower().startswith("dockerfile") or path.suffix == ".docker":
                 violations.extend(_dockerfile_violations(relative_path, lines))
             if _is_manifest(relative_path):
                 violations.extend(_manifest_violations(relative_path, lines))

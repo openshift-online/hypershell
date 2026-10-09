@@ -262,7 +262,7 @@ _github_assets = []
 def github(method, path, data=None, *, binary=False):
     global _github_release
     if path.startswith('/git/ref/'):
-        return {'object': {'type': 'commit', 'sha': '4' * 40}}
+        return {'object': {'type': 'commit', 'sha': str(len(COMPONENTS)) * 40}}
     if path.startswith('/releases/tags/'):
         return _github_release
     if path.startswith('/releases?'):
@@ -308,7 +308,7 @@ def github(method, path, data=None, *, binary=False):
                         'printf "%s\\n" "${last##*@}";; *:release-bundle-*) '
                         '[ -f "$FIXTURES/published.json" ] || { echo "manifest not found" >&2; exit 1; }; '
                         'printf "{}\\n" | sha256sum | cut -d " " -f 1 | sed "s/^/sha256:/";; '
-                        '*) case "$last" in *api-server*) digit=1;; *control-plane*) digit=2;; *web-console*) digit=3;; *cli*) digit=4;; esac; ' +
+                        '*) case "$last" in *api-server*) digit=1;; *control-plane*) digit=2;; *web-console*) digit=3;; *cli*) digit=4;; *agent-runtime-slim*) digit=6;; *agent-runtime*) digit=5;; esac; ' +
                         'printf "sha256:"; i=0; while [ $i -lt 64 ]; do printf "%s" "$digit"; i=$((i+1)); done;; esac;; '
                         'pull) cp "$FIXTURES/published.json" "$5/bundle.json";; '
                         'manifest) cat "$FIXTURES/manifest.json";; '
@@ -337,7 +337,7 @@ def github(method, path, data=None, *, binary=False):
                     self.assertEqual(first_reference, (root / "result").read_text())
             if result.returncode == 0:
                 published = json.loads((root / "published.json").read_text())
-                self.assertEqual(published["manifests"], {"git": {"url": bundle.SOURCE_URL, "revision": "4" * 40}})
+                self.assertEqual(published["manifests"], {"git": {"url": bundle.SOURCE_URL, "revision": str(len(bundle.COMPONENTS)) * 40}})
             reference = (root / "result").read_text() if (root / "result").exists() else None
             return result, commands.read_text(), reference
 
@@ -364,7 +364,7 @@ def github(method, path, data=None, *, binary=False):
         self.assertIn("refusing to overwrite", result.stderr)
         self.assertEqual(commands.count("oras push "), 1)
 
-    def test_partial_release_checks_all_four_released_images(self):
+    def test_partial_release_checks_all_required_released_images(self):
         result, commands, reference = self.run_bootstrap(partial_release=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(reference.startswith(bundle.BUNDLE_REPOSITORY + "@sha256:"))

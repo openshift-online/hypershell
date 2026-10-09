@@ -207,5 +207,13 @@
       ".github/workflows/tests.yml"
     ],
     "unit_tested": true
+  },
+  "agents": {
+    "directory": "components/agents",
+    "paths": [
+      "components/agents/**",
+      "components/cli/**"
+    ],
+    "unit_tested": false
   }
 }

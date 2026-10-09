@@ -1,0 +1,9 @@
+[
+  {
+    "name": "pnpm",
+    "version": "11.15.1",
+    "url": "https://registry.npmjs.org/pnpm/-/pnpm-11.15.1.tgz",
+    "sha256": "27460629b10111604e7f98882753b53398986820c20e0a065f3a4a5e9e7db71f",
+    "directory": "pnpm"
+  }
+]

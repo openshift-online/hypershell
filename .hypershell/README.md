@@ -142,3 +142,14 @@ The gitops coordinator:
 The coordinator is responsible for: gateway login, `openshell` installation,
 sandbox lifecycle, secret injection, and GitHub App token refresh. These
 concerns do not belong in `discover.sh` or `run.sh`.
+
+## Agent runtime images
+
+The image definitions live in [`components/agents`](../components/agents/README.md).
+Use `agent-runtime` for code implementation/review requiring compilers and
+`agent-runtime-slim` for triage/spec automation. Both provide native Claude Code,
+Atlassian CLI, GitHub CLI, hsctl, Python and shell utilities. The harness SHALL
+resolve their image digests from the selected release bundle, clone the trusted
+repository into `/sandbox/hypershell`, and inject per-run credentials. Agent scripts
+and credentials are not embedded in these images. Bundle membership does not
+change existing harness image selections automatically.

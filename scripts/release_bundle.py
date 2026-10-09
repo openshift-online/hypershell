@@ -29,6 +29,8 @@ COMPONENTS = (
     "hypershell-control-plane-main",
     "hypershell-web-console-main",
     "hypershell-cli-main",
+    "hypershell-agent-runtime-main",
+    "hypershell-agent-runtime-slim-main",
 )
 # Components built by the hypershell-main Konflux application that ship on their
 # own rather than through the release bundle. The fleet-dashboard is pinned by its
@@ -231,7 +233,7 @@ def indexed(items, *, require_all=True):
     require(len(result) == len(items), "Duplicate component names")
     require(set(result) <= set(COMPONENTS), "Unexpected component names: " + ", ".join(sorted(set(result) - set(COMPONENTS))))
     if require_all:
-        require(set(result) == set(COMPONENTS), "The snapshot must contain all four components")
+        require(set(result) == set(COMPONENTS), "The snapshot is missing required components: " + ", ".join(sorted(set(COMPONENTS) - set(result))))
     else:
         require(result, "The release has no image artifacts")
     return result
