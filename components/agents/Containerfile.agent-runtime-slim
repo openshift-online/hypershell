@@ -1,0 +1,82 @@
+# Build from the repository root. Native builds: set TARGETARCH to amd64 or arm64.
+ARG TARGETARCH=amd64
+FROM registry.access.redhat.com/hi/go:1.26.7@sha256:2a2215ce496fdd33fdc19739eaadde902f7719c8be222f22f92fd7da02c889cb AS go-amd64
+FROM registry.access.redhat.com/hi/go:1.26.7@sha256:ba850dda34c47052bb8db5561c80c43fb08d0f9a729c90fddd755a2d5b46f74b AS go-arm64
+FROM go-${TARGETARCH} AS hsctl-builder
+WORKDIR /src
+COPY components/cli/go.mod components/cli/go.sum ./
+RUN go mod download
+COPY components/cli/cmd/ cmd/
+COPY components/cli/pkg/ pkg/
+COPY components/cli/data/ data/
+COPY components/cli/build-release.sh ./
+ARG TARGETARCH
+RUN HSCTL_RELEASE_TARGETS=linux-${TARGETARCH} sh build-release.sh && cp dist/hsctl-linux-${TARGETARCH} /hsctl
+
+FROM registry.access.redhat.com/hi/python:3.14.8@sha256:eb10043d7f438dbd747881af197fd3c01f12531f187284b8e2f50fc2427488d2 AS runtime-base
+FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7 AS tools
+USER 0
+COPY components/agents/install-tools.py /inputs/install-tools.py
+COPY components/agents/locks/tools-*.json /inputs/locks/
+ARG TARGETARCH
+RUN python3 /inputs/install-tools.py tools /inputs/locks/tools-${TARGETARCH}.json /tools
+
+FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7 AS assembler
+USER 0
+COPY --from=runtime-base / /rootfs/
+COPY components/agents/install-tools.py components/agents/assemble-rootfs.sh /inputs/
+COPY components/agents/locks/ /inputs/locks/
+ARG TARGETARCH
+RUN bash /inputs/assemble-rootfs.sh slim ${TARGETARCH}
+
+# The complete rootfs derives from runtime-base; flatten it to avoid duplicating
+# all Python/base layers after offline RPM installation.
+FROM scratch
+COPY --from=assembler /rootfs/ /
+COPY --from=tools /tools/ /usr/local/bin/
+COPY --from=hsctl-builder /hsctl /usr/local/bin/hsctl
+ENV HOME=/home/agent \
+    XDG_CONFIG_HOME=/home/agent/.config \
+    XDG_CACHE_HOME=/home/agent/.cache \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DISABLE_AUTOUPDATER=1 \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    GH_PROMPT_DISABLED=1 \
+    GIT_TERMINAL_PROMPT=0
+ENV PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin
+WORKDIR /sandbox
+USER 10001:0
+ENTRYPOINT []
+CMD ["/bin/bash"]
+
+ARG GIT_REVISION=unknown
+ARG GIT_VERSION=development
+LABEL org.opencontainers.image.title="HyperShell agent-runtime-slim" \
+      org.opencontainers.image.description="Automation agent runtime with shell utilities, Python, hsctl, Claude Code, GitHub CLI and Atlassian CLI" \
+      org.opencontainers.image.source="https://github.com/openshift-online/hypershell" \
+      org.opencontainers.image.url="https://github.com/openshift-online/hypershell" \
+      org.opencontainers.image.documentation="https://github.com/openshift-online/hypershell/tree/main/components/agents" \
+      org.opencontainers.image.vendor="Red Hat, Inc." \
+      org.opencontainers.image.authors="HyperShell contributors" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.revision="${GIT_REVISION}" \
+      org.opencontainers.image.version="${GIT_VERSION}" \
+      org.opencontainers.image.base.name="registry.access.redhat.com/hi/python:3.14.8" \
+      org.opencontainers.image.base.digest="sha256:eb10043d7f438dbd747881af197fd3c01f12531f187284b8e2f50fc2427488d2" \
+      vcs-type="git" \
+      vcs-ref="${GIT_REVISION}" \
+      maintainer="HyperShell contributors" \
+      name="hypershell/agent-runtime-slim" \
+      summary="HyperShell agent execution environment" \
+      description="Automation agent runtime with shell utilities, Python, hsctl, Claude Code, GitHub CLI and Atlassian CLI" \
+      com.redhat.component="hypershell-agent-runtime-slim" \
+      distribution-scope="public" \
+      url="https://github.com/openshift-online/hypershell" \
+      vendor="Red Hat, Inc." \
+      version="${GIT_VERSION}" \
+      release="${GIT_REVISION}" \
+      io.k8s.display-name="HyperShell agent-runtime-slim" \
+      io.k8s.description="Automation agent runtime with shell utilities, Python, hsctl, Claude Code, GitHub CLI and Atlassian CLI" \
+      io.openshift.tags="hypershell,agents" \
+      io.openshift.non-scalable="true"
