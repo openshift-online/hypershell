@@ -441,7 +441,8 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 }
 
 // p3_1AdminInventory verifies the admin-only /users boundary (non-admin 403,
-// opaque 404 on a singleton Get) and rejection of an unknown gateway phase write.
+// opaque 404 on a singleton Get) and rejection of an unknown gateway phase write
+// by the primary gateway's owner.
 // Password-grant runs compare the developer and platform-admin users; brokered
 // client-credentials runs compare the privileged hypershell-e2e service account
 // and the unprivileged hypershell-control-plane service account.
@@ -450,6 +451,9 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 
 	privilegedAPI := s.admin
 	privilegedLabel := "platform-admin"
+	// The primary gateway's creator owns it. Its owner binding authorizes PATCH,
+	// while platform:admin is intentionally inventory-only for gateway mutation.
+	phaseValidationAPI := s.admin
 	var unprivilegedAPI *apiclient.Client
 	unprivilegedLabel := "developer"
 	if usesSingleServiceAccountIdentity() {
@@ -493,9 +497,9 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 		s.Assert().Equalf(http.StatusNotFound, st, "%s singleton user Get must be opaque 404", unprivilegedLabel)
 	}
 
-	s.runner.Show("PATCH /gateways/%s {\"phase\":\"Bogus-e2e-phase\"}  # expect 400", s.primary.ID)
-	st, body, err = privilegedAPI.RawJSON(ctx, http.MethodPatch, "/gateways/"+s.primary.ID, map[string]string{"phase": "Bogus-e2e-phase"})
-	s.Require().NoErrorf(err, "%s patch gateway phase", privilegedLabel)
+	s.runner.Show("PATCH /gateways/%s {\"phase\":\"Bogus-e2e-phase\"}  # as gateway owner, expect 400", s.primary.ID)
+	st, body, err = phaseValidationAPI.RawJSON(ctx, http.MethodPatch, "/gateways/"+s.primary.ID, map[string]string{"phase": "Bogus-e2e-phase"})
+	s.Require().NoErrorf(err, "gateway owner patch gateway phase")
 	s.Assert().Equalf(http.StatusBadRequest, st, "unknown phase write must be 400 (body: %s)", string(body))
 	s.Assert().Containsf(strings.ToLower(string(body)), "phase", "400 reason should name the phase field (body: %s)", string(body))
 }
