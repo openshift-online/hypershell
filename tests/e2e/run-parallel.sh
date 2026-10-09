@@ -149,4 +149,15 @@ echo "[run-parallel] results ($(($(date +%s) - start))s total):"
 for line in "${summary[@]}"; do
   echo "[run-parallel]   ${line}"
 done
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    echo ""
+    echo "### E2E suite timings"
+    echo ""
+    for line in "${summary[@]}"; do
+      echo "- ${line}"
+    done
+    echo "- total: $(($(date +%s) - start))s"
+  } >>"${GITHUB_STEP_SUMMARY}"
+fi
 exit "$failed"

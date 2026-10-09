@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/suite"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/openshift-online/hypershell/tests/e2e/apiclient"
 	"github.com/openshift-online/hypershell/tests/e2e/driver"
@@ -37,23 +39,22 @@ const (
 type E2ESuite struct {
 	suite.Suite
 
-	driver   driver.E2EInfraDriver
-	clients  *harness.Clients
-	runner   *harness.CommandRunner
-	reporter *harness.Reporter
+	driver  driver.E2EInfraDriver
+	clients *harness.Clients
+	runner  *harness.CommandRunner
 
 	mode        string
 	concurrency int
 	ctx         context.Context
 	runID       string
+	timings     *harness.TimingReporter
 	// startedAt bounds log scans (for example the control-plane Unauthenticated
 	// check) to activity during this run, ignoring stale pre-run log noise.
 	startedAt time.Time
 
-	apiHost    string
-	adminToken driver.Token
-	admin      *apiclient.Client
-	clusterID  string
+	apiHost   string
+	admin     *apiclient.Client
+	clusterID string
 
 	// clusterIDOverride, when set (by the matrix runner), pins the suite to a
 	// specific cluster id instead of discovering the seeded one. nameSuffix is
@@ -68,35 +69,53 @@ type E2ESuite struct {
 	primaryGatewayToken driver.Token
 	// primaryLocalName is the CLI's local handle for the primary gateway.
 	primaryLocalName string
-	// caFilePath caches the cluster CA written to disk for the CLI's SSL_CERT_FILE.
-	caFilePath string
-	// cliKubeconfigPath caches a temp kubeconfig pinned to E2E_KUBECONTEXT for the
-	// CLI wrapper's kubectl.
-	cliKubeconfigPath string
-	// openshiftCLIImage caches the gateway-version-matched openshell CLI image used
-	// by the OpenShift CLI path.
-	openshiftCLIImage string
+	gateways         *gatewayTracker
+	cliCache         *cliCache
+	orphan           *orphanReaper
+}
 
-	mu              sync.Mutex
-	createdGateways []string // gateway ids to clean up on teardown
+type gatewayTracker struct {
+	mu  sync.Mutex
+	ids []string
+}
+
+type cliCache struct {
+	mu                sync.Mutex
+	caFilePath        string
+	cliKubeconfigPath string
+	openshiftCLIImage string
+}
+
+type orphanReaper struct {
+	name   string
+	done   <-chan error
+	cancel context.CancelFunc
 }
 
 func newE2ESuite(d driver.E2EInfraDriver, clients *harness.Clients) *E2ESuite {
-	return &E2ESuite{driver: d, clients: clients}
+	return &E2ESuite{
+		driver:   d,
+		clients:  clients,
+		gateways: &gatewayTracker{},
+		cliCache: &cliCache{},
+	}
 }
 
 // SetupSuite establishes the shared state every step depends on: the run id, the
-// discovered API host, the admin token and API client, and the seeded cluster and
-// release ids. In long mode it shortens the controller's namespace-GC timing for
+// discovered API host, the admin token and API client, and the seeded cluster id.
+// In long mode it shortens the controller's namespace-GC timing for
 // the P2.3 orphan-reaper assertion. A failure here fails the run; TearDownSuite
 // still runs.
 func (s *E2ESuite) SetupSuite() {
-	s.ctx = context.Background()
+	s.ctx = s.T().Context()
 	s.startedAt = time.Now()
+	s.timings = harness.NewTimingReporter(s.startedAt)
 	s.runner = harness.NewCommandRunner(s.T().Logf)
-	s.reporter = harness.NewReporter()
 	s.mode = envOrDefault("E2E_MODE", modeLong)
 	s.concurrency = intEnv("E2E_CONCURRENCY", 4)
+	if s.concurrency < 1 {
+		s.concurrency = 1
+	}
 	s.runID = strconv.FormatInt(time.Now().Unix()%100000, 10)
 	if s.nameSuffix != "" {
 		s.runID = s.runID + "-" + s.nameSuffix
@@ -104,13 +123,39 @@ func (s *E2ESuite) SetupSuite() {
 
 	s.T().Logf("e2e mode=%s concurrency=%d driver=%s runID=%s", s.mode, s.concurrency, s.driver.Name(), s.runID)
 
-	apiHost, err := s.driver.DiscoverAPIHost(s.ctx)
-	s.Require().NoError(err, "discover API host")
+	var apiHost string
+	var tok driver.Token
+	g, ctx := errgroup.WithContext(s.ctx)
+	g.SetLimit(s.concurrency)
+	g.Go(func() error {
+		var err error
+		apiHost, err = s.driver.DiscoverAPIHost(ctx)
+		if err != nil {
+			return fmt.Errorf("discover API host: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		var err error
+		tok, err = s.driver.AcquireOIDCToken(ctx, s.adminCreds())
+		if err != nil {
+			return fmt.Errorf("acquire admin OIDC token: %w", err)
+		}
+		return nil
+	})
+	if s.mode == modeLong {
+		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
+		grace := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 30*time.Second)
+		s.runner.Comment("shorten controller namespace-GC timing to interval=%s grace=%s for the P2.3 orphan-reaper assertion", interval, grace)
+		g.Go(func() error {
+			if err := s.driver.ConfigureNamespaceGCTiming(ctx, interval, grace); err != nil {
+				return fmt.Errorf("configure namespace GC timing: %w", err)
+			}
+			return nil
+		})
+	}
+	s.Require().NoError(g.Wait(), "parallel suite setup")
 	s.apiHost = apiHost
-
-	tok, err := s.driver.AcquireOIDCToken(s.ctx, s.adminCreds())
-	s.Require().NoError(err, "acquire admin OIDC token")
-	s.adminToken = tok
 
 	api, err := s.driver.APIClient(s.ctx, tok)
 	s.Require().NoError(err, "build admin API client")
@@ -121,12 +166,6 @@ func (s *E2ESuite) SetupSuite() {
 	s.clusterID = clusterID
 	s.T().Logf("seed ids: cluster=%s", clusterID)
 
-	if s.mode == modeLong {
-		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
-		grace := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 30*time.Second)
-		s.runner.Comment("shorten controller namespace-GC timing to interval=%s grace=%s for the P2.3 orphan-reaper assertion", interval, grace)
-		s.Require().NoError(s.driver.ConfigureNamespaceGCTiming(s.ctx, interval, grace), "configure namespace GC timing")
-	}
 }
 
 // TearDownSuite restores GC timing, deletes the gateways the suite created, calls
@@ -134,18 +173,36 @@ func (s *E2ESuite) SetupSuite() {
 // run even when SetupSuite failed partway, and it never panics on a cleanup error.
 func (s *E2ESuite) TearDownSuite() {
 	ctx := context.Background()
+	if s.orphan != nil && s.orphan.cancel != nil {
+		s.orphan.cancel()
+	}
+
+	cleanupAPI := s.admin
+	if s.driver != nil {
+		if tok, err := s.driver.AcquireOIDCToken(ctx, s.adminCreds()); err == nil {
+			if api, err := s.driver.APIClient(ctx, tok); err == nil {
+				cleanupAPI = api
+			}
+		}
+	}
+	if cleanupAPI != nil {
+		g, ctx := errgroup.WithContext(ctx)
+		g.SetLimit(max(1, s.concurrency))
+		for _, id := range s.gatewayIDs() {
+			id := id
+			g.Go(func() error {
+				if err := cleanupAPI.Gateways().Delete(ctx, id); err != nil {
+					s.T().Logf("WARN delete gateway %s: %v", id, err)
+				}
+				return nil
+			})
+		}
+		_ = g.Wait()
+	}
 
 	if s.driver != nil {
 		if err := s.driver.RestoreNamespaceGCTiming(ctx); err != nil {
 			s.T().Logf("WARN restore namespace GC timing: %v", err)
-		}
-	}
-
-	if s.admin != nil {
-		for _, id := range s.gatewayIDs() {
-			if err := s.admin.Gateways().Delete(ctx, id); err != nil {
-				s.T().Logf("WARN delete gateway %s: %v", id, err)
-			}
 		}
 	}
 
@@ -155,16 +212,19 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 	}
 
-	if s.reporter != nil {
-		s.T().Log(s.reporter.Summary())
+	if s.timings != nil {
+		summary := s.timings.Summary(time.Now())
+		s.T().Log(summary)
+		if err := harness.AppendGitHubStepSummary("Go functional E2E timing", summary); err != nil {
+			s.T().Logf("WARN append E2E timing to GitHub step summary: %v", err)
+		}
 	}
 }
 
 // TestPhases drives the phase steps in canonical order. P0 and P1 are the
 // sequential fail-fast gate (Require); on any gate failure the run stops rather
-// than cascading into dependent steps. P2 and P3 follow (the parallel concurrency
-// model is layered in a later wave; today they run sequentially, which is the
-// defined E2E_CONCURRENCY=1 behavior).
+// than cascading into dependent steps. P2 and P3 use bounded parallel subtests;
+// E2E_CONCURRENCY=1 preserves strict canonical order for debugging.
 func (s *E2ESuite) TestPhases() {
 	// Phase P0 -- preflight gate.
 	s.gate("P0.1", "authentication", tagShort, s.p0_1Authentication)
@@ -177,14 +237,28 @@ func (s *E2ESuite) TestPhases() {
 	s.gate("P1.4", "route-cli-registration", tagShort, s.p1_4RouteAndCLIRegistration)
 	s.gate("P1.5", "connectivity", tagShort, s.p1_5Connectivity)
 
-	// Phase P2 -- hard behaviors. (Parallel fan-out lands in a later wave.)
-	s.step("P2.1", "sandbox-lifecycle", tagShort, s.p2_1SandboxLifecycle)
-	s.step("P2.2", "rbac-enforcement", tagLong, s.p2_2RBACEnforcement)
-	s.step("P2.3", "deletion-namespace-gc", tagShort, s.p2_3DeletionAndGC)
-	s.step("P2.4", "managedcluster-lifecycle", tagLong, s.p2_4ManagedClusterLifecycle)
+	// Phase P2 -- hard behaviors. At concurrency > 1, start the known longest
+	// steps first. At concurrency 1, retain canonical phase order.
+	p2 := []parallelSubtest{
+		s.parallelStep("P2.1", "sandbox-lifecycle", tagShort, (*E2ESuite).p2_1SandboxLifecycle),
+		s.parallelStep("P2.2", "rbac-enforcement", tagLong, (*E2ESuite).p2_2RBACEnforcement),
+		s.parallelStep("P2.3", "deletion-namespace-gc", tagShort, (*E2ESuite).p2_3DeletionAndGC),
+		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
+	}
+	if s.concurrency > 1 {
+		p2 = []parallelSubtest{p2[0], p2[2], p2[1], p2[3]}
+	}
+	s.T().Run("Phase-P2", func(t *testing.T) {
+		runParallelSubtests(t, s.concurrency, p2)
+	})
 
-	// Phase P3 -- read-only verification.
-	s.step("P3.1", "admin-inventory-validation", tagLong, s.p3_1AdminInventory)
+	// Phase P3 -- read-only verification. The bounded runner makes future P3
+	// additions parallel without changing orchestration.
+	s.T().Run("Phase-P3", func(t *testing.T) {
+		runParallelSubtests(t, s.concurrency, []parallelSubtest{
+			s.parallelStep("P3.1", "admin-inventory-validation", tagLong, (*E2ESuite).p3_1AdminInventory),
+		})
+	})
 }
 
 // gate runs a step on the sequential fail-fast critical path: if it fails, the
@@ -196,33 +270,92 @@ func (s *E2ESuite) gate(id, slug, tag string, fn func(t *testing.T)) {
 	}
 }
 
-// step runs one phase step as a named subtest, applies mode gating (a step not in
-// the active mode is skipped, never silently passed), and records the pass/fail/skip
-// outcome with the reporter.
+// step runs one phase step as a named subtest and applies mode gating. A step not
+// in the active mode is skipped rather than silently passed; Go's test output is
+// the canonical per-step result report.
 func (s *E2ESuite) step(id, slug, tag string, fn func(t *testing.T)) {
 	name := id + "-" + slug
 	s.Run(name, func() {
 		t := s.T()
+		started := time.Now()
+		defer s.recordTiming(t, id, slug, started)
 		if !s.modeAllows(tag) {
-			s.reporter.Record(id, slug, harness.OutcomeSkip, "not in mode "+s.mode)
 			t.Skipf("step %s is %s-only; mode is %s", id, tag, s.mode)
 			return
 		}
-		defer func() {
-			switch {
-			case t.Failed():
-				s.reporter.Record(id, slug, harness.OutcomeFail, "")
-			case t.Skipped():
-				s.reporter.Record(id, slug, harness.OutcomeSkip, "")
-			default:
-				s.reporter.Record(id, slug, harness.OutcomePass, "")
-			}
-		}()
 		// Refresh the admin token at the start of each step so a long run (whose
 		// earlier steps can exceed the token TTL) does not hit 401s later.
 		s.refreshAdminToken()
 		fn(t)
 	})
+}
+
+func (s *E2ESuite) parallelStep(id, slug, tag string, fn func(*E2ESuite, *testing.T)) parallelSubtest {
+	return parallelSubtest{
+		name: id + "-" + slug,
+		run: func(t *testing.T) {
+			started := time.Now()
+			defer s.recordTiming(t, id, slug, started)
+			if !s.modeAllows(tag) {
+				t.Skipf("step %s is %s-only; mode is %s", id, tag, s.mode)
+				return
+			}
+			stepSuite := s.cloneForStep(t)
+			fn(stepSuite, t)
+		},
+	}
+}
+
+// cloneForStep gives a parallel subtest its own testify context, command logger,
+// token, and API client. Cleanup, CLI caches, orphan state, and timing remain
+// shared through explicitly synchronized pointers.
+func (s *E2ESuite) cloneForStep(t *testing.T) *E2ESuite {
+	t.Helper()
+	tok, err := s.driver.AcquireOIDCToken(t.Context(), s.adminCreds())
+	if err != nil {
+		t.Fatalf("acquire step admin OIDC token: %v", err)
+	}
+	api, err := s.driver.APIClient(t.Context(), tok)
+	if err != nil {
+		t.Fatalf("build step admin API client: %v", err)
+	}
+	clone := &E2ESuite{
+		driver:              s.driver,
+		clients:             s.clients,
+		runner:              harness.NewCommandRunner(t.Logf),
+		mode:                s.mode,
+		concurrency:         s.concurrency,
+		ctx:                 s.ctx,
+		runID:               s.runID,
+		timings:             s.timings,
+		startedAt:           s.startedAt,
+		apiHost:             s.apiHost,
+		admin:               api,
+		clusterID:           s.clusterID,
+		clusterIDOverride:   s.clusterIDOverride,
+		nameSuffix:          s.nameSuffix,
+		primary:             s.primary,
+		primaryGatewayToken: s.primaryGatewayToken,
+		primaryLocalName:    s.primaryLocalName,
+		gateways:            s.gateways,
+		cliCache:            s.cliCache,
+		orphan:              s.orphan,
+	}
+	clone.SetT(t)
+	return clone
+}
+
+func (s *E2ESuite) recordTiming(t *testing.T, id, slug string, started time.Time) {
+	if s.timings == nil {
+		return
+	}
+	outcome := "PASS"
+	if t.Skipped() {
+		outcome = "SKIP"
+	} else if t.Failed() {
+		outcome = "FAIL"
+	}
+	s.timings.Record(id, slug, time.Since(started), outcome)
 }
 
 // refreshAdminToken re-acquires the admin token and rebuilds the admin API client.
@@ -240,7 +373,6 @@ func (s *E2ESuite) refreshAdminToken() {
 	if err != nil {
 		return
 	}
-	s.adminToken = tok
 	s.admin = api
 }
 
@@ -278,16 +410,16 @@ func (s *E2ESuite) platformAdminCreds() driver.Credentials {
 
 // trackGateway records a gateway id for teardown cleanup.
 func (s *E2ESuite) trackGateway(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.createdGateways = append(s.createdGateways, id)
+	s.gateways.mu.Lock()
+	defer s.gateways.mu.Unlock()
+	s.gateways.ids = append(s.gateways.ids, id)
 }
 
 func (s *E2ESuite) gatewayIDs() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]string, len(s.createdGateways))
-	copy(out, s.createdGateways)
+	s.gateways.mu.Lock()
+	defer s.gateways.mu.Unlock()
+	out := make([]string, len(s.gateways.ids))
+	copy(out, s.gateways.ids)
 	return out
 }
 
@@ -296,6 +428,23 @@ func envOrDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// gatewayTLSInsecure reports whether the gateway's certificate chain is not
+// expected to be in the CLI's trust store. Kind uses a local self-signed CA;
+// OpenShift Gateway API endpoints use the cluster's publicly trusted ingress
+// certificate. An explicit operator override remains available for OpenShift's
+// legacy passthrough Route mode.
+func gatewayTLSInsecure(driverName string) bool {
+	return driverName == "kind" || os.Getenv("OPENSHELL_GATEWAY_INSECURE") == "true"
+}
+
+// usesSingleServiceAccountIdentity reports whether all named test users are
+// represented by the same brokered client-credentials service account. Tests
+// that assert boundaries between developer and platform-admin must not pretend
+// those identities exist in that mode.
+func usesSingleServiceAccountIdentity() bool {
+	return os.Getenv("E2E_OIDC_GRANT") == "client_credentials"
 }
 
 func intEnv(key string, def int) int {

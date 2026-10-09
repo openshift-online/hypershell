@@ -7,6 +7,7 @@ toolchain go1.26.7
 require (
 	github.com/openshift-online/hypershell/components/sdk-go v0.0.0
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/sync v0.21.0
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
 	k8s.io/client-go v0.36.3
