@@ -38,6 +38,7 @@
     "@patternfly/react-charts": "8.6.1",
     "@patternfly/react-core": "6.6.1",
     "@patternfly/react-icons": "6.6.1",
+    "@patternfly/react-styles": "6.6.1",
     "@patternfly/react-table": "6.6.1",
     "@patternfly/widgetized-dashboard": "1.0.0-prerelease.6",
     "@react-router/node": "8.3.0",

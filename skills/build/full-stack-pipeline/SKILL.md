@@ -11,6 +11,17 @@ description: >
 
 Implement spec-driven changes across all HyperShell platform components using a wave-based pipeline.
 
+## UI completion contract
+
+For a new or materially changed production page with an approved mockup,
+execute `skills/build/ui-build-gate/SKILL.md` before closing its wave. Pending
+gate work is not a terminal state.
+
+If the UI change has no corresponding mockup, warn the user and continue the
+wave. Do not create a mockup unless the task includes mockup or spec work. Skip
+`ui-build-gate` and all mockup-to-production parity checks; run the remaining
+wave checks.
+
 ## User Input
 
 ```text
@@ -44,17 +55,19 @@ Read the relevant spec in full. Extract:
 - All relationships and API routes
 - Design decisions
 
-For any spec that includes a web-console UI component, check
-`specs/web-console/mockups/` for the corresponding approved mockup and read
-its stories and relevant shared components before implementing the UI. Treat
-the mockup as the visual and interaction reference: the browser experience
-SHOULD remain recognizably consistent with it. Mockup code is not production
-code to copy verbatim. The implementer MAY refine the structure, component
-selection, responsive behavior, accessibility, localization, and application
-integration to fit the production application's needs. PatternFly components
-shown in the mockup are recommendations; production implementation SHALL
-follow the repository's UI standards and the application's technical
-boundaries.
+For any spec that includes web-console UI, check
+`specs/web-console/mockups/` for the corresponding mockup before implementation.
+
+- If no corresponding mockup exists, warn the user and continue without
+  mockup-to-production parity checks.
+- If an approved mockup exists, read its stories and relevant shared components
+  and use it as the visual and interaction reference. The browser experience
+  SHOULD remain recognizably consistent with it.
+
+Do not copy mockup code into production. The implementer MAY refine structure,
+component selection, responsive behavior, accessibility, localization, and
+application integration. Follow repository UI standards and application
+boundaries; mockup PatternFly choices are recommendations.
 
 This is the **desired state**. Everything else is measured against it.
 
@@ -136,6 +149,17 @@ Gateway         CLI         partial     get/list implemented, delete missing
   (OpenShift: `E2E_INFRA_DRIVER=openshift`; pull-request CI is the ephemeral
   PR environment workflow. The legacy `components/pr-test/e2e-openshell.sh`
   script has been removed.)
+
+#### Mandatory Storybook screenshot hard stop
+
+For a new or materially changed production page with an approved mockup, read
+and execute `skills/build/ui-build-gate/SKILL.md` after the production page and
+story render together. Wait for its terminal state. Close the wave only when
+the gate returns `Complete`, and record the validated manifest path in the wave
+handoff.
+
+If no corresponding mockup exists, retain the earlier warning in the wave
+handoff and skip this hard stop.
 
 Each wave is a gate. Do not start downstream work against an unstable upstream.
 

@@ -1,5 +1,6 @@
 import {
   Alert,
+  Button,
   Dropdown,
   DropdownItem,
   DropdownList,
@@ -18,7 +19,8 @@ import { useState } from "react";
 
 import { HealthStatus } from "../common/health-status";
 import { ProvisionGatewayButton } from "../common/provision-gateway-button";
-import { MockupTemplate } from "../shell/mockup-template";
+import { MockupShell } from "../shell/mockup-template";
+import { GatewayListPageSurface } from "./gateway-list-page-surface";
 
 export type GatewayListState = "loaded" | "empty" | "error";
 
@@ -73,11 +75,7 @@ function GatewayRowActions({
       )}
     >
       <DropdownList>
-        <DropdownItem
-          isExternalLink
-          rel="noreferrer"
-          to={consoleUrl}
-        >
+        <DropdownItem isExternalLink rel="noreferrer" to={consoleUrl}>
           Open gateway console
         </DropdownItem>
         <DropdownItem>Copy CLI connection command</DropdownItem>
@@ -127,18 +125,10 @@ function LoadedGatewayList() {
             <Th sort={{ columnIndex: 1, onSort, sortBy: {} }}>
               Active sandboxes
             </Th>
-            <Th sort={{ columnIndex: 2, onSort, sortBy: {} }}>
-              Cluster
-            </Th>
-            <Th sort={{ columnIndex: 3, onSort, sortBy: {} }}>
-              Status
-            </Th>
-            <Th sort={{ columnIndex: 4, onSort, sortBy: {} }}>
-              Created
-            </Th>
-            <Th sort={{ columnIndex: 5, onSort, sortBy: {} }}>
-              Created by
-            </Th>
+            <Th sort={{ columnIndex: 2, onSort, sortBy: {} }}>Cluster</Th>
+            <Th sort={{ columnIndex: 3, onSort, sortBy: {} }}>Status</Th>
+            <Th sort={{ columnIndex: 4, onSort, sortBy: {} }}>Created</Th>
+            <Th sort={{ columnIndex: 5, onSort, sortBy: {} }}>Created by</Th>
             <Th sort={{ columnIndex: 6, onSort, sortBy: {} }}>
               Gateway endpoint
             </Th>
@@ -149,7 +139,13 @@ function LoadedGatewayList() {
           {gateways.map((gateway) => (
             <Tr key={gateway.name}>
               <Td dataLabel="Name">
-                <a href={`/gateways/${gateway.name}`}>{gateway.name}</a>
+                <Button
+                  component="a"
+                  href={`/gateways/${gateway.name}`}
+                  variant="link"
+                >
+                  {gateway.name}
+                </Button>
               </Td>
               <Td dataLabel="Active sandboxes">{gateway.activeSandboxes}</Td>
               <Td dataLabel="Cluster">{gateway.cluster}</Td>
@@ -195,17 +191,20 @@ function ErrorGatewayList() {
   );
 }
 
-export function GatewayListMockup({ state }: { state: GatewayListState }) {
+export function GatewayListContent({ state }: { state: GatewayListState }) {
   return (
-    <MockupTemplate
-      onRefresh={() => undefined}
-      showBreadcrumbs={false}
-      showRefresh
-      title="OpenShell Gateways"
-    >
+    <>
       {state === "loaded" ? <LoadedGatewayList /> : null}
       {state === "empty" ? <EmptyGatewayList /> : null}
       {state === "error" ? <ErrorGatewayList /> : null}
-    </MockupTemplate>
+    </>
+  );
+}
+
+export function GatewayListMockup({ state }: { state: GatewayListState }) {
+  return (
+    <MockupShell>
+      <GatewayListPageSurface state={state} />
+    </MockupShell>
   );
 }

@@ -31,6 +31,7 @@ $ARGUMENTS
 - **Desired state only.** Ask what the system should do, not what's broken.
 - **Scope boundary.** Which components does this change touch? (API, gRPC, CP, plugins)
 - **Reserved terms check.** Verify no collision with HyperShell domain terms (Fleet, Gateway, GatewayNetwork, GatewayRelease, ManagedCluster).
+- **Visual deliverable check.** If the spec describes a new or materially changed visual web-console page and the user provides an approved screenshot or visual reference, the deliverable includes a repository mockup under `specs/web-console/mockups/` and its Storybook design-review story. Treat both the written spec and visual artifact as required before finalizing.
 
 ### Phase 2 -- Ground in the codebase
 
@@ -63,6 +64,14 @@ Check for:
 ### Phase 5 -- Apply and Verify
 
 Apply all fixes. Place the file in `specs/{domain}/` with filename `<descriptive-title>.spec.md`.
+
+When the Phase 1 visual deliverable check applies:
+
+- Create or update the mockup TSX/CSS and Storybook story.
+- Read `skills/web-console/ui-spec/references/patternfly-mockup-implementation.md`.
+- Run `skills/web-console/ui-spec/scripts/check_mockup_patternfly.py` on every changed mockup TSX/CSS file.
+- Reference the mockup story and source visual reference in the spec.
+- Do not finalize the spec while the mockup or its checks are missing.
 
 ## Spec Format Reference
 
