@@ -33,9 +33,11 @@ Quay promotion and `bundle.json` reference that index digest, so consumers use o
 image reference and their container engine selects the matching architecture.
 The Konflux instance must already provide both worker platforms.
 
-The workspace-based build tasks write shared SBOM files, so the two architectures
-run sequentially within each pipeline to avoid overwriting each other's files.
-The two image variants can build independently. Preflight and antivirus checks
+Clone and prefetch publish immutable Trusted Artifacts. Both architecture builds
+consume the same artifacts in isolated task storage and can run concurrently,
+without sharing writable source or SBOM files. Actual concurrency depends on
+Konflux worker capacity. The two image variants can also build independently.
+Preflight and antivirus checks
 run for both architectures. For a local native arm64 build, pass
 `--build-arg TARGETARCH=arm64` on an arm64 builder.
 
