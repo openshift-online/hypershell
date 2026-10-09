@@ -28,7 +28,7 @@ func (a *OpenShellGatewayServiceAccountAPI) Create(ctx context.Context, gatewayI
 		return nil, fmt.Errorf("marshal open_shell_gateway_service_account create request: %w", err)
 	}
 	var result types.OpenShellGatewayServiceAccountCreateResponse
-	if _, err := a.client.doAny(ctx, http.MethodPost, fmt.Sprintf("/v1/gateways/%s/service_accounts", url.PathEscape(gatewayID)), body, &result, http.StatusCreated); err != nil {
+	if _, err := a.client.doAny(ctx, http.MethodPost, fmt.Sprintf("/api/hypershell/v1/gateways/%s/service_accounts", url.PathEscape(gatewayID)), body, &result, http.StatusCreated); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -36,14 +36,14 @@ func (a *OpenShellGatewayServiceAccountAPI) Create(ctx context.Context, gatewayI
 
 func (a *OpenShellGatewayServiceAccountAPI) Get(ctx context.Context, gatewayID string, serviceAccountID string) (*types.OpenShellGatewayServiceAccountGetResponse, error) {
 	var result types.OpenShellGatewayServiceAccountGetResponse
-	if _, err := a.client.doAny(ctx, http.MethodGet, fmt.Sprintf("/v1/gateways/%s/service_accounts/%s", url.PathEscape(gatewayID), url.PathEscape(serviceAccountID)), nil, &result, http.StatusOK); err != nil {
+	if _, err := a.client.doAny(ctx, http.MethodGet, fmt.Sprintf("/api/hypershell/v1/gateways/%s/service_accounts/%s", url.PathEscape(gatewayID), url.PathEscape(serviceAccountID)), nil, &result, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
 func (a *OpenShellGatewayServiceAccountAPI) List(ctx context.Context, gatewayID string, opts *types.OpenShellGatewayServiceAccountListOptions) (*types.OpenShellGatewayServiceAccountList, error) {
-	path := fmt.Sprintf("/v1/gateways/%s/service_accounts", url.PathEscape(gatewayID))
+	path := fmt.Sprintf("/api/hypershell/v1/gateways/%s/service_accounts", url.PathEscape(gatewayID))
 	if opts != nil {
 		params := url.Values{}
 		if opts.Page > 0 {
@@ -77,7 +77,7 @@ func (a *OpenShellGatewayServiceAccountAPI) List(ctx context.Context, gatewayID 
 
 func (a *OpenShellGatewayServiceAccountAPI) Revoke(ctx context.Context, gatewayID string, serviceAccountID string) (*types.OpenShellGatewayServiceAccountListItem, error) {
 	var result types.OpenShellGatewayServiceAccountListItem
-	if _, err := a.client.doAny(ctx, http.MethodPost, fmt.Sprintf("/v1/gateways/%s/service_accounts/%s", url.PathEscape(gatewayID), url.PathEscape(serviceAccountID))+"/revoke", nil, &result, http.StatusOK, http.StatusAccepted); err != nil {
+	if _, err := a.client.doAny(ctx, http.MethodPost, fmt.Sprintf("/api/hypershell/v1/gateways/%s/service_accounts/%s", url.PathEscape(gatewayID), url.PathEscape(serviceAccountID))+"/revoke", nil, &result, http.StatusOK, http.StatusAccepted); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -85,7 +85,7 @@ func (a *OpenShellGatewayServiceAccountAPI) Revoke(ctx context.Context, gatewayI
 
 func (a *OpenShellGatewayServiceAccountAPI) Delete(ctx context.Context, gatewayID string, serviceAccountID string) (*types.OpenShellGatewayServiceAccountListItem, error) {
 	var result types.OpenShellGatewayServiceAccountListItem
-	status, err := a.client.doAny(ctx, http.MethodDelete, fmt.Sprintf("/v1/gateways/%s/service_accounts/%s", url.PathEscape(gatewayID), url.PathEscape(serviceAccountID)), nil, &result, http.StatusNoContent, http.StatusAccepted)
+	status, err := a.client.doAny(ctx, http.MethodDelete, fmt.Sprintf("/api/hypershell/v1/gateways/%s/service_accounts/%s", url.PathEscape(gatewayID), url.PathEscape(serviceAccountID)), nil, &result, http.StatusNoContent, http.StatusAccepted)
 	if err != nil {
 		return nil, err
 	}

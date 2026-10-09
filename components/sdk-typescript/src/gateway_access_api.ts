@@ -18,7 +18,7 @@ export class GatewayAccessAPI {
   constructor(private readonly config: SDKClientConfig) {}
 
   async create(gatewayId: string, data: GatewayAccessGrantRequest, opts?: RequestOptions): Promise<GatewayAccessGrantResponse> {
-    return sdkFetch<GatewayAccessGrantResponse>(this.config, 'POST', `/v1/gateways/${encodeURIComponent(gatewayId)}/access`, data, opts);
+    return sdkFetch<GatewayAccessGrantResponse>(this.config, 'POST', `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/access`, data, opts);
   }
 
   async list(gatewayId: string, listOpts?: GatewayAccessListOptions, opts?: RequestOptions): Promise<GatewayAccessList> {
@@ -42,16 +42,16 @@ export class GatewayAccessAPI {
       params.set('order', String(listOpts.order));
     }
     const query = params.toString();
-    const path = `/v1/gateways/${encodeURIComponent(gatewayId)}/access` + (query ? `?${query}` : '');
+    const path = `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/access` + (query ? `?${query}` : '');
     return sdkFetch<GatewayAccessList>(this.config, 'GET', path, undefined, opts);
   }
 
   async delete(gatewayId: string, userId: string, opts?: RequestOptions): Promise<GatewayAccessListItem | undefined> {
-    return sdkFetch<GatewayAccessListItem | undefined>(this.config, 'DELETE', `/v1/gateways/${encodeURIComponent(gatewayId)}/access/${encodeURIComponent(userId)}`, undefined, opts);
+    return sdkFetch<GatewayAccessListItem | undefined>(this.config, 'DELETE', `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/access/${encodeURIComponent(userId)}`, undefined, opts);
   }
 
   async update(gatewayId: string, userId: string, data: GatewayAccessChangeRoleRequest, opts?: RequestOptions): Promise<GatewayAccessGrantResponse> {
-    return sdkFetch<GatewayAccessGrantResponse>(this.config, 'PATCH', `/v1/gateways/${encodeURIComponent(gatewayId)}/access/${encodeURIComponent(userId)}`, data, opts);
+    return sdkFetch<GatewayAccessGrantResponse>(this.config, 'PATCH', `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/access/${encodeURIComponent(userId)}`, data, opts);
   }
 
   async searchDirectory(gatewayId: string, search?: string, opts?: RequestOptions): Promise<GatewayDirectoryUserList> {
@@ -60,7 +60,7 @@ export class GatewayAccessAPI {
       params.set('search', search);
     }
     const query = params.toString();
-    const path = `/v1/gateways/${encodeURIComponent(gatewayId)}/access/directory` + (query ? `?${query}` : '');
+    const path = `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/access/directory` + (query ? `?${query}` : '');
     return sdkFetch<GatewayDirectoryUserList>(this.config, 'GET', path, undefined, opts);
   }
 

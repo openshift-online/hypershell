@@ -17,11 +17,11 @@ export class OpenShellGatewayServiceAccountAPI {
   constructor(private readonly config: SDKClientConfig) {}
 
   async create(gatewayId: string, data: OpenShellGatewayServiceAccountCreateRequest, opts?: RequestOptions): Promise<OpenShellGatewayServiceAccountCreateResponse> {
-    return sdkFetch<OpenShellGatewayServiceAccountCreateResponse>(this.config, 'POST', `/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts`, data, opts);
+    return sdkFetch<OpenShellGatewayServiceAccountCreateResponse>(this.config, 'POST', `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts`, data, opts);
   }
 
   async get(gatewayId: string, serviceAccountId: string, opts?: RequestOptions): Promise<OpenShellGatewayServiceAccountGetResponse> {
-    return sdkFetch<OpenShellGatewayServiceAccountGetResponse>(this.config, 'GET', `/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts/${encodeURIComponent(serviceAccountId)}`, undefined, opts);
+    return sdkFetch<OpenShellGatewayServiceAccountGetResponse>(this.config, 'GET', `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts/${encodeURIComponent(serviceAccountId)}`, undefined, opts);
   }
 
   async list(gatewayId: string, listOpts?: OpenShellGatewayServiceAccountListOptions, opts?: RequestOptions): Promise<OpenShellGatewayServiceAccountList> {
@@ -45,16 +45,16 @@ export class OpenShellGatewayServiceAccountAPI {
       params.set('order', String(listOpts.order));
     }
     const query = params.toString();
-    const path = `/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts` + (query ? `?${query}` : '');
+    const path = `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts` + (query ? `?${query}` : '');
     return sdkFetch<OpenShellGatewayServiceAccountList>(this.config, 'GET', path, undefined, opts);
   }
 
   async revoke(gatewayId: string, serviceAccountId: string, opts?: RequestOptions): Promise<OpenShellGatewayServiceAccountListItem> {
-    return sdkFetch<OpenShellGatewayServiceAccountListItem>(this.config, 'POST', `/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts/${encodeURIComponent(serviceAccountId)}` + '/revoke', undefined, opts);
+    return sdkFetch<OpenShellGatewayServiceAccountListItem>(this.config, 'POST', `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts/${encodeURIComponent(serviceAccountId)}` + '/revoke', undefined, opts);
   }
 
   async delete(gatewayId: string, serviceAccountId: string, opts?: RequestOptions): Promise<OpenShellGatewayServiceAccountListItem | undefined> {
-    return sdkFetch<OpenShellGatewayServiceAccountListItem | undefined>(this.config, 'DELETE', `/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts/${encodeURIComponent(serviceAccountId)}`, undefined, opts);
+    return sdkFetch<OpenShellGatewayServiceAccountListItem | undefined>(this.config, 'DELETE', `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/service_accounts/${encodeURIComponent(serviceAccountId)}`, undefined, opts);
   }
 
   async *listAll(gatewayId: string, size: number = 20, opts?: RequestOptions): AsyncGenerator<OpenShellGatewayServiceAccountListItem> {

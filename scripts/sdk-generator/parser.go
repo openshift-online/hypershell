@@ -35,7 +35,7 @@ func parseSpec(specPath, apiPrefix string) (*Spec, error) {
 		resources = append(resources, resource)
 	}
 	for _, view := range scopedCollectionViews(document, apiPrefix) {
-		resource, err := projectScopedResource(document, view, apiPrefix)
+		resource, err := projectScopedResource(document, view)
 		if err != nil {
 			return nil, fmt.Errorf("project scoped resource %s: %w", view.Path, err)
 		}
@@ -45,7 +45,7 @@ func parseSpec(specPath, apiPrefix string) (*Spec, error) {
 	return &Spec{Resources: resources, APIPrefix: apiPrefix}, nil
 }
 
-func projectScopedResource(document *ir.Document, collection *ir.ResourceView, apiPrefix string) (Resource, error) {
+func projectScopedResource(document *ir.Document, collection *ir.ResourceView) (Resource, error) {
 	listOperation := operationAt(document, collection.Path, "GET")
 	createOperation := operationAt(document, collection.Path, "POST")
 	if listOperation == nil || createOperation == nil {
@@ -154,8 +154,6 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 		name + "ListOptions",
 	})
 
-	collectionRelative := relativeAPIPath(collection.Path, apiPrefix)
-	itemRelative := relativeAPIPath(itemPath, apiPrefix)
 	resource := Resource{
 		Name:               name,
 		Plural:             resourcePlural(name),
@@ -163,10 +161,10 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 		Scoped:             true,
 		ScopeParameters:    scopeParameters,
 		ItemParameter:      &itemParameter,
-		GoCollectionPath:   goPathExpression(collectionRelative, scopeParameters, nil),
-		GoItemPath:         goPathExpression(itemRelative, scopeParameters, &itemParameter),
-		TSCollectionPath:   tsPathExpression(collectionRelative, scopeParameters, nil),
-		TSItemPath:         tsPathExpression(itemRelative, scopeParameters, &itemParameter),
+		GoCollectionPath:   goPathExpression(collection.Path, scopeParameters, nil),
+		GoItemPath:         goPathExpression(itemPath, scopeParameters, &itemParameter),
+		TSCollectionPath:   tsPathExpression(collection.Path, scopeParameters, nil),
+		TSItemPath:         tsPathExpression(itemPath, scopeParameters, &itemParameter),
 		ListType:           listType,
 		ItemType:           itemType,
 		CreateRequestType:  createRequestType,
@@ -185,9 +183,8 @@ func projectScopedResource(document *ir.Document, collection *ir.ResourceView, a
 		TSImports:          tsImports,
 	}
 	if hasDirectorySearch {
-		directoryRelative := relativeAPIPath(directoryPath, apiPrefix)
-		resource.GoDirectoryPath = goPathExpression(directoryRelative, scopeParameters, nil)
-		resource.TSDirectoryPath = tsPathExpression(directoryRelative, scopeParameters, nil)
+		resource.GoDirectoryPath = goPathExpression(directoryPath, scopeParameters, nil)
+		resource.TSDirectoryPath = tsPathExpression(directoryPath, scopeParameters, nil)
 	}
 	if hasRevoke {
 		resource.Actions = []string{"revoke"}
@@ -478,10 +475,6 @@ func newPathParameter(name string) PathParameter {
 func lastPathParameter(path string) string {
 	last := path[strings.LastIndex(path, "/")+1:]
 	return strings.Trim(last, "{}")
-}
-
-func relativeAPIPath(path, apiPrefix string) string {
-	return "/" + strings.TrimPrefix(strings.TrimPrefix(path, strings.TrimSuffix(apiPrefix, "/")), "/")
 }
 
 func goPathExpression(path string, scope []PathParameter, item *PathParameter) string {

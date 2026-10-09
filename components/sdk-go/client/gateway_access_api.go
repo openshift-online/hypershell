@@ -28,14 +28,14 @@ func (a *GatewayAccessAPI) Create(ctx context.Context, gatewayID string, request
 		return nil, fmt.Errorf("marshal gateway_access create request: %w", err)
 	}
 	var result types.GatewayAccessGrantResponse
-	if _, err := a.client.doAny(ctx, http.MethodPost, fmt.Sprintf("/v1/gateways/%s/access", url.PathEscape(gatewayID)), body, &result, http.StatusCreated); err != nil {
+	if _, err := a.client.doAny(ctx, http.MethodPost, fmt.Sprintf("/api/hypershell/v1/gateways/%s/access", url.PathEscape(gatewayID)), body, &result, http.StatusCreated); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
 func (a *GatewayAccessAPI) List(ctx context.Context, gatewayID string, opts *types.GatewayAccessListOptions) (*types.GatewayAccessList, error) {
-	path := fmt.Sprintf("/v1/gateways/%s/access", url.PathEscape(gatewayID))
+	path := fmt.Sprintf("/api/hypershell/v1/gateways/%s/access", url.PathEscape(gatewayID))
 	if opts != nil {
 		params := url.Values{}
 		if opts.Page > 0 {
@@ -69,7 +69,7 @@ func (a *GatewayAccessAPI) List(ctx context.Context, gatewayID string, opts *typ
 
 func (a *GatewayAccessAPI) Delete(ctx context.Context, gatewayID string, userID string) (*types.GatewayAccessListItem, error) {
 	var result types.GatewayAccessListItem
-	status, err := a.client.doAny(ctx, http.MethodDelete, fmt.Sprintf("/v1/gateways/%s/access/%s", url.PathEscape(gatewayID), url.PathEscape(userID)), nil, &result, http.StatusNoContent, http.StatusAccepted)
+	status, err := a.client.doAny(ctx, http.MethodDelete, fmt.Sprintf("/api/hypershell/v1/gateways/%s/access/%s", url.PathEscape(gatewayID), url.PathEscape(userID)), nil, &result, http.StatusNoContent, http.StatusAccepted)
 	if err != nil {
 		return nil, err
 	}
@@ -85,14 +85,14 @@ func (a *GatewayAccessAPI) Update(ctx context.Context, gatewayID string, userID 
 		return nil, fmt.Errorf("marshal gateway_access update request: %w", err)
 	}
 	var result types.GatewayAccessGrantResponse
-	if _, err := a.client.doAny(ctx, http.MethodPatch, fmt.Sprintf("/v1/gateways/%s/access/%s", url.PathEscape(gatewayID), url.PathEscape(userID)), body, &result, http.StatusOK); err != nil {
+	if _, err := a.client.doAny(ctx, http.MethodPatch, fmt.Sprintf("/api/hypershell/v1/gateways/%s/access/%s", url.PathEscape(gatewayID), url.PathEscape(userID)), body, &result, http.StatusOK); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
 func (a *GatewayAccessAPI) SearchDirectory(ctx context.Context, gatewayID string, search string) (*types.GatewayDirectoryUserList, error) {
-	path := fmt.Sprintf("/v1/gateways/%s/access/directory", url.PathEscape(gatewayID))
+	path := fmt.Sprintf("/api/hypershell/v1/gateways/%s/access/directory", url.PathEscape(gatewayID))
 	if search != "" {
 		params := url.Values{}
 		params.Set("search", search)
