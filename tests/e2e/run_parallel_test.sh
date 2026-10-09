@@ -32,7 +32,7 @@ assert_contains() {
 
 run() {
   local rc=0
-  OUT="$(E2E_PARALLEL_HEARTBEAT=1000 bash "$RUNNER" "$@" 2>&1)" || rc=$?
+  OUT="$(E2E_PARALLEL_HEARTBEAT=1000 E2E_PARALLEL_LOG_DIR="${TMP}/logs" bash "$RUNNER" "$@" 2>&1)" || rc=$?
   RC=$rc
 }
 
@@ -41,8 +41,12 @@ run "a=echo from-a" "b=echo from-b"
 assert_eq 0 "$RC" 'all suites passing exits 0'
 assert_contains 'from-a' "$OUT" 'first suite log is replayed'
 assert_contains 'from-b' "$OUT" 'second suite log is replayed'
+assert_contains '[a] from-a' "$OUT" 'first suite log streams with a prefix'
+assert_contains '[b] from-b' "$OUT" 'second suite log streams with a prefix'
 assert_contains 'a: exit 0' "$OUT" 'first suite result is reported'
 assert_contains 'b: exit 0' "$OUT" 'second suite result is reported'
+assert_contains 'from-a' "$(<"${TMP}/logs/a.log")" 'first suite log is retained'
+assert_contains 'from-b' "$(<"${TMP}/logs/b.log")" 'second suite log is retained'
 
 # One suite fails: the runner fails and names it, but the other still ran.
 run "ok=echo fine" "bad=echo broke; exit 3"
