@@ -221,16 +221,7 @@ func (d *openshiftDriver) AcquireOIDCToken(ctx context.Context, user Credentials
 			"password":   user.Password,
 		})
 	case grantClientCredentials:
-		saID := os.Getenv("E2E_OIDC_SA_CLIENT_ID")
-		saSecret := os.Getenv("E2E_OIDC_SA_CLIENT_SECRET")
-		if saID == "" || saSecret == "" {
-			return Token{}, fmt.Errorf("client_credentials grant requires E2E_OIDC_SA_CLIENT_ID and E2E_OIDC_SA_CLIENT_SECRET")
-		}
-		return postTokenForm(ctx, d.httpClient, d.tokenEndpoint(), map[string]string{
-			"grant_type":    grantClientCredentials,
-			"client_id":     saID,
-			"client_secret": saSecret,
-		})
+		return d.clientCredentialsToken(ctx)
 	default:
 		return Token{}, fmt.Errorf("unsupported E2E_OIDC_GRANT %q", grant)
 	}
@@ -244,16 +235,37 @@ func (d *openshiftDriver) AcquireClientCredentialsToken(ctx context.Context, cli
 	})
 }
 
+func (d *openshiftDriver) clientCredentialsToken(ctx context.Context) (Token, error) {
+	saID := os.Getenv("E2E_OIDC_SA_CLIENT_ID")
+	saSecret := os.Getenv("E2E_OIDC_SA_CLIENT_SECRET")
+	if saID == "" || saSecret == "" {
+		return Token{}, fmt.Errorf("client_credentials grant requires E2E_OIDC_SA_CLIENT_ID and E2E_OIDC_SA_CLIENT_SECRET")
+	}
+	return d.AcquireClientCredentialsToken(ctx, saID, saSecret)
+}
+
 func (d *openshiftDriver) AcquireGatewayTokenWithRole(ctx context.Context, user Credentials, clientID, role string) (Token, error) {
 	timeout := durationEnv("E2E_GATEWAY_TOKEN_TIMEOUT", 300*time.Second)
+	grant := envOr("E2E_OIDC_GRANT", grantPassword)
 	var last Token
 	err := harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
-		tok, err := postTokenForm(ctx, d.httpClient, d.tokenEndpoint(), map[string]string{
-			"grant_type": grantPassword,
-			"client_id":  clientID,
-			"username":   user.Username,
-			"password":   user.Password,
-		})
+		var (
+			tok Token
+			err error
+		)
+		switch grant {
+		case grantPassword:
+			tok, err = postTokenForm(ctx, d.httpClient, d.tokenEndpoint(), map[string]string{
+				"grant_type": grantPassword,
+				"client_id":  clientID,
+				"username":   user.Username,
+				"password":   user.Password,
+			})
+		case grantClientCredentials:
+			tok, err = d.gatewayTokenExchange(ctx, clientID, user.Username)
+		default:
+			return false, fmt.Errorf("unsupported E2E_OIDC_GRANT %q", grant)
+		}
 		if err != nil {
 			return false, nil
 		}
@@ -264,6 +276,27 @@ func (d *openshiftDriver) AcquireGatewayTokenWithRole(ctx context.Context, user 
 		return Token{}, fmt.Errorf("gateway token for client %s never gained role %q: %w", clientID, role, err)
 	}
 	return last, nil
+}
+
+func (d *openshiftDriver) gatewayTokenExchange(ctx context.Context, clientID, requestedSubject string) (Token, error) {
+	subjectTok, err := d.clientCredentialsToken(ctx)
+	if err != nil {
+		return Token{}, err
+	}
+	saID := os.Getenv("E2E_OIDC_SA_CLIENT_ID")
+	saSecret := os.Getenv("E2E_OIDC_SA_CLIENT_SECRET")
+	fields := map[string]string{
+		"grant_type":         grantTokenExchange,
+		"client_id":          saID,
+		"client_secret":      saSecret,
+		"subject_token":      subjectTok.AccessToken,
+		"subject_token_type": tokenTypeAccessToken,
+		"audience":           clientID,
+	}
+	if requestedSubject != "" && requestedSubject != envOr("E2E_OIDC_USERNAME", "admin") {
+		fields["requested_subject"] = requestedSubject
+	}
+	return postTokenForm(ctx, d.httpClient, d.tokenEndpoint(), fields)
 }
 
 // --- Keycloak admin role helpers ---
