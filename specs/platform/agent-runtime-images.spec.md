@@ -35,9 +35,12 @@ Konflux SHALL build Linux amd64 and arm64 on native workers using matching
 The normal component tag SHALL reference an image index containing both builds;
 index publication SHALL require both builds to succeed. Release promotion and
 `bundle.json` SHALL preserve the index digest. The Konflux instance is assumed to
-provide both worker platforms. Workspace-based build tasks SHALL run sequentially
-to avoid shared SBOM file collisions; architecture-aware scans SHALL cover both
-platforms.
+provide both worker platforms. Clone and prefetch SHALL publish immutable Trusted
+Artifacts consumed by both native builds in isolated task storage. The architecture
+builds SHALL depend on prefetch rather than each other, allowing concurrent builds
+without shared writable source or SBOM files. Architecture-aware scans SHALL cover
+both platforms. Source scans and optional source-image builds SHALL consume the
+same prefetched artifacts. No shared source PVC SHALL be required.
 
 ## ARI-03 -- Runtime security and metadata
 
