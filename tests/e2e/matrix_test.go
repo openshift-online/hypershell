@@ -84,6 +84,25 @@ func TestMatrix(t *testing.T) {
 		t.Fatalf("no ManagedClusters selected (registered=%d, allowlist=%v)", len(list.Items), allow)
 	}
 
+	// The controller GC override is deployment-wide, while the suites below run
+	// concurrently and share this driver. Configure it once for the whole matrix
+	// and restore it only after every subtest has exited.
+	gcTimingManagedExternally := false
+	if envOrDefault("E2E_MODE", modeShort) == modeLong {
+		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
+		grace := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 30*time.Second)
+		lease, err := acquireNamespaceGCTiming(ctx, d, interval, grace)
+		if err != nil {
+			t.Fatalf("configure matrix namespace GC timing: %v", err)
+		}
+		gcTimingManagedExternally = true
+		t.Cleanup(func() {
+			if err := lease.Release(context.Background()); err != nil {
+				t.Logf("WARN restore matrix namespace GC timing: %v", err)
+			}
+		})
+	}
+
 	var mu sync.Mutex
 	outcomes := map[string]string{}
 
@@ -113,6 +132,7 @@ func TestMatrix(t *testing.T) {
 			s := newE2ESuite(d, clients)
 			s.clusterIDOverride = tg.id
 			s.nameSuffix = sanitizeName(tg.name)
+			s.gcTimingManagedExternally = gcTimingManagedExternally
 			suite.Run(t, s)
 
 			mu.Lock()
