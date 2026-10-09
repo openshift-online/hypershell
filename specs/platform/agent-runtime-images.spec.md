@@ -30,8 +30,14 @@ source revision, which MAY differ from the standalone CLI in a later bundle.
 Go module downloads SHALL precede source copies. Downloaded archives and build
 caches SHALL stay outside final images. Shared stages SHALL allow build cache
 reuse without requiring another runtime image to have been released first.
-The initial Konflux images are Linux amd64; locks and Containerfiles also support
-native arm64 workers. Multi-architecture indexes require separate worker setup.
+Konflux SHALL build Linux amd64 and arm64 on native workers using matching
+`TARGETARCH` build arguments and distinct architecture-suffixed staging tags.
+The normal component tag SHALL reference an image index containing both builds;
+index publication SHALL require both builds to succeed. Release promotion and
+`bundle.json` SHALL preserve the index digest. The Konflux instance is assumed to
+provide both worker platforms. Workspace-based build tasks SHALL run sequentially
+to avoid shared SBOM file collisions; architecture-aware scans SHALL cover both
+platforms.
 
 ## ARI-03 -- Runtime security and metadata
 

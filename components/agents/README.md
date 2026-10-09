@@ -25,11 +25,19 @@ podman build --layers -f components/agents/Containerfile.agent-runtime-slim -t l
 podman build --layers -f components/agents/Containerfile.agent-runtime -t localhost/agent-runtime .
 ```
 
-The initial Konflux pipelines use the existing native Linux amd64 builder. The
-Containerfiles and dependency locks also support native arm64 builds: on an arm64
-builder, pass `--build-arg TARGETARCH=arm64`. Do not use that argument to claim a
-cross-built image on an amd64 worker. A multi-architecture image index requires
-separate native workers and the Konflux multi-platform configuration.
+Konflux builds Linux amd64 and arm64 natively using the multi-platform controller.
+Each architecture receives its matching `TARGETARCH` build argument and publishes
+an architecture-suffixed staging tag. Only after both builds succeed does
+`build-image-index` publish their combined index under the component's normal tag.
+Quay promotion and `bundle.json` reference that index digest, so consumers use one
+image reference and their container engine selects the matching architecture.
+The Konflux instance must already provide both worker platforms.
+
+The workspace-based build tasks write shared SBOM files, so the two architectures
+run sequentially within each pipeline to avoid overwriting each other's files.
+The two image variants can build independently. Preflight and antivirus checks
+run for both architectures. For a local native arm64 build, pass
+`--build-arg TARGETARCH=arm64` on an arm64 builder.
 
 Build stages isolate tool downloads, RPM installation, and CLI compilation.
 The final stage copies the complete assembled Hardened Python root filesystem

@@ -33,10 +33,11 @@ spec:
     value: .
   pipelineSpec:
     description: |
-      This pipeline is ideal for building container images from a Containerfile while reducing network traffic.
+      Build native Linux AMD64 and ARM64 agent images and publish their combined image index.
 
-      _Uses `buildah` to create a container image. It also optionally creates a source image and runs some build-time tests. EC will flag a violation for [`trusted_task.trusted`](https://conforma.dev/docs/policy/packages/release_trusted_task.html#trusted_task__trusted) if any tasks are added to the pipeline.
-      This pipeline is pushed as a Tekton bundle to [quay.io](https://quay.io/repository/konflux-ci/tekton-catalog/pipeline-docker-build?tab=tags)_
+      Uses digest-pinned Konflux buildah-remote tasks. Both architectures must
+      succeed before the index is published. Native workers are provided by
+      the Konflux multi-platform controller.
     params:
     - description: Source Repository URL
       name: git-url
@@ -78,10 +79,6 @@ spec:
     - default: "false"
       description: Build a source image.
       name: build-source-image
-      type: string
-    - default: "false"
-      description: Add built image into an OCI image index
-      name: build-image-index
       type: string
     - default: docker
       description: The format for the resulting image's mediaType. Valid values are
@@ -201,8 +198,12 @@ spec:
         workspace: git-auth
       - name: netrc
         workspace: netrc
-    - name: build-container
+    - name: build-container-amd64
       params:
+      - name: PLATFORM
+        value: linux/amd64
+      - name: IMAGE_APPEND_PLATFORM
+        value: "true"
       - name: IMAGE
         value: $(params.output-image)
       - name: DOCKERFILE
@@ -220,6 +221,7 @@ spec:
       - name: BUILD_ARGS
         value:
         - $(params.build-args[*])
+        - TARGETARCH=amd64
         - GIT_VERSION=$(tasks.clone-repository.results.commit)
         - GIT_REVISION=$(tasks.clone-repository.results.commit)
       - name: BUILD_ARGS_FILE
@@ -245,9 +247,68 @@ spec:
       taskRef:
         params:
         - name: name
-          value: buildah
+          value: buildah-remote
         - name: bundle
-          value: quay.io/konflux-ci/tekton-catalog/task-buildah:0.12.3@sha256:2b574fd079661fa52b176496ce912d70d09e467f2a9b18384d7c78d1455d4646
+          value: quay.io/konflux-ci/tekton-catalog/task-buildah-remote:0.10.5@sha256:af3fea477536ed97ce47fb32f1c7bcb907a75a7c4ddf1992c5f46cf69f7767ce
+        - name: kind
+          value: task
+        resolver: bundles
+      workspaces:
+      - name: source
+        workspace: workspace
+    - name: build-container-arm64
+      params:
+      - name: PLATFORM
+        value: linux/arm64
+      - name: IMAGE_APPEND_PLATFORM
+        value: "true"
+      - name: IMAGE
+        value: $(params.output-image)
+      - name: DOCKERFILE
+        value: $(params.dockerfile)
+      - name: CONTEXT
+        value: $(params.path-context)
+      - name: HERMETIC
+        value: $(params.hermetic)
+      - name: PREFETCH_INPUT
+        value: $(params.prefetch-input)
+      - name: IMAGE_EXPIRES_AFTER
+        value: $(params.image-expires-after)
+      - name: COMMIT_SHA
+        value: $(tasks.clone-repository.results.commit)
+      - name: BUILD_ARGS
+        value:
+        - $(params.build-args[*])
+        - TARGETARCH=arm64
+        - GIT_VERSION=$(tasks.clone-repository.results.commit)
+        - GIT_REVISION=$(tasks.clone-repository.results.commit)
+      - name: BUILD_ARGS_FILE
+        value: $(params.build-args-file)
+      - name: PRIVILEGED_NESTED
+        value: $(params.privileged-nested)
+      - name: SOURCE_URL
+        value: $(tasks.clone-repository.results.url)
+      - name: BUILDAH_FORMAT
+        value: $(params.buildah-format)
+      - name: HTTP_PROXY
+        value: $(tasks.init.results.http-proxy)
+      - name: NO_PROXY
+        value: $(tasks.init.results.no-proxy)
+      - name: SOURCE_DATE_EPOCH
+        value: $(params.source-date-epoch)
+      - name: REWRITE_TIMESTAMP
+        value: $(params.rewrite-timestamp)
+      - name: OMIT_HISTORY
+        value: $(params.omit-history)
+      runAfter:
+      # Workspace build tasks write shared SBOM files; serialize architectures.
+      - build-container-amd64
+      taskRef:
+        params:
+        - name: name
+          value: buildah-remote
+        - name: bundle
+          value: quay.io/konflux-ci/tekton-catalog/task-buildah-remote:0.10.5@sha256:af3fea477536ed97ce47fb32f1c7bcb907a75a7c4ddf1992c5f46cf69f7767ce
         - name: kind
           value: task
         resolver: bundles
@@ -259,14 +320,16 @@ spec:
       - name: IMAGE
         value: $(params.output-image)
       - name: ALWAYS_BUILD_INDEX
-        value: $(params.build-image-index)
+        value: "true"
       - name: IMAGES
         value:
-        - $(tasks.build-container.results.IMAGE_URL)@$(tasks.build-container.results.IMAGE_DIGEST)
+        - $(tasks.build-container-amd64.results.IMAGE_REF)
+        - $(tasks.build-container-arm64.results.IMAGE_REF)
       - name: BUILDAH_FORMAT
         value: $(params.buildah-format)
       runAfter:
-      - build-container
+      - build-container-amd64
+      - build-container-arm64
       taskRef:
         params:
         - name: name
@@ -346,6 +409,12 @@ spec:
         values:
         - "false"
     - name: ecosystem-cert-preflight-checks
+      matrix:
+        params:
+        - name: platform
+          value:
+          - linux/amd64
+          - linux/arm64
       params:
       - name: image-url
         value: $(tasks.build-image-index.results.IMAGE_URL)
@@ -393,6 +462,12 @@ spec:
       - name: workspace
         workspace: workspace
     - name: clamav-scan
+      matrix:
+        params:
+        - name: image-arch
+          value:
+          - linux/amd64
+          - linux/arm64
       params:
       - name: image-digest
         value: $(tasks.build-image-index.results.IMAGE_DIGEST)
