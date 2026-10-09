@@ -340,7 +340,7 @@ The e2e test suite SHALL validate the following 14 areas. Areas 1--11 match the 
 9. **Developer user RBAC verification** -- authenticate as the `developer` user (the `openshell-user` tier) and confirm it MAY create a sandbox but MAY NOT create a gateway via the HyperShell API (see Developer RBAC Enforcement)
 10. **Platform-admin RBAC verification** -- authenticate as a platform-admin user and confirm the elevated permissions the developer tier is denied, including deleting a gateway through the HyperShell API (see Developer RBAC Enforcement)
 11. **Gateway deletion + namespace garbage collection** -- validate both garbage-collection paths from `openshell-gateway-namespace-gc.spec.md`: (a) seed a synthetic orphaned managed namespace after gateway provisioning and validate periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event (while the earlier areas run in parallel with the reaper); (b) delete-driven reap of the gateway's managed namespace (see Gateway Deletion and Namespace GC)
-12. **ManagedCluster registration and multi-cluster fleet** -- validate that the co-located control plane registered itself (a `ManagedCluster` with a non-empty `oidc_subject` and a fresh `last_seen_at`), that `/registration` is idempotent, that the registrar role and name-collision rules are enforced, and that a gateway create rejects an empty or unregistered `cluster_id`; under `E2E_MULTICLUSTER=1`, that a second registered cluster appears in the fleet and can be independently targeted; and the controller lifecycle -- connect-time snapshot, disconnect/reconnect convergence, and rejection of unauthorized or revoked gRPC identities (HYPERSHELL-241) (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane Reconnect and Identity Rejection Coverage)
+12. **ManagedCluster registration and multi-cluster fleet** -- validate that the co-located control plane registered itself (a `ManagedCluster` with a non-empty `oidc_subject` and a fresh `last_seen_at`), that `/registration` is idempotent, that the registrar role and name-collision rules are enforced, and that a gateway create rejects an empty or unregistered `cluster_id`; under `E2E_MULTICLUSTER=1`, validate logical multi-cluster watch and ownership isolation; under `E2E_MANAGED_WORKFLOWS=1`, validate the lifecycle of a real physical spoke and route Kubernetes checks through the kubecontext selected by the created gateway's returned `cluster_id`; and validate the controller lifecycle -- connect-time snapshot, disconnect/reconnect convergence, and rejection of unauthorized or revoked gRPC identities (HYPERSHELL-241) (see ManagedCluster Registration Coverage, Logical Multi-Cluster Fleet Coverage, ManagedCluster Workflow Coverage, and Control-Plane Reconnect and Identity Rejection Coverage)
 13. **Gateway release promotion** -- repoint a gateway's `release_id` (or update a referenced release's image) and validate a revision-aware, last-good-preserving rollout, with the gateway reporting the `observed_release_id` actually serving and a failed rollout surfaced as `Degraded`; under `E2E_MULTICLUSTER=1`, promote a release across both clusters (see Gateway Release Promotion Coverage and Reconciled Status Assertions)
 14. **Admin inventory and API validation** -- confirm the admin-only `/v1/users` inventory boundary (non-admin receives 403, singleton Get is an opaque 404) and that the API rejects an unknown gateway phase write (see Admin Inventory and API Validation Coverage)
 
@@ -649,19 +649,21 @@ identity), so `short` and `perf` runs skip it.
 - AND no Gateway SHALL be created
 - AND the suite SHALL delete the inert placeholder record to leave a clean state
 
-### Requirement: Multi-Cluster Fleet Coverage
+### Requirement: Logical Multi-Cluster Fleet Coverage
 
 When `E2E_MULTICLUSTER=1`, the suite SHALL exercise a two-cluster fleet so
-cross-cluster placement and promotion are validated (area 12, multi-cluster
-steps, and area 13). A second `ManagedCluster` SHALL be established by a second
+logical cross-cluster watch filtering, ownership, and promotion behavior are
+validated (area 12, multi-cluster steps, and area 13). A second `ManagedCluster`
+SHALL be established by a second
 control-plane deployment reconciling into the same physical cluster under a
 distinct `HYPERSHELL_MANAGED_CLUSTER_NAME` (`E2E_SEED_CLUSTER_NAME_2`) and its own
 registrar OIDC client, so each control plane filters only its own `cluster_id`.
-The two-cluster harness is opt-in: when `E2E_MULTICLUSTER` is unset or `0`, area
-12 runs only the single-cluster registration assertions above and area 13 runs
-its single-cluster rollout path. Deploying the second control plane is owned by
-`local-development.spec.md` / `openshift-development.spec.md`; this spec owns only
-the assertions.
+This logical harness SHALL NOT claim to verify routing of Kubernetes API checks
+between physical clusters. The harness is opt-in: when `E2E_MULTICLUSTER` is
+unset or `0`, area 12 runs only the single-cluster registration assertions above
+and area 13 runs its single-cluster rollout path. Deploying the second control
+plane is owned by `local-development.spec.md` / `openshift-development.spec.md`;
+this spec owns only the assertions.
 
 #### Scenario: Second cluster registers and is selectable
 
@@ -676,6 +678,84 @@ the assertions.
 - WHEN the suite creates a gateway with the second cluster's `cluster_id`
 - THEN the gateway SHALL reach `Running`, reconciled by the second control plane
 - AND the first control plane SHALL NOT reconcile it (the suite confirms placement by the managed namespace the owning control plane created)
+
+### Requirement: ManagedCluster Workflow Coverage
+
+When `E2E_MANAGED_WORKFLOWS=1`, the Go e2e suite SHALL validate the lifecycle of
+one or more temporary control-plane fixtures on physically distinct spoke
+clusters. A fixture SHALL supply a Kubernetes context, an isolated namespace,
+a unique managed-cluster name, and an independently provisioned registrar OIDC
+identity. The runner's mapping from managed-cluster name to Kubernetes context
+is test configuration, not a `ManagedCluster` API field and not a credential
+stored by HyperShell.
+
+The fixture SHALL advertise a placement intent for which it is the sole healthy
+eligible candidate during the test. This makes the selected spoke deterministic
+without restoring caller-supplied `cluster_id` placement. The suite SHALL start
+the fixture control plane, wait for self-registration, create a gateway through
+the public placement API, and use the gateway response's `cluster_id` to select
+the Kubernetes context for every workload, route, sandbox, deletion, and
+diagnostic assertion. A mismatch between the returned `cluster_id` and the
+available context mapping SHALL fail before any Kubernetes resource assertion.
+
+The suite SHALL exercise stop, stale/disconnected observation, restart,
+re-registration, and supported deregistration for the fixture. Cleanup SHALL
+delete test gateways and wait for their namespaces to be reaped before removing
+the fixture control plane and its managed-cluster record. On failure, the suite
+SHALL collect diagnostics from both the hub and the selected spoke.
+
+This requirement is distinct from the logical multi-cluster harness above.
+It validates the boundary that a `ManagedCluster` record alone cannot provide:
+the e2e runner must inspect resources through the physical cluster selected by
+placement.
+
+#### Scenario: A fixture control plane self-registers on a physical spoke
+
+- GIVEN `E2E_MANAGED_WORKFLOWS=1` and a configured temporary spoke fixture
+- WHEN the suite starts the fixture control plane
+- THEN the hub SHALL expose a `ManagedCluster` with the fixture's unique name,
+  non-empty `oidc_subject`, expected placement attributes, and a fresh
+  `last_seen_at`
+- AND the fixture's registered `cluster_id` SHALL resolve to its configured
+  Kubernetes context
+
+#### Scenario: Placement directs verification to the owning physical spoke
+
+- GIVEN a healthy temporary spoke fixture whose placement intent has no other
+  healthy eligible candidate
+- WHEN the suite creates a gateway using that placement intent
+- THEN the gateway response SHALL identify the fixture's `cluster_id`
+- AND the suite SHALL observe the Deployment, Service, Route, and sandbox only
+  through that fixture's Kubernetes context
+- AND those gateway resources SHALL be absent from every other configured spoke
+
+#### Scenario: Missing selected-spoke context fails closed
+
+- GIVEN a gateway create response whose `cluster_id` has no configured
+  Kubernetes context
+- WHEN the suite begins Kubernetes-level verification
+- THEN it SHALL fail with the returned `cluster_id` and the available fixture
+  names in the diagnostic
+- AND it SHALL NOT report a missing Deployment, Service, or Route as an
+  infrastructure failure on an arbitrary context
+
+#### Scenario: Temporary spoke reconnects without changing identity
+
+- GIVEN a registered temporary spoke with a gateway assigned to it
+- WHEN the suite stops the fixture control plane until the hub reports it stale
+  or disconnected, changes desired gateway state, then restarts the fixture
+- THEN the same `ManagedCluster` record and `cluster_id` SHALL be restored
+- AND the restarted control plane SHALL reconcile the current desired state
+  within `E2E_PROVISION_TIMEOUT`
+
+#### Scenario: Temporary spoke is deregistered after shutdown
+
+- GIVEN a stopped temporary spoke fixture and no remaining gateway assigned to it
+- WHEN the suite invokes the supported deregistration path
+- THEN the fixture's `ManagedCluster` record SHALL be absent from the hub
+- AND its placement intent SHALL have no eligible candidate
+- AND cleanup SHALL leave no fixture namespace, gateway namespace, or stale
+  managed-cluster record behind
 
 ### Requirement: Control-Plane Reconnect and Identity Rejection Coverage
 
@@ -1264,8 +1344,9 @@ deploy/
 | `E2E_SEED_RELEASE_NAME` | `dev-release` on kind and openshift; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
 | `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
 | `E2E_DEV_PASSWORD` | `developer` | Password for the developer OIDC user (local dev only) |
-| `E2E_MULTICLUSTER` | `0` | `1` enables the two-cluster fleet (area 12 multi-cluster steps and area 13 cross-cluster promotion); requires a second control plane deployed as `E2E_SEED_CLUSTER_NAME_2` |
+| `E2E_MULTICLUSTER` | `0` | `1` enables the logical two-cluster fleet (area 12 multi-cluster steps and area 13 promotion); both control planes run on the same physical Kubernetes cluster and the second is named by `E2E_SEED_CLUSTER_NAME_2` |
 | `E2E_SEED_CLUSTER_NAME_2` | (unset) | Name of the second registered ManagedCluster when `E2E_MULTICLUSTER=1` |
+| `E2E_MANAGED_WORKFLOWS` | `0` | `1` enables the physical-spoke ManagedCluster lifecycle fixture. Secure runner configuration supplies its spoke kubecontext, isolated namespace, unique name, registrar identity, and an exclusive placement intent; it is not derived from a ManagedCluster record. |
 | `E2E_REGISTRAR_CLIENT_ID` | `hypershell-control-plane` | OIDC client (holding `managed-cluster-registrar`) the suite uses for the area-12 `/registration` calls |
 | `E2E_REGISTRAR_CLIENT_SECRET` | (dev client secret) | Secret for `E2E_REGISTRAR_CLIENT_ID` |
 | `E2E_QUALIFY_DNS_TLS_RENEWAL` | `0` | `1` runs the trusted DNS/TLS renewal qualification (HYPERSHELL-245); opt-in, not in the Kind gate |
