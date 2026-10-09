@@ -6,7 +6,7 @@ import type { ObjectReference, ListMeta } from './base.js';
 
 export type ProviderSpec = ObjectReference & {
   capability: string;
-  category: string;
+  category: "inference" | "source_control" | "knowledge";
   name: string;
   profile: string;
   status: string;
@@ -18,7 +18,7 @@ export type ProviderSpecList = ListMeta & {
 
 export type ProviderSpecCreateRequest = {
   capability?: string;
-  category: string;
+  category: "inference" | "source_control" | "knowledge";
   name: string;
   profile?: string;
 };
@@ -38,7 +38,7 @@ export class ProviderSpecBuilder {
     return this;
   }
 
-  category(value: string): this {
+  category(value: "inference" | "source_control" | "knowledge"): this {
     this.data['category'] = value;
     return this;
   }
@@ -54,7 +54,7 @@ export class ProviderSpecBuilder {
   }
 
   build(): ProviderSpecCreateRequest {
-    if (!this.data['category']) {
+    if (this.data['category'] === undefined) {
       throw new Error('category is required');
     }
     if (!this.data['name']) {

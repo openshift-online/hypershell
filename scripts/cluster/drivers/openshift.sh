@@ -1111,7 +1111,7 @@ seed_via_api() {
     local oidc
     oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
     raw="$(api_exec POST /api/hypershell/v1/gateways \
-      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
+      "{\"name\":\"dev-gateway\",\"placement\":{\"network\":\"public\",\"provider\":\"aws\"},\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     GATEWAY_ID="$(extract_id "${body}")"

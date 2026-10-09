@@ -13,7 +13,7 @@ export type ManagedCluster = ObjectReference & {
   provider: string;
   region: string;
   status: string;
-  visibility: string;
+  visibility: "public" | "vpn";
 };
 
 export type ManagedClusterList = ListMeta & {

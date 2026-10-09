@@ -137,8 +137,7 @@ help:
 	@echo "    ci-test                  Run all *_test.sh shell unit tests (auto-discovered)"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
 	@echo "    e2e-console              Run browser E2E of the web console and OpenShell console (agent-browser)"
-	@echo "    e2e-performance          Run the performance harness (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
-	@echo "    e2e-performance-report   Tabulate recent local performance runs"
+	@echo "    e2e-performance          Run the performance benchmark (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
 	@echo "    lint-cli                 Lint CLI (gofmt, go vet, golangci-lint)"
@@ -345,6 +344,17 @@ lint-control-plane:
 	cd components/control-plane && go vet ./...
 	cd components/control-plane && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
 
+.PHONY: lint-e2e
+lint-e2e:
+	@unformatted="$$(gofmt -l tests/e2e)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "The following e2e files are not formatted:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+	cd tests/e2e && go vet ./...
+	cd tests/e2e && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
+
 .PHONY: lint-sdk-typescript
 lint-sdk-typescript: install-js
 	$(PNPM) --filter @openshift-online/hypershell-sdk check
@@ -362,7 +372,7 @@ lint-web-console: install-js
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff check
 
 .PHONY: lint
-lint: check install-js lint-api-server lint-cli lint-control-plane lint-sdk-typescript lint-gateway-management-ui lint-web-console
+lint: check install-js lint-api-server lint-cli lint-control-plane lint-e2e lint-sdk-typescript lint-gateway-management-ui lint-web-console
 
 # ============================================================================
 # Test targets
@@ -622,14 +632,39 @@ generate-tui-check:
 # (route.openshift.io => openshift, otherwise kind). Set E2E_INFRA_DRIVER
 # on the command line to override.
 
+# The functional e2e suite is the Go testify suite (TestE2E). It auto-detects the
+# infra driver from the current KUBECONFIG context (override with E2E_INFRA_DRIVER).
+# -failfast aborts on the first failing step (see the Three-Outcome Reporting
+# requirement in specs/platform/e2e-testing.spec.md).
+E2E_GO_TIMEOUT ?= 35m
 .PHONY: e2e
 e2e:
 	@echo ""
-	@echo "==> Running E2E tests"
+	@echo "==> Running E2E suite (go test TestE2E)"
 	@echo ""
-	@E2E_PROVISION_TIMEOUT=300 \
-		E2E_SANDBOX_TIMEOUT=180 \
-		bash tests/e2e/e2e-openshell.sh
+	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
+		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
+		go -C tests/e2e test . -run TestE2E -failfast -v -timeout $(E2E_GO_TIMEOUT)
+
+# Managed-cluster matrix runner: runs the single-cluster E2ESuite once per
+# registered ManagedCluster and reports a per-cluster pass/fail/skip matrix.
+.PHONY: e2e-matrix
+e2e-matrix:
+	@echo ""
+	@echo "==> Running E2E matrix (go test TestMatrix)"
+	@echo ""
+	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
+		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
+		go -C tests/e2e test . -run TestMatrix -v -timeout $(E2E_GO_TIMEOUT)
+
+# Bash user-interaction smoke script (happy path; demonstration + sanity check).
+# Not the authoritative gate -- the Go suite short mode is. Honors E2E_PAUSE.
+.PHONY: e2e-smoke
+e2e-smoke:
+	@echo ""
+	@echo "==> Running E2E smoke (bash user-interaction walkthrough)"
+	@echo ""
+	@bash tests/e2e/smoke.sh
 
 # Browser-driven e2e of the HyperShell web console and the per-gateway OpenShell
 # console (agent-browser headless Chromium). Requires port 443 forwarding from
@@ -647,13 +682,12 @@ e2e-console:
 .PHONY: e2e-performance
 e2e-performance:
 	@echo ""
-	@echo "==> Running E2E performance harness"
+	@echo "==> Running E2E performance benchmark (BenchmarkGatewayProvisioning)"
 	@echo ""
-	@bash tests/e2e/e2e-performance.sh
-
-.PHONY: e2e-performance-report
-e2e-performance-report:
-	@bash scripts/perf-report.sh
+	# -benchtime 1x: provision the fleet once (this is a one-shot scale test, not a
+	# repeated micro-benchmark). b.ReportMetric surfaces ttr p50/p99, throughput,
+	# and success rate; compare runs with `benchstat`.
+	@go -C tests/e2e test . -run '^$$' -bench '^BenchmarkGatewayProvisioning$$' -benchtime 1x -v -timeout $(E2E_GO_TIMEOUT)
 
 # Browser-driven end-to-end trace verification (WEB-TRACE-10). Requires a Kind
 # cluster brought up with tracing enabled (KIND_JAEGER=true make kind-up), so
