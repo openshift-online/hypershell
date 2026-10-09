@@ -72,6 +72,9 @@ type E2ESuite struct {
 	gateways         *gatewayTracker
 	cliCache         *cliCache
 	orphan           *orphanReaper
+	// gcTimingManagedExternally is set by the matrix runner, which owns one
+	// controller-wide GC timing lease across its parallel suites.
+	gcTimingManagedExternally bool
 }
 
 type gatewayTracker struct {
@@ -143,7 +146,7 @@ func (s *E2ESuite) SetupSuite() {
 		}
 		return nil
 	})
-	if s.mode == modeLong {
+	if s.mode == modeLong && !s.gcTimingManagedExternally {
 		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
 		grace := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 30*time.Second)
 		s.runner.Comment("shorten controller namespace-GC timing to interval=%s grace=%s for the P2.3 orphan-reaper assertion", interval, grace)
@@ -200,7 +203,7 @@ func (s *E2ESuite) TearDownSuite() {
 		_ = g.Wait()
 	}
 
-	if s.driver != nil {
+	if s.driver != nil && !s.gcTimingManagedExternally {
 		if err := s.driver.RestoreNamespaceGCTiming(ctx); err != nil {
 			s.T().Logf("WARN restore namespace GC timing: %v", err)
 		}

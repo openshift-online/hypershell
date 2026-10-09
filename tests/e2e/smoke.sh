@@ -9,7 +9,7 @@
 #
 # This is NOT the authoritative gate -- the Go E2ESuite short mode is the blocking
 # quick gate (see specs/platform/e2e-testing.spec.md, Bash Smoke Script). It reuses
-# the deployed environment and seeded cluster/release ids, covers the happy path
+# the deployed environment and seeded cluster id, covers the happy path
 # only, and supports a demo pause via E2E_PAUSE (default 0). It cleans up the
 # gateway it created on exit unless E2E_SKIP_CLEANUP=1.
 #
@@ -52,7 +52,7 @@ acquire_oidc_token
 [[ -n "${_OIDC_ACCESS_TOKEN}" ]] || { fail_test "could not acquire OIDC token"; exit 1; }
 pass "acquired OIDC token"
 
-# 2. Resolve the seeded cluster/release ids and create a gateway.
+# 2. Resolve the seeded cluster id and create a gateway.
 e2e_ensure_seed_ids
 show_cmd "POST ${_DISCOVER_API_HOST}/api/hypershell/v1/gateways  # ${GW_NAME}"
 CREATE_RESP="$(api_curl -X POST -H 'Content-Type: application/json' \
