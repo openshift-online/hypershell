@@ -47,7 +47,6 @@ type E2ESuite struct {
 	concurrency int
 	ctx         context.Context
 	runID       string
-	timings     *harness.TimingReporter
 	// startedAt bounds log scans (for example the control-plane Unauthenticated
 	// check) to activity during this run, ignoring stale pre-run log noise.
 	startedAt time.Time
@@ -112,7 +111,6 @@ func newE2ESuite(d driver.E2EInfraDriver, clients *harness.Clients) *E2ESuite {
 func (s *E2ESuite) SetupSuite() {
 	s.ctx = s.T().Context()
 	s.startedAt = time.Now()
-	s.timings = harness.NewTimingReporter(s.startedAt)
 	s.runner = harness.NewCommandRunner(s.T().Logf)
 	s.mode = envOrDefault("E2E_MODE", modeLong)
 	s.concurrency = intEnv("E2E_CONCURRENCY", 4)
@@ -215,13 +213,6 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 	}
 
-	if s.timings != nil {
-		summary := s.timings.Summary(time.Now())
-		s.T().Log(summary)
-		if err := harness.AppendGitHubStepSummary("Go functional E2E timing", summary); err != nil {
-			s.T().Logf("WARN append E2E timing to GitHub step summary: %v", err)
-		}
-	}
 }
 
 // TestPhases drives the phase steps in canonical order. P0 and P1 are the
@@ -280,8 +271,6 @@ func (s *E2ESuite) step(id, slug, tag string, fn func(t *testing.T)) {
 	name := id + "-" + slug
 	s.Run(name, func() {
 		t := s.T()
-		started := time.Now()
-		defer s.recordTiming(t, id, slug, started)
 		if !s.modeAllows(tag) {
 			t.Skipf("step %s is %s-only; mode is %s", id, tag, s.mode)
 			return
@@ -297,8 +286,6 @@ func (s *E2ESuite) parallelStep(id, slug, tag string, fn func(*E2ESuite, *testin
 	return parallelSubtest{
 		name: id + "-" + slug,
 		run: func(t *testing.T) {
-			started := time.Now()
-			defer s.recordTiming(t, id, slug, started)
 			if !s.modeAllows(tag) {
 				t.Skipf("step %s is %s-only; mode is %s", id, tag, s.mode)
 				return
@@ -330,7 +317,6 @@ func (s *E2ESuite) cloneForStep(t *testing.T) *E2ESuite {
 		concurrency:         s.concurrency,
 		ctx:                 s.ctx,
 		runID:               s.runID,
-		timings:             s.timings,
 		startedAt:           s.startedAt,
 		apiHost:             s.apiHost,
 		admin:               api,
@@ -346,19 +332,6 @@ func (s *E2ESuite) cloneForStep(t *testing.T) *E2ESuite {
 	}
 	clone.SetT(t)
 	return clone
-}
-
-func (s *E2ESuite) recordTiming(t *testing.T, id, slug string, started time.Time) {
-	if s.timings == nil {
-		return
-	}
-	outcome := "PASS"
-	if t.Skipped() {
-		outcome = "SKIP"
-	} else if t.Failed() {
-		outcome = "FAIL"
-	}
-	s.timings.Record(id, slug, time.Since(started), outcome)
 }
 
 // refreshAdminToken re-acquires the admin token and rebuilds the admin API client.
