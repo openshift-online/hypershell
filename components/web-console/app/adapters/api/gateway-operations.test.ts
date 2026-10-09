@@ -32,7 +32,15 @@ const serviceAccountApi = {
   list: vi.fn(),
   revoke: vi.fn(),
 };
+const gatewayAccessApi = {
+  create: vi.fn(),
+  delete: vi.fn(),
+  list: vi.fn(),
+  searchDirectory: vi.fn(),
+  update: vi.fn(),
+};
 const gatewayApiFactory = vi.fn(() => ({
+  gatewayAccesses: gatewayAccessApi,
   gateways: gatewayApi,
   managedClusters: managedClusterApi,
   openShellGatewayServiceAccounts: serviceAccountApi,
@@ -52,6 +60,8 @@ const listRequest = {
 function gateway(overrides: Partial<Gateway> = {}): Gateway {
   return {
     active_sandbox_count: 0,
+    can_delete: false,
+    can_edit: false,
     cluster_id: "",
     console_address: "",
     created_at: null,
@@ -803,5 +813,148 @@ describe("gateway API operations adapter", () => {
       operationId: "operation-2",
     });
     expect((failure as Error).message).not.toContain("raw provider detail");
+  });
+
+  it("maps the gateway access list to a domain page with joined fields", async () => {
+    gatewayAccessApi.list.mockResolvedValue({
+      capabilities: {
+        caller_role: "owner",
+        can_manage_access: true,
+        can_manage_owners: true,
+      },
+      items: [
+        {
+          email: null,
+          granted_at: "2026-10-01T00:00:00Z",
+          name: "Ann Owner",
+          role: "owner",
+          role_binding_id: "rb-1",
+          user_id: "u-1",
+          username: "ann",
+        },
+      ],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
+
+    const page = await controlPlane.listGatewayAccess(
+      "gateway-1",
+      { order: "desc", page: 1, search: "", size: 20, sort: "granted_at" },
+      context,
+    );
+
+    expect(gatewayAccessApi.list).toHaveBeenCalledWith(
+      "gateway-1",
+      { order: "desc", page: 1, size: 20, sort: "granted_at" },
+      { signal: undefined },
+    );
+    expect(page.capabilities).toEqual({
+      callerRole: "owner",
+      canManageAccess: true,
+      canManageOwners: true,
+    });
+    expect(page.items[0]).toMatchObject({
+      name: "Ann Owner",
+      role: "owner",
+      roleBindingId: "rb-1",
+      userId: "u-1",
+      username: "ann",
+    });
+    expect(page.items[0]).not.toHaveProperty("email");
+  });
+
+  it("grants access and maps the resulting record", async () => {
+    gatewayAccessApi.create.mockResolvedValue({
+      email: "dana@example.com",
+      granted_at: "2026-10-02T00:00:00Z",
+      name: "Dana",
+      role: "user",
+      role_binding_id: "rb-2",
+      user_id: "u-2",
+      username: "dana",
+    });
+
+    const record = await controlPlane.grantGatewayAccess(
+      "gateway-1",
+      { role: "user", username: "dana" },
+      context,
+    );
+
+    expect(gatewayAccessApi.create).toHaveBeenCalledWith(
+      "gateway-1",
+      { role: "user", username: "dana" },
+      { signal: undefined },
+    );
+    expect(record).toMatchObject({
+      email: "dana@example.com",
+      role: "user",
+      userId: "u-2",
+    });
+  });
+
+  it("maps a 409 on role change to a conflict (last-owner protection)", async () => {
+    gatewayAccessApi.update.mockRejectedValue(
+      new SDKAPIError({
+        code: "conflict",
+        href: "",
+        id: "",
+        kind: "Error",
+        operation_id: "op-c",
+        reason: "a gateway must keep at least one owner",
+        status_code: 409,
+      }),
+    );
+
+    const failure = await controlPlane
+      .changeGatewayAccessRole("gateway-1", "u-1", "user", context)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(GatewayOperationError);
+    expect(failure).toMatchObject({ kind: "conflict" });
+  });
+
+  it("maps a 403 on revoke to denied", async () => {
+    gatewayAccessApi.delete.mockRejectedValue(
+      new SDKAPIError({
+        code: "forbidden",
+        href: "",
+        id: "",
+        kind: "Error",
+        operation_id: "op-d",
+        reason: "only owners can revoke an owner",
+        status_code: 403,
+      }),
+    );
+
+    const failure = await controlPlane
+      .revokeGatewayAccess("gateway-1", "u-1", context)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(GatewayOperationError);
+    expect(failure).toMatchObject({ kind: "denied" });
+  });
+
+  it("searches the directory and maps candidates", async () => {
+    gatewayAccessApi.searchDirectory.mockResolvedValue({
+      items: [
+        { email: null, name: "Dana", subject: "sub-1", username: "dana" },
+      ],
+    });
+
+    const candidates = await controlPlane.searchGatewayDirectory(
+      "gateway-1",
+      "da",
+      context,
+    );
+
+    expect(gatewayAccessApi.searchDirectory).toHaveBeenCalledWith(
+      "gateway-1",
+      "da",
+      { signal: undefined },
+    );
+    expect(candidates).toEqual([
+      { name: "Dana", subject: "sub-1", username: "dana" },
+    ]);
   });
 });

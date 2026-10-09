@@ -350,6 +350,14 @@ components:
               format: int64
               readOnly: true
               description: Generation the control plane last successfully applied; converged when equal to generation
+            can_delete:
+              type: boolean
+              readOnly: true
+              description: Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative.
+            can_edit:
+              type: boolean
+              readOnly: true
+              description: Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative.
     GatewayCreateRequest:
       type: object
       required:

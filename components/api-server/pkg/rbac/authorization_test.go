@@ -119,6 +119,117 @@ func TestIsAuthorized_GatewayViewerCannotMutateGateway(t *testing.T) {
 	}
 }
 
+// TestCanDeleteGateway covers the Gateway.can_delete capability the REST API
+// advertises to clients. It must match isGatewayAuthorized(DELETE, ...) exactly,
+// including the case from the bug report: an owner who demotes their own access
+// to the "user" tier (gateway:viewer) can no longer delete, while a platform
+// admin retains the delete override.
+func TestCanDeleteGateway(t *testing.T) {
+	gwID := "gw-aaa"
+	otherID := "gw-bbb"
+	ptr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name     string
+		bindings []BindingSummary
+		want     bool
+	}{
+		{
+			name:     "owner can delete",
+			bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     true,
+		},
+		{
+			name:     "demoted owner now viewer cannot delete",
+			bindings: []BindingSummary{{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     false,
+		},
+		{
+			name:     "granted admin cannot delete",
+			bindings: []BindingSummary{{RoleName: "gateway:admin", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     false,
+		},
+		{
+			name:     "platform admin can delete any gateway",
+			bindings: []BindingSummary{{RoleName: "platform:admin", Scope: "global"}},
+			want:     true,
+		},
+		{
+			name:     "owner of a different gateway cannot delete",
+			bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: ptr(otherID)}},
+			want:     false,
+		},
+		{
+			name:     "no bindings cannot delete",
+			bindings: nil,
+			want:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CanDeleteGateway(tc.bindings, gwID); got != tc.want {
+				t.Errorf("CanDeleteGateway() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCanEditGateway covers the Gateway.can_edit capability (PATCH, e.g. rename).
+// Owners and granted admins may edit; viewers ("plain users") may not, and a
+// platform admin without a per-gateway binding may not (PATCH is not in the
+// platform-admin override).
+func TestCanEditGateway(t *testing.T) {
+	gwID := "gw-aaa"
+	otherID := "gw-bbb"
+	ptr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name     string
+		bindings []BindingSummary
+		want     bool
+	}{
+		{
+			name:     "owner can edit",
+			bindings: []BindingSummary{{RoleName: "gateway:owner", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     true,
+		},
+		{
+			name:     "granted admin can edit",
+			bindings: []BindingSummary{{RoleName: "gateway:admin", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     true,
+		},
+		{
+			name:     "viewer (plain user) cannot edit",
+			bindings: []BindingSummary{{RoleName: "gateway:viewer", Scope: "gateway", GatewayID: ptr(gwID)}},
+			want:     false,
+		},
+		{
+			name:     "platform admin without a binding cannot edit",
+			bindings: []BindingSummary{{RoleName: "platform:admin", Scope: "global"}},
+			want:     false,
+		},
+		{
+			name:     "admin of a different gateway cannot edit",
+			bindings: []BindingSummary{{RoleName: "gateway:admin", Scope: "gateway", GatewayID: ptr(otherID)}},
+			want:     false,
+		},
+		{
+			name:     "no bindings cannot edit",
+			bindings: nil,
+			want:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CanEditGateway(tc.bindings, gwID); got != tc.want {
+				t.Errorf("CanEditGateway() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsAuthorized_NonCreatorCannotCreateGateways(t *testing.T) {
 	gwID := "gw-aaa"
 	bindings := []BindingSummary{

@@ -35,6 +35,7 @@ import { messages } from "../../i18n/messages";
 import productLogo from "../../../../../images/brand/logo.png";
 import { useColorScheme } from "./use-color-scheme";
 import { useRouteHeadingFocus } from "./route-focus";
+import { useSession } from "./use-session";
 import { UserMenu } from "./user-menu";
 import styles from "./application-shell.module.css";
 
@@ -57,6 +58,11 @@ export function ApplicationShell() {
       navigate: (href) => navigate(href),
     }),
     [navigate],
+  );
+  const { data: session } = useSession();
+  const gatewayCurrentUser = useMemo(
+    () => ({ username: session?.user?.preferredUsername }),
+    [session?.user?.preferredUsername],
   );
   const { scheme, toggle: toggleColorScheme } = useColorScheme();
   useRouteHeadingFocus(pathname);
@@ -148,6 +154,7 @@ export function ApplicationShell() {
       navigation={dashboardNavigation}
     >
       <GatewayUiProvider
+        currentUser={gatewayCurrentUser}
         gateways={gatewayOperations}
         navigation={gatewayNavigation}
       >

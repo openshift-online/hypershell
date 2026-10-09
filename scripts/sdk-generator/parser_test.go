@@ -30,7 +30,11 @@ func TestParseSpecProjectsScopedServiceAccountResource(t *testing.T) {
 	if len(resource.ScopeParameters) != 1 || resource.ScopeParameters[0].Name != "gateway_id" {
 		t.Fatalf("scope parameters = %#v, want gateway_id", resource.ScopeParameters)
 	}
-	if !strings.Contains(resource.GoCollectionPath, "/gateways/%s/service_accounts") {
+	// Scoped paths must be absolute, matching the server routes and the
+	// non-scoped clients; the base HTTP clients add no prefix. Asserting the
+	// full /api/hypershell prefix (not just the suffix) guards against a
+	// relative-path regression like the one in #447.
+	if !strings.Contains(resource.GoCollectionPath, "/api/hypershell/v1/gateways/%s/service_accounts") {
 		t.Fatalf("Go collection path = %q", resource.GoCollectionPath)
 	}
 	if !strings.Contains(resource.TSItemPath, "encodeURIComponent(serviceAccountId)") {

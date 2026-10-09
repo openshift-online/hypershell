@@ -356,3 +356,153 @@ var OpenShellGatewayServiceAccountProvisionerService_ServiceDesc = grpc.ServiceD
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "hypershell/provisioner/v1/service_accounts.proto",
 }
+
+const (
+	DirectoryService_SearchDirectory_FullMethodName = "/hypershell.provisioner.v1.DirectoryService/SearchDirectory"
+	DirectoryService_ResolveUser_FullMethodName     = "/hypershell.provisioner.v1.DirectoryService/ResolveUser"
+)
+
+// DirectoryServiceClient is the client API for DirectoryService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// DirectoryService serves the control-plane-maintained projection of Keycloak
+// realm users (GAM-09) to the API server over the same private in-cluster
+// channel as the provisioner. The API server never reads the Keycloak admin
+// Secret; it reads this projection.
+type DirectoryServiceClient interface {
+	SearchDirectory(ctx context.Context, in *SearchDirectoryRequest, opts ...grpc.CallOption) (*SearchDirectoryResponse, error)
+	ResolveUser(ctx context.Context, in *ResolveUserRequest, opts ...grpc.CallOption) (*ResolveUserResponse, error)
+}
+
+type directoryServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewDirectoryServiceClient(cc grpc.ClientConnInterface) DirectoryServiceClient {
+	return &directoryServiceClient{cc}
+}
+
+func (c *directoryServiceClient) SearchDirectory(ctx context.Context, in *SearchDirectoryRequest, opts ...grpc.CallOption) (*SearchDirectoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchDirectoryResponse)
+	err := c.cc.Invoke(ctx, DirectoryService_SearchDirectory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *directoryServiceClient) ResolveUser(ctx context.Context, in *ResolveUserRequest, opts ...grpc.CallOption) (*ResolveUserResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveUserResponse)
+	err := c.cc.Invoke(ctx, DirectoryService_ResolveUser_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DirectoryServiceServer is the server API for DirectoryService service.
+// All implementations must embed UnimplementedDirectoryServiceServer
+// for forward compatibility.
+//
+// DirectoryService serves the control-plane-maintained projection of Keycloak
+// realm users (GAM-09) to the API server over the same private in-cluster
+// channel as the provisioner. The API server never reads the Keycloak admin
+// Secret; it reads this projection.
+type DirectoryServiceServer interface {
+	SearchDirectory(context.Context, *SearchDirectoryRequest) (*SearchDirectoryResponse, error)
+	ResolveUser(context.Context, *ResolveUserRequest) (*ResolveUserResponse, error)
+	mustEmbedUnimplementedDirectoryServiceServer()
+}
+
+// UnimplementedDirectoryServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedDirectoryServiceServer struct{}
+
+func (UnimplementedDirectoryServiceServer) SearchDirectory(context.Context, *SearchDirectoryRequest) (*SearchDirectoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SearchDirectory not implemented")
+}
+func (UnimplementedDirectoryServiceServer) ResolveUser(context.Context, *ResolveUserRequest) (*ResolveUserResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolveUser not implemented")
+}
+func (UnimplementedDirectoryServiceServer) mustEmbedUnimplementedDirectoryServiceServer() {}
+func (UnimplementedDirectoryServiceServer) testEmbeddedByValue()                          {}
+
+// UnsafeDirectoryServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to DirectoryServiceServer will
+// result in compilation errors.
+type UnsafeDirectoryServiceServer interface {
+	mustEmbedUnimplementedDirectoryServiceServer()
+}
+
+func RegisterDirectoryServiceServer(s grpc.ServiceRegistrar, srv DirectoryServiceServer) {
+	// If the following call panics, it indicates UnimplementedDirectoryServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&DirectoryService_ServiceDesc, srv)
+}
+
+func _DirectoryService_SearchDirectory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchDirectoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DirectoryServiceServer).SearchDirectory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DirectoryService_SearchDirectory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DirectoryServiceServer).SearchDirectory(ctx, req.(*SearchDirectoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DirectoryService_ResolveUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DirectoryServiceServer).ResolveUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DirectoryService_ResolveUser_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DirectoryServiceServer).ResolveUser(ctx, req.(*ResolveUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// DirectoryService_ServiceDesc is the grpc.ServiceDesc for DirectoryService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var DirectoryService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "hypershell.provisioner.v1.DirectoryService",
+	HandlerType: (*DirectoryServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SearchDirectory",
+			Handler:    _DirectoryService_SearchDirectory_Handler,
+		},
+		{
+			MethodName: "ResolveUser",
+			Handler:    _DirectoryService_ResolveUser_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "hypershell/provisioner/v1/service_accounts.proto",
+}

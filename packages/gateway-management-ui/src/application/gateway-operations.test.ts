@@ -33,7 +33,18 @@ function setup() {
     total: 1,
   });
   const renameGateway = vi.fn().mockResolvedValue(gateway);
+  const grant = {
+    grantedAt: "2026-08-06T18:00:00.000Z",
+    role: "user" as const,
+    roleBindingId: "rb-1",
+    userId: "user-1",
+    username: "dana",
+  };
+  const changeGatewayAccessRole = vi.fn().mockResolvedValue(grant);
+  const grantGatewayAccess = vi.fn().mockResolvedValue(grant);
   const controlPlane: GatewayControlPlane = {
+    changeGatewayAccessRole,
+    grantGatewayAccess,
     createOpenShellGatewayServiceAccount: vi.fn(),
     deleteOpenShellGatewayServiceAccount: vi.fn(),
     findGatewayPlacements: vi.fn().mockResolvedValue({
@@ -54,12 +65,21 @@ function setup() {
       },
     ]),
     getOpenShellGatewayServiceAccount: vi.fn(),
+    listGatewayAccess: vi.fn().mockResolvedValue({
+      capabilities: { canManageAccess: true, canManageOwners: true },
+      items: [],
+      page: 1,
+      size: 20,
+      total: 0,
+    }),
     listGateways,
     listOpenShellGatewayServiceAccounts: vi.fn(),
     provisionGateway: vi.fn().mockResolvedValue(gateway),
     removeGateway: vi.fn().mockResolvedValue(undefined),
     renameGateway,
+    revokeGatewayAccess: vi.fn().mockResolvedValue(undefined),
     revokeOpenShellGatewayServiceAccount: vi.fn(),
+    searchGatewayDirectory: vi.fn().mockResolvedValue([]),
   };
   const operations = createGatewayOperations({
     controlPlane,
@@ -82,7 +102,15 @@ function setup() {
     },
   });
 
-  return { controlPlane, listGateways, operations, received, renameGateway };
+  return {
+    changeGatewayAccessRole,
+    controlPlane,
+    grantGatewayAccess,
+    listGateways,
+    operations,
+    received,
+    renameGateway,
+  };
 }
 
 describe("gateway application operations", () => {
@@ -171,6 +199,40 @@ describe("gateway application operations", () => {
           "account-1",
         ),
     ],
+    [
+      "list-access",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.listGatewayAccess("gateway-1", {
+          order: "desc",
+          page: 1,
+          search: "",
+          size: 20,
+          sort: "granted_at",
+        }),
+    ],
+    [
+      "grant-access",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.grantGatewayAccess("gateway-1", {
+          role: "user",
+          username: "dana",
+        }),
+    ],
+    [
+      "change-access-role",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.changeGatewayAccessRole("gateway-1", "user-1", "admin"),
+    ],
+    [
+      "revoke-access",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.revokeGatewayAccess("gateway-1", "user-1"),
+    ],
+    [
+      "search-directory",
+      (operations: ReturnType<typeof setup>["operations"]) =>
+        operations.searchGatewayDirectory("gateway-1", "da"),
+    ],
   ] as const)(
     "publishes one successful %s workflow and dependency outcome",
     async (action, invoke) => {
@@ -232,6 +294,48 @@ describe("gateway application operations", () => {
     expect(
       received.slice(-2).map(({ context }) => context.operationId),
     ).toEqual(["operation-1", "operation-1"]);
+  });
+
+  it("publishes a conflicted outcome when a last-owner change is rejected", async () => {
+    const { changeGatewayAccessRole, operations, received } = setup();
+    const failure = new GatewayOperationError("conflict", {
+      operationId: "operation-9",
+    });
+    changeGatewayAccessRole.mockRejectedValue(failure);
+
+    await expect(
+      operations.changeGatewayAccessRole("gateway-1", "user-1", "user"),
+    ).rejects.toBe(failure);
+
+    expect(received.slice(-2).map(({ fields }) => fields)).toEqual([
+      {
+        action: "change-access-role",
+        failureKind: "conflict",
+        outcome: "conflicted",
+      },
+      {
+        action: "change-access-role",
+        failureKind: "conflict",
+        outcome: "conflicted",
+      },
+    ]);
+  });
+
+  it("publishes a denied outcome when a grant is forbidden", async () => {
+    const { grantGatewayAccess, operations, received } = setup();
+    const failure = new GatewayOperationError("denied");
+    grantGatewayAccess.mockRejectedValue(failure);
+
+    await expect(
+      operations.grantGatewayAccess("gateway-1", {
+        role: "owner",
+        username: "erin",
+      }),
+    ).rejects.toBe(failure);
+
+    expect(received.slice(-1).map(({ fields }) => fields)).toEqual([
+      { action: "grant-access", failureKind: "denied", outcome: "denied" },
+    ]);
   });
 
   it("publishes cancellation without turning it into an application error", async () => {

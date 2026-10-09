@@ -22,6 +22,155 @@ import (
 // DefaultAPIService DefaultAPI service
 type DefaultAPIService service
 
+type ApiChangeGatewayAccessRoleRequest struct {
+	ctx                            context.Context
+	ApiService                     *DefaultAPIService
+	gatewayId                      string
+	userId                         string
+	gatewayAccessChangeRoleRequest *GatewayAccessChangeRoleRequest
+}
+
+func (r ApiChangeGatewayAccessRoleRequest) GatewayAccessChangeRoleRequest(gatewayAccessChangeRoleRequest GatewayAccessChangeRoleRequest) ApiChangeGatewayAccessRoleRequest {
+	r.gatewayAccessChangeRoleRequest = &gatewayAccessChangeRoleRequest
+	return r
+}
+
+func (r ApiChangeGatewayAccessRoleRequest) Execute() (*GatewayAccessGrantResponse, *http.Response, error) {
+	return r.ApiService.ChangeGatewayAccessRoleExecute(r)
+}
+
+/*
+ChangeGatewayAccessRole Change a user's access role on a gateway
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param gatewayId Selected Gateway ID
+	@param userId HyperShell User ID
+	@return ApiChangeGatewayAccessRoleRequest
+*/
+func (a *DefaultAPIService) ChangeGatewayAccessRole(ctx context.Context, gatewayId string, userId string) ApiChangeGatewayAccessRoleRequest {
+	return ApiChangeGatewayAccessRoleRequest{
+		ApiService: a,
+		ctx:        ctx,
+		gatewayId:  gatewayId,
+		userId:     userId,
+	}
+}
+
+// Execute executes the request
+//
+//	@return GatewayAccessGrantResponse
+func (a *DefaultAPIService) ChangeGatewayAccessRoleExecute(r ApiChangeGatewayAccessRoleRequest) (*GatewayAccessGrantResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodPatch
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *GatewayAccessGrantResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.ChangeGatewayAccessRole")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/hypershell/v1/gateways/{gateway_id}/access/{user_id}"
+	localVarPath = strings.Replace(localVarPath, "{"+"gateway_id"+"}", url.PathEscape(parameterValueToString(r.gatewayId, "gatewayId")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"user_id"+"}", url.PathEscape(parameterValueToString(r.userId, "userId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.gatewayAccessChangeRoleRequest == nil {
+		return localVarReturnValue, nil, reportError("gatewayAccessChangeRoleRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	// body params
+	localVarPostBody = r.gatewayAccessChangeRoleRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
 type ApiCreateAgentRuntimeRequest struct {
 	ctx          context.Context
 	ApiService   *DefaultAPIService
@@ -4367,6 +4516,162 @@ func (a *DefaultAPIService) GetUserExecute(r ApiGetUserRequest) (*User, *http.Re
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
+type ApiGrantGatewayAccessRequest struct {
+	ctx                       context.Context
+	ApiService                *DefaultAPIService
+	gatewayId                 string
+	gatewayAccessGrantRequest *GatewayAccessGrantRequest
+}
+
+func (r ApiGrantGatewayAccessRequest) GatewayAccessGrantRequest(gatewayAccessGrantRequest GatewayAccessGrantRequest) ApiGrantGatewayAccessRequest {
+	r.gatewayAccessGrantRequest = &gatewayAccessGrantRequest
+	return r
+}
+
+func (r ApiGrantGatewayAccessRequest) Execute() (*GatewayAccessGrantResponse, *http.Response, error) {
+	return r.ApiService.GrantGatewayAccessExecute(r)
+}
+
+/*
+GrantGatewayAccess Grant a user access to a gateway
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param gatewayId Selected Gateway ID
+	@return ApiGrantGatewayAccessRequest
+*/
+func (a *DefaultAPIService) GrantGatewayAccess(ctx context.Context, gatewayId string) ApiGrantGatewayAccessRequest {
+	return ApiGrantGatewayAccessRequest{
+		ApiService: a,
+		ctx:        ctx,
+		gatewayId:  gatewayId,
+	}
+}
+
+// Execute executes the request
+//
+//	@return GatewayAccessGrantResponse
+func (a *DefaultAPIService) GrantGatewayAccessExecute(r ApiGrantGatewayAccessRequest) (*GatewayAccessGrantResponse, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodPost
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *GatewayAccessGrantResponse
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.GrantGatewayAccess")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/hypershell/v1/gateways/{gateway_id}/access"
+	localVarPath = strings.Replace(localVarPath, "{"+"gateway_id"+"}", url.PathEscape(parameterValueToString(r.gatewayId, "gatewayId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.gatewayAccessGrantRequest == nil {
+		return localVarReturnValue, nil, reportError("gatewayAccessGrantRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	// body params
+	localVarPostBody = r.gatewayAccessGrantRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 503 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
 type ApiListAgentRuntimesRequest struct {
 	ctx        context.Context
 	ApiService *DefaultAPIService
@@ -4505,6 +4810,210 @@ func (a *DefaultAPIService) ListAgentRuntimesExecute(r ApiListAgentRuntimesReque
 		newErr := &GenericOpenAPIError{
 			body:  localVarBody,
 			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 500 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiListGatewayAccessRequest struct {
+	ctx        context.Context
+	ApiService *DefaultAPIService
+	gatewayId  string
+	page       *int32
+	size       *int32
+	role       *GatewayAccessRole
+	search     *string
+	sort       *string
+	order      *string
+}
+
+// Page number of record list when record list exceeds specified page size
+func (r ApiListGatewayAccessRequest) Page(page int32) ApiListGatewayAccessRequest {
+	r.page = &page
+	return r
+}
+
+// Maximum number of records to return
+func (r ApiListGatewayAccessRequest) Size(size int32) ApiListGatewayAccessRequest {
+	r.size = &size
+	return r
+}
+
+// Filter by console role tier
+func (r ApiListGatewayAccessRequest) Role(role GatewayAccessRole) ApiListGatewayAccessRequest {
+	r.role = &role
+	return r
+}
+
+// Specifies the search criteria
+func (r ApiListGatewayAccessRequest) Search(search string) ApiListGatewayAccessRequest {
+	r.search = &search
+	return r
+}
+
+func (r ApiListGatewayAccessRequest) Sort(sort string) ApiListGatewayAccessRequest {
+	r.sort = &sort
+	return r
+}
+
+func (r ApiListGatewayAccessRequest) Order(order string) ApiListGatewayAccessRequest {
+	r.order = &order
+	return r
+}
+
+func (r ApiListGatewayAccessRequest) Execute() (*GatewayAccessList, *http.Response, error) {
+	return r.ApiService.ListGatewayAccessExecute(r)
+}
+
+/*
+ListGatewayAccess List access grants on a gateway
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param gatewayId Selected Gateway ID
+	@return ApiListGatewayAccessRequest
+*/
+func (a *DefaultAPIService) ListGatewayAccess(ctx context.Context, gatewayId string) ApiListGatewayAccessRequest {
+	return ApiListGatewayAccessRequest{
+		ApiService: a,
+		ctx:        ctx,
+		gatewayId:  gatewayId,
+	}
+}
+
+// Execute executes the request
+//
+//	@return GatewayAccessList
+func (a *DefaultAPIService) ListGatewayAccessExecute(r ApiListGatewayAccessRequest) (*GatewayAccessList, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodGet
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *GatewayAccessList
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.ListGatewayAccess")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/hypershell/v1/gateways/{gateway_id}/access"
+	localVarPath = strings.Replace(localVarPath, "{"+"gateway_id"+"}", url.PathEscape(parameterValueToString(r.gatewayId, "gatewayId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	if r.page != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "page", r.page, "form", "")
+	} else {
+		var defaultValue int32 = 1
+		r.page = &defaultValue
+	}
+	if r.size != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "size", r.size, "form", "")
+	} else {
+		var defaultValue int32 = 100
+		r.size = &defaultValue
+	}
+	if r.role != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "role", r.role, "", "")
+	}
+	if r.search != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "search", r.search, "form", "")
+	}
+	if r.sort != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "sort", r.sort, "", "")
+	} else {
+		var defaultValue string = "created_at"
+		r.sort = &defaultValue
+	}
+	if r.order != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "order", r.order, "", "")
+	} else {
+		var defaultValue string = "desc"
+		r.order = &defaultValue
+	}
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
 			var v Error
@@ -6589,6 +7098,121 @@ func (a *DefaultAPIService) RegisterManagedClusterExecute(r ApiRegisterManagedCl
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
+type ApiRevokeGatewayAccessRequest struct {
+	ctx        context.Context
+	ApiService *DefaultAPIService
+	gatewayId  string
+	userId     string
+}
+
+func (r ApiRevokeGatewayAccessRequest) Execute() (*http.Response, error) {
+	return r.ApiService.RevokeGatewayAccessExecute(r)
+}
+
+/*
+RevokeGatewayAccess Revoke a user's access to a gateway
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param gatewayId Selected Gateway ID
+	@param userId HyperShell User ID
+	@return ApiRevokeGatewayAccessRequest
+*/
+func (a *DefaultAPIService) RevokeGatewayAccess(ctx context.Context, gatewayId string, userId string) ApiRevokeGatewayAccessRequest {
+	return ApiRevokeGatewayAccessRequest{
+		ApiService: a,
+		ctx:        ctx,
+		gatewayId:  gatewayId,
+		userId:     userId,
+	}
+}
+
+// Execute executes the request
+func (a *DefaultAPIService) RevokeGatewayAccessExecute(r ApiRevokeGatewayAccessRequest) (*http.Response, error) {
+	var (
+		localVarHTTPMethod = http.MethodDelete
+		localVarPostBody   interface{}
+		formFiles          []formFile
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.RevokeGatewayAccess")
+	if err != nil {
+		return nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/hypershell/v1/gateways/{gateway_id}/access/{user_id}"
+	localVarPath = strings.Replace(localVarPath, "{"+"gateway_id"+"}", url.PathEscape(parameterValueToString(r.gatewayId, "gatewayId")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"user_id"+"}", url.PathEscape(parameterValueToString(r.userId, "userId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 409 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarHTTPResponse, newErr
+	}
+
+	return localVarHTTPResponse, nil
+}
+
 type ApiRevokeGatewayServiceAccountRequest struct {
 	ctx              context.Context
 	ApiService       *DefaultAPIService
@@ -6641,6 +7265,139 @@ func (a *DefaultAPIService) RevokeGatewayServiceAccountExecute(r ApiRevokeGatewa
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
 
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 503 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiSearchGatewayDirectoryRequest struct {
+	ctx        context.Context
+	ApiService *DefaultAPIService
+	gatewayId  string
+	search     *string
+}
+
+// Specifies the search criteria
+func (r ApiSearchGatewayDirectoryRequest) Search(search string) ApiSearchGatewayDirectoryRequest {
+	r.search = &search
+	return r
+}
+
+func (r ApiSearchGatewayDirectoryRequest) Execute() (*GatewayDirectoryUserList, *http.Response, error) {
+	return r.ApiService.SearchGatewayDirectoryExecute(r)
+}
+
+/*
+SearchGatewayDirectory Search the Keycloak realm directory for candidate users
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param gatewayId Selected Gateway ID
+	@return ApiSearchGatewayDirectoryRequest
+*/
+func (a *DefaultAPIService) SearchGatewayDirectory(ctx context.Context, gatewayId string) ApiSearchGatewayDirectoryRequest {
+	return ApiSearchGatewayDirectoryRequest{
+		ApiService: a,
+		ctx:        ctx,
+		gatewayId:  gatewayId,
+	}
+}
+
+// Execute executes the request
+//
+//	@return GatewayDirectoryUserList
+func (a *DefaultAPIService) SearchGatewayDirectoryExecute(r ApiSearchGatewayDirectoryRequest) (*GatewayDirectoryUserList, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodGet
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *GatewayDirectoryUserList
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.SearchGatewayDirectory")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/hypershell/v1/gateways/{gateway_id}/access/directory"
+	localVarPath = strings.Replace(localVarPath, "{"+"gateway_id"+"}", url.PathEscape(parameterValueToString(r.gatewayId, "gatewayId")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	if r.search != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "search", r.search, "form", "")
+	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
 

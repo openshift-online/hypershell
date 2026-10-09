@@ -1016,6 +1016,7 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
 
   info "Login:        https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}/auth/login"
   info "Test users:   admin/admin (admins + users), developer/developer (users only)"
+  info "Grant targets: ${KIND_EXTRA_USERNAMES[*]} (password == username; for gateway access testing)"
 else
   info "HTTP API:     http://localhost:8000"
   info "Web Console:  http://localhost:3000"
@@ -1034,6 +1035,7 @@ else
 
   info "Login:        http://localhost:3000/auth/login"
   info "Test users:   admin/admin (admins + users), developer/developer (users only)"
+  info "Grant targets: ${KIND_EXTRA_USERNAMES[*]} (password == username; for gateway access testing)"
 
   echo ""
   warn "Running without cloud-provider-kind - no TLS or hostname-based routing."

@@ -64,6 +64,10 @@ type Gateway struct {
 	Generation *int64 `json:"generation,omitempty"`
 	// Generation the control plane last successfully applied; converged when equal to generation
 	ObservedGeneration *int64 `json:"observed_generation,omitempty"`
+	// Whether the authenticated caller is authorized to delete this gateway (gateway owner or platform admin). Advertised so clients can disable a delete affordance the API would reject; the server remains authoritative.
+	CanDelete *bool `json:"can_delete,omitempty"`
+	// Whether the authenticated caller is authorized to modify this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised so clients can disable an edit affordance the API would reject; the server remains authoritative.
+	CanEdit *bool `json:"can_edit,omitempty"`
 }
 
 type _Gateway Gateway
@@ -928,6 +932,70 @@ func (o *Gateway) SetObservedGeneration(v int64) {
 	o.ObservedGeneration = &v
 }
 
+// GetCanDelete returns the CanDelete field value if set, zero value otherwise.
+func (o *Gateway) GetCanDelete() bool {
+	if o == nil || IsNil(o.CanDelete) {
+		var ret bool
+		return ret
+	}
+	return *o.CanDelete
+}
+
+// GetCanDeleteOk returns a tuple with the CanDelete field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetCanDeleteOk() (*bool, bool) {
+	if o == nil || IsNil(o.CanDelete) {
+		return nil, false
+	}
+	return o.CanDelete, true
+}
+
+// HasCanDelete returns a boolean if a field has been set.
+func (o *Gateway) HasCanDelete() bool {
+	if o != nil && !IsNil(o.CanDelete) {
+		return true
+	}
+
+	return false
+}
+
+// SetCanDelete gets a reference to the given bool and assigns it to the CanDelete field.
+func (o *Gateway) SetCanDelete(v bool) {
+	o.CanDelete = &v
+}
+
+// GetCanEdit returns the CanEdit field value if set, zero value otherwise.
+func (o *Gateway) GetCanEdit() bool {
+	if o == nil || IsNil(o.CanEdit) {
+		var ret bool
+		return ret
+	}
+	return *o.CanEdit
+}
+
+// GetCanEditOk returns a tuple with the CanEdit field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Gateway) GetCanEditOk() (*bool, bool) {
+	if o == nil || IsNil(o.CanEdit) {
+		return nil, false
+	}
+	return o.CanEdit, true
+}
+
+// HasCanEdit returns a boolean if a field has been set.
+func (o *Gateway) HasCanEdit() bool {
+	if o != nil && !IsNil(o.CanEdit) {
+		return true
+	}
+
+	return false
+}
+
+// SetCanEdit gets a reference to the given bool and assigns it to the CanEdit field.
+func (o *Gateway) SetCanEdit(v bool) {
+	o.CanEdit = &v
+}
+
 func (o Gateway) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -1012,6 +1080,12 @@ func (o Gateway) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ObservedGeneration) {
 		toSerialize["observed_generation"] = o.ObservedGeneration
+	}
+	if !IsNil(o.CanDelete) {
+		toSerialize["can_delete"] = o.CanDelete
+	}
+	if !IsNil(o.CanEdit) {
+		toSerialize["can_edit"] = o.CanEdit
 	}
 	return toSerialize, nil
 }

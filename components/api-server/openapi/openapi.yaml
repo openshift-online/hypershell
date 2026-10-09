@@ -56,6 +56,12 @@ paths:
     $ref: 'openapi.users.yaml#/paths/~1api~1hypershell~1v1~1users'
   /api/hypershell/v1/users/{id}:
     $ref: 'openapi.users.yaml#/paths/~1api~1hypershell~1v1~1users~1{id}'
+  /api/hypershell/v1/gateways/{gateway_id}/access:
+    $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access'
+  /api/hypershell/v1/gateways/{gateway_id}/access/directory:
+    $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access~1directory'
+  /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:
+    $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access~1{user_id}'
   /api/hypershell/ext/agent_runtimes:
     $ref: 'openapi.agentRuntimes.yaml#/paths/~1api~1hypershell~1ext~1agent_runtimes'
   /api/hypershell/ext/agent_runtimes/{id}:
@@ -176,6 +182,24 @@ components:
       $ref: 'openapi.users.yaml#/components/schemas/User'
     UserList:
       $ref: 'openapi.users.yaml#/components/schemas/UserList'
+    GatewayAccessRole:
+      $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessRole'
+    GatewayAccessGrantRequest:
+      $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessGrantRequest'
+    GatewayAccessChangeRoleRequest:
+      $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessChangeRoleRequest'
+    GatewayAccessListItem:
+      $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessListItem'
+    GatewayAccessGrantResponse:
+      $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessGrantResponse'
+    GatewayAccessCapabilities:
+      $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessCapabilities'
+    GatewayAccessList:
+      $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayAccessList'
+    GatewayDirectoryUser:
+      $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayDirectoryUser'
+    GatewayDirectoryUserList:
+      $ref: 'openapi.gatewayAccess.yaml#/components/schemas/GatewayDirectoryUserList'
     AgentRuntime:
       $ref: 'openapi.agentRuntimes.yaml#/components/schemas/AgentRuntime'
     AgentRuntimeList:

@@ -35,6 +35,11 @@ export function GatewayRowActions({
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [copyResult, setCopyResult] = useState<"error" | "success">();
   const connectionCommand = buildGatewayAddCommand(gateway);
+  // Disable delete/rename only when the server has explicitly told us the caller
+  // cannot. An absent capability (older server) leaves it enabled; the API 403
+  // remains authoritative either way.
+  const canDelete = gateway.canDelete !== false;
+  const canEdit = gateway.canEdit !== false;
 
   const copyConnectionCommand = async () => {
     if (!connectionCommand) {
@@ -95,17 +100,43 @@ export function GatewayRowActions({
             </DropdownItem>
           ) : null}
           <DropdownItem
+            isAriaDisabled={!canEdit}
             onClick={() => {
+              if (!canEdit) {
+                return;
+              }
               setIsRenameOpen(true);
             }}
+            tooltipProps={
+              canEdit
+                ? undefined
+                : {
+                    content: intl.formatMessage(
+                      messages.renameGatewayNotPermitted,
+                    ),
+                  }
+            }
           >
             <FormattedMessage {...messages.renameGateway} />
           </DropdownItem>
           <DropdownItem
-            isDanger
+            isAriaDisabled={!canDelete}
+            isDanger={canDelete}
             onClick={() => {
+              if (!canDelete) {
+                return;
+              }
               setIsDeleteOpen(true);
             }}
+            tooltipProps={
+              canDelete
+                ? undefined
+                : {
+                    content: intl.formatMessage(
+                      messages.deleteGatewayNotPermitted,
+                    ),
+                  }
+            }
           >
             <FormattedMessage {...messages.deleteGateway} />
           </DropdownItem>

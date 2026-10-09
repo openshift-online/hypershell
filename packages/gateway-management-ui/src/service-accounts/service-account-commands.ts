@@ -35,12 +35,13 @@ export function serviceAccountGatewayAlias(
 
 export function buildWorkspaceMembershipCommand(
   subject: string,
+  workspace = "replace-with-workspace-name",
 ): string | undefined {
   if (!subject.trim()) {
     return undefined;
   }
   return [
-    "WORKSPACE_NAME='replace-with-workspace-name'",
+    `WORKSPACE_NAME='${workspace}'`,
     "",
     "openshell workspace member add \\",
     '  --workspace "$WORKSPACE_NAME" \\',

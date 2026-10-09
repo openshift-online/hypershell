@@ -36,6 +36,7 @@ const (
 	RolePlatformAdmin           = "platform:admin"
 	RoleGatewayCreator          = "gateway:creator"
 	RoleGatewayOwner            = "gateway:owner"
+	RoleGatewayAdmin            = "gateway:admin"
 	RoleGatewayViewer           = "gateway:viewer"
 	RoleManagedClusterRegistrar = "managed-cluster-registrar"
 )

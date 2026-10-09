@@ -255,6 +255,7 @@ func init() {
 		var ownerBinding OwnerBindingCreator
 		var visibilityFilter GatewayVisibilityFilter
 		var ownerLookup GatewayOwnerLookup
+		var bindingLookup rbac.RoleBindingLookup
 		rbService := roleBindings.Service(envServices)
 		if rbService != nil {
 			ownerBinding = rbac.NewGatewayBootstrapper(rbService)
@@ -266,9 +267,11 @@ func init() {
 				return ids, nil
 			})
 			ownerLookup = rbService
+			bindingLookup = rbService
 		}
+		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
 		placement := newRegisteredPlacementService(envServices)
-		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, registeredClusterLookup(envServices), placement.Resolve, placement.Availability)
+		gatewayHandler := NewGatewayHandler(Service(envServices), listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), enforceRBAC, placement.Resolve, placement.Availability)
 
 		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)

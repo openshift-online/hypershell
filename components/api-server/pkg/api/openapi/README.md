@@ -78,6 +78,7 @@ All URIs are relative to *http://localhost:8000*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
+*DefaultAPI* | [**ChangeGatewayAccessRole**](docs/DefaultAPI.md#changegatewayaccessrole) | **Patch** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Change a user&#39;s access role on a gateway
 *DefaultAPI* | [**CreateAgentRuntime**](docs/DefaultAPI.md#createagentruntime) | **Post** /api/hypershell/ext/agent_runtimes | Create a new agent runtime
 *DefaultAPI* | [**CreateGateway**](docs/DefaultAPI.md#creategateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 *DefaultAPI* | [**CreateGatewayServiceAccount**](docs/DefaultAPI.md#creategatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
@@ -112,7 +113,9 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**GetSandboxTemplate**](docs/DefaultAPI.md#getsandboxtemplate) | **Get** /api/hypershell/ext/sandbox_templates/{id} | Get a sandbox template by ID
 *DefaultAPI* | [**GetSecretSource**](docs/DefaultAPI.md#getsecretsource) | **Get** /api/hypershell/ext/secret_sources/{id} | Get a secret source by ID
 *DefaultAPI* | [**GetUser**](docs/DefaultAPI.md#getuser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
+*DefaultAPI* | [**GrantGatewayAccess**](docs/DefaultAPI.md#grantgatewayaccess) | **Post** /api/hypershell/v1/gateways/{gateway_id}/access | Grant a user access to a gateway
 *DefaultAPI* | [**ListAgentRuntimes**](docs/DefaultAPI.md#listagentruntimes) | **Get** /api/hypershell/ext/agent_runtimes | Returns a list of agent runtimes
+*DefaultAPI* | [**ListGatewayAccess**](docs/DefaultAPI.md#listgatewayaccess) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access | List access grants on a gateway
 *DefaultAPI* | [**ListGatewayServiceAccounts**](docs/DefaultAPI.md#listgatewayserviceaccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 *DefaultAPI* | [**ListGateways**](docs/DefaultAPI.md#listgateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 *DefaultAPI* | [**ListInferenceRoutes**](docs/DefaultAPI.md#listinferenceroutes) | **Get** /api/hypershell/ext/inference_routes | Returns a list of inference routes
@@ -125,7 +128,9 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**ListSecretSources**](docs/DefaultAPI.md#listsecretsources) | **Get** /api/hypershell/ext/secret_sources | Returns a list of secret sources
 *DefaultAPI* | [**ListUsers**](docs/DefaultAPI.md#listusers) | **Get** /api/hypershell/v1/users | List registered users
 *DefaultAPI* | [**RegisterManagedCluster**](docs/DefaultAPI.md#registermanagedcluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a control plane as a managed cluster
+*DefaultAPI* | [**RevokeGatewayAccess**](docs/DefaultAPI.md#revokegatewayaccess) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Revoke a user&#39;s access to a gateway
 *DefaultAPI* | [**RevokeGatewayServiceAccount**](docs/DefaultAPI.md#revokegatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
+*DefaultAPI* | [**SearchGatewayDirectory**](docs/DefaultAPI.md#searchgatewaydirectory) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access/directory | Search the Keycloak realm directory for candidate users
 *DefaultAPI* | [**UpdateAgentRuntime**](docs/DefaultAPI.md#updateagentruntime) | **Patch** /api/hypershell/ext/agent_runtimes/{id} | Update an agent runtime
 *DefaultAPI* | [**UpdateGateway**](docs/DefaultAPI.md#updategateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 *DefaultAPI* | [**UpdateManagedCluster**](docs/DefaultAPI.md#updatemanagedcluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
@@ -142,8 +147,17 @@ Class | Method | HTTP request | Description
  - [AgentRuntimePatchRequest](docs/AgentRuntimePatchRequest.md)
  - [Error](docs/Error.md)
  - [Gateway](docs/Gateway.md)
+ - [GatewayAccessCapabilities](docs/GatewayAccessCapabilities.md)
+ - [GatewayAccessChangeRoleRequest](docs/GatewayAccessChangeRoleRequest.md)
+ - [GatewayAccessGrantRequest](docs/GatewayAccessGrantRequest.md)
+ - [GatewayAccessGrantResponse](docs/GatewayAccessGrantResponse.md)
+ - [GatewayAccessList](docs/GatewayAccessList.md)
+ - [GatewayAccessListItem](docs/GatewayAccessListItem.md)
+ - [GatewayAccessRole](docs/GatewayAccessRole.md)
  - [GatewayAllOfProvisioningConditions](docs/GatewayAllOfProvisioningConditions.md)
  - [GatewayCreateRequest](docs/GatewayCreateRequest.md)
+ - [GatewayDirectoryUser](docs/GatewayDirectoryUser.md)
+ - [GatewayDirectoryUserList](docs/GatewayDirectoryUserList.md)
  - [GatewayList](docs/GatewayList.md)
  - [GatewayPatchRequest](docs/GatewayPatchRequest.md)
  - [GatewayPlacementAvailability](docs/GatewayPlacementAvailability.md)

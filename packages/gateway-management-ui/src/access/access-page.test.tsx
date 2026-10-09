@@ -1,0 +1,440 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { IntlProvider } from "react-intl";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  type GatewayAccessCapabilities,
+  type GatewayAccessGrantRecord,
+  type GatewayAccessPage,
+  type GatewayOperations,
+} from "../application/gateway-types";
+import { GatewayUiProvider } from "../gateway-ui-provider";
+import { AccessPage } from "./access-page";
+
+const creator: GatewayAccessGrantRecord = {
+  grantedAt: "2026-08-21T12:00:00Z",
+  name: "Olivia Owner",
+  role: "owner",
+  roleBindingId: "rb-owner",
+  userId: "u-owner",
+  username: "owner1",
+};
+const secondOwner: GatewayAccessGrantRecord = {
+  grantedAt: "2026-08-21T12:00:00Z",
+  name: "Owen Two",
+  role: "owner",
+  roleBindingId: "rb-owner-2",
+  userId: "u-owner-2",
+  username: "owner2",
+};
+const admin: GatewayAccessGrantRecord = {
+  grantedAt: "2026-08-21T12:00:00Z",
+  name: "Amy Admin",
+  role: "admin",
+  roleBindingId: "rb-admin",
+  userId: "u-admin",
+  username: "admin1",
+};
+const user: GatewayAccessGrantRecord = {
+  grantedAt: "2026-08-21T12:00:00Z",
+  name: "Uma User",
+  role: "user",
+  roleBindingId: "rb-user",
+  userId: "u-user",
+  username: "user1",
+};
+
+const ownerCapabilities: GatewayAccessCapabilities = {
+  callerRole: "owner",
+  canManageAccess: true,
+  canManageOwners: true,
+};
+const adminCapabilities: GatewayAccessCapabilities = {
+  callerRole: "admin",
+  canManageAccess: true,
+  canManageOwners: false,
+};
+const viewerCapabilities: GatewayAccessCapabilities = {
+  callerRole: "user",
+  canManageAccess: false,
+  canManageOwners: false,
+};
+
+function accessPage(
+  items: readonly GatewayAccessGrantRecord[],
+  capabilities: GatewayAccessCapabilities,
+): GatewayAccessPage {
+  return { capabilities, items, page: 1, size: 20, total: items.length };
+}
+
+const mocks = vi.hoisted(() => ({
+  change: vi.fn(),
+  grant: vi.fn(),
+  list: vi.fn(),
+  revoke: vi.fn(),
+  search: vi.fn(),
+}));
+
+const operations: GatewayOperations = {
+  changeGatewayAccessRole: mocks.change,
+  createOpenShellGatewayServiceAccount: vi.fn(),
+  deleteOpenShellGatewayServiceAccount: vi.fn(),
+  findGatewayPlacements: vi.fn(),
+  getGateway: vi.fn(),
+  getGatewayPlacement: vi.fn(),
+  getGatewayPlacements: vi.fn(),
+  getOpenShellGatewayServiceAccount: vi.fn(),
+  grantGatewayAccess: mocks.grant,
+  listGatewayAccess: mocks.list,
+  listGateways: vi.fn(),
+  listOpenShellGatewayServiceAccounts: vi.fn(),
+  provisionGateway: vi.fn(),
+  removeGateway: vi.fn(),
+  renameGateway: vi.fn(),
+  revokeGatewayAccess: mocks.revoke,
+  revokeOpenShellGatewayServiceAccount: vi.fn(),
+  searchGatewayDirectory: mocks.search,
+};
+
+function renderPage(currentUser?: { username?: string }) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { retry: false },
+      queries: { retry: false },
+    },
+  });
+  return render(
+    <IntlProvider locale="en">
+      <QueryClientProvider client={queryClient}>
+        <GatewayUiProvider
+          currentUser={currentUser}
+          gateways={operations}
+          navigation={{
+            collectionHref: "/",
+            createHref: "/gateways/new",
+            detailHref: (id) => `/gateways/${id}`,
+            navigate: vi.fn(),
+          }}
+        >
+          <AccessPage gatewayId="gateway-1" />
+        </GatewayUiProvider>
+      </QueryClientProvider>
+    </IntlProvider>,
+  );
+}
+
+describe("AccessPage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.list.mockResolvedValue(
+      accessPage([creator, secondOwner, admin, user], ownerCapabilities),
+    );
+    mocks.search.mockResolvedValue([]);
+    mocks.grant.mockResolvedValue(user);
+    mocks.change.mockResolvedValue({ ...user, role: "admin" });
+    mocks.revoke.mockResolvedValue(undefined);
+  });
+
+  it("renders names, user IDs, and roles", async () => {
+    renderPage();
+    expect(await screen.findByText("Olivia Owner")).toBeTruthy();
+    expect(screen.getByText("owner1")).toBeTruthy();
+    expect(screen.getByText("Amy Admin")).toBeTruthy();
+    expect(screen.getByText("Uma User")).toBeTruthy();
+  });
+
+  it("disables the sole owner's controls", async () => {
+    mocks.list.mockResolvedValue(accessPage([creator], ownerCapabilities));
+    renderPage();
+    await screen.findByText("Olivia Owner");
+    // Both the inline role control and the remove action carry the reason.
+    const controls = screen.getAllByRole<HTMLButtonElement>("button", {
+      name: "A gateway must keep at least one owner.",
+    });
+    expect(controls.length).toBeGreaterThanOrEqual(1);
+    controls.forEach((control) => {
+      expect(control.getAttribute("aria-disabled")).toBe("true");
+    });
+  });
+
+  it("disables owner rows for a non-owner admin", async () => {
+    mocks.list.mockResolvedValue(
+      accessPage([creator, user], adminCapabilities),
+    );
+    renderPage();
+    await screen.findByText("Olivia Owner");
+    // The owner row's controls are disabled with the owner-only reason.
+    const ownerControls = screen.getAllByRole<HTMLButtonElement>("button", {
+      name: "Only owners can change or remove an owner.",
+    });
+    expect(ownerControls.length).toBeGreaterThanOrEqual(1);
+    ownerControls.forEach((control) => {
+      expect(control.getAttribute("aria-disabled")).toBe("true");
+    });
+    // The user row remains actionable.
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", {
+        name: "Remove access: Uma User",
+      }).disabled,
+    ).toBe(false);
+  });
+
+  it("filters by search text and role", async () => {
+    const user1 = userEvent.setup();
+    renderPage();
+    await screen.findByText("Olivia Owner");
+
+    await user1.type(
+      screen.getByRole("textbox", { name: "Find people..." }),
+      "ali",
+    );
+    await waitFor(
+      () => {
+        expect(mocks.list).toHaveBeenLastCalledWith(
+          "gateway-1",
+          expect.objectContaining({ search: "ali" }),
+          expect.any(AbortSignal),
+        );
+      },
+      { timeout: 2_000 },
+    );
+
+    await user1.click(screen.getByRole("button", { name: "Filter by role" }));
+    await user1.click(screen.getByRole("option", { name: "User" }));
+    await waitFor(() => {
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        "gateway-1",
+        expect.objectContaining({ role: "user" }),
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
+  it("changes a role inline", async () => {
+    const user1 = userEvent.setup();
+    mocks.list.mockResolvedValue(accessPage([user], ownerCapabilities));
+    renderPage();
+    await screen.findByText("Uma User");
+
+    await user1.click(
+      screen.getByRole("button", { name: "Change role: Uma User" }),
+    );
+    await user1.click(screen.getByRole("option", { name: "Admin" }));
+    await waitFor(() => {
+      expect(mocks.change).toHaveBeenCalledWith("gateway-1", "u-user", "admin");
+    });
+  });
+
+  it("confirms before a user changes their own role", async () => {
+    const user1 = userEvent.setup();
+    // Two owners so the self owner row is editable (not the last owner), and the
+    // caller is the second owner.
+    mocks.list.mockResolvedValue(
+      accessPage([creator, secondOwner], ownerCapabilities),
+    );
+    renderPage({ username: "owner2" });
+    await screen.findByText("Owen Two");
+
+    await user1.click(
+      screen.getByRole("button", { name: "Change role: Owen Two" }),
+    );
+    await user1.click(screen.getByRole("option", { name: "Admin" }));
+
+    // The change is held until the user confirms in the modal.
+    const dialog = await screen.findByRole("dialog", {
+      name: "Change your own role?",
+    });
+    expect(mocks.change).not.toHaveBeenCalled();
+
+    await user1.click(
+      within(dialog).getByRole("button", { name: "Change my role" }),
+    );
+    await waitFor(() => {
+      expect(mocks.change).toHaveBeenCalledWith(
+        "gateway-1",
+        "u-owner-2",
+        "admin",
+      );
+    });
+  });
+
+  it("changes another user's role without a confirmation modal", async () => {
+    const user1 = userEvent.setup();
+    mocks.list.mockResolvedValue(accessPage([user], ownerCapabilities));
+    // The caller is someone other than the row being edited.
+    renderPage({ username: "owner2" });
+    await screen.findByText("Uma User");
+
+    await user1.click(
+      screen.getByRole("button", { name: "Change role: Uma User" }),
+    );
+    await user1.click(screen.getByRole("option", { name: "Admin" }));
+    await waitFor(() => {
+      expect(mocks.change).toHaveBeenCalledWith("gateway-1", "u-user", "admin");
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "Change your own role?" }),
+    ).toBeNull();
+  });
+
+  it("removes access with confirmation", async () => {
+    const user1 = userEvent.setup();
+    mocks.list.mockResolvedValue(accessPage([user], ownerCapabilities));
+    renderPage();
+    await screen.findByText("Uma User");
+
+    await user1.click(
+      screen.getByRole("button", { name: "Remove access: Uma User" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Remove access for Uma User?",
+    });
+    await user1.click(
+      within(dialog).getByRole("button", { name: "Remove access" }),
+    );
+    await waitFor(() => {
+      expect(mocks.revoke).toHaveBeenCalledWith("gateway-1", "u-user");
+    });
+  });
+
+  it("adds a directory user with the owner-only Owner option", async () => {
+    const user1 = userEvent.setup();
+    mocks.search.mockResolvedValue([{ name: "Dana Scully", username: "dana" }]);
+    renderPage();
+    await screen.findByText("Olivia Owner");
+
+    await user1.click(screen.getByRole("button", { name: "Add users" }));
+    const dialog = screen.getByRole("dialog", { name: "Add users" });
+    await user1.click(
+      within(dialog).getByRole("combobox", {
+        name: "Search the identity directory",
+      }),
+    );
+    await user1.click(await screen.findByText(/Dana Scully/u));
+
+    // Owner is offered to owner callers.
+    expect(within(dialog).getByRole("radio", { name: /Owner/u })).toBeTruthy();
+    await user1.click(within(dialog).getByRole("radio", { name: /Owner/u }));
+    await user1.click(
+      within(dialog).getByRole("button", { name: "Grant access" }),
+    );
+    await waitFor(() => {
+      expect(mocks.grant).toHaveBeenCalledWith("gateway-1", {
+        role: "owner",
+        username: "dana",
+      });
+    });
+  });
+
+  it("shows the workspace-access command after granting the user role", async () => {
+    const user1 = userEvent.setup();
+    mocks.search.mockResolvedValue([
+      { name: "Dana Scully", subject: "sub-dana", username: "dana" },
+    ]);
+    renderPage();
+    await screen.findByText("Olivia Owner");
+
+    await user1.click(screen.getByRole("button", { name: "Add users" }));
+    const dialog = screen.getByRole("dialog", { name: "Add users" });
+    await user1.click(
+      within(dialog).getByRole("combobox", {
+        name: "Search the identity directory",
+      }),
+    );
+    await user1.click(await screen.findByText(/Dana Scully/u));
+    await user1.click(within(dialog).getByRole("radio", { name: /User/u }));
+    await user1.click(
+      within(dialog).getByRole("button", { name: "Grant access" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.grant).toHaveBeenCalledWith("gateway-1", {
+        role: "user",
+        subject: "sub-dana",
+        username: "dana",
+      });
+    });
+    // The dialog stays open and shows the copyable workspace membership command.
+    expect(
+      await screen.findByText(/openshell workspace member add/u),
+    ).toBeTruthy();
+    expect(screen.getByText(/--subject sub-dana/u)).toBeTruthy();
+    expect(screen.getByText(/WORKSPACE_NAME='default'/u)).toBeTruthy();
+  });
+
+  it("re-opens the workspace-access command from a row icon", async () => {
+    const user1 = userEvent.setup();
+    mocks.list.mockResolvedValue(
+      accessPage([creator, admin, user], ownerCapabilities),
+    );
+    mocks.search.mockResolvedValue([
+      { name: "Uma User", subject: "sub-uma", username: "user1" },
+    ]);
+    renderPage();
+    await screen.findByText("Uma User");
+
+    // The copy icon only appears on rows with the user role (owner/admin rows
+    // are management-plane and do not need workspace membership).
+    expect(
+      screen.getAllByRole("button", {
+        name: "Copy workspace access command",
+      }),
+    ).toHaveLength(1);
+
+    await user1.click(
+      screen.getByRole("button", { name: "Copy workspace access command" }),
+    );
+    expect(
+      await screen.findByText(/openshell workspace member add/u),
+    ).toBeTruthy();
+    expect(screen.getByText(/--subject sub-uma/u)).toBeTruthy();
+    expect(mocks.search).toHaveBeenCalledWith(
+      "gateway-1",
+      "user1",
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("hides the Owner option from a non-owner admin", async () => {
+    const user1 = userEvent.setup();
+    mocks.list.mockResolvedValue(accessPage([admin], adminCapabilities));
+    mocks.search.mockResolvedValue([{ name: "Dee", username: "dee" }]);
+    renderPage();
+    await screen.findByText("Amy Admin");
+
+    await user1.click(screen.getByRole("button", { name: "Add users" }));
+    const dialog = screen.getByRole("dialog", { name: "Add users" });
+    await user1.click(
+      within(dialog).getByRole("combobox", {
+        name: "Search the identity directory",
+      }),
+    );
+    await user1.click(await screen.findByText(/Dee/u));
+    expect(within(dialog).queryByRole("radio", { name: /Owner/u })).toBeNull();
+    expect(within(dialog).getByRole("radio", { name: /Admin/u })).toBeTruthy();
+    expect(within(dialog).getByRole("radio", { name: /User/u })).toBeTruthy();
+  });
+
+  it("shows viewers a read-only list", async () => {
+    mocks.list.mockResolvedValue(
+      accessPage([creator, user], viewerCapabilities),
+    );
+    renderPage();
+    await screen.findByText("Olivia Owner");
+
+    expect(
+      screen.getByText("You have read-only access to this list."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add users" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Remove access: Uma User" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Change role: Uma User" }),
+    ).toBeNull();
+    // Role shows as plain text for viewers.
+    expect(screen.getByText("User")).toBeTruthy();
+  });
+});

@@ -605,6 +605,115 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/access/directory:#/schemas/GatewayDirectoryUser",
+      "kind": "collection",
+      "schemaRef": "#/schemas/GatewayDirectoryUser",
+      "label": "GatewayDirectoryUser",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "email",
+          "label": "EMAIL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "subject",
+          "label": "SUBJECT",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "username",
+          "label": "USERNAME",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id"
+      ],
+      "operationIds": [
+        "searchGatewayDirectory"
+      ],
+      "capabilities": [
+        "list"
+      ],
+      "listOperationId": "searchGatewayDirectory",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/access:#/schemas/GatewayAccessListItem",
+      "kind": "collection",
+      "schemaRef": "#/schemas/GatewayAccessListItem",
+      "label": "GatewayAccessListItem",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "email",
+          "label": "EMAIL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "granted_at",
+          "label": "GRANTED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "role_binding_id",
+          "label": "ROLE BINDING ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "user_id",
+          "label": "USER ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "username",
+          "label": "USERNAME",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id"
+      ],
+      "operationIds": [
+        "grantGatewayAccess",
+        "listGatewayAccess"
+      ],
+      "capabilities": [
+        "create",
+        "list"
+      ],
+      "listOperationId": "listGatewayAccess",
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke:#/schemas/OpenShellGatewayServiceAccountListItem",
       "kind": "collection",
       "schemaRef": "#/schemas/OpenShellGatewayServiceAccountListItem",
@@ -856,6 +965,18 @@
           "priority": 0,
           "type": "integer",
           "format": "int32"
+        },
+        {
+          "property": "can_delete",
+          "label": "CAN DELETE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "can_edit",
+          "label": "CAN EDIT",
+          "priority": 0,
+          "type": "boolean"
         },
         {
           "property": "cluster_id",
@@ -1948,6 +2069,70 @@
       "source": {}
     },
     {
+      "id": "item:/api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:#/schemas/GatewayAccessGrantResponse",
+      "kind": "item",
+      "schemaRef": "#/schemas/GatewayAccessGrantResponse",
+      "label": "GatewayAccessGrantResponse",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "email",
+          "label": "EMAIL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "granted_at",
+          "label": "GRANTED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "role_binding_id",
+          "label": "ROLE BINDING ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "user_id",
+          "label": "USER ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "username",
+          "label": "USERNAME",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id"
+      ],
+      "operationIds": [
+        "changeGatewayAccessRole",
+        "revokeGatewayAccess"
+      ],
+      "capabilities": [
+        "delete",
+        "update"
+      ],
+      "source": {}
+    },
+    {
       "id": "item:/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}:#/schemas/OpenShellGatewayServiceAccountListItem",
       "kind": "item",
       "schemaRef": "#/schemas/OpenShellGatewayServiceAccountListItem",
@@ -2084,6 +2269,18 @@
           "priority": 0,
           "type": "integer",
           "format": "int32"
+        },
+        {
+          "property": "can_delete",
+          "label": "CAN DELETE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "can_edit",
+          "label": "CAN EDIT",
+          "priority": 0,
+          "type": "boolean"
         },
         {
           "property": "cluster_id",
@@ -2570,6 +2767,89 @@
     }
   ],
   "operations": [
+    {
+      "id": "changeGatewayAccessRole",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access/"
+        },
+        {
+          "parameter": "user_id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "user_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "HyperShell User ID"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "role",
+            "type": "string",
+            "required": true,
+            "enum": [
+              "owner",
+              "admin",
+              "user"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Change a user's access role on a gateway",
+      "presentation": {}
+    },
     {
       "id": "createAgentRuntime",
       "method": "POST",
@@ -4880,6 +5160,88 @@
       "presentation": {}
     },
     {
+      "id": "grantGatewayAccess",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "role",
+            "type": "string",
+            "required": true,
+            "enum": [
+              "owner",
+              "admin",
+              "user"
+            ]
+          },
+          {
+            "name": "subject",
+            "type": "string",
+            "required": false,
+            "description": "Optional Keycloak subject reference returned by the directory search"
+          },
+          {
+            "name": "username",
+            "type": "string",
+            "required": true
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "201"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Grant a user access to a gateway",
+      "presentation": {}
+    },
+    {
       "id": "listAgentRuntimes",
       "method": "GET",
       "pathParts": [
@@ -4965,6 +5327,131 @@
         "list"
       ],
       "summary": "Returns a list of agent runtimes",
+      "presentation": {}
+    },
+    {
+      "id": "listGatewayAccess",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "default": 20
+        },
+        {
+          "name": "role",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Filter by console role tier",
+          "enum": [
+            "owner",
+            "admin",
+            "user"
+          ]
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Case-insensitive literal substring over username and name"
+        },
+        {
+          "name": "sort",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "enum": [
+            "username",
+            "name",
+            "role",
+            "granted_at"
+          ],
+          "default": "granted_at"
+        },
+        {
+          "name": "order",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "default": "desc"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "List access grants on a gateway",
       "presentation": {}
     },
     {
@@ -6056,6 +6543,77 @@
       "presentation": {}
     },
     {
+      "id": "revokeGatewayAccess",
+      "method": "DELETE",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access/"
+        },
+        {
+          "parameter": "user_id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "user_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "HyperShell User ID"
+        }
+      ],
+      "response": {},
+      "successStatuses": [
+        "204"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "delete"
+      ],
+      "summary": "Revoke a user's access to a gateway",
+      "presentation": {
+        "confirmation": {
+          "title": "Delete",
+          "message": "Revoke a user's access to a gateway?",
+          "destructive": true
+        }
+      }
+    },
+    {
       "id": "revokeGatewayServiceAccount",
       "method": "POST",
       "pathParts": [
@@ -6124,6 +6682,71 @@
         "create"
       ],
       "summary": "Permanently revoke an OpenShell gateway service account",
+      "presentation": {}
+    },
+    {
+      "id": "searchGatewayDirectory",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access/directory"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Case-insensitive literal substring over username and name"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "Search the Keycloak realm directory for candidate users",
       "presentation": {}
     },
     {
@@ -6953,6 +7576,40 @@
       "bindings": [
         {
           "target": "id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway-\u003ecollection:/api/hypershell/v1/gateways/{gateway_id}/access/directory:#/schemas/GatewayDirectoryUser:contains",
+      "name": "contains",
+      "sourceViewId": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway",
+      "targetViewId": "collection:/api/hypershell/v1/gateways/{gateway_id}/access/directory:#/schemas/GatewayDirectoryUser",
+      "sourceOperationId": "getGateway",
+      "targetOperationId": "searchGatewayDirectory",
+      "provenance": "inferred-path",
+      "bindings": [
+        {
+          "target": "gateway_id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway-\u003ecollection:/api/hypershell/v1/gateways/{gateway_id}/access:#/schemas/GatewayAccessListItem:contains",
+      "name": "contains",
+      "sourceViewId": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway",
+      "targetViewId": "collection:/api/hypershell/v1/gateways/{gateway_id}/access:#/schemas/GatewayAccessListItem",
+      "sourceOperationId": "getGateway",
+      "targetOperationId": "listGatewayAccess",
+      "provenance": "inferred-path",
+      "bindings": [
+        {
+          "target": "gateway_id",
           "sourceKind": "row-property",
           "source": "id"
         }

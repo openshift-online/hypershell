@@ -336,6 +336,47 @@ func TestGrantValidation_CrossGatewayEscalation(t *testing.T) {
 	Expect(crossGWErr.HttpCode).To(Equal(http.StatusForbidden))
 }
 
+// TestGrantValidation_AdminSelfGrantRejected covers the privilege-escalation
+// path where a caller holding any single binding tries to self-grant
+// gateway:admin on a gateway it does not own. admin must go through the same
+// owner check as owner/viewer (not slip past it).
+func TestGrantValidation_AdminSelfGrantRejected(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	callerUser, userErr := userService.UpsertByUsername(context.Background(), "admin-escalation-caller", nil, nil)
+	Expect(userErr).NotTo(HaveOccurred())
+
+	viewerRole, _ := roleService.GetByName(context.Background(), roles.RoleGatewayViewer)
+	adminRole, _ := roleService.GetByName(context.Background(), roles.RoleGatewayAdmin)
+
+	gwOwned := "gw-admin-owned"
+	gwTarget := "gw-admin-target"
+
+	// Caller holds only a viewer binding on an unrelated gateway.
+	_, viewerErr := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID:    viewerRole.ID,
+		Scope:     roleBindings.ScopeGateway,
+		UserID:    &callerUser,
+		GatewayID: &gwOwned,
+	})
+	Expect(viewerErr).NotTo(HaveOccurred())
+
+	callerCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, callerUser)
+
+	_, grantErr := rbService.Create(callerCtx, &roleBindings.RoleBinding{
+		RoleID:    adminRole.ID,
+		Scope:     roleBindings.ScopeGateway,
+		UserID:    &callerUser,
+		GatewayID: &gwTarget,
+	})
+	Expect(grantErr).To(HaveOccurred())
+	Expect(grantErr.HttpCode).To(Equal(http.StatusForbidden))
+}
+
 // TestUserProvisioningMiddleware_DefaultRoleAssignedWithNoJWTRoles drives the
 // real HTTP middleware path with a token that carries no realm_access roles and
 // asserts that the user receives a gateway:creator binding. This is the exact

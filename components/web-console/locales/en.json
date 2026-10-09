@@ -731,6 +731,206 @@
     "defaultMessage": "This field is required.",
     "description": "Validation message for an empty required form field."
   },
+  "app.gateway.access.actionError.denied": {
+    "defaultMessage": "You are not allowed to perform this action.",
+    "description": "Error shown when the server denies an access mutation."
+  },
+  "app.gateway.access.actionError.generic": {
+    "defaultMessage": "The action could not be completed. Try again.",
+    "description": "Generic error shown when an access mutation fails."
+  },
+  "app.gateway.access.actionError.lastOwner": {
+    "defaultMessage": "A gateway must keep at least one owner. Assign another owner before demoting or removing this one.",
+    "description": "Error shown when the server rejects a last-owner mutation."
+  },
+  "app.gateway.access.addUsers": {
+    "defaultMessage": "Add users",
+    "description": "Button that opens the directory picker."
+  },
+  "app.gateway.access.changeRole.label": {
+    "defaultMessage": "Change role",
+    "description": "Accessible label for the inline role control."
+  },
+  "app.gateway.access.column.role": {
+    "defaultMessage": "Role",
+    "description": "Access table column for the role."
+  },
+  "app.gateway.access.column.userId": {
+    "defaultMessage": "User ID",
+    "description": "Access table column for the username."
+  },
+  "app.gateway.access.column.userName": {
+    "defaultMessage": "Name",
+    "description": "Access table column for the user's display name."
+  },
+  "app.gateway.access.description": {
+    "defaultMessage": "Manage who can access this gateway and at what role.",
+    "description": "Description under the Manage access heading."
+  },
+  "app.gateway.access.directory.clear": {
+    "defaultMessage": "Clear directory search",
+    "description": "Accessible label for clearing the directory search."
+  },
+  "app.gateway.access.directory.error": {
+    "defaultMessage": "The directory could not be searched",
+    "description": "Error title for the directory typeahead."
+  },
+  "app.gateway.access.directory.loading": {
+    "defaultMessage": "Searching directory...",
+    "description": "Loading sentinel for the directory typeahead."
+  },
+  "app.gateway.access.directory.noResults": {
+    "defaultMessage": "No matching users",
+    "description": "No-results sentinel for the directory typeahead."
+  },
+  "app.gateway.access.directory.searchLabel": {
+    "defaultMessage": "Search the identity directory",
+    "description": "Accessible label for the directory typeahead."
+  },
+  "app.gateway.access.empty.body": {
+    "defaultMessage": "No users have access to this gateway yet.",
+    "description": "Empty-state body for the access list."
+  },
+  "app.gateway.access.empty.title": {
+    "defaultMessage": "No access grants",
+    "description": "Empty-state title for the access list."
+  },
+  "app.gateway.access.findPeople": {
+    "defaultMessage": "Find people...",
+    "description": "Placeholder and label for the access list search input."
+  },
+  "app.gateway.access.grant": {
+    "defaultMessage": "Grant access",
+    "description": "Confirm button for granting access."
+  },
+  "app.gateway.access.grantError.notFound": {
+    "defaultMessage": "That user was not found in the identity directory.",
+    "description": "Error shown when a grant target is absent from the realm."
+  },
+  "app.gateway.access.granting": {
+    "defaultMessage": "Granting access...",
+    "description": "Spinner label while a grant is in flight."
+  },
+  "app.gateway.access.heading": {
+    "defaultMessage": "Gateway access",
+    "description": "Heading for the Manage access tab."
+  },
+  "app.gateway.access.lastOwnerDisabled": {
+    "defaultMessage": "A gateway must keep at least one owner.",
+    "description": "Accessible reason shown when the last owner's controls are disabled."
+  },
+  "app.gateway.access.loadError": {
+    "defaultMessage": "Access could not be loaded",
+    "description": "Error title when the access list fails to load."
+  },
+  "app.gateway.access.loadError.body": {
+    "defaultMessage": "Try refreshing the list.",
+    "description": "Error body when the access list fails to load."
+  },
+  "app.gateway.access.loading": {
+    "defaultMessage": "Loading access...",
+    "description": "Spinner label while the access list loads."
+  },
+  "app.gateway.access.noResults.body": {
+    "defaultMessage": "No access grants match your filters.",
+    "description": "No-results body for the access list."
+  },
+  "app.gateway.access.noResults.title": {
+    "defaultMessage": "No matching users",
+    "description": "No-results title for the access list."
+  },
+  "app.gateway.access.ownerOnlyDisabled": {
+    "defaultMessage": "Only owners can change or remove an owner.",
+    "description": "Accessible reason shown when a non-owner admin cannot act on an owner row."
+  },
+  "app.gateway.access.refresh": {
+    "defaultMessage": "Refresh access list",
+    "description": "Accessible label for the access list refresh button."
+  },
+  "app.gateway.access.remove": {
+    "defaultMessage": "Remove access",
+    "description": "Action that revokes a user's access."
+  },
+  "app.gateway.access.remove.body": {
+    "defaultMessage": "This revokes the user's access to the gateway.",
+    "description": "Body of the remove-access confirmation."
+  },
+  "app.gateway.access.remove.title": {
+    "defaultMessage": "Remove access for {userName}?",
+    "description": "Title of the remove-access confirmation."
+  },
+  "app.gateway.access.removing": {
+    "defaultMessage": "Removing access...",
+    "description": "Spinner label while a removal is in flight."
+  },
+  "app.gateway.access.role.admin": {
+    "defaultMessage": "Admin",
+    "description": "Admin role label."
+  },
+  "app.gateway.access.role.admin.description": {
+    "defaultMessage": "Manage the gateway and grant admin or user access.",
+    "description": "Admin role description in the role picker."
+  },
+  "app.gateway.access.role.owner": {
+    "defaultMessage": "Owner",
+    "description": "Owner role label."
+  },
+  "app.gateway.access.role.owner.description": {
+    "defaultMessage": "Full control, including deleting the gateway and assigning other owners.",
+    "description": "Owner role description in the role picker."
+  },
+  "app.gateway.access.role.user": {
+    "defaultMessage": "User",
+    "description": "User role label."
+  },
+  "app.gateway.access.role.user.description": {
+    "defaultMessage": "Read-only access to the gateway.",
+    "description": "User role description in the role picker."
+  },
+  "app.gateway.access.roleFilter.all": {
+    "defaultMessage": "All roles",
+    "description": "Role filter option that clears the role filter."
+  },
+  "app.gateway.access.roleFilter.label": {
+    "defaultMessage": "Filter by role",
+    "description": "Accessible label for the role filter."
+  },
+  "app.gateway.access.selectRole": {
+    "defaultMessage": "Select a role",
+    "description": "Label for the role radio group in the grant modal."
+  },
+  "app.gateway.access.selfRoleChange.body": {
+    "defaultMessage": "You are about to change your own role on this gateway to {role}. This may reduce your own access. Do you want to continue?",
+    "description": "Body of the confirmation modal shown when a user changes their own access role."
+  },
+  "app.gateway.access.selfRoleChange.confirm": {
+    "defaultMessage": "Change my role",
+    "description": "Confirm button in the modal shown when a user changes their own access role."
+  },
+  "app.gateway.access.selfRoleChange.title": {
+    "defaultMessage": "Change your own role?",
+    "description": "Title of the confirmation modal shown when a user changes their own access role."
+  },
+  "app.gateway.access.tab": {
+    "defaultMessage": "Manage access",
+    "description": "Label for the gateway detail Manage access tab."
+  },
+  "app.gateway.access.viewerReadOnly": {
+    "defaultMessage": "You have read-only access to this list.",
+    "description": "Notice shown to viewers who cannot manage access."
+  },
+  "app.gateway.access.workspaceGrant.intro": {
+    "defaultMessage": "This user cannot use the gateway until they are added to a workspace. A user with admin access on this gateway must run the below commands (change the workspace name if needed):",
+    "description": "Instructions for adding a newly granted user to an OpenShell workspace."
+  },
+  "app.gateway.access.workspaceGrant.lookupPending": {
+    "defaultMessage": "Looking up the user's subject ID...",
+    "description": "Loading text shown while resolving a user's subject for the workspace command."
+  },
+  "app.gateway.access.workspaceGrant.subjectUnavailable": {
+    "defaultMessage": "Could not determine this user's subject ID. The identity directory may be unavailable; try again.",
+    "description": "Error shown when a user's subject cannot be resolved for the workspace command."
+  },
   "app.gateway.cliConnection": {
     "defaultMessage": "CLI connection",
     "description": "Label for a gateway's OpenShell CLI connection command."
@@ -908,7 +1108,7 @@
     "description": "Label for the default gateway detail Connection tab."
   },
   "app.gateway.connection.tabsLabel": {
-    "defaultMessage": "Gateway connection, service accounts, and details",
+    "defaultMessage": "Gateway connection, manage access, service accounts, and details",
     "description": "Accessible label for the gateway detail tabs."
   },
   "app.gateway.connection.waitingForProvisioning": {
@@ -946,6 +1146,10 @@
   "app.gateway.delete.error.title": {
     "defaultMessage": "Gateway could not be deleted",
     "description": "Title shown when gateway deletion fails."
+  },
+  "app.gateway.delete.notPermitted": {
+    "defaultMessage": "Only a gateway owner or platform admin can delete this gateway.",
+    "description": "Tooltip explaining why the Delete gateway action is disabled for a caller who lacks delete permission."
   },
   "app.gateway.delete.pending": {
     "defaultMessage": "Deleting gateway",
@@ -1070,6 +1274,10 @@
   "app.gateway.rename.error.title": {
     "defaultMessage": "Gateway could not be renamed",
     "description": "Title shown when gateway renaming fails."
+  },
+  "app.gateway.rename.notPermitted": {
+    "defaultMessage": "Only a gateway owner or admin can rename this gateway.",
+    "description": "Tooltip explaining why the Rename gateway action is disabled for a caller who lacks edit permission."
   },
   "app.gateway.rename.pending": {
     "defaultMessage": "Renaming gateway",

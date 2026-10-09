@@ -13,6 +13,7 @@ import (
 
 	_ "github.com/openshift-online/hypershell/components/api-server/cmd/hypershell/environments"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayAccess"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/inferenceRoutes"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"

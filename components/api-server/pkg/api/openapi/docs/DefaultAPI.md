@@ -4,6 +4,7 @@ All URIs are relative to *http://localhost:8000*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+[**ChangeGatewayAccessRole**](DefaultAPI.md#ChangeGatewayAccessRole) | **Patch** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Change a user&#39;s access role on a gateway
 [**CreateAgentRuntime**](DefaultAPI.md#CreateAgentRuntime) | **Post** /api/hypershell/ext/agent_runtimes | Create a new agent runtime
 [**CreateGateway**](DefaultAPI.md#CreateGateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 [**CreateGatewayServiceAccount**](DefaultAPI.md#CreateGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
@@ -38,7 +39,9 @@ Method | HTTP request | Description
 [**GetSandboxTemplate**](DefaultAPI.md#GetSandboxTemplate) | **Get** /api/hypershell/ext/sandbox_templates/{id} | Get a sandbox template by ID
 [**GetSecretSource**](DefaultAPI.md#GetSecretSource) | **Get** /api/hypershell/ext/secret_sources/{id} | Get a secret source by ID
 [**GetUser**](DefaultAPI.md#GetUser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
+[**GrantGatewayAccess**](DefaultAPI.md#GrantGatewayAccess) | **Post** /api/hypershell/v1/gateways/{gateway_id}/access | Grant a user access to a gateway
 [**ListAgentRuntimes**](DefaultAPI.md#ListAgentRuntimes) | **Get** /api/hypershell/ext/agent_runtimes | Returns a list of agent runtimes
+[**ListGatewayAccess**](DefaultAPI.md#ListGatewayAccess) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access | List access grants on a gateway
 [**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 [**ListGateways**](DefaultAPI.md#ListGateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 [**ListInferenceRoutes**](DefaultAPI.md#ListInferenceRoutes) | **Get** /api/hypershell/ext/inference_routes | Returns a list of inference routes
@@ -51,7 +54,9 @@ Method | HTTP request | Description
 [**ListSecretSources**](DefaultAPI.md#ListSecretSources) | **Get** /api/hypershell/ext/secret_sources | Returns a list of secret sources
 [**ListUsers**](DefaultAPI.md#ListUsers) | **Get** /api/hypershell/v1/users | List registered users
 [**RegisterManagedCluster**](DefaultAPI.md#RegisterManagedCluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a control plane as a managed cluster
+[**RevokeGatewayAccess**](DefaultAPI.md#RevokeGatewayAccess) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Revoke a user&#39;s access to a gateway
 [**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
+[**SearchGatewayDirectory**](DefaultAPI.md#SearchGatewayDirectory) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access/directory | Search the Keycloak realm directory for candidate users
 [**UpdateAgentRuntime**](DefaultAPI.md#UpdateAgentRuntime) | **Patch** /api/hypershell/ext/agent_runtimes/{id} | Update an agent runtime
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
@@ -60,6 +65,79 @@ Method | HTTP request | Description
 [**UpdateSandboxTemplate**](DefaultAPI.md#UpdateSandboxTemplate) | **Patch** /api/hypershell/ext/sandbox_templates/{id} | Update a sandbox template
 [**UpdateSecretSource**](DefaultAPI.md#UpdateSecretSource) | **Patch** /api/hypershell/ext/secret_sources/{id} | Update a secret source
 
+
+
+## ChangeGatewayAccessRole
+
+> GatewayAccessGrantResponse ChangeGatewayAccessRole(ctx, gatewayId, userId).GatewayAccessChangeRoleRequest(gatewayAccessChangeRoleRequest).Execute()
+
+Change a user's access role on a gateway
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	userId := "userId_example" // string | HyperShell User ID
+	gatewayAccessChangeRoleRequest := *openapiclient.NewGatewayAccessChangeRoleRequest(openapiclient.GatewayAccessRole("owner")) // GatewayAccessChangeRoleRequest | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ChangeGatewayAccessRole(context.Background(), gatewayId, userId).GatewayAccessChangeRoleRequest(gatewayAccessChangeRoleRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ChangeGatewayAccessRole``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ChangeGatewayAccessRole`: GatewayAccessGrantResponse
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ChangeGatewayAccessRole`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+**userId** | **string** | HyperShell User ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiChangeGatewayAccessRoleRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+ **gatewayAccessChangeRoleRequest** | [**GatewayAccessChangeRoleRequest**](GatewayAccessChangeRoleRequest.md) |  | 
+
+### Return type
+
+[**GatewayAccessGrantResponse**](GatewayAccessGrantResponse.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
 
 
 ## CreateAgentRuntime
@@ -2310,6 +2388,76 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## GrantGatewayAccess
+
+> GatewayAccessGrantResponse GrantGatewayAccess(ctx, gatewayId).GatewayAccessGrantRequest(gatewayAccessGrantRequest).Execute()
+
+Grant a user access to a gateway
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	gatewayAccessGrantRequest := *openapiclient.NewGatewayAccessGrantRequest("Username_example", openapiclient.GatewayAccessRole("owner")) // GatewayAccessGrantRequest | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GrantGatewayAccess(context.Background(), gatewayId).GatewayAccessGrantRequest(gatewayAccessGrantRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GrantGatewayAccess``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GrantGatewayAccess`: GatewayAccessGrantResponse
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GrantGatewayAccess`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGrantGatewayAccessRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **gatewayAccessGrantRequest** | [**GatewayAccessGrantRequest**](GatewayAccessGrantRequest.md) |  | 
+
+### Return type
+
+[**GatewayAccessGrantResponse**](GatewayAccessGrantResponse.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## ListAgentRuntimes
 
 > AgentRuntimeList ListAgentRuntimes(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
@@ -2367,6 +2515,86 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**AgentRuntimeList**](AgentRuntimeList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## ListGatewayAccess
+
+> GatewayAccessList ListGatewayAccess(ctx, gatewayId).Page(page).Size(size).Role(role).Search(search).Sort(sort).Order(order).Execute()
+
+List access grants on a gateway
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	role := openapiclient.GatewayAccessRole("owner") // GatewayAccessRole | Filter by console role tier (optional)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	sort := "sort_example" // string |  (optional) (default to "created_at")
+	order := "order_example" // string |  (optional) (default to "desc")
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListGatewayAccess(context.Background(), gatewayId).Page(page).Size(size).Role(role).Search(search).Sort(sort).Order(order).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListGatewayAccess``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListGatewayAccess`: GatewayAccessList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListGatewayAccess`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListGatewayAccessRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **role** | [**GatewayAccessRole**](GatewayAccessRole.md) | Filter by console role tier | 
+ **search** | **string** | Specifies the search criteria | 
+ **sort** | **string** |  | [default to &quot;created_at&quot;]
+ **order** | **string** |  | [default to &quot;desc&quot;]
+
+### Return type
+
+[**GatewayAccessList**](GatewayAccessList.md)
 
 ### Authorization
 
@@ -3248,6 +3476,75 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## RevokeGatewayAccess
+
+> RevokeGatewayAccess(ctx, gatewayId, userId).Execute()
+
+Revoke a user's access to a gateway
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	userId := "userId_example" // string | HyperShell User ID
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	r, err := apiClient.DefaultAPI.RevokeGatewayAccess(context.Background(), gatewayId, userId).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.RevokeGatewayAccess``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+**userId** | **string** | HyperShell User ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiRevokeGatewayAccessRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## RevokeGatewayServiceAccount
 
 > OpenShellGatewayServiceAccountListItem RevokeGatewayServiceAccount(ctx, gatewayId, serviceAccountId).Execute()
@@ -3304,6 +3601,76 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**OpenShellGatewayServiceAccountListItem**](OpenShellGatewayServiceAccountListItem.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## SearchGatewayDirectory
+
+> GatewayDirectoryUserList SearchGatewayDirectory(ctx, gatewayId).Search(search).Execute()
+
+Search the Keycloak realm directory for candidate users
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	search := "search_example" // string | Specifies the search criteria (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.SearchGatewayDirectory(context.Background(), gatewayId).Search(search).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.SearchGatewayDirectory``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `SearchGatewayDirectory`: GatewayDirectoryUserList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.SearchGatewayDirectory`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiSearchGatewayDirectoryRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **search** | **string** | Specifies the search criteria | 
+
+### Return type
+
+[**GatewayDirectoryUserList**](GatewayDirectoryUserList.md)
 
 ### Authorization
 
