@@ -1,6 +1,10 @@
 """Check release gates and the bundle contents without cluster access."""
 
 import copy
+import base64
+import hashlib
+import io
+import tarfile
 import os
 import json
 from itertools import permutations
@@ -246,10 +250,47 @@ class PipelineBootstrapTests(unittest.TestCase):
         pipeline = renderer.PIPELINE.read_text()
         self.assertEqual(pipeline, renderer.render(pipeline, renderer.PUBLISHER.read_text()))
 
-    def run_bootstrap(self, git_status=0, partial_release=False, unavailable_image="", missing_manifest=False):
+    def run_bootstrap(self, git_status=0, partial_release=False, unavailable_image="", missing_manifest=False, repeat=False, conflict=False):
         script = textwrap.dedent(renderer.PIPELINE.read_text().split(renderer.SCRIPT_MARKER, 1)[1])
+        # Exercise the embedded publisher with a fake GitHub transport, while
+        # retaining real asset validation and draft publication logic.
+        fake_github = """
+def installation_token():
+    return "test"
+_github_release = None
+_github_assets = []
+def github(method, path, data=None, *, binary=False):
+    global _github_release
+    if path.startswith('/git/ref/'):
+        return {'object': {'type': 'commit', 'sha': '4' * 40}}
+    if path.startswith('/releases/tags/'):
+        return _github_release
+    if path.startswith('/releases?'):
+        return []
+    if method == 'POST' and path == '/releases':
+        _github_release = dict(data, id=1)
+        return _github_release
+    if method == 'GET' and '/assets?' in path:
+        return _github_assets
+    if binary:
+        asset = {'digest': 'sha256:' + hashlib.sha256(data).hexdigest(), 'size': len(data)}
+        _github_assets.append(asset)
+        return asset
+    if method == 'PATCH':
+        return {}
+    raise AssertionError((method, path))
+"""
+        script = script.replace('if __name__ == "__main__":', fake_github + '\nif __name__ == "__main__":')
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            with tarfile.open(root / "cli-layer.tar", "w") as archive:
+                for name in bundle.CLI_ASSETS:
+                    content = ("binary for " + name).encode()
+                    member = tarfile.TarInfo("releases/" + name)
+                    member.size = len(content)
+                    archive.addfile(member, io.BytesIO(content))
+            layer_digest = "sha256:" + hashlib.sha256((root / "cli-layer.tar").read_bytes()).hexdigest()
+            (root / "manifest.json").write_text(json.dumps({"layers": [{"digest": layer_digest}]}))
             commands = root / "commands"
             release, snapshot = fixtures()
             if partial_release:
@@ -264,8 +305,14 @@ class PipelineBootstrapTests(unittest.TestCase):
                        'if [ "$1" = "cat-file" ] && [ "$MISSING_MANIFEST" = "1" ]; then exit 1; fi; exit "$GIT_STATUS"\n',
                 "oras": 'case "$1" in resolve) for last; do :; done; '
                         '[ "$last" != "$UNAVAILABLE_IMAGE" ] || exit 1; case "$last" in *@*) '
-                        'printf "%s\\n" "${last##*@}";; *) printf "{}\\n" | sha256sum | '
-                        'cut -d " " -f 1 | sed "s/^/sha256:/";; esac;; '
+                        'printf "%s\\n" "${last##*@}";; *:release-bundle-*) '
+                        '[ -f "$FIXTURES/published.json" ] || { echo "manifest not found" >&2; exit 1; }; '
+                        'printf "{}\\n" | sha256sum | cut -d " " -f 1 | sed "s/^/sha256:/";; '
+                        '*) case "$last" in *api-server*) digit=1;; *control-plane*) digit=2;; *web-console*) digit=3;; *cli*) digit=4;; esac; ' +
+                        'printf "sha256:"; i=0; while [ $i -lt 64 ]; do printf "%s" "$digit"; i=$((i+1)); done;; esac;; '
+                        'pull) cp "$FIXTURES/published.json" "$5/bundle.json";; '
+                        'manifest) cat "$FIXTURES/manifest.json";; '
+                        'blob) cp "$FIXTURES/cli-layer.tar" "$4";; '
                         'push) cp bundle.json "$FIXTURES/published.json"; printf "{}\\n" > manifest.json;; *) exit 1;; esac\n',
                 "select-oci-auth": "printf '%s' '{\"auths\":{\"quay.io\":{\"auth\":\"dGVzdDp0ZXN0\"}}}'\n",
                 "python3": 'exec "$TEST_PYTHON" "$@"\n',
@@ -280,9 +327,17 @@ class PipelineBootstrapTests(unittest.TestCase):
                        UNAVAILABLE_IMAGE=unavailable_image, RELEASE=bundle.NAMESPACE + "/release-one",
                        SNAPSHOT=bundle.NAMESPACE + "/snapshot-one", BUNDLE_RESULT=str(root / "result"))
             result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
+            if result.returncode == 0 and repeat:
+                first_reference = (root / "result").read_text()
+                (root / "result").unlink()
+                if conflict:
+                    (root / "published.json").write_text('{}')
+                result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
+                if result.returncode == 0:
+                    self.assertEqual(first_reference, (root / "result").read_text())
             if result.returncode == 0:
                 published = json.loads((root / "published.json").read_text())
-                self.assertEqual(published["manifests"], {"git": {"url": bundle.SOURCE_URL, "revision": "3" * 40}})
+                self.assertEqual(published["manifests"], {"git": {"url": bundle.SOURCE_URL, "revision": "4" * 40}})
             reference = (root / "result").read_text() if (root / "result").exists() else None
             return result, commands.read_text(), reference
 
@@ -295,7 +350,21 @@ class PipelineBootstrapTests(unittest.TestCase):
         self.assertNotIn("pipelineruns", commands)
         self.assertIn("python3 - --release", commands)
 
-    def test_partial_release_checks_all_three_released_images(self):
+    def test_retry_reuses_existing_bundle_without_another_push(self):
+        result, commands, reference = self.run_bootstrap(repeat=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(reference)
+        self.assertEqual(commands.count("oras push "), 1)
+        self.assertIn("oras pull ", commands)
+
+    def test_retry_rejects_conflicting_existing_bundle(self):
+        result, commands, reference = self.run_bootstrap(repeat=True, conflict=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(reference)
+        self.assertIn("refusing to overwrite", result.stderr)
+        self.assertEqual(commands.count("oras push "), 1)
+
+    def test_partial_release_checks_all_four_released_images(self):
         result, commands, reference = self.run_bootstrap(partial_release=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(reference.startswith(bundle.BUNDLE_REPOSITORY + "@sha256:"))
@@ -325,6 +394,194 @@ class PipelineBootstrapTests(unittest.TestCase):
         self.assertIsNone(reference)
         self.assertNotIn("python3", commands)
         self.assertNotIn("oras", commands)
+
+
+
+class GitHubPublicationTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / 'hsctl-linux-amd64'
+        self.path.write_bytes(b'binary')
+        release, snapshot = fixtures()
+        self.tag, self.record = bundle.make_bundle(release, snapshot)
+        self.record['manifests'] = {'git': {'revision': '4' * 40}}
+        self.reference = bundle.BUNDLE_REPOSITORY + '@sha256:' + 'a' * 64
+        self.ref = None
+        self.release = None
+        self.assets = []
+        self.writes = []
+        self.fail_upload = False
+        self.api = patch.object(bundle, 'github', side_effect=self.request)
+        self.api.start()
+        self.addCleanup(self.api.stop)
+
+    def request(self, method, path, data=None, *, binary=False):
+        if method != 'GET':
+            self.writes.append((method, path))
+        if path.startswith('/git/ref/'):
+            return self.ref
+        if path == '/git/refs':
+            self.ref = {'object': {'type': 'commit', 'sha': data['sha']}}
+            return self.ref
+        if path.startswith('/releases/tags/'):
+            return self.release if self.release and not self.release['draft'] else None
+        if path.startswith('/releases?'):
+            return [self.release] if self.release else []
+        if path == '/releases':
+            self.release = dict(data, id=1)
+            return self.release
+        if method == 'GET' and '/assets?' in path:
+            return self.assets
+        if method == 'DELETE':
+            self.assets = [a for a in self.assets if str(a['id']) != path.rsplit('/', 1)[1]]
+            return None
+        if binary:
+            asset = {'id': 10, 'name': self.path.name, 'state': 'uploaded',
+                     'size': len(data), 'digest': 'sha256:' + hashlib.sha256(data).hexdigest()}
+            self.assets.append(asset)
+            if self.fail_upload:
+                self.fail_upload = False
+                raise TimeoutError('response lost after successful upload')
+            return asset
+        if method == 'PATCH':
+            self.release.update(data)
+            return self.release
+        raise AssertionError((method, path))
+
+    def publish(self):
+        bundle.publish_github(self.tag, self.record, self.reference, [self.path])
+
+    def test_completed_release_retry_performs_no_writes(self):
+        self.publish()
+        self.assertFalse(self.release['draft'])
+        self.writes.clear()
+        self.publish()
+        self.assertEqual(self.writes, [])
+        self.assertEqual(len(self.assets), 1)
+
+    def test_lost_upload_response_resumes_same_draft_without_reupload(self):
+        self.fail_upload = True
+        with self.assertRaises(TimeoutError):
+            self.publish()
+        self.assertTrue(self.release['draft'])
+        self.writes.clear()
+        self.publish()
+        self.assertEqual(self.writes, [('PATCH', '/releases/1')])
+        self.assertFalse(self.release['draft'])
+
+    def test_conflicting_existing_asset_fails_without_mutation(self):
+        self.publish()
+        self.path.write_bytes(b'different build')
+        self.writes.clear()
+        with self.assertRaisesRegex(ValueError, 'asset differs'):
+            self.publish()
+        self.assertEqual(self.writes, [])
+
+    def test_conflicting_git_tag_fails_before_release_creation(self):
+        self.ref = {'object': {'type': 'commit', 'sha': 'f' * 40}}
+        with self.assertRaisesRegex(ValueError, 'different commit'):
+            self.publish()
+        self.assertEqual(self.writes, [])
+
+    def test_conflicting_bundle_notes_fail_without_mutation(self):
+        self.publish()
+        self.reference = bundle.BUNDLE_REPOSITORY + '@sha256:' + 'b' * 64
+        self.writes.clear()
+        with self.assertRaisesRegex(ValueError, 'different bundle'):
+            self.publish()
+        self.assertEqual(self.writes, [])
+
+    def test_failed_starter_upload_can_be_replaced_only_in_draft(self):
+        self.fail_upload = True
+        with self.assertRaises(TimeoutError):
+            self.publish()
+        self.assets[0].update(state='starter', size=0, digest=None)
+        self.writes.clear()
+        self.publish()
+        self.assertEqual(self.writes[0], ('DELETE', '/releases/assets/10'))
+        self.assertFalse(self.release['draft'])
+
+
+class CliExtractionTests(unittest.TestCase):
+    def check_layer(self, *, missing=False, symlink=False, tamper=False):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            raw = io.BytesIO()
+            names = bundle.CLI_ASSETS[:-1] if missing else bundle.CLI_ASSETS
+            with tarfile.open(fileobj=raw, mode='w:gz') as archive:
+                for name in names:
+                    item = tarfile.TarInfo('releases/' + name)
+                    data = name.encode()
+                    item.size = len(data)
+                    if symlink:
+                        item.type = tarfile.SYMTYPE
+                        item.linkname = '/etc/passwd'
+                        item.size = 0
+                    archive.addfile(item, io.BytesIO(data))
+            content = raw.getvalue()
+            digest = 'sha256:' + hashlib.sha256(content).hexdigest()
+            def registry(*args, **kwargs):
+                if args[1:3] == ('manifest', 'fetch'):
+                    return json.dumps({'layers': [{'digest': digest}]})
+                Path(args[4]).write_bytes(content + b'tamper' if tamper else content)
+                return ''
+            release, snapshot = fixtures()
+            _, record = bundle.make_bundle(release, snapshot)
+            with patch.object(bundle, 'run', side_effect=registry):
+                paths = bundle.extract_cli(record, root)
+            self.assertEqual([p.name for p in paths], list(bundle.CLI_ASSETS))
+            for path in paths:
+                self.assertEqual(path.read_bytes(), path.name.encode())
+
+    def test_extracts_exact_binaries(self):
+        self.check_layer()
+
+    def test_rejects_missing_target_symlink_and_corrupted_layer(self):
+        for case in ('missing', 'symlink', 'tamper'):
+            with self.subTest(case=case), self.assertRaises(ValueError):
+                self.check_layer(**{case: True})
+
+
+class GitHubAppTests(unittest.TestCase):
+    def test_mints_scoped_token_with_valid_signed_jwt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / "app.pem"
+            public = Path(directory) / "public.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt",
+                            "rsa_keygen_bits:2048", "-out", str(key)],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["openssl", "pkey", "-in", str(key), "-pubout", "-out", str(public)],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            response = io.BytesIO(b'{"token":"ephemeral-installation-token"}')
+            with patch.dict(os.environ, {"GITHUB_APP_ID": "123", "GITHUB_INSTALLATION_ID": "456",
+                                         "GITHUB_PRIVATE_KEY_FILE": str(key)}), \
+                    patch.object(bundle.time, "time", return_value=1000), \
+                    patch.object(bundle.urllib.request, "urlopen", return_value=response) as request:
+                self.assertEqual(bundle.installation_token(), "ephemeral-installation-token")
+            sent = request.call_args.args[0]
+            self.assertEqual(sent.full_url, "https://api.github.com/app/installations/456/access_tokens")
+            self.assertEqual(json.loads(sent.data), {
+                "repositories": ["hypershell"], "permissions": {"contents": "write"}})
+            jwt = sent.get_header("Authorization").removeprefix("Bearer ")
+            header, claims, signature = jwt.split(".")
+            decode = lambda value: base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+            self.assertEqual(json.loads(decode(header))["alg"], "RS256")
+            self.assertEqual(json.loads(decode(claims)), {"iss": "123", "iat": 940, "exp": 1540})
+            signature_path = Path(directory) / "signature"
+            signature_path.write_bytes(decode(signature))
+            subprocess.run(["openssl", "dgst", "-sha256", "-verify", str(public),
+                            "-signature", str(signature_path)], input=(header + "." + claims).encode(),
+                           check=True, stdout=subprocess.DEVNULL)
+
+    def test_missing_app_configuration_fails_before_network_or_signing(self):
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(bundle.subprocess, "check_output") as signing, \
+                patch.object(bundle.urllib.request, "urlopen") as request:
+            with self.assertRaisesRegex(ValueError, "GITHUB_APP_ID"):
+                bundle.installation_token()
+            signing.assert_not_called()
+            request.assert_not_called()
 
 
 if __name__ == "__main__":
