@@ -28,3 +28,21 @@ func TestUsesSingleServiceAccountIdentity(t *testing.T) {
 		t.Error("client_credentials must be recognized as one service-account identity")
 	}
 }
+
+func TestUsesGatewayMatchedCLIImage(t *testing.T) {
+	for _, tt := range []struct {
+		name, driverName, bin string
+		want                  bool
+	}{
+		{name: "OpenShift default", driverName: "openshift", want: true},
+		{name: "OpenShift generic binary", driverName: "openshift", bin: "openshell", want: true},
+		{name: "OpenShift explicit override", driverName: "openshift", bin: "/usr/local/bin/openshell", want: false},
+		{name: "Kind", driverName: "kind", want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := usesGatewayMatchedCLIImage(tt.driverName, tt.bin); got != tt.want {
+				t.Errorf("usesGatewayMatchedCLIImage(%q, %q) = %t, want %t", tt.driverName, tt.bin, got, tt.want)
+			}
+		})
+	}
+}
