@@ -7,7 +7,7 @@ import type { ObjectReference, ListMeta } from './base.js';
 export type RoleBinding = ObjectReference & {
   gateway_id: string;
   role_id: string;
-  scope: string;
+  scope: "global" | "gateway";
   user_id: string;
 };
 
@@ -18,7 +18,7 @@ export type RoleBindingList = ListMeta & {
 export type RoleBindingCreateRequest = {
   gateway_id?: string;
   role_id: string;
-  scope: string;
+  scope: "global" | "gateway";
   user_id?: string;
 };
 
@@ -39,7 +39,7 @@ export class RoleBindingBuilder {
     return this;
   }
 
-  scope(value: string): this {
+  scope(value: "global" | "gateway"): this {
     this.data['scope'] = value;
     return this;
   }
@@ -53,7 +53,7 @@ export class RoleBindingBuilder {
     if (!this.data['role_id']) {
       throw new Error('role_id is required');
     }
-    if (!this.data['scope']) {
+    if (this.data['scope'] === undefined) {
       throw new Error('scope is required');
     }
     return this.data as RoleBindingCreateRequest;

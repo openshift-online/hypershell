@@ -655,13 +655,12 @@ func projectFields(document *ir.Document, schemaRef string, includeReadOnly bool
 		if isObjectReferenceField(name) || (!includeReadOnly && property.ReadOnly) {
 			continue
 		}
-		propertySchema := document.Schema(property.Schema.Ref)
-		openAPIType, format := schemaType(propertySchema)
+		openAPIType, format, goType, tsType, modelRef := projectedTypes(document, property.Schema, property.Required, property.Nullable)
 		field := Field{
 			Name: name, GoName: toGoName(name), PythonName: name, TSName: toCamelCase(name),
 			Type: openAPIType, Format: format,
-			GoType: toGoType(openAPIType, format), PythonType: toPythonType(openAPIType, format), TSType: toTSType(openAPIType, format),
-			Required: property.Required, ReadOnly: property.ReadOnly, JSONTag: jsonTag(name, property.Required),
+			GoType: goType, PythonType: toPythonType(openAPIType, format), TSType: tsType,
+			Required: property.Required, ReadOnly: property.ReadOnly, ModelRef: modelRef, JSONTag: jsonTag(name, property.Required),
 		}
 		if !includeReadOnly {
 			field.Required = false

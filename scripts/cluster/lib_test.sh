@@ -477,6 +477,15 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: Kind seed does not look up existing resources with json_named_id'
 fi
+if grep -q 'GW_BODY=.*placement.*local-kind' "${REPO_ROOT}/scripts/kind/seed.sh" \
+  && ! grep -q 'GW_BODY=.*cluster_id' "${REPO_ROOT}/scripts/kind/seed.sh" \
+  && grep -q 'placement.*network.*public.*provider.*aws' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && ! grep -q 'raw=.*cluster_id' "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: gateway seed requests must use placement instead of cluster_id'
+fi
 # Every control plane self-registers its ManagedCluster; seeding waits for the
 # registered record and never creates one (a manual record would 409 the
 # control plane's registration; managed-cluster-registration.spec.md).

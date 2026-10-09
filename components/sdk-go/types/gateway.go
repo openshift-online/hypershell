@@ -28,30 +28,30 @@ type GatewayPlacementIntent struct {
 type Gateway struct {
 	ObjectReference
 
-	ActiveSandboxCount     int32  `json:"active_sandbox_count,omitempty"`
-	CanDelete              bool   `json:"can_delete,omitempty"`
-	CanEdit                bool   `json:"can_edit,omitempty"`
-	ClusterID              string `json:"cluster_id"`
-	ConsoleAddress         string `json:"console_address,omitempty"`
-	CreatedBy              string `json:"created_by,omitempty"`
-	CredentialDriver       string `json:"credential_driver,omitempty"`
-	ExternalDNS            string `json:"external_dns,omitempty"`
-	GatewayVersion         string `json:"gateway_version,omitempty"`
-	Generation             int64  `json:"generation,omitempty"`
-	Image                  string `json:"image,omitempty"`
-	Name                   string `json:"name"`
-	Namespace              string `json:"namespace"`
-	ObservedGeneration     int64  `json:"observed_generation,omitempty"`
-	Oidc                   string `json:"oidc,omitempty"`
-	Phase                  string `json:"phase,omitempty"`
-	ProvisioningConditions string `json:"provisioning_conditions,omitempty"`
-	Route                  string `json:"route,omitempty"`
-	RouteAddress           string `json:"route_address,omitempty"`
-	ServerDNSNames         string `json:"server_dns_names,omitempty"`
-	ServiceType            string `json:"service_type,omitempty"`
-	Status                 string `json:"status,omitempty"`
-	SupervisorImage        string `json:"supervisor_image,omitempty"`
-	TLSMode                string `json:"tls_mode,omitempty"`
+	ActiveSandboxCount     int32            `json:"active_sandbox_count,omitempty"`
+	CanDelete              bool             `json:"can_delete,omitempty"`
+	CanEdit                bool             `json:"can_edit,omitempty"`
+	ClusterID              string           `json:"cluster_id"`
+	ConsoleAddress         string           `json:"console_address,omitempty"`
+	CreatedBy              string           `json:"created_by,omitempty"`
+	CredentialDriver       string           `json:"credential_driver,omitempty"`
+	ExternalDNS            string           `json:"external_dns,omitempty"`
+	GatewayVersion         string           `json:"gateway_version,omitempty"`
+	Generation             int64            `json:"generation,omitempty"`
+	Image                  string           `json:"image,omitempty"`
+	Name                   string           `json:"name"`
+	Namespace              string           `json:"namespace"`
+	ObservedGeneration     int64            `json:"observed_generation,omitempty"`
+	Oidc                   string           `json:"oidc,omitempty"`
+	Phase                  string           `json:"phase,omitempty"`
+	ProvisioningConditions []map[string]any `json:"provisioning_conditions,omitempty"`
+	Route                  string           `json:"route,omitempty"`
+	RouteAddress           string           `json:"route_address,omitempty"`
+	ServerDNSNames         []string         `json:"server_dns_names,omitempty"`
+	ServiceType            string           `json:"service_type,omitempty"`
+	Status                 string           `json:"status,omitempty"`
+	SupervisorImage        string           `json:"supervisor_image,omitempty"`
+	TLSMode                string           `json:"tls_mode,omitempty"`
 
 	Placement GatewayPlacementIntent `json:"placement,omitempty"`
 }
@@ -117,7 +117,7 @@ func (b *GatewayBuilder) Route(v string) *GatewayBuilder {
 	return b
 }
 
-func (b *GatewayBuilder) ServerDNSNames(v string) *GatewayBuilder {
+func (b *GatewayBuilder) ServerDNSNames(v []string) *GatewayBuilder {
 	b.resource.ServerDNSNames = v
 	return b
 }
@@ -208,7 +208,7 @@ func (b *GatewayPatchBuilder) RouteAddress(v string) *GatewayPatchBuilder {
 	return b
 }
 
-func (b *GatewayPatchBuilder) ServerDNSNames(v string) *GatewayPatchBuilder {
+func (b *GatewayPatchBuilder) ServerDNSNames(v []string) *GatewayPatchBuilder {
 	b.patch["server_dns_names"] = v
 	return b
 }

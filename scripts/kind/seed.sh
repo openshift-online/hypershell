@@ -241,7 +241,7 @@ if [[ -z "${seed_failed}" ]]; then
     # namespace is server-derived (BeforeCreate sets openshell-<hex> from the ksuid);
     # sending it is rejected as an unknown field (ErrorMalformedRequest / id 17).
     # release_id was removed from the Gateway schema (GatewayRelease kind removed).
-    GW_BODY="{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"oidc\":\"${OIDC_JSON}\""
+    GW_BODY="{\"name\":\"dev-gateway\",\"placement\":{\"mode\":\"local-kind\"},\"oidc\":\"${OIDC_JSON}\""
     GW_BODY="${GW_BODY},\"route\":\"{\\\"enabled\\\":true}\""
     GW_BODY="${GW_BODY}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
