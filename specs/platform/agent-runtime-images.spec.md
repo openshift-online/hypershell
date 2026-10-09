@@ -47,7 +47,12 @@ and non-writable by the runtime user. Images SHALL contain no setuid/setgid file
 or system package manager. Automatic Claude Code updates SHALL be disabled.
 Image definitions SHALL carry OCI title, description, source, documentation,
 vendor, version, revision, license and base-image identity labels. Konflux SHALL
-stamp source revision/version with the full build SHA. Bundled third-party
+stamp source revision/version with the full build SHA. Final images SHALL also
+carry the Red Hat release-policy labels `com.redhat.component` (the runtime's
+component name), `distribution-scope=public`, `url` (the project URL), and
+`vendor=Red Hat, Inc.`; the OCI vendor label SHALL match. These labels SHALL be
+set explicitly because the final scratch stage does not inherit base labels.
+Bundled third-party
 software retains its own licenses; the image-definition license is Apache-2.0.
 
 The harness SHALL provide isolated per-run writable volumes, short-lived scoped
