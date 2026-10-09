@@ -468,7 +468,14 @@ jobs:
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: components/control-plane/go.mod
-          cache-dependency-path: components/control-plane/go.sum
+          cache-dependency-path: |
+            components/control-plane/go.sum
+            tests/e2e/go.sum
+
+      # Populate the module cache before cluster work. `make e2e` must never
+      # spend live-cluster time downloading its test dependencies.
+      - name: Download E2E Go modules
+        run: go -C tests/e2e mod download
 
       - name: Install Kind
         run: |
@@ -972,6 +979,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: tests/e2e/go.mod
+          cache-dependency-path: tests/e2e/go.sum
+
+      # Keep module downloads out of the live functional-test window.
+      - name: Download E2E Go modules
+        run: go -C tests/e2e mod download
 
       - name: Resolve OpenShift namespace
         run: bash scripts/ci/resolve-openshift-namespace.sh
