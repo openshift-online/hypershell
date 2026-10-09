@@ -2315,13 +2315,7 @@ os.chmod(os.path.join(d,'metadata.json'),0o600); os.chmod(os.path.join(d,'oidc_t
   # namespace-GC assertion). A delete check needs no provisioning wait.
   if [[ -n "$GAM_OWNER2_API_TOKEN" ]]; then
     GAM_GW_NAME="e2e-gam-gw-$(date +%s | tail -c5)"
-    GAM_GW_BODY=$(GW_NAME="$GAM_GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
-      E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}" python3 -c "
-import json, os
-print(json.dumps({'name':os.environ['GW_NAME'],'cluster_id':os.environ['E2E_CLUSTER_ID'],
-  'oidc':json.dumps({'issuer':os.environ['E2E_OIDC_ISSUER'],'audience':os.environ['E2E_OIDC_CLIENT_ID'],
-    'roles_claim':'groups','admin_role':'hypershell-admins','user_role':'hypershell-users'}),
-  'route':json.dumps({'enabled':True})}))")
+    GAM_GW_BODY=$(e2e_gateway_create_body "$GAM_GW_NAME")
     GAM_GW_ID=$(api_curl -X POST "${API_HOST}/api/hypershell/v1/gateways" \
       -H "Content-Type: application/json" -d "$GAM_GW_BODY" 2>/dev/null \
       | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
@@ -2367,13 +2361,7 @@ print(json.dumps({'name':os.environ['GW_NAME'],'cluster_id':os.environ['E2E_CLUS
     # 1. ${E2E_GAM_USER} creates a gateway (kind grants gateway:creator by default)
     #    and becomes its first and only gateway:owner.
     GAM_PA_GW_NAME="e2e-padmin-gw-$(date +%s | tail -c5)"
-    GAM_PA_GW_BODY=$(GW_NAME="$GAM_PA_GW_NAME" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
-      E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" E2E_CLUSTER_ID="${E2E_CLUSTER_ID:-}" python3 -c "
-import json, os
-print(json.dumps({'name':os.environ['GW_NAME'],'cluster_id':os.environ['E2E_CLUSTER_ID'],
-  'oidc':json.dumps({'issuer':os.environ['E2E_OIDC_ISSUER'],'audience':os.environ['E2E_OIDC_CLIENT_ID'],
-    'roles_claim':'groups','admin_role':'hypershell-admins','user_role':'hypershell-users'}),
-  'route':json.dumps({'enabled':True})}))")
+    GAM_PA_GW_BODY=$(e2e_gateway_create_body "$GAM_PA_GW_NAME")
     show_cmd "POST ${API_HOST}/api/hypershell/v1/gateways (as ${E2E_GAM_USER}) -> expect 201"
     GAM_PA_RESP_F=$(mktemp)
     GAM_PA_GW_STATUS=$(_driver_curl -o "$GAM_PA_RESP_F" -w '%{http_code}' -X POST \
