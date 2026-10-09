@@ -206,15 +206,20 @@ func (s *E2ESuite) registerGateway(t *testing.T, ref driver.GatewayRef, endpoint
 // cli runs `openshell -g <local> <args...>` with the CLI environment and returns
 // combined output.
 func (s *E2ESuite) cli(t *testing.T, local string, args ...string) (string, error) {
-	// On OpenShift (no explicit OPENSHELL_BIN) run the gateway-version-matched CLI
-	// image via the container engine: the Homebrew CLI can be a different build than
-	// the downstream gateway and skew the sandbox protobuf. The gateway is reachable
-	// over public DNS, so no cluster network wiring is needed.
-	if s.driver.Name() == "openshift" && os.Getenv("OPENSHELL_BIN") == "" {
+	// On OpenShift, run the gateway-version-matched CLI image unless an operator
+	// supplied a real path/image override. A generic "openshell" value means the
+	// default binary and is not a version pin; using it can skew the sandbox
+	// protobuf from the downstream gateway. The gateway is reachable over public
+	// DNS, so no cluster network wiring is needed.
+	if usesGatewayMatchedCLIImage(s.driver.Name(), os.Getenv("OPENSHELL_BIN")) {
 		return s.cliOpenShift(t, local, args...)
 	}
 	full := append([]string{"-g", local}, args...)
 	return s.runCmdEnv(t.Context(), s.cliEnv(t), s.resolveOpenshellBin(), full...)
+}
+
+func usesGatewayMatchedCLIImage(driverName, bin string) bool {
+	return driverName == "openshift" && (bin == "" || bin == "openshell")
 }
 
 // cliOpenShift runs the openshell CLI image (matched to the gateway version) under
