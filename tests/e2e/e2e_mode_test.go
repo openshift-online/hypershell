@@ -4,8 +4,8 @@ import "testing"
 
 func TestGatewayTLSInsecure(t *testing.T) {
 	t.Setenv("OPENSHELL_GATEWAY_INSECURE", "")
-	if !gatewayTLSInsecure("kind") {
-		t.Error("Kind gateway TLS must remain insecure for its local self-signed CA")
+	if gatewayTLSInsecure("kind") {
+		t.Error("Kind must trust its installed local CA instead of disabling TLS verification")
 	}
 	if gatewayTLSInsecure("openshift") {
 		t.Error("OpenShift Gateway API endpoints must verify their public TLS certificate")
@@ -17,15 +17,16 @@ func TestGatewayTLSInsecure(t *testing.T) {
 	}
 }
 
-func TestUsesSingleServiceAccountIdentity(t *testing.T) {
-	t.Setenv("E2E_OIDC_GRANT", "")
-	if usesSingleServiceAccountIdentity() {
-		t.Error("password grant must use the distinct seeded test identities")
+func TestValidE2EMode(t *testing.T) {
+	for _, mode := range []string{modeShort, modeLong} {
+		if !validE2EMode(mode) {
+			t.Errorf("validE2EMode(%q) = false", mode)
+		}
 	}
-
-	t.Setenv("E2E_OIDC_GRANT", "client_credentials")
-	if !usesSingleServiceAccountIdentity() {
-		t.Error("client_credentials must be recognized as one service-account identity")
+	for _, mode := range []string{"", modePerf, "unexpected"} {
+		if validE2EMode(mode) {
+			t.Errorf("validE2EMode(%q) = true", mode)
+		}
 	}
 }
 

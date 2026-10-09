@@ -46,6 +46,42 @@ func TestOpenShiftGatewayTokenUsesExchangeForClientCredentials(t *testing.T) {
 	}
 }
 
+func TestOpenShiftAPITokenImpersonatesNamedUserForClientCredentials(t *testing.T) {
+	var calls []url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse token form: %v", err)
+		}
+		calls = append(calls, r.Form)
+		_ = json.NewEncoder(w).Encode(tokenResponse{AccessToken: "token"})
+	}))
+	defer server.Close()
+
+	t.Setenv("E2E_OIDC_GRANT", grantClientCredentials)
+	t.Setenv("E2E_OIDC_USERNAME", "admin")
+	t.Setenv("E2E_OIDC_SA_CLIENT_ID", "hypershell-e2e")
+	t.Setenv("E2E_OIDC_SA_CLIENT_SECRET", "test-secret")
+	d := &openshiftDriver{
+		oidcIssuer: server.URL + "/realms/hypershell",
+		frontendID: "hypershell-frontend",
+		httpClient: server.Client(),
+	}
+
+	_, err := d.AcquireOIDCToken(context.Background(), Credentials{Username: "developer"})
+	if err != nil {
+		t.Fatalf("acquire developer API token: %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("token requests = %d, want client credentials then token exchange", len(calls))
+	}
+	if got := calls[1].Get("audience"); got != "hypershell-frontend" {
+		t.Errorf("exchange audience = %q, want hypershell-frontend", got)
+	}
+	if got := calls[1].Get("requested_subject"); got != "developer" {
+		t.Errorf("exchange requested_subject = %q, want developer", got)
+	}
+}
+
 func testJWT(claims map[string]any) string {
 	payload, err := json.Marshal(claims)
 	if err != nil {

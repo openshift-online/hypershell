@@ -208,8 +208,9 @@ func (d *kindDriver) AssignRealmRole(ctx context.Context, user, role string) err
 // grace period for the duration of a long-mode run, then waits for the rollout.
 func (d *kindDriver) ConfigureNamespaceGCTiming(ctx context.Context, interval, grace time.Duration) error {
 	if err := d.setControllerGCEnv(ctx, map[string]string{
-		gcEnvInterval: interval.String(),
-		gcEnvGrace:    grace.String(),
+		gcEnvInterval:       interval.String(),
+		gcEnvGrace:          grace.String(),
+		directoryRefreshEnv: durationEnv("E2E_GATEWAY_DIRECTORY_REFRESH_INTERVAL", 15*time.Second).String(),
 	}, nil); err != nil {
 		return err
 	}
@@ -223,7 +224,7 @@ func (d *kindDriver) RestoreNamespaceGCTiming(ctx context.Context) error {
 	if !d.gcPatched {
 		return nil
 	}
-	if err := d.setControllerGCEnv(ctx, nil, []string{gcEnvInterval, gcEnvGrace}); err != nil {
+	if err := d.setControllerGCEnv(ctx, nil, []string{gcEnvInterval, gcEnvGrace, directoryRefreshEnv}); err != nil {
 		return err
 	}
 	d.gcPatched = false

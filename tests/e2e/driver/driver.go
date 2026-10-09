@@ -60,6 +60,9 @@ type E2EInfraDriver interface {
 	// OIDC + authenticated API access. Grant selected by E2E_OIDC_GRANT.
 	AcquireOIDCToken(ctx context.Context, user Credentials) (Token, error)
 	AcquireGatewayTokenWithRole(ctx context.Context, user Credentials, clientID, role string) (Token, error)
+	// ValidateGatewayDeviceAuthorization exercises the public OAuth device flow
+	// with PKCE for a reconciled per-gateway client.
+	ValidateGatewayDeviceAuthorization(ctx context.Context, clientID string) error
 	// AcquireClientCredentialsToken mints a token via the client-credentials grant
 	// for a confidential OIDC client, for example the control-plane registrar
 	// (E2E_REGISTRAR_CLIENT_ID) used by the ManagedCluster /registration checks.
@@ -69,6 +72,8 @@ type E2EInfraDriver interface {
 	// Keycloak role helpers (idempotent).
 	AssignGatewayClientRole(ctx context.Context, user, clientID, role string) error
 	AssignRealmRole(ctx context.Context, user, role string) error
+	CreateTestUser(ctx context.Context, username, password string) error
+	DeleteTestUser(ctx context.Context, username string) error
 
 	// Namespace-GC timing override for the orphan-reaper assertion (long mode only);
 	// patches the controller Deployment through the shared kube client.

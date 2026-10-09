@@ -117,8 +117,7 @@ func (s *E2ESuite) caFile(t *testing.T) string {
 }
 
 // cliEnv returns the environment the openshell CLI process needs on Kind: the
-// self-signed gateway TLS bypass, the CA for issuer TLS, and HOME so the wrapper
-// finds ~/.config/openshell. OpenShift uses its publicly trusted Gateway API
+// trusted local CA and namespace used by the wrapper. OpenShift uses its publicly trusted Gateway API
 // endpoint by default and inherits the caller environment unchanged.
 func (s *E2ESuite) cliEnv(t *testing.T) []string {
 	env := append([]string(nil), os.Environ()...)
@@ -126,7 +125,6 @@ func (s *E2ESuite) cliEnv(t *testing.T) []string {
 		return env
 	}
 	env = append(env,
-		"OPENSHELL_GATEWAY_INSECURE=true",
 		"SSL_CERT_FILE="+s.caFile(t),
 		"E2E_HS_NAMESPACE="+s.driver.PlatformNamespace(),
 	)
@@ -145,7 +143,10 @@ func (s *E2ESuite) cliEnv(t *testing.T) []string {
 // "" when E2E_KUBECONTEXT is unset (the wrapper then uses the current context, as
 // in CI). Cached for the suite lifetime.
 func (s *E2ESuite) cliKubeconfig(t *testing.T) string {
-	ctxName := os.Getenv("E2E_KUBECONTEXT")
+	ctxName := s.kubeContext
+	if ctxName == "" {
+		ctxName = os.Getenv("E2E_KUBECONTEXT")
+	}
 	if ctxName == "" {
 		return ""
 	}
