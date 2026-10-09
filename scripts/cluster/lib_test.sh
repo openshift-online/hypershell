@@ -486,7 +486,7 @@ if grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"mode\\":\\"local-kind
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: a seed script creates dev-gateway without a placement intent (or still sends cluster_id)'
-fi
+ fi
 # Every control plane self-registers its ManagedCluster; seeding waits for the
 # registered record and never creates one (a manual record would 409 the
 # control plane's registration; managed-cluster-registration.spec.md).

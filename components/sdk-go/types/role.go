@@ -12,11 +12,11 @@ import (
 type Role struct {
 	ObjectReference
 
-	BuiltIn     bool   `json:"built_in,omitempty"`
-	Description string `json:"description,omitempty"`
-	DisplayName string `json:"display_name,omitempty"`
-	Name        string `json:"name"`
-	Permissions string `json:"permissions,omitempty"`
+	BuiltIn     bool           `json:"built_in,omitempty"`
+	Description string         `json:"description,omitempty"`
+	DisplayName string         `json:"display_name,omitempty"`
+	Name        string         `json:"name"`
+	Permissions map[string]any `json:"permissions,omitempty"`
 }
 
 type RoleList struct {
@@ -58,7 +58,7 @@ func (b *RoleBuilder) Name(v string) *RoleBuilder {
 	return b
 }
 
-func (b *RoleBuilder) Permissions(v string) *RoleBuilder {
+func (b *RoleBuilder) Permissions(v map[string]any) *RoleBuilder {
 	b.resource.Permissions = v
 	return b
 }

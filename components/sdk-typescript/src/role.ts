@@ -9,7 +9,7 @@ export type Role = ObjectReference & {
   description: string;
   display_name: string;
   name: string;
-  permissions: string;
+  permissions: Record<string, unknown>;
 };
 
 export type RoleList = ListMeta & {
@@ -21,7 +21,7 @@ export type RoleCreateRequest = {
   description?: string;
   display_name?: string;
   name: string;
-  permissions?: string;
+  permissions?: Record<string, unknown>;
 };
 
 export type RolePatchRequest = {
@@ -51,7 +51,7 @@ export class RoleBuilder {
     return this;
   }
 
-  permissions(value: string): this {
+  permissions(value: Record<string, unknown>): this {
     this.data['permissions'] = value;
     return this;
   }

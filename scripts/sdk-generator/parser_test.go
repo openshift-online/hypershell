@@ -113,6 +113,30 @@ func TestParseSpecProjectsGatewayCreateRequestFromOperationSchema(t *testing.T) 
 	t.Fatal("gateway resource is missing")
 }
 
+func TestParseSpecProjectsGatewayProvisioningConditionsAsArray(t *testing.T) {
+	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
+	spec, err := parseSpec(specPath, "/api/hypershell")
+	if err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+	for _, resource := range spec.Resources {
+		if resource.Name != "Gateway" {
+			continue
+		}
+		for _, field := range resource.Fields {
+			if field.Name != "provisioning_conditions" {
+				continue
+			}
+			if field.Type != "array" || field.GoType != "[]map[string]any" || field.TSType != "Record<string, unknown>[]" {
+				t.Fatalf("provisioning_conditions = type=%q go=%q ts=%q, want array []map[string]any Record<string, unknown>[]", field.Type, field.GoType, field.TSType)
+			}
+			return
+		}
+		t.Fatal("Gateway provisioning_conditions field is missing")
+	}
+	t.Fatal("gateway resource is missing")
+}
+
 func TestGeneratedGatewayBuildersValidateRequiredPlacement(t *testing.T) {
 	specPath := filepath.Join("..", "..", "components", "api-server", "openapi", "openapi.yaml")
 	spec, err := parseSpec(specPath, "/api/hypershell")

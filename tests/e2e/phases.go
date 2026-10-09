@@ -551,7 +551,7 @@ func (s *E2ESuite) waitGatewayRunning(t *testing.T, id string) *sdktypes.Gateway
 // recent controller logs, so a provisioning timeout is debuggable from the run.
 func (s *E2ESuite) dumpGatewayDiagnostics(t *testing.T, id string, gw *sdktypes.Gateway) {
 	if gw != nil {
-		t.Logf("DIAG gateway %s phase=%q namespace=%q conditions=%s", id, gw.Phase, gw.Namespace, gw.ProvisioningConditions)
+		t.Logf("DIAG gateway %s phase=%q namespace=%q conditions=%v", id, gw.Phase, gw.Namespace, gw.ProvisioningConditions)
 	}
 	if logs, err := s.podLogs(context.Background(), s.driver.PlatformNamespace(), "app=hypershell-controller", 40); err == nil {
 		t.Logf("DIAG controller logs (tail):\n%s", logs)

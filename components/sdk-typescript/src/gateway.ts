@@ -50,11 +50,11 @@ export type Gateway = ObjectReference & {
   observed_generation: number;
   oidc: string;
   phase: string;
-  provisioning_conditions: string;
+  provisioning_conditions: Record<string, unknown>[];
   provisioning_version: string;
   route: string;
   route_address: string;
-  server_dns_names: string;
+  server_dns_names: string[];
   service_type: string;
   status: string;
   supervisor_image: string;
@@ -74,7 +74,7 @@ export type GatewayCreateRequest = {
   phase?: string;
   placement: GatewayPlacementIntent;
   route?: string;
-  server_dns_names?: string;
+  server_dns_names?: string[];
   service_type?: string;
   status?: string;
   supervisor_image?: string;
@@ -91,7 +91,7 @@ export type GatewayPatchRequest = {
   phase?: string;
   route?: string;
   route_address?: string;
-  server_dns_names?: string;
+  server_dns_names?: string[];
   service_type?: string;
   status?: string;
   supervisor_image?: string;
@@ -142,7 +142,7 @@ export class GatewayBuilder {
     return this;
   }
 
-  serverDnsNames(value: string): this {
+  serverDnsNames(value: string[]): this {
     this.data['server_dns_names'] = value;
     return this;
   }
@@ -227,7 +227,7 @@ export class GatewayPatchBuilder {
     return this;
   }
 
-  serverDnsNames(value: string): this {
+  serverDnsNames(value: string[]): this {
     this.data['server_dns_names'] = value;
     return this;
   }
