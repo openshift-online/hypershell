@@ -35,7 +35,7 @@ The three per-gateway roles form a strict hierarchy, **Owner > Admin > Viewer**:
 
 Separately, `platform:admin` (a global, Keycloak-sourced role, not a per-gateway role) has **owner-equivalent access-management authority on every gateway**: it may list, grant, change, and revoke any tier (including `gateway:owner`) and search the directory, without holding any per-gateway binding (GAM-08). It is purely a management-plane authority: it confers **no gateway login** (no Keycloak client roles) unless the `platform:admin` is separately granted a per-gateway binding, so a platform administrator managing a gateway's access does not thereby gain `openshell` CLI access to it.
 
-The creator (the auto-provisioned first owner, `security/rbac-enforcement.spec.md`) is tracked for display and audit (`is_creator`, "Created by") but holds no capability beyond any other owner; ownership is shared and transferable among owners.
+The creator (the auto-provisioned first owner, `security/rbac-enforcement.spec.md`) holds no capability beyond any other owner; ownership is shared and transferable among owners, and the first owner is not distinguished from the others in the access list.
 
 ## Non-Goals
 
@@ -149,7 +149,6 @@ Each grant item SHALL expose:
 | `name` | string | `User.name` display name, when present; the console "Name" column |
 | `email` | string | Optional |
 | `role` | string | `owner`, `admin`, or `user` (the console tier) mapping to `gateway:owner`, `gateway:admin`, `gateway:viewer` |
-| `is_creator` | boolean | `true` for the owner who created the gateway (informational only; see GAM-07) |
 | `granted_at` | date-time | Binding creation time |
 
 The response SHALL be assembled server-side with the user fields already joined; it SHALL NOT require the caller to perform one lookup per row. The endpoint SHALL support `search` (case-insensitive substring over `username` and `name`), a `role` filter (`owner`, `admin`, or `user`), pagination, and ordering, following the shared list contract. Search terms SHALL be treated as literals (wildcard/escape semantics handled server-side).
@@ -158,10 +157,10 @@ Any caller with a binding on the gateway (owner, admin, or viewer) or `platform:
 
 #### Scenario: Owner lists access
 
-- GIVEN gw-1 has a creator (owner), one additional `gateway:owner`, one `gateway:admin`, and two `gateway:viewer` grants
+- GIVEN gw-1 has two `gateway:owner`, one `gateway:admin`, and two `gateway:viewer` grants
 - WHEN an owner calls `GET /api/hypershell/v1/gateways/gw-1/access`
-- THEN the response SHALL contain five items with `username`, `name`, `role`, and `is_creator` populated
-- AND exactly one item SHALL have `is_creator: true` and `role: owner`
+- THEN the response SHALL contain five items with `username`, `name`, and `role` populated
+- AND exactly two items SHALL have `role: owner`
 
 #### Scenario: Filter by role and search by name
 
@@ -307,7 +306,7 @@ Each `409` response SHALL carry a detailed, human-readable error message explain
 
 These rejections SHALL apply regardless of the caller, including an owner acting on themselves. When more than one owner exists, any owner (including the creator) MAY be demoted or revoked by an owner. Ownership is therefore shared and transferable: the creator is not uniquely protected once another owner exists; it is the **last owner** that cannot be removed.
 
-The creator (the auto-provisioned first owner) is retained as `is_creator` for display and audit only and SHALL NOT, by itself, confer immutability.
+The creator (the auto-provisioned first owner) is not distinguished from any other owner and SHALL NOT, by itself, confer immutability; only the **last owner** constraint protects a row.
 
 #### Scenario: Sole owner cannot demote themselves
 

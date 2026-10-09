@@ -44,16 +44,15 @@ Each row SHALL show:
 | Role | `role` (`owner`, `admin`, or `user`), rendered as an inline control per GAM-UI-05 |
 | (row action) | Remove access per GAM-UI-06 |
 
-The creator's row (`is_creator: true`) SHALL be indicated (for example a "Creator" marker) for context; this is informational and does not by itself lock the row. A row's role control and remove action SHALL be disabled with an accessible explanation when the server would reject the action (GAM-UI-08): the user is the last remaining owner, or the current caller is not an owner and the row is an owner.
+A row's role control and remove action SHALL be disabled with an accessible explanation when the server would reject the action (GAM-UI-08): the user is the last remaining owner, or the current caller is not an owner and the row is an owner.
 
 The table SHALL show localized empty, loading, no-results, and error states and SHALL expose a manual refresh consistent with other gateway resource tables.
 
 #### Scenario: Access rows render user name, user ID, and role
 
-- GIVEN the access list returns an owner (the creator), another owner, one admin, and one user
+- GIVEN the access list returns two owners, one admin, and one user
 - WHEN the table renders
 - THEN each row SHALL show the display name, username, and role (Owner/Admin/User)
-- AND the creator's row SHALL carry the Creator marker
 
 ---
 
@@ -207,7 +206,7 @@ The API adapter SHALL map the access endpoints (GAM-03 through GAM-09) to domain
 
 The access list SHALL load through TanStack Query keyed by gateway id and the active search/role/pagination parameters, with cancellation via request signals. Mutations (grant, change, revoke) SHALL invalidate the access list on success so the table reflects server state. The query SHALL only run while the tab is active.
 
-All user-visible strings (tab label, column headers, filter labels, **Find people...**, **Add users**, role names and descriptions, creator marker, confirmations, and error/empty/no-results states) SHALL be defined with `defineMessages` and extracted into the web-console locale catalog. User-supplied display names used as fallbacks SHALL be passed through localized presentation helpers, not concatenated into English strings.
+All user-visible strings (tab label, column headers, filter labels, **Find people...**, **Add users**, role names and descriptions, confirmations, and error/empty/no-results states) SHALL be defined with `defineMessages` and extracted into the web-console locale catalog. User-supplied display names used as fallbacks SHALL be passed through localized presentation helpers, not concatenated into English strings.
 
 #### Scenario: Mutations refresh the list
 
@@ -219,9 +218,9 @@ All user-visible strings (tab label, column headers, filter labels, **Find peopl
 
 ### Requirement: GAM-UI-11 -- Verification
 
-The gateway management UI package SHALL include unit/component tests (running the use cases against in-memory/fake adapters) covering: table rendering with creator marking, sole-owner disabled controls, and owner rows disabled for non-owner callers; search and role filtering across the three tiers; the directory typeahead including a never-signed-in candidate; the radio role modal grant including the owner-only Owner option; inline role change; remove-access confirmation; viewer read-only presentation; and probe emission (one started + one terminal per operation, including `denied`/`conflicted`).
+The gateway management UI package SHALL include unit/component tests (running the use cases against in-memory/fake adapters) covering: table rendering, sole-owner disabled controls, and owner rows disabled for non-owner callers; search and role filtering across the three tiers; the directory typeahead including a never-signed-in candidate; the radio role modal grant including the owner-only Owner option; inline role change; remove-access confirmation; viewer read-only presentation; and probe emission (one started + one terminal per operation, including `denied`/`conflicted`).
 
-The production API adapter SHALL have contract tests mapping the access endpoints and their error codes to domain types. Storybook/fixtures SHALL include an access list with two owners (one the creator), an admin, and a user.
+The production API adapter SHALL have contract tests mapping the access endpoints and their error codes to domain types. Storybook/fixtures SHALL include an access list with two owners, an admin, and a user.
 
 #### Scenario: CI exercises last-owner protection and probes in the UI
 
