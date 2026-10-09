@@ -98,8 +98,10 @@ func repoRoot() string {
 // process (which cannot share the suite's in-process cert pool) trusts the
 // issuer's TLS via SSL_CERT_FILE. Cached for the suite lifetime.
 func (s *E2ESuite) caFile(t *testing.T) string {
-	if s.caFilePath != "" {
-		return s.caFilePath
+	s.cliCache.mu.Lock()
+	defer s.cliCache.mu.Unlock()
+	if s.cliCache.caFilePath != "" {
+		return s.cliCache.caFilePath
 	}
 	secret, err := s.clients.Kube.CoreV1().Secrets(s.driver.PlatformNamespace()).Get(t.Context(), "hypershell-ca-secret", metav1.GetOptions{})
 	s.Require().NoError(err, "get CA secret for SSL_CERT_FILE")
@@ -110,15 +112,20 @@ func (s *E2ESuite) caFile(t *testing.T) string {
 	_, err = f.Write(ca)
 	s.Require().NoError(err, "write CA temp file")
 	s.Require().NoError(f.Close())
-	s.caFilePath = f.Name()
-	return s.caFilePath
+	s.cliCache.caFilePath = f.Name()
+	return s.cliCache.caFilePath
 }
 
-// cliEnv returns the environment the openshell CLI process needs on kind: the
+// cliEnv returns the environment the openshell CLI process needs on Kind: the
 // self-signed gateway TLS bypass, the CA for issuer TLS, and HOME so the wrapper
-// finds ~/.config/openshell.
+// finds ~/.config/openshell. OpenShift uses its publicly trusted Gateway API
+// endpoint by default and inherits the caller environment unchanged.
 func (s *E2ESuite) cliEnv(t *testing.T) []string {
-	env := append(os.Environ(),
+	env := append([]string(nil), os.Environ()...)
+	if s.driver.Name() != "kind" {
+		return env
+	}
+	env = append(env,
 		"OPENSHELL_GATEWAY_INSECURE=true",
 		"SSL_CERT_FILE="+s.caFile(t),
 		"E2E_HS_NAMESPACE="+s.driver.PlatformNamespace(),
@@ -142,8 +149,10 @@ func (s *E2ESuite) cliKubeconfig(t *testing.T) string {
 	if ctxName == "" {
 		return ""
 	}
-	if s.cliKubeconfigPath != "" {
-		return s.cliKubeconfigPath
+	s.cliCache.mu.Lock()
+	defer s.cliCache.mu.Unlock()
+	if s.cliCache.cliKubeconfigPath != "" {
+		return s.cliCache.cliKubeconfigPath
 	}
 	raw, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
 	s.Require().NoError(err, "load kubeconfig for CLI context pin")
@@ -152,8 +161,8 @@ func (s *E2ESuite) cliKubeconfig(t *testing.T) string {
 	s.Require().NoError(err, "create temp kubeconfig")
 	s.Require().NoError(f.Close())
 	s.Require().NoError(clientcmd.WriteToFile(*raw, f.Name()), "write temp kubeconfig")
-	s.cliKubeconfigPath = f.Name()
-	return s.cliKubeconfigPath
+	s.cliCache.cliKubeconfigPath = f.Name()
+	return s.cliCache.cliKubeconfigPath
 }
 
 // registerGatewayCLI writes the CLI's per-gateway config (metadata.json +
@@ -188,7 +197,7 @@ func (s *E2ESuite) registerGateway(t *testing.T, ref driver.GatewayRef, endpoint
 		AuthMode:        "oidc",
 		OIDCIssuer:      envOrDefault("E2E_OIDC_ISSUER", "https://keycloak.hypershell.localhost/realms/hypershell"),
 		OIDCClientID:    fmt.Sprintf("%s-%s", ref.Name, ref.ID),
-		GatewayInsecure: true,
+		GatewayInsecure: gatewayTLSInsecure(s.driver.Name()),
 	}
 	s.registerGatewayCLI(t, meta, token)
 	return meta.Name
@@ -215,13 +224,15 @@ func (s *E2ESuite) cliOpenShift(t *testing.T, local string, args ...string) (str
 	home, err := os.UserHomeDir()
 	s.Require().NoError(err, "resolve home dir")
 	engine := envOrDefault("CONTAINER_ENGINE", "podman")
-	full := []string{
-		"run", "--rm",
-		"-e", "OPENSHELL_GATEWAY_INSECURE=true",
-		"-e", "HOME=/home/cli",
-		"-v", filepath.Join(home, ".config", "openshell") + ":/home/cli/.config/openshell",
-		image, "-g", local,
+	full := []string{"run", "--rm"}
+	if gatewayTLSInsecure(s.driver.Name()) {
+		full = append(full, "-e", "OPENSHELL_GATEWAY_INSECURE=true")
 	}
+	full = append(full,
+		"-e", "HOME=/home/cli",
+		"-v", filepath.Join(home, ".config", "openshell")+":/home/cli/.config/openshell",
+		image, "-g", local,
+	)
 	full = append(full, args...)
 	return s.runCmdEnv(t.Context(), os.Environ(), engine, full...)
 }
@@ -230,8 +241,10 @@ func (s *E2ESuite) cliOpenShift(t *testing.T, local string, args ...string) (str
 // ns (same registry/tag as the gateway image, with the component swapped to -cli).
 // Cached for the suite lifetime.
 func (s *E2ESuite) gatewayCLIImage(t *testing.T, ns string) string {
-	if s.openshiftCLIImage != "" {
-		return s.openshiftCLIImage
+	s.cliCache.mu.Lock()
+	defer s.cliCache.mu.Unlock()
+	if s.cliCache.openshiftCLIImage != "" {
+		return s.cliCache.openshiftCLIImage
 	}
 	dep, err := s.clients.Kube.AppsV1().Deployments(ns).Get(t.Context(), "openshell-gateway", metav1.GetOptions{})
 	s.Require().NoError(err, "get gateway deployment to derive CLI image")
@@ -241,7 +254,7 @@ func (s *E2ESuite) gatewayCLIImage(t *testing.T, ns string) string {
 		gwImage = gwImage[:i]
 	}
 	cliImage := strings.Replace(gwImage, "odh-openshell-gateway", "odh-openshell-cli", 1)
-	s.openshiftCLIImage = cliImage
+	s.cliCache.openshiftCLIImage = cliImage
 	t.Logf("openshift CLI image: %s", cliImage)
 	return cliImage
 }

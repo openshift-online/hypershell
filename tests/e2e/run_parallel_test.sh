@@ -32,7 +32,8 @@ assert_contains() {
 
 run() {
   local rc=0
-  OUT="$(E2E_PARALLEL_HEARTBEAT=1000 E2E_PARALLEL_LOG_DIR="${TMP}/logs" bash "$RUNNER" "$@" 2>&1)" || rc=$?
+  : >"${TMP}/step-summary"
+  OUT="$(GITHUB_STEP_SUMMARY="${TMP}/step-summary" E2E_PARALLEL_HEARTBEAT=1000 E2E_PARALLEL_LOG_DIR="${TMP}/logs" bash "$RUNNER" "$@" 2>&1)" || rc=$?
   RC=$rc
 }
 
@@ -45,6 +46,8 @@ assert_contains '[a] from-a' "$OUT" 'first suite log streams with a prefix'
 assert_contains '[b] from-b' "$OUT" 'second suite log streams with a prefix'
 assert_contains 'a: exit 0' "$OUT" 'first suite result is reported'
 assert_contains 'b: exit 0' "$OUT" 'second suite result is reported'
+assert_contains 'a: exit 0 after' "$(<"${TMP}/step-summary")" 'first suite timing is written to the CI step summary'
+assert_contains 'b: exit 0 after' "$(<"${TMP}/step-summary")" 'second suite timing is written to the CI step summary'
 assert_contains 'from-a' "$(<"${TMP}/logs/a.log")" 'first suite log is retained'
 assert_contains 'from-b' "$(<"${TMP}/logs/b.log")" 'second suite log is retained'
 

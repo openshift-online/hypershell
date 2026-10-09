@@ -1,8 +1,7 @@
 // Package harness holds the infrastructure-agnostic helpers the e2e suite shares
 // across all drivers: the Kubernetes clients built once from the current
 // KUBECONFIG context, the CommandRunner that logs every operation as a demo
-// command before running it, poll/retry primitives, and the pass/fail/skip
-// reporter.
+// command before running it, poll/retry primitives, and timing reports.
 package harness
 
 import (

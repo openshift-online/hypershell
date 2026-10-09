@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// Logf is the logging sink the CommandRunner and Reporter write through. The
-// suite passes t.Logf so output interleaves correctly with testify's per-subtest
-// grouping and is attributed to the right step.
+// Logf is the logging sink the CommandRunner writes through. The suite passes
+// t.Logf so output interleaves correctly with testify's per-subtest grouping and
+// is attributed to the right step.
 type Logf func(format string, args ...any)
 
 // CommandRunner renders every infrastructure or API operation as a human-readable
