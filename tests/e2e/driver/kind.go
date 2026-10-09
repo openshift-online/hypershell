@@ -44,8 +44,9 @@ const (
 	kcAdminCLIClient           = "admin-cli"
 	kcMasterRealm              = "master"
 
-	gcEnvInterval = "GATEWAY_NAMESPACE_GC_INTERVAL"
-	gcEnvGrace    = "GATEWAY_NAMESPACE_GC_GRACE_PERIOD"
+	gcEnvInterval       = "GATEWAY_NAMESPACE_GC_INTERVAL"
+	gcEnvGrace          = "GATEWAY_NAMESPACE_GC_GRACE_PERIOD"
+	directoryRefreshEnv = "GATEWAY_DIRECTORY_REFRESH_INTERVAL"
 )
 
 func init() {

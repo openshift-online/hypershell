@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"os"
 	"strings"
 	"sync"
@@ -33,12 +32,12 @@ func TestMatrix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build Kubernetes clients: %v", err)
 	}
-	d, err := driver.Resolve(context.Background(), clients, os.Getenv("E2E_INFRA_DRIVER"))
+	d, err := driver.Resolve(t.Context(), clients, os.Getenv("E2E_INFRA_DRIVER"))
 	if err != nil {
 		t.Fatalf("resolve infra driver: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	adminTok, err := d.AcquireOIDCToken(ctx, driver.Credentials{
 		Username: envOrDefault("E2E_OIDC_USERNAME", "admin"),
 		Password: envOrDefault("E2E_OIDC_PASSWORD", "admin"),
@@ -84,25 +83,6 @@ func TestMatrix(t *testing.T) {
 		t.Fatalf("no ManagedClusters selected (registered=%d, allowlist=%v)", len(list.Items), allow)
 	}
 
-	// The controller GC override is deployment-wide, while the suites below run
-	// concurrently and share this driver. Configure it once for the whole matrix
-	// and restore it only after every subtest has exited.
-	gcTimingManagedExternally := false
-	if envOrDefault("E2E_MODE", modeShort) == modeLong {
-		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
-		grace := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 30*time.Second)
-		lease, err := acquireNamespaceGCTiming(ctx, d, interval, grace)
-		if err != nil {
-			t.Fatalf("configure matrix namespace GC timing: %v", err)
-		}
-		gcTimingManagedExternally = true
-		t.Cleanup(func() {
-			if err := lease.Release(context.Background()); err != nil {
-				t.Logf("WARN restore matrix namespace GC timing: %v", err)
-			}
-		})
-	}
-
 	var mu sync.Mutex
 	outcomes := map[string]string{}
 
@@ -110,9 +90,15 @@ func TestMatrix(t *testing.T) {
 	for _, tg := range targets {
 		tg := tg
 		t.Run(tg.name, func(t *testing.T) {
-			t.Parallel()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			if concurrency > 1 {
+				t.Parallel()
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-t.Context().Done():
+					return
+				}
+			}
 
 			if !tg.healthy {
 				if skipUnhealthy {
@@ -129,10 +115,28 @@ func TestMatrix(t *testing.T) {
 				return
 			}
 
-			s := newE2ESuite(d, clients)
+			clusterClients := clients
+			clusterDriver := d
+			contextName := os.Getenv(managedKubeContextEnvKey(tg.name))
+			if contextName != "" {
+				var contextErr error
+				clusterClients, contextErr = harness.NewClientsForContext(contextName)
+				if contextErr != nil {
+					t.Fatalf("build Kubernetes clients for context %s: %v", contextName, contextErr)
+				}
+				targetDriver, resolveErr := driver.Resolve(t.Context(), clusterClients, d.Name())
+				contextErr = resolveErr
+				if contextErr != nil {
+					t.Fatalf("resolve %s driver for context %s: %v", d.Name(), contextName, contextErr)
+				}
+				clusterDriver = matrixInfraDriver{hub: d, target: targetDriver}
+			}
+
+			s := newE2ESuite(clusterDriver, clusterClients)
 			s.clusterIDOverride = tg.id
 			s.nameSuffix = sanitizeName(tg.name)
-			s.gcTimingManagedExternally = gcTimingManagedExternally
+			s.kubeContext = contextName
+			s.skipKubeChecks = contextName == ""
 			suite.Run(t, s)
 
 			mu.Lock()
@@ -200,4 +204,19 @@ func durationEnvOr(key string, def time.Duration) time.Duration {
 func sanitizeName(name string) string {
 	r := strings.NewReplacer("/", "-", ".", "-", ":", "-", " ", "-", "_", "-")
 	return strings.ToLower(r.Replace(name))
+}
+
+func managedKubeContextEnvKey(clusterName string) string {
+	var b strings.Builder
+	b.WriteString("E2E_MANAGED_KUBECONTEXT_")
+	for _, r := range clusterName {
+		if r >= 'a' && r <= 'z' {
+			b.WriteRune(r - ('a' - 'A'))
+		} else if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }

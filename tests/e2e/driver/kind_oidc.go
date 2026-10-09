@@ -86,7 +86,10 @@ func (d *kindDriver) AcquireOIDCToken(ctx context.Context, user Credentials) (To
 			"password":   user.Password,
 		})
 	case grantClientCredentials:
-		return d.clientCredentialsToken(ctx)
+		if user.Username == "" || user.Username == envOr("E2E_OIDC_USERNAME", "admin") {
+			return d.clientCredentialsToken(ctx)
+		}
+		return d.gatewayTokenExchange(ctx, d.frontendID, user.Username)
 	default:
 		return Token{}, fmt.Errorf("unsupported E2E_OIDC_GRANT %q", grant)
 	}

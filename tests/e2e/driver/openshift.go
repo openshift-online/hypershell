@@ -221,7 +221,10 @@ func (d *openshiftDriver) AcquireOIDCToken(ctx context.Context, user Credentials
 			"password":   user.Password,
 		})
 	case grantClientCredentials:
-		return d.clientCredentialsToken(ctx)
+		if user.Username == "" || user.Username == envOr("E2E_OIDC_USERNAME", "admin") {
+			return d.clientCredentialsToken(ctx)
+		}
+		return d.gatewayTokenExchange(ctx, d.frontendID, user.Username)
 	default:
 		return Token{}, fmt.Errorf("unsupported E2E_OIDC_GRANT %q", grant)
 	}
@@ -383,8 +386,9 @@ func (d *openshiftDriver) AssignRealmRole(ctx context.Context, user, role string
 
 func (d *openshiftDriver) ConfigureNamespaceGCTiming(ctx context.Context, interval, grace time.Duration) error {
 	if err := setControllerGCEnv(ctx, d.clients, d.platformNS, map[string]string{
-		gcEnvInterval: interval.String(),
-		gcEnvGrace:    grace.String(),
+		gcEnvInterval:       interval.String(),
+		gcEnvGrace:          grace.String(),
+		directoryRefreshEnv: durationEnv("E2E_GATEWAY_DIRECTORY_REFRESH_INTERVAL", 15*time.Second).String(),
 	}, nil); err != nil {
 		return err
 	}
@@ -396,7 +400,7 @@ func (d *openshiftDriver) RestoreNamespaceGCTiming(ctx context.Context) error {
 	if !d.gcPatched {
 		return nil
 	}
-	if err := setControllerGCEnv(ctx, d.clients, d.platformNS, nil, []string{gcEnvInterval, gcEnvGrace}); err != nil {
+	if err := setControllerGCEnv(ctx, d.clients, d.platformNS, nil, []string{gcEnvInterval, gcEnvGrace, directoryRefreshEnv}); err != nil {
 		return err
 	}
 	d.gcPatched = false

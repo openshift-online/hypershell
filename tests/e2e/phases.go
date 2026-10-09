@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	typedappsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
+	"k8s.io/client-go/util/retry"
 
 	sdktypes "github.com/openshift-online/hypershell/components/sdk-go/types"
 	"github.com/openshift-online/hypershell/tests/e2e/apiclient"
@@ -76,15 +81,14 @@ func (s *E2ESuite) p0_1Authentication(t *testing.T) {
 
 	// BFF OIDC endpoints.
 	consoleHost, err := s.driver.DiscoverConsoleHost(t.Context())
-	if err != nil {
-		t.Logf("WARN discover console host (skipping BFF checks): %v", err)
-	} else {
-		s.assertBFFSession(consoleHost)
-		s.assertBFFLogin(t, consoleHost)
-	}
+	s.Require().NoError(err, "discover console host")
+	s.assertBFFSession(consoleHost)
+	s.assertBFFLogin(t, consoleHost)
 
 	// Control plane gRPC watch has no Unauthenticated errors.
-	s.assertNoUnauthenticatedControllerLogs(t)
+	if !s.skipKubeChecks {
+		s.assertNoUnauthenticatedControllerLogs(t)
+	}
 }
 
 func (s *E2ESuite) assertBFFSession(consoleHost string) {
@@ -120,16 +124,16 @@ func (s *E2ESuite) assertNoUnauthenticatedControllerLogs(t *testing.T) {
 	// benign token-expiry/recovery warnings that are not a failure of the watch
 	// under test.
 	logs, err := s.podLogsSince(t.Context(), s.driver.PlatformNamespace(), "app=hypershell-controller", s.startedAt)
-	if err != nil {
-		t.Logf("WARN read controller logs: %v", err)
-		return
-	}
+	s.Require().NoError(err, "read controller logs")
 	s.Assert().NotContains(logs, "Unauthenticated", "control plane gRPC watch must have no Unauthenticated errors since the run started")
 }
 
 // p0_2EnvironmentReadiness asserts the platform dependencies are healthy and the
 // seed ids resolved (done in SetupSuite).
 func (s *E2ESuite) p0_2EnvironmentReadiness(t *testing.T) {
+	if s.skipKubeChecks {
+		t.Skip("no per-cluster kube context; skipping Kubernetes readiness checks")
+	}
 	ctx := t.Context()
 
 	// Platform dependencies are verified by their served API groups rather than
@@ -145,6 +149,15 @@ func (s *E2ESuite) p0_2EnvironmentReadiness(t *testing.T) {
 	nps, err := s.clients.Kube.NetworkingV1().NetworkPolicies(s.driver.PlatformNamespace()).List(ctx, metav1.ListOptions{})
 	s.Require().NoError(err, "list network policies")
 	s.Assert().GreaterOrEqual(len(nps.Items), 1, "platform namespace should have baseline NetworkPolicies")
+	for _, name := range []string{"hypershell-api-server", "hypershell-controller"} {
+		deployment, err := s.clients.Kube.AppsV1().Deployments(s.driver.PlatformNamespace()).Get(ctx, name, metav1.GetOptions{})
+		s.Require().NoErrorf(err, "get platform Deployment %s", name)
+		desired := int32(1)
+		if deployment.Spec.Replicas != nil {
+			desired = *deployment.Spec.Replicas
+		}
+		s.Assert().Equalf(desired, deployment.Status.AvailableReplicas, "platform Deployment %s is available", name)
+	}
 
 	s.Assert().NotEmpty(s.clusterID, "seeded cluster id")
 }
@@ -152,7 +165,11 @@ func (s *E2ESuite) p0_2EnvironmentReadiness(t *testing.T) {
 // --- Phase P1: primary gateway up and reachable ---
 
 func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
-	name := fmt.Sprintf("%s-%s", envOrDefault("E2E_GATEWAY_NAME", "e2e-gw"), s.runID)
+	prefix := envOrDefault("E2E_GATEWAY_NAME", "e2e-gw")
+	if s.clusterIDOverride != "" {
+		prefix = envOrDefault("E2E_MANAGED_GATEWAY_PREFIX", prefix)
+	}
+	name := fmt.Sprintf("%s-%s", prefix, s.runID)
 	created := s.createGateway(t, name)
 	s.trackGateway(created.ID)
 
@@ -161,11 +178,27 @@ func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 	running := s.waitGatewayRunning(t, created.ID)
 	s.primary.Namespace = running.Namespace
 	s.Require().Equal("Running", running.Phase, "gateway must reach Running")
+	s.Require().NotEmpty(running.RouteAddress, "running gateway publishes route_address")
+	var conditionsErr error
+	conditionsWaitErr := harness.Poll(t.Context(), 5*time.Second, durationSecondsEnv("E2E_CONDITIONS_SETTLE_TIMEOUT", 60*time.Second), func(ctx context.Context) (bool, error) {
+		current, err := s.admin.Gateways().Get(ctx, created.ID)
+		if err != nil {
+			return false, nil
+		}
+		conditionsErr = validateProvisioningConditions(current.ProvisioningConditions)
+		return conditionsErr == nil, nil
+	})
+	s.Require().NoError(conditionsWaitErr, "gateway provisioning conditions did not settle: %v", conditionsErr)
 	t.Logf("primary gateway %s (%s) Running in namespace %s", running.Name, running.ID, running.Namespace)
-	s.startOrphanReaper(t)
+	if !s.skipKubeChecks {
+		s.startOrphanReaper(t)
+	}
 }
 
 func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
+	if s.skipKubeChecks {
+		t.Skip("no per-cluster kube context; skipping gateway infrastructure checks")
+	}
 	ctx := t.Context()
 	ns := s.primary.Namespace
 	s.Require().NotEmpty(ns, "primary gateway namespace")
@@ -177,6 +210,9 @@ func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	var readyReplicas int32
 	var clusterIP string
 	var tlsCert, tlsKey []byte
+	var databaseSecret map[string][]byte
+	var managedNetworkPolicies int
+	var caReady, serverReady bool
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(s.concurrency)
 	g.Go(func() error {
@@ -204,11 +240,78 @@ func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 		tlsKey = secret.Data["tls.key"]
 		return nil
 	})
+	g.Go(func() error {
+		if _, err := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(ctx, "openshell-gateway-config", metav1.GetOptions{}); err != nil {
+			return fmt.Errorf("get gateway config ConfigMap: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		secret, err := s.clients.Kube.CoreV1().Secrets(ns).Get(ctx, "openshell-gateway-db-credentials", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get gateway database credentials: %w", err)
+		}
+		databaseSecret = secret.Data
+		return nil
+	})
+	g.Go(func() error {
+		policies, err := s.clients.Kube.NetworkingV1().NetworkPolicies(ns).List(ctx, metav1.ListOptions{LabelSelector: "hypershell.redhat.io/managed=true"})
+		if err != nil {
+			return fmt.Errorf("list managed gateway NetworkPolicies: %w", err)
+		}
+		managedNetworkPolicies = len(policies.Items)
+		return nil
+	})
+	g.Go(func() error {
+		certificates := s.clients.Dynamic.Resource(schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}).Namespace(ns)
+		ca, err := certificates.Get(ctx, "openshell-gateway-ca", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get gateway CA Certificate: %w", err)
+		}
+		server, err := certificates.Get(ctx, "openshell-gateway-server", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get gateway server Certificate: %w", err)
+		}
+		caReady = certificateReady(ca)
+		serverReady = certificateReady(server)
+		return nil
+	})
 	s.Require().NoError(g.Wait(), "parallel gateway infrastructure verification")
 	s.Assert().GreaterOrEqual(int(readyReplicas), 1, "gateway deployment ready replicas")
 	s.Assert().NotEmpty(clusterIP, "gateway service ClusterIP")
 	s.Assert().NotEmpty(tlsCert, "server TLS cert populated")
 	s.Assert().NotEmpty(tlsKey, "server TLS key populated")
+	s.Require().NoError(validateGatewayDatabaseSecret(databaseSecret), "gateway database TLS credentials")
+	s.Assert().Zero(managedNetworkPolicies, "control plane must not create managed gateway NetworkPolicies")
+	s.Assert().True(caReady, "gateway CA Certificate Ready")
+	s.Assert().True(serverReady, "gateway server Certificate Ready")
+}
+
+func validateGatewayDatabaseSecret(data map[string][]byte) error {
+	if string(data["sslmode"]) != "require" {
+		return fmt.Errorf("sslmode is %q, want require", string(data["sslmode"]))
+	}
+	if !strings.Contains(string(data["uri"]), "sslmode=require") {
+		return fmt.Errorf("database URI does not request sslmode=require")
+	}
+	if len(data["sslrootcert"]) > 0 {
+		return fmt.Errorf("database credentials unexpectedly contain sslrootcert")
+	}
+	return nil
+}
+
+func certificateReady(certificate *unstructured.Unstructured) bool {
+	conditions, found, err := unstructured.NestedSlice(certificate.Object, "status", "conditions")
+	if err != nil || !found {
+		return false
+	}
+	for _, item := range conditions {
+		condition, ok := item.(map[string]any)
+		if ok && condition["type"] == "Ready" && condition["status"] == "True" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
@@ -220,6 +323,9 @@ func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
 	s.Require().NoError(err, "acquire gateway token with openshell-admin role")
 	s.Require().NotEmpty(tok.AccessToken, "gateway token")
 	s.primaryGatewayToken = tok
+	if s.mode == modeLong && s.driver.Name() == "kind" {
+		s.Require().NoError(s.driver.ValidateGatewayDeviceAuthorization(t.Context(), clientID), "per-gateway OAuth device authorization with PKCE")
+	}
 	// CA trust is already installed process-wide for the SDK (no insecure bypass);
 	// the CLI consumes the same CA via SSL_CERT_FILE in P1.4/P1.5.
 }
@@ -227,6 +333,9 @@ func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
 // p1_4RouteAndCLIRegistration waits for the gateway route, discovers the endpoint,
 // and registers the gateway with the openshell CLI (writes its per-gateway config).
 func (s *E2ESuite) p1_4RouteAndCLIRegistration(t *testing.T) {
+	if s.skipKubeChecks {
+		t.Skip("no per-cluster kube context; skipping route and CLI registration")
+	}
 	s.Require().NoError(s.driver.WaitForGatewayRoute(t.Context(), s.primary), "wait for gateway route")
 	endpoint, err := s.driver.DiscoverGatewayEndpoint(t.Context(), s.primary)
 	s.Require().NoError(err, "discover gateway endpoint")
@@ -238,6 +347,9 @@ func (s *E2ESuite) p1_4RouteAndCLIRegistration(t *testing.T) {
 // p1_5Connectivity verifies the openshell CLI connects and reports status over the
 // trusted TLS established in P1.3.
 func (s *E2ESuite) p1_5Connectivity(t *testing.T) {
+	if s.skipKubeChecks {
+		t.Skip("no per-cluster kube context; skipping CLI connectivity")
+	}
 	s.Require().NotEmpty(s.primaryLocalName, "primary gateway registered with the CLI")
 	s.cliStatusConnected(t, s.primaryLocalName, durationSecondsEnv("E2E_CONNECT_TIMEOUT", 90*time.Second))
 }
@@ -248,6 +360,9 @@ func (s *E2ESuite) p1_5Connectivity(t *testing.T) {
 // execs into it, deletes it, and verifies the gateway's active_sandbox_count tracks
 // create/delete. Owns its own gateway so the count assertion is isolated.
 func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
+	if s.skipKubeChecks {
+		t.Skip("no per-cluster kube context; skipping sandbox lifecycle")
+	}
 	ctx := t.Context()
 
 	gw := s.createGateway(t, "e2e-sbx-"+s.runID)
@@ -268,14 +383,28 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	// Sandbox names have a 19-char maximum, so use a short unique token rather than
 	// the full run id (which carries a cluster suffix under the matrix runner).
 	name := fmt.Sprintf("sb-%06d", time.Now().UnixNano()%1000000)
+	names := []string{name}
+	if s.mode == modeLong {
+		names = append(names, fmt.Sprintf("sb-%06d", (time.Now().UnixNano()+1)%1000000))
+	}
 	// `sandbox create` streams while the sandbox image pulls and can return a stream
 	// error ("missing grpc-status") even though the sandbox was created. Mirror the
 	// Bash suite: treat create as best-effort and rely on the pod reaching Running
-	// as the success signal rather than the command's exit status.
-	if out, err := s.cli(t, local, "sandbox", "create", "--name", name); err != nil {
-		t.Logf("sandbox create returned an error (continuing to poll the pod): %v\n%s", err, out)
+	// as the success signal rather than the command's exit status. Long mode starts
+	// both creates together to exercise the atomic concurrent-count path.
+	s.runSandboxCLIConcurrently(t, local, "create", names)
+	g, waitCtx := errgroup.WithContext(ctx)
+	g.SetLimit(max(1, min(s.concurrency, len(names))))
+	for _, sandboxName := range names {
+		sandboxName := sandboxName
+		g.Go(func() error {
+			if err := s.waitPodRunning(waitCtx, running.Namespace, "default--"+sandboxName, sandboxTimeout); err != nil {
+				return fmt.Errorf("sandbox pod %s Running: %w", sandboxName, err)
+			}
+			return nil
+		})
 	}
-	s.Require().NoError(s.waitPodRunning(ctx, running.Namespace, "default--"+name, sandboxTimeout), "sandbox pod Running")
+	s.Require().NoError(g.Wait(), "sandbox pods Running")
 
 	// The pod can be Running while the Sandbox CR is still provisioning, so poll a
 	// no-op exec for readiness before the real exec.
@@ -287,22 +416,56 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "uname", "-a")
 	s.Require().NoError(err, "sandbox exec uname -a")
 	s.Assert().NotEmpty(strings.TrimSpace(stripANSI(out)), "uname output")
-
-	// active_sandbox_count tracks the created sandbox, then the delete.
-	s.pollActiveSandboxCount(t, gw.ID, 1)
-
-	// delete can hit a transient "upstream request timeout"; retry, then rely on
-	// the count returning to 0 as the authoritative signal.
-	if err := pollNoCtx(60*time.Second, 10*time.Second, func() bool {
-		out, err := s.cli(t, local, "sandbox", "delete", name)
-		if err != nil {
-			t.Logf("sandbox delete retrying after: %v\n%s", err, out)
+	if s.mode == modeLong {
+		out, err = s.cli(t, local, "sandbox", "exec", "-n", name, "--", "ls", "-la", "/workspace")
+		if err != nil && strings.Contains(out, "No such file or directory") {
+			t.Log("sandbox image has no /workspace directory; using its default working directory")
+		} else {
+			s.Require().NoError(err, "sandbox workspace listing")
+			s.Assert().NotEmpty(strings.TrimSpace(stripANSI(out)), "workspace listing")
 		}
-		return err == nil
-	}); err != nil {
-		t.Logf("sandbox delete did not report success; verifying via active_sandbox_count")
 	}
+
+	// Long mode proves concurrent increments are not lost (0 -> 2) and concurrent
+	// decrements converge cleanly (2 -> 0). Short mode retains the single-sandbox
+	// 0 -> 1 -> 0 lifecycle.
+	s.pollActiveSandboxCount(t, gw.ID, int32(len(names)))
+	s.runSandboxCLIConcurrently(t, local, "delete", names)
 	s.pollActiveSandboxCount(t, gw.ID, 0)
+}
+
+func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string, names []string) {
+	t.Helper()
+	type result struct {
+		output string
+		err    error
+	}
+	results := make([]result, len(names))
+	g, _ := errgroup.WithContext(t.Context())
+	g.SetLimit(max(1, min(s.concurrency, len(names))))
+	for i, sandboxName := range names {
+		i, sandboxName := i, sandboxName
+		g.Go(func() error {
+			args := []string{"sandbox", action}
+			if action == "create" {
+				args = append(args, "--name")
+			}
+			args = append(args, sandboxName)
+			results[i].output, results[i].err = s.cli(t, local, args...)
+			return nil
+		})
+	}
+	s.Require().NoError(g.Wait(), "run concurrent sandbox %s commands", action)
+	for i, sandboxName := range names {
+		if results[i].err != nil {
+			t.Logf("sandbox %s %s returned an error (state will be verified): %v\n%s", action, sandboxName, results[i].err, results[i].output)
+		}
+	}
+}
+
+func (s *E2ESuite) deleteSandboxAndWaitForCount(t *testing.T, local, name, gatewayID string, want int32) {
+	s.runSandboxCLIConcurrently(t, local, "delete", []string{name})
+	s.pollActiveSandboxCount(t, gatewayID, want)
 }
 
 // p2_2RBACEnforcement checks the developer vs platform-admin boundary at the API:
@@ -311,10 +474,6 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 // holds the elevated permissions including gateway delete. The developer
 // sandbox-create positive case needs the CLI and lands with the CLI wave.
 func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
-	if usesSingleServiceAccountIdentity() {
-		t.Skip("developer/platform-admin RBAC boundary requires distinct password-grant test users; client_credentials supplies one service-account identity")
-	}
-
 	ctx := t.Context()
 	devAPI := s.apiClientForCreds(t, s.devCreds())
 
@@ -343,6 +502,19 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	st, body, err = padminAPI.RawJSON(ctx, http.MethodGet, "/gateways", nil)
 	s.Require().NoError(err, "platform-admin GET /gateways")
 	s.Assert().Equalf(http.StatusOK, st, "platform-admin must list gateways (body: %s)", string(body))
+	platformCreate := gatewayCreateRequestForDriver("e2e-padmin-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	st, body, err = padminAPI.RawJSON(ctx, http.MethodPost, "/gateways", platformCreate)
+	s.Require().NoError(err, "platform-admin POST /gateways")
+	if s.rbacDefaultIncludesCreator(t) {
+		s.Require().Truef(st == http.StatusCreated || st == http.StatusOK, "platform-admin gateway create should follow the gateway:creator default, got %d (%s)", st, string(body))
+		var platformCreated sdktypes.Gateway
+		s.Require().NoError(json.Unmarshal(body, &platformCreated), "decode platform-admin-created gateway")
+		if platformCreated.ID != "" {
+			s.trackGateway(platformCreated.ID)
+		}
+	} else {
+		s.Assert().Equalf(http.StatusForbidden, st, "platform-admin without gateway:creator cannot create gateways (body: %s)", string(body))
+	}
 
 	victim := s.createGateway(t, "e2e-padmin-del-"+s.runID)
 	st, body, err = padminAPI.RawJSON(ctx, http.MethodDelete, "/gateways/"+victim.ID, nil)
@@ -355,6 +527,9 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 // namespace and emits a GarbageCollected Event. The orphan path is long-only and
 // relies on the shortened GC timing SetupSuite applied.
 func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
+	if s.skipKubeChecks {
+		t.Skip("no per-cluster kube context; skipping namespace garbage collection")
+	}
 	ctx := t.Context()
 
 	// Delete-driven reap: create an own gateway, delete it, assert its namespace GCs.
@@ -363,6 +538,10 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	s.Require().NotEmpty(ns, "gateway namespace")
 	s.runner.Show("DELETE /gateways/%s  # then expect namespace %s to be garbage-collected", gw.ID, ns)
 	s.Require().NoError(s.admin.Gateways().Delete(ctx, gw.ID), "delete gateway")
+	s.Require().NoError(harness.Poll(ctx, time.Second, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second), func(ctx context.Context) (bool, error) {
+		status, _, err := s.admin.RawJSON(ctx, http.MethodGet, "/gateways/"+gw.ID, nil)
+		return err == nil && status == http.StatusNotFound, nil
+	}), "deleted gateway API record reaches 404")
 	s.Require().NoError(s.waitNamespaceGone(ctx, ns, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second)), "managed namespace garbage-collected after delete")
 
 	if s.mode != modeLong {
@@ -397,6 +576,9 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	s.Require().NoError(err, "get seeded managed cluster")
 	s.Assert().NotEmpty(seeded.OidcSubject, "registered cluster has oidc_subject")
 	s.Assert().Equal(clusterName, seeded.Name, "seeded cluster name")
+	s.Require().NotNil(seeded.LastSeenAt, "registered cluster has last_seen_at")
+	s.Assert().WithinDuration(time.Now(), *seeded.LastSeenAt, durationSecondsEnv("E2E_MANAGED_HEALTHY_WINDOW", 5*time.Minute), "registered cluster is fresh")
+	lastSeenBefore := *seeded.LastSeenAt
 
 	// Registrar identity (client-credentials for the control-plane client).
 	regTok, err := s.driver.AcquireClientCredentialsToken(ctx,
@@ -417,6 +599,10 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 		s.Require().NoError(json.Unmarshal(body, &reg), "parse registration response")
 		s.Assert().Equal(s.clusterID, reg.ClusterID, "registration returns the seeded cluster id")
 	}
+	s.Require().NoError(harness.Poll(ctx, time.Second, 30*time.Second, func(ctx context.Context) (bool, error) {
+		current, err := s.admin.ManagedClusters().Get(ctx, s.clusterID)
+		return err == nil && current.LastSeenAt != nil && current.LastSeenAt.After(lastSeenBefore), nil
+	}), "idempotent registration advances last_seen_at")
 
 	// 12c: a non-registrar (admin) is forbidden from registering.
 	st, body, err := s.admin.RawJSON(ctx, http.MethodPost, "/managed_clusters/registration", map[string]string{"name": clusterName})
@@ -424,9 +610,15 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	s.Assert().Equalf(http.StatusForbidden, st, "non-registrar registration must be 403 (body: %s)", string(body))
 
 	// 12d: the registrar registering a different name collides (409).
-	st, body, err = regAPI.RawJSON(ctx, http.MethodPost, "/managed_clusters/registration", map[string]string{"name": "e2e-wrong-name-" + s.runID})
+	collisionName := "e2e-wrong-name-" + s.runID
+	st, body, err = regAPI.RawJSON(ctx, http.MethodPost, "/managed_clusters/registration", map[string]string{"name": collisionName})
 	s.Require().NoError(err, "registrar name-collision attempt")
 	s.Assert().Equalf(http.StatusConflict, st, "registrar name collision must be 409 (body: %s)", string(body))
+	clusters, err := s.admin.ManagedClusters().List(ctx, nil)
+	s.Require().NoError(err, "list clusters after rejected collision")
+	for _, cluster := range clusters.Items {
+		s.Assert().NotEqual(collisionName, cluster.Name, "rejected registration creates no cluster record")
+	}
 
 	// 12e: placement, rather than a caller-supplied cluster id, selects the
 	// registered control plane. Unsupported placement requests are rejected.
@@ -437,7 +629,79 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	s.Assert().Equalf(http.StatusBadRequest, st, "invalid placement must be 400 (body: %s)", string(body))
 	s.Assert().Containsf(strings.ToLower(string(body)), "placement", "400 reason should name placement (body: %s)", string(body))
 
-	t.Log("NOTE: gRPC WatchGateways identity rejection and controller reconnect convergence are follow-ups")
+	if envOrDefault("E2E_MULTICLUSTER", "0") == "1" {
+		secondName := os.Getenv("E2E_SEED_CLUSTER_NAME_2")
+		s.Require().NotEmpty(secondName, "E2E_MULTICLUSTER=1 requires E2E_SEED_CLUSTER_NAME_2")
+		found := false
+		for _, cluster := range clusters.Items {
+			if cluster.Name == secondName && cluster.OidcSubject != "" {
+				found = true
+				break
+			}
+		}
+		s.Assert().True(found, "second managed cluster %q is registered and selectable", secondName)
+	}
+	s.assertManagedClusterGRPCIdentity(t)
+
+	if s.clusterIDOverride == "" && !s.skipKubeChecks {
+		if s.controllerReady != nil {
+			s.Require().NoError(s.controllerReady.Wait(ctx), "wait for controller-sensitive P2 steps")
+		}
+		s.assertControllerReconnectConvergence(t)
+	}
+}
+
+func (s *E2ESuite) assertControllerReconnectConvergence(t *testing.T) {
+	ctx := t.Context()
+	deployments := s.clients.Kube.AppsV1().Deployments(s.driver.PlatformNamespace())
+	controller, err := deployments.Get(ctx, "hypershell-controller", metav1.GetOptions{})
+	s.Require().NoError(err, "get controller Deployment for reconnect test")
+	originalReplicas := int32(1)
+	if controller.Spec.Replicas != nil {
+		originalReplicas = *controller.Spec.Replicas
+	}
+	s.Require().Positive(originalReplicas, "controller has at least one replica before reconnect test")
+
+	zero := int32(0)
+	s.Require().NoError(setDeploymentReplicas(ctx, deployments, zero), "scale controller to zero")
+	restoreNeeded := true
+	defer func() {
+		if !restoreNeeded {
+			return
+		}
+		restoreCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if restoreErr := setDeploymentReplicas(restoreCtx, deployments, originalReplicas); restoreErr != nil {
+			t.Errorf("emergency controller replica restore: %v", restoreErr)
+		}
+	}()
+	s.Require().NoError(harness.Poll(ctx, time.Second, 120*time.Second, func(ctx context.Context) (bool, error) {
+		current, err := deployments.Get(ctx, "hypershell-controller", metav1.GetOptions{})
+		return err == nil && current.Status.Replicas == 0, nil
+	}), "controller scales down")
+
+	created := s.createGateway(t, "e2e-reconnect-"+s.runID)
+	s.trackGateway(created.ID)
+	s.Require().NoError(setDeploymentReplicas(ctx, deployments, originalReplicas), "restore controller replicas")
+	s.Require().NoError(harness.Poll(ctx, 2*time.Second, 180*time.Second, func(ctx context.Context) (bool, error) {
+		current, err := deployments.Get(ctx, "hypershell-controller", metav1.GetOptions{})
+		return err == nil && current.Status.AvailableReplicas == originalReplicas && current.Status.ObservedGeneration >= current.Generation, nil
+	}), "controller reconnects")
+	restoreNeeded = false
+	running := s.waitGatewayRunning(t, created.ID)
+	s.Assert().Equal("Running", running.Phase, "gateway created while disconnected converges from reconnect snapshot")
+}
+
+func setDeploymentReplicas(ctx context.Context, deployments typedappsv1.DeploymentInterface, replicas int32) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		deployment, err := deployments.Get(ctx, "hypershell-controller", metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		deployment.Spec.Replicas = &replicas
+		_, err = deployments.Update(ctx, deployment, metav1.UpdateOptions{})
+		return err
+	})
 }
 
 // p3_1AdminInventory verifies the admin-only /users boundary (non-admin 403,
@@ -454,22 +718,10 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 	// The primary gateway's creator owns it. Its owner binding authorizes PATCH,
 	// while platform:admin is intentionally inventory-only for gateway mutation.
 	phaseValidationAPI := s.admin
-	var unprivilegedAPI *apiclient.Client
 	unprivilegedLabel := "developer"
-	if usesSingleServiceAccountIdentity() {
-		privilegedLabel = "hypershell-e2e service account"
-		unprivilegedLabel = "hypershell-control-plane service account"
-		tok, err := s.driver.AcquireClientCredentialsToken(ctx,
-			envOrDefault("E2E_REGISTRAR_CLIENT_ID", "hypershell-control-plane"),
-			envOrDefault("E2E_REGISTRAR_CLIENT_SECRET", "control-plane-secret"))
-		s.Require().NoError(err, "acquire unprivileged control-plane client-credentials token")
-		unprivilegedAPI, err = s.driver.APIClient(ctx, tok)
-		s.Require().NoError(err, "build unprivileged control-plane API client")
-	} else {
-		unprivilegedAPI = s.apiClientForCreds(t, s.devCreds())
-		s.Require().NoError(s.driver.AssignRealmRole(ctx, s.platformAdminCreds().Username, "platform:admin"), "grant platform:admin")
-		privilegedAPI = s.apiClientForCreds(t, s.platformAdminCreds())
-	}
+	unprivilegedAPI := s.apiClientForCreds(t, s.devCreds())
+	s.Require().NoError(s.driver.AssignRealmRole(ctx, s.platformAdminCreds().Username, "platform:admin"), "grant platform:admin")
+	privilegedAPI = s.apiClientForCreds(t, s.platformAdminCreds())
 
 	s.runner.Show("GET /users  # as %s, expect 403", unprivilegedLabel)
 	st, body, err := unprivilegedAPI.RawJSON(ctx, http.MethodGet, "/users", nil)
@@ -498,10 +750,15 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 	}
 
 	s.runner.Show("PATCH /gateways/%s {\"phase\":\"Bogus-e2e-phase\"}  # as gateway owner, expect 400", s.primary.ID)
+	before, err := phaseValidationAPI.Gateways().Get(ctx, s.primary.ID)
+	s.Require().NoError(err, "get gateway before rejected phase write")
 	st, body, err = phaseValidationAPI.RawJSON(ctx, http.MethodPatch, "/gateways/"+s.primary.ID, map[string]string{"phase": "Bogus-e2e-phase"})
 	s.Require().NoErrorf(err, "gateway owner patch gateway phase")
 	s.Assert().Equalf(http.StatusBadRequest, st, "unknown phase write must be 400 (body: %s)", string(body))
 	s.Assert().Containsf(strings.ToLower(string(body)), "phase", "400 reason should name the phase field (body: %s)", string(body))
+	after, err := phaseValidationAPI.Gateways().Get(ctx, s.primary.ID)
+	s.Require().NoError(err, "get gateway after rejected phase write")
+	s.Assert().Equal(before.Phase, after.Phase, "rejected phase write leaves stored phase unchanged")
 }
 
 // --- low-level helpers ---
@@ -538,6 +795,34 @@ func gatewayCreateRequestForDriver(name, driverName, oidc string) gatewayCreateR
 		Route:     `{"enabled":true}`,
 		OIDC:      oidc,
 	}
+}
+
+func validateProvisioningConditions(conditions []map[string]any) error {
+	if len(conditions) == 0 {
+		return fmt.Errorf("provisioning_conditions is empty")
+	}
+	required := map[string]bool{
+		"EnvironmentReady": false,
+		"DatabaseReady":    false,
+		"GatewayDeployed":  false,
+		"GatewayHealthy":   false,
+	}
+	for _, condition := range conditions {
+		typeName, _ := condition["type"].(string)
+		status, _ := condition["condition_status"].(string)
+		if _, ok := required[typeName]; ok {
+			required[typeName] = true
+		}
+		if status != "Complete" {
+			return fmt.Errorf("provisioning condition %q is %q, want Complete", typeName, status)
+		}
+	}
+	for typeName, present := range required {
+		if !present {
+			return fmt.Errorf("required provisioning condition %q is missing", typeName)
+		}
+	}
+	return nil
 }
 
 // createGateway provisions a gateway via the create endpoint. Route and OIDC are

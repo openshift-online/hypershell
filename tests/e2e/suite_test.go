@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -21,7 +20,7 @@ func TestE2E(t *testing.T) {
 		t.Fatalf("build Kubernetes clients from KUBECONFIG context: %v", err)
 	}
 
-	d, err := driver.Resolve(context.Background(), clients, os.Getenv("E2E_INFRA_DRIVER"))
+	d, err := driver.Resolve(t.Context(), clients, os.Getenv("E2E_INFRA_DRIVER"))
 	if err != nil {
 		// Unknown driver and auto-detection failures fail fast with a non-zero exit.
 		t.Fatalf("resolve infra driver: %v", err)

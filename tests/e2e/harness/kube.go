@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -26,6 +27,9 @@ type Clients struct {
 	// Gateway serves the Gateway API resources (Gateway, GRPCRoute, HTTPRoute)
 	// with the typed clientset, matching the control-plane's idiom.
 	Gateway gatewayclient.Interface
+	// Dynamic serves extension resources that do not have clients in this module,
+	// notably cert-manager Certificates used by infrastructure verification.
+	Dynamic dynamic.Interface
 	// contextNamespace is the namespace of the resolved KUBECONFIG context (the
 	// OpenShift driver uses it as the default platform namespace / oc project).
 	contextNamespace string
@@ -40,13 +44,19 @@ func (c *Clients) ContextNamespace() string { return c.contextNamespace }
 // selection. It returns an error rather than panicking so SetupSuite reports a
 // missing or unreachable cluster as a failed assertion with context.
 func NewClients() (*Clients, error) {
+	return NewClientsForContext(os.Getenv("E2E_KUBECONTEXT"))
+}
+
+// NewClientsForContext builds clients for an explicit kubeconfig context
+// without mutating process environment, so matrix subtests may run concurrently.
+func NewClientsForContext(contextName string) (*Clients, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	overrides := &clientcmd.ConfigOverrides{}
 	// E2E_KUBECONTEXT pins the suite to a specific context regardless of the
 	// kubeconfig's current-context, so a run targets the intended cluster even when
 	// another session has switched the active context.
-	if ctxName := os.Getenv("E2E_KUBECONTEXT"); ctxName != "" {
-		overrides.CurrentContext = ctxName
+	if contextName != "" {
+		overrides.CurrentContext = contextName
 	}
 	deferred := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 	cfg, err := deferred.ClientConfig()
@@ -64,8 +74,12 @@ func NewClients() (*Clients, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build Gateway API client: %w", err)
 	}
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build dynamic Kubernetes client: %w", err)
+	}
 
-	return &Clients{Config: cfg, Kube: kube, Gateway: gw, contextNamespace: ctxNamespace}, nil
+	return &Clients{Config: cfg, Kube: kube, Gateway: gw, Dynamic: dynamicClient, contextNamespace: ctxNamespace}, nil
 }
 
 // ServesAPIGroup reports whether the cluster the clients point at serves the

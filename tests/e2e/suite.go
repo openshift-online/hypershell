@@ -2,7 +2,9 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"sync"
@@ -12,13 +14,15 @@ import (
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/sync/errgroup"
 
+	sdktypes "github.com/openshift-online/hypershell/components/sdk-go/types"
 	"github.com/openshift-online/hypershell/tests/e2e/apiclient"
 	"github.com/openshift-online/hypershell/tests/e2e/driver"
 	"github.com/openshift-online/hypershell/tests/e2e/harness"
 )
 
-// Run modes. perf is not a valid E2E_MODE value; the performance harness sets it
-// in-process. long is the default so a plain `go test` runs every step.
+// Run modes. perf is retained only as an explicitly invalid value from the former
+// shell harness; performance now uses a standalone Go benchmark. long is the
+// default so a plain `go test` runs every step.
 const (
 	modeShort = "short"
 	modeLong  = "long"
@@ -34,8 +38,8 @@ const (
 // E2ESuite is the single testify suite that drives the ordered phase steps P0-P3
 // as named subtests. Shared state (tokens, discovered endpoints, seeded ids) is
 // established in SetupSuite and reused across steps; TearDownSuite restores GC
-// timing, deletes the suite's gateways, and prints the final summary on every exit
-// path.
+// timing and deletes the suite's gateways. Go's native test output is the result
+// report.
 type E2ESuite struct {
 	suite.Suite
 
@@ -60,6 +64,8 @@ type E2ESuite struct {
 	// appended to the run id so each per-cluster suite's gateway names are unique.
 	clusterIDOverride string
 	nameSuffix        string
+	kubeContext       string
+	skipKubeChecks    bool
 
 	// primary is the P1 gateway the read-only steps reuse.
 	primary driver.GatewayRef
@@ -71,9 +77,8 @@ type E2ESuite struct {
 	gateways         *gatewayTracker
 	cliCache         *cliCache
 	orphan           *orphanReaper
-	// gcTimingManagedExternally is set by the matrix runner, which owns one
-	// controller-wide GC timing lease across its parallel suites.
-	gcTimingManagedExternally bool
+	gcTimingLease    *namespaceGCTimingLease
+	controllerReady  *completionBarrier
 }
 
 type gatewayTracker struct {
@@ -113,6 +118,7 @@ func (s *E2ESuite) SetupSuite() {
 	s.startedAt = time.Now()
 	s.runner = harness.NewCommandRunner(s.T().Logf)
 	s.mode = envOrDefault("E2E_MODE", modeLong)
+	s.Require().Truef(validE2EMode(s.mode), "invalid E2E_MODE %q (valid values: %s, %s)", s.mode, modeShort, modeLong)
 	s.concurrency = intEnv("E2E_CONCURRENCY", 4)
 	if s.concurrency < 1 {
 		s.concurrency = 1
@@ -136,6 +142,16 @@ func (s *E2ESuite) SetupSuite() {
 		}
 		return nil
 	})
+	if s.mode == modeLong {
+		g.Go(func() error {
+			for _, credentials := range []driver.Credentials{s.devCreds(), s.platformAdminCreds()} {
+				if err := s.driver.CreateTestUser(ctx, credentials.Username, credentials.Password); err != nil {
+					return fmt.Errorf("ensure long-mode test user %s: %w", credentials.Username, err)
+				}
+			}
+			return nil
+		})
+	}
 	g.Go(func() error {
 		var err error
 		tok, err = s.driver.AcquireOIDCToken(ctx, s.adminCreds())
@@ -144,14 +160,16 @@ func (s *E2ESuite) SetupSuite() {
 		}
 		return nil
 	})
-	if s.mode == modeLong && !s.gcTimingManagedExternally {
+	if s.mode == modeLong && !s.skipKubeChecks {
 		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
 		grace := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 30*time.Second)
 		s.runner.Comment("shorten controller namespace-GC timing to interval=%s grace=%s for the P2.3 orphan-reaper assertion", interval, grace)
 		g.Go(func() error {
-			if err := s.driver.ConfigureNamespaceGCTiming(ctx, interval, grace); err != nil {
+			lease, err := acquireNamespaceGCTiming(ctx, s.driver, interval, grace)
+			if err != nil {
 				return fmt.Errorf("configure namespace GC timing: %w", err)
 			}
+			s.gcTimingLease = lease
 			return nil
 		})
 	}
@@ -170,8 +188,8 @@ func (s *E2ESuite) SetupSuite() {
 }
 
 // TearDownSuite restores GC timing, deletes the gateways the suite created, calls
-// the driver cleanup hook, and prints the final summary. It is nil-safe so it can
-// run even when SetupSuite failed partway, and it never panics on a cleanup error.
+// the driver cleanup hook. It is nil-safe so it can run even when SetupSuite
+// failed partway, and it never panics on a cleanup error.
 func (s *E2ESuite) TearDownSuite() {
 	ctx := context.Background()
 	if s.orphan != nil && s.orphan.cancel != nil {
@@ -186,30 +204,44 @@ func (s *E2ESuite) TearDownSuite() {
 			}
 		}
 	}
-	if cleanupAPI != nil {
+	if cleanupAPI != nil && os.Getenv("E2E_SKIP_CLEANUP") != "1" {
 		g, ctx := errgroup.WithContext(ctx)
 		g.SetLimit(max(1, s.concurrency))
 		for _, id := range s.gatewayIDs() {
 			id := id
 			g.Go(func() error {
-				if err := cleanupAPI.Gateways().Delete(ctx, id); err != nil {
-					s.T().Logf("WARN delete gateway %s: %v", id, err)
-				}
-				return nil
+				return harness.Poll(ctx, 2*time.Second, 2*time.Minute, func(ctx context.Context) (bool, error) {
+					err := cleanupAPI.Gateways().Delete(ctx, id)
+					if err == nil {
+						return true, nil
+					}
+					var apiErr *sdktypes.APIError
+					if errors.As(err, &apiErr) {
+						if apiErr.StatusCode == http.StatusNotFound {
+							return true, nil
+						}
+						if apiErr.StatusCode >= http.StatusInternalServerError {
+							return false, nil
+						}
+					}
+					return false, fmt.Errorf("delete gateway %s: %w", id, err)
+				})
 			})
 		}
-		_ = g.Wait()
+		if err := g.Wait(); err != nil {
+			s.T().Errorf("gateway cleanup: %v", err)
+		}
 	}
 
-	if s.driver != nil && !s.gcTimingManagedExternally {
-		if err := s.driver.RestoreNamespaceGCTiming(ctx); err != nil {
-			s.T().Logf("WARN restore namespace GC timing: %v", err)
+	if s.gcTimingLease != nil && !(s.T().Failed() && s.driver.Name() == "openshift") {
+		if err := s.gcTimingLease.Release(ctx); err != nil {
+			s.T().Errorf("restore namespace GC timing: %v", err)
 		}
 	}
 
 	if s.driver != nil {
 		if err := s.driver.DeSeedTestUsers(ctx); err != nil {
-			s.T().Logf("WARN de-seed test users: %v", err)
+			s.T().Errorf("de-seed test users: %v", err)
 		}
 	}
 
@@ -233,21 +265,14 @@ func (s *E2ESuite) TestPhases() {
 
 	// Phase P2 -- hard behaviors. At concurrency > 1, start the known longest
 	// steps first. At concurrency 1, retain canonical phase order.
-	p2 := []parallelSubtest{
-		s.parallelStep("P2.1", "sandbox-lifecycle", tagShort, (*E2ESuite).p2_1SandboxLifecycle),
-		s.parallelStep("P2.2", "rbac-enforcement", tagLong, (*E2ESuite).p2_2RBACEnforcement),
-		s.parallelStep("P2.3", "deletion-namespace-gc", tagShort, (*E2ESuite).p2_3DeletionAndGC),
-		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
-	}
-	if s.concurrency > 1 {
-		p2 = []parallelSubtest{p2[0], p2[2], p2[1], p2[3]}
-	}
+	s.Require().NoError(s.refreshAdminToken(), "refresh admin token before P2")
 	s.T().Run("Phase-P2", func(t *testing.T) {
-		runParallelSubtests(t, s.concurrency, p2)
+		runParallelSubtests(t, s.concurrency, s.p2ParallelSteps())
 	})
 
 	// Phase P3 -- read-only verification. The bounded runner makes future P3
 	// additions parallel without changing orchestration.
+	s.Require().NoError(s.refreshAdminToken(), "refresh admin token before P3")
 	s.T().Run("Phase-P3", func(t *testing.T) {
 		runParallelSubtests(t, s.concurrency, []parallelSubtest{
 			s.parallelStep("P3.1", "admin-inventory-validation", tagLong, (*E2ESuite).p3_1AdminInventory),
@@ -255,9 +280,50 @@ func (s *E2ESuite) TestPhases() {
 	})
 }
 
+// p2ParallelSteps returns the hard-behavior wave in canonical order for a
+// sequential debug run and dependency-aware order for the normal bounded
+// fan-out. P2.4 begins in parallel, but its controller disconnect waits until
+// the Keycloak/controller-sensitive P2.2, P2.5, and P2.6 steps have completed.
+func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
+	canonical := []parallelSubtest{
+		s.parallelStep("P2.1", "sandbox-lifecycle", tagShort, (*E2ESuite).p2_1SandboxLifecycle),
+		s.parallelStep("P2.2", "rbac-enforcement", tagLong, (*E2ESuite).p2_2RBACEnforcement),
+		s.parallelStep("P2.3", "deletion-namespace-gc", tagShort, (*E2ESuite).p2_3DeletionAndGC),
+		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
+		s.parallelStep("P2.5", "gateway-access-management", tagLong, (*E2ESuite).p2_5GatewayAccessManagement),
+		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
+	}
+	if s.concurrency == 1 {
+		return canonical
+	}
+
+	barrier := newCompletionBarrier(3)
+	s.controllerReady = barrier
+	markControllerSensitive := func(step parallelSubtest) parallelSubtest {
+		run := step.run
+		step.run = func(t *testing.T) {
+			defer barrier.Done()
+			run(t)
+		}
+		return step
+	}
+
+	// Queue the controller-sensitive work before P2.4 so its barrier cannot
+	// consume the last scheduler slot while a required peer is still queued.
+	return []parallelSubtest{
+		canonical[0],
+		canonical[2],
+		markControllerSensitive(canonical[4]),
+		markControllerSensitive(canonical[5]),
+		markControllerSensitive(canonical[1]),
+		canonical[3],
+	}
+}
+
 // gate runs a step on the sequential fail-fast critical path: if it fails, the
 // orchestrator stops so dependent steps do not run against a broken precondition.
 func (s *E2ESuite) gate(id, slug, tag string, fn func(t *testing.T)) {
+	s.Require().NoError(s.refreshAdminToken(), "refresh admin token before %s", id)
 	s.step(id, slug, tag, fn)
 	if s.T().Failed() {
 		s.T().FailNow()
@@ -275,9 +341,6 @@ func (s *E2ESuite) step(id, slug, tag string, fn func(t *testing.T)) {
 			t.Skipf("step %s is %s-only; mode is %s", id, tag, s.mode)
 			return
 		}
-		// Refresh the admin token at the start of each step so a long run (whose
-		// earlier steps can exceed the token TTL) does not hit 401s later.
-		s.refreshAdminToken()
 		fn(t)
 	})
 }
@@ -329,6 +392,7 @@ func (s *E2ESuite) cloneForStep(t *testing.T) *E2ESuite {
 		gateways:            s.gateways,
 		cliCache:            s.cliCache,
 		orphan:              s.orphan,
+		controllerReady:     s.controllerReady,
 	}
 	clone.SetT(t)
 	return clone
@@ -337,19 +401,20 @@ func (s *E2ESuite) cloneForStep(t *testing.T) *E2ESuite {
 // refreshAdminToken re-acquires the admin token and rebuilds the admin API client.
 // Best-effort: on failure it leaves the existing client in place and the step
 // surfaces any resulting auth error.
-func (s *E2ESuite) refreshAdminToken() {
+func (s *E2ESuite) refreshAdminToken() error {
 	if s.driver == nil {
-		return
+		return fmt.Errorf("infra driver is nil")
 	}
 	tok, err := s.driver.AcquireOIDCToken(s.ctx, s.adminCreds())
 	if err != nil {
-		return
+		return fmt.Errorf("acquire admin token: %w", err)
 	}
 	api, err := s.driver.APIClient(s.ctx, tok)
 	if err != nil {
-		return
+		return fmt.Errorf("build admin API client: %w", err)
 	}
 	s.admin = api
+	return nil
 }
 
 // modeAllows reports whether a step with the given tag runs in the active mode.
@@ -359,6 +424,10 @@ func (s *E2ESuite) modeAllows(tag string) bool {
 	}
 	// long-tagged steps run only in long mode.
 	return s.mode == modeLong
+}
+
+func validE2EMode(mode string) bool {
+	return mode == modeShort || mode == modeLong
 }
 
 // --- shared helpers ---
@@ -406,21 +475,10 @@ func envOrDefault(key, def string) string {
 	return def
 }
 
-// gatewayTLSInsecure reports whether the gateway's certificate chain is not
-// expected to be in the CLI's trust store. Kind uses a local self-signed CA;
-// OpenShift Gateway API endpoints use the cluster's publicly trusted ingress
-// certificate. An explicit operator override remains available for OpenShift's
-// legacy passthrough Route mode.
-func gatewayTLSInsecure(driverName string) bool {
-	return driverName == "kind" || os.Getenv("OPENSHELL_GATEWAY_INSECURE") == "true"
-}
-
-// usesSingleServiceAccountIdentity reports whether all named test users are
-// represented by the same brokered client-credentials service account. Tests
-// that assert boundaries between developer and platform-admin must not pretend
-// those identities exist in that mode.
-func usesSingleServiceAccountIdentity() bool {
-	return os.Getenv("E2E_OIDC_GRANT") == "client_credentials"
+// gatewayTLSInsecure honors only an explicit diagnostic override. Both drivers
+// install a trusted CA path, including Kind's local self-signed CA.
+func gatewayTLSInsecure(_ string) bool {
+	return os.Getenv("OPENSHELL_GATEWAY_INSECURE") == "true"
 }
 
 func intEnv(key string, def int) int {
