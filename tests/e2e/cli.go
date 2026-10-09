@@ -229,17 +229,37 @@ func (s *E2ESuite) cliOpenShift(t *testing.T, local string, args ...string) (str
 	home, err := os.UserHomeDir()
 	s.Require().NoError(err, "resolve home dir")
 	engine := envOrDefault("CONTAINER_ENGINE", "podman")
+	full := openShiftCLICommand(
+		engine, home, os.Getuid(), os.Getgid(), image, local,
+		gatewayTLSInsecure(s.driver.Name()), args...,
+	)
+	return s.runCmdEnv(t.Context(), os.Environ(), engine, full...)
+}
+
+// openShiftCLICommand constructs a container command that can read the caller's
+// private openshell configuration. The CLI image runs as UID 1000, while the CI
+// runner normally owns ~/.config with a different UID and mode 0700. Running as
+// the caller (and retaining that mapping for Podman) preserves config access.
+func openShiftCLICommand(engine, home string, uid, gid int, image, local string, insecure bool, args ...string) []string {
 	full := []string{"run", "--rm"}
-	if gatewayTLSInsecure(s.driver.Name()) {
+	isPodman := strings.Contains(filepath.Base(engine), "podman")
+	if isPodman {
+		full = append(full, "--userns=keep-id")
+	}
+	full = append(full, "--user", fmt.Sprintf("%d:%d", uid, gid))
+	if insecure {
 		full = append(full, "-e", "OPENSHELL_GATEWAY_INSECURE=true")
+	}
+	volume := filepath.Join(home, ".config", "openshell") + ":/home/cli/.config/openshell"
+	if isPodman {
+		volume += ":z"
 	}
 	full = append(full,
 		"-e", "HOME=/home/cli",
-		"-v", filepath.Join(home, ".config", "openshell")+":/home/cli/.config/openshell",
+		"-v", volume,
 		image, "-g", local,
 	)
-	full = append(full, args...)
-	return s.runCmdEnv(t.Context(), os.Environ(), engine, full...)
+	return append(full, args...)
 }
 
 // gatewayCLIImage derives the openshell CLI image matching the gateway deployed in
