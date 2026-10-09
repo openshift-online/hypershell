@@ -1,7 +1,7 @@
 # Agent runtime images
 
 **Status:** Implemented in source; activation requires tenant and managed release configuration.
-**Applies to:** `components/agents/*.docker`, `.tekton/hypershell-agent-runtime*-*.yaml`, `.hypershell/agents`, release bundle publisher and GitOps bundle consumers.
+**Applies to:** `components/agents/Containerfile.*`, `.tekton/hypershell-agent-runtime*-*.yaml`, `.hypershell/agents`, release bundle publisher and GitOps bundle consumers.
 
 ## ARI-01 -- Two runtime profiles
 
@@ -52,7 +52,7 @@ sandbox isolation or a guarantee of zero vulnerabilities.
 ## ARI-04 -- Build and delivery
 
 Both Components SHALL use repository-root context and the corresponding
-`components/agents/*.docker` file. Push, pull-request and merge-queue pipelines
+`components/agents/Containerfile.*` file. Push, pull-request and merge-queue pipelines
 SHALL include changes to agent image inputs and CLI source; merge-queue images
 SHALL NOT auto-release. Existing Konflux scanning and signing tasks SHALL apply.
 

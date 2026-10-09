@@ -26,7 +26,7 @@ spec:
   - name: image-expires-after
     value: 5d
   - name: dockerfile
-    value: components/agents/agent-runtime.docker
+    value: components/agents/Containerfile.agent-runtime
   - name: path-context
     value: .
   pipelineSpec:

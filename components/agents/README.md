@@ -1,7 +1,7 @@
 # Agent runtime images
 
-Build context: repository root. Containerfiles: `agent-runtime.docker` and
-`agent-runtime-slim.docker`. Contract: [agent-runtime-images.spec.md](../../specs/platform/agent-runtime-images.spec.md).
+Build context: repository root. Containerfiles: `Containerfile.agent-runtime` and
+`Containerfile.agent-runtime-slim`. Contract: [agent-runtime-images.spec.md](../../specs/platform/agent-runtime-images.spec.md).
 
 | Contents | agent-runtime-slim | agent-runtime |
 | --- | --- | --- |
@@ -21,8 +21,8 @@ cluster tooling and credentials from their harness or a dedicated future variant
 ## Builds and cache
 
 ```sh
-podman build --layers -f components/agents/agent-runtime-slim.docker -t localhost/agent-runtime-slim .
-podman build --layers -f components/agents/agent-runtime.docker -t localhost/agent-runtime .
+podman build --layers -f components/agents/Containerfile.agent-runtime-slim -t localhost/agent-runtime-slim .
+podman build --layers -f components/agents/Containerfile.agent-runtime -t localhost/agent-runtime .
 ```
 
 The initial Konflux pipelines use the existing native Linux amd64 builder. The
@@ -65,7 +65,7 @@ and [ripgrep releases](https://github.com/BurntSushi/ripgrep/releases).
 When updating, review both architectures and preserve archive member paths.
 No `curl | sh`, `latest` downloads, npm global installs, or unverified binaries
 are used by the build. Automatic Claude updates are disabled. Renovate discovers
-both `.docker` files; RPM/tool lock updates require explicit regeneration/review.
+both `Containerfile.*` files; RPM/tool lock updates require explicit regeneration/review.
 Pinned packages require regular rebuilds and vulnerability review; pinning alone
 does not ensure absence of vulnerabilities. Third-party programs retain their
 upstream licenses; the Apache-2.0 label describes HyperShell's image definition.

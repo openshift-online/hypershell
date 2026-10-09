@@ -25,7 +25,7 @@ spec:
   - name: output-image
     value: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-slim-main:{{revision}}
   - name: dockerfile
-    value: components/agents/agent-runtime-slim.docker
+    value: components/agents/Containerfile.agent-runtime-slim
   - name: path-context
     value: .
   pipelineSpec:
