@@ -59,4 +59,5 @@ func init() {
 	presenters.RegisterKind(&AgentRuntime{}, "AgentRuntime")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddRepositorySelector())
 }

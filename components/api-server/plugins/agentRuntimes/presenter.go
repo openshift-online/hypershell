@@ -19,6 +19,8 @@ func ConvertAgentRuntime(ar openapi.AgentRuntime) *AgentRuntime {
 	if ar.SandboxTemplateId != nil {
 		c.SandboxTemplateId = *ar.SandboxTemplateId
 	}
+	c.RepositoryId = ar.RepositoryId
+	c.Selector = ar.Selector
 	c.Description = ar.Description
 	c.Cron = ar.Cron
 	c.CoordinatorImage = ar.CoordinatorImage
@@ -56,6 +58,8 @@ func PresentAgentRuntime(ar *AgentRuntime) openapi.AgentRuntime {
 	if ar.SandboxTemplateId != "" {
 		result.SandboxTemplateId = &ar.SandboxTemplateId
 	}
+	result.RepositoryId = ar.RepositoryId
+	result.Selector = ar.Selector
 	if ar.LoginRefreshSeconds != nil {
 		result.LoginRefreshSeconds = ar.LoginRefreshSeconds
 	}

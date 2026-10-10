@@ -86,6 +86,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**CreateManagedCluster**](docs/DefaultAPI.md#createmanagedcluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
 *DefaultAPI* | [**CreateProviderBinding**](docs/DefaultAPI.md#createproviderbinding) | **Post** /api/hypershell/ext/provider_bindings | Create a new provider binding
 *DefaultAPI* | [**CreateProviderSpec**](docs/DefaultAPI.md#createproviderspec) | **Post** /api/hypershell/ext/provider_specs | Create a new provider spec
+*DefaultAPI* | [**CreateRepository**](docs/DefaultAPI.md#createrepository) | **Post** /api/hypershell/ext/repositories | Register a new repository
 *DefaultAPI* | [**CreateRoleBinding**](docs/DefaultAPI.md#createrolebinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
 *DefaultAPI* | [**CreateSandboxTemplate**](docs/DefaultAPI.md#createsandboxtemplate) | **Post** /api/hypershell/ext/sandbox_templates | Create a new sandbox template
 *DefaultAPI* | [**CreateSecretSource**](docs/DefaultAPI.md#createsecretsource) | **Post** /api/hypershell/ext/secret_sources | Create a new secret source
@@ -96,6 +97,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**DeleteManagedCluster**](docs/DefaultAPI.md#deletemanagedcluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
 *DefaultAPI* | [**DeleteProviderBinding**](docs/DefaultAPI.md#deleteproviderbinding) | **Delete** /api/hypershell/ext/provider_bindings/{id} | Delete a provider binding
 *DefaultAPI* | [**DeleteProviderSpec**](docs/DefaultAPI.md#deleteproviderspec) | **Delete** /api/hypershell/ext/provider_specs/{id} | Delete a provider spec
+*DefaultAPI* | [**DeleteRepository**](docs/DefaultAPI.md#deleterepository) | **Delete** /api/hypershell/ext/repositories/{id} | Delete a repository
 *DefaultAPI* | [**DeleteRoleBinding**](docs/DefaultAPI.md#deleterolebinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 *DefaultAPI* | [**DeleteSandboxTemplate**](docs/DefaultAPI.md#deletesandboxtemplate) | **Delete** /api/hypershell/ext/sandbox_templates/{id} | Delete a sandbox template
 *DefaultAPI* | [**DeleteSecretSource**](docs/DefaultAPI.md#deletesecretsource) | **Delete** /api/hypershell/ext/secret_sources/{id} | Delete a secret source
@@ -108,6 +110,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**GetMetadata**](docs/DefaultAPI.md#getmetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
 *DefaultAPI* | [**GetProviderBinding**](docs/DefaultAPI.md#getproviderbinding) | **Get** /api/hypershell/ext/provider_bindings/{id} | Get a provider binding by ID
 *DefaultAPI* | [**GetProviderSpec**](docs/DefaultAPI.md#getproviderspec) | **Get** /api/hypershell/ext/provider_specs/{id} | Get a provider spec by ID
+*DefaultAPI* | [**GetRepository**](docs/DefaultAPI.md#getrepository) | **Get** /api/hypershell/ext/repositories/{id} | Get a repository by ID
 *DefaultAPI* | [**GetRole**](docs/DefaultAPI.md#getrole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 *DefaultAPI* | [**GetRoleBinding**](docs/DefaultAPI.md#getrolebinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
 *DefaultAPI* | [**GetSandboxTemplate**](docs/DefaultAPI.md#getsandboxtemplate) | **Get** /api/hypershell/ext/sandbox_templates/{id} | Get a sandbox template by ID
@@ -122,6 +125,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**ListManagedClusters**](docs/DefaultAPI.md#listmanagedclusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
 *DefaultAPI* | [**ListProviderBindings**](docs/DefaultAPI.md#listproviderbindings) | **Get** /api/hypershell/ext/provider_bindings | Returns a list of provider bindings
 *DefaultAPI* | [**ListProviderSpecs**](docs/DefaultAPI.md#listproviderspecs) | **Get** /api/hypershell/ext/provider_specs | Returns a list of provider specs
+*DefaultAPI* | [**ListRepositories**](docs/DefaultAPI.md#listrepositories) | **Get** /api/hypershell/ext/repositories | Returns a list of repositories
 *DefaultAPI* | [**ListRoleBindings**](docs/DefaultAPI.md#listrolebindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 *DefaultAPI* | [**ListRoles**](docs/DefaultAPI.md#listroles) | **Get** /api/hypershell/v1/roles | List all roles
 *DefaultAPI* | [**ListSandboxTemplates**](docs/DefaultAPI.md#listsandboxtemplates) | **Get** /api/hypershell/ext/sandbox_templates | Returns a list of sandbox templates
@@ -136,6 +140,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**UpdateManagedCluster**](docs/DefaultAPI.md#updatemanagedcluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 *DefaultAPI* | [**UpdateProviderBinding**](docs/DefaultAPI.md#updateproviderbinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
 *DefaultAPI* | [**UpdateProviderSpec**](docs/DefaultAPI.md#updateproviderspec) | **Patch** /api/hypershell/ext/provider_specs/{id} | Update a provider spec
+*DefaultAPI* | [**UpdateRepository**](docs/DefaultAPI.md#updaterepository) | **Patch** /api/hypershell/ext/repositories/{id} | Update a repository
 *DefaultAPI* | [**UpdateSandboxTemplate**](docs/DefaultAPI.md#updatesandboxtemplate) | **Patch** /api/hypershell/ext/sandbox_templates/{id} | Update a sandbox template
 *DefaultAPI* | [**UpdateSecretSource**](docs/DefaultAPI.md#updatesecretsource) | **Patch** /api/hypershell/ext/secret_sources/{id} | Update a secret source
 
@@ -188,6 +193,9 @@ Class | Method | HTTP request | Description
  - [ProviderSpec](docs/ProviderSpec.md)
  - [ProviderSpecList](docs/ProviderSpecList.md)
  - [ProviderSpecPatchRequest](docs/ProviderSpecPatchRequest.md)
+ - [Repository](docs/Repository.md)
+ - [RepositoryList](docs/RepositoryList.md)
+ - [RepositoryPatchRequest](docs/RepositoryPatchRequest.md)
  - [Role](docs/Role.md)
  - [RoleBinding](docs/RoleBinding.md)
  - [RoleBindingList](docs/RoleBindingList.md)

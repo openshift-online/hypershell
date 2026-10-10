@@ -6,6 +6,8 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | Pointer to **string** |  | [optional] 
 **SandboxTemplateId** | Pointer to **string** |  | [optional] 
+**RepositoryId** | Pointer to **string** |  | [optional] 
+**Selector** | Pointer to **[]string** |  | [optional] 
 **Description** | Pointer to **string** |  | [optional] 
 **Cron** | Pointer to **string** |  | [optional] 
 **CoordinatorImage** | Pointer to **string** |  | [optional] 
@@ -81,6 +83,56 @@ SetSandboxTemplateId sets SandboxTemplateId field to given value.
 `func (o *AgentRuntimePatchRequest) HasSandboxTemplateId() bool`
 
 HasSandboxTemplateId returns a boolean if a field has been set.
+
+### GetRepositoryId
+
+`func (o *AgentRuntimePatchRequest) GetRepositoryId() string`
+
+GetRepositoryId returns the RepositoryId field if non-nil, zero value otherwise.
+
+### GetRepositoryIdOk
+
+`func (o *AgentRuntimePatchRequest) GetRepositoryIdOk() (*string, bool)`
+
+GetRepositoryIdOk returns a tuple with the RepositoryId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRepositoryId
+
+`func (o *AgentRuntimePatchRequest) SetRepositoryId(v string)`
+
+SetRepositoryId sets RepositoryId field to given value.
+
+### HasRepositoryId
+
+`func (o *AgentRuntimePatchRequest) HasRepositoryId() bool`
+
+HasRepositoryId returns a boolean if a field has been set.
+
+### GetSelector
+
+`func (o *AgentRuntimePatchRequest) GetSelector() []string`
+
+GetSelector returns the Selector field if non-nil, zero value otherwise.
+
+### GetSelectorOk
+
+`func (o *AgentRuntimePatchRequest) GetSelectorOk() (*[]string, bool)`
+
+GetSelectorOk returns a tuple with the Selector field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetSelector
+
+`func (o *AgentRuntimePatchRequest) SetSelector(v []string)`
+
+SetSelector sets Selector field to given value.
+
+### HasSelector
+
+`func (o *AgentRuntimePatchRequest) HasSelector() bool`
+
+HasSelector returns a boolean if a field has been set.
 
 ### GetDescription
 

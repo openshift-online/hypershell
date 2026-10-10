@@ -86,6 +86,10 @@ paths:
     $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1ext~1secret_sources'
   /api/hypershell/ext/secret_sources/{id}:
     $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1ext~1secret_sources~1{id}'
+  /api/hypershell/ext/repositories:
+    $ref: 'openapi.repositories.yaml#/paths/~1api~1hypershell~1ext~1repositories'
+  /api/hypershell/ext/repositories/{id}:
+    $ref: 'openapi.repositories.yaml#/paths/~1api~1hypershell~1ext~1repositories~1{id}'
   # AUTO-ADD NEW PATHS
 components:
   schemas:

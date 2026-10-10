@@ -112,6 +112,12 @@ func (h *agentRuntimeHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.SandboxTemplateId != nil {
 				found.SandboxTemplateId = *patch.SandboxTemplateId
 			}
+			if patch.RepositoryId != nil {
+				found.RepositoryId = patch.RepositoryId
+			}
+			if patch.Selector != nil {
+				found.Selector = patch.Selector
+			}
 			if patch.Description != nil {
 				found.Description = patch.Description
 			}

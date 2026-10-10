@@ -1,0 +1,258 @@
+paths:
+  /api/hypershell/ext/repositories:
+    get:
+      operationId: listRepositories
+      summary: Returns a list of repositories
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: A JSON array of repository objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+    post:
+      operationId: createRepository
+      summary: Register a new repository
+      security:
+        - Bearer: []
+      requestBody:
+        description: Repository data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Repository'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '422':
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/ext/repositories/{id}:
+    get:
+      operationId: getRepository
+      summary: Get a repository by ID
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: Repository found by ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No repository with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    patch:
+      operationId: updateRepository
+      summary: Update a repository
+      security:
+        - Bearer: []
+      requestBody:
+        description: Updated repository data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepositoryPatchRequest'
+      responses:
+        '200':
+          description: Repository updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No repository with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '422':
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteRepository
+      summary: Delete a repository
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: Repository deleted successfully
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No repository with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '409':
+          description: Repository is still referenced by one or more AgentRuntimes
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+components:
+  schemas:
+    Repository:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - name
+            - url
+            - provider
+            - secret_source_id
+          properties:
+            name:
+              type: string
+              description: Human-readable identifier for the repository registration
+            url:
+              type: string
+              description: Git remote URL (e.g. https://github.com/openshift-online/hypershell)
+            provider:
+              type: string
+              description: 'Provider type the credential targets: github (extensible)'
+            secret_source_id:
+              type: string
+              description: References a SecretSource holding the provider credential
+            default_branch:
+              type: string
+              description: Branch the import process reads when none is otherwise specified
+            import_path:
+              type: string
+              description: Directory within the repository to import (default .hypershell)
+            status:
+              type: string
+              description: Registration/import health
+              readOnly: true
+    RepositoryList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Repository'
+    RepositoryPatchRequest:
+      type: object
+      properties:
+        secret_source_id:
+          type: string
+        default_branch:
+          type: string
+        import_path:
+          type: string
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

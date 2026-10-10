@@ -12,6 +12,7 @@ Method | HTTP request | Description
 [**CreateManagedCluster**](DefaultAPI.md#CreateManagedCluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
 [**CreateProviderBinding**](DefaultAPI.md#CreateProviderBinding) | **Post** /api/hypershell/ext/provider_bindings | Create a new provider binding
 [**CreateProviderSpec**](DefaultAPI.md#CreateProviderSpec) | **Post** /api/hypershell/ext/provider_specs | Create a new provider spec
+[**CreateRepository**](DefaultAPI.md#CreateRepository) | **Post** /api/hypershell/ext/repositories | Register a new repository
 [**CreateRoleBinding**](DefaultAPI.md#CreateRoleBinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
 [**CreateSandboxTemplate**](DefaultAPI.md#CreateSandboxTemplate) | **Post** /api/hypershell/ext/sandbox_templates | Create a new sandbox template
 [**CreateSecretSource**](DefaultAPI.md#CreateSecretSource) | **Post** /api/hypershell/ext/secret_sources | Create a new secret source
@@ -22,6 +23,7 @@ Method | HTTP request | Description
 [**DeleteManagedCluster**](DefaultAPI.md#DeleteManagedCluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
 [**DeleteProviderBinding**](DefaultAPI.md#DeleteProviderBinding) | **Delete** /api/hypershell/ext/provider_bindings/{id} | Delete a provider binding
 [**DeleteProviderSpec**](DefaultAPI.md#DeleteProviderSpec) | **Delete** /api/hypershell/ext/provider_specs/{id} | Delete a provider spec
+[**DeleteRepository**](DefaultAPI.md#DeleteRepository) | **Delete** /api/hypershell/ext/repositories/{id} | Delete a repository
 [**DeleteRoleBinding**](DefaultAPI.md#DeleteRoleBinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 [**DeleteSandboxTemplate**](DefaultAPI.md#DeleteSandboxTemplate) | **Delete** /api/hypershell/ext/sandbox_templates/{id} | Delete a sandbox template
 [**DeleteSecretSource**](DefaultAPI.md#DeleteSecretSource) | **Delete** /api/hypershell/ext/secret_sources/{id} | Delete a secret source
@@ -34,6 +36,7 @@ Method | HTTP request | Description
 [**GetMetadata**](DefaultAPI.md#GetMetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
 [**GetProviderBinding**](DefaultAPI.md#GetProviderBinding) | **Get** /api/hypershell/ext/provider_bindings/{id} | Get a provider binding by ID
 [**GetProviderSpec**](DefaultAPI.md#GetProviderSpec) | **Get** /api/hypershell/ext/provider_specs/{id} | Get a provider spec by ID
+[**GetRepository**](DefaultAPI.md#GetRepository) | **Get** /api/hypershell/ext/repositories/{id} | Get a repository by ID
 [**GetRole**](DefaultAPI.md#GetRole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 [**GetRoleBinding**](DefaultAPI.md#GetRoleBinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
 [**GetSandboxTemplate**](DefaultAPI.md#GetSandboxTemplate) | **Get** /api/hypershell/ext/sandbox_templates/{id} | Get a sandbox template by ID
@@ -48,6 +51,7 @@ Method | HTTP request | Description
 [**ListManagedClusters**](DefaultAPI.md#ListManagedClusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
 [**ListProviderBindings**](DefaultAPI.md#ListProviderBindings) | **Get** /api/hypershell/ext/provider_bindings | Returns a list of provider bindings
 [**ListProviderSpecs**](DefaultAPI.md#ListProviderSpecs) | **Get** /api/hypershell/ext/provider_specs | Returns a list of provider specs
+[**ListRepositories**](DefaultAPI.md#ListRepositories) | **Get** /api/hypershell/ext/repositories | Returns a list of repositories
 [**ListRoleBindings**](DefaultAPI.md#ListRoleBindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 [**ListRoles**](DefaultAPI.md#ListRoles) | **Get** /api/hypershell/v1/roles | List all roles
 [**ListSandboxTemplates**](DefaultAPI.md#ListSandboxTemplates) | **Get** /api/hypershell/ext/sandbox_templates | Returns a list of sandbox templates
@@ -62,6 +66,7 @@ Method | HTTP request | Description
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 [**UpdateProviderBinding**](DefaultAPI.md#UpdateProviderBinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
 [**UpdateProviderSpec**](DefaultAPI.md#UpdateProviderSpec) | **Patch** /api/hypershell/ext/provider_specs/{id} | Update a provider spec
+[**UpdateRepository**](DefaultAPI.md#UpdateRepository) | **Patch** /api/hypershell/ext/repositories/{id} | Update a repository
 [**UpdateSandboxTemplate**](DefaultAPI.md#UpdateSandboxTemplate) | **Patch** /api/hypershell/ext/sandbox_templates/{id} | Update a sandbox template
 [**UpdateSecretSource**](DefaultAPI.md#UpdateSecretSource) | **Patch** /api/hypershell/ext/secret_sources/{id} | Update a secret source
 
@@ -579,6 +584,70 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ProviderSpec**](ProviderSpec.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## CreateRepository
+
+> Repository CreateRepository(ctx).Repository(repository).Execute()
+
+Register a new repository
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	repository := *openapiclient.NewRepository("Name_example", "Url_example", "Provider_example", "SecretSourceId_example") // Repository | Repository data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.CreateRepository(context.Background()).Repository(repository).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreateRepository``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `CreateRepository`: Repository
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.CreateRepository`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiCreateRepositoryRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **repository** | [**Repository**](Repository.md) | Repository data | 
+
+### Return type
+
+[**Repository**](Repository.md)
 
 ### Authorization
 
@@ -1229,6 +1298,72 @@ Name | Type | Description  | Notes
 ### Other Parameters
 
 Other parameters are passed through a pointer to a apiDeleteProviderSpecRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## DeleteRepository
+
+> DeleteRepository(ctx, id).Execute()
+
+Delete a repository
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	r, err := apiClient.DefaultAPI.DeleteRepository(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.DeleteRepository``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiDeleteRepositoryRequest struct via the builder pattern
 
 
 Name | Type | Description  | Notes
@@ -2033,6 +2168,74 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ProviderSpec**](ProviderSpec.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## GetRepository
+
+> Repository GetRepository(ctx, id).Execute()
+
+Get a repository by ID
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetRepository(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetRepository``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetRepository`: Repository
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetRepository`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetRepositoryRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+[**Repository**](Repository.md)
 
 ### Authorization
 
@@ -3050,6 +3253,78 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## ListRepositories
+
+> RepositoryList ListRepositories(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+
+Returns a list of repositories
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
+	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListRepositories(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListRepositories``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListRepositories`: RepositoryList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListRepositories`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListRepositoriesRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
+
+### Return type
+
+[**RepositoryList**](RepositoryList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## ListRoleBindings
 
 > RoleBindingList ListRoleBindings(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
@@ -4021,6 +4296,76 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ProviderSpec**](ProviderSpec.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UpdateRepository
+
+> Repository UpdateRepository(ctx, id).RepositoryPatchRequest(repositoryPatchRequest).Execute()
+
+Update a repository
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+	repositoryPatchRequest := *openapiclient.NewRepositoryPatchRequest() // RepositoryPatchRequest | Updated repository data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.UpdateRepository(context.Background(), id).RepositoryPatchRequest(repositoryPatchRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdateRepository``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UpdateRepository`: Repository
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdateRepository`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUpdateRepositoryRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **repositoryPatchRequest** | [**RepositoryPatchRequest**](RepositoryPatchRequest.md) | Updated repository data | 
+
+### Return type
+
+[**Repository**](Repository.md)
 
 ### Authorization
 
