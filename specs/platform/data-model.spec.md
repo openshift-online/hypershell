@@ -14,7 +14,8 @@ Current model:
 - **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Also tracks provider, region, API server URL, and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
 - **Gateway** - an API gateway instance deployed onto a specific cluster within an API-assigned namespace. Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
-- **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate. Owns exactly one AgentWorkspace and one or more SecretSources.
+- **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
+- **Repository** - a registered git repository (e.g. `https://github.com/openshift-online/hypershell`) paired with the provider credential HyperShell uses to reach it. A server-side import process discovers a `.hypershell/` directory in each registered Repository and renders the declarative HyperShell resources it finds into the API.
 - **SandboxTemplate** - reusable OCI image + filesystem/network/process policy for agent worker sandboxes.
 - **ProviderSpec** - reusable capability definition (inference, source_control, or knowledge) shared across ProviderBindings.
 - **ProviderBinding** - wires a ProviderSpec into an AgentWorkspace with workspace-specific credential and refresh configuration.
@@ -94,12 +95,28 @@ erDiagram
         string cluster_id FK
         string gateway_id FK
         string sandbox_template_id FK
+        string repository_id FK
+        string[] selector
         string description
         string cron
         string coordinator_image
         string concurrency_policy
         int login_refresh_seconds
         jsonb parameters
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    Repository {
+        string ID PK
+        string name
+        string url
+        string provider
+        string secret_source_id FK
+        string default_branch
+        string import_path
         string status
         time created_at
         time updated_at
@@ -191,6 +208,8 @@ erDiagram
     ManagedCluster ||--o{ AgentRuntime : "runs"
     Gateway ||--o{ AgentRuntime : "connects_to"
     SandboxTemplate ||--o{ AgentRuntime : "sandbox_for"
+    Repository ||--o{ AgentRuntime : "scanned_by"
+    SecretSource ||--o{ Repository : "authenticates"
     AgentRuntime ||--|| AgentWorkspace : "owns"
     AgentRuntime ||--o{ SecretSource : "declares"
     Gateway ||--o{ AgentWorkspace : "hosts"
@@ -420,9 +439,11 @@ A GatewayNetwork SHALL define how gateways communicate. The `topology` field ind
 
 ### Requirement: AgentRuntime as a Top-Level Resource
 
-`AgentRuntime` SHALL be a top-level HyperShell API resource. It references a `ManagedCluster` (where its scheduling resources run), a `Gateway` (which it connects to), and a `SandboxTemplate` (the worker execution environment). It owns exactly one `AgentWorkspace` and one or more `SecretSource` declarations. Schedule configuration (cron expression, coordinator image, concurrency policy, login refresh interval) is embedded directly on `AgentRuntime`.
+`AgentRuntime` SHALL be a top-level HyperShell API resource. It references a `ManagedCluster` (where its scheduling resources run), a `Gateway` (which it connects to), and a `SandboxTemplate` (the worker execution environment). It MAY reference a `Repository` through a nullable `repository_id` foreign key. It owns exactly one `AgentWorkspace` and one or more `SecretSource` declarations. Schedule configuration (cron expression, coordinator image, concurrency policy, login refresh interval) is embedded directly on `AgentRuntime`.
 
 An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provider driver names or credential environment variable names. Those are translation concerns of the controller.
+
+`repository_id` SHALL be nullable. When set, it SHALL reference an existing `Repository`. Deleting a `Repository` that is still referenced by an `AgentRuntime` SHALL be rejected with 409.
 
 #### Scenario: Create AgentRuntime
 
@@ -438,6 +459,123 @@ An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provid
 - WHEN the API server validates the request
 - THEN `parameters` SHALL NOT contain keys that collide with the controller's reserved env var namespace (`GATEWAY_*`, `OIDC_*`, `OPENSHELL_*`)
 - AND the API server SHALL reject the request with 400 if any reserved key is present
+
+---
+
+### Requirement: AgentRuntime Repository Selector
+
+An `AgentRuntime` MAY carry a nullable `selector`: a list of label strings that
+turns the runtime into a repository scanner. When `selector` is non-empty, the
+coordinator SHALL query the runtime's referenced `Repository` for work items
+(issues and pull requests) and SHALL treat an item as matched when it carries
+**any** of the selected labels (match-any). For each matched item the coordinator
+SHALL launch one sandbox from the runtime's `sandbox_template_id`. This replaces
+the imperative `discover.sh` script contract (see "Declarative `.hypershell`
+Import" below) with a declarative field.
+
+`selector` SHALL be valid only when `repository_id` is also set. The API server
+SHALL reject a create or update that sets a non-empty `selector` without a
+`repository_id` with 422. An empty or absent `selector` leaves the runtime a
+plain scheduled agent that does not scan a repository.
+
+#### Scenario: Reviewer Agent Scans a Repository by Label
+
+- GIVEN an `AgentRuntime` with `repository_id` set and `selector = ["agent/reviewable"]`
+- WHEN the coordinator runs the runtime's scan
+- THEN it SHALL query the referenced `Repository` for issues and pull requests labeled `agent/reviewable`
+- AND it SHALL launch one sandbox from `sandbox_template_id` per matched item
+
+#### Scenario: Selector Without Repository Is Rejected
+
+- GIVEN an `AgentRuntime` create or update request with a non-empty `selector`
+- AND no `repository_id`
+- WHEN the API server validates the request
+- THEN it SHALL reject the request with 422
+
+#### Scenario: Match-Any Across Multiple Labels
+
+- GIVEN an `AgentRuntime` with `selector = ["agent/reviewable", "agent/ready"]`
+- WHEN the coordinator scans the referenced `Repository`
+- THEN an item carrying either label SHALL be matched
+- AND each matched item SHALL yield exactly one sandbox
+
+---
+
+### Requirement: Repository as a Top-Level Resource
+
+`Repository` SHALL be a top-level ADLC extension resource at
+`/api/hypershell/ext/repositories`. A `Repository` records a git repository and
+the provider credential HyperShell uses to reach it, so that server-side
+processes (repository scanning and declarative import) can authenticate against
+it. A `Repository` SHALL NOT store inline secrets.
+
+Fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Human-readable identifier for the repository registration |
+| `url` | string | Git remote URL (e.g. `https://github.com/openshift-online/hypershell`) |
+| `provider` | string | Provider type the credential targets: `github` (extensible) |
+| `secret_source_id` | string (FK) | References a `SecretSource` holding the provider credential (e.g. a GitHub App private key). The abstract secret model keeps credentials in a backend, not in the database |
+| `default_branch` | string | Branch the import process reads when none is otherwise specified |
+| `import_path` | string | Directory within the repository to import (default `.hypershell`) |
+| `status` | string | Registration/import health |
+
+`provider` SHALL be validated against the supported provider set. `secret_source_id`
+SHALL reference an existing `SecretSource`.
+
+#### Scenario: Register a Repository
+
+- GIVEN a valid `url`, `provider = github`, and a `secret_source_id` referencing an existing `SecretSource`
+- WHEN a POST request is made to `/api/hypershell/ext/repositories`
+- THEN a new `Repository` is created
+- AND a server-side process can authenticate to the repository with the referenced credential
+
+#### Scenario: Repository Deletion Blocked by Referencing AgentRuntime
+
+- GIVEN a `Repository` referenced by an `AgentRuntime` via `repository_id`
+- WHEN a DELETE request is made for the `Repository`
+- THEN the API server SHALL reject the request with 409
+- AND the response SHALL identify the blocking `AgentRuntime`
+
+---
+
+### Requirement: Declarative `.hypershell` Import
+
+A server-side import process SHALL enumerate all registered `Repository` records,
+read each at its `import_path` (default `.hypershell`), and render the declarative
+HyperShell resources it finds into the API. The `.hypershell` directory SHALL be
+a Kustomize root: the import process SHALL build the kustomization and reconcile
+the rendered resources - the same kinds `hsctl apply` supports (`AgentRuntime`,
+`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`,
+`SecretSource`) - into the API.
+
+Imported resources SHALL be owned by the originating `Repository`. The import
+process SHALL reconcile, not create-and-skip: a resource added to `.hypershell`
+is created, a changed resource is updated, and a resource removed from
+`.hypershell` is pruned. Re-running the import against unchanged repository state
+SHALL be idempotent.
+
+> **Replaces the script coordinator model.** This declarative import, together
+> with `AgentRuntime.selector`, supersedes the imperative `discover.sh` / `run.sh`
+> "script-at-endpoint" coordinator contract previously documented in
+> `.hypershell/README.md`. That script contract is **deprecated and slated for
+> removal**: a server-side process SHALL render declared YAML rather than invoke
+> scripts found in the repository. Updating `.hypershell/README.md` and removing
+> the `discover.sh` / `run.sh` scripts is a follow-up outside this spec change.
+
+#### Scenario: Import Renders Declared Resources
+
+- GIVEN a registered `Repository` whose `.hypershell` directory declares a `SandboxTemplate` and an `AgentRuntime`
+- WHEN the import process runs
+- THEN it SHALL build the kustomization and upsert both resources into the API
+- AND the resources SHALL be owned by the `Repository`
+
+#### Scenario: Removed Declaration Is Pruned
+
+- GIVEN a `Repository` that previously imported an `AgentRuntime`
+- WHEN that `AgentRuntime` is removed from `.hypershell` and the import re-runs
+- THEN the API server SHALL delete the imported `AgentRuntime`
 
 ---
 
@@ -740,6 +878,8 @@ A `Degraded` `AgentRuntime` SHALL surface the failing `SecretSource` name and th
 | GET/PATCH/DELETE | `/inference_routes/{id}` | Get/Update/Delete |
 | GET/POST | `/secret_sources` | List/Create |
 | GET/PATCH/DELETE | `/secret_sources/{id}` | Get/Update/Delete |
+| GET/POST | `/repositories` | List/Create |
+| GET/PATCH/DELETE | `/repositories/{id}` | Get/Update/Delete |
 
 ## CLI Reference (`hsctl`)
 
@@ -829,6 +969,16 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 | `GET /api/hypershell/v1/users/{id}` | `hsctl get user <id>` | ✅ implemented |
 | `POST /api/hypershell/v1/users` | `hsctl create user --name <n> [--email <e>] [--external-id <id>]` | ✅ implemented |
 
+#### Repositories (ext)
+
+| REST API | `hsctl` Command | Status |
+|---|---|---|
+| `GET /api/hypershell/ext/repositories` | `hsctl list repositories` | 🔲 planned |
+| `GET /api/hypershell/ext/repositories/{id}` | `hsctl get repository <id>` | 🔲 planned |
+| `POST /api/hypershell/ext/repositories` | `hsctl create repository --name <n> --url <url> --provider <p> --secret-source-id <s> [--default-branch <b>] [--import-path <path>]` | 🔲 planned |
+| `PATCH /api/hypershell/ext/repositories/{id}` | `hsctl update repository <id> [--secret-source-id <s>] [--default-branch <b>] [--import-path <path>]` | 🔲 planned |
+| `DELETE /api/hypershell/ext/repositories/{id}` | `hsctl delete repository <id>` | 🔲 planned |
+
 #### Auth & Context
 
 | Operation | `hsctl` Command | Status |
@@ -853,9 +1003,10 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 | `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | [REMOVED] |
 | `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | [REMOVED] |
 | `ManagedCluster` | `name`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | ✅ implemented |
-| `AgentRuntime` | `name`, `cluster_id`, `gateway_id`, `sandbox_template_id`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` | 🔲 planned |
+| `AgentRuntime` | `name`, `cluster_id`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` | 🔲 planned |
 | `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
 | `ProviderSpec` | `name`, `category`, `capability`, `profile` | 🔲 planned |
+| `Repository` | `name`, `url`, `provider`, `secret_source_id`, `default_branch`, `import_path` | 🔲 planned |
 
 #### `-f` - File or Directory
 
@@ -1048,5 +1199,9 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0
 | login_refresh_seconds on AgentRuntime, not SandboxTemplate | Login renewal is a coordinator concern (CronJob lifecycle), not a sandbox policy concern. Embedding it on the AgentRuntime where the coordinator schedule lives keeps it co-located with the fields it relates to. |
 | No ManifestWork: controller applies cluster resources directly | The controller has direct cluster API access via in-cluster credentials, the same mechanism used for gateway infrastructure. ManifestWork would add an OCM dependency without architectural benefit. |
 | No bootstrap Job: controller provisions gateway-side objects via gRPC | Gateway-side workspace, members, and provider objects are provisioned by the controller through the gateway gRPC API in its normal reconcile loop, co-located with existing gateway database provisioning logic. An idempotent imperative Job on the cluster would tie provisioning to a specific OpenShell CLI version. |
+| Repository as a reusable top-level ext resource | A registered repo plus its provider credential is referenced by many agent runtimes and read by the declarative import. Centralizing it keeps credential rotation and `.hypershell` discovery a single registration, not per-runtime config. |
+| Repository credential via SecretSource FK | Reuses the existing abstract secret backend model (Vault/AWS/Kubernetes) and `ExternalSecret` wiring, keeping provider secrets out of the database and consistent with every other credential in the platform. |
+| AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
+| Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
 | Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
 | Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |
