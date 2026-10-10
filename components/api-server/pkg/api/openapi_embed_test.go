@@ -64,7 +64,7 @@ func TestGetOpenAPISpecReturnsCompleteContract(t *testing.T) {
 		"/api/hypershell/v1/managed_clusters/{id}":                                       "deleteManagedCluster",
 		"/api/hypershell/v1/role_bindings/{id}":                                          "deleteRoleBinding",
 		"/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}": "deleteGatewayServiceAccount",
-		"/api/hypershell/ext/repositories/{id}":                                         "deleteRepository",
+		"/api/hypershell/ext/repositories/{id}":                                          "deleteRepository",
 	}
 	for path, expectedOperationID := range expectedDeletes {
 		operation := spec.Paths[path].Delete
