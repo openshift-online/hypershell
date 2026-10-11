@@ -1,0 +1,47 @@
+# Reusable sandbox execution environments shared by the agent runtimes.
+# agent-runtime carries compilers and the full toolchain (code work);
+# agent-runtime-slim is the lighter triage/spec/review environment.
+# policy is a JSON-encoded SandboxPolicy (filesystem, network, process).
+apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
+metadata:
+  name: agent-runtime
+  description: Full agent sandbox with compilers for code implementation and review
+spec:
+  image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-main:latest
+  name_prefix: hypershell-agent-
+  policy: |
+    {
+      "filesystem": {
+        "read_only": ["/usr", "/etc"],
+        "read_write": ["/sandbox", "/tmp"],
+        "landlock": "best_effort"
+      },
+      "network": [
+        {"name": "claude_code", "hosts": ["inference.local:443"], "binaries": ["claude"]},
+        {"name": "github_rest_api", "hosts": ["api.github.com:443", "github.com:443"], "binaries": ["gh", "git"]}
+      ],
+      "process": {"user": "agent", "group": "agent"}
+    }
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
+metadata:
+  name: agent-runtime-slim
+  description: Lightweight agent sandbox for triage, spec, review-response, and scheduled automation
+spec:
+  image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-slim-main:latest
+  name_prefix: hypershell-agent-slim-
+  policy: |
+    {
+      "filesystem": {
+        "read_only": ["/usr", "/etc"],
+        "read_write": ["/sandbox", "/tmp"],
+        "landlock": "best_effort"
+      },
+      "network": [
+        {"name": "claude_code", "hosts": ["inference.local:443"], "binaries": ["claude"]},
+        {"name": "github_rest_api", "hosts": ["api.github.com:443", "github.com:443"], "binaries": ["gh", "git"]}
+      ],
+      "process": {"user": "agent", "group": "agent"}
+    }

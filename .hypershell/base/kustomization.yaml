@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Shared, reusable resources referenced by every agent runtime overlay.
+resources:
+  - repository.yaml
+  - sandbox-templates.yaml
+  - provider-specs.yaml

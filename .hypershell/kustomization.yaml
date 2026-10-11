@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Root kustomization for the declarative .hypershell import. The server-side
+# import process (Repository.import_path) builds this and reconciles the
+# rendered HyperShell resources into the API.
+#
+# Shared resources come from base once; each agent contributes its AgentRuntime
+# and workspace wiring via its agent.yaml. The per-agent kustomization.yaml
+# files exist for applying one agent standalone
+# (e.g. `hsctl apply -k .hypershell/agents/triage`) and are intentionally not
+# referenced here, to keep base single-sourced.
+resources:
+  - base
+  - agents/triage/agent.yaml
+  - agents/spec-implementation/agent.yaml
+  - agents/spec-review/agent.yaml
+  - agents/code-implementation/agent.yaml
+  - agents/code-review/agent.yaml
+  - agents/review-response/agent.yaml
+  - agents/release-verification/agent.yaml
+  - agents/update-openshell/agent.yaml

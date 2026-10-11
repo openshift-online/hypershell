@@ -1,0 +1,93 @@
+# spec-implementation agent runtime (declarative; replaces discover.sh/run.sh).
+# # Repository scanner: on each cron tick the coordinator queries the
+# referenced Repository for items carrying any selector label and fans
+# out one sandbox per match.
+# cluster_id and gateway_id are environment-specific placeholders; set real
+# values via an overlay patch or the importer. FK references to shared
+# resources (repository_id, sandbox_template_id, provider_spec_id,
+# secret_source_id, workspace_id, provider_binding_id, agent_runtime_id) use
+# names; the importer resolves them (see ../../README.md).
+apiVersion: hypershell.redhat.io/v1
+kind: AgentRuntime
+metadata:
+  name: spec-implementation
+  description: SDLC automation agent (spec-implementation)
+spec:
+  cluster_id: REPLACE_WITH_CLUSTER_ID
+  gateway_id: REPLACE_WITH_GATEWAY_ID
+  sandbox_template_id: agent-runtime-slim
+  repository_id: hypershell
+  cron: "*/10 * * * *"
+  coordinator_image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-slim-main:latest
+  concurrency_policy: Forbid
+  login_refresh_seconds: 1800
+  selector:
+    - agent/workable
+    - agent/review-spec-rejected
+  parameters: |
+    {"REPOSITORY": "openshift-online/hypershell", "DRY_RUN": "false"}
+---
+# Credentials owned by this runtime (agent_runtime_id = runtime name).
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: spec-implementation-gateway-identity
+spec:
+  agent_runtime_id: spec-implementation
+  purpose: gateway-identity
+  backend: kubernetes
+  path: hypershell/spec-implementation/gateway-identity
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: spec-implementation-inference-key
+spec:
+  agent_runtime_id: spec-implementation
+  purpose: service-account-key
+  backend: vault
+  path: hypershell/spec-implementation/vertex-service-account
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: spec-implementation-github-key
+spec:
+  agent_runtime_id: spec-implementation
+  purpose: app-private-key
+  backend: vault
+  path: hypershell/spec-implementation/github-app
+---
+# Provider bindings wire the shared ProviderSpecs into this runtime's workspace
+# (workspace_id = runtime name; the importer maps runtime -> its workspace).
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderBinding
+metadata:
+  name: spec-implementation-inference
+spec:
+  workspace_id: spec-implementation
+  provider_spec_id: claude-inference
+  secret_source_id: spec-implementation-inference-key
+  refresh_strategy: |
+    {"type": "service-account-jwt", "material": {"client_email": "REPLACE_WITH_SA_EMAIL"}, "secret_material": [{"key": "private_key", "secret_source_id": "spec-implementation-inference-key"}]}
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderBinding
+metadata:
+  name: spec-implementation-github
+spec:
+  workspace_id: spec-implementation
+  provider_spec_id: github-source-control
+  secret_source_id: spec-implementation-github-key
+  refresh_strategy: |
+    {"type": "app-installation-token", "material": {"app_id": "REPLACE_WITH_GITHUB_APP_ID"}, "secret_material": [{"key": "private_key", "secret_source_id": "spec-implementation-github-key"}]}
+---
+# Active LLM for this workspace (at most one InferenceRoute per workspace).
+apiVersion: hypershell.redhat.io/v1
+kind: InferenceRoute
+metadata:
+  name: spec-implementation-inference-route
+spec:
+  workspace_id: spec-implementation
+  provider_binding_id: spec-implementation-inference
+  model: claude-sonnet-4-5

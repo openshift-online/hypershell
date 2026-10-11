@@ -1,0 +1,18 @@
+# Repository registration for this repo. The server-side import process
+# discovers this .hypershell directory and renders the declarative resources
+# it finds (see .hypershell/README.md).
+#
+# secret_source_id references a platform-provisioned SecretSource holding the
+# GitHub App credential HyperShell uses to reach the repo. The importer
+# resolves FK references by name; see README "Reference resolution".
+apiVersion: hypershell.redhat.io/v1
+kind: Repository
+metadata:
+  name: hypershell
+  description: openshift-online/hypershell SDLC automation repository
+spec:
+  url: https://github.com/openshift-online/hypershell
+  provider: github
+  secret_source_id: github-app-credentials
+  default_branch: main
+  import_path: .hypershell
