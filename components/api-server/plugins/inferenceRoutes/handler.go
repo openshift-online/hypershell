@@ -1,7 +1,6 @@
 package inferenceRoutes
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -75,13 +74,11 @@ func (h *inferenceRouteHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *inferenceRouteHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var resource openapi.InferenceRoute
 	cfg := &handlers.HandlerConfig{
+		Body: &resource,
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
-			var resource openapi.InferenceRoute
-			if err := json.NewDecoder(r.Body).Decode(&resource); err != nil {
-				return nil, errors.MalformedRequest("Unable to decode request body: %s", err)
-			}
 			item := ConvertInferenceRoute(resource)
 			created, err := h.service.Create(ctx, item)
 			if err != nil {
