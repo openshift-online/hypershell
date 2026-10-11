@@ -169,7 +169,7 @@ patches:
         value: "--jwt-issuer=https://keycloak.hypershell.localhost/realms/hypershell"
       - op: add
         path: /spec/template/spec/containers/0/command/-
-        value: "--jwt-audience=hypershell-frontend"
+        value: "--jwt-audience=hypershell-api"
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-paths=/healthcheck,/metrics,/api/hypershell/v1/openapi,/openapi"

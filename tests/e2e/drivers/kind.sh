@@ -357,7 +357,7 @@ _driver_acquire_oidc_token() {
       if [[ "${username}" == "${E2E_OIDC_USERNAME}" && "${client_id}" == "${E2E_OIDC_CLIENT_ID}" ]]; then
         # Admin HyperShell API token: client-credentials on hypershell-e2e.
         # Per-gateway tokens (a different client_id) must not use this path:
-        # the CC token is issued for hypershell-e2e / hypershell-frontend and
+        # the CC token is issued for hypershell-e2e with aud=hypershell-api and
         # never carries openshell-admin on the gateway client.
         _driver_token_request \
           -d "grant_type=client_credentials" \
