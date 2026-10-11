@@ -12,6 +12,7 @@ const (
 	ProviderBindingsPath = ExtAPIPrefix + "/provider_bindings"
 	InferenceRoutesPath  = ExtAPIPrefix + "/inference_routes"
 	SecretSourcesPath    = ExtAPIPrefix + "/secret_sources"
+	RepositoriesPath     = ExtAPIPrefix + "/repositories"
 )
 
 func AgentRuntimePath(id string) string { return AgentRuntimesPath + "/" + id }
@@ -25,3 +26,5 @@ func ProviderBindingPath(id string) string { return ProviderBindingsPath + "/" +
 func InferenceRoutePath(id string) string { return InferenceRoutesPath + "/" + id }
 
 func SecretSourcePath(id string) string { return SecretSourcesPath + "/" + id }
+
+func RepositoryPath(id string) string { return RepositoriesPath + "/" + id }

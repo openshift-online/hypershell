@@ -48,6 +48,7 @@ func TestExtPaths(t *testing.T) {
 		{"ProviderBindingsPath", ProviderBindingsPath, "/api/hypershell/ext/provider_bindings"},
 		{"InferenceRoutesPath", InferenceRoutesPath, "/api/hypershell/ext/inference_routes"},
 		{"SecretSourcesPath", SecretSourcesPath, "/api/hypershell/ext/secret_sources"},
+		{"RepositoriesPath", RepositoriesPath, "/api/hypershell/ext/repositories"},
 	}
 	for _, c := range cases {
 		if c.path != c.want {

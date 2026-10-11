@@ -21,6 +21,7 @@ import (
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/providerBindings"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/providerSpecs"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/repositories"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/sandboxTemplates"

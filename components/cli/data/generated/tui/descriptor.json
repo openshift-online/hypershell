@@ -105,6 +105,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "sandbox_template_id",
           "label": "SANDBOX TEMPLATE ID",
           "priority": 0,
@@ -373,6 +379,100 @@
         "list"
       ],
       "listOperationId": "listProviderSpecs",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/ext/repositories:#/schemas/Repository",
+      "kind": "collection",
+      "schemaRef": "#/schemas/Repository",
+      "label": "Repository",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "default_branch",
+          "label": "DEFAULT BRANCH",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "import_path",
+          "label": "IMPORT PATH",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "provider",
+          "label": "PROVIDER",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "secret_source_id",
+          "label": "SECRET SOURCE ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "status",
+          "label": "STATUS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "url",
+          "label": "URL",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "operationIds": [
+        "createRepository",
+        "listRepositories"
+      ],
+      "capabilities": [
+        "create",
+        "list"
+      ],
+      "listOperationId": "listRepositories",
       "source": {}
     },
     {
@@ -1618,6 +1718,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "sandbox_template_id",
           "label": "SANDBOX TEMPLATE ID",
           "priority": 0,
@@ -1892,6 +1998,102 @@
         "update"
       ],
       "getOperationId": "getProviderSpec",
+      "source": {}
+    },
+    {
+      "id": "item:/api/hypershell/ext/repositories/{id}:#/schemas/Repository",
+      "kind": "item",
+      "schemaRef": "#/schemas/Repository",
+      "label": "Repository",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "default_branch",
+          "label": "DEFAULT BRANCH",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "import_path",
+          "label": "IMPORT PATH",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "provider",
+          "label": "PROVIDER",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "secret_source_id",
+          "label": "SECRET SOURCE ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "status",
+          "label": "STATUS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "url",
+          "label": "URL",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "operationIds": [
+        "deleteRepository",
+        "getRepository",
+        "updateRepository"
+      ],
+      "capabilities": [
+        "delete",
+        "get",
+        "update"
+      ],
+      "getOperationId": "getRepository",
       "source": {}
     },
     {
@@ -2935,9 +3137,21 @@
             "description": "JSON-encoded key-value parameters passed to the agent coordinator"
           },
           {
+            "name": "repository_id",
+            "type": "string",
+            "required": false,
+            "description": "Optional reference to a Repository the runtime scans"
+          },
+          {
             "name": "sandbox_template_id",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "selector",
+            "type": "array",
+            "required": false,
+            "description": "Labels selecting repository work items to scan (match-any); requires repository_id"
           },
           {
             "name": "updated_at",
@@ -3570,6 +3784,113 @@
         "create"
       ],
       "summary": "Create a new provider spec",
+      "presentation": {}
+    },
+    {
+      "id": "createRepository",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "created_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "default_branch",
+            "type": "string",
+            "required": false,
+            "description": "Branch the import process reads when none is otherwise specified"
+          },
+          {
+            "name": "href",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "import_path",
+            "type": "string",
+            "required": false,
+            "description": "Directory within the repository to import (default .hypershell)"
+          },
+          {
+            "name": "kind",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": true,
+            "description": "Human-readable identifier for the repository registration"
+          },
+          {
+            "name": "provider",
+            "type": "string",
+            "required": true,
+            "description": "Provider type the credential targets: github (extensible)"
+          },
+          {
+            "name": "secret_source_id",
+            "type": "string",
+            "required": true,
+            "description": "References a SecretSource holding the provider credential"
+          },
+          {
+            "name": "updated_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "url",
+            "type": "string",
+            "required": true,
+            "description": "Git remote URL (e.g. https://github.com/openshift-online/hypershell)"
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "201"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Register a new repository",
       "presentation": {}
     },
     {
@@ -4277,6 +4598,62 @@
       }
     },
     {
+      "id": "deleteRepository",
+      "method": "DELETE",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {},
+      "successStatuses": [
+        "204"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "delete"
+      ],
+      "summary": "Delete a repository",
+      "presentation": {
+        "confirmation": {
+          "title": "Delete",
+          "message": "Delete a repository?",
+          "destructive": true
+        }
+      }
+    },
+    {
       "id": "deleteRoleBinding",
       "method": "DELETE",
       "pathParts": [
@@ -4897,6 +5274,58 @@
         "get"
       ],
       "summary": "Get a provider spec by ID",
+      "presentation": {}
+    },
+    {
+      "id": "getRepository",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Get a repository by ID",
       "presentation": {}
     },
     {
@@ -6025,6 +6454,94 @@
       "presentation": {}
     },
     {
+      "id": "listRepositories",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Page number of record list when record list exceeds specified page size",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Maximum number of records to return",
+          "default": 100
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the search criteria"
+        },
+        {
+          "name": "orderBy",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the order by criteria"
+        },
+        {
+          "name": "fields",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Supplies a comma-separated list of fields to be returned"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "Returns a list of repositories",
+      "presentation": {}
+    },
+    {
       "id": "listRoleBindings",
       "method": "GET",
       "pathParts": [
@@ -6812,8 +7329,18 @@
             "required": false
           },
           {
+            "name": "repository_id",
+            "type": "string",
+            "required": false
+          },
+          {
             "name": "sandbox_template_id",
             "type": "string",
+            "required": false
+          },
+          {
+            "name": "selector",
+            "type": "array",
             "required": false
           }
         ]
@@ -7211,6 +7738,79 @@
       "presentation": {}
     },
     {
+      "id": "updateRepository",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "default_branch",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "import_path",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "secret_source_id",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Update a repository",
+      "presentation": {}
+    },
+    {
       "id": "updateSandboxTemplate",
       "method": "PATCH",
       "pathParts": [
@@ -7431,6 +8031,23 @@
       "targetViewId": "item:/api/hypershell/ext/provider_specs/{id}:#/schemas/ProviderSpec",
       "sourceOperationId": "listProviderSpecs",
       "targetOperationId": "getProviderSpec",
+      "provenance": "collection-item",
+      "bindings": [
+        {
+          "target": "id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "collection:/api/hypershell/ext/repositories:#/schemas/Repository-\u003eitem:/api/hypershell/ext/repositories/{id}:#/schemas/Repository:item",
+      "name": "details",
+      "sourceViewId": "collection:/api/hypershell/ext/repositories:#/schemas/Repository",
+      "targetViewId": "item:/api/hypershell/ext/repositories/{id}:#/schemas/Repository",
+      "sourceOperationId": "listRepositories",
+      "targetOperationId": "getRepository",
       "provenance": "collection-item",
       "bindings": [
         {

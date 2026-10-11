@@ -2918,6 +2918,249 @@ paths:
       security:
       - Bearer: []
       summary: Update a secret source
+  /api/hypershell/ext/repositories:
+    get:
+      operationId: listRepositories
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositoryList"
+          description: A JSON array of repository objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of repositories
+    post:
+      operationId: createRepository
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Repository"
+        description: Repository data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Register a new repository
+  /api/hypershell/ext/repositories/{id}:
+    delete:
+      operationId: deleteRepository
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Repository deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No repository with specified ID exists
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Repository is still referenced by one or more AgentRuntimes
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a repository
+    get:
+      operationId: getRepository
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+          description: Repository found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No repository with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a repository by ID
+    patch:
+      operationId: updateRepository
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepositoryPatchRequest"
+        description: Updated repository data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+          description: Repository updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No repository with specified ID exists
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a repository
 components:
   parameters:
     id:
@@ -4422,6 +4665,15 @@ components:
             type: string
           sandbox_template_id:
             type: string
+          repository_id:
+            description: Optional reference to a Repository the runtime scans
+            type: string
+          selector:
+            description: Labels selecting repository work items to scan (match-any);
+              requires repository_id
+            items:
+              type: string
+            type: array
           description:
             type: string
           cron:
@@ -4461,6 +4713,10 @@ components:
         updated_at: 2000-01-23T04:56:07.000+00:00
         name: name
         login_refresh_seconds: 5
+        repository_id: repository_id
+        selector:
+        - selector
+        - selector
         id: id
         href: href
         parameters: parameters
@@ -4496,6 +4752,10 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           name: name
           login_refresh_seconds: 5
+          repository_id: repository_id
+          selector:
+          - selector
+          - selector
           id: id
           href: href
           parameters: parameters
@@ -4512,6 +4772,10 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           name: name
           login_refresh_seconds: 5
+          repository_id: repository_id
+          selector:
+          - selector
+          - selector
           id: id
           href: href
           parameters: parameters
@@ -4524,6 +4788,10 @@ components:
         concurrency_policy: concurrency_policy
         login_refresh_seconds: 0
         description: description
+        repository_id: repository_id
+        selector:
+        - selector
+        - selector
         sandbox_template_id: sandbox_template_id
         parameters: parameters
       properties:
@@ -4531,6 +4799,12 @@ components:
           type: string
         sandbox_template_id:
           type: string
+        repository_id:
+          type: string
+        selector:
+          items:
+            type: string
+          type: array
         description:
           type: string
         cron:
@@ -5030,6 +5304,107 @@ components:
       required:
       - name
       - placement
+      type: object
+    RepositoryList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/Repository"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - secret_source_id: secret_source_id
+          import_path: import_path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          default_branch: default_branch
+          id: id
+          href: href
+          url: url
+          status: status
+        - secret_source_id: secret_source_id
+          import_path: import_path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          default_branch: default_branch
+          id: id
+          href: href
+          url: url
+          status: status
+    Repository:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            description: Human-readable identifier for the repository registration
+            type: string
+          url:
+            description: Git remote URL (e.g. https://github.com/openshift-online/hypershell)
+            type: string
+          provider:
+            description: "Provider type the credential targets: github (extensible)"
+            type: string
+          secret_source_id:
+            description: References a SecretSource holding the provider credential
+            type: string
+          default_branch:
+            description: Branch the import process reads when none is otherwise specified
+            type: string
+          import_path:
+            description: Directory within the repository to import (default .hypershell)
+            type: string
+          status:
+            description: Registration/import health
+            readOnly: true
+            type: string
+        required:
+        - name
+        - provider
+        - secret_source_id
+        - url
+        type: object
+      example:
+        secret_source_id: secret_source_id
+        import_path: import_path
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        provider: provider
+        kind: kind
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        default_branch: default_branch
+        id: id
+        href: href
+        url: url
+        status: status
+    RepositoryPatchRequest:
+      example:
+        secret_source_id: secret_source_id
+        import_path: import_path
+        default_branch: default_branch
+      properties:
+        secret_source_id:
+          type: string
+        default_branch:
+          type: string
+        import_path:
+          type: string
       type: object
     Gateway_allOf_provisioning_conditions:
       example:
