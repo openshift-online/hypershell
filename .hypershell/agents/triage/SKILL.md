@@ -14,11 +14,12 @@ GitHub issue triage workflow that classifies issues as:
 ## Input
 
 ```text
-$GITHUB_REPO_URL [--dry-run]
+$GITHUB_REPO_URL $LABEL_SCOPE [--dry-run]
 ```
 
 Supported arguments:
 - GITHUB_REPO_URL -- execute triage against the provided GitHub repository.
+- LABEL_SCOPE -- Required: A GitHub label used to filter applicable issues.
 - --dry-run -- [Optional] Execute the workflow, but without any WRITE actions.
 
 ## Workflow
@@ -26,7 +27,7 @@ Supported arguments:
 ### Step 1: Read Issues
 
 Using the GitHub API, fetch the issues in `$GITHUB_REPO_URL` that have the
-label `agent/allowed`. You MUST NOT read any issue that does not have the `agent/allowed` label.
+labels `agent/allowed` AND `$LABEL_SCOPE`. You MUST NOT read any issue that does not have the `agent/allowed` or `$LABEL_SCOPE` labels.
 
 Output: `$LIST_OF_ISSUES`
 
