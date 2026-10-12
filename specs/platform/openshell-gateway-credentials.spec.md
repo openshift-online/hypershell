@@ -61,6 +61,15 @@ CLI, and it carries the same RBAC as any other gateway field.
 | `type: kubernetes-secrets` | Kubernetes Secrets | Explicit opt-in; unchanged |
 | `type: kek-db` | KEK-encrypted database | Explicit opt-in to the former default; provisions the KEK Secret |
 
+> **Rollout note (transitional).** The resolved value of an *omitted* field is
+> selected per control-plane deployment by `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
+> during the HYPERSHELL-369 rollout. It defaults to `kek-db`, so every cluster that
+> has not opted in keeps today's behavior and nothing breaks; a cluster sets it to
+> `vault` once its per-cluster Vault is up (hyp0 is first, via hypershell-gitops).
+> This knob is temporary: once every gateway-hosting cluster has a Vault, the flat
+> default becomes `vault` and the selector is removed, matching the table above. An
+> *explicit* `credential_driver` is always honored regardless of the selector.
+
 When `type` is `vault`, every sub-field is **optional**: omitted sub-fields take the
 control-plane convention defaults (see Requirement: Vault Convention Defaults). The
 fields exist for non-standard topologies (for example a dev cluster or an external
@@ -554,6 +563,7 @@ purge.
 | `GATEWAY_VAULT_ADDRESS` | controller env | the convention svc URL | Override the per-cluster Vault address (dev / external Vault) |
 | `GATEWAY_VAULT_ROLE` | controller env | `openshell-gateway` | Override the shared Vault role (must match GitOps) |
 | `GATEWAY_VAULT_CA_SECRET` | controller env | `openshell-vault/openshell-gateway-vault-tls` | Override the serving-CA source Secret (namespace/name) |
+| `GATEWAY_DEFAULT_CREDENTIAL_DRIVER` | controller env | `kek-db` | **Transitional (HYPERSHELL-369 rollout).** Driver an omitted `credential_driver` resolves to. Set to `vault` to default new gateways to Vault (hyp0 does this via hypershell-gitops). Removed once Vault is the flat default everywhere |
 
 The API server reads no Vault configuration for gateways; the `credential_driver` field
 is the only API-level input, and for the default Vault case it need not be set at all.

@@ -123,7 +123,7 @@ func ReconcileGateway(
 	// source Vault and the gateway are on the same cluster, so this is a local copy,
 	// mirroring reconcileTrustedCABundle.
 	var hasVaultCA bool
-	if isVaultDriver(nsConfig.Gateway.CredentialDriver) {
+	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
 		hasVaultCA = reconcileVaultCABundle(ctx, clientset, nsConfig.Name)
 	}
 

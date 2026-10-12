@@ -118,10 +118,41 @@ func deployGatewayViaHelm(
 	return nil
 }
 
+// defaultCredentialDriverType returns the driver an omitted credential_driver
+// resolves to, selected per-deployment via GATEWAY_DEFAULT_CREDENTIAL_DRIVER.
+//
+// It defaults to "kek-db", which preserves today's behavior on every cluster that
+// has not opted in - so dev, kind, CI and clusters without a provider Vault keep
+// working unchanged. hyp0 sets "vault" on its control-plane (in hypershell-gitops)
+// during the HYPERSHELL-369 rollout, so it is the first cluster to default new
+// gateways to Vault. This selector is TRANSITIONAL: once every cluster has a
+// provider Vault, Vault becomes the flat default and this knob is removed (see
+// openshell-gateway-credentials.spec.md).
+func defaultCredentialDriverType() string {
+	if os.Getenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER") == "vault" {
+		return "vault"
+	}
+	return "kek-db"
+}
+
+// effectiveCredentialDriver applies the deployment default to an omitted
+// credential_driver. A non-nil (explicitly requested) driver is returned
+// unchanged, so a user who asks for a specific backend always gets it.
+func effectiveCredentialDriver(driver *CredentialDriverConfig) *CredentialDriverConfig {
+	if driver != nil {
+		return driver
+	}
+	if defaultCredentialDriverType() == "vault" {
+		return &CredentialDriverConfig{Type: "vault"}
+	}
+	return nil // kek-db: the chart provisions the KEK store when no driver is set
+}
+
 // convertCredentialDriver converts gateway.CredentialDriverConfig to
-// helm.CredentialDriverConfig, resolving the Vault conventions for the vault
-// driver. A nil driver stays nil (the KEK default; Wave 2 flips this to vault).
+// helm.CredentialDriverConfig, applying the deployment default for an omitted
+// driver and resolving the Vault conventions for the vault driver.
 func convertCredentialDriver(driver *CredentialDriverConfig) *helm.CredentialDriverConfig {
+	driver = effectiveCredentialDriver(driver)
 	if driver == nil {
 		return nil
 	}
