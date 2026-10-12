@@ -4,6 +4,8 @@
 
 Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider, network, and version choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway.
 
+The production design-review states are represented by the `Default`, `LocalDevelopmentOnly`, and `VpnUnavailable` stories in `components/web-console/app/features/gateways/gateway-create.stories.tsx`. The implementation mockup and parity story are `specs/web-console/mockups/gateways/provision-gateway.stories.tsx` and `specs/web-console/mockups/gateways/provision-gateway.parity.stories.tsx`.
+
 ## Requirements
 
 ### Requirement: GP-01 -- Placement Intent Contract
@@ -54,7 +56,7 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 
 ### Requirement: GP-02 -- Network Visibility Selection
 
-The provision form SHALL present VPN and Public as mutually exclusive choices. The form SHALL require exactly one network visibility before submission. Selecting one visibility SHALL clear the other visibility.
+The provision form SHALL present VPN and Public as mutually exclusive choices. The form SHALL require exactly one network visibility before submission. Selecting one visibility SHALL clear the other visibility. When both Public and VPN are available and the user has not made a choice, Public SHALL be selected by default. When only one network is available, that network SHALL be selected automatically.
 
 The form SHALL NOT present the former cluster selector.
 
@@ -86,6 +88,8 @@ The VPN network choice SHALL display the label "Red Hat VPN required" above the 
 
 IBM Cloud SHALL be selected by default when Public becomes active when its selector is available. When VPN becomes active, the form SHALL select an available provider. A provider SHALL be disabled only when no connected cluster matches the corresponding provider and network selector.
 
+When Public is the default network, IBM Cloud SHALL be the default provider when available. When only one provider is available for the selected network, that provider SHALL be selected automatically.
+
 #### Scenario: Public defaults to IBM Cloud
 
 - GIVEN the user selects Public
@@ -114,6 +118,8 @@ IBM Cloud SHALL be selected by default when Public becomes active when its selec
 The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request, including the version-bearing selectors needed to populate the provisioning-version choice (GP-11). The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every requested label. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
 
 The form SHALL disable a provider for the selected network when no eligible cluster matches that pair. When neither provider is available for a network, the form SHALL disable that network choice. Disabled controls SHALL communicate why the placement is unavailable.
+
+When VPN is unavailable but Public is available, VPN SHALL remain visible as a disabled choice with its unavailability reason. This state is represented by the production `VpnUnavailable` story.
 
 Placement availability SHALL NOT depend on CPU, memory, pod usage, or other capacity data.
 
@@ -161,9 +167,11 @@ A placement pair that becomes unavailable before submission SHALL be rejected by
 
 ### Requirement: GP-05 -- Local-kind Development Placement
 
-When the platform is running in the Kind development environment and the registered `local-kind` cluster is connected, and no managed placement is available, the form SHALL expose a **Use local-kind** option. The option SHALL NOT be shown when an AWS or IBM Cloud managed placement is available, or outside the Kind development environment.
+When the platform is running in the Kind development environment and the registered `local-kind` cluster is connected, and no managed placement is available, the form SHALL expose a **Kind** option under **Local development**. The option SHALL NOT be shown when an AWS or IBM Cloud managed placement is available, or outside the Kind development environment.
 
 Local-kind SHALL be mutually exclusive with VPN and Public. Local-kind SHALL be selected by default only when no managed placement is available.
+
+When local-kind is the only available placement, Kind SHALL be the only placement choice rendered. The managed network and provider groups SHALL NOT be rendered in that state.
 
 Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 
@@ -172,8 +180,9 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - GIVEN the platform is running in the Kind development environment
 - AND the registered `local-kind` cluster is connected
 - WHEN the provision form renders
-- THEN Use local-kind SHALL be visible
-- AND Use local-kind SHALL be available for selection
+- THEN Kind SHALL be visible under Local development
+- AND Kind SHALL be available for selection
+- AND Public, VPN, Amazon Web Services, and IBM Cloud SHALL NOT be rendered
 
 #### Scenario: Local-kind is hidden with managed placement
 
@@ -181,7 +190,7 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - AND the platform is running in the Kind development environment
 - AND the registered `local-kind` cluster is connected
 - WHEN the provision form renders
-- THEN Use local-kind SHALL NOT be visible
+- THEN Kind SHALL NOT be visible
 - AND managed placement choices SHALL remain available
 
 #### Scenario: Local-kind is hidden outside Kind development
@@ -189,7 +198,7 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - GIVEN no managed placement pair is available
 - AND the platform is not running in the Kind development environment
 - WHEN the provision form renders
-- THEN Use local-kind SHALL NOT be visible
+- THEN Kind SHALL NOT be visible
 - AND the form SHALL explain that no managed placement is currently available
 
 ### Requirement: GP-06 -- Form Submission Validation

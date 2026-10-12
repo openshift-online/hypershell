@@ -149,6 +149,15 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  it("defaults multiple available options to Public and IBM Cloud", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(radio("Public").checked).toBe(true);
+      expect(radio("IBM Cloud").checked).toBe(true);
+    });
+  });
+
   it("forces AWS for VPN and disables IBM Cloud", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -214,6 +223,30 @@ describe("GatewayCreatePage", () => {
     );
   });
 
+  it("selects the only available network and provider", async () => {
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      placementAvailability([false, true, false, false]),
+    );
+    renderPage();
+
+    await waitFor(() => {
+      expect(radio("VPN").checked).toBe(true);
+      expect(radio("Amazon Web Services").checked).toBe(true);
+    });
+  });
+
+  it("selects the only available provider for public placement", async () => {
+    operations.getGatewayPlacementAvailability.mockResolvedValue(
+      placementAvailability([false, false, true, false]),
+    );
+    renderPage();
+
+    await waitFor(() => {
+      expect(radio("Public").checked).toBe(true);
+      expect(radio("IBM Cloud").checked).toBe(true);
+    });
+  });
+
   it("uses accessible radio groups with mutually exclusive choices", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -235,7 +268,7 @@ describe("GatewayCreatePage", () => {
     await user.click(submit);
 
     expect((submit as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getAllByText("This field is required.")).toHaveLength(2);
+    expect(screen.getAllByText("This field is required.")).toHaveLength(1);
     expect(provisionGateway).not.toHaveBeenCalled();
   });
 
@@ -277,8 +310,8 @@ describe("GatewayCreatePage", () => {
         })
       ).checked,
     ).toBe(true);
-    expect(radio("Public").disabled).toBe(true);
-    expect(radio("VPN").disabled).toBe(true);
+    expect(screen.queryByRole("radio", { name: "Public" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "VPN" })).toBeNull();
     await user.type(
       screen.getByRole("textbox", { name: "Gateway name" }),
       "team-gateway",
@@ -292,14 +325,16 @@ describe("GatewayCreatePage", () => {
     });
   });
 
-  it("hides local-kind when managed placement is also available", () => {
+  it("hides local-kind when managed placement is also available", async () => {
     operations.getGatewayPlacementAvailability.mockResolvedValue(
       placementAvailability([true, true, true, false], true),
     );
     renderPage();
 
     expect(screen.queryByRole("radio", { name: "Use local-kind" })).toBeNull();
-    expect(radio("Public").checked).toBe(false);
+    await waitFor(() => {
+      expect(radio("Public").checked).toBe(true);
+    });
     expect(radio("VPN").checked).toBe(false);
   });
 
@@ -360,7 +395,7 @@ describe("GatewayCreatePage", () => {
     expect(
       await screen.findByText("No managed placement is currently available."),
     ).toBeTruthy();
-    expect(screen.queryByRole("radio", { name: "Use local-kind" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Kind" })).toBeNull();
   });
 
   it("offers only advertised versions for the selected network and provider (GP-11)", async () => {

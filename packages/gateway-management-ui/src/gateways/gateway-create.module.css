@@ -20,6 +20,36 @@
   object-position: center;
   box-sizing: content-box;
 }
+.providerLogoDark {
+  display: none;
+  width: 10rem;
+  height: 4rem;
+  margin: 0 auto 0.75rem;
+  object-fit: contain;
+  object-position: center;
+  box-sizing: content-box;
+}
+.providerLogoIbm {
+  width: 5rem;
+  height: 5rem;
+}
+.providerLogoSvg svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+:global(html[data-color-scheme="light"]) .providerLogoDark {
+  display: none !important;
+}
+:global(html[data-color-scheme="light"]) .providerLogoLight {
+  display: block !important;
+}
+:global(html[data-color-scheme="dark"]) .providerLogoLight {
+  display: none !important;
+}
+:global(html[data-color-scheme="dark"]) .providerLogoDark {
+  display: block !important;
+}
 .providerContent {
   display: block;
   text-align: center;
