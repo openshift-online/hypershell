@@ -13,15 +13,15 @@ COPY components/cli/build-release.sh ./
 ARG TARGETARCH
 RUN HSCTL_RELEASE_TARGETS=linux-${TARGETARCH} sh build-release.sh && cp dist/hsctl-linux-${TARGETARCH} /hsctl
 
-FROM registry.access.redhat.com/hi/python:3.14.8@sha256:eb10043d7f438dbd747881af197fd3c01f12531f187284b8e2f50fc2427488d2 AS runtime-base
-FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7 AS tools
+FROM registry.access.redhat.com/hi/python:3.14.8@sha256:df893778266d911f9f668f8297de43e73427b80df02f41b4fe2a713d432b6209 AS runtime-base
+FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:264253e329fa5a9e769866292a48d332bf626cf39b3270c3dece501186c15d42 AS tools
 USER 0
 COPY components/agents/install-tools.py /inputs/install-tools.py
 COPY components/agents/locks/tools-*.json /inputs/locks/
 ARG TARGETARCH
 RUN python3 /inputs/install-tools.py tools /inputs/locks/tools-${TARGETARCH}.json /tools
 
-FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:0da78c701c368decae8777dee35387d07456c639278a4ea9f9dbfa56dc675ee7 AS assembler
+FROM registry.access.redhat.com/hi/python:3.14.8-builder@sha256:264253e329fa5a9e769866292a48d332bf626cf39b3270c3dece501186c15d42 AS assembler
 USER 0
 COPY --from=runtime-base / /rootfs/
 COPY components/agents/install-tools.py components/agents/assemble-rootfs.sh /inputs/
