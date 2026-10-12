@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
@@ -47,19 +49,47 @@ type gatewayHandler struct {
 	availability     PlacementAvailabilityResolver
 }
 
+// provisioningVersionLogInterval throttles the provisioning-version lookup
+// failure log. The lookup runs on every gateway read, so an unthrottled warning
+// would flood the log on a persistent failure; throttling keeps a persistent
+// failure visible without the flood.
+const provisioningVersionLogInterval = time.Minute
+
+var (
+	provisioningVersionLogMu   sync.Mutex
+	provisioningVersionLogLast time.Time
+)
+
 // provisioningVersions resolves the provisioning version advertised by each of
 // the given clusters. A nil lookup or a lookup error yields an empty map, so the
 // read-only version enrichment degrades to absent rather than failing the read
-// (consistent with owner-username enrichment).
+// (consistent with owner-username enrichment). A lookup error is logged, at most
+// once per provisioningVersionLogInterval, so a persistent failure that silently
+// hides every gateway version is observable.
 func (h gatewayHandler) provisioningVersions(ctx context.Context, clusterIDs []string) map[string]string {
 	if h.clusterVersions == nil || len(clusterIDs) == 0 {
 		return map[string]string{}
 	}
 	versions, svcErr := h.clusterVersions(ctx, clusterIDs)
 	if svcErr != nil {
+		logProvisioningVersionLookupFailure(svcErr)
 		return map[string]string{}
 	}
 	return versions
+}
+
+// logProvisioningVersionLookupFailure records a provisioning-version lookup
+// failure at most once per provisioningVersionLogInterval. It logs only the
+// error, which carries no secret material.
+func logProvisioningVersionLookupFailure(err error) {
+	provisioningVersionLogMu.Lock()
+	defer provisioningVersionLogMu.Unlock()
+	now := time.Now()
+	if !provisioningVersionLogLast.IsZero() && now.Sub(provisioningVersionLogLast) < provisioningVersionLogInterval {
+		return
+	}
+	provisioningVersionLogLast = now
+	glog.Warningf("gateway provisioning-version enrichment failed; gateway versions degraded to absent: %v", err)
 }
 
 // callerBindings loads the current caller's role bindings once, or nil when RBAC

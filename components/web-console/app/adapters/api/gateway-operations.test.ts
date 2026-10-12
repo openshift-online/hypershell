@@ -440,6 +440,57 @@ describe("gateway API operations adapter", () => {
     );
   });
 
+  it("collects provisioning versions across every registered-cluster page", async () => {
+    managedClusterApi.list
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 20 }, (_, index) =>
+          managedCluster({
+            capabilities: "gateway-version/v0.1.2-rhaiv.7",
+            id: `cluster-a-${String(index)}`,
+          }),
+        ),
+        kind: "ManagedClusterList",
+        page: 1,
+        size: 20,
+        total: 21,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          managedCluster({
+            capabilities: "gateway-version/v0.2.0-rhaiv.1",
+            id: "cluster-b-0",
+          }),
+        ],
+        kind: "ManagedClusterList",
+        page: 2,
+        size: 20,
+        total: 21,
+      });
+
+    await expect(
+      controlPlane.getGatewayProvisioningVersions(context),
+    ).resolves.toEqual(["v0.1.2-rhaiv.7", "v0.2.0-rhaiv.1"]);
+    expect(managedClusterApi.list).toHaveBeenCalledTimes(2);
+    expect(managedClusterApi.list).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ page: 2, search: "oidc_subject <> ''" }),
+      expect.anything(),
+    );
+  });
+
+  it("reads one page of provisioning versions when the first page is short", async () => {
+    managedClusterApi.list.mockResolvedValue(
+      managedClusterList([
+        managedCluster({ capabilities: "gateway-version/v0.1.2-rhaiv.7" }),
+      ]),
+    );
+
+    await expect(
+      controlPlane.getGatewayProvisioningVersions(context),
+    ).resolves.toEqual(["v0.1.2-rhaiv.7"]);
+    expect(managedClusterApi.list).toHaveBeenCalledOnce();
+  });
+
   it("treats ILIKE wildcard and escape characters as search literals", async () => {
     managedClusterApi.list.mockResolvedValue(managedClusterList([]));
     gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));

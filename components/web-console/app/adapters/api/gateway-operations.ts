@@ -580,31 +580,45 @@ export function createGatewayControlPlaneAdapter(
     },
     async getGatewayProvisioningVersions(context) {
       return mapFailure(async () => {
-        const result = await apiClient(
-          apiFactory,
-          context,
-        ).managedClusters.list(
-          {
-            orderBy: "name asc",
-            page: 1,
-            // Only a cluster whose control plane has self-registered can host a
-            // gateway, so only its advertised version is a real provisioning
-            // choice. Connectedness and network/provider eligibility are
-            // confirmed separately by getGatewayPlacementAvailability.
-            search: registeredPlacementFilter,
-            size: placementPageSize,
-          },
-          { signal: context.signal },
-        );
+        const clustersApi = apiClient(apiFactory, context).managedClusters;
         const versions = new Set<string>();
-        for (const cluster of result.items) {
-          for (const label of clusterCapabilityLabels(cluster)) {
-            if (label.startsWith(gatewayVersionCapabilityPrefix)) {
-              const tag = label.slice(gatewayVersionCapabilityPrefix.length);
-              if (tag) {
-                versions.add(tag);
+        // A version advertised only by a cluster beyond the first page must still
+        // be offered, so page through every registered cluster rather than
+        // reading only the first page.
+        for (let page = 1; ; page += 1) {
+          const result = await clustersApi.list(
+            {
+              orderBy: "name asc",
+              page,
+              // Only a cluster whose control plane has self-registered can host a
+              // gateway, so only its advertised version is a real provisioning
+              // choice. Connectedness and network/provider eligibility are
+              // confirmed separately by getGatewayPlacementAvailability.
+              search: registeredPlacementFilter,
+              size: placementPageSize,
+            },
+            { signal: context.signal },
+          );
+          if (result.page !== page || result.total < 0) {
+            throw new GatewayOperationError("unavailable");
+          }
+          for (const cluster of result.items) {
+            for (const label of clusterCapabilityLabels(cluster)) {
+              if (label.startsWith(gatewayVersionCapabilityPrefix)) {
+                const tag = label.slice(gatewayVersionCapabilityPrefix.length);
+                if (tag) {
+                  versions.add(tag);
+                }
               }
             }
+          }
+          // A short page is the last page; the >= guard also terminates when the
+          // reported total shrinks between pages (clusters disconnecting).
+          if (
+            result.items.length < placementPageSize ||
+            page * placementPageSize >= result.total
+          ) {
+            break;
           }
         }
         return [...versions].sort();

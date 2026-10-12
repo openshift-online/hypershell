@@ -104,6 +104,11 @@ export function compareGatewayVersions(
   if (leftSuffix.length === 0 && rightSuffix.length === 0) {
     return 0;
   }
+  // SemVer precedence: a version with no release suffix ranks above the same
+  // core with a pre-release suffix. For a downstream respin (a bare `v0.1.2`
+  // superseded by `v0.1.2-rhaiv.1`) this ordering is wrong, but that case is out
+  // of scope here: both versions always come from suffixed `OPENSHELL_TAG` tags,
+  // so a bare core never reaches this comparison in production.
   if (leftSuffix.length === 0) {
     return 1;
   }
