@@ -56,31 +56,32 @@ ELSE:
 
 OUTPUT: $SELECTED_WORK_ITEM
 
+### Step 2: Invoke Agents
 
-### Step 2: Execute Spec Implementation
+WHILE(Labels Applied to $SELECTED_WORK_ITEM NOT INCLUDES `agent/review-code-approved`):
 
-skill(../../../.hypershell/agents/spec-implementation, $SELECTED_WORK_ITEM)
+  SWITCH(Labels Applied to $SELECTED_WORK_ITEM):
+    CASE `agent/workable`:
+    CASE `agent/review-spec-rejected`:
+      skill(../../../.hypershell/agents/spec-implementation, $SELECTED_WORK_ITEM)
+      break
 
-### Step 3: Execute Spec Review
+      CASE `agent/reviewable-spec`:
+        Remove Label `agent/reviewable-spec`
+        skill(../../../.hypershell/agents/spec-review, $SELECTED_WORK_ITEM)
+        break
 
-skill(../../../.hypershell/agents/spec-review, $SELECTED_WORK_ITEM)
+      CASE `agent/review-spec-approved`:
+      CASE `agent/review-code-rejected`:
+        Remove Label `agent/review-spec-approved`
+        skill(../../../.hypershell/agents/code-implementation, $SELECTED_WORK_ITEM)
+        break
 
-IF [after review], $SELECTED_WORK_ITEM has label `agent/review-spec-rejected`:
-    GOTO Step 2
-
-
-### Step 4: Execute Code Implementation
-
-skill(../../../.hypershell/agents/code-implementation, $SELECTED_WORK_ITEM)
-
-
-### Step 5: Execute Code Reivew
-
-skill(../../../.hypershell/agents/code-review, $SELECTED_WORK_ITEM)
-
-IF [after review], $SELECTED_WORK_ITEM has label `agent/review-code-rejected`:
-    GOTO Step 4
-
-### Step 6: Human Review
+      CASE `agent/reviewable-code`:
+        Remove Label `agent/reviewable-code`
+        skill(../../../.hypershell/agents/code-review, $SELECTED_WORK_ITEM)
+        break
+      
+      CASE
 
 STOP: Provide URL to PR associated with $SELECTED_WORK_ITEM to the human for review.
