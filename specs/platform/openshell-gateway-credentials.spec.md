@@ -198,7 +198,7 @@ credential_drivers = ["vault"]
 
 [openshell.credential_drivers.vault]
 address = "https://openshell-gateway-vault.openshell-vault.svc:8200"
-ca_cert_path = "/etc/openshell/vault-ca/ca.crt"
+ca_bundle = "/etc/openshell-tls/vault-ca/ca.crt"
 mount = "secret"
 kv_version = "2"
 auth_method = "kubernetes"
@@ -254,8 +254,9 @@ For each Vault-backed gateway, the control plane SHALL:
 2. Create-or-update a ConfigMap `openshell-gateway-vault-ca` in the tenant namespace
    with key `ca.crt`, carrying the management label `hypershell.redhat.io/managed: "true"`.
 3. Wire the upstream Helm chart's `credentialDrivers.vault.caConfigMapName` to that
-   ConfigMap and ensure the gateway mounts `ca.crt` at the `ca_cert_path` in the
-   generated TOML.
+   ConfigMap. The chart mounts that ConfigMap's `ca.crt` at
+   `/etc/openshell-tls/vault-ca/ca.crt` and the generated TOML sets
+   `ca_bundle = "/etc/openshell-tls/vault-ca/ca.crt"`.
 
 Because the control plane provisions each gateway on its own cluster (it holds no remote
 cluster client), the CA source and the gateway always live on the same cluster; no
@@ -269,7 +270,7 @@ gateway cannot establish trust to Vault.
 - GIVEN a Vault-backed Gateway and a serving-CA Secret `openshell-gateway-vault-tls` in `openshell-vault`
 - WHEN the GatewayReconciler reconciles
 - THEN a ConfigMap `openshell-gateway-vault-ca` with key `ca.crt` SHALL exist in the tenant namespace
-- AND the gateway Deployment SHALL mount it at the configured `ca_cert_path`
+- AND the gateway Deployment SHALL mount it at `/etc/openshell-tls/vault-ca/ca.crt` (the TOML `ca_bundle`)
 - AND the ConfigMap SHALL carry `hypershell.redhat.io/managed: "true"`
 
 #### Scenario: Vault CA source missing
