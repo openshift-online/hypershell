@@ -125,6 +125,18 @@ func ReconcileGateway(
 	var hasVaultCA bool
 	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
 		hasVaultCA = reconcileVaultCABundle(ctx, clientset, nsConfig.Name)
+		if !hasVaultCA {
+			// Fail closed: a Vault-backed gateway must be able to verify Vault's TLS.
+			// If the serving CA could not be propagated (source Secret missing or
+			// unreadable), do NOT deploy a gateway that would silently fall back to
+			// platform trust roots and be unable to verify Vault. This matches
+			// openshell-gateway-credentials.spec.md (Vault Serving-CA Propagation:
+			// "the gateway SHALL NOT be deployed … fail-closed … naming the missing
+			// CA source"). Retryable: a later reconcile deploys once the CA appears.
+			caNS, caName := VaultCASource()
+			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend selected but its serving CA is unavailable")
+			return fmt.Errorf("vault serving CA not propagated for %s: source Secret %s/%s missing or unreadable", nsConfig.Name, caNS, caName)
+		}
 	}
 
 	// Reconcile OpenShift SCC binding BEFORE Helm install

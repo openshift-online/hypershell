@@ -135,15 +135,22 @@ func defaultCredentialDriverType() string {
 	return "kek-db"
 }
 
-// effectiveCredentialDriver applies the deployment default to an omitted
-// credential_driver. A non-nil (explicitly requested) driver is returned
-// unchanged, so a user who asks for a specific backend always gets it.
+// effectiveCredentialDriver applies the deployment default to an unspecified
+// credential_driver. An explicit driver (non-empty Type) is returned unchanged,
+// so a user who asks for a specific backend always gets it. Both a nil driver and
+// an empty-type object (`credential_driver: {}`) count as unspecified and go
+// through the deployment-default selector, so an empty object cannot bypass the
+// staged rollout and resolve to vault on a kek-db cluster.
 func effectiveCredentialDriver(driver *CredentialDriverConfig) *CredentialDriverConfig {
-	if driver != nil {
+	if driver != nil && driver.Type != "" {
 		return driver
 	}
 	if defaultCredentialDriverType() == "vault" {
-		return &CredentialDriverConfig{Type: "vault"}
+		resolved := &CredentialDriverConfig{Type: "vault"}
+		if driver != nil {
+			resolved.Vault = driver.Vault // preserve any supplied overrides
+		}
+		return resolved
 	}
 	return nil // kek-db: the chart provisions the KEK store when no driver is set
 }

@@ -329,8 +329,31 @@ func (b *ValuesBuilder) buildVaultValues(values map[string]interface{}, v *Vault
 		"mountPath": v.TokenDir,
 		"readOnly":  true,
 	}
-	setNestedValue(values, []interface{}{tokenVolume}, "server", "extraVolumes")
-	setNestedValue(values, []interface{}{tokenMount}, "server", "extraVolumeMounts")
+	appendNestedSlice(values, []interface{}{tokenVolume}, "server", "extraVolumes")
+	appendNestedSlice(values, []interface{}{tokenMount}, "server", "extraVolumeMounts")
+}
+
+// appendNestedSlice appends items to the []interface{} at path, creating the path
+// if absent and preserving anything already there. server.extraVolumes /
+// extraVolumeMounts are a shared extension point (Helm replaces arrays rather than
+// merging), so writers must accumulate rather than assign, or the last writer wins
+// and silently drops the others.
+func appendNestedSlice(m map[string]interface{}, items []interface{}, path ...string) {
+	if len(path) == 0 || len(items) == 0 {
+		return
+	}
+	current := m
+	for i := 0; i < len(path)-1; i++ {
+		next, ok := current[path[i]].(map[string]interface{})
+		if !ok {
+			next = make(map[string]interface{})
+			current[path[i]] = next
+		}
+		current = next
+	}
+	key := path[len(path)-1]
+	existing, _ := current[key].([]interface{})
+	current[key] = append(existing, items...)
 }
 
 // buildIngressValues builds ingress-related Helm chart values.

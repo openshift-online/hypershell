@@ -72,6 +72,12 @@ CLI, and it carries the same RBAC as any other gateway field.
 > flat code default and remove the selector. No cluster flips its default until its
 > Vault is validated; an *explicit* `credential_driver` is always honored regardless.
 
+An **unspecified** `type` - the field omitted/null, *or* an object with an empty
+`type` (`credential_driver: {}`) - is treated the same as omitted: it resolves
+through the deployment default (the table above), **not** as an implicit `vault`
+selection. This keeps an empty object from bypassing the staged rollout on a
+`kek-db` cluster.
+
 When `type` is `vault`, every sub-field is **optional**: omitted sub-fields take the
 control-plane convention defaults (see Requirement: Vault Convention Defaults). The
 fields exist for non-standard topologies (for example a dev cluster or an external
