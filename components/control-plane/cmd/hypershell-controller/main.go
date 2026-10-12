@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -147,6 +148,17 @@ func main() {
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(grpctransport.Credentials(cfg.GRPCServerAddr)),
 		grpc.WithPerRPCCredentials(auth.NewGRPCCredentials(tokenProvider)),
+		// HTTP/2 keepalive on the one shared client connection all watch streams
+		// multiplex over. Without it a wedged or half-open connection carrying only
+		// idle watch streams never surfaces an error, so a blocked Recv waits
+		// forever and the owner Keycloak grant is never reassigned. PermitWithoutStream
+		// keeps the probe running even when no RPC is active. See
+		// specs/platform/control-plane.spec.md ("Watch Stream Liveness").
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                cfg.GRPCKeepaliveTime,
+			Timeout:             cfg.GRPCKeepaliveTimeout,
+			PermitWithoutStream: true,
+		}),
 	}
 	dialOpts = append(dialOpts, cpotel.GRPCDialOptions()...)
 
@@ -391,14 +403,14 @@ func main() {
 	}
 
 	supervise("ManagedCluster watch", func(ctx context.Context) error {
-		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler)
+		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler, cfg.WatchIdleTimeout)
 	})
 	supervise("Gateway watch", func(ctx context.Context) error {
-		return watcher.WatchGateways(ctx, conn, gatewayQueue, clusterID)
+		return watcher.WatchGateways(ctx, conn, gatewayQueue, clusterID, cfg.WatchIdleTimeout)
 	})
 	if roleBindingReconciler != nil {
 		supervise("RoleBinding watch", func(ctx context.Context) error {
-			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler, clusterID)
+			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler, clusterID, cfg.WatchIdleTimeout, cfg.RoleBindingResyncInterval)
 		})
 	}
 

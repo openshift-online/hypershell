@@ -79,6 +79,37 @@ type Config struct {
 	// See specs/platform/gateway-reconcile-concurrency.spec.md.
 	GatewayReconcileWorkers int
 
+	// GRPCKeepaliveTime is how long the gRPC client connection may stay idle
+	// before it sends an HTTP/2 keepalive ping to the API server, so a wedged or
+	// half-open connection surfaces as a transport error the watchers retry rather
+	// than an indefinite silent block. Sourced from HYPERSHELL_GRPC_KEEPALIVE_TIME.
+	// See specs/platform/control-plane.spec.md ("Watch Stream Liveness").
+	GRPCKeepaliveTime time.Duration
+	// GRPCKeepaliveTimeout is how long the client waits for a keepalive ping ack
+	// before it treats the connection as dead. Sourced from
+	// HYPERSHELL_GRPC_KEEPALIVE_TIMEOUT.
+	GRPCKeepaliveTimeout time.Duration
+
+	// WatchIdleTimeout bounds how long a watch stream may deliver neither an event
+	// nor an error before the watcher cancels the attempt and reconnects (re-running
+	// its seed/resync). It is the stream-layer backstop for a stream that stays open
+	// but goes silent, which gRPC keepalive alone cannot detect because the shared
+	// connection is still live. It must be long enough that an ordinarily quiet
+	// stream (e.g. a RoleBinding stream with no membership changes) is not torn down
+	// needlessly. Sourced from HYPERSHELL_WATCH_IDLE_TIMEOUT; a non-positive value
+	// disables the watchdog. See specs/platform/control-plane.spec.md
+	// ("Watch Stream Liveness").
+	WatchIdleTimeout time.Duration
+
+	// RoleBindingResyncInterval is how often, while the RoleBinding watch stream is
+	// connected, the control plane re-lists its cluster's role bindings and
+	// reconciles them, so an owner grant is recovered even when a create event is
+	// missed or the stream goes silent. The reconciler also seeds on every
+	// (re)connect. Sourced from HYPERSHELL_ROLE_BINDING_RESYNC_INTERVAL; a
+	// non-positive value disables the periodic resync (the per-connect seed still
+	// runs). See specs/platform/control-plane.spec.md ("Role Binding Resync").
+	RoleBindingResyncInterval time.Duration
+
 	// Helm chart configuration
 	HelmChartPath     string
 	HelmChartRegistry string
@@ -129,6 +160,12 @@ func Load() (*Config, error) {
 		DirectoryRefreshInterval: getEnvDuration("GATEWAY_DIRECTORY_REFRESH_INTERVAL", 5*time.Minute),
 
 		GatewayReconcileWorkers: getEnvInt("GATEWAY_RECONCILE_WORKERS", DefaultGatewayReconcileWorkers, 1),
+
+		GRPCKeepaliveTime:    getEnvDuration("HYPERSHELL_GRPC_KEEPALIVE_TIME", 30*time.Second),
+		GRPCKeepaliveTimeout: getEnvDuration("HYPERSHELL_GRPC_KEEPALIVE_TIMEOUT", 10*time.Second),
+
+		WatchIdleTimeout:          getEnvDuration("HYPERSHELL_WATCH_IDLE_TIMEOUT", 10*time.Minute),
+		RoleBindingResyncInterval: getEnvDuration("HYPERSHELL_ROLE_BINDING_RESYNC_INTERVAL", 5*time.Minute),
 
 		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
