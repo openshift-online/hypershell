@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-03
 **Status:** Active
-**Related:** `managed-cluster-registration.spec.md` (registration API, watch-stream caller binding), `hub-grpc-tls.spec.md` (hub-side gRPC TLS Route and certificate, HYPERSHELL-333), `security/rbac-enforcement.spec.md` (`managed-cluster-registrar`)
+**Related:** `managed-cluster-registration.spec.md` (registration API, watch-stream caller binding), `hub-grpc-tls.spec.md` (hub-side gRPC TLS Route and certificate, HYPERSHELL-333), `security/rbac-enforcement.spec.md` (`managed-cluster-registrar`), `gateway-access-management.spec.md` (GAM-02 Keycloak Role Bridge union reconciliation)
 
 ## Overview
 
@@ -179,6 +179,107 @@ The control plane SHALL connect to the API server via gRPC watch streams for eac
 - WHEN it opens `WatchGateways`
 - THEN the request SHALL carry `cluster_id: X` and the control plane's bearer token
 - AND events for gateways assigned to other clusters SHALL NOT be delivered
+
+### Requirement: Watch Stream Liveness
+
+A watch stream SHALL NOT be trusted to stay healthy merely because it has not
+returned an error. A long-lived stream can go silent -- deliver neither events
+nor an error -- when an intermediary (a Route, a load balancer, or the API
+server event broker) drops the server-to-client flow of an otherwise idle
+stream. A blocked receive on such a stream never reconnects, never re-lists, and
+so stops reconciling without any visible failure. The control plane SHALL detect
+this condition at two layers and recover from it without operator intervention.
+
+At the connection layer, the control plane SHALL configure HTTP/2 keepalive on
+the gRPC client connection it dials to the API server, so a wedged or half-open
+connection surfaces as a transport error rather than an indefinite silent block.
+The keepalive SHALL send a ping on an idle connection and SHALL permit the ping
+while no stream is active, so a connection carrying only idle watch streams is
+still probed. All watch streams multiplex over this one connection, so the
+keepalive protects every stream.
+
+At the stream layer, each watch stream SHALL run under an idle watchdog. When a
+stream delivers neither an event nor an error for a configured maximum idle
+interval, the control plane SHALL cancel that stream attempt and reconnect
+through the existing backoff path, rather than remain blocked on the receive.
+Each received event SHALL reset the watchdog. The idle interval SHALL be long
+enough that an ordinarily quiet stream (for example, a RoleBinding stream with no
+membership changes) is not torn down needlessly, and SHALL be configurable.
+
+A reconnect caused by a keepalive failure or an idle-watchdog timeout SHALL be
+treated like any other watch-stream disconnect: logged and retried with
+exponential backoff, and SHALL re-run the stream's seed or resync on reconnect
+so any state missed while the stream was silent is recovered.
+
+#### Scenario: Idle connection is kept alive
+
+- GIVEN the control plane has dialed the API server and holds only idle watch streams
+- WHEN no events flow for longer than the keepalive interval
+- THEN the client SHALL send an HTTP/2 keepalive ping
+- AND a connection that no longer carries traffic end-to-end SHALL surface as a transport error that the watchers retry with backoff
+
+#### Scenario: Silent stream is detected and reconnected
+
+- GIVEN a watch stream that has stopped delivering events but has returned no error
+- WHEN no event arrives for the configured maximum idle interval
+- THEN the control plane SHALL cancel the stream attempt and reconnect with backoff
+- AND it SHALL re-run the stream's seed or resync so state missed during the silence is recovered
+
+#### Scenario: Active stream is not torn down
+
+- GIVEN a watch stream that is delivering events within the configured idle interval
+- WHEN each event resets the idle watchdog
+- THEN the control plane SHALL NOT cancel the stream
+- AND it SHALL continue to process events on the same stream
+
+### Requirement: Role Binding Resync
+
+The assignment of a gateway's owner Keycloak client roles SHALL NOT depend solely
+on a single long-lived `WatchRoleBindings` stream. The RoleBinding stream is
+almost always idle (it sends an event only when a binding changes), so a single
+missed or silently-dropped event would otherwise leave the gateway creator
+without `openshell-admin` and `openshell-user`, and the gateway console would
+refuse the user with `role 'openshell-user' required`. Unlike the gateway watch,
+which re-lists its inventory on every reconnect to recover state the stream never
+replays, the owner grant has no equivalent list-driven recovery path.
+
+The control plane SHALL seed the RoleBinding reconciler from a `ListRoleBindings`
+call, scoped to its own `cluster_id` (`managed-cluster-registration.spec.md`,
+"Watch Stream Caller Binding"), on every `WatchRoleBindings` (re)connect, and
+SHALL additionally re-list on a regular configurable interval while the stream is
+connected. Each listed binding SHALL be reconciled through the same union
+reconciliation as a live event (`gateway-access-management.spec.md`, GAM-02), so
+the bound user's Keycloak client roles converge to the correct set. The resync
+SHALL be idempotent: a binding whose roles are already assigned SHALL produce no
+change.
+
+Because a plain `ListRoleBindings` reports only surviving bindings, the resync
+SHALL close the list-watch gap the same way the gateway watch does: it SHALL wait
+for the watch subscription to be live before listing (so an event that fires
+during the list is not lost), and it SHALL rely on the stream, not the list, to
+deliver deletions. The resync restores missing assignments; it SHALL NOT be the
+sole mechanism for revoking roles a deleted binding no longer backs.
+
+#### Scenario: Owner grant recovered after a missed create event
+
+- GIVEN a gateway was created on this control plane's cluster and its `gateway:owner` RoleBinding exists
+- AND the `WatchRoleBindings` stream never delivered the create event (it was silent)
+- WHEN the control plane reconnects the stream, or the periodic resync interval elapses
+- THEN the control plane SHALL list the role bindings for its cluster and reconcile the owner binding
+- AND SHALL assign `openshell-admin` and `openshell-user` to the owner on the gateway's Keycloak client
+- AND the gateway console SHALL no longer refuse the owner with `role 'openshell-user' required`
+
+#### Scenario: Resync is idempotent
+
+- GIVEN every RoleBinding for this cluster is already reflected in Keycloak
+- WHEN the periodic resync lists and reconciles them again
+- THEN the control plane SHALL make no change to any user's Keycloak client roles
+
+#### Scenario: Resync does not run without the cluster filter
+
+- GIVEN the control plane's registered `cluster_id` is empty
+- WHEN the RoleBinding seed or resync attempts to list
+- THEN it SHALL be refused rather than issue an unfiltered list (`managed-cluster-registration.spec.md`)
 
 ### Requirement: gRPC Transport Security
 
