@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Environment overlay for the hypc-ibm-00 ROKS cluster.
+# Renders the full .hypershell composition (base + all agents) and repoints the
+# environment-specific values. Build/apply with:
+#   hsctl apply -k .hypershell/overlays/hypc-ibm-00 [--dry-run]
+resources:
+  - ../../agents
+
+patches:
+  # Point every agent runtime at the hypc-ibm-00 registered cluster.
+  - target:
+      kind: AgentRuntime
+    patch: |-
+      - op: replace
+        path: /spec/cluster_id
+        value: hypc-ibm-00
+
+  # Repoint the shared gateway and use route-mode (ClusterIP) exposure on ROKS.
+  - target:
+      kind: Gateway
+      name: agents-gateway
+    patch: |-
+      - op: replace
+        path: /spec/cluster_id
+        value: hypc-ibm-00
+      - op: replace
+        path: /spec/service_type
+        value: ClusterIP
+
+  # Supply the real GCP project for Vertex-backed inference.
+  # Uncomment and set once confirmed for this environment:
+  # - target:
+  #     kind: ProviderSpec
+  #     name: claude-inference
+  #   patch: |-
+  #     - op: replace
+  #       path: /spec/capability
+  #       value: |
+  #         {"refresh_strategy":"service-account-jwt","config":{"region":"us-east5","projectId":"<gcp-project>"}}

@@ -1,18 +1,16 @@
 # update-openshell agent runtime (declarative; replaces discover.sh/run.sh).
 # # Scheduled runtime: runs on its cron with no repository scan.
-# cluster_id and gateway_id are environment-specific placeholders; set real
-# values via an overlay patch or the importer. FK references to shared
-# resources (repository_id, sandbox_template_id, provider_spec_id,
-# secret_source_id, workspace_id, provider_binding_id, agent_runtime_id) use
-# names; the importer resolves them (see ../../README.md).
+# FK references use names; the importer resolves them (see ../../README.md).
+# cluster_id/gateway_id carry base (kind) defaults; an overlay patches them
+# per environment (see ../../overlays/).
 apiVersion: hypershell.redhat.io/v1
 kind: AgentRuntime
 metadata:
   name: update-openshell
   description: SDLC automation agent (update-openshell)
 spec:
-  cluster_id: REPLACE_WITH_CLUSTER_ID
-  gateway_id: REPLACE_WITH_GATEWAY_ID
+  cluster_id: local-kind
+  gateway_id: agents-gateway
   sandbox_template_id: agent-runtime-slim
   repository_id: hypershell
   cron: "0 6 * * 1"

@@ -4,5 +4,6 @@ kind: Kustomization
 # Shared, reusable resources referenced by every agent runtime overlay.
 resources:
   - repository.yaml
+  - gateway.yaml
   - sandbox-templates.yaml
   - provider-specs.yaml

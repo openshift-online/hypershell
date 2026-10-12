@@ -16,17 +16,29 @@ a `selector` now expresses discovery declaratively.
 
 ```
 .hypershell/
-├── kustomization.yaml          # root import: base + every agents/*/agent.yaml
+├── kustomization.yaml          # root import (base dev composition): -> agents
 ├── base/                       # shared, reusable resources
 │   ├── kustomization.yaml
 │   ├── repository.yaml         # Repository (this repo) + credential reference
+│   ├── gateway.yaml            # Gateway the agents connect to (agents-gateway)
 │   ├── sandbox-templates.yaml  # agent-runtime, agent-runtime-slim
 │   └── provider-specs.yaml     # claude-inference, github-source-control
-└── agents/<name>/
-    ├── agent.yaml              # AgentRuntime + SecretSources + ProviderBindings + InferenceRoute
-    ├── kustomization.yaml      # base + agent.yaml (for applying one agent standalone)
-    └── SKILL.md                # the agent's workflow prompt (unchanged)
+├── agents/
+│   ├── kustomization.yaml      # full composition: base + every agent's agent.yaml
+│   └── <name>/
+│       ├── agent.yaml          # AgentRuntime + SecretSources + ProviderBindings + InferenceRoute
+│       ├── kustomization.yaml  # base + agent.yaml (for applying one agent standalone)
+│       └── SKILL.md            # the agent's workflow prompt (unchanged)
+└── overlays/
+    └── hypc-ibm-00/            # environment overlay: patches cluster/exposure
+        └── kustomization.yaml
 ```
+
+The base composition targets the local kind cluster. Each `AgentRuntime`
+references the shared `Gateway` by name (`gateway_id: agents-gateway`) and shares
+its `cluster_id` (base default `local-kind`). Environment overlays under
+`overlays/` render the full composition and repoint the environment-specific
+values.
 
 `SKILL.md` holds each agent's workflow prompt and is still authored by hand; it
 has no declarative equivalent and is loaded by the coordinator at run time.
@@ -90,13 +102,13 @@ runtime to its workspace.
 
 ## Placeholders
 
-Values that are environment-specific are written as `REPLACE_WITH_*` and must be
-supplied before the manifests are usable in a given environment:
+`cluster_id` and `gateway_id` carry base (kind) defaults and are repointed per
+environment by an overlay (see `overlays/hypc-ibm-00`). Remaining credential and
+project values are environment-specific and written as `REPLACE_WITH_*`; supply
+them via an overlay patch before the manifests are usable in that environment:
 
 | Placeholder | Where | Supply via |
 |-------------|-------|------------|
-| `REPLACE_WITH_CLUSTER_ID` | every `AgentRuntime.cluster_id` | overlay patch or importer binding |
-| `REPLACE_WITH_GATEWAY_ID` | every `AgentRuntime.gateway_id` | overlay patch or importer binding |
 | `REPLACE_WITH_GCP_PROJECT_ID` | `base/provider-specs.yaml` (inference) | overlay patch |
 | `REPLACE_WITH_SA_EMAIL` | inference `ProviderBinding.refresh_strategy` | overlay patch |
 | `REPLACE_WITH_GITHUB_APP_ID` | github `ProviderBinding.refresh_strategy` | overlay patch |
@@ -105,17 +117,28 @@ The GitHub App credential `SecretSource` named `github-app-credentials`
 (referenced by `base/repository.yaml`) is a platform-provisioned secret and is
 not declared here.
 
+## Overlays
+
+Each environment gets an overlay under `overlays/` that renders the full agent
+composition (`../../agents`) and patches the environment-specific values. The
+`hypc-ibm-00` overlay repoints `cluster_id` to the registered ROKS cluster and
+switches the gateway to route-mode (ClusterIP) exposure. Add a sibling directory
+per additional environment.
+
 ## Applying
 
 ```sh
-# Render + reconcile every agent (what the import process does):
+# Render + reconcile the base (kind) composition (what the import process does):
 hsctl apply -k .hypershell
+
+# Render + reconcile for a specific environment:
+hsctl apply -k .hypershell/overlays/hypc-ibm-00
 
 # Apply a single agent (base + that agent):
 hsctl apply -k .hypershell/agents/triage
 
 # Preview without writing:
-hsctl apply -k .hypershell --dry-run
+hsctl apply -k .hypershell/overlays/hypc-ibm-00 --dry-run
 ```
 
 ## Agent runtime images
