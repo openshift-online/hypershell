@@ -37,6 +37,13 @@ func validatePlacementIntent(intent openapi.GatewayPlacementIntent) *errors.Serv
 // itself fails.
 type RegisteredClusterLookup func(ctx context.Context, id string) (bool, *errors.ServiceError)
 
+// ClusterProvisioningVersionLookup returns, for a set of cluster IDs, the
+// provisioning version each cluster advertises through its single-valued
+// gateway-version capability. Clusters with no such capability, and unknown ids,
+// are absent from the returned map. It backs the read-only
+// Gateway.provisioning_version field (gateway-version-visibility.spec.md, GVV-04).
+type ClusterProvisioningVersionLookup func(ctx context.Context, clusterIDs []string) (map[string]string, *errors.ServiceError)
+
 // validateClusterReference enforces "Gateways Reference a Registered Cluster"
 // (managed-cluster-registration.spec.md): every control plane filters its
 // watches by its own registered cluster id, so a gateway whose cluster_id is

@@ -54,7 +54,7 @@ patches:
                   - name: HYPERSHELL_MANAGED_CLUSTER_NAME
                     value: "local-openshift"
                   - name: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES
-                    value: "provider/aws,network/public"
+                    value: "provider/aws,network/public,gateway-version/v0.1.2-rhaiv.7"
                   - name: OIDC_ISSUER
                     valueFrom:
                       secretKeyRef:

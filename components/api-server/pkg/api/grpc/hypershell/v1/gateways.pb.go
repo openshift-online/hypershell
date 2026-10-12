@@ -328,8 +328,16 @@ type Gateway struct {
 	ObservedReleaseId  *string `protobuf:"bytes,25,opt,name=observed_release_id,json=observedReleaseId,proto3,oneof" json:"observed_release_id,omitempty"`
 	Generation         int64   `protobuf:"varint,26,opt,name=generation,proto3" json:"generation,omitempty"`
 	ObservedGeneration *int64  `protobuf:"varint,27,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// provisioning_version is the gateway version the gateway's cluster advertises
+	// provisioning onto new gateways (that cluster's single-valued gateway-version
+	// capability). It is read-only and derived at read time from cluster_id, never
+	// stored on the Gateway row. See gateway-version-visibility.spec.md.
+	ProvisioningVersion *string `protobuf:"bytes,28,opt,name=provisioning_version,json=provisioningVersion,proto3,oneof" json:"provisioning_version,omitempty"`
+	// image_pinned reports whether this gateway pins an explicit image and so need
+	// not track its cluster's provisioning version. Read-only, derived from image.
+	ImagePinned   *bool `protobuf:"varint,29,opt,name=image_pinned,json=imagePinned,proto3,oneof" json:"image_pinned,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -528,6 +536,20 @@ func (x *Gateway) GetObservedGeneration() int64 {
 		return *x.ObservedGeneration
 	}
 	return 0
+}
+
+func (x *Gateway) GetProvisioningVersion() string {
+	if x != nil && x.ProvisioningVersion != nil {
+		return *x.ProvisioningVersion
+	}
+	return ""
+}
+
+func (x *Gateway) GetImagePinned() bool {
+	if x != nil && x.ImagePinned != nil {
+		return *x.ImagePinned
+	}
+	return false
 }
 
 type CreateGatewayRequest struct {
@@ -1684,8 +1706,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\tplacement\"9\n" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\"\x14\n" +
-	"\x12LocalKindPlacement\"\x91\n" +
-	"\n" +
+	"\x12LocalKindPlacement\"\x9b\v\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1716,7 +1737,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\n" +
 	"generation\x18\x1a \x01(\x03R\n" +
 	"generation\x124\n" +
-	"\x13observed_generation\x18\x1b \x01(\x03H\x0fR\x12observedGeneration\x88\x01\x01B\x0f\n" +
+	"\x13observed_generation\x18\x1b \x01(\x03H\x0fR\x12observedGeneration\x88\x01\x01\x126\n" +
+	"\x14provisioning_version\x18\x1c \x01(\tH\x10R\x13provisioningVersion\x88\x01\x01\x12&\n" +
+	"\fimage_pinned\x18\x1d \x01(\bH\x11R\vimagePinned\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1732,7 +1755,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x10_console_addressB\x12\n" +
 	"\x10_gateway_versionB\x16\n" +
 	"\x14_observed_release_idB\x16\n" +
-	"\x14_observed_generationJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"\xdf\x05\n" +
+	"\x14_observed_generationB\x17\n" +
+	"\x15_provisioning_versionB\x0f\n" +
+	"\r_image_pinnedJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"\xdf\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +

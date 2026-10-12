@@ -68,7 +68,7 @@ patches:
                   - name: HYPERSHELL_MANAGED_CLUSTER_NAME
                     value: "local-kind"
                   - name: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES
-                    value: "provider/kind,network/public,environment/kind"
+                    value: "provider/kind,network/public,environment/kind,gateway-version/v0.1.2-rhaiv.7"
                   - name: OIDC_ISSUER
                     value: "http://keycloak-service.keycloak.svc.cluster.local:8080/realms/hypershell"
                   - name: OIDC_CLIENT_ID

@@ -1003,6 +1003,10 @@
     "defaultMessage": "Created by",
     "description": "Heading for the gateways table column showing who created the gateway."
   },
+  "app.gateway.column.version": {
+    "defaultMessage": "Version",
+    "description": "Heading for the gateway running-version column and the Details tab version field."
+  },
   "app.gateway.connection.copyInstallCommand": {
     "defaultMessage": "Copy the OpenShell installation command",
     "description": "Accessible label for copying the version-matched OpenShell installation command."
@@ -1619,6 +1623,22 @@
     "defaultMessage": "Console unavailable for this gateway",
     "description": "Tooltip on the disabled console button once the console failed to become available within the expected time."
   },
+  "app.gateway.version.chipAriaLabel": {
+    "defaultMessage": "Running version {version}",
+    "description": "Accessible name for the running-version chip beside the gateway status indicator."
+  },
+  "app.gateway.version.newerAvailable": {
+    "defaultMessage": "Newer version available",
+    "description": "Neutral indicator shown beside the version chip when the gateway's running version is older than the version its cluster provisions onto new gateways."
+  },
+  "app.gateway.version.newerAvailable.tooltip": {
+    "defaultMessage": "Existing gateways are not upgraded in place. This newer version applies only to gateways you create from now on.",
+    "description": "Clarifying help text for the newer-version-available indicator. Must not suggest an upgrade action."
+  },
+  "app.gateway.version.placeholder": {
+    "defaultMessage": "-",
+    "description": "Placeholder shown for a gateway that has no observed running version yet."
+  },
   "app.gateways.refresh": {
     "defaultMessage": "Refresh gateways",
     "description": "Accessible label for refreshing the gateway list."
@@ -1727,6 +1747,10 @@
     "defaultMessage": "Gateway details",
     "description": "Metadata title for a user-facing gateway details page."
   },
+  "app.page.gatewayProvision.anyVersion": {
+    "defaultMessage": "Any version",
+    "description": "Default provisioning-version option that places the gateway on any eligible cluster regardless of the version it advertises."
+  },
   "app.page.gatewayProvision.awsProvider": {
     "defaultMessage": "Amazon Web Services",
     "description": "AWS cloud provider option."
@@ -1814,6 +1838,10 @@
   "app.page.gatewayProvision.unavailableProvider": {
     "defaultMessage": "{provider} is unavailable: {reason}",
     "description": "Explanation shown when a provider cannot currently accept placement."
+  },
+  "app.page.gatewayProvision.version": {
+    "defaultMessage": "Provisioning version",
+    "description": "Label for the provisioning-version choice on the gateway provision form."
   },
   "app.page.gatewayProvision.vpnNetwork": {
     "defaultMessage": "VPN",

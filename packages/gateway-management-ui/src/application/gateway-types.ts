@@ -18,6 +18,12 @@ export interface GatewayRecord {
   externalDns?: string;
   gatewayVersion?: string;
   id: string;
+  /**
+   * True when the gateway pins an explicit container image and therefore need
+   * not track its cluster's advertised provisioning version. A pinned gateway
+   * never shows the newer-version-available indicator (see GVV-03).
+   */
+  imagePinned?: boolean;
   name: string;
   namespace: string;
   oidcAudience?: string;
@@ -25,8 +31,23 @@ export interface GatewayRecord {
   oidcIssuer?: string;
   phase?: string;
   provisioningConditions?: readonly ProvisioningCondition[];
+  /**
+   * The gateway version the gateway's cluster advertises for provisioning onto
+   * new gateways (its single-valued `gateway-version/<tag>` capability). Absent
+   * when the cluster advertises none.
+   */
+  provisioningVersion?: string;
   status?: string;
 }
+
+/**
+ * Derived verdict for whether a gateway's running version is behind the
+ * provisioning version its cluster advertises (GVV-03/GVV-04). `"behind"` fires
+ * the neutral newer-version-available indicator; `"none"` suppresses it. The
+ * verdict is computed once in the application layer and consumed, not
+ * recomputed, by React components.
+ */
+export type GatewayVersionDrift = "behind" | "none";
 
 export interface GatewayPlacement {
   id: string;
@@ -49,7 +70,8 @@ export type GatewaySortField =
   | "endpoint"
   | "name"
   | "owner"
-  | "status";
+  | "status"
+  | "version";
 
 export interface GatewayListRequest {
   page: number;
@@ -355,6 +377,15 @@ export interface GatewayControlPlane {
     clusterIds: readonly string[],
     context: GatewayInvocationContext,
   ): Promise<readonly GatewayPlacement[]>;
+  /**
+   * Distinct `gateway-version/<tag>` tag values advertised by registered
+   * clusters, used to seed the provisioning-version choice (GP-11). Availability
+   * for a specific network/provider/version is confirmed separately through
+   * getGatewayPlacementAvailability.
+   */
+  getGatewayProvisioningVersions?(
+    context: GatewayInvocationContext,
+  ): Promise<readonly string[]>;
   getGateway(
     gatewayId: string,
     context: GatewayInvocationContext,
@@ -447,6 +478,9 @@ export interface GatewayOperations {
     clusterIds: readonly string[],
     signal?: AbortSignal,
   ): Promise<readonly GatewayPlacement[]>;
+  getGatewayProvisioningVersions?(
+    signal?: AbortSignal,
+  ): Promise<readonly string[]>;
   getGateway(gatewayId: string, signal?: AbortSignal): Promise<GatewayRecord>;
   getOpenShellGatewayServiceAccount(
     gatewayId: string,

@@ -23,6 +23,8 @@ Name | Type | Description | Notes
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly] 
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly] 
 **GatewayVersion** | Pointer to **string** | Runtime version from the last successful gateway health response | [optional] [readonly] 
+**ProvisioningVersion** | Pointer to **string** | Gateway version the gateway&#39;s cluster advertises provisioning onto new gateways, derived from that cluster&#39;s single-valued gateway-version capability. Empty when the cluster advertises no provisioning version. | [optional] [readonly] 
+**ImagePinned** | Pointer to **bool** | Whether this gateway pins an explicit image and therefore need not track its cluster&#39;s provisioning version. True suppresses the newer-version-available drift indicator, because a pinned gateway may intentionally run a different version from its cluster default. | [optional] [readonly] 
 **Oidc** | Pointer to **string** | JSON-encoded OIDC authentication configuration (auto-populated by Keycloak provisioning) | [optional] [readonly] 
 **Route** | Pointer to **string** | JSON-encoded route configuration | [optional] 
 **CredentialDriver** | Pointer to **string** | JSON-encoded credential storage driver configuration | [optional] 
@@ -512,6 +514,56 @@ SetGatewayVersion sets GatewayVersion field to given value.
 `func (o *Gateway) HasGatewayVersion() bool`
 
 HasGatewayVersion returns a boolean if a field has been set.
+
+### GetProvisioningVersion
+
+`func (o *Gateway) GetProvisioningVersion() string`
+
+GetProvisioningVersion returns the ProvisioningVersion field if non-nil, zero value otherwise.
+
+### GetProvisioningVersionOk
+
+`func (o *Gateway) GetProvisioningVersionOk() (*string, bool)`
+
+GetProvisioningVersionOk returns a tuple with the ProvisioningVersion field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetProvisioningVersion
+
+`func (o *Gateway) SetProvisioningVersion(v string)`
+
+SetProvisioningVersion sets ProvisioningVersion field to given value.
+
+### HasProvisioningVersion
+
+`func (o *Gateway) HasProvisioningVersion() bool`
+
+HasProvisioningVersion returns a boolean if a field has been set.
+
+### GetImagePinned
+
+`func (o *Gateway) GetImagePinned() bool`
+
+GetImagePinned returns the ImagePinned field if non-nil, zero value otherwise.
+
+### GetImagePinnedOk
+
+`func (o *Gateway) GetImagePinnedOk() (*bool, bool)`
+
+GetImagePinnedOk returns a tuple with the ImagePinned field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetImagePinned
+
+`func (o *Gateway) SetImagePinned(v bool)`
+
+SetImagePinned sets ImagePinned field to given value.
+
+### HasImagePinned
+
+`func (o *Gateway) HasImagePinned() bool`
+
+HasImagePinned returns a boolean if a field has been set.
 
 ### GetOidc
 

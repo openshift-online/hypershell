@@ -174,8 +174,43 @@ func (s *sqlManagedClusterService) All(ctx context.Context) (ManagedClusterList,
 
 var capabilitySegmentRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
-var capabilityNamespaces = map[string]bool{"provider": true, "network": true, "region": true, "runtime": true, "environment": true}
-var singleCapabilityNamespaces = map[string]bool{"provider": true, "region": true, "environment": true}
+// gatewayVersionValueRE relaxes the value segment for the gateway-version
+// namespace only: a gateway version tag carries dots and a release suffix (for
+// example v0.1.2-rhaiv.7), which is not a DNS label. The value is a lowercase
+// string of alphanumerics, dots, and hyphens that both begins and ends with an
+// alphanumeric. The namespace segment stays DNS-label strict (capabilitySegmentRE).
+// See managed-cluster-registration.spec.md, "Self-Declared Capability Labels".
+var gatewayVersionValueRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
+
+// gatewayVersionNamespace is the single-valued namespace through which a control
+// plane advertises the gateway version it provisions onto new gateways.
+const gatewayVersionNamespace = "gateway-version"
+
+var capabilityNamespaces = map[string]bool{"provider": true, "network": true, "region": true, "runtime": true, "environment": true, gatewayVersionNamespace: true}
+var singleCapabilityNamespaces = map[string]bool{"provider": true, "region": true, "environment": true, gatewayVersionNamespace: true}
+
+// capabilityValueValid reports whether value is a valid value segment for the
+// given namespace. Every namespace stays DNS-label strict except gateway-version,
+// whose value accepts a dotted, suffixed version tag.
+func capabilityValueValid(namespace, value string) bool {
+	if namespace == gatewayVersionNamespace {
+		return gatewayVersionValueRE.MatchString(value)
+	}
+	return capabilitySegmentRE.MatchString(value)
+}
+
+// GatewayVersionCapability returns the version advertised through the
+// single-valued gateway-version capability, or "" when the set declares none.
+// Inputs are assumed already normalized; the first matching label wins.
+func GatewayVersionCapability(capabilities []string) string {
+	prefix := gatewayVersionNamespace + "/"
+	for _, label := range capabilities {
+		if strings.HasPrefix(label, prefix) {
+			return strings.TrimPrefix(label, prefix)
+		}
+	}
+	return ""
+}
 
 // NormalizeCapabilities validates capability labels and returns a stable,
 // deduplicated representation suitable for persistence and selector matching.
@@ -200,7 +235,7 @@ func normalizeCapabilityLabels(labels []string, requireNonEmpty, rejectDuplicate
 	result := make([]string, 0, len(labels))
 	for _, label := range labels {
 		parts := strings.Split(label, "/")
-		if len(parts) != 2 || !capabilityNamespaces[parts[0]] || !capabilitySegmentRE.MatchString(parts[0]) || !capabilitySegmentRE.MatchString(parts[1]) {
+		if len(parts) != 2 || !capabilityNamespaces[parts[0]] || !capabilitySegmentRE.MatchString(parts[0]) || !capabilityValueValid(parts[0], parts[1]) {
 			return nil, errors.Validation("invalid capability label %q: expected a recognized namespace and lowercase DNS-label value", label)
 		}
 		if seen[label] {

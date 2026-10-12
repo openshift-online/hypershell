@@ -122,6 +122,55 @@ class SyncOpenshellVersionTest(unittest.TestCase):
         self.assertNotIn("@sha256:", content)
 
 
+    CAPABILITY_YAML = (
+        "                  - name: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES\n"
+        '                    value: "{value}"\n'
+        "                  - name: OIDC_ISSUER\n"
+    )
+
+    def _write_capability(self, value: str) -> Path:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            f.write(self.CAPABILITY_YAML.format(value=value))
+            f.flush()
+            return Path(f.name)
+
+    def test_capabilities_adds_missing_label(self):
+        path = self._write_capability("provider/aws,network/public")
+        MOD.stamp_capabilities(path, "v0.1.2-rhaiv.7", check_only=False)
+        content = path.read_text()
+        path.unlink()
+        self.assertIn(
+            'value: "provider/aws,network/public,gateway-version/v0.1.2-rhaiv.7"',
+            content,
+        )
+
+    def test_capabilities_replaces_stale_version(self):
+        path = self._write_capability(
+            "provider/aws,gateway-version/v0.1.1-rhaiv.3,network/public"
+        )
+        mismatches = MOD.stamp_capabilities(
+            path, "v0.1.2-rhaiv.7", check_only=False
+        )
+        content = path.read_text()
+        path.unlink()
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("gateway-version/v0.1.2-rhaiv.7", content)
+        self.assertNotIn("v0.1.1-rhaiv.3", content)
+        # The stale label is replaced in place, not duplicated.
+        self.assertEqual(content.count("gateway-version/"), 1)
+
+    def test_capabilities_no_mismatch_when_current(self):
+        path = self._write_capability(
+            "provider/aws,network/public,gateway-version/v0.1.2-rhaiv.7"
+        )
+        mismatches = MOD.stamp_capabilities(
+            path, "v0.1.2-rhaiv.7", check_only=True
+        )
+        path.unlink()
+        self.assertEqual(mismatches, [])
+
     def test_detects_stale_console_digest(self):
         go_src = (
             'const defaultConsoleImage = '

@@ -14,6 +14,7 @@ export type GatewayAction =
   | "get"
   | "get-placement"
   | "get-placements"
+  | "get-provisioning-versions"
   | "grant-access"
   | "list"
   | "list-access"

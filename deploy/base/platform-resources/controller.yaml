@@ -61,7 +61,7 @@ spec:
             - name: HYPERSHELL_API_SERVER_URL
               value: "http://hypershell-api-server:8000"
             - name: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES
-              value: "provider/aws,network/public"
+              value: "provider/aws,network/public,gateway-version/v0.1.2-rhaiv.7"
             - name: HYPERSHELL_NAMESPACE
               valueFrom:
                 fieldRef:

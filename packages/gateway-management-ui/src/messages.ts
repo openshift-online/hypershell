@@ -1470,4 +1470,49 @@ export const messages = defineMessages({
       "Error shown when a user's subject cannot be resolved for the workspace command.",
   },
   /* eslint-enable sort-keys */
+  /* eslint-disable sort-keys -- Keep gateway version-visibility descriptors together so localization review can audit the running-version column, chip, drift indicator, and provisioning-version choice as one unit. */
+  version: {
+    id: "app.gateway.column.version",
+    defaultMessage: "Version",
+    description:
+      "Heading for the gateway running-version column and the Details tab version field.",
+  },
+  versionPlaceholder: {
+    id: "app.gateway.version.placeholder",
+    defaultMessage: "-",
+    description:
+      "Placeholder shown for a gateway that has no observed running version yet.",
+  },
+  versionChipAriaLabel: {
+    id: "app.gateway.version.chipAriaLabel",
+    defaultMessage: "Running version {version}",
+    description:
+      "Accessible name for the running-version chip beside the gateway status indicator.",
+  },
+  newerVersionAvailable: {
+    id: "app.gateway.version.newerAvailable",
+    defaultMessage: "Newer version available",
+    description:
+      "Neutral indicator shown beside the version chip when the gateway's running version is older than the version its cluster provisions onto new gateways.",
+  },
+  newerVersionAvailableTooltip: {
+    id: "app.gateway.version.newerAvailable.tooltip",
+    defaultMessage:
+      "Existing gateways are not upgraded in place. This newer version applies only to gateways you create from now on.",
+    description:
+      "Clarifying help text for the newer-version-available indicator. Must not suggest an upgrade action.",
+  },
+  provisioningVersion: {
+    id: "app.page.gatewayProvision.version",
+    defaultMessage: "Provisioning version",
+    description:
+      "Label for the provisioning-version choice on the gateway provision form.",
+  },
+  anyVersion: {
+    id: "app.page.gatewayProvision.anyVersion",
+    defaultMessage: "Any version",
+    description:
+      "Default provisioning-version option that places the gateway on any eligible cluster regardless of the version it advertises.",
+  },
+  /* eslint-enable sort-keys */
 });

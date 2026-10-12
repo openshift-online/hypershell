@@ -9,6 +9,8 @@ import {
   Content,
   Form,
   FormGroup,
+  FormSelect,
+  FormSelectOption,
   Gallery,
   FormHelperText,
   HelperText,
@@ -38,6 +40,10 @@ import type {
   GatewayPlacementAvailabilityItem,
   GatewayProvisionInput,
 } from "../application/gateway-types";
+import {
+  compareGatewayVersions,
+  parseGatewayVersion,
+} from "../application/gateway-operations";
 import { messages } from "../messages";
 import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
 import styles from "./gateway-create.module.css";
@@ -55,6 +61,46 @@ const placementSelectors = {
   ibmVpn: ["network/vpn", "provider/ibm"],
 } as const;
 const requestedPlacementSelectors = Object.values(placementSelectors);
+
+const gatewayVersionSelectorPrefix = "gateway-version/";
+// The default provisioning-version option omits the gateway-version label.
+const anyVersionOption = "";
+// The placement-availability request accepts at most 32 selectors. Four base
+// network/provider pairs leave room for the version-bearing selectors
+// (four pairs per version), so cap the advertised versions we probe. We probe
+// the newest versions first (compareProvisioningVersionsDescending), so when a
+// fleet advertises more distinct versions than this cap, only the newest ones
+// are offered; an older version advertised solely by an out-of-top-N spoke is
+// not selectable. One version per spoke makes exceeding this cap unusual, and
+// the gateway-provision-placement spec records it as an accepted limitation.
+const maxProvisioningVersions = Math.floor(
+  (32 - requestedPlacementSelectors.length) /
+    requestedPlacementSelectors.length,
+);
+
+// Newest first; version tags that cannot be parsed fall back to a stable
+// descending string order so the choice is deterministic.
+function compareProvisioningVersionsDescending(left: string, right: string) {
+  const leftParsed = parseGatewayVersion(left);
+  const rightParsed = parseGatewayVersion(right);
+  if (leftParsed && rightParsed) {
+    return compareGatewayVersions(rightParsed, leftParsed);
+  }
+  if (leftParsed) {
+    return -1;
+  }
+  if (rightParsed) {
+    return 1;
+  }
+  return right.localeCompare(left);
+}
+
+function versionBearingSelector(
+  pair: readonly string[],
+  version: string,
+): string[] {
+  return [...pair, `${gatewayVersionSelectorPrefix}${version}`];
+}
 
 function placementResult(
   availability: GatewayPlacementAvailability | undefined,
@@ -84,6 +130,8 @@ interface GatewayFormValues {
   network: "public" | "vpn" | null;
   provider: "aws" | "ibm" | null;
   localKind: boolean;
+  // Empty string means the default "Any version" (no gateway-version label).
+  version: string;
 }
 
 interface GatewayTextFieldProps {
@@ -280,6 +328,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
         network: z.enum(["public", "vpn"]).nullable(),
         provider: z.enum(["aws", "ibm"]).nullable(),
         localKind: z.boolean(),
+        version: z.string(),
       })
       .superRefine((values, context) => {
         if (!values.localKind && values.network === null) {
@@ -309,6 +358,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
         network: null,
         provider: null,
         localKind: false,
+        version: anyVersionOption,
       },
       resolver: zodResolver(schema) as never,
     });
@@ -335,15 +385,43 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     },
   });
 
+  const getProvisioningVersions =
+    gateways.getGatewayProvisioningVersions?.bind(gateways);
+  const provisioningVersionsQuery = useQuery({
+    queryKey: ["gateway", "provisioning-versions"],
+    queryFn:
+      getProvisioningVersions === undefined
+        ? skipToken
+        : ({ signal }) => getProvisioningVersions(signal),
+    staleTime: 30_000,
+  });
+  const candidateVersions = useMemo(
+    () =>
+      [...(provisioningVersionsQuery.data ?? [])]
+        .sort(compareProvisioningVersionsDescending)
+        .slice(0, maxProvisioningVersions),
+    [provisioningVersionsQuery.data],
+  );
+  const requestedSelectors = useMemo(
+    () => [
+      ...requestedPlacementSelectors.map((selector) => [...selector]),
+      ...candidateVersions.flatMap((version) =>
+        requestedPlacementSelectors.map((selector) =>
+          versionBearingSelector(selector, version),
+        ),
+      ),
+    ],
+    [candidateVersions],
+  );
+
   const getPlacementAvailability =
     gateways.getGatewayPlacementAvailability?.bind(gateways);
   const availability = useQuery({
-    queryKey: ["gateway", "placement-availability"],
+    queryKey: ["gateway", "placement-availability", candidateVersions],
     queryFn:
       getPlacementAvailability === undefined
         ? skipToken
-        : ({ signal }) =>
-            getPlacementAvailability(requestedPlacementSelectors, signal),
+        : ({ signal }) => getPlacementAvailability(requestedSelectors, signal),
     staleTime: 30_000,
   });
   const awsPublic = placementResult(
@@ -366,6 +444,28 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
   const vpnPlacementAvailable =
     awsVpn?.available === true || ibmVpn?.available === true;
 
+  const network = useWatch({ control, name: "network" });
+  const provider = useWatch({ control, name: "provider" });
+  const localKind = useWatch({ control, name: "localKind" });
+  const version = useWatch({ control, name: "version" });
+  // Versions advertised by an eligible cluster for the selected network and
+  // provider, confirmed through the batched availability request (GP-11). An
+  // option is never offered unless a connected eligible spoke advertises it.
+  const offeredVersions = useMemo(() => {
+    if (!availability.data || network === null || provider === null) {
+      return [] as string[];
+    }
+    const pair = [`network/${network}`, `provider/${provider}`];
+    return candidateVersions.filter(
+      (candidate) =>
+        placementResult(
+          availability.data,
+          versionBearingSelector(pair, candidate),
+        )?.available === true,
+    );
+  }, [availability.data, candidateVersions, network, provider]);
+  const showVersionChoice = !localKind && network !== null && provider !== null;
+
   const submit = handleSubmit((values) => {
     if (values.localKind) {
       createGateway.mutate({
@@ -375,16 +475,20 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
       return;
     }
     if (values.network === null || values.provider === null) return;
+    const selector = [
+      `network/${values.network}`,
+      `provider/${values.provider}`,
+    ];
+    // Only attach a version label the user actively chose and that an eligible
+    // spoke still advertises; the default "Any version" omits it entirely.
+    if (values.version && offeredVersions.includes(values.version)) {
+      selector.push(`${gatewayVersionSelectorPrefix}${values.version}`);
+    }
     createGateway.mutate({
       name: values.name,
-      placement: {
-        selector: [`network/${values.network}`, `provider/${values.provider}`],
-      },
+      placement: { selector },
     });
   });
-  const network = useWatch({ control, name: "network" });
-  const provider = useWatch({ control, name: "provider" });
-  const localKind = useWatch({ control, name: "localKind" });
   useEffect(() => {
     if (!availability.data || localKind) return;
     if (network === "vpn") {
@@ -420,6 +524,13 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     provider,
     setValue,
   ]);
+  useEffect(() => {
+    // Re-derive on network/provider change: reset to "Any version" whenever the
+    // previously selected version is no longer advertised for the new pair.
+    if (version !== anyVersionOption && !offeredVersions.includes(version)) {
+      setValue("version", anyVersionOption);
+    }
+  }, [offeredVersions, setValue, version]);
   useEffect(() => {
     if (defaultToLocalKind && !localKind) {
       setValue("localKind", true, { shouldValidate: true });
@@ -661,6 +772,43 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                     }}
                   />
                 </ChoiceGroup>
+              )}
+            />
+          ) : null}
+          {showVersionChoice ? (
+            <Controller
+              control={control}
+              name="version"
+              render={({ field }) => (
+                <FormGroup
+                  fieldId="provisioning-version"
+                  label={intl.formatMessage(messages.provisioningVersion)}
+                >
+                  <FormSelect
+                    aria-label={intl.formatMessage(
+                      messages.provisioningVersion,
+                    )}
+                    id="provisioning-version"
+                    isDisabled={createGateway.isPending}
+                    onChange={(_event, value) => {
+                      field.onChange(value);
+                    }}
+                    value={field.value}
+                  >
+                    <FormSelectOption
+                      key="any-version"
+                      label={intl.formatMessage(messages.anyVersion)}
+                      value={anyVersionOption}
+                    />
+                    {offeredVersions.map((offeredVersion) => (
+                      <FormSelectOption
+                        key={offeredVersion}
+                        label={offeredVersion}
+                        value={offeredVersion}
+                      />
+                    ))}
+                  </FormSelect>
+                </FormGroup>
               )}
             />
           ) : null}

@@ -144,6 +144,30 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 **Direction checks:** Spec-to-code: registration, migration, placement, availability, deployment configuration, and console behavior are implemented. Code-to-spec: legacy request translation and omitted-capability heartbeats are bounded compatibility paths explicitly allowed by the approved spec. OpenAPI-to-spec: the selector intent and batched response are generic and expose no enumerated availability matrix.
 
+### Gateway version visibility and version-based placement (issue #511, PR #513)
+
+Stacks on the capability placement work above. Spec changes reconciled:
+`specs/platform/managed-cluster-registration.spec.md`,
+`specs/platform/data-model.spec.md`,
+`specs/web-console/gateway-provision-placement.spec.md` (GP-11),
+`specs/web-console/gateway-version-visibility.spec.md` (GVV-01..05).
+
+| # | Requirement | Status | Code Location | Wave |
+|---|-------------|--------|---------------|------|
+| GVV-CAP | `gateway-version` single-valued capability namespace with relaxed (dotted/suffixed) value syntax; namespace + other values stay DNS-strict | Present | `components/api-server/plugins/managedClusters/service.go` (`gatewayVersionValueRE`, `capabilityValueValid`, `GatewayVersionCapability`), `capabilities_test.go` | GVV-W1 |
+| GVV-DEPLOY | Overlays advertise `gateway-version/<OPENSHELL_TAG>`, rendered at deploy time (no runtime image-tag parsing) and enforced by the version-sync check | Present | `scripts/sync_openshell_version.py` (`stamp_capabilities`), `deploy/{base/platform-resources/controller.yaml,gitops/platform,ibm,kind,openshift}/...`, `scripts/test_sync_openshell_version.py` | GVV-W5 |
+| GVV-04-API | Gateway read model exposes `provisioning_version` (from the cluster's gateway-version capability) and `image_pinned`; reflected in OpenAPI, Go+TS SDK, proto, TUI | Present | `openapi/openapi.gateways.yaml`, `proto/hypershell/v1/gateways.proto`, `plugins/gateways/{presenter.go,grpc_presenter.go,plugin.go,cluster_reference.go,handler.go}`, generated `pkg/api/openapi`, `components/sdk-{go,typescript}`, `components/cli/data/generated/tui` | GVV-W2/W3 |
+| GVV-01 | Running-version sortable list column (server-side `version` sort), no row chip | FE (subagent) | `packages/gateway-management-ui/src/`, `components/web-console/app/adapters/api/gateway-operations.ts` | GVV-W4 |
+| GVV-02 | Details header version chip beside status + Details-tab field | FE (subagent) | `packages/gateway-management-ui/src/gateways/` | GVV-W4 |
+| GVV-03 | Neutral "Newer Version Available" drift indicator; real is-older-than compare over suffixed tags; suppressed for pinned/missing/unparseable/equal/newer | FE (subagent) | `packages/gateway-management-ui/src/application/` | GVV-W4 |
+| GVV-04-FE | Drift verdict derived once in the application layer; facts via domain-probe fan-out | FE (subagent) | `packages/gateway-management-ui/src/application/` | GVV-W4 |
+| GVV-05 / GP-10 | Localization + accessibility of all new surfaces; `en.json` regenerated | FE (subagent) | `packages/gateway-management-ui/src/messages.ts`, `components/web-console/locales/en.json` | GVV-W4 |
+| GP-11 | Provision-form provisioning-version selector driven by advertised versions; default "Any version" omits the label; resets on network/provider change; no local-kind version | FE (subagent) | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | GVV-W4 |
+
+**Backend verification:** api-server/control-plane/cli `go build`+`go vet` clean; `managedClusters` and `gateways` integration test packages green (testcontainers); new `capabilities_test.go`, `presenter_test.go`, and `test_sync_openshell_version.py` pass; `make check-forbidden-terms`, `check-openshell-version`, `generate-tui-check`, and SDK regeneration all reproduce in-tree. FE wave verified via the gateway-management-ui + web-console checks (see PR).
+
+**Deferred (same as PR #513):** the stale `gateway-release-*` / `gateway-version-selection` spec cleanup is out of scope and tracked with the GatewayRelease removal (RM-* items).
+
 ### gateway-access-management.spec.md + web-console/gateway-access-management.spec.md (user_management PR)
 
 | # | Requirement | Status | Code Location | Wave |

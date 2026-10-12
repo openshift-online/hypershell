@@ -1110,6 +1110,12 @@
           "type": "string"
         },
         {
+          "property": "image_pinned",
+          "label": "IMAGE PINNED",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
           "property": "kind",
           "label": "KIND",
           "priority": 0,
@@ -1137,6 +1143,12 @@
         {
           "property": "phase",
           "label": "PHASE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "provisioning_version",
+          "label": "PROVISIONING VERSION",
           "priority": 0,
           "type": "string"
         },
@@ -2516,6 +2528,12 @@
           "type": "string"
         },
         {
+          "property": "image_pinned",
+          "label": "IMAGE PINNED",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
           "property": "kind",
           "label": "KIND",
           "priority": 0,
@@ -2543,6 +2561,12 @@
         {
           "property": "phase",
           "label": "PHASE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "provisioning_version",
+          "label": "PROVISIONING VERSION",
           "priority": 0,
           "type": "string"
         },

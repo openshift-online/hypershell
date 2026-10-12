@@ -9,6 +9,8 @@ import {
   type GatewayControlPlane,
   type GatewayInvocationContext,
   type GatewayOperations,
+  type GatewayRecord,
+  type GatewayVersionDrift,
   type GatewayWorkflowRuntime,
 } from "./gateway-types";
 
@@ -16,6 +18,140 @@ export interface GatewayOperationDependencies {
   controlPlane: GatewayControlPlane;
   probes: GatewayProbePublisher;
   runtime: GatewayWorkflowRuntime;
+}
+
+interface ParsedGatewayVersion {
+  // [major, minor, patch]
+  readonly core: readonly [number, number, number];
+  // Release-suffix identifiers, e.g. `rhaiv.7` -> ["rhaiv", 7]. Empty when the
+  // tag has no suffix.
+  readonly suffix: readonly (number | string)[];
+}
+
+// Matches a gateway version tag of the form vMAJOR.MINOR.PATCH[-suffix.N], for
+// example `v0.1.2-rhaiv.7`. The leading `v` is optional and the release suffix
+// is optional. A value that does not match is treated as unparseable.
+const gatewayVersionPattern =
+  /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?$/u;
+
+/**
+ * Parses a gateway version tag like `v0.1.2-rhaiv.7` into comparable parts.
+ * Returns undefined when the value is missing or does not match the expected
+ * shape, so callers can suppress drift on unparseable versions (GVV-03).
+ */
+export function parseGatewayVersion(
+  value: string | undefined,
+): ParsedGatewayVersion | undefined {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return undefined;
+  }
+  const match = gatewayVersionPattern.exec(trimmed);
+  if (!match) {
+    return undefined;
+  }
+  const [, major, minor, patch, rawSuffix] = match;
+  const suffix = (rawSuffix ?? "")
+    .split(".")
+    .filter((identifier) => identifier.length > 0)
+    .map((identifier) =>
+      /^\d+$/u.test(identifier) ? Number(identifier) : identifier,
+    );
+  return {
+    core: [Number(major), Number(minor), Number(patch)],
+    suffix,
+  };
+}
+
+function compareSuffixIdentifiers(
+  left: number | string,
+  right: number | string,
+): number {
+  const leftNumeric = typeof left === "number";
+  const rightNumeric = typeof right === "number";
+  if (leftNumeric && rightNumeric) {
+    return left - right;
+  }
+  // Numeric identifiers have lower precedence than alphanumeric ones, matching
+  // semantic-version release-suffix ordering.
+  if (leftNumeric) {
+    return -1;
+  }
+  if (rightNumeric) {
+    return 1;
+  }
+  return left.localeCompare(right);
+}
+
+/**
+ * Compares two parsed gateway versions. Returns a negative number when `left`
+ * is older than `right`, zero when equal, and a positive number when newer. A
+ * tag without a release suffix ranks above an otherwise equal tag that has one.
+ */
+export function compareGatewayVersions(
+  left: ParsedGatewayVersion,
+  right: ParsedGatewayVersion,
+): number {
+  const coreDifference =
+    left.core[0] - right.core[0] ||
+    left.core[1] - right.core[1] ||
+    left.core[2] - right.core[2];
+  if (coreDifference !== 0) {
+    return coreDifference;
+  }
+  const leftSuffix = left.suffix;
+  const rightSuffix = right.suffix;
+  if (leftSuffix.length === 0 && rightSuffix.length === 0) {
+    return 0;
+  }
+  if (leftSuffix.length === 0) {
+    return 1;
+  }
+  if (rightSuffix.length === 0) {
+    return -1;
+  }
+  const shared = Math.min(leftSuffix.length, rightSuffix.length);
+  for (let index = 0; index < shared; index += 1) {
+    const leftIdentifier = leftSuffix[index];
+    const rightIdentifier = rightSuffix[index];
+    if (leftIdentifier === undefined || rightIdentifier === undefined) {
+      break;
+    }
+    const difference = compareSuffixIdentifiers(
+      leftIdentifier,
+      rightIdentifier,
+    );
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return leftSuffix.length - rightSuffix.length;
+}
+
+/**
+ * Derives the newer-version-available verdict for a gateway (GVV-03/GVV-04).
+ * The indicator fires (`"behind"`) only when the gateway tracks its cluster's
+ * default image (not pinned), both the running and provisioning versions are
+ * present and parseable, and the running version is strictly older than the
+ * advertised provisioning version. Every other case suppresses it (`"none"`):
+ * pinned image, a missing or unparseable value, or a running version equal to
+ * or newer than the provisioning version.
+ */
+export function deriveGatewayVersionDrift(
+  gateway: Pick<
+    GatewayRecord,
+    "gatewayVersion" | "imagePinned" | "provisioningVersion"
+  >,
+): GatewayVersionDrift {
+  if (gateway.imagePinned === true) {
+    return "none";
+  }
+  const running = parseGatewayVersion(gateway.gatewayVersion);
+  const provisioning = parseGatewayVersion(gateway.provisioningVersion);
+  if (!running || !provisioning) {
+    return "none";
+  }
+  return compareGatewayVersions(running, provisioning) < 0 ? "behind" : "none";
 }
 
 function isCancelled(error: unknown): boolean {
@@ -221,6 +357,15 @@ export function createGatewayOperations({
       execute("get-placements", signal, (context) =>
         controlPlane.getGatewayPlacements(clusterIds, context),
       ),
+    getGatewayProvisioningVersions: (signal) =>
+      execute("get-provisioning-versions", signal, (context) => {
+        if (!controlPlane.getGatewayProvisioningVersions) {
+          throw new GatewayOperationError("unknown", {
+            cause: new Error("provisioning versions are unavailable"),
+          });
+        }
+        return controlPlane.getGatewayProvisioningVersions(context);
+      }),
     getGateway: (gatewayId, signal) =>
       execute("get", signal, (context) =>
         controlPlane.getGateway(gatewayId, context),

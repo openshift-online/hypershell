@@ -71,6 +71,7 @@ const gatewaySortFields = {
   name: "name",
   owner: "created_by",
   status: "status",
+  version: "gateway_version",
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
 
 function escapeIlikeLiteral(value: string): string {
@@ -177,6 +178,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const activeSandboxCount = optionalNumber(gateway.active_sandbox_count);
   const consoleUrl = optionalString(gateway.console_address);
   const gatewayVersion = optionalString(gateway.gateway_version);
+  const provisioningVersion = optionalString(gateway.provisioning_version);
   const provisioningConditions = parseProvisioningConditions(
     gateway.provisioning_conditions,
   );
@@ -197,6 +199,9 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
     ...(gatewayVersion ? { gatewayVersion } : {}),
     id: gateway.id,
+    ...(typeof gateway.image_pinned === "boolean"
+      ? { imagePinned: gateway.image_pinned }
+      : {}),
     name: gateway.name,
     namespace: gateway.namespace,
     ...(oidcAudience ? { oidcAudience } : {}),
@@ -204,6 +209,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     ...(oidcIssuer ? { oidcIssuer } : {}),
     phase: gateway.phase,
     ...(provisioningConditions ? { provisioningConditions } : {}),
+    ...(provisioningVersion ? { provisioningVersion } : {}),
     status: gateway.status,
   };
 }
@@ -326,6 +332,26 @@ function optionalNumber(value: unknown): number | undefined {
 }
 
 const registeredPlacementFilter = "oidc_subject <> ''";
+
+const gatewayVersionCapabilityPrefix = "gateway-version/";
+
+// The managed-cluster capabilities field is a set of `namespace/value` labels.
+// The generated SDK types it as a string, but the API serializes it as a JSON
+// array, so normalize both shapes (array at runtime, comma-joined string as a
+// defensive fallback) into a label list.
+function clusterCapabilityLabels(cluster: ManagedCluster): string[] {
+  const raw: unknown = cluster.capabilities;
+  if (Array.isArray(raw)) {
+    return raw.filter((label): label is string => typeof label === "string");
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return raw
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
 
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
   const region = optionalString(cluster.region);
@@ -550,6 +576,38 @@ export function createGatewayControlPlaneAdapter(
             selector: placement.selector,
           })),
         } satisfies GatewayPlacementAvailability;
+      });
+    },
+    async getGatewayProvisioningVersions(context) {
+      return mapFailure(async () => {
+        const result = await apiClient(
+          apiFactory,
+          context,
+        ).managedClusters.list(
+          {
+            orderBy: "name asc",
+            page: 1,
+            // Only a cluster whose control plane has self-registered can host a
+            // gateway, so only its advertised version is a real provisioning
+            // choice. Connectedness and network/provider eligibility are
+            // confirmed separately by getGatewayPlacementAvailability.
+            search: registeredPlacementFilter,
+            size: placementPageSize,
+          },
+          { signal: context.signal },
+        );
+        const versions = new Set<string>();
+        for (const cluster of result.items) {
+          for (const label of clusterCapabilityLabels(cluster)) {
+            if (label.startsWith(gatewayVersionCapabilityPrefix)) {
+              const tag = label.slice(gatewayVersionCapabilityPrefix.length);
+              if (tag) {
+                versions.add(tag);
+              }
+            }
+          }
+        }
+        return [...versions].sort();
       });
     },
     async getGatewayPlacement(clusterId, context) {

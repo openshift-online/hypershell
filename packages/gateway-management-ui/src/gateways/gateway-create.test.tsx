@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +34,29 @@ function placementAvailability(
 
 const availablePlacement = placementAvailability([true, true, true, false]);
 
+// Mocks the batched availability endpoint by echoing every requested selector
+// with availability driven by an explicit allow-list of selector keys. This
+// lets version-bearing selectors (network/provider/gateway-version) be probed
+// alongside the base network/provider pairs (GP-04, GP-11).
+function availabilityFromAllowList(
+  availableSelectorKeys: readonly string[],
+  localKind = false,
+) {
+  const allowed = new Set(availableSelectorKeys);
+  return (selectors: readonly (readonly string[])[]) =>
+    Promise.resolve({
+      localKind,
+      placements: selectors.map((selector) => {
+        const available = allowed.has(selector.join("|"));
+        return {
+          available,
+          ...(available ? {} : { reason: "no-eligible-cluster" as const }),
+          selector: [...selector],
+        };
+      }),
+    });
+}
+
 const operations = {
   changeGatewayAccessRole: vi.fn(),
   createOpenShellGatewayServiceAccount: vi.fn(),
@@ -47,6 +70,7 @@ const operations = {
   getGatewayPlacement: vi.fn(),
   getGatewayPlacementAvailability: vi.fn(),
   getGatewayPlacements: vi.fn(),
+  getGatewayProvisioningVersions: vi.fn(),
   getOpenShellGatewayServiceAccount: vi.fn(),
   listGateways: vi.fn(),
   listOpenShellGatewayServiceAccounts: vi.fn(),
@@ -99,6 +123,7 @@ describe("GatewayCreatePage", () => {
     operations.getGatewayPlacementAvailability.mockResolvedValue(
       availablePlacement,
     );
+    operations.getGatewayProvisioningVersions.mockResolvedValue([]);
     provisionGateway.mockResolvedValue({
       id: "gateway-1",
       name: "team-gateway",
@@ -336,5 +361,150 @@ describe("GatewayCreatePage", () => {
       await screen.findByText("No managed placement is currently available."),
     ).toBeTruthy();
     expect(screen.queryByRole("radio", { name: "Use local-kind" })).toBeNull();
+  });
+
+  it("offers only advertised versions for the selected network and provider (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
+      "v0.1.1-rhaiv.3",
+      "v0.1.2-rhaiv.7",
+    ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/aws|gateway-version/v0.1.2-rhaiv.7",
+        "network/public|provider/aws|gateway-version/v0.1.1-rhaiv.3",
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(
+      screen.getByRole("textbox", { name: "Gateway name" }),
+      "team-gateway",
+    );
+    await user.click(screen.getByRole("radio", { name: "Public" }));
+    await user.click(
+      screen.getByRole("radio", { name: "Amazon Web Services" }),
+    );
+
+    const select = await screen.findByRole("combobox", {
+      name: "Provisioning version",
+    });
+    const options = within(select)
+      .getAllByRole<HTMLOptionElement>("option")
+      .map((option) => option.textContent);
+    expect(options).toEqual([
+      "Any version",
+      "v0.1.2-rhaiv.7",
+      "v0.1.1-rhaiv.3",
+    ]);
+  });
+
+  it("adds the chosen version to the placement selector (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
+      "v0.1.2-rhaiv.7",
+    ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/aws|gateway-version/v0.1.2-rhaiv.7",
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(
+      screen.getByRole("textbox", { name: "Gateway name" }),
+      "team-gateway",
+    );
+    await user.click(screen.getByRole("radio", { name: "Public" }));
+    await user.click(
+      screen.getByRole("radio", { name: "Amazon Web Services" }),
+    );
+
+    const select = await screen.findByRole("combobox", {
+      name: "Provisioning version",
+    });
+    await user.selectOptions(select, "v0.1.2-rhaiv.7");
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+
+    await waitFor(() => {
+      expect(provisionGateway).toHaveBeenCalledWith({
+        name: "team-gateway",
+        placement: {
+          selector: [
+            "network/public",
+            "provider/aws",
+            "gateway-version/v0.1.2-rhaiv.7",
+          ],
+        },
+      });
+    });
+  });
+
+  it("omits the version label when left at Any version (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
+      "v0.1.2-rhaiv.7",
+    ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/ibm|gateway-version/v0.1.2-rhaiv.7",
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await enterNameAndSelectPublic(user);
+
+    // IBM Cloud is the default public provider; leave the version at its default.
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+
+    await waitFor(() => {
+      expect(provisionGateway).toHaveBeenCalledWith({
+        name: "team-gateway",
+        placement: { selector: ["network/public", "provider/ibm"] },
+      });
+    });
+  });
+
+  it("resets the version choice when it is no longer advertised (GP-11)", async () => {
+    operations.getGatewayProvisioningVersions.mockResolvedValue([
+      "v0.1.2-rhaiv.7",
+    ]);
+    operations.getGatewayPlacementAvailability.mockImplementation(
+      availabilityFromAllowList([
+        "network/public|provider/aws",
+        "network/public|provider/ibm",
+        "network/public|provider/aws|gateway-version/v0.1.2-rhaiv.7",
+        // IBM Cloud does not advertise the version for Public.
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(
+      screen.getByRole("textbox", { name: "Gateway name" }),
+      "team-gateway",
+    );
+    await user.click(screen.getByRole("radio", { name: "Public" }));
+    await user.click(
+      screen.getByRole("radio", { name: "Amazon Web Services" }),
+    );
+
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", {
+      name: "Provisioning version",
+    });
+    await user.selectOptions(select, "v0.1.2-rhaiv.7");
+    expect(select.value).toBe("v0.1.2-rhaiv.7");
+
+    await user.click(screen.getByRole("radio", { name: "IBM Cloud" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole<HTMLSelectElement>("combobox", {
+          name: "Provisioning version",
+        }).value,
+      ).toBe("");
+    });
   });
 });

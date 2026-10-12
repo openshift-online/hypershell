@@ -75,11 +75,13 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     image: "",
     kind: "Gateway",
     name: "Team gateway",
+    image_pinned: false,
     namespace: "openshell",
     observed_generation: 1,
     oidc: "",
     phase: "",
     provisioning_conditions: "",
+    provisioning_version: "",
     route: "",
     route_address: "",
     server_dns_names: "",
@@ -622,6 +624,52 @@ describe("gateway API operations adapter", () => {
     await expect(
       controlPlane.getGateway("gateway-1", context),
     ).resolves.toMatchObject({ gatewayVersion: "v0.0.109-rh9a8f8" });
+  });
+
+  it("maps provisioning_version and image_pinned onto the gateway record", async () => {
+    gatewayApi.get.mockResolvedValue(
+      gateway({
+        gateway_version: "v0.1.1-rhaiv.3",
+        image_pinned: true,
+        provisioning_version: " v0.1.2-rhaiv.7 ",
+      }),
+    );
+
+    await expect(
+      controlPlane.getGateway("gateway-1", context),
+    ).resolves.toMatchObject({
+      gatewayVersion: "v0.1.1-rhaiv.3",
+      imagePinned: true,
+      provisioningVersion: "v0.1.2-rhaiv.7",
+    });
+  });
+
+  it("omits the provisioning version when the cluster advertises none", async () => {
+    gatewayApi.get.mockResolvedValue(gateway({ provisioning_version: "" }));
+
+    const result = await controlPlane.getGateway("gateway-1", context);
+
+    expect(result.provisioningVersion).toBeUndefined();
+  });
+
+  it("sorts gateways by the API gateway-version field", async () => {
+    gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
+
+    await controlPlane.listGateways(
+      {
+        ...listRequest,
+        page: 1,
+        search: "",
+        sortDirection: "asc",
+        sortField: "version",
+      },
+      context,
+    );
+
+    expect(gatewayApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: "gateway_version asc" }),
+      { signal: undefined },
+    );
   });
 
   it("leaves the console URL unavailable when console_address is absent", async () => {

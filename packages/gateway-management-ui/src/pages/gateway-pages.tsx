@@ -29,6 +29,7 @@ import {
   type GatewaySortField,
   type OpenShellGatewayServiceAccountListRequest,
 } from "../application/gateway-types";
+import { deriveGatewayVersionDrift } from "../application/gateway-operations";
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
 import { useConsoleWaitTracker } from "../gateways/console-wait-tracker";
 import { type GatewayConnection } from "../gateways/gateway-connections";
@@ -92,6 +93,7 @@ function isGatewaySortField(value: string): value is GatewaySortField {
     "name",
     "owner",
     "status",
+    "version",
   ].includes(value);
 }
 
@@ -392,6 +394,17 @@ export function GatewaysPage({
       width: 10,
     },
     {
+      // Running version, ordered server-side by the `version` sort field. No
+      // chip on list rows (GVV-01); the version appears here only as text.
+      id: "version",
+      label: intl.formatMessage(messages.version),
+      render: ({ gatewayVersion }) =>
+        gatewayVersion?.trim()
+          ? gatewayVersion
+          : intl.formatMessage(messages.versionPlaceholder),
+      width: 10,
+    },
+    {
       id: "created",
       label: intl.formatMessage(messages.created),
       render: ({ createdAt }) => <GatewayCreatedDate createdAt={createdAt} />,
@@ -616,6 +629,9 @@ export function GatewayPage({
   }
 
   const connection = toGatewayConnection(visibleGateway);
+  // Derive the newer-version-available verdict once in the application layer so
+  // the header consumes a single authoritative result (GVV-03/GVV-04).
+  const versionDrift = deriveGatewayVersionDrift(visibleGateway);
   // Anchor the console-ready deadline the detail header shows to when the UI
   // first observed this gateway awaiting its console, matching the polling clock
   // above rather than the gateway's createdAt.
@@ -636,6 +652,7 @@ export function GatewayPage({
         <GatewayDetailHeader
           consoleWaitStartedAt={consoleWaitStartedAt}
           gateway={connection}
+          versionDrift={versionDrift}
           onDeleted={() => {
             if (onDeleted) {
               void onDeleted(connection.name);
@@ -745,6 +762,18 @@ export function GatewayPage({
                 </DescriptionListTerm>
                 <DescriptionListDescription>
                   <GatewayStatus status={connection.status} />
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>
+                  <FormattedMessage {...messages.version} />
+                </DescriptionListTerm>
+                <DescriptionListDescription>
+                  {connection.gatewayVersion?.trim() ? (
+                    connection.gatewayVersion
+                  ) : (
+                    <FormattedMessage {...messages.versionPlaceholder} />
+                  )}
                 </DescriptionListDescription>
               </DescriptionListGroup>
               <DescriptionListGroup>

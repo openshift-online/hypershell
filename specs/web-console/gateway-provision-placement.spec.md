@@ -279,6 +279,8 @@ The version choice SHALL default to "Any version". Changing the network or provi
 
 When no eligible cluster matches the selected network and provider, the form SHALL offer only "Any version". A version that becomes unavailable before submission SHALL be rejected by the backend and surfaced as a recoverable provisioning error, consistent with GP-04.
 
+Because the single batched placement-availability request (GP-04) carries a bounded number of selectors, the form probes versions newest-first and MAY cap the number of distinct versions it offers. When a fleet advertises more distinct `gateway-version` tags than that cap, the form SHALL offer the newest capped set; an older tag advertised only by a spoke outside that set MAY be unselectable. One version per spoke makes exceeding the cap unusual. This cap bounds only the provision form's choice; it does not affect which clusters the backend resolves for an explicitly submitted version selector.
+
 #### Scenario: Version options follow advertised capabilities
 
 - GIVEN two connected clusters match Public and Amazon Web Services
@@ -321,5 +323,6 @@ The network, provider, version, availability, disabled-state, validation, local-
 - A free-text or unvalidated version field, or offering a version no connected spoke advertises.
 - In-place gateway upgrades: a version choice only targets newly created gateways.
 - Capacity-aware cluster selection or placement scoring.
+- Offering every distinct advertised version in the provision form when a fleet advertises more than the availability-batch cap allows: the form offers the newest capped set (GP-11).
 - Changing existing gateway naming rules.
 - Changing the resolved `cluster_id` representation on existing gateway records.
