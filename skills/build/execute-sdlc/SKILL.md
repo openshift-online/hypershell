@@ -6,7 +6,13 @@ description: >
 
 # Execute SDLC
 
-Mechanically drive the 
+Mechanically drive the agent-based SDLC.
+
+Example usage:
+
+```
+> Execute `skills/build/execute-sdlc` `agent/scope/my-user`
+```
 
 
 ## User Input
