@@ -117,17 +117,35 @@ func (c *clusterScope) includes(ctx context.Context, rb *RoleBinding) (included 
 // WatchRoleBindings filter.
 func (h *roleBindingGRPCHandler) ListRoleBindings(ctx context.Context, req *pb.ListRoleBindingsRequest) (*pb.ListRoleBindingsResponse, error) {
 	userID := req.GetUserId()
-	if userID == "" {
-		return nil, status.Error(codes.InvalidArgument, "user_id is required")
-	}
 	scope, scopeErr := h.newClusterScope(req.GetClusterId())
 	if scopeErr != nil {
 		return nil, scopeErr
 	}
 
-	bindings, svcErr := h.service.FindByUserID(ctx, userID)
-	if svcErr != nil {
-		return nil, status.Errorf(codes.Internal, "list role bindings for user %s: %v", userID, svcErr)
+	var bindings RoleBindingList
+	var svcErr *errors.ServiceError
+	if userID != "" {
+		bindings, svcErr = h.service.FindByUserID(ctx, userID)
+		if svcErr != nil {
+			return nil, status.Errorf(codes.Internal, "list role bindings for user %s: %v", userID, svcErr)
+		}
+	} else {
+		// A cluster-wide resync lists every surviving binding for the caller's
+		// cluster so the control plane can recover an owner grant whose create event
+		// the WatchRoleBindings stream missed or dropped while silent
+		// (control-plane.spec.md, "Role Binding Resync"). Without a user filter the
+		// cluster scope is mandatory: an unscoped full list would return every
+		// cluster's bindings and the user identities they carry. Only a registered
+		// control plane reaches this handler (grpc_authorization.go denies every
+		// other caller on RoleBindingService), and the caller binding forces its
+		// cluster_id to its own, so the scope filter below is an enforced boundary.
+		if scope == nil {
+			return nil, status.Error(codes.InvalidArgument, "user_id or cluster_id is required")
+		}
+		bindings, svcErr = h.service.All(ctx)
+		if svcErr != nil {
+			return nil, status.Errorf(codes.Internal, "list role bindings: %v", svcErr)
+		}
 	}
 
 	resp := &pb.ListRoleBindingsResponse{}

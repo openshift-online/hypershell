@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -11,6 +12,8 @@ import (
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // keycloakRoleMap maps a platform RoleBinding role to the gateway client roles a
@@ -108,6 +111,18 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 
 	kcClientID, gatewayClusterID, err := r.resolveKeycloakClientID(ctx, *rb.GatewayId)
 	if err != nil {
+		if isGatewayNotFound(err) {
+			// The binding outlived its gateway: the gateway was deleted while the
+			// stream was down, or the periodic resync's ListRoleBindings surfaced a
+			// binding whose gateway is already gone. There is no per-gateway Keycloak
+			// client left to reconcile, so this is a benign no-op, not a failure --
+			// returning it as a (terminal) error would log at ERROR on every reconnect
+			// and every resync interval, forever, for every such binding, drowning
+			// real errors and tripping alerts. Deletion of roles a gone binding no
+			// longer backs stays the stream's job (the resync never prunes).
+			log.Printf("DEBUG role binding %s: gateway %s no longer exists; nothing to reconcile", event.ResourceID, *rb.GatewayId)
+			return nil
+		}
 		reconcileErr = fmt.Errorf("resolve keycloak client id for role binding %s: %w", event.ResourceID, err)
 		return reconcileErr
 	}
@@ -203,6 +218,19 @@ func unionKcRoles(items []*pb.RoleBinding, excludeID string) map[string]bool {
 		}
 	}
 	return desired
+}
+
+// isGatewayNotFound reports whether err (possibly wrapped) is a gRPC NotFound,
+// which GetGateway returns when the binding's gateway no longer exists. It walks
+// the wrap chain because resolveKeycloakClientID wraps the RPC error with %w.
+func isGatewayNotFound(err error) bool {
+	for err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
+			return true
+		}
+		err = errors.Unwrap(err)
+	}
+	return false
 }
 
 // resolveKeycloakClientID looks up the gateway by ID and returns the Keycloak

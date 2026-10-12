@@ -227,6 +227,33 @@ func TestHandle_OwnClusterGatewayReachesKeycloak(t *testing.T) {
 	}
 }
 
+// A binding whose gateway no longer exists (deleted while the stream was down, or
+// surfaced by a resync that lists bindings outliving their gateway) is a benign
+// no-op: there is no per-gateway Keycloak client left to reconcile. Handle must
+// return nil -- not a (terminal) error -- so the reconcile queue does not log at
+// ERROR on every reconnect and resync interval, forever, for every such binding.
+// An unroutable Keycloak proves the no-op happens before any Keycloak call: if
+// the reconciler proceeded past the missing gateway it would fail loudly instead.
+func TestHandle_MissingGatewayIsBenignNoOp(t *testing.T) {
+	// No gateway is set on the recorder, so GetGateway returns codes.NotFound for
+	// any id -- exactly the missing-gateway condition under test.
+	conn, _ := newRecordingGatewayConn(t)
+	r := NewRoleBindingReconciler(keycloak.NewClient("http://127.0.0.1:1", "hypershell", "id", "secret"), conn, "cluster-1")
+	gatewayID := "gw-gone"
+	err := r.Handle(context.Background(), watcher.Event[*pb.RoleBinding]{
+		ResourceID: "rb-1",
+		Type:       watcher.EventCreated,
+		Resource: &pb.RoleBinding{
+			RoleName:  "gateway:owner",
+			GatewayId: &gatewayID,
+			Username:  "alice",
+		},
+	})
+	if err != nil {
+		t.Fatalf("a binding whose gateway is gone must be a no-op, got %v", err)
+	}
+}
+
 // recordingRoleBindingServer records each ListRoleBindings request so tests can
 // assert the delete path scopes its recompute to this control plane's cluster.
 type recordingRoleBindingServer struct {

@@ -113,6 +113,8 @@ A gateway administrator (owner or admin) SHALL therefore hold **both** `openshel
 
 On every RoleBinding event (created, updated, deleted) for a gateway-scoped binding, the control plane SHALL reconcile the bound user's Keycloak client roles on that gateway to the **exact union** of client roles implied by the user's current surviving bindings on that gateway: it SHALL assign any missing client role and remove any client role no longer backed by a surviving binding. This makes role changes and demotions converge correctly and makes repeated events idempotent.
 
+The Role Bridge SHALL NOT depend solely on the `WatchRoleBindings` event stream for delivery. The control plane SHALL also seed and periodically resync the RoleBinding reconciler from `ListRoleBindings` so an owner grant is recovered even when an event is missed or the stream goes silent (`control-plane.spec.md`, "Requirement: Role Binding Resync" and "Requirement: Watch Stream Liveness"). The resync applies the same union reconciliation and is idempotent.
+
 #### Scenario: Admin grant assigns both client roles
 
 - GIVEN gw-1 has a provisioned Keycloak client
