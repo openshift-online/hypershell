@@ -1,10 +1,7 @@
 # Repository registration for this repo. The server-side import process
-# discovers this .hypershell directory and renders the declarative resources
-# it finds (see .hypershell/README.md).
-#
-# secret_source_id references a platform-provisioned SecretSource holding the
-# GitHub App credential HyperShell uses to reach the repo. The importer
-# resolves FK references by name; see README "Reference resolution".
+# discovers this .hypershell directory and renders the declarative resources it
+# finds. secret_source_id references a platform-provisioned SecretSource holding
+# the GitHub App credential; the importer resolves FK references by name.
 apiVersion: hypershell.redhat.io/v1
 kind: Repository
 metadata:

@@ -1,6 +1,6 @@
 # Reusable, gateway-agnostic provider capability definitions shared across the
-# agent workspaces. capability and profile are JSON-encoded, category-
-# discriminated documents (see specs/platform/data-model.spec.md).
+# agent workspaces. capability is a JSON-encoded, category-discriminated
+# document (see specs/platform/data-model.spec.md).
 apiVersion: hypershell.redhat.io/v1
 kind: ProviderSpec
 metadata:

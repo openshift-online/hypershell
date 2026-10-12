@@ -1,10 +1,20 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Root kustomization for the declarative .hypershell import. The server-side
-# import process (Repository.import_path) builds this and reconciles the
-# rendered HyperShell resources into the API. This is the base (kind) dev
-# composition; environment-specific values are applied by the overlays under
-# overlays/ (e.g. overlays/hypc-ibm-00).
+# Root import: the full agent fleet. The server-side import process
+# (Repository.import_path) builds this and reconciles the rendered ext-API
+# resources into the API. Shared platform kinds come from base/platform once;
+# each agent under agents/ contributes its own instance.
+#
+# base/ (the standalone basic agent) is intentionally not included here; apply
+# it directly with `hsctl apply -k .hypershell/base`.
 resources:
-  - agents
+  - base/platform
+  - agents/triage/agent.yaml
+  - agents/spec-implementation/agent.yaml
+  - agents/spec-review/agent.yaml
+  - agents/code-implementation/agent.yaml
+  - agents/code-review/agent.yaml
+  - agents/review-response/agent.yaml
+  - agents/release-verification/agent.yaml
+  - agents/update-openshell/agent.yaml

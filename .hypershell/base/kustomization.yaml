@@ -1,9 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Shared, reusable resources referenced by every agent runtime overlay.
+# The basic agent: shared platform kinds plus one complete AgentRuntime graph.
+# Apply directly with `hsctl apply -k .hypershell/base`.
 resources:
-  - repository.yaml
-  - gateway.yaml
-  - sandbox-templates.yaml
-  - provider-specs.yaml
+  - platform
+  - agent.yaml

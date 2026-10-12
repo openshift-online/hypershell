@@ -1,0 +1,15 @@
+# Gateway the agent runtimes connect to (inference + workspace provisioning).
+# Every AgentRuntime references this Gateway by name (gateway_id: agents-gateway).
+#
+# No cluster is named here: the control plane assigns a ManagedCluster by
+# matching capability labels against what is available, so the gateway can be
+# declared and referenced by name with provisioning deferred. namespace is
+# omitted because the API server assigns it at creation.
+apiVersion: hypershell.redhat.io/v1
+kind: Gateway
+metadata:
+  name: agents-gateway
+  description: Shared gateway for HyperShell SDLC automation agents
+spec:
+  tls_mode: edge
+  service_type: ClusterIP

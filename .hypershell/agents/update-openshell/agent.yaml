@@ -1,17 +1,16 @@
-# update-openshell agent runtime (declarative; replaces discover.sh/run.sh).
-# # Scheduled runtime: runs on its cron with no repository scan.
-# FK references use names; the importer resolves them (see ../../README.md).
-# cluster_id/gateway_id carry base (kind) defaults; an overlay patches them
-# per environment (see ../../overlays/).
+# update-openshell agent instance (overlay on ../../base/platform).
+# Scheduled runtime: runs on its cron with no repository scan.
+# Ext-API kinds only; no cluster information (placement is resolved by the
+# control plane via capability labels). FK references use names; the importer
+# resolves them (see ../../README.md).
 apiVersion: hypershell.redhat.io/v1
 kind: AgentRuntime
 metadata:
   name: update-openshell
   description: SDLC automation agent (update-openshell)
 spec:
-  cluster_id: local-kind
-  gateway_id: agents-gateway
   sandbox_template_id: agent-runtime-slim
+  gateway_id: agents-gateway
   repository_id: hypershell
   cron: "0 6 * * 1"
   coordinator_image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-slim-main:latest
@@ -21,7 +20,6 @@ spec:
   parameters: |
     {"REPOSITORY": "openshift-online/hypershell", "DRY_RUN": "false"}
 ---
-# Credentials owned by this runtime (agent_runtime_id = runtime name).
 apiVersion: hypershell.redhat.io/v1
 kind: SecretSource
 metadata:
@@ -52,8 +50,6 @@ spec:
   backend: vault
   path: hypershell/update-openshell/github-app
 ---
-# Provider bindings wire the shared ProviderSpecs into this runtime's workspace
-# (workspace_id = runtime name; the importer maps runtime -> its workspace).
 apiVersion: hypershell.redhat.io/v1
 kind: ProviderBinding
 metadata:
@@ -76,7 +72,6 @@ spec:
   refresh_strategy: |
     {"type": "app-installation-token", "material": {"app_id": "REPLACE_WITH_GITHUB_APP_ID"}, "secret_material": [{"key": "private_key", "secret_source_id": "update-openshell-github-key"}]}
 ---
-# Active LLM for this workspace (at most one InferenceRoute per workspace).
 apiVersion: hypershell.redhat.io/v1
 kind: InferenceRoute
 metadata:
