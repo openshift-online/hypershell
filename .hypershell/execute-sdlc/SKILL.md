@@ -38,8 +38,13 @@ $LABEL_SCOPE [$ISSUE_OVERRIDE (Optional)] [$LLM_OVERRIDE (Optional)] [$DRY_RUN]
 Whenever `skill(<skill_path>, <args>)` is called, shell out to the following: 
 
 ```bash
-$LLM_OVERRIDE "Execute skill: <skill_path> <args> $DRY_RUN"
+CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 $LLM_OVERRIDE "Execute skill: <skill_path> <args> $DRY_RUN"
 ```
+
+Note: `claude -p` and its wrappers default to a background-wait ceiling of about
+10 minutes, which terminates in-flight subagents before the step can commit and
+push its work, silently losing it. Setting `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`
+forces the invoked process to wait indefinitely for its subagents to complete.
 
 Note: If LLM_OVERRIDE is not provided, default to `claude -p`.
 
