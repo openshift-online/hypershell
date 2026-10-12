@@ -2,7 +2,7 @@ module github.com/openshift-online/hypershell/components/fleet-dashboard
 
 go 1.26.4
 
-toolchain go1.26.7
+toolchain go1.27.1
 
 require (
 	github.com/prometheus/client_golang v1.23.0
