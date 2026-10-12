@@ -61,14 +61,16 @@ CLI, and it carries the same RBAC as any other gateway field.
 | `type: kubernetes-secrets` | Kubernetes Secrets | Explicit opt-in; unchanged |
 | `type: kek-db` | KEK-encrypted database | Explicit opt-in to the former default; provisions the KEK Secret |
 
-> **Rollout note (transitional).** The resolved value of an *omitted* field is
-> selected per control-plane deployment by `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`
-> during the HYPERSHELL-369 rollout. It defaults to `kek-db`, so every cluster that
-> has not opted in keeps today's behavior and nothing breaks; a cluster sets it to
-> `vault` once its per-cluster Vault is up (hyp0 is first, via hypershell-gitops).
-> This knob is temporary: once every gateway-hosting cluster has a Vault, the flat
-> default becomes `vault` and the selector is removed, matching the table above. An
-> *explicit* `credential_driver` is always honored regardless of the selector.
+> **Rollout note (transitional).** The flat `vault` default in the table above is the
+> *target* end state. It is reached in stages, to be safe: **(1)** ship the Vault
+> driver as a pure **opt-in** - an *explicit* `credential_driver: vault` works
+> end-to-end, while the resolved value of an *omitted* field stays `kek-db` on every
+> cluster, so nothing changes until a gateway asks for Vault; **(2)** once a cluster's
+> per-cluster Vault is proven, flip that cluster's omitted-default to `vault` via the
+> `GATEWAY_DEFAULT_CREDENTIAL_DRIVER` control-plane setting (which itself defaults to
+> `kek-db`); **(3)** once every gateway-hosting cluster has a Vault, make `vault` the
+> flat code default and remove the selector. No cluster flips its default until its
+> Vault is validated; an *explicit* `credential_driver` is always honored regardless.
 
 When `type` is `vault`, every sub-field is **optional**: omitted sub-fields take the
 control-plane convention defaults (see Requirement: Vault Convention Defaults). The
