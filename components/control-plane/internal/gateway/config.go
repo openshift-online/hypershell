@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	corev1 "k8s.io/api/core/v1"
@@ -111,6 +112,65 @@ type CredentialDriverConfig struct {
 	Type              string                   `yaml:"type" json:"type"`
 	KubernetesSecrets *KubernetesSecretsConfig `yaml:"kubernetes_secrets,omitempty" json:"kubernetes_secrets,omitempty"`
 	Vault             *VaultCredentialConfig   `yaml:"vault,omitempty" json:"vault,omitempty"`
+}
+
+// Vault credential-driver conventions (HYPERSHELL-369). A gateway resolved to the
+// vault driver uses these fixed coordinates unless overridden per-gateway
+// (credential_driver.vault.*) or by control-plane deployment config. They match
+// the per-cluster Vault stood up by hypershell-gitops
+// (specs/openshell-gateway-vault.spec.md) and must stay in sync with it - the role
+// name and auth mount are shared literals a mismatch would break authentication on.
+const (
+	VaultDefaultAddress              = "https://openshell-gateway-vault.openshell-vault.svc:8200"
+	VaultDefaultMount                = "secret"
+	VaultDefaultKVVersion            = "2"
+	VaultDefaultAuthMethod           = "kubernetes"
+	VaultDefaultRole                 = "openshell-gateway"
+	VaultDefaultKubernetesAuthMount  = "kubernetes"
+	VaultServiceAccountTokenPath     = "/var/run/secrets/vault/token"
+	VaultServiceAccountTokenDir      = "/var/run/secrets/vault"
+	VaultServiceAccountTokenAudience = "vault"
+	VaultServiceAccountTokenExpiry   = 3600
+	VaultDefaultTimeoutSecs          = 30
+	// VaultCATargetConfigMapName is the ConfigMap the control plane mirrors the
+	// Vault serving CA into, in each gateway's tenant namespace, wired to the
+	// chart's credentialDrivers.vault.caConfigMapName.
+	VaultCATargetConfigMapName = "openshell-gateway-vault-ca"
+	// VaultCADefaultSourceNamespace / VaultCADefaultSourceSecret locate the Vault
+	// serving-CA source on the same cluster (overridable via GATEWAY_VAULT_CA_SECRET
+	// as "namespace/name").
+	VaultCADefaultSourceNamespace = "openshell-vault"
+	VaultCADefaultSourceSecret    = "openshell-gateway-vault-tls"
+	VaultCAKey                    = "ca.crt"
+)
+
+// VaultAddressDefault returns the Vault address convention, overridable by the
+// GATEWAY_VAULT_ADDRESS control-plane environment variable.
+func VaultAddressDefault() string {
+	if v := os.Getenv("GATEWAY_VAULT_ADDRESS"); v != "" {
+		return v
+	}
+	return VaultDefaultAddress
+}
+
+// VaultRoleDefault returns the shared Vault role convention, overridable by the
+// GATEWAY_VAULT_ROLE control-plane environment variable.
+func VaultRoleDefault() string {
+	if v := os.Getenv("GATEWAY_VAULT_ROLE"); v != "" {
+		return v
+	}
+	return VaultDefaultRole
+}
+
+// VaultCASource returns the namespace and name of the Vault serving-CA source
+// Secret, overridable via GATEWAY_VAULT_CA_SECRET ("namespace/name").
+func VaultCASource() (namespace, name string) {
+	if v := os.Getenv("GATEWAY_VAULT_CA_SECRET"); v != "" {
+		if i := strings.IndexByte(v, '/'); i > 0 && i < len(v)-1 {
+			return v[:i], v[i+1:]
+		}
+	}
+	return VaultCADefaultSourceNamespace, VaultCADefaultSourceSecret
 }
 
 type KubernetesSecretsConfig struct {

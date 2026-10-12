@@ -171,25 +171,48 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "vault without config is invalid",
+			// HYPERSHELL-369: vault sub-fields are optional; the control plane
+			// fills them from the per-cluster conventions.
+			name:    "vault without config is valid (conventions fill it)",
 			config:  &CredentialDriverConfig{Type: "vault"},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
-			name: "vault without address is invalid",
+			name: "vault without address is valid (convention address used)",
 			config: &CredentialDriverConfig{
 				Type:  "vault",
 				Vault: &VaultCredentialConfig{Role: "gw-role"},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
-			name: "vault without role is invalid",
+			name: "vault without role is valid (convention role used)",
 			config: &CredentialDriverConfig{
 				Type:  "vault",
 				Vault: &VaultCredentialConfig{Address: "https://vault.example.com"},
 			},
+			wantErr: false,
+		},
+		{
+			name: "vault with plaintext non-loopback address is invalid",
+			config: &CredentialDriverConfig{
+				Type:  "vault",
+				Vault: &VaultCredentialConfig{Address: "http://vault.example.com:8200"},
+			},
 			wantErr: true,
+		},
+		{
+			name: "vault with http loopback address is valid",
+			config: &CredentialDriverConfig{
+				Type:  "vault",
+				Vault: &VaultCredentialConfig{Address: "http://127.0.0.1:8200"},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "kek-db is valid",
+			config:  &CredentialDriverConfig{Type: "kek-db"},
+			wantErr: false,
 		},
 		{
 			name:    "unsupported type is invalid",
@@ -197,9 +220,10 @@ func TestValidateCredentialDriverConfig(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "empty type is invalid",
+			// An empty-typed driver object defaults to vault (HYPERSHELL-369).
+			name:    "empty type is valid (defaults to vault)",
 			config:  &CredentialDriverConfig{Type: ""},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 

@@ -17,6 +17,7 @@ func deployGatewayViaHelm(
 	nsConfig NamespaceConfig,
 	opts ReconcileOpts,
 	hasTrustedCA bool,
+	hasVaultCA bool,
 ) error {
 	// Build Helm values from gateway configuration
 	valuesBuilder := &helm.ValuesBuilder{
@@ -55,6 +56,7 @@ func deployGatewayViaHelm(
 		ExternalCAIssuerName:       opts.ExternalCAIssuerName,
 		ExternalCAIssuerKind:       opts.ExternalCAIssuerKind,
 		HasTrustedCA:               hasTrustedCA,
+		HasVaultCA:                 hasVaultCA,
 		Resources:                  opts.GatewayResources,
 		SandboxRuntimeClass:        opts.SandboxRuntimeClass,
 	}
@@ -116,14 +118,73 @@ func deployGatewayViaHelm(
 	return nil
 }
 
-// convertCredentialDriver converts gateway.CredentialDriverConfig to helm.CredentialDriverConfig.
+// convertCredentialDriver converts gateway.CredentialDriverConfig to
+// helm.CredentialDriverConfig, resolving the Vault conventions for the vault
+// driver. A nil driver stays nil (the KEK default; Wave 2 flips this to vault).
 func convertCredentialDriver(driver *CredentialDriverConfig) *helm.CredentialDriverConfig {
 	if driver == nil {
 		return nil
 	}
-	return &helm.CredentialDriverConfig{
-		Type: driver.Type,
+	switch driver.Type {
+	case "kubernetes-secrets":
+		hc := &helm.CredentialDriverConfig{Type: "kubernetes-secrets"}
+		if driver.KubernetesSecrets != nil {
+			hc.KubernetesSecrets = &helm.KubernetesSecretsValues{Namespace: driver.KubernetesSecrets.Namespace}
+		}
+		return hc
+	case "kek-db":
+		return &helm.CredentialDriverConfig{Type: "kek-db"}
+	case "vault", "":
+		return &helm.CredentialDriverConfig{Type: "vault", Vault: resolveVaultValues(driver.Vault)}
+	default:
+		return &helm.CredentialDriverConfig{Type: driver.Type}
 	}
+}
+
+// resolveVaultValues fills the Vault coordinates from the per-cluster conventions
+// (config.go), applying any per-gateway overrides in credential_driver.vault.
+func resolveVaultValues(o *VaultCredentialConfig) *helm.VaultValues {
+	v := &helm.VaultValues{
+		Address:                 VaultAddressDefault(),
+		Mount:                   VaultDefaultMount,
+		KVVersion:               VaultDefaultKVVersion,
+		AuthMethod:              VaultDefaultAuthMethod,
+		Role:                    VaultRoleDefault(),
+		KubernetesAuthMount:     VaultDefaultKubernetesAuthMount,
+		ServiceAccountTokenPath: VaultServiceAccountTokenPath,
+		TokenAudience:           VaultServiceAccountTokenAudience,
+		TokenDir:                VaultServiceAccountTokenDir,
+		TokenExpirySeconds:      VaultServiceAccountTokenExpiry,
+		CAConfigMapName:         VaultCATargetConfigMapName,
+		TimeoutSecs:             VaultDefaultTimeoutSecs,
+	}
+	if o != nil {
+		if o.Address != "" {
+			v.Address = o.Address
+		}
+		if o.Mount != "" {
+			v.Mount = o.Mount
+		}
+		if o.AuthMethod != "" {
+			v.AuthMethod = o.AuthMethod
+		}
+		if o.Role != "" {
+			v.Role = o.Role
+		}
+		if o.KubernetesAuthMount != "" {
+			v.KubernetesAuthMount = o.KubernetesAuthMount
+		}
+		if o.TimeoutSecs != 0 {
+			v.TimeoutSecs = o.TimeoutSecs
+		}
+	}
+	return v
+}
+
+// isVaultDriver reports whether the resolved credential driver is vault (an
+// explicit `vault` type, or an empty-typed driver object which defaults to vault).
+func isVaultDriver(driver *CredentialDriverConfig) bool {
+	return driver != nil && (driver.Type == "vault" || driver.Type == "")
 }
 
 // getGatewayAPIGatewayName returns the name of the shared Gateway API Gateway resource.
