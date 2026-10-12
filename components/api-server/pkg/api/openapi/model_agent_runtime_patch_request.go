@@ -19,14 +19,16 @@ var _ MappedNullable = &AgentRuntimePatchRequest{}
 
 // AgentRuntimePatchRequest struct for AgentRuntimePatchRequest
 type AgentRuntimePatchRequest struct {
-	Name                *string `json:"name,omitempty"`
-	SandboxTemplateId   *string `json:"sandbox_template_id,omitempty"`
-	Description         *string `json:"description,omitempty"`
-	Cron                *string `json:"cron,omitempty"`
-	CoordinatorImage    *string `json:"coordinator_image,omitempty"`
-	ConcurrencyPolicy   *string `json:"concurrency_policy,omitempty"`
-	LoginRefreshSeconds *int32  `json:"login_refresh_seconds,omitempty"`
-	Parameters          *string `json:"parameters,omitempty"`
+	Name                *string  `json:"name,omitempty"`
+	SandboxTemplateId   *string  `json:"sandbox_template_id,omitempty"`
+	RepositoryId        *string  `json:"repository_id,omitempty"`
+	Selector            []string `json:"selector,omitempty"`
+	Description         *string  `json:"description,omitempty"`
+	Cron                *string  `json:"cron,omitempty"`
+	CoordinatorImage    *string  `json:"coordinator_image,omitempty"`
+	ConcurrencyPolicy   *string  `json:"concurrency_policy,omitempty"`
+	LoginRefreshSeconds *int32   `json:"login_refresh_seconds,omitempty"`
+	Parameters          *string  `json:"parameters,omitempty"`
 }
 
 // NewAgentRuntimePatchRequest instantiates a new AgentRuntimePatchRequest object
@@ -108,6 +110,70 @@ func (o *AgentRuntimePatchRequest) HasSandboxTemplateId() bool {
 // SetSandboxTemplateId gets a reference to the given string and assigns it to the SandboxTemplateId field.
 func (o *AgentRuntimePatchRequest) SetSandboxTemplateId(v string) {
 	o.SandboxTemplateId = &v
+}
+
+// GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
+func (o *AgentRuntimePatchRequest) GetRepositoryId() string {
+	if o == nil || IsNil(o.RepositoryId) {
+		var ret string
+		return ret
+	}
+	return *o.RepositoryId
+}
+
+// GetRepositoryIdOk returns a tuple with the RepositoryId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *AgentRuntimePatchRequest) GetRepositoryIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RepositoryId) {
+		return nil, false
+	}
+	return o.RepositoryId, true
+}
+
+// HasRepositoryId returns a boolean if a field has been set.
+func (o *AgentRuntimePatchRequest) HasRepositoryId() bool {
+	if o != nil && !IsNil(o.RepositoryId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepositoryId gets a reference to the given string and assigns it to the RepositoryId field.
+func (o *AgentRuntimePatchRequest) SetRepositoryId(v string) {
+	o.RepositoryId = &v
+}
+
+// GetSelector returns the Selector field value if set, zero value otherwise.
+func (o *AgentRuntimePatchRequest) GetSelector() []string {
+	if o == nil || IsNil(o.Selector) {
+		var ret []string
+		return ret
+	}
+	return o.Selector
+}
+
+// GetSelectorOk returns a tuple with the Selector field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *AgentRuntimePatchRequest) GetSelectorOk() ([]string, bool) {
+	if o == nil || IsNil(o.Selector) {
+		return nil, false
+	}
+	return o.Selector, true
+}
+
+// HasSelector returns a boolean if a field has been set.
+func (o *AgentRuntimePatchRequest) HasSelector() bool {
+	if o != nil && !IsNil(o.Selector) {
+		return true
+	}
+
+	return false
+}
+
+// SetSelector gets a reference to the given []string and assigns it to the Selector field.
+func (o *AgentRuntimePatchRequest) SetSelector(v []string) {
+	o.Selector = v
 }
 
 // GetDescription returns the Description field value if set, zero value otherwise.
@@ -317,6 +383,12 @@ func (o AgentRuntimePatchRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.SandboxTemplateId) {
 		toSerialize["sandbox_template_id"] = o.SandboxTemplateId
+	}
+	if !IsNil(o.RepositoryId) {
+		toSerialize["repository_id"] = o.RepositoryId
+	}
+	if !IsNil(o.Selector) {
+		toSerialize["selector"] = o.Selector
 	}
 	if !IsNil(o.Description) {
 		toSerialize["description"] = o.Description

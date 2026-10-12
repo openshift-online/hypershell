@@ -50,15 +50,13 @@ func TestGatewayPost(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	gatewayInput := openapi.GatewayCreateRequest{
-		Name:        "test-name",
-		ClusterId:   registerTestCluster(t),
-		ExternalDns: openapi.PtrString("test-external_dns"),
-		TlsMode:     openapi.PtrString("test-tls_mode"),
-		ServiceType: openapi.PtrString("test-service_type"),
-		Status:      openapi.PtrString("test-status"),
-		Phase:       openapi.PtrString("Provisioning"),
-	}
+	clusterID := registerTestCluster(t)
+	gatewayInput := managedGatewayCreateRequest("test-name")
+	gatewayInput.ExternalDns = openapi.PtrString("test-external_dns")
+	gatewayInput.TlsMode = openapi.PtrString("test-tls_mode")
+	gatewayInput.ServiceType = openapi.PtrString("test-service_type")
+	gatewayInput.Status = openapi.PtrString("test-status")
+	gatewayInput.Phase = openapi.PtrString("Provisioning")
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting object:  %v", err)
@@ -66,6 +64,7 @@ func TestGatewayPost(t *testing.T) {
 	Expect(*gatewayOutput.Id).NotTo(BeEmpty(), "Expected ID assigned on creation")
 	Expect(*gatewayOutput.Kind).To(Equal("Gateway"))
 	Expect(*gatewayOutput.Href).To(Equal(fmt.Sprintf("/api/hypershell/v1/gateways/%s", *gatewayOutput.Id)))
+	Expect(gatewayOutput.ClusterId).To(Equal(clusterID))
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 
 	jwtToken := ctx.Value(openapi.ContextAccessToken)
@@ -85,10 +84,7 @@ func TestGatewayPostMinimalFields(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 	clusterID := registerTestCluster(t)
-	gatewayInput := openapi.GatewayCreateRequest{
-		Name:      "local-gateway",
-		ClusterId: clusterID,
-	}
+	gatewayInput := managedGatewayCreateRequest("local-gateway")
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with minimal fields: %v", err)
@@ -97,43 +93,24 @@ func TestGatewayPostMinimalFields(t *testing.T) {
 	Expect(gatewayOutput.Namespace).To(MatchRegexp(`^openshell-[0-9a-f]{16}$`))
 }
 
-// Gateways Reference a Registered Cluster: an empty cluster_id is a 400 naming
-// cluster_id, and no gateway is created.
-func TestGatewayPostRejectsEmptyClusterID(t *testing.T) {
+// Gateway creation accepts placement intent only. A legacy direct cluster_id
+// is rejected as an unknown request field even when valid placement is present.
+func TestGatewayPostRejectsDirectClusterID(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
-
-	_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name:      "no-cluster",
-		ClusterId: "",
-	}).Execute()
-	Expect(err).To(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
-	Expect(openapiErrorReason(h, err)).To(ContainSubstring("cluster_id"))
-	expectNoGatewayNamed(ctx, client, "no-cluster")
-}
-
-// Gateways Reference a Registered Cluster: a cluster_id naming a manually
-// created ManagedCluster (empty oidc_subject) or no ManagedCluster at all is a
-// 400 stating the cluster has no registered control plane.
-func TestGatewayPostRejectsUnregisteredCluster(t *testing.T) {
-	h, client := test.RegisterIntegration(t)
-
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-
-	for _, clusterID := range []string{createManualCluster(t), "2doesnotexist000000000000000"} {
-		_, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-			Name:      "unregistered-cluster",
-			ClusterId: clusterID,
-		}).Execute()
-		Expect(err).To(HaveOccurred(), "cluster_id %s must be rejected", clusterID)
-		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
-		Expect(openapiErrorReason(h, err)).To(ContainSubstring("registered control plane"))
-	}
-	expectNoGatewayNamed(ctx, client, "unregistered-cluster")
+	registerTestCluster(t)
+	jwToken := ctx.Value(openapi.ContextAccessToken)
+	resp, err := resty.R().
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Authorization", fmt.Sprintf("Bearer %s", jwToken)).
+		SetBody(`{"name":"direct-cluster","placement":{"network":"public","provider":"aws"},"cluster_id":"legacy-cluster"}`).
+		Post(h.RestURL("/gateways"))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode()).To(Equal(http.StatusBadRequest))
+	Expect(string(resp.Body())).To(ContainSubstring("cluster_id"))
+	expectNoGatewayNamed(ctx, client, "direct-cluster")
 }
 
 // A PATCH that moves a gateway to an unregistered cluster is rejected; one that
@@ -144,11 +121,8 @@ func TestGatewayPatchValidatesClusterReassignment(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	clusterID := registerTestCluster(t)
-	created, _, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(openapi.GatewayCreateRequest{
-		Name:      "patch-cluster",
-		ClusterId: clusterID,
-	}).Execute()
+	registerTestCluster(t)
+	created, _, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(managedGatewayCreateRequest("patch-cluster")).Execute()
 	Expect(err).NotTo(HaveOccurred())
 
 	_, resp, err := client.DefaultAPI.UpdateGateway(ctx, *created.Id).GatewayPatchRequest(openapi.GatewayPatchRequest{
@@ -195,10 +169,8 @@ func TestGatewayPostWithoutRouteRemainsUnrouted(t *testing.T) {
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 
-	gatewayInput := openapi.GatewayCreateRequest{
-		Name:      "route-default-test",
-		ClusterId: registerTestCluster(t),
-	}
+	registerTestCluster(t)
+	gatewayInput := managedGatewayCreateRequest("route-default-test")
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred())
@@ -213,11 +185,9 @@ func TestGatewayPostPreservesExplicitRoute(t *testing.T) {
 	ctx := h.NewAuthenticatedContext(account)
 
 	customRoute := `{"enabled":true,"host":"custom.example.com"}`
-	gatewayInput := openapi.GatewayCreateRequest{
-		Name:      "route-explicit-test",
-		ClusterId: registerTestCluster(t),
-		Route:     openapi.PtrString(customRoute),
-	}
+	registerTestCluster(t)
+	gatewayInput := managedGatewayCreateRequest("route-explicit-test")
+	gatewayInput.Route = openapi.PtrString(customRoute)
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred())
@@ -332,11 +302,9 @@ func TestGatewayPostWithCredentialDriver(t *testing.T) {
 	ctx := h.NewAuthenticatedContext(account)
 
 	credDriver := `{"type":"kubernetes-secrets","kubernetes_secrets":{"namespace":"creds-ns"}}`
-	gatewayInput := openapi.GatewayCreateRequest{
-		Name:             "test-cred-driver",
-		ClusterId:        registerTestCluster(t),
-		CredentialDriver: openapi.PtrString(credDriver),
-	}
+	registerTestCluster(t)
+	gatewayInput := managedGatewayCreateRequest("test-cred-driver")
+	gatewayInput.CredentialDriver = openapi.PtrString(credDriver)
 
 	gatewayOutput, resp, err := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 	Expect(err).NotTo(HaveOccurred(), "Error posting gateway with credential_driver: %v", err)

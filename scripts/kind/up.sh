@@ -402,7 +402,7 @@ success "Stand-in PostgreSQL ready (ssl=on)"
 
 # The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
 # mounted from its own namespace at /etc/hypershell/gateway-database
-# (deploy/base/controller.yaml), and refuses to start without it. It must exist
+# (deploy/base/platform-resources/controller.yaml), and refuses to start without it. It must exist
 # BEFORE the kustomize apply below so the controller pod can mount it. Its
 # sslrootcert is the CA that signed the stand-in server's certificate, and
 # sslmode is pinned to verify-full: the controller rejects anything weaker.
@@ -1016,6 +1016,7 @@ if [[ "${CPK_RUNNING}" == "true" ]]; then
 
   info "Login:        https://${CONSOLE_HOSTNAME}${PORT_SUFFIX}/auth/login"
   info "Test users:   admin/admin (admins + users), developer/developer (users only)"
+  info "Grant targets: ${KIND_EXTRA_USERNAMES[*]} (password == username; for gateway access testing)"
 else
   info "HTTP API:     http://localhost:8000"
   info "Web Console:  http://localhost:3000"
@@ -1034,6 +1035,7 @@ else
 
   info "Login:        http://localhost:3000/auth/login"
   info "Test users:   admin/admin (admins + users), developer/developer (users only)"
+  info "Grant targets: ${KIND_EXTRA_USERNAMES[*]} (password == username; for gateway access testing)"
 
   echo ""
   warn "Running without cloud-provider-kind - no TLS or hostname-based routing."

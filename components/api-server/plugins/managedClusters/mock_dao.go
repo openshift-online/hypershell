@@ -77,7 +77,7 @@ func (d *managedClusterDaoMock) FindDeletedBySubjectAndName(ctx context.Context,
 	return nil, gorm.ErrRecordNotFound
 }
 
-func (d *managedClusterDaoMock) Restore(ctx context.Context, id string, lastSeenAt time.Time) (*ManagedCluster, error) {
+func (d *managedClusterDaoMock) Restore(ctx context.Context, id, provider, visibility string, lastSeenAt time.Time) (*ManagedCluster, error) {
 	return nil, errors.NotImplemented("ManagedCluster").AsError()
 }
 

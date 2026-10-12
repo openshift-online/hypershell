@@ -16,6 +16,8 @@ type AgentRuntimeDao interface {
 	Delete(ctx context.Context, id string) error
 	FindByIDs(ctx context.Context, ids []string) (AgentRuntimeList, error)
 	All(ctx context.Context) (AgentRuntimeList, error)
+	// RepositoryExists reports whether a live Repository with the given id exists.
+	RepositoryExists(ctx context.Context, repositoryID string) (bool, error)
 }
 
 var _ AgentRuntimeDao = &sqlAgentRuntimeDao{}
@@ -80,4 +82,15 @@ func (d *sqlAgentRuntimeDao) All(ctx context.Context) (AgentRuntimeList, error) 
 		return nil, err
 	}
 	return agentRuntimes, nil
+}
+
+func (d *sqlAgentRuntimeDao) RepositoryExists(ctx context.Context, repositoryID string) (bool, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var count int64
+	if err := g2.Table("repositories").
+		Where("id = ? AND deleted_at IS NULL", repositoryID).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

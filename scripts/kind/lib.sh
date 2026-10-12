@@ -579,6 +579,12 @@ stop_port_forward() {
 
 # --- Keycloak seed-user reconciliation ---
 
+# Extra plain realm users seeded only in Kind, as grant targets for local
+# gateway-access-management testing (grant owner/admin/viewer to another user,
+# transfer/last-owner protection, directory search). Override to seed more.
+: "${KIND_EXTRA_USERNAMES:=alice bob carol dana}"
+read -r -a KIND_EXTRA_USERNAMES <<<"${KIND_EXTRA_USERNAMES}"
+
 # Aligns live Keycloak users with the static developer-owned seeds
 # (ephemeral-test-credentials.spec.md). Idempotent.
 reconcile_keycloak_seed_users() {
@@ -599,4 +605,13 @@ reconcile_keycloak_seed_users() {
     return 1
   fi
   success "Keycloak test-tier principals reconciled (admin/admin, developer/developer, platform-admin/platform-admin)"
+
+  # Plain grant-target users for local gateway-access-management testing
+  # (owner/admin/viewer tiers + Keycloak directory search). Kind-only; not
+  # test-tier principals, not seeded on CI-owned environments. Password == username.
+  if ! keycloak_reconcile_extra_users "${KIND_EXTRA_USERNAMES[@]}"; then
+    error "Failed to reconcile Keycloak grant-target users"
+    return 1
+  fi
+  success "Keycloak grant-target users reconciled (${KIND_EXTRA_USERNAMES[*]}; password == username)"
 }

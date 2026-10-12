@@ -41,6 +41,22 @@ pnpm dev
 
 Open <http://127.0.0.1:5173>. Browser requests retain the production-shaped relative `/api` path and Vite proxies them to `http://127.0.0.1:8000`. Set `WEB_CONSOLE_API_ORIGIN` to another loopback HTTP(S) origin when needed; credentials and non-loopback targets are rejected. No browser-visible flag enables authentication bypass.
 
+## Viewing UI mockups
+
+Mockups in `specs/web-console/mockups/` have their own Storybook configuration. From the repository root, start it with:
+
+```sh
+pnpm --dir components/web-console storybook:mockups
+```
+
+Then open <http://127.0.0.1:6007>. Full-shell design-review stories are under `Mockups/...`; shell-free `Parity/...` stories are used for production screenshot comparison. To build the mockups without starting a server, run:
+
+```sh
+pnpm --dir components/web-console build:storybook:mockups
+```
+
+The generated static Storybook is written to `specs/web-console/mockups/storybook-static/`.
+
 ## Verification
 
 ```sh

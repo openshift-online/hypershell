@@ -51,6 +51,26 @@ test.beforeEach(async ({ browserName, page }) => {
   }
 
   await page.route("**/api/hypershell/v1/gateways**", async (route) => {
+    if (
+      new URL(route.request().url()).pathname.endsWith(
+        "/placement-availability",
+      )
+    ) {
+      await route.fulfill({
+        body: JSON.stringify({
+          aws_public: true,
+          aws_reason: "no-eligible-cluster",
+          aws_vpn: false,
+          ibm_public: false,
+          ibm_reason: "no-eligible-cluster",
+          ibm_vpn: false,
+          local_kind: false,
+        }),
+        contentType: "application/json",
+        status: 200,
+      });
+      return;
+    }
     const request = route.request();
     if (request.method() === "DELETE") {
       gatewayDeleted = true;
@@ -251,11 +271,9 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
   await expect(page).toHaveURL(/\/gateways\/new$/);
-  // The picker offers registered clusters only; the single registered
-  // cluster is preselected.
-  await expect(page.getByRole("combobox", { name: "Cluster" })).toHaveValue(
-    "Cluster East",
-  );
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Provision gateway" }),
+  ).toBeVisible();
   await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
 });
 
@@ -458,6 +476,24 @@ test("provisions a gateway on an existing managed cluster", async ({
   page,
 }) => {
   let requestBody: Record<string, unknown> | undefined;
+  await page.route(
+    "**/api/hypershell/v1/gateways/placement-availability",
+    async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        status: 200,
+        body: JSON.stringify({
+          aws_public: true,
+          aws_reason: "no-eligible-cluster",
+          aws_vpn: false,
+          ibm_public: false,
+          ibm_reason: "no-eligible-cluster",
+          ibm_vpn: false,
+          local_kind: false,
+        }),
+      });
+    },
+  );
   await page.route("**/api/hypershell/v1/gateways", async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue();
@@ -491,14 +527,10 @@ test("provisions a gateway on an existing managed cluster", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
   ).toBeFocused();
-  const clusterInput = page.getByRole("combobox", { name: "Cluster" });
-  // A single registered cluster is preselected; clearing and re-selecting it
-  // exercises the search flow.
-  await expect(clusterInput).toHaveValue("Cluster East");
-  await page.getByRole("button", { name: "Clear cluster search" }).click();
-  await clusterInput.fill("East");
-  await page.getByText("Cluster East", { exact: true }).click();
-  await expect(clusterInput).toHaveValue("Cluster East");
+  await page.getByText("Public", { exact: true }).click({ force: true });
+  await page
+    .getByText("Amazon Web Services", { exact: true })
+    .click({ force: true });
   await expect(page.getByText("Provider: AWS; region: us-east-1")).toHaveCount(
     0,
   );
@@ -529,8 +561,8 @@ test("provisions a gateway on an existing managed cluster", async ({
   ).toBeVisible();
   await expect(page.getByText("Not available")).toHaveCount(1);
   expect(requestBody).toEqual({
-    cluster_id: "cluster-east",
     name: "team-gateway",
+    placement: { network: "public", provider: "aws" },
     route: '{"enabled":true}',
   });
 });

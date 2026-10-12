@@ -176,6 +176,10 @@ export function createGatewayOperations({
   }
 
   return {
+    changeGatewayAccessRole: (gatewayId, userId, role, signal) =>
+      execute("change-access-role", signal, (context) =>
+        controlPlane.changeGatewayAccessRole(gatewayId, userId, role, context),
+      ),
     createOpenShellGatewayServiceAccount: (gatewayId, input, signal) =>
       execute("create-service-account", signal, (context) =>
         controlPlane.createOpenShellGatewayServiceAccount(
@@ -200,6 +204,15 @@ export function createGatewayOperations({
       execute("find-placements", signal, (context) =>
         controlPlane.findGatewayPlacements(search.trim(), context),
       ),
+    getGatewayPlacementAvailability: (signal) =>
+      execute("placement-availability", signal, (context) => {
+        if (!controlPlane.getGatewayPlacementAvailability) {
+          throw new GatewayOperationError("unknown", {
+            cause: new Error("placement availability is unavailable"),
+          });
+        }
+        return controlPlane.getGatewayPlacementAvailability(context);
+      }),
     getGatewayPlacement: (clusterId, signal) =>
       execute("get-placement", signal, (context) =>
         controlPlane.getGatewayPlacement(clusterId, context),
@@ -211,6 +224,14 @@ export function createGatewayOperations({
     getGateway: (gatewayId, signal) =>
       execute("get", signal, (context) =>
         controlPlane.getGateway(gatewayId, context),
+      ),
+    grantGatewayAccess: (gatewayId, input, signal) =>
+      execute("grant-access", signal, (context) =>
+        controlPlane.grantGatewayAccess(gatewayId, input, context),
+      ),
+    listGatewayAccess: (gatewayId, request, signal) =>
+      execute("list-access", signal, (context) =>
+        controlPlane.listGatewayAccess(gatewayId, request, context),
       ),
     getOpenShellGatewayServiceAccount: (gatewayId, serviceAccountId, signal) =>
       execute("get-service-account", signal, (context) =>
@@ -243,6 +264,14 @@ export function createGatewayOperations({
     renameGateway: (gatewayId, name, signal) =>
       execute("rename", signal, (context) =>
         controlPlane.renameGateway(gatewayId, name, context),
+      ),
+    revokeGatewayAccess: (gatewayId, userId, signal) =>
+      execute("revoke-access", signal, (context) =>
+        controlPlane.revokeGatewayAccess(gatewayId, userId, context),
+      ),
+    searchGatewayDirectory: (gatewayId, search, signal) =>
+      execute("search-directory", signal, (context) =>
+        controlPlane.searchGatewayDirectory(gatewayId, search.trim(), context),
       ),
     revokeOpenShellGatewayServiceAccount: (
       gatewayId,

@@ -17,9 +17,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	provisionerpb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/auth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/directory"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/grpctransport"
@@ -277,8 +279,18 @@ func main() {
 		transportConfig := serviceaccountprovisioner.TransportConfig{
 			Address: cfg.ServiceAccountProvisionerAddress,
 		}
+		// The Keycloak realm directory projection (GAM-09) rides the same private
+		// in-cluster channel. It needs Keycloak, so it is served only when a
+		// Keycloak client is configured; the API server dials this one address for
+		// both the provisioner and the directory.
+		var directorySvc provisionerpb.DirectoryServiceServer
+		if kcClient != nil {
+			projection := directory.NewProjection(kcClient, cfg.DirectoryRefreshInterval)
+			directorySvc = directory.NewServer(projection)
+			supervise("keycloak directory projection", projection.Run)
+		}
 		supervise("service-account provisioner", func(ctx context.Context) error {
-			return serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer)
+			return serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer, directorySvc)
 		})
 		log.Printf("INFO service-account provisioner launched on %s (in-cluster, NetworkPolicy-restricted)", cfg.ServiceAccountProvisionerAddress)
 	} else {
@@ -291,7 +303,7 @@ func main() {
 	// service-account provisioner above is not cluster-scoped and is already
 	// serving, so the pod's probes stay green while registration retries (for
 	// example while the hub API server is still starting).
-	regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, tokenProvider)
+	regClient := registration.NewClientWithPlacement(cfg.APIServerURL, cfg.ManagedClusterName, cfg.ManagedClusterProvider, cfg.ManagedClusterVisibility, tokenProvider)
 	clusterID, regErr := registerWithBackoff(ctx, regClient, time.Second)
 	if regErr != nil {
 		if ctx.Err() != nil {
@@ -317,6 +329,7 @@ func main() {
 			databaseConfig,
 			clusterID,
 			cfg.GatewayResources,
+			cfg.SandboxRuntimeClass,
 		)
 		if grErr != nil {
 			log.Printf("WARN gateway reconciler disabled: %v", grErr)

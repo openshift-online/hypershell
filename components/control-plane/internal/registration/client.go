@@ -34,22 +34,32 @@ type TokenSource interface {
 type Client struct {
 	apiServerURL string
 	clusterName  string
+	provider     string
+	visibility   string
 	tokens       TokenSource
 	httpClient   *http.Client
 }
 
 // NewClient creates a registration Client.
 func NewClient(apiServerURL, clusterName string, tokens TokenSource) *Client {
+	return NewClientWithPlacement(apiServerURL, clusterName, "", "", tokens)
+}
+
+func NewClientWithPlacement(apiServerURL, clusterName, provider, visibility string, tokens TokenSource) *Client {
 	return &Client{
 		apiServerURL: strings.TrimRight(apiServerURL, "/"),
 		clusterName:  clusterName,
+		provider:     provider,
+		visibility:   visibility,
 		tokens:       tokens,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
 type registrationRequest struct {
-	Name string `json:"name"`
+	Name       string `json:"name"`
+	Provider   string `json:"provider,omitempty"`
+	Visibility string `json:"visibility,omitempty"`
 }
 
 type registrationResponse struct {
@@ -66,7 +76,7 @@ func (c *Client) Register(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("get OIDC token: %w", err)
 	}
 
-	body, err := json.Marshal(registrationRequest{Name: c.clusterName})
+	body, err := json.Marshal(registrationRequest{Name: c.clusterName, Provider: c.provider, Visibility: c.visibility})
 	if err != nil {
 		return "", fmt.Errorf("marshal registration request: %w", err)
 	}

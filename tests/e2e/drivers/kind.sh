@@ -434,6 +434,10 @@ de_seed_test_users() {
 
 : "${E2E_GATEWAY_NAMESPACE_GC_INTERVAL:=30s}"
 : "${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD:=30s}"
+# Directory projection refresh (GAM-09) defaults to 5m in code, too slow for area
+# 9b to observe a realm user added at test time. Shortened in the same controller
+# rollout as the GC timing (below) so there is only one restart, done up front.
+: "${E2E_GATEWAY_DIRECTORY_REFRESH_INTERVAL:=15s}"
 _GC_TIMING_PATCHED=""
 
 # _patch_namespace_gc_timing / _restore_namespace_gc_timing - shared
@@ -447,10 +451,11 @@ _GC_TIMING_PATCHED=""
 # first (e.g. OpenShift) override the public functions and delegate here.
 _patch_namespace_gc_timing() {
   local cli="$1" namespace="$2"
-  dim "  Shortening controller namespace GC timing for e2e (interval=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}, grace=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD})..."
+  dim "  Shortening controller namespace GC + directory-refresh timing for e2e (gc-interval=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}, grace=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD}, directory-refresh=${E2E_GATEWAY_DIRECTORY_REFRESH_INTERVAL})..."
   if ! "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
       "GATEWAY_NAMESPACE_GC_INTERVAL=${E2E_GATEWAY_NAMESPACE_GC_INTERVAL}" \
-      "GATEWAY_NAMESPACE_GC_GRACE_PERIOD=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD}" >/dev/null; then
+      "GATEWAY_NAMESPACE_GC_GRACE_PERIOD=${E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD}" \
+      "GATEWAY_DIRECTORY_REFRESH_INTERVAL=${E2E_GATEWAY_DIRECTORY_REFRESH_INTERVAL}" >/dev/null; then
     red "  Failed to patch hypershell-controller namespace GC timing"
     return 1
   fi
@@ -466,7 +471,7 @@ _restore_namespace_gc_timing() {
   [[ -n "$_GC_TIMING_PATCHED" ]] || return 0
   dim "  Restoring controller namespace GC timing to deployment defaults..."
   "$cli" set env deployment/hypershell-controller -n "$namespace" -c controller \
-    GATEWAY_NAMESPACE_GC_INTERVAL- GATEWAY_NAMESPACE_GC_GRACE_PERIOD- >/dev/null 2>&1 || true
+    GATEWAY_NAMESPACE_GC_INTERVAL- GATEWAY_NAMESPACE_GC_GRACE_PERIOD- GATEWAY_DIRECTORY_REFRESH_INTERVAL- >/dev/null 2>&1 || true
   "$cli" rollout status deployment/hypershell-controller -n "$namespace" --timeout=300s >/dev/null 2>&1 || true
   _GC_TIMING_PATCHED=""
 }
@@ -610,6 +615,47 @@ assign_realm_role() {
   # 204 = created; Keycloak also returns 204 when the mapping already exists.
   if [[ "$code" != "204" && "$code" != "200" ]]; then
     red "  Failed to assign realm role ${role} to ${username} (HTTP ${code})"
+    return 1
+  fi
+}
+
+# kc_create_user - idempotently create a realm user in Keycloak, mirroring the
+# shape of the `make kind-up` extra users (scripts/cluster/reconcile-test-users.sh):
+# profile fields derived from the username, enabled, no roles or password (the
+# directory projection only needs username/name/email/subject, and a grant target
+# need never have signed in). Used by area 9b to add a brand-new realm user at test
+# time and prove the control-plane directory projection (GAM-09) picks it up.
+# Idempotent: an already-existing user is success.
+# Usage: kc_create_user <username>
+kc_create_user() {
+  local username="${1:?username required}"
+  local base realm
+  base="$(_kc_base)"
+  realm="$(_kc_realm)"
+
+  if ! _kc_admin_token; then
+    red "  Failed to obtain Keycloak admin token (user=${E2E_KC_ADMIN_USER})"
+    return 1
+  fi
+
+  local existing
+  existing=$(_driver_curl -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+    "${base}/admin/realms/${realm}/users?username=${username}&exact=true" 2>/dev/null \
+    | python3 -c "import json,sys; a=json.load(sys.stdin); print(a[0]['id'] if a else '')" 2>/dev/null || true)
+  if [[ -n "$existing" ]]; then
+    return 0
+  fi
+
+  local body code
+  body=$(USERNAME="$username" python3 -c "import json,os; u=os.environ['USERNAME']; print(json.dumps({
+    'username': u, 'firstName': u.capitalize(), 'lastName': 'User',
+    'email': u + '@hypershell.local', 'emailVerified': True, 'enabled': True}))")
+  code=$(_driver_curl -o /dev/null -w '%{http_code}' -X POST \
+    -H "Authorization: Bearer ${_KC_ADMIN_TOKEN}" \
+    -H "Content-Type: application/json" \
+    "${base}/admin/realms/${realm}/users" -d "$body" 2>/dev/null || true)
+  if [[ "$code" != "201" && "$code" != "204" ]]; then
+    red "  Failed to create Keycloak user ${username} (HTTP ${code})"
     return 1
   fi
 }

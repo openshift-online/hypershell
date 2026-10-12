@@ -54,6 +54,12 @@ PatternFly defaults are a starting point, not sufficient for WCAG compliance (`U
 - Verify each component exposes the correct ARIA `role` for its purpose. Check the component's accessibility docs (PatternFly MCP) for what PatternFly sets by default; if the role is missing or wrong for the use case, set it explicitly so assistive technologies understand the object's purpose
 - `Alert` used as a warning or error: confirm `role="alert"` is present. Add it when PatternFly does not set it or the default role does not match intent. For dynamically appearing toast alerts, use `AlertGroup` with `isLiveRegion` per PatternFly guidance
 
+## Production page completion
+
+For a new or materially changed production page with an approved mockup, read
+and execute `skills/build/ui-build-gate/SKILL.md`. That skill owns parity
+capture, inspection, correction, evidence, and terminal states.
+
 ## Boundaries
 
 | Need | Use instead |

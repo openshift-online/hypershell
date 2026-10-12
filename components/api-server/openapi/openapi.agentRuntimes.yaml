@@ -158,6 +158,14 @@ components:
               type: string
             sandbox_template_id:
               type: string
+            repository_id:
+              type: string
+              description: Optional reference to a Repository the runtime scans
+            selector:
+              type: array
+              items:
+                type: string
+              description: Labels selecting repository work items to scan (match-any); requires repository_id
             description:
               type: string
             cron:
@@ -195,6 +203,12 @@ components:
           type: string
         sandbox_template_id:
           type: string
+        repository_id:
+          type: string
+        selector:
+          type: array
+          items:
+            type: string
         description:
           type: string
         cron:

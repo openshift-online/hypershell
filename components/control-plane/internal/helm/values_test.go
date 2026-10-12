@@ -291,6 +291,90 @@ func TestBuild_SandboxRuntimeImage(t *testing.T) {
 	}
 }
 
+// TestBuild_SandboxRuntimeClass verifies that a non-empty SandboxRuntimeClass
+// sets server.defaultRuntimeClassName in the built values and that an empty
+// value omits the key entirely (so the chart omits runtimeClassName from sandbox pods).
+func TestBuild_SandboxRuntimeClass(t *testing.T) {
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, k := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[k]
+		}
+		return cur
+	}
+
+	builder := ValuesBuilder{
+		Gateway:             GatewayConfig{Image: "quay.io/test/gateway:v1"},
+		Namespace:           "test-ns",
+		SandboxRuntimeClass: "kata",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	if got := nested(values, "server", "defaultRuntimeClassName"); got != "kata" {
+		t.Errorf("server.defaultRuntimeClassName = %v, want %q", got, "kata")
+	}
+
+	builder.SandboxRuntimeClass = ""
+	values, err = builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	if got := nested(values, "server", "defaultRuntimeClassName"); got != nil {
+		t.Errorf("server.defaultRuntimeClassName present when SandboxRuntimeClass is empty: %v", got)
+	}
+}
+
+// TestBuild_SandboxRuntimeClassRendersInChart guards the value path end-to-end:
+// renders the vendored chart with SandboxRuntimeClass set and asserts
+// default_runtime_class_name reaches the gateway config. Skipped without helm.
+func TestBuild_SandboxRuntimeClassRendersInChart(t *testing.T) {
+	helmBin, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm binary not found on PATH")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
+	if err != nil {
+		t.Fatalf("resolve chart path: %v", err)
+	}
+
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			Image:           "quay.io/test/gateway:v1",
+			SupervisorImage: "quay.io/test/supervisor:v1",
+		},
+		Namespace:           "test-ns",
+		SandboxRuntimeClass: "kata",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("marshal values: %v", err)
+	}
+	valuesFile := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+		t.Fatalf("write values: %v", err)
+	}
+
+	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	want := `default_runtime_class_name   = "kata"`
+	if !strings.Contains(string(out), want) {
+		t.Errorf("rendered chart does not contain %q", want)
+	}
+}
+
 // TestBuild_SandboxRuntimeImageRendersInChart guards the value path itself: a
 // key the chart does not read silently no-ops, which leaves the runtime on the
 // moving chart default. It renders the vendored chart with the builder's values

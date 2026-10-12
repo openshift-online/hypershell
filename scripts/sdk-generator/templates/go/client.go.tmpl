@@ -22,7 +22,15 @@ type {{.Resource.Name}}API struct {
 func (c *Client) {{.Resource.Plural}}() *{{.Resource.Name}}API {
 	return &{{.Resource.Name}}API{client: c}
 }
-
+{{if eq .Resource.Name "Gateway"}}
+func (a *GatewayAPI) PlacementAvailability(ctx context.Context) (*types.GatewayPlacementAvailability, error) {
+	var result types.GatewayPlacementAvailability
+	if err := a.client.do(ctx, http.MethodGet, "{{.Resource.AbsoluteCollectionPath}}/placement-availability", nil, http.StatusOK, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+{{end}}
 func (a *{{.Resource.Name}}API) Create(ctx context.Context, resource *types.{{.Resource.Name}}) (*types.{{.Resource.Name}}, error) {
 	body, err := json.Marshal(resource)
 	if err != nil {

@@ -5,7 +5,15 @@ export {
   type GatewayUiNavigation,
 } from "./gateway-ui-provider";
 export type {
+  GatewayAccessCapabilities,
+  GatewayAccessGrantInput,
+  GatewayAccessGrantRecord,
+  GatewayAccessListRequest,
+  GatewayAccessPage,
+  GatewayAccessRole,
+  GatewayAccessSortField,
   GatewayControlPlane,
+  GatewayDirectoryUser,
   GatewayFailureCode,
   GatewayFailureKind,
   GatewayInvocationContext,
@@ -13,6 +21,7 @@ export type {
   GatewayOperations,
   GatewayPage as GatewayPageResult,
   GatewayPlacement,
+  GatewayPlacementAvailability,
   GatewayPlacementOptions,
   GatewayProvisionInput,
   ProvisioningCondition,
@@ -36,8 +45,10 @@ export type {
   OpenShellGatewayServiceAccountStatus,
 } from "./application/gateway-types";
 export {
+  defaultGatewayAccessListRequest,
   defaultOpenShellGatewayServiceAccountListRequest,
   defaultGatewayListRequest,
+  gatewayAccessPageSizes,
   gatewayListPageSizes,
   GatewayOperationError,
   openShellGatewayServiceAccountPageSizes,
@@ -89,6 +100,7 @@ export {
   buildOpenShellServiceAccountScript,
   serviceAccountGatewayAlias,
 } from "./service-accounts/service-account-commands";
+export { AccessPage, type AccessPageProps } from "./access/access-page";
 export {
   ServiceAccountsPage,
   type ServiceAccountsPageProps,

@@ -16,6 +16,15 @@ description: >
 Autonomous code reconciliation against the spec corpus. Orchestrates all other
 skills into a single convergence loop.
 
+## UI completion contract
+
+For a new or materially changed production page with an approved mockup, do not
+close its FE gap until `skills/build/ui-build-gate/SKILL.md` returns `Complete`.
+
+If the UI change has no corresponding mockup, warn the user and continue
+reconciliation. Do not create a mockup. Skip `ui-build-gate` and all
+mockup-to-production parity checks; run the remaining FE checks.
+
 ## User Input
 
 ```text
@@ -100,6 +109,14 @@ For each wave:
 5. Re-gap analysis for this wave's items (max 3 retries)
 6. Update `RECONCILE.md`: mark items done, update coverage, update date/commit
 7. Commit `RECONCILE.md` with code changes
+
+For a new or materially changed production page with an approved mockup, read
+and execute `skills/build/ui-build-gate/SKILL.md` after the production page and
+story render together. Do not continue to Phase 7 or close the FE gap until the
+gate returns `Complete`. Record the validated manifest path in `RECONCILE.md`.
+
+If no corresponding mockup exists, record the warning in `RECONCILE.md`, skip
+the parity gate, and continue to Phase 7 after the remaining FE checks pass.
 
 ### Phase 7-8: Report & Self-Review
 

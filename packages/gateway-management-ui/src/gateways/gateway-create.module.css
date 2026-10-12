@@ -1,0 +1,33 @@
+.choice {
+  min-height: 7rem;
+}
+.choiceTitle {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.choiceHeading {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 3rem;
+}
+.providerLogo {
+  display: block;
+  width: 10rem;
+  height: 4rem;
+  margin: 0 auto 0.75rem;
+  object-fit: contain;
+  object-position: center;
+  box-sizing: content-box;
+}
+.providerContent {
+  display: block;
+  text-align: center;
+}
+.descriptionAfterLabel {
+  display: block;
+  margin-top: 0.25rem;
+}
+.help {
+  margin-top: 1.5rem;
+}

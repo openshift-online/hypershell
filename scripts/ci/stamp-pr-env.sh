@@ -1,24 +1,34 @@
 #!/usr/bin/env bash
-# stamp-pr-env.sh - stamp the per-PR namespace group with the ownership labels
-# and the timebox annotation after a successful `make openshift-up`
-# (ephemeral-pr-environments.spec.md: Per-Pull-Request Environment Identity,
-# Timebox and Reaping).
+# stamp-pr-env.sh - stamp the namespace group (platform + keycloak) with the
+# ownership labels and the timebox annotation after a successful
+# `make openshift-up` (ephemeral-pr-environments.spec.md: Per-Pull-Request
+# Environment Identity, Timebox and Reaping).
 #
 # `make openshift-up` assigns an opaque environment id and does NOT write the
-# timebox; this script overwrites the environment id with pr-<number> so the
-# reaper can attribute the group to its pull request, and stamps
-# hypershell.redhat.io/expires-at. Retained pull requests get
-# PR_ENV_RETAINED_MAX_HOURS (default 72). Unretained deploys get
-# PR_ENV_UNRETAINED_MAX_HOURS (default 24) so a crashed in-run teardown is still
-# reclaimed promptly. It fails closed: if labeling or annotating either
-# namespace fails, the whole workflow must fail and NOT leave an unlabeled
-# environment (the local-dev warn-and-continue path does not apply to CI).
+# timebox; this script overwrites the environment id with the scheme
+# pr_env_is_reapable expects (pr-<number>, main-<sha>, or mq-<sha>, matching
+# resolve-openshift-namespace.sh) and stamps hypershell.redhat.io/expires-at.
+# A retained pull request gets PR_ENV_RETAINED_MAX_HOURS (default 72); an
+# unretained pull request gets PR_ENV_UNRETAINED_MAX_HOURS (default 24); a
+# push-to-main or merge-queue deploy -- never retained, never reviewed the way
+# a pull request is -- gets the much shorter PR_ENV_MAIN_MQ_MAX_HOURS (default
+# 4) since the reaper is only a backstop for a crashed in-run teardown, not a
+# lifetime. It fails closed: if labeling or annotating either namespace fails,
+# the whole workflow must fail and NOT leave an unlabeled environment (the
+# local-dev warn-and-continue path does not apply to CI).
 #
 # Environment:
-#   PR_NUMBER                    pull-request number (required)
+#   PR_NUMBER                    pull-request number; empty on push to main
+#                                or a merge-queue entry
+#   GITHUB_EVENT_NAME            GitHub Actions default; selects main vs
+#                                merge-queue naming when PR_NUMBER is empty
+#   GITHUB_SHA                   full commit SHA; required when PR_NUMBER is
+#                                empty
 #   PR_ENV_RETAINED              "true" to stamp the retained max lifetime
-#   PR_ENV_RETAINED_MAX_HOURS    retained max lifetime in hours (default 72)
-#   PR_ENV_UNRETAINED_MAX_HOURS  unretained max lifetime in hours (default 24)
+#                                (pull request only)
+#   PR_ENV_RETAINED_MAX_HOURS    retained PR max lifetime in hours (default 72)
+#   PR_ENV_UNRETAINED_MAX_HOURS  unretained PR max lifetime in hours (default 24)
+#   PR_ENV_MAIN_MQ_MAX_HOURS     main/merge-queue max lifetime in hours (default 4)
 #   PR_ENV_EXPIRES_AT            optional RFC 3339 UTC expiry; when set, used
 #                                as-is so the access comment and the namespace
 #                                annotation share one timestamp
@@ -30,16 +40,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/pr-env-lib.sh"
 
 KUBECTL="${PR_ENV_KUBECTL:-oc}"
-: "${PR_NUMBER:?PR_NUMBER is required}"
 
-platform_ns="$(pr_env_namespace "${PR_NUMBER}")"
-keycloak_ns="$(pr_env_keycloak_namespace "${platform_ns}")"
-env_id="$(pr_env_environment_id "${PR_NUMBER}")"
-if [[ -n "${PR_ENV_EXPIRES_AT:-}" ]]; then
-  expires_at="${PR_ENV_EXPIRES_AT}"
+if [[ -n "${PR_NUMBER:-}" ]]; then
+  platform_ns="$(pr_env_namespace "${PR_NUMBER}")"
+  env_id="$(pr_env_environment_id "${PR_NUMBER}")"
+  if [[ -n "${PR_ENV_EXPIRES_AT:-}" ]]; then
+    expires_at="${PR_ENV_EXPIRES_AT}"
+  else
+    expires_at="$(pr_env_inactivity_expires_at "${PR_ENV_RETAINED:-false}")"
+  fi
+elif [[ "${GITHUB_EVENT_NAME:-}" == "merge_group" ]]; then
+  : "${GITHUB_SHA:?GITHUB_SHA is required when PR_NUMBER is empty}"
+  platform_ns="$(pr_env_merge_queue_namespace "${GITHUB_SHA}")"
+  env_id="$(pr_env_merge_queue_environment_id "${GITHUB_SHA}")"
+  expires_at="${PR_ENV_EXPIRES_AT:-$(pr_env_main_mq_expires_at)}"
 else
-  expires_at="$(pr_env_inactivity_expires_at "${PR_ENV_RETAINED:-false}")"
+  : "${GITHUB_SHA:?GITHUB_SHA is required when PR_NUMBER is empty}"
+  platform_ns="$(pr_env_main_namespace "${GITHUB_SHA}")"
+  env_id="$(pr_env_main_environment_id "${GITHUB_SHA}")"
+  expires_at="${PR_ENV_EXPIRES_AT:-$(pr_env_main_mq_expires_at)}"
 fi
+keycloak_ns="$(pr_env_keycloak_namespace "${platform_ns}")"
 
 stamp_namespace() {
   local ns="$1"
@@ -57,9 +78,20 @@ stamp_namespace() {
 
 stamp_namespace "${platform_ns}"
 stamp_namespace "${keycloak_ns}"
-"${KUBECTL}" label namespace "${keycloak_ns}" \
-  "${PR_ENV_CI_KEYCLOAK_LABEL}=${PR_ENV_CI_KEYCLOAK_VALUE}" \
-  --overwrite
+
+# GitHub-brokered login (ci-keycloak -> ESO projects hypershell-github-oauth
+# and the e2e client secret) is only wired up for pull requests, which are
+# the only environments a human reviews via the web console. Labeling a
+# push-to-main/merge-queue keycloak namespace here would make
+# github_idp_enabled true in scripts/cluster/drivers/openshift.sh without the
+# matching hypershell-e2e-client secret (only ensured by the PR-only
+# "Wait for ESO secrets and ensure e2e client" step), failing
+# `make openshift-seed` under SEED_STRICT=true.
+if [[ -n "${PR_NUMBER:-}" ]]; then
+  "${KUBECTL}" label namespace "${keycloak_ns}" \
+    "${PR_ENV_CI_KEYCLOAK_LABEL}=${PR_ENV_CI_KEYCLOAK_VALUE}" \
+    --overwrite
+fi
 
 # Publish the resolved facts for later workflow steps (comment, summary).
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

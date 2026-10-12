@@ -63,6 +63,7 @@ Else:
 - Address any failing CI checks found in Step 2.
 - Address any merge conflicts found in Step 2.
 - Commit (if not already) and push code to `$LINKED_PULL_REQUEST`.
-- Write label `agent/reviewable-code` to `$GITHUB_ISSUE_URL`
+- Remove label `agent/review-code-rejected` from `$GITHUB_ISSUE_URL` if present.
+- Write label `agent/reviewable-code` to `$GITHUB_ISSUE_URL`.
 
-_Note: If the label does not exist, create it._
+_Note: If a label does not exist, create it._

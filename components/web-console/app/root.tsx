@@ -1,4 +1,5 @@
 import "@patternfly/react-core/dist/styles/base.css";
+import "@patternfly/react-styles/css/utilities/_index.css";
 
 import { Alert } from "@patternfly/react-core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

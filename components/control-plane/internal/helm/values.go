@@ -72,6 +72,11 @@ type ValuesBuilder struct {
 	// Resources overrides the gateway container requests and limits
 	// (GATEWAY_RESOURCES). Nil uses DefaultGatewayResources.
 	Resources *corev1.ResourceRequirements
+	// SandboxRuntimeClass sets server.defaultRuntimeClassName in the Helm chart,
+	// applying the named Kubernetes RuntimeClass to all sandbox pods provisioned
+	// by this gateway. Empty string omits the field (cluster default, typically runc).
+	// Set to "kata" or "kata-remote" to run sandboxes inside lightweight VMs.
+	SandboxRuntimeClass string
 }
 
 // Build computes Helm chart values from the Gateway configuration.
@@ -146,6 +151,11 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Workload configuration
 	setNestedValue(values, "deployment", "workload", "kind")
 	setNestedValue(values, 1, "replicaCount")
+	// Keep the gateway workload requests and limits explicit.
+	setNestedValue(values, map[string]interface{}{
+		"requests": map[string]interface{}{"cpu": "100m", "memory": "256Mi"},
+		"limits":   map[string]interface{}{"cpu": "500m", "memory": "512Mi"},
+	}, "resources")
 
 	// Gateway container resources. Always set: the upstream chart defaults to
 	// `resources: {}`, which would run the gateway BestEffort.
@@ -157,6 +167,9 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 
 	// Sandbox configuration
 	setNestedValue(values, b.Namespace, "server", "sandboxNamespace")
+	if b.SandboxRuntimeClass != "" {
+		setNestedValue(values, b.SandboxRuntimeClass, "server", "defaultRuntimeClassName")
+	}
 
 	// Server DNS names for TLS certificate SANs
 	if len(b.Gateway.ServerDnsNames) > 0 {

@@ -34,7 +34,30 @@ func (s *sqlAgentRuntimeService) Get(ctx context.Context, id string) (*AgentRunt
 	return agentRuntime, nil
 }
 
+// validate enforces the repository selector contract: a non-empty selector
+// requires a repository_id (422), and a set repository_id must reference an
+// existing Repository.
+func (s *sqlAgentRuntimeService) validate(ctx context.Context, agentRuntime *AgentRuntime) *errors.ServiceError {
+	hasRepository := agentRuntime.RepositoryId != nil && *agentRuntime.RepositoryId != ""
+	if len(agentRuntime.Selector) > 0 && !hasRepository {
+		return errors.UnprocessableEntity("selector requires repository_id to be set")
+	}
+	if hasRepository {
+		exists, err := s.dao.RepositoryExists(ctx, *agentRuntime.RepositoryId)
+		if err != nil {
+			return errors.GeneralError("Unable to validate repository_id: %s", err)
+		}
+		if !exists {
+			return errors.Validation("repository_id %q does not reference an existing Repository", *agentRuntime.RepositoryId)
+		}
+	}
+	return nil
+}
+
 func (s *sqlAgentRuntimeService) Create(ctx context.Context, agentRuntime *AgentRuntime) (*AgentRuntime, *errors.ServiceError) {
+	if svcErr := s.validate(ctx, agentRuntime); svcErr != nil {
+		return nil, svcErr
+	}
 	agentRuntime, err := s.dao.Create(ctx, agentRuntime)
 	if err != nil {
 		return nil, errors.GeneralError("Unable to create agent runtime: %s", err)
@@ -43,6 +66,9 @@ func (s *sqlAgentRuntimeService) Create(ctx context.Context, agentRuntime *Agent
 }
 
 func (s *sqlAgentRuntimeService) Replace(ctx context.Context, agentRuntime *AgentRuntime) (*AgentRuntime, *errors.ServiceError) {
+	if svcErr := s.validate(ctx, agentRuntime); svcErr != nil {
+		return nil, svcErr
+	}
 	agentRuntime, err := s.dao.Replace(ctx, agentRuntime)
 	if err != nil {
 		return nil, errors.GeneralError("Unable to update agent runtime: %s", err)

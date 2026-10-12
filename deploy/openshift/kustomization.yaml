@@ -53,6 +53,10 @@ patches:
                   # instead of creating it (managed-cluster-registration.spec.md).
                   - name: HYPERSHELL_MANAGED_CLUSTER_NAME
                     value: "local-openshift"
+                  - name: HYPERSHELL_MANAGED_CLUSTER_PROVIDER
+                    value: "aws"
+                  - name: HYPERSHELL_MANAGED_CLUSTER_VISIBILITY
+                    value: "public"
                   - name: OIDC_ISSUER
                     valueFrom:
                       secretKeyRef:

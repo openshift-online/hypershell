@@ -147,21 +147,20 @@ eval "$_orig_fetch"
 unset _orig_discover _orig_fetch
 E2E_CLUSTER_ID=""
 
-# The create body carries the registered cluster id only (no release_id since
-# GatewayRelease has been removed from the data model).
+# The create body carries placement intent without the retired release_id.
 E2E_CLUSTER_ID="c-registered" E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
 body=$(e2e_gateway_create_body gw-unseeded)
-if echo "$body" | grep -q '"cluster_id": "c-registered"' && ! echo "$body" | grep -q '"release_id"'; then
-  pass_u "gateway create body sends the registered cluster_id without a release_id"
+if echo "$body" | grep -q '"placement": {"network": "public", "provider": "aws"}' && ! echo "$body" | grep -q '"release_id"'; then
+  pass_u "gateway create body sends placement intent without release_id"
 else
-  fail_u "gateway create body should send cluster_id without release_id: ${body:0:200}"
+  fail_u "gateway create body should send placement intent without release_id: ${body:0:200}"
 fi
 E2E_CLUSTER_ID=""
 
 E2E_CLUSTER_ID=c1 E2E_OIDC_ISSUER=https://example/realms/x E2E_OIDC_CLIENT_ID=cli
 body=$(e2e_gateway_create_body gw-test)
-if echo "$body" | grep -q '"cluster_id": "c1"' && ! echo "$body" | grep -q 'fleet_id' && ! echo "$body" | grep -q 'database_id'; then
-  pass_u "gateway create body omits fleet_id and database_id"
+if echo "$body" | grep -q '"placement": {"network": "public", "provider": "aws"}' && ! echo "$body" | grep -q 'cluster_id' && ! echo "$body" | grep -q 'fleet_id' && ! echo "$body" | grep -q 'database_id'; then
+  pass_u "gateway create body uses placement and omits cluster/fleet/database ids"
 else
   fail_u "gateway create body unexpected: ${body:0:200}"
 fi

@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
@@ -24,10 +25,15 @@ type gatewayGRPCHandler struct {
 	generic    services.GenericService
 	brokerFunc func() *pkgserver.EventBroker
 	clusters   RegisteredClusterLookup
+	placement  PlacementResolver
 }
 
-func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup) pb.GatewayServiceServer {
-	return &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters}
+func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, placement ...PlacementResolver) pb.GatewayServiceServer {
+	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters}
+	if len(placement) > 0 {
+		h.placement = placement[0]
+	}
+	return h
 }
 
 // validateGatewayPhase rejects a phase outside the canonical vocabulary. An
@@ -58,13 +64,37 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("cluster_id", req.ClusterId, true); err != nil {
-		return nil, err
-	}
 	if err := validateGatewayPhase(req.Phase); err != nil {
 		return nil, err
 	}
-	if svcErr := validateClusterReference(ctx, h.clusters, req.ClusterId); svcErr != nil {
+	clusterID := req.ClusterId
+	if req.Placement != nil {
+		if h.placement == nil {
+			return nil, status.Error(codes.FailedPrecondition, "gateway placement resolver is unavailable")
+		}
+		intent := openapi.GatewayPlacementIntent{}
+		if network := req.Placement.GetNetworkProvider(); network != nil {
+			intent.Network = &network.Network
+			intent.Provider = &network.Provider
+		} else if req.Placement.GetLocalKind() != nil {
+			mode := "local-kind"
+			intent.Mode = &mode
+		} else {
+			return nil, status.Error(codes.InvalidArgument, "placement intent is empty")
+		}
+		if svcErr := validatePlacementIntent(intent); svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
+		resolved, svcErr := h.placement(ctx, intent)
+		if svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
+		clusterID = resolved
+	}
+	if err := grpcutil.ValidateStringField("cluster_id", clusterID, true); err != nil {
+		return nil, err
+	}
+	if svcErr := validateClusterReference(ctx, h.clusters, clusterID); svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	var serverDnsNamesJSON *string
@@ -76,7 +106,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 
 	gateway := &Gateway{
 		Name:           req.Name,
-		ClusterId:      req.ClusterId,
+		ClusterId:      clusterID,
 		ExternalDns:    req.ExternalDns,
 		TlsMode:        req.TlsMode,
 		ServiceType:    req.ServiceType,

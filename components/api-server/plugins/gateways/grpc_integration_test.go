@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
-	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 )
 
@@ -151,7 +150,7 @@ func TestGRPCWatchGateways(t *testing.T) {
 	wg.Add(2)
 
 	sinkReady := make(chan struct{})
-	watchClusterID := registerTestCluster(t)
+	registerTestCluster(t)
 
 	go func() {
 		defer wg.Done()
@@ -159,10 +158,7 @@ func TestGRPCWatchGateways(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		for name := range itemNames {
-			gatewayInput := openapi.GatewayCreateRequest{
-				Name:      name,
-				ClusterId: watchClusterID,
-			}
+			gatewayInput := managedGatewayCreateRequest(name)
 			_, resp, postErr := client.DefaultAPI.CreateGateway(ctx).GatewayCreateRequest(gatewayInput).Execute()
 			if postErr != nil {
 				sourceErr = fmt.Errorf("REST POST failed for %s: %v", name, postErr)

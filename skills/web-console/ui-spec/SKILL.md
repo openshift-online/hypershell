@@ -58,14 +58,42 @@ If flow and persona conflict, surface the conflict.
 
 ## Mockups
 
+- Before editing JSX, read
+  [`references/patternfly-mockup-implementation.md`](references/patternfly-mockup-implementation.md),
+  inspect existing HyperShell components, and map each visible structure and
+  interaction to a reused component or documented PatternFly component/pattern.
+  Do not start markup until every item has a selection.
 - Store page mockups in `specs/web-console/mockups/`, separate from production
   code. Start from the shared mockup template and reuse shared mockup elements.
-- Add a colocated `*.stories.tsx` using the repository's Storybook conventions.
-- Stories must show the default state and materially different states, use
-  deterministic data, and test the primary interaction when practical.
+- For every page mockup, read and follow
+  [`references/mockup-story-structure.md`](references/mockup-story-structure.md).
+- Export one `<Name>PageSurface` containing the page header, visible title,
+  description, page sections, owned background, spacing, and feature content.
+  Do not place shared masthead, global navigation, user menu, skip link, or
+  outer application shell inside that component.
+- Build every full-page surface with two explicit PatternFly regions:
+  `PageSection data-page-region="header" variant="default"` owns the visible
+  title, description, and page actions; `PageSection data-page-region="body"
+  variant="secondary" isFilled` owns the page content. Keep these regions in
+  the page surface rather than its story or shell wrapper. Change a variant
+  only when the owning spec explicitly defines another treatment.
+- Create both story surfaces from the same page-owned surface component:
+  `Mockups/...` stories include the shared shell for stakeholder design review;
+  `Parity/...` stories omit shared shell chrome for production comparison.
+- Wrap `Parity/...` stories in the shared `MockupParityFrame`. The wrapper must
+  not inject a title, `PageSection`, background, or padding.
+- Both story surfaces must expose the same state names and deterministic
+  fixtures. Test the primary interaction when practical.
 - Keep mockup code independent of production page implementations.
-- After production implementation, compare the browser page with the mockup.
-  Resolve differences deliberately by updating the correct artifact.
+- Run the mockup PatternFly checker on every created or changed page-mockup
+  TSX/CSS file:
+
+  ```bash
+  python3 skills/web-console/ui-spec/scripts/check_mockup_patternfly.py <files...>
+  ```
+
+  Fix every finding before preview or handoff. Do not suppress findings by
+  replacing PatternFly with different custom markup.
 
 ## Feedback and visual references
 
@@ -104,3 +132,8 @@ follow repository UI standards and technical boundaries.
 Report changed files, reused or newly shared components, available states,
 unresolved decisions, and checks run. Do not report completion while a major
 product decision remains open or the preview cannot build.
+
+For a new or materially changed production page with an approved mockup, read
+and execute `skills/build/ui-build-gate/SKILL.md` before reporting production
+implementation complete. That skill owns production stories, deterministic
+harnesses, comparison, correction, evidence, and terminal states.

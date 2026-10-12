@@ -1,7 +1,6 @@
 package agentRuntimes
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -75,13 +74,11 @@ func (h *agentRuntimeHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *agentRuntimeHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var resource openapi.AgentRuntime
 	cfg := &handlers.HandlerConfig{
+		Body: &resource,
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
-			var resource openapi.AgentRuntime
-			if err := json.NewDecoder(r.Body).Decode(&resource); err != nil {
-				return nil, errors.MalformedRequest("Unable to decode request body: %s", err)
-			}
 			item := ConvertAgentRuntime(resource)
 			created, err := h.service.Create(ctx, item)
 			if err != nil {
@@ -94,7 +91,9 @@ func (h *agentRuntimeHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *agentRuntimeHandler) Patch(w http.ResponseWriter, r *http.Request) {
+	var patch AgentRuntimePatchRequest
 	cfg := &handlers.HandlerConfig{
+		Body: &patch,
 		Action: func() (interface{}, *errors.ServiceError) {
 			id := mux.Vars(r)["id"]
 			ctx := r.Context()
@@ -102,15 +101,17 @@ func (h *agentRuntimeHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
-			var patch AgentRuntimePatchRequest
-			if decodeErr := json.NewDecoder(r.Body).Decode(&patch); decodeErr != nil {
-				return nil, errors.MalformedRequest("Unable to decode patch request: %s", decodeErr)
-			}
 			if patch.Name != nil {
 				found.Name = *patch.Name
 			}
 			if patch.SandboxTemplateId != nil {
 				found.SandboxTemplateId = *patch.SandboxTemplateId
+			}
+			if patch.RepositoryId != nil {
+				found.RepositoryId = patch.RepositoryId
+			}
+			if patch.Selector != nil {
+				found.Selector = patch.Selector
 			}
 			if patch.Description != nil {
 				found.Description = patch.Description

@@ -6,19 +6,25 @@ import type {
 import type { GatewayFailureKind } from "./gateway-types";
 
 export type GatewayAction =
+  | "change-access-role"
   | "create-service-account"
   | "delete-service-account"
   | "find-placements"
+  | "placement-availability"
   | "get"
   | "get-placement"
   | "get-placements"
+  | "grant-access"
   | "list"
+  | "list-access"
   | "list-service-accounts"
   | "provision"
   | "remove"
   | "rename"
   | "get-service-account"
-  | "revoke-service-account";
+  | "revoke-access"
+  | "revoke-service-account"
+  | "search-directory";
 export type GatewayProbeOutcome =
   "started" | "succeeded" | "failed" | "cancelled" | "denied" | "conflicted";
 export type GatewayProbeName =

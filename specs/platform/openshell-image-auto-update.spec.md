@@ -47,8 +47,8 @@ quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:<digest>
 
 | Image | Registry | Pinned In |
 |-------|----------|-----------|
-| `odh-openshell-gateway` | `quay.io/opendatahub` | `deploy/base/controller.yaml`, `deploy/base/control-plane/deployment.yaml` |
-| `odh-openshell-supervisor` | `quay.io/opendatahub` | `deploy/base/controller.yaml`, `deploy/base/control-plane/deployment.yaml` |
+| `odh-openshell-gateway` | `quay.io/opendatahub` | `deploy/base/platform-resources/controller.yaml` |
+| `odh-openshell-supervisor` | `quay.io/opendatahub` | `deploy/base/platform-resources/controller.yaml` |
 
 The images are set as environment variable values (`GATEWAY_IMAGE`,
 `GATEWAY_SUPERVISOR_IMAGE`) on the control-plane Deployment, which the

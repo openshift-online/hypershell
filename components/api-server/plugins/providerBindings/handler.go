@@ -1,7 +1,6 @@
 package providerBindings
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -75,13 +74,11 @@ func (h *providerBindingHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *providerBindingHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var resource openapi.ProviderBinding
 	cfg := &handlers.HandlerConfig{
+		Body: &resource,
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
-			var resource openapi.ProviderBinding
-			if err := json.NewDecoder(r.Body).Decode(&resource); err != nil {
-				return nil, errors.MalformedRequest("Unable to decode request body: %s", err)
-			}
 			item := ConvertProviderBinding(resource)
 			created, err := h.service.Create(ctx, item)
 			if err != nil {
@@ -94,17 +91,15 @@ func (h *providerBindingHandler) Create(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *providerBindingHandler) Patch(w http.ResponseWriter, r *http.Request) {
+	var patch ProviderBindingPatchRequest
 	cfg := &handlers.HandlerConfig{
+		Body: &patch,
 		Action: func() (interface{}, *errors.ServiceError) {
 			id := mux.Vars(r)["id"]
 			ctx := r.Context()
 			found, err := h.service.Get(ctx, id)
 			if err != nil {
 				return nil, err
-			}
-			var patch ProviderBindingPatchRequest
-			if decodeErr := json.NewDecoder(r.Body).Decode(&patch); decodeErr != nil {
-				return nil, errors.MalformedRequest("Unable to decode patch request: %s", decodeErr)
 			}
 			if patch.Name != nil {
 				found.Name = *patch.Name

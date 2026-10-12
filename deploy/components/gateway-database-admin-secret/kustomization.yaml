@@ -3,7 +3,7 @@ kind: Component
 
 # OPTIONAL component: sync the controller's gateway-database admin credential
 # Secret (hypershell-gateway-database-admin) from an external secret store with
-# External Secrets Operator. deploy/base/controller.yaml already mounts the
+# External Secrets Operator. deploy/base/platform-resources/controller.yaml already mounts the
 # Secret, so no Deployment patch is needed here; the component only adds the
 # ExternalSecret that produces it. See README.md for the remote JSON layout,
 # required PostgreSQL privileges and rotation notes.

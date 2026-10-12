@@ -11,7 +11,8 @@ import (
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	c := &Gateway{}
 	c.Name = gateway.Name
-	c.ClusterId = gateway.ClusterId
+	// Placement resolves the concrete cluster in the create handler before the
+	// Gateway model is persisted.
 	c.ExternalDns = gateway.ExternalDns
 	c.TlsMode = gateway.TlsMode
 	c.ServiceType = gateway.ServiceType
@@ -32,9 +33,11 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	return c
 }
 
-func PresentGateway(gateway *Gateway, createdBy string) openapi.Gateway {
+func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit bool) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
+		CanDelete:          openapi.PtrBool(canDelete),
+		CanEdit:            openapi.PtrBool(canEdit),
 		Id:                 reference.Id,
 		Kind:               reference.Kind,
 		Href:               reference.Href,

@@ -9,6 +9,8 @@ export interface ProvisioningCondition {
 
 export interface GatewayRecord {
   activeSandboxCount?: number;
+  canDelete?: boolean;
+  canEdit?: boolean;
   clusterId: string;
   consoleUrl?: string;
   createdAt?: string;
@@ -81,8 +83,29 @@ export interface GatewayInvocationContext {
 }
 
 export interface GatewayProvisionInput {
-  clusterId: string;
   name: string;
+  placement?: GatewayPlacementIntent;
+  /** @deprecated Kept only for source compatibility with older adapters. */
+  clusterId?: string;
+}
+
+export type GatewayProvider = "aws" | "ibm";
+
+export type GatewayPlacementIntent =
+  | { mode: "local-kind" }
+  | { network: "public"; provider: GatewayProvider }
+  | { network: "vpn"; provider: "aws" };
+
+export type GatewayPlacementUnavailableReason = "no-eligible-cluster";
+
+export interface GatewayPlacementAvailability {
+  awsPublic: boolean;
+  awsVpn: boolean;
+  awsReason?: GatewayPlacementUnavailableReason;
+  ibmPublic: boolean;
+  ibmVpn: boolean;
+  ibmReason?: GatewayPlacementUnavailableReason;
+  localKind: boolean;
 }
 
 export type OpenShellGatewayServiceAccountRole =
@@ -192,6 +215,68 @@ export const defaultOpenShellGatewayServiceAccountListRequest: Readonly<OpenShel
     sort: "created_at",
   });
 
+export type GatewayAccessRole = "admin" | "owner" | "user";
+
+export interface GatewayAccessGrantRecord {
+  email?: string;
+  grantedAt: string;
+  name?: string;
+  role: GatewayAccessRole;
+  roleBindingId: string;
+  userId: string;
+  username: string;
+}
+
+export interface GatewayAccessCapabilities {
+  callerRole?: GatewayAccessRole;
+  canManageAccess: boolean;
+  canManageOwners: boolean;
+}
+
+export interface GatewayAccessPage {
+  capabilities: GatewayAccessCapabilities;
+  items: readonly GatewayAccessGrantRecord[];
+  page: number;
+  size: number;
+  total: number;
+}
+
+export interface GatewayDirectoryUser {
+  email?: string;
+  name?: string;
+  subject?: string;
+  username: string;
+}
+
+export interface GatewayAccessGrantInput {
+  role: GatewayAccessRole;
+  subject?: string;
+  username: string;
+}
+
+export type GatewayAccessSortField =
+  "granted_at" | "name" | "role" | "username";
+
+export interface GatewayAccessListRequest {
+  order: GatewaySortDirection;
+  page: number;
+  role?: GatewayAccessRole;
+  search: string;
+  size: number;
+  sort: GatewayAccessSortField;
+}
+
+export const gatewayAccessPageSizes = [10, 20, 50, 100] as const;
+
+export const defaultGatewayAccessListRequest: Readonly<GatewayAccessListRequest> =
+  Object.freeze({
+    order: "desc",
+    page: 1,
+    search: "",
+    size: gatewayAccessPageSizes[1],
+    sort: "granted_at",
+  });
+
 export type GatewayFailureKind =
   "cancelled" | "conflict" | "denied" | "not-found" | "unavailable" | "unknown";
 
@@ -219,11 +304,37 @@ export class GatewayOperationError extends Error {
 
 /** Application-owned driven port for the HyperShell gateway control plane. */
 export interface GatewayControlPlane {
+  changeGatewayAccessRole(
+    gatewayId: string,
+    userId: string,
+    role: GatewayAccessRole,
+    context: GatewayInvocationContext,
+  ): Promise<GatewayAccessGrantRecord>;
   createOpenShellGatewayServiceAccount(
     gatewayId: string,
     input: OpenShellGatewayServiceAccountCreateInput,
     context: GatewayInvocationContext,
   ): Promise<OpenShellGatewayServiceAccountCreateResult>;
+  grantGatewayAccess(
+    gatewayId: string,
+    input: GatewayAccessGrantInput,
+    context: GatewayInvocationContext,
+  ): Promise<GatewayAccessGrantRecord>;
+  listGatewayAccess(
+    gatewayId: string,
+    request: GatewayAccessListRequest,
+    context: GatewayInvocationContext,
+  ): Promise<GatewayAccessPage>;
+  revokeGatewayAccess(
+    gatewayId: string,
+    userId: string,
+    context: GatewayInvocationContext,
+  ): Promise<void>;
+  searchGatewayDirectory(
+    gatewayId: string,
+    search: string,
+    context: GatewayInvocationContext,
+  ): Promise<readonly GatewayDirectoryUser[]>;
   deleteOpenShellGatewayServiceAccount(
     gatewayId: string,
     serviceAccountId: string,
@@ -233,6 +344,9 @@ export interface GatewayControlPlane {
     search: string,
     context: GatewayInvocationContext,
   ): Promise<GatewayPlacementOptions>;
+  getGatewayPlacementAvailability?(
+    context: GatewayInvocationContext,
+  ): Promise<GatewayPlacementAvailability>;
   getGatewayPlacement(
     clusterId: string,
     context: GatewayInvocationContext,
@@ -281,11 +395,37 @@ export interface GatewayControlPlane {
 
 /** Driving entry port used by the Gateway UI presentation adapters. */
 export interface GatewayOperations {
+  changeGatewayAccessRole(
+    gatewayId: string,
+    userId: string,
+    role: GatewayAccessRole,
+    signal?: AbortSignal,
+  ): Promise<GatewayAccessGrantRecord>;
   createOpenShellGatewayServiceAccount(
     gatewayId: string,
     input: OpenShellGatewayServiceAccountCreateInput,
     signal?: AbortSignal,
   ): Promise<OpenShellGatewayServiceAccountCreateResult>;
+  grantGatewayAccess(
+    gatewayId: string,
+    input: GatewayAccessGrantInput,
+    signal?: AbortSignal,
+  ): Promise<GatewayAccessGrantRecord>;
+  listGatewayAccess(
+    gatewayId: string,
+    request: GatewayAccessListRequest,
+    signal?: AbortSignal,
+  ): Promise<GatewayAccessPage>;
+  revokeGatewayAccess(
+    gatewayId: string,
+    userId: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  searchGatewayDirectory(
+    gatewayId: string,
+    search: string,
+    signal?: AbortSignal,
+  ): Promise<readonly GatewayDirectoryUser[]>;
   deleteOpenShellGatewayServiceAccount(
     gatewayId: string,
     serviceAccountId: string,
@@ -295,6 +435,9 @@ export interface GatewayOperations {
     search: string,
     signal?: AbortSignal,
   ): Promise<GatewayPlacementOptions>;
+  getGatewayPlacementAvailability?(
+    signal?: AbortSignal,
+  ): Promise<GatewayPlacementAvailability>;
   getGatewayPlacement(
     clusterId: string,
     signal?: AbortSignal,

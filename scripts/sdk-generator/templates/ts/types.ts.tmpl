@@ -5,6 +5,25 @@
 
 import type { ObjectReference, ListMeta } from './base.js';
 
+{{- range .Resource.Models}}
+{{- if ne .Name "GatewayCreateRequest"}}
+{{- if eq .Name "GatewayPlacementIntent"}}
+export type GatewayPlacementIntent =
+  | { mode: 'local-kind' }
+  | { network: 'public'; provider: 'aws' | 'ibm' }
+  | { network: 'vpn'; provider: 'aws' };
+{{- else if .IsEnum}}
+export type {{.Name}} = {{range $index, $value := .EnumValues}}{{if $index}} | {{end}}'{{$value.Value}}'{{end}};
+{{else}}
+export type {{.Name}} = {
+{{- range .Fields}}
+  {{.Name}}{{if not .Required}}?{{end}}: {{.TSType}};
+{{- end}}
+};
+{{end}}
+{{end}}
+{{end}}
+
 export type {{.Resource.Name}} = ObjectReference & {
 {{- range .Resource.Fields}}
   {{.Name}}: {{.TSType}};
@@ -16,9 +35,9 @@ export type {{.Resource.Name}}List = ListMeta & {
 };
 
 export type {{.Resource.Name}}CreateRequest = {
-{{- range .Resource.Fields}}{{if isWritable .}}
+{{- range .Resource.CreateFields}}
   {{.Name}}{{if not .Required}}?{{end}}: {{.TSType}};
-{{- end}}{{end}}
+{{- end}}
 };
 
 export type {{.Resource.Name}}PatchRequest = {
@@ -36,17 +55,21 @@ export type {{.Resource.Name}}StatusPatchRequest = {
 export class {{.Resource.Name}}Builder {
   private data: Record<string, unknown> = {};
 
-{{range .Resource.Fields}}{{if isWritable .}}
+{{range .Resource.CreateFields}}
   {{.TSName}}(value: {{.TSType}}): this {
     this.data['{{.Name}}'] = value;
     return this;
   }
-{{end}}{{end}}
+{{end}}
   build(): {{.Resource.Name}}CreateRequest {
-{{- range .Resource.Fields}}
+{{- range .Resource.CreateFields}}
 {{- if .Required}}
 {{- if eq .TSType "string"}}
     if (!this.data['{{.Name}}']) {
+      throw new Error('{{.Name}} is required');
+    }
+{{- else}}
+    if (this.data['{{.Name}}'] === undefined) {
       throw new Error('{{.Name}} is required');
     }
 {{- end}}

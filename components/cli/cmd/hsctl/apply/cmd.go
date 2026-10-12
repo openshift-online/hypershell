@@ -297,6 +297,7 @@ func isSupportedKind(kind string) bool {
 		"ProviderBinding": true,
 		"InferenceRoute":  true,
 		"SecretSource":    true,
+		"Repository":      true,
 	}
 	return supportedKinds[kind]
 }
@@ -332,6 +333,8 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 		basePath = urls.InferenceRoutesPath
 	case "SecretSource":
 		basePath = urls.SecretSourcesPath
+	case "Repository":
+		basePath = urls.RepositoriesPath
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", kind)
 	}

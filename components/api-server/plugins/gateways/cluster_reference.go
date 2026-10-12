@@ -4,8 +4,41 @@ import (
 	"context"
 	"strings"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
+
+type PlacementResolver func(context.Context, openapi.GatewayPlacementIntent) (string, *errors.ServiceError)
+type PlacementAvailabilityResolver func(context.Context) (openapi.GatewayPlacementAvailability, *errors.ServiceError)
+
+func validatePlacementIntent(intent openapi.GatewayPlacementIntent) *errors.ServiceError {
+	mode, network, provider := "", "", ""
+	if intent.Mode != nil {
+		mode = *intent.Mode
+	}
+	if intent.Network != nil {
+		network = *intent.Network
+	}
+	if intent.Provider != nil {
+		provider = *intent.Provider
+	}
+	if mode != "" {
+		if mode != "local-kind" || network != "" || provider != "" {
+			return errors.Validation("placement mode must be local-kind and cannot include network or provider")
+		}
+		return nil
+	}
+	if network != "public" && network != "vpn" {
+		return errors.Validation("placement.network must be public or vpn")
+	}
+	if provider != "aws" && provider != "ibm" {
+		return errors.Validation("placement.provider must be aws or ibm")
+	}
+	if network == "vpn" && provider != "aws" {
+		return errors.Validation("VPN placement requires provider aws")
+	}
+	return nil
+}
 
 // RegisteredClusterLookup reports whether id names a ManagedCluster that a
 // control plane registered (non-empty oidc_subject). It returns (false, nil) for

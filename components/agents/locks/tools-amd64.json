@@ -1,0 +1,29 @@
+[
+  {
+    "name": "claude",
+    "version": "2.1.286",
+    "url": "https://downloads.claude.ai/claude-code-releases/2.1.286/linux-x64/claude",
+    "sha256": "fe503f65c6289d59c23e5b21ae44f03583f997dd33a2cbfc75ab4f96fb8fc73f"
+  },
+  {
+    "name": "gh",
+    "version": "2.102.0",
+    "url": "https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz",
+    "sha256": "bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386",
+    "member": "gh_2.102.0_linux_amd64/bin/gh"
+  },
+  {
+    "name": "acli",
+    "version": "1.3.39-stable",
+    "url": "https://acli.atlassian.com/linux/1.3.39-stable/acli_1.3.39-stable_linux_amd64.tar.gz",
+    "sha256": "7e0fb4dbedb1bb9100f8dc854d31d43c4b7c2c740e4cfd83b750760f4957b5a5",
+    "member": "acli_1.3.39-stable_linux_amd64/acli"
+  },
+  {
+    "name": "rg",
+    "version": "15.2.0",
+    "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz",
+    "sha256": "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c",
+    "member": "ripgrep-15.2.0-x86_64-unknown-linux-musl/rg"
+  }
+]

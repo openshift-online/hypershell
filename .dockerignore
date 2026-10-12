@@ -11,6 +11,10 @@ images/**
 !charts/**
 !components/
 components/**
+!components/agents/
+!components/agents/**
+!components/cli/
+!components/cli/**
 !components/api-server/
 !components/api-server/**
 !components/control-plane/

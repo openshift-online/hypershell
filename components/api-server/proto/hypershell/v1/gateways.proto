@@ -20,6 +20,20 @@ message ProvisioningCondition {
   string message = 3;
 }
 
+message GatewayPlacementIntent {
+  oneof placement {
+    NetworkProviderPlacement network_provider = 1;
+    LocalKindPlacement local_kind = 2;
+  }
+}
+
+message NetworkProviderPlacement {
+  string network = 1;
+  string provider = 2;
+}
+
+message LocalKindPlacement {}
+
 message Gateway {
   ObjectReference metadata = 1;
   string name = 2;
@@ -74,6 +88,7 @@ message CreateGatewayRequest {
   optional string oidc = 14;
   optional string route = 15;
   optional string credential_driver = 17;
+  GatewayPlacementIntent placement = 18;
 }
 
 message CreateGatewayResponse {

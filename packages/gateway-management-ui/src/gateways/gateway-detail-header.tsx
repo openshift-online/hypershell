@@ -119,6 +119,11 @@ function GatewayDetailActions({
   const [isActionsOpen, setIsActionsOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
+  // Disable delete/rename only when the server has explicitly told us the caller
+  // cannot. An absent capability (older server) leaves it enabled; the API 403
+  // remains authoritative either way.
+  const canDelete = gateway.canDelete !== false;
+  const canEdit = gateway.canEdit !== false;
 
   return (
     <>
@@ -188,18 +193,44 @@ function GatewayDetailActions({
           >
             <DropdownList>
               <DropdownItem
+                isAriaDisabled={!canEdit}
                 onClick={() => {
+                  if (!canEdit) {
+                    return;
+                  }
                   setIsRenameOpen(true);
                 }}
+                tooltipProps={
+                  canEdit
+                    ? undefined
+                    : {
+                        content: intl.formatMessage(
+                          messages.renameGatewayNotPermitted,
+                        ),
+                      }
+                }
               >
                 <FormattedMessage {...messages.renameGateway} />
               </DropdownItem>
               <Divider component="li" />
               <DropdownItem
-                isDanger
+                isAriaDisabled={!canDelete}
+                isDanger={canDelete}
                 onClick={() => {
+                  if (!canDelete) {
+                    return;
+                  }
                   setIsDeleteOpen(true);
                 }}
+                tooltipProps={
+                  canDelete
+                    ? undefined
+                    : {
+                        content: intl.formatMessage(
+                          messages.deleteGatewayNotPermitted,
+                        ),
+                      }
+                }
               >
                 <FormattedMessage {...messages.deleteGateway} />
               </DropdownItem>

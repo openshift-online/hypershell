@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Contract tests: merge-queue Kind consumes on-merge-queue images for every
-# component, and the Konflux merge-queue pipelines fire on every queue push.
+# Contract tests: a merge queue builds and waits only for components whose
+# image inputs changed. All other e2e images are immutable accepted-base refs.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,10 +47,9 @@ mq_plan_awk() {
 mq_skip_uses_detect() {
   mq_plan_awk | awk '
     /detect_e2e_relevant/ { detect = 1 }
-    /KONFLUX_WEB_CONSOLE/ { wc = 1 }
     /echo "should_run=false"/ { skip = 1 }
-    /echo "wait_api_server=\$\{KONFLUX_API_SERVER\}"/ { gated = 1 }
-    END { exit (detect && wc && skip && !gated) ? 0 : 1 }
+    /No e2e-relevant components changed in merge batch/ { message = 1 }
+    END { exit (detect && skip && message) ? 0 : 1 }
   '
 }
 
@@ -63,21 +62,59 @@ mq_tag_not_push_sha() {
 }
 
 mq_plan_wait_api() {
-  mq_plan_awk | grep -q 'echo "wait_api_server=true"'
+  mq_plan_awk | grep -q 'if \[\[ "${KONFLUX_API_SERVER}" == "true" \]\]'
 }
 mq_plan_wait_cp() {
-  mq_plan_awk | grep -q 'echo "wait_control_plane=true"'
+  mq_plan_awk | grep -q 'if \[\[ "${KONFLUX_CONTROL_PLANE}" == "true" \]\]'
 }
 mq_plan_wait_wc() {
-  mq_plan_awk | grep -q 'echo "wait_web_console=true"'
+  mq_plan_awk | grep -q 'if \[\[ "${KONFLUX_WEB_CONSOLE}" == "true" \]\]'
+}
+
+mq_base_images_are_lazy() {
+  mq_plan_awk | awk '
+    /if \[\[ "\$\{KONFLUX_API_SERVER\}" == "true" \]\]/ { api = 1 }
+    api && /^[[:space:]]+else$/ { api_else = 1 }
+    api_else && /api_img="\$\(base_image_ref hypershell-api-server-main/ { api_base = 1 }
+    /if \[\[ "\$\{KONFLUX_CONTROL_PLANE\}" == "true" \]\]/ { cp = 1 }
+    cp && /^[[:space:]]+else$/ { cp_else = 1 }
+    cp_else && /cp_img="\$\(base_image_ref hypershell-control-plane-main/ { cp_base = 1 }
+    /if \[\[ "\$\{KONFLUX_WEB_CONSOLE\}" == "true" \]\]/ { wc = 1 }
+    wc && /^[[:space:]]+else$/ { wc_else = 1 }
+    wc_else && /wc_img="\$\(base_image_ref hypershell-web-console-main/ { wc_base = 1 }
+    END { exit (api_base && cp_base && wc_base) ? 0 : 1 }
+  '
+}
+
+pipeline_image_inputs() {
+  rg -o '"[^"]+"\.pathChanged\(\)' "$1" |
+    sed -E 's/^"([^"]+)"\.pathChanged\(\)$/\1/' |
+    sed 's/-main-merge-queue\.yaml/-main-pull-request.yaml/' |
+    sort
+}
+
+mq_inputs_match_pr_inputs() {
+  local merge_queue_pipeline="$1"
+  local pull_request_pipeline="${merge_queue_pipeline/-merge-queue/-pull-request}"
+  diff -u \
+    <(pipeline_image_inputs "${REPO_ROOT}/.tekton/${pull_request_pipeline}") \
+    <(pipeline_image_inputs "${REPO_ROOT}/.tekton/${merge_queue_pipeline}")
 }
 
 assert_ok "merge_group skips docs-only batches via detect_e2e_relevant, not wait flags" \
   mq_skip_uses_detect
 
-assert_ok "merge_group wait_api_server is unconditional" mq_plan_wait_api
-assert_ok "merge_group wait_control_plane is unconditional" mq_plan_wait_cp
-assert_ok "merge_group wait_web_console is unconditional" mq_plan_wait_wc
+assert_ok "merge_group waits for api-server only when its image inputs changed" mq_plan_wait_api
+assert_ok "merge_group waits for control-plane only when its image inputs changed" mq_plan_wait_cp
+assert_ok "merge_group waits for web-console only when its image inputs changed" mq_plan_wait_wc
+assert_ok "merge_group resolves unchanged images from the accepted base" \
+  grep -q 'base_image_ref' "${E2E_YML}"
+assert_ok "merge_group resolves base images only when no candidate overrides them" \
+  mq_base_images_are_lazy
+assert_ok "merge_group planner receives the accepted base SHA" \
+  grep -q 'MERGE_GROUP_BASE_SHA: \${{ github.event.merge_group.base_sha }}' "${E2E_YML}"
+assert_ok "accepted base images are digest pinned" \
+  grep -q 'could not resolve immutable digest' "${E2E_YML}"
 
 assert_ok "plan-images exports konflux_ref" \
   grep -q 'konflux_ref: ${{ steps.plan.outputs.konflux_ref }}' "${E2E_YML}"
@@ -91,13 +128,25 @@ assert_ok "OpenShift wait uses plan-images konflux_ref" \
 for pipeline in \
   hypershell-api-server-main-merge-queue.yaml \
   hypershell-control-plane-main-merge-queue.yaml \
+  hypershell-fleet-dashboard-main-merge-queue.yaml \
   hypershell-web-console-main-merge-queue.yaml; do
   f="${REPO_ROOT}/.tekton/${pipeline}"
   assert_ok "${pipeline} fires on gh-readonly-queue/main/" \
     grep -q 'target_branch.startsWith("gh-readonly-queue/main/")' "${f}"
-  assert_fail "${pipeline} has no pathChanged filter" \
+  assert_ok "${pipeline} is filtered to image-input changes" \
     grep -q 'pathChanged' "${f}"
+  assert_ok "${pipeline} image-input filters mirror pull-request Konflux" \
+    mq_inputs_match_pr_inputs "${pipeline}"
 done
+
+assert_ok "api-server merge queue filter matches its source path" \
+  grep -q '"components/api-server/\*\*\*".pathChanged()' "${REPO_ROOT}/.tekton/hypershell-api-server-main-merge-queue.yaml"
+assert_ok "control-plane merge queue filter matches its source path" \
+  grep -q '"components/control-plane/\*\*\*".pathChanged()' "${REPO_ROOT}/.tekton/hypershell-control-plane-main-merge-queue.yaml"
+assert_ok "fleet-dashboard merge queue filter matches its source path" \
+  grep -q '"components/fleet-dashboard/\*\*\*".pathChanged()' "${REPO_ROOT}/.tekton/hypershell-fleet-dashboard-main-merge-queue.yaml"
+assert_ok "web-console merge queue filter matches its source path" \
+  grep -q '"components/web-console/\*\*\*".pathChanged()' "${REPO_ROOT}/.tekton/hypershell-web-console-main-merge-queue.yaml"
 
 echo "PASS=${PASS} FAIL=${FAIL}"
 if [[ "${FAIL}" -ne 0 ]]; then

@@ -82,7 +82,11 @@ function MockupMasthead() {
         <Toolbar isStatic>
           <ToolbarContent>
             <ToolbarItem align={{ default: "alignEnd" }}>
-              <Button aria-label="Toggle dark mode" icon={<MoonIcon />} variant="plain" />
+              <Button
+                aria-label="Toggle dark mode"
+                icon={<MoonIcon />}
+                variant="plain"
+              />
             </ToolbarItem>
             <ToolbarItem>
               <UserDropdown />
@@ -92,6 +96,32 @@ function MockupMasthead() {
       </MastheadContent>
     </Masthead>
   );
+}
+
+export function MockupShell({
+  breadcrumb,
+  children,
+}: {
+  breadcrumb?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Page
+      breadcrumb={breadcrumb}
+      isContentFilled
+      mainContainerId="main-content"
+      masthead={<MockupMasthead />}
+      skipToContent={
+        <SkipToContent href="#main-content">Skip to content</SkipToContent>
+      }
+    >
+      {children}
+    </Page>
+  );
+}
+
+export function MockupParityFrame({ children }: { children: React.ReactNode }) {
+  return <Page isContentFilled>{children}</Page>;
 }
 
 export function MockupTemplate({
@@ -119,15 +149,7 @@ export function MockupTemplate({
   ) : undefined;
 
   return (
-    <Page
-      breadcrumb={showBreadcrumbs ? breadcrumb : undefined}
-      isContentFilled
-      mainContainerId="main-content"
-      masthead={<MockupMasthead />}
-      skipToContent={
-        <SkipToContent href="#main-content">Skip to content</SkipToContent>
-      }
-    >
+    <MockupShell breadcrumb={showBreadcrumbs ? breadcrumb : undefined}>
       <PageSection hasBodyWrapper={false}>
         <Flex
           alignItems={{ default: "alignItemsFlexStart" }}
@@ -153,23 +175,16 @@ export function MockupTemplate({
           ) : null}
         </Flex>
       </PageSection>
-      <PageSection
-        hasBodyWrapper={false}
-        isFilled
-        variant={contentVariant}
-      >
+      <PageSection hasBodyWrapper={false} isFilled variant={contentVariant}>
         {children}
       </PageSection>
-    </Page>
+    </MockupShell>
   );
 }
 
 export function TemplatePreview() {
   return (
-    <MockupTemplate
-      showRefresh
-      title="Template file"
-    >
+    <MockupTemplate showRefresh title="Template file">
       <Content>main content goes here</Content>
     </MockupTemplate>
   );

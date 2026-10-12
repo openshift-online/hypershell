@@ -76,8 +76,20 @@ type keycloakRole struct {
 }
 
 type keycloakUser struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	Email     string `json:"email,omitempty"`
+	FirstName string `json:"firstName,omitempty"`
+	LastName  string `json:"lastName,omitempty"`
+}
+
+// RealmUser is a projection of a Keycloak realm user for the gateway access
+// directory (GAM-09). Subject is the Keycloak user id (the OIDC sub).
+type RealmUser struct {
+	Username string
+	Name     string
+	Email    string
+	Subject  string
 }
 
 // ClientNotFoundError is returned when a Keycloak client lookup finds no
@@ -206,6 +218,45 @@ func (c *Client) DeleteGatewayServiceAccountClients(ctx context.Context, gateway
 		}
 	}
 	return nil
+}
+
+// ListRealmUsers returns every user in the configured realm as a directory
+// projection (GAM-09), paging the Keycloak Admin users endpoint. The name is the
+// first+last name when present, else the username.
+func (c *Client) ListRealmUsers(ctx context.Context) ([]RealmUser, error) {
+	const pageSize = 100
+	out := make([]RealmUser, 0)
+	for first := 0; ; first += pageSize {
+		path := fmt.Sprintf("/admin/realms/%s/users?first=%d&max=%d", c.realm, first, pageSize)
+		response, err := c.doRequest(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("list realm users: %w", err)
+		}
+		var page []keycloakUser
+		if err := json.Unmarshal(response, &page); err != nil {
+			return nil, fmt.Errorf("parse realm user list: %w", err)
+		}
+		for _, u := range page {
+			out = append(out, RealmUser{
+				Username: u.Username,
+				Name:     displayName(u),
+				Email:    u.Email,
+				Subject:  u.ID,
+			})
+		}
+		if len(page) < pageSize {
+			break
+		}
+	}
+	return out, nil
+}
+
+func displayName(u keycloakUser) string {
+	name := strings.TrimSpace(u.FirstName + " " + u.LastName)
+	if name == "" {
+		return u.Username
+	}
+	return name
 }
 
 // AssignClientRole assigns a Keycloak client role to a user on a gateway.

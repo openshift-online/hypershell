@@ -256,7 +256,7 @@ ensure_namespace_group() {
 
 # ensure_gateway_database_admin_secret stages the controller's single admin
 # credential Secret, hypershell-gateway-database-admin, in the platform project.
-# deploy/base/controller.yaml mounts it at /etc/hypershell/gateway-database and
+# deploy/base/platform-resources/controller.yaml mounts it at /etc/hypershell/gateway-database and
 # the controller refuses to start without it, so it must exist before the
 # overlay is applied. In production a platform team supplies it for a
 # cloud-managed server (deploy/components/gateway-database-admin-secret); this

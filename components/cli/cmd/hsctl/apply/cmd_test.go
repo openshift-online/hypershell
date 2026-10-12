@@ -25,6 +25,7 @@ func TestIsSupportedKind(t *testing.T) {
 		{"ProviderBinding", true},
 		{"InferenceRoute", true},
 		{"SecretSource", true},
+		{"Repository", true},
 		{"Pod", false},
 		{"Deployment", false},
 		{"", false},

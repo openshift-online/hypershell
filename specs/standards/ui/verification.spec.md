@@ -63,6 +63,29 @@ UI verification SHALL run per change and release, after incidents or material pl
 
 **Verification:** Inspect CI checks, release evidence, field monitoring, incident follow-up, exception expiry, source review dates, and regression coverage.
 
+### Requirement UI-VER-10: Mockup-to-Production Visual Reconciliation
+
+Every new or materially changed production page with an approved mockup SHALL
+compare equivalent shell-free mockup and production Storybook stories at both
+desktop and narrow viewports. Both stories SHALL include the complete
+page-owned surface, including the title, page sections, background, spacing,
+content, component types, icons, and responsive layout, while excluding shared
+application chrome.
+
+Every unexplained mismatch SHALL be recorded with its viewport, affected
+element, expected mockup treatment, observed production treatment, and the
+production file selected for correction. The implementation SHALL be changed,
+recaptured, and reinspected until no unexplained mismatch remains. Detecting or
+reporting a mismatch is not completion evidence. A page SHALL NOT be reported
+complete while the latest comparison failed or while any mismatch remains
+unresolved.
+
+**Verification:** Inspect the visual-parity manifest and its attempt history.
+Confirm that each failed attempt contains a structured mismatch ledger, each
+subsequent attempt follows a relevant implementation change, all four images
+from the final attempt were inspected, the final review contains no unresolved
+differences, and the manifest validator exits successfully.
+
 ## Minimum Release Evidence
 
 1. Every applicable `SHALL` and WCAG 2.2 A/AA criterion passes or remains visibly failed under an authorized, expiring risk decision.

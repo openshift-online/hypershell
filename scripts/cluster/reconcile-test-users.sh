@@ -140,15 +140,16 @@ _assign_realm_role() {
   fi
 }
 
+# _create_or_reset_user <token> <username> <password> <first> <last> <email> [role...]
+# Idempotently creates the user (or resets its password if it already exists) and
+# assigns each named realm role. Profile fields and roles are passed explicitly so
+# both the test-tier principals and developer-owned extra users (local grant
+# targets) share one create/reset/role-assign path.
 _create_or_reset_user() {
-  local token="$1" username="$2" password="$3"
+  local token="$1" username="$2" password="$3" first="$4" last="$5" email="$6"
+  shift 6
   local base="${KEYCLOAK_BASE_URL%/}"
-  local user_id first last email profile rest code
-  profile="$(_test_user_profile "${username}")"
-  first="${profile%%$'\t'*}"
-  rest="${profile#*$'\t'}"
-  last="${rest%%$'\t'*}"
-  email="${rest#*$'\t'}"
+  local user_id code role
 
   user_id="$(_lookup_user_id "${token}" "${username}")"
   if [[ -z "${user_id}" ]]; then
@@ -187,11 +188,10 @@ _create_or_reset_user() {
     echo "Keycloak user ${username} was not found after create" >&2
     return 1
   fi
-  local role
-  while IFS= read -r role; do
+  for role in "$@"; do
     [[ -z "${role}" ]] && continue
     _assign_realm_role "${token}" "${user_id}" "${role}" || return 1
-  done < <(_test_user_roles "${username}")
+  done
 }
 
 keycloak_reconcile_test_users() {
@@ -219,7 +219,46 @@ keycloak_reconcile_test_users() {
       echo "No password loaded for ${username}" >&2
       return 1
     fi
-    _create_or_reset_user "${token}" "${username}" "${password}" || return 1
+    local profile first last email rest role roles
+    profile="$(_test_user_profile "${username}")"
+    first="${profile%%$'\t'*}"
+    rest="${profile#*$'\t'}"
+    last="${rest%%$'\t'*}"
+    email="${rest#*$'\t'}"
+    roles=()
+    while IFS= read -r role; do
+      [[ -z "${role}" ]] && continue
+      roles+=("${role}")
+    done < <(_test_user_roles "${username}")
+    _create_or_reset_user "${token}" "${username}" "${password}" \
+      "${first}" "${last}" "${email}" "${roles[@]}" || return 1
+  done
+}
+
+# keycloak_reconcile_extra_users <username>...
+# Developer-owned helper: create-or-reset each given realm user with its password
+# fixed to its username and the base `hypershell-users` realm role. These are plain
+# users for local feature testing - e.g. Kind grant targets for
+# gateway-access-management (owner/admin/viewer) and the Keycloak directory search.
+# They are NOT test-tier principals and are NOT seeded on CI-owned environments.
+# Idempotent.
+keycloak_reconcile_extra_users() {
+  local token username
+  if [[ -z "${KEYCLOAK_BASE_URL:-}" ]]; then
+    echo "KEYCLOAK_BASE_URL is required" >&2
+    return 1
+  fi
+  if [[ "$#" -eq 0 ]]; then
+    return 0
+  fi
+  token="$(keycloak_admin_token)"
+  if [[ -z "${token}" ]]; then
+    echo "Could not obtain Keycloak master admin token" >&2
+    return 1
+  fi
+  for username in "$@"; do
+    _create_or_reset_user "${token}" "${username}" "${username}" \
+      "${username^}" "User" "${username}@hypershell.local" hypershell-users || return 1
   done
 }
 

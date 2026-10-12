@@ -233,6 +233,11 @@ type ReconcileOpts struct {
 	// GatewayResources overrides the gateway container requests and limits
 	// (GATEWAY_RESOURCES). Nil uses helm.DefaultGatewayResources.
 	GatewayResources *corev1.ResourceRequirements
+	// SandboxRuntimeClass is the Kubernetes RuntimeClass name applied to every
+	// sandbox pod provisioned by this gateway (GATEWAY_SANDBOX_RUNTIME_CLASS).
+	// Empty string uses the cluster default (runc). Set to "kata" or "kata-remote"
+	// to run sandboxes inside lightweight VMs for hardware-enforced isolation.
+	SandboxRuntimeClass string
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned

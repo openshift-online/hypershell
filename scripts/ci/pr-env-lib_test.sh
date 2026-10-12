@@ -56,6 +56,9 @@ assert_eq 'hypershell-ci-main-abcdef1' "$(pr_env_main_namespace 'ABCDEF123456789
 assert_eq 'hypershell-ci-mq-abcdef1' "$(pr_env_merge_queue_namespace 'abcdef1234567890')" 'merge-queue namespace from short SHA'
 assert_eq 'hypershell-ci-mq-abcdef1' "$(pr_env_merge_queue_namespace 'ABCDEF1234567890')" 'merge-queue namespace lowercases SHA'
 assert_eq 'true' "$([[ "$(pr_env_main_namespace 'abcdef1234567890')" != "$(pr_env_merge_queue_namespace 'abcdef1234567890')" ]] && echo true || echo false)" 'main and merge-queue namespaces never collide for the same SHA'
+assert_eq 'main-abcdef1' "$(pr_env_main_environment_id 'abcdef1234567890')" 'main environment id from short SHA'
+assert_eq 'mq-abcdef1' "$(pr_env_merge_queue_environment_id 'abcdef1234567890')" 'merge-queue environment id from short SHA'
+assert_eq '4' "${PR_ENV_MAIN_MQ_MAX_HOURS}" 'main/merge-queue default hours'
 
 # The platform namespace must remain an RFC 1123 label within 54 chars so the
 # derived -keycloak name stays under 63. Even a large PR number fits easily.
@@ -86,6 +89,7 @@ assert_eq '24' "${PR_ENV_UNRETAINED_MAX_HOURS}" 'unretained default hours'
 assert_eq "$(pr_env_epoch_to_rfc3339 $((base + 24 * 3600)))" "$(pr_env_expires_at_hours 24 "${base}")" 'expires_at_hours unretained default'
 assert_eq "$(pr_env_expires_at_hours 72 "${base}")" "$(pr_env_inactivity_expires_at true "${base}")" 'retained inactivity expiry uses 72h'
 assert_eq "$(pr_env_expires_at_hours 24 "${base}")" "$(pr_env_inactivity_expires_at false "${base}")" 'unretained inactivity expiry uses 24h'
+assert_eq "$(pr_env_expires_at_hours 4 "${base}")" "$(pr_env_main_mq_expires_at "${base}")" 'main/merge-queue expiry uses 4h default'
 
 # --- Reaper predicate ---
 now=2000000000
@@ -100,25 +104,46 @@ assert_not_reapable 'missing expiry annotation' \
   'hypershell-ci-pr-232' 'true' 'pr-232' '' "${now}"
 assert_not_reapable 'not owned' \
   'hypershell-ci-pr-232' 'false' 'pr-232' "${past}" "${now}"
-# Local `make openshift-up` env: right owner labels but opaque (non pr-*) id.
-assert_not_reapable 'local openshift-up env (uuid id)' \
-  'hypershell-ci-pr-232' 'true' '3f9a1c2e-uuid' "${past}" "${now}"
-# A HyperShell env that is not a pr namespace at all.
-assert_not_reapable 'non pr-prefixed namespace' \
+# A local `make openshift-up` env never carries the hypershell-ci- prefix, so
+# it is retained regardless of its (opaque, non pr-*) env id -- the prefix
+# alone is the safety boundary; env id is not consulted.
+assert_not_reapable 'local openshift-up env (opaque id, no hypershell-ci- prefix)' \
+  'alice' 'true' '3f9a1c2e-uuid' "${past}" "${now}"
+# A HyperShell env that is not a hypershell-ci- namespace at all.
+assert_not_reapable 'non hypershell-ci-prefixed namespace' \
   'my-dev-namespace' 'true' 'pr-232' "${past}" "${now}"
-# Env id must be pr-<digits>, not pr-anything.
-assert_not_reapable 'env id pr- without a number' \
+# Env id shape is purely descriptive; an odd-looking id on a correctly
+# prefixed, owned, expired namespace is still reaped.
+assert_reapable 'odd-shaped env id does not block reaping' \
   'hypershell-ci-pr-232' 'true' 'pr-branchname' "${past}" "${now}"
 # Reserved names are refused even if they somehow carry the labels/prefix.
 assert_not_reapable 'reserved openshift- namespace refused' \
   'openshift-config' 'true' 'pr-1' "${past}" "${now}"
 
-assert_eq 'true' "$(pr_env_is_pr_platform_namespace 'hypershell-ci-pr-267' && echo true || echo false)" \
+# --- Main / merge-queue reapability (same hypershell-ci- prefix contract) ---
+assert_reapable 'expired owned main env' \
+  'hypershell-ci-main-abcdef1' 'true' 'main-abcdef1' "${past}" "${now}"
+assert_not_reapable 'main env not yet expired' \
+  'hypershell-ci-main-abcdef1' 'true' 'main-abcdef1' "${future}" "${now}"
+assert_reapable 'expired owned merge-queue env' \
+  'hypershell-ci-mq-abcdef1' 'true' 'mq-abcdef1' "${past}" "${now}"
+assert_not_reapable 'merge-queue env not yet expired' \
+  'hypershell-ci-mq-abcdef1' 'true' 'mq-abcdef1' "${future}" "${now}"
+assert_not_reapable 'main namespace not owned' \
+  'hypershell-ci-main-abcdef1' 'false' 'main-abcdef1' "${past}" "${now}"
+
+assert_eq 'true' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-pr-267' && echo true || echo false)" \
   'pr platform namespace matches'
-assert_eq 'false' "$(pr_env_is_pr_platform_namespace 'hypershell-ci-pr-267-keycloak' && echo true || echo false)" \
+assert_eq 'false' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-pr-267-keycloak' && echo true || echo false)" \
   'keycloak companion is not a pr platform namespace'
-assert_eq 'false' "$(pr_env_is_pr_platform_namespace 'hyp5' && echo true || echo false)" \
+assert_eq 'false' "$(pr_env_is_ci_platform_namespace 'hyp5' && echo true || echo false)" \
   'hub namespace is not a pr platform namespace'
+assert_eq 'true' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-main-abcdef1' && echo true || echo false)" \
+  'main platform namespace matches'
+assert_eq 'false' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-main-abcdef1-keycloak' && echo true || echo false)" \
+  'main keycloak companion is not a platform namespace'
+assert_eq 'true' "$(pr_env_is_ci_platform_namespace 'hypershell-ci-mq-abcdef1' && echo true || echo false)" \
+  'merge-queue platform namespace matches'
 
 if pr_env_should_reap_instance_workload 'openshell-aaa' 'hypershell-ci-pr-267' 'false'; then
   PASS=$((PASS + 1))
@@ -483,6 +508,79 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: unretained teardown does not handle push-to-main (empty PR_NUMBER)'
 fi
+if grep -q 'pr_env_main_mq_expires_at' "${SCRIPT_DIR}/stamp-pr-env.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: stamp-pr-env.sh does not stamp main/merge-queue namespaces with the short backstop expiry'
+fi
+stamp_step="$(awk '/name: Stamp namespace group/,/run: bash scripts\/ci\/stamp-pr-env.sh/' \
+  "${SCRIPT_DIR}/../../.github/actions/deploy-pr-environment/action.yml")"
+case "${stamp_step}" in
+  *"if: inputs.pr_number"*)
+    FAIL=$((FAIL + 1))
+    echo 'FAIL: Stamp namespace group step is still gated on pr_number; main/mq would never be stamped'
+    ;;
+  *)
+    PASS=$((PASS + 1))
+    ;;
+esac
+
+# --- stamp-pr-env.sh: ci-keycloak label must stay PR-only ---
+#
+# Labeling a push-to-main/merge-queue keycloak namespace hypershell.redhat.io/
+# ci-keycloak=true makes ESO project the GitHub OAuth secret into it, which
+# flips github_idp_enabled() to true in scripts/cluster/drivers/openshift.sh
+# without the matching hypershell-e2e-client secret (only the PR-only "Wait
+# for ESO secrets and ensure e2e client" step provisions that), failing
+# `make openshift-seed` under SEED_STRICT=true. Regression: PR #471's
+# merge-queue run (hypershell-ci-mq-369542e, run 37821568691) broke exactly
+# this way when the whole stamping step was made unconditional.
+stub_kubectl_dir="$(mktemp -d)"
+trap 'rm -rf "${stub_kubectl_dir}"' EXIT
+labeled_log="${stub_kubectl_dir}/labeled.txt"
+cat > "${stub_kubectl_dir}/kubectl" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1 $2" == "label namespace" ]]; then
+  printf '%s %s\n' "$3" "$4" >> "${LABELED_LOG}"
+fi
+exit 0
+STUB
+chmod +x "${stub_kubectl_dir}/kubectl"
+
+: > "${labeled_log}"
+LABELED_LOG="${labeled_log}" PR_NUMBER=232 PR_ENV_KUBECTL="${stub_kubectl_dir}/kubectl" \
+  bash "${SCRIPT_DIR}/stamp-pr-env.sh" >/dev/null
+if grep -q 'hypershell-ci-pr-232-keycloak hypershell.redhat.io/ci-keycloak=true' "${labeled_log}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: stamp-pr-env.sh does not label a PR keycloak namespace ci-keycloak'
+fi
+
+: > "${labeled_log}"
+LABELED_LOG="${labeled_log}" PR_NUMBER= GITHUB_EVENT_NAME=merge_group \
+  GITHUB_SHA='abcdef1234567890deadbeef' PR_ENV_KUBECTL="${stub_kubectl_dir}/kubectl" \
+  bash "${SCRIPT_DIR}/stamp-pr-env.sh" >/dev/null
+if grep -q 'ci-keycloak' "${labeled_log}"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: stamp-pr-env.sh labeled a merge-queue keycloak namespace ci-keycloak, enabling GitHub IdP without an e2e client secret'
+else
+  PASS=$((PASS + 1))
+fi
+
+: > "${labeled_log}"
+LABELED_LOG="${labeled_log}" PR_NUMBER= GITHUB_EVENT_NAME=push \
+  GITHUB_SHA='abcdef1234567890deadbeef' PR_ENV_KUBECTL="${stub_kubectl_dir}/kubectl" \
+  bash "${SCRIPT_DIR}/stamp-pr-env.sh" >/dev/null
+if grep -q 'ci-keycloak' "${labeled_log}"; then
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: stamp-pr-env.sh labeled a push-to-main keycloak namespace ci-keycloak, enabling GitHub IdP without an e2e client secret'
+else
+  PASS=$((PASS + 1))
+fi
+rm -rf "${stub_kubectl_dir}"
+trap - EXIT
 if grep -q 'PR_ENV_PHASE=destroyed' "${SCRIPT_DIR}/../../.github/workflows/pr-environment-commands.yml"; then
   PASS=$((PASS + 1))
 else

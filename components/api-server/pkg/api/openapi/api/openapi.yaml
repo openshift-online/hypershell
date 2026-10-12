@@ -474,9 +474,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
           description: |
-            Validation errors occurred, including a cluster_id that is empty or does not
-            reference a ManagedCluster with a registered control plane (non-empty
-            oidc_subject). On update, cluster_id is validated only when it changes.
+            Validation errors occurred, including an invalid or unavailable placement
+            intent. The backend resolves a valid intent to a registered ManagedCluster
+            before creating the gateway.
         "401":
           content:
             application/json:
@@ -504,6 +504,31 @@ paths:
       security:
       - Bearer: []
       summary: Create a new gateway
+  /api/hypershell/v1/gateways/placement-availability:
+    get:
+      operationId: getGatewayPlacementAvailability
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayPlacementAvailability"
+          description: Current backend placement eligibility
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Auth token is invalid
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error evaluating placement availability
+      security:
+      - Bearer: []
+      summary: Returns current provider placement eligibility
   /api/hypershell/v1/gateways/{id}:
     delete:
       operationId: deleteGateway
@@ -1319,6 +1344,280 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Unexpected error occurred
       summary: Get a registered user by ID
+  /api/hypershell/v1/gateways/{gateway_id}/access:
+    get:
+      operationId: listGatewayAccess
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Filter by console role tier
+        in: query
+        name: role
+        required: false
+        schema:
+          $ref: "#/components/schemas/GatewayAccessRole"
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - in: query
+        name: sort
+        required: false
+        schema:
+          default: created_at
+          enum:
+          - name
+          - role
+          - status
+          - expires_at
+          - created_at
+          type: string
+      - in: query
+        name: order
+        required: false
+        schema:
+          default: desc
+          enum:
+          - asc
+          - desc
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAccessList"
+          description: Access grants and caller capabilities
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      summary: List access grants on a gateway
+    post:
+      operationId: grantGatewayAccess
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayAccessGrantRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAccessGrantResponse"
+          description: Access granted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Grant a user access to a gateway
+  /api/hypershell/v1/gateways/{gateway_id}/access/directory:
+    get:
+      operationId: searchGatewayDirectory
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayDirectoryUserList"
+          description: Candidate realm users
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Keycloak provisioning or lifecycle verification is unavailable
+      summary: Search the Keycloak realm directory for candidate users
+  /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:
+    delete:
+      operationId: revokeGatewayAccess
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: HyperShell User ID
+        in: path
+        name: user_id
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: Access revoked
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+      summary: Revoke a user's access to a gateway
+    patch:
+      operationId: changeGatewayAccessRole
+      parameters:
+      - description: Selected Gateway ID
+        in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      - description: HyperShell User ID
+        in: path
+        name: user_id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayAccessChangeRoleRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayAccessGrantResponse"
+          description: Role changed
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Invalid request or query value
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway or service account was not found or is not visible
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway is not ready or the active name already exists
+      summary: Change a user's access role on a gateway
   /api/hypershell/ext/agent_runtimes:
     get:
       operationId: listAgentRuntimes
@@ -2619,6 +2918,249 @@ paths:
       security:
       - Bearer: []
       summary: Update a secret source
+  /api/hypershell/ext/repositories:
+    get:
+      operationId: listRepositories
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositoryList"
+          description: A JSON array of repository objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of repositories
+    post:
+      operationId: createRepository
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Repository"
+        description: Repository data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Register a new repository
+  /api/hypershell/ext/repositories/{id}:
+    delete:
+      operationId: deleteRepository
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Repository deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No repository with specified ID exists
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Repository is still referenced by one or more AgentRuntimes
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a repository
+    get:
+      operationId: getRepository
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+          description: Repository found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No repository with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a repository by ID
+    patch:
+      operationId: updateRepository
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepositoryPatchRequest"
+        description: Updated repository data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+          description: Repository updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No repository with specified ID exists
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unprocessable entity
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Update a repository
 components:
   parameters:
     id:
@@ -2720,6 +3262,20 @@ components:
       description: OpenShellGatewayServiceAccount ID
       in: path
       name: service_account_id
+      required: true
+      schema:
+        type: string
+    role:
+      description: Filter by console role tier
+      in: query
+      name: role
+      required: false
+      schema:
+        $ref: "#/components/schemas/GatewayAccessRole"
+    userId:
+      description: HyperShell User ID
+      in: path
+      name: user_id
       required: true
       schema:
         type: string
@@ -2826,6 +3382,15 @@ components:
           name:
             type: string
           provider:
+            description: Cloud provider capability used for gateway placement.
+            type: string
+          visibility:
+            description: Network visibility supported by this control plane for gateway
+              placement.
+            enum:
+            - public
+            - vpn
+            readOnly: true
             type: string
           region:
             type: string
@@ -2852,6 +3417,7 @@ components:
         - provider
         type: object
       example:
+        visibility: public
         kind: kind
         created_at: 2000-01-23T04:56:07.000+00:00
         oidc_subject: oidc_subject
@@ -2884,7 +3450,8 @@ components:
         id: id
         href: href
         items:
-        - kind: kind
+        - visibility: public
+          kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
@@ -2897,7 +3464,8 @@ components:
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - kind: kind
+        - visibility: public
+          kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
@@ -2934,6 +3502,8 @@ components:
       type: object
     ManagedClusterRegistrationRequest:
       example:
+        visibility: public
+        provider: aws
         name: name
         description: description
       properties:
@@ -2943,6 +3513,19 @@ components:
           type: string
         description:
           description: Optional description of the spoke.
+          type: string
+        provider:
+          description: Cloud provider hosting this control plane.
+          enum:
+          - aws
+          - ibm
+          - kind
+          type: string
+        visibility:
+          description: Network visibility supported for gateways on this control plane.
+          enum:
+          - public
+          - vpn
           type: string
       required:
       - name
@@ -3045,6 +3628,20 @@ components:
             format: int64
             readOnly: true
             type: integer
+          can_delete:
+            description: Whether the authenticated caller is authorized to delete
+              this gateway (gateway owner or platform admin). Advertised so clients
+              can disable a delete affordance the API would reject; the server remains
+              authoritative.
+            readOnly: true
+            type: boolean
+          can_edit:
+            description: "Whether the authenticated caller is authorized to modify\
+              \ this gateway (PATCH, e.g. rename) -- gateway owner or admin. Advertised\
+              \ so clients can disable an edit affordance the API would reject; the\
+              \ server remains authoritative."
+            readOnly: true
+            type: boolean
         required:
         - cluster_id
         - name
@@ -3058,6 +3655,7 @@ components:
         credential_driver: credential_driver
         cluster_id: cluster_id
         updated_at: 2000-01-23T04:56:07.000+00:00
+        can_delete: true
         id: id
         href: href
         gateway_version: gateway_version
@@ -3076,6 +3674,7 @@ components:
           message: message
         kind: kind
         console_address: console_address
+        can_edit: true
         route_address: route_address
         oidc: oidc
         created_by: created_by
@@ -3112,6 +3711,7 @@ components:
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
+          can_delete: true
           id: id
           href: href
           gateway_version: gateway_version
@@ -3130,6 +3730,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          can_edit: true
           route_address: route_address
           oidc: oidc
           created_by: created_by
@@ -3147,6 +3748,7 @@ components:
           credential_driver: credential_driver
           cluster_id: cluster_id
           updated_at: 2000-01-23T04:56:07.000+00:00
+          can_delete: true
           id: id
           href: href
           gateway_version: gateway_version
@@ -3165,6 +3767,7 @@ components:
             message: message
           kind: kind
           console_address: console_address
+          can_edit: true
           route_address: route_address
           oidc: oidc
           created_by: created_by
@@ -3224,6 +3827,66 @@ components:
           type: string
         credential_driver:
           type: string
+      type: object
+    GatewayPlacementIntent:
+      description: Exactly one of network/provider or mode must be supplied.
+      example:
+        mode: local-kind
+        provider: aws
+        network: public
+      nullable: true
+      oneOf: []
+      properties:
+        network:
+          enum:
+          - public
+          - vpn
+          type: string
+        provider:
+          description: IBM Cloud supports public placement only; VPN requires AWS.
+          enum:
+          - aws
+          - ibm
+          type: string
+        mode:
+          enum:
+          - local-kind
+          type: string
+      type: object
+    GatewayPlacementAvailability:
+      example:
+        aws_public: true
+        aws_reason: no-eligible-cluster
+        local_kind: true
+        ibm_reason: no-eligible-cluster
+        ibm_public: true
+        aws_vpn: true
+        ibm_vpn: true
+      properties:
+        aws_public:
+          type: boolean
+        aws_vpn:
+          type: boolean
+        ibm_public:
+          type: boolean
+        ibm_vpn:
+          type: boolean
+        local_kind:
+          type: boolean
+        aws_reason:
+          enum:
+          - no-eligible-cluster
+          type: string
+        ibm_reason:
+          enum:
+          - no-eligible-cluster
+          type: string
+      required:
+      - aws_public
+      - aws_vpn
+      - ibm_public
+      - ibm_vpn
+      - local_kind
       type: object
     OpenShellGatewayServiceAccountRole:
       enum:
@@ -3809,6 +4472,187 @@ components:
           href: href
           email: email
           username: username
+    GatewayAccessRole:
+      enum:
+      - owner
+      - admin
+      - user
+      type: string
+    GatewayAccessGrantRequest:
+      additionalProperties: false
+      example:
+        role: owner
+        subject: subject
+        username: username
+      properties:
+        username:
+          minLength: 1
+          type: string
+        subject:
+          description: Optional Keycloak subject reference returned by the directory
+            search
+          type: string
+        role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+      required:
+      - role
+      - username
+      type: object
+    GatewayAccessChangeRoleRequest:
+      additionalProperties: false
+      example:
+        role: owner
+      properties:
+        role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+      required:
+      - role
+      type: object
+    GatewayAccessListItem:
+      example:
+        granted_at: 2000-01-23T04:56:07.000+00:00
+        role: null
+        user_id: user_id
+        name: name
+        role_binding_id: role_binding_id
+        email: email
+        username: username
+      properties:
+        role_binding_id:
+          type: string
+        user_id:
+          type: string
+        username:
+          type: string
+        name:
+          nullable: true
+          type: string
+        email:
+          nullable: true
+          type: string
+        role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+        granted_at:
+          format: date-time
+          type: string
+      required:
+      - granted_at
+      - role
+      - role_binding_id
+      - user_id
+      - username
+      type: object
+    GatewayAccessGrantResponse:
+      allOf:
+      - $ref: "#/components/schemas/GatewayAccessListItem"
+      example:
+        granted_at: 2000-01-23T04:56:07.000+00:00
+        role: owner
+        user_id: user_id
+        name: name
+        role_binding_id: role_binding_id
+        email: email
+        username: username
+    GatewayAccessCapabilities:
+      example:
+        caller_role: owner
+        can_manage_access: true
+        can_manage_owners: true
+      properties:
+        caller_role:
+          $ref: "#/components/schemas/GatewayAccessRole"
+        can_manage_access:
+          type: boolean
+        can_manage_owners:
+          type: boolean
+      required:
+      - can_manage_access
+      - can_manage_owners
+      type: object
+    GatewayAccessList:
+      example:
+        total: 1
+        capabilities:
+          caller_role: owner
+          can_manage_access: true
+          can_manage_owners: true
+        size: 6
+        page: 0
+        items:
+        - granted_at: 2000-01-23T04:56:07.000+00:00
+          role: null
+          user_id: user_id
+          name: name
+          role_binding_id: role_binding_id
+          email: email
+          username: username
+        - granted_at: 2000-01-23T04:56:07.000+00:00
+          role: null
+          user_id: user_id
+          name: name
+          role_binding_id: role_binding_id
+          email: email
+          username: username
+      properties:
+        page:
+          type: integer
+        size:
+          type: integer
+        total:
+          type: integer
+        capabilities:
+          $ref: "#/components/schemas/GatewayAccessCapabilities"
+        items:
+          items:
+            $ref: "#/components/schemas/GatewayAccessListItem"
+          type: array
+      required:
+      - capabilities
+      - items
+      - page
+      - size
+      - total
+      type: object
+    GatewayDirectoryUser:
+      example:
+        subject: subject
+        name: name
+        email: email
+        username: username
+      properties:
+        username:
+          type: string
+        name:
+          nullable: true
+          type: string
+        email:
+          nullable: true
+          type: string
+        subject:
+          nullable: true
+          type: string
+      required:
+      - username
+      type: object
+    GatewayDirectoryUserList:
+      example:
+        items:
+        - subject: subject
+          name: name
+          email: email
+          username: username
+        - subject: subject
+          name: name
+          email: email
+          username: username
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/GatewayDirectoryUser"
+          type: array
+      required:
+      - items
+      type: object
     AgentRuntime:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
@@ -3821,6 +4665,15 @@ components:
             type: string
           sandbox_template_id:
             type: string
+          repository_id:
+            description: Optional reference to a Repository the runtime scans
+            type: string
+          selector:
+            description: Labels selecting repository work items to scan (match-any);
+              requires repository_id
+            items:
+              type: string
+            type: array
           description:
             type: string
           cron:
@@ -3860,6 +4713,10 @@ components:
         updated_at: 2000-01-23T04:56:07.000+00:00
         name: name
         login_refresh_seconds: 5
+        repository_id: repository_id
+        selector:
+        - selector
+        - selector
         id: id
         href: href
         parameters: parameters
@@ -3895,6 +4752,10 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           name: name
           login_refresh_seconds: 5
+          repository_id: repository_id
+          selector:
+          - selector
+          - selector
           id: id
           href: href
           parameters: parameters
@@ -3911,6 +4772,10 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           name: name
           login_refresh_seconds: 5
+          repository_id: repository_id
+          selector:
+          - selector
+          - selector
           id: id
           href: href
           parameters: parameters
@@ -3923,6 +4788,10 @@ components:
         concurrency_policy: concurrency_policy
         login_refresh_seconds: 0
         description: description
+        repository_id: repository_id
+        selector:
+        - selector
+        - selector
         sandbox_template_id: sandbox_template_id
         parameters: parameters
       properties:
@@ -3930,6 +4799,12 @@ components:
           type: string
         sandbox_template_id:
           type: string
+        repository_id:
+          type: string
+        selector:
+          items:
+            type: string
+          type: array
         description:
           type: string
         cron:
@@ -4381,18 +5256,21 @@ components:
         credential_driver: credential_driver
         oidc: oidc
         supervisor_image: supervisor_image
-        cluster_id: cluster_id
         service_type: service_type
         tls_mode: tls_mode
         route: route
         name: name
+        placement:
+          mode: local-kind
+          provider: aws
+          network: public
         external_dns: external_dns
         status: status
       properties:
         name:
           type: string
-        cluster_id:
-          type: string
+        placement:
+          $ref: "#/components/schemas/GatewayPlacementIntent"
         external_dns:
           type: string
         tls_mode:
@@ -4424,8 +5302,109 @@ components:
           description: JSON-encoded credential storage driver configuration
           type: string
       required:
-      - cluster_id
       - name
+      - placement
+      type: object
+    RepositoryList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/Repository"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - secret_source_id: secret_source_id
+          import_path: import_path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          default_branch: default_branch
+          id: id
+          href: href
+          url: url
+          status: status
+        - secret_source_id: secret_source_id
+          import_path: import_path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          provider: provider
+          kind: kind
+          name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
+          default_branch: default_branch
+          id: id
+          href: href
+          url: url
+          status: status
+    Repository:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            description: Human-readable identifier for the repository registration
+            type: string
+          url:
+            description: Git remote URL (e.g. https://github.com/openshift-online/hypershell)
+            type: string
+          provider:
+            description: "Provider type the credential targets: github (extensible)"
+            type: string
+          secret_source_id:
+            description: References a SecretSource holding the provider credential
+            type: string
+          default_branch:
+            description: Branch the import process reads when none is otherwise specified
+            type: string
+          import_path:
+            description: Directory within the repository to import (default .hypershell)
+            type: string
+          status:
+            description: Registration/import health
+            readOnly: true
+            type: string
+        required:
+        - name
+        - provider
+        - secret_source_id
+        - url
+        type: object
+      example:
+        secret_source_id: secret_source_id
+        import_path: import_path
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        provider: provider
+        kind: kind
+        name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
+        default_branch: default_branch
+        id: id
+        href: href
+        url: url
+        status: status
+    RepositoryPatchRequest:
+      example:
+        secret_source_id: secret_source_id
+        import_path: import_path
+        default_branch: default_branch
+      properties:
+        secret_source_id:
+          type: string
+        default_branch:
+          type: string
+        import_path:
+          type: string
       type: object
     Gateway_allOf_provisioning_conditions:
       example:

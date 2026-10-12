@@ -105,6 +105,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "sandbox_template_id",
           "label": "SANDBOX TEMPLATE ID",
           "priority": 0,
@@ -376,6 +382,100 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/ext/repositories:#/schemas/Repository",
+      "kind": "collection",
+      "schemaRef": "#/schemas/Repository",
+      "label": "Repository",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "default_branch",
+          "label": "DEFAULT BRANCH",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "import_path",
+          "label": "IMPORT PATH",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "provider",
+          "label": "PROVIDER",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "secret_source_id",
+          "label": "SECRET SOURCE ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "status",
+          "label": "STATUS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "url",
+          "label": "URL",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "operationIds": [
+        "createRepository",
+        "listRepositories"
+      ],
+      "capabilities": [
+        "create",
+        "list"
+      ],
+      "listOperationId": "listRepositories",
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/ext/sandbox_templates:#/schemas/SandboxTemplate",
       "kind": "collection",
       "schemaRef": "#/schemas/SandboxTemplate",
@@ -543,6 +643,174 @@
         "list"
       ],
       "listOperationId": "listSecretSources",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/v1/gateways/placement-availability:#/schemas/GatewayPlacementAvailability",
+      "kind": "collection",
+      "schemaRef": "#/schemas/GatewayPlacementAvailability",
+      "label": "GatewayPlacementAvailability",
+      "defaultSort": "aws_public",
+      "columns": [
+        {
+          "property": "aws_public",
+          "label": "AWS PUBLIC",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "aws_reason",
+          "label": "AWS REASON",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "aws_vpn",
+          "label": "AWS VPN",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "ibm_public",
+          "label": "IBM PUBLIC",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "ibm_reason",
+          "label": "IBM REASON",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "ibm_vpn",
+          "label": "IBM VPN",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "local_kind",
+          "label": "LOCAL KIND",
+          "priority": 0,
+          "type": "boolean"
+        }
+      ],
+      "operationIds": [
+        "getGatewayPlacementAvailability"
+      ],
+      "capabilities": [
+        "get"
+      ],
+      "getOperationId": "getGatewayPlacementAvailability",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/access/directory:#/schemas/GatewayDirectoryUser",
+      "kind": "collection",
+      "schemaRef": "#/schemas/GatewayDirectoryUser",
+      "label": "GatewayDirectoryUser",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "email",
+          "label": "EMAIL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "subject",
+          "label": "SUBJECT",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "username",
+          "label": "USERNAME",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id"
+      ],
+      "operationIds": [
+        "searchGatewayDirectory"
+      ],
+      "capabilities": [
+        "list"
+      ],
+      "listOperationId": "searchGatewayDirectory",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/access:#/schemas/GatewayAccessListItem",
+      "kind": "collection",
+      "schemaRef": "#/schemas/GatewayAccessListItem",
+      "label": "GatewayAccessListItem",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "email",
+          "label": "EMAIL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "granted_at",
+          "label": "GRANTED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "role_binding_id",
+          "label": "ROLE BINDING ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "user_id",
+          "label": "USER ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "username",
+          "label": "USERNAME",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id"
+      ],
+      "operationIds": [
+        "grantGatewayAccess",
+        "listGatewayAccess"
+      ],
+      "capabilities": [
+        "create",
+        "list"
+      ],
+      "listOperationId": "listGatewayAccess",
       "source": {}
     },
     {
@@ -797,6 +1065,18 @@
           "priority": 0,
           "type": "integer",
           "format": "int32"
+        },
+        {
+          "property": "can_delete",
+          "label": "CAN DELETE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "can_edit",
+          "label": "CAN EDIT",
+          "priority": 0,
+          "type": "boolean"
         },
         {
           "property": "cluster_id",
@@ -1062,6 +1342,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "visibility",
+          "label": "VISIBILITY",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
@@ -1432,6 +1718,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "sandbox_template_id",
           "label": "SANDBOX TEMPLATE ID",
           "priority": 0,
@@ -1709,6 +2001,102 @@
       "source": {}
     },
     {
+      "id": "item:/api/hypershell/ext/repositories/{id}:#/schemas/Repository",
+      "kind": "item",
+      "schemaRef": "#/schemas/Repository",
+      "label": "Repository",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "default_branch",
+          "label": "DEFAULT BRANCH",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "import_path",
+          "label": "IMPORT PATH",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "provider",
+          "label": "PROVIDER",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "secret_source_id",
+          "label": "SECRET SOURCE ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "status",
+          "label": "STATUS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "url",
+          "label": "URL",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "operationIds": [
+        "deleteRepository",
+        "getRepository",
+        "updateRepository"
+      ],
+      "capabilities": [
+        "delete",
+        "get",
+        "update"
+      ],
+      "getOperationId": "getRepository",
+      "source": {}
+    },
+    {
       "id": "item:/api/hypershell/ext/sandbox_templates/{id}:#/schemas/SandboxTemplate",
       "kind": "item",
       "schemaRef": "#/schemas/SandboxTemplate",
@@ -1883,6 +2271,70 @@
       "source": {}
     },
     {
+      "id": "item:/api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:#/schemas/GatewayAccessGrantResponse",
+      "kind": "item",
+      "schemaRef": "#/schemas/GatewayAccessGrantResponse",
+      "label": "GatewayAccessGrantResponse",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "email",
+          "label": "EMAIL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "granted_at",
+          "label": "GRANTED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "role",
+          "label": "ROLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "role_binding_id",
+          "label": "ROLE BINDING ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "user_id",
+          "label": "USER ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "username",
+          "label": "USERNAME",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id"
+      ],
+      "operationIds": [
+        "changeGatewayAccessRole",
+        "revokeGatewayAccess"
+      ],
+      "capabilities": [
+        "delete",
+        "update"
+      ],
+      "source": {}
+    },
+    {
       "id": "item:/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}:#/schemas/OpenShellGatewayServiceAccountListItem",
       "kind": "item",
       "schemaRef": "#/schemas/OpenShellGatewayServiceAccountListItem",
@@ -2019,6 +2471,18 @@
           "priority": 0,
           "type": "integer",
           "format": "int32"
+        },
+        {
+          "property": "can_delete",
+          "label": "CAN DELETE",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "can_edit",
+          "label": "CAN EDIT",
+          "priority": 0,
+          "type": "boolean"
         },
         {
           "property": "cluster_id",
@@ -2264,6 +2728,12 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
+        },
+        {
+          "property": "visibility",
+          "label": "VISIBILITY",
+          "priority": 0,
+          "type": "string"
         }
       ],
       "operationIds": [
@@ -2500,6 +2970,89 @@
   ],
   "operations": [
     {
+      "id": "changeGatewayAccessRole",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access/"
+        },
+        {
+          "parameter": "user_id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "user_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "HyperShell User ID"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "role",
+            "type": "string",
+            "required": true,
+            "enum": [
+              "owner",
+              "admin",
+              "user"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Change a user's access role on a gateway",
+      "presentation": {}
+    },
+    {
       "id": "createAgentRuntime",
       "method": "POST",
       "pathParts": [
@@ -2584,9 +3137,21 @@
             "description": "JSON-encoded key-value parameters passed to the agent coordinator"
           },
           {
+            "name": "repository_id",
+            "type": "string",
+            "required": false,
+            "description": "Optional reference to a Repository the runtime scans"
+          },
+          {
             "name": "sandbox_template_id",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "selector",
+            "type": "array",
+            "required": false,
+            "description": "Labels selecting repository work items to scan (match-any); requires repository_id"
           },
           {
             "name": "updated_at",
@@ -2639,11 +3204,6 @@
         "contentType": "application/json",
         "fields": [
           {
-            "name": "cluster_id",
-            "type": "string",
-            "required": true
-          },
-          {
             "name": "credential_driver",
             "type": "string",
             "required": false,
@@ -2675,6 +3235,12 @@
             "name": "phase",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "placement",
+            "type": "object",
+            "required": true,
+            "description": "Exactly one of network/provider or mode must be supplied."
           },
           {
             "name": "route",
@@ -2974,7 +3540,8 @@
           {
             "name": "provider",
             "type": "string",
-            "required": true
+            "required": true,
+            "description": "Cloud provider capability used for gateway placement."
           },
           {
             "name": "region",
@@ -3217,6 +3784,113 @@
         "create"
       ],
       "summary": "Create a new provider spec",
+      "presentation": {}
+    },
+    {
+      "id": "createRepository",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "created_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "default_branch",
+            "type": "string",
+            "required": false,
+            "description": "Branch the import process reads when none is otherwise specified"
+          },
+          {
+            "name": "href",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "import_path",
+            "type": "string",
+            "required": false,
+            "description": "Directory within the repository to import (default .hypershell)"
+          },
+          {
+            "name": "kind",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": true,
+            "description": "Human-readable identifier for the repository registration"
+          },
+          {
+            "name": "provider",
+            "type": "string",
+            "required": true,
+            "description": "Provider type the credential targets: github (extensible)"
+          },
+          {
+            "name": "secret_source_id",
+            "type": "string",
+            "required": true,
+            "description": "References a SecretSource holding the provider credential"
+          },
+          {
+            "name": "updated_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "url",
+            "type": "string",
+            "required": true,
+            "description": "Git remote URL (e.g. https://github.com/openshift-online/hypershell)"
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "201"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Register a new repository",
       "presentation": {}
     },
     {
@@ -3924,6 +4598,62 @@
       }
     },
     {
+      "id": "deleteRepository",
+      "method": "DELETE",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {},
+      "successStatuses": [
+        "204"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "delete"
+      ],
+      "summary": "Delete a repository",
+      "presentation": {
+        "confirmation": {
+          "title": "Delete",
+          "message": "Delete a repository?",
+          "destructive": true
+        }
+      }
+    },
+    {
       "id": "deleteRoleBinding",
       "method": "DELETE",
       "pathParts": [
@@ -4193,6 +4923,44 @@
         "get"
       ],
       "summary": "Get an gateway by id",
+      "presentation": {}
+    },
+    {
+      "id": "getGatewayPlacementAvailability",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/placement-availability"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Returns current provider placement eligibility",
       "presentation": {}
     },
     {
@@ -4509,6 +5277,58 @@
       "presentation": {}
     },
     {
+      "id": "getRepository",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Get a repository by ID",
+      "presentation": {}
+    },
+    {
       "id": "getRole",
       "method": "GET",
       "pathParts": [
@@ -4769,6 +5589,88 @@
       "presentation": {}
     },
     {
+      "id": "grantGatewayAccess",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "role",
+            "type": "string",
+            "required": true,
+            "enum": [
+              "owner",
+              "admin",
+              "user"
+            ]
+          },
+          {
+            "name": "subject",
+            "type": "string",
+            "required": false,
+            "description": "Optional Keycloak subject reference returned by the directory search"
+          },
+          {
+            "name": "username",
+            "type": "string",
+            "required": true
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "201"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Grant a user access to a gateway",
+      "presentation": {}
+    },
+    {
       "id": "listAgentRuntimes",
       "method": "GET",
       "pathParts": [
@@ -4854,6 +5756,131 @@
         "list"
       ],
       "summary": "Returns a list of agent runtimes",
+      "presentation": {}
+    },
+    {
+      "id": "listGatewayAccess",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "default": 20
+        },
+        {
+          "name": "role",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Filter by console role tier",
+          "enum": [
+            "owner",
+            "admin",
+            "user"
+          ]
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Case-insensitive literal substring over username and name"
+        },
+        {
+          "name": "sort",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "enum": [
+            "username",
+            "name",
+            "role",
+            "granted_at"
+          ],
+          "default": "granted_at"
+        },
+        {
+          "name": "order",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "default": "desc"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "List access grants on a gateway",
       "presentation": {}
     },
     {
@@ -5427,6 +6454,94 @@
       "presentation": {}
     },
     {
+      "id": "listRepositories",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Page number of record list when record list exceeds specified page size",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Maximum number of records to return",
+          "default": 100
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the search criteria"
+        },
+        {
+          "name": "orderBy",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the order by criteria"
+        },
+        {
+          "name": "fields",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Supplies a comma-separated list of fields to be returned"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "Returns a list of repositories",
+      "presentation": {}
+    },
+    {
       "id": "listRoleBindings",
       "method": "GET",
       "pathParts": [
@@ -5889,6 +7004,27 @@
             "type": "string",
             "required": true,
             "description": "Human-readable spoke name, unique per fleet (e.g. hyp0-mc1). Must match on every subsequent call."
+          },
+          {
+            "name": "provider",
+            "type": "string",
+            "required": false,
+            "description": "Cloud provider hosting this control plane.",
+            "enum": [
+              "aws",
+              "ibm",
+              "kind"
+            ]
+          },
+          {
+            "name": "visibility",
+            "type": "string",
+            "required": false,
+            "description": "Network visibility supported for gateways on this control plane.",
+            "enum": [
+              "public",
+              "vpn"
+            ]
           }
         ]
       },
@@ -5922,6 +7058,77 @@
       ],
       "summary": "Self-register a control plane as a managed cluster",
       "presentation": {}
+    },
+    {
+      "id": "revokeGatewayAccess",
+      "method": "DELETE",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access/"
+        },
+        {
+          "parameter": "user_id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "user_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "HyperShell User ID"
+        }
+      ],
+      "response": {},
+      "successStatuses": [
+        "204"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "delete"
+      ],
+      "summary": "Revoke a user's access to a gateway",
+      "presentation": {
+        "confirmation": {
+          "title": "Delete",
+          "message": "Revoke a user's access to a gateway?",
+          "destructive": true
+        }
+      }
     },
     {
       "id": "revokeGatewayServiceAccount",
@@ -5995,6 +7202,71 @@
       "presentation": {}
     },
     {
+      "id": "searchGatewayDirectory",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/access/directory"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "Selected Gateway ID"
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Case-insensitive literal substring over username and name"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "Search the Keycloak realm directory for candidate users",
+      "presentation": {}
+    },
+    {
       "id": "updateAgentRuntime",
       "method": "PATCH",
       "pathParts": [
@@ -6057,8 +7329,18 @@
             "required": false
           },
           {
+            "name": "repository_id",
+            "type": "string",
+            "required": false
+          },
+          {
             "name": "sandbox_template_id",
             "type": "string",
+            "required": false
+          },
+          {
+            "name": "selector",
+            "type": "array",
             "required": false
           }
         ]
@@ -6456,6 +7738,79 @@
       "presentation": {}
     },
     {
+      "id": "updateRepository",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/repositories/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "default_branch",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "import_path",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "secret_source_id",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Update a repository",
+      "presentation": {}
+    },
+    {
       "id": "updateSandboxTemplate",
       "method": "PATCH",
       "pathParts": [
@@ -6687,6 +8042,23 @@
       "navigable": true
     },
     {
+      "id": "collection:/api/hypershell/ext/repositories:#/schemas/Repository-\u003eitem:/api/hypershell/ext/repositories/{id}:#/schemas/Repository:item",
+      "name": "details",
+      "sourceViewId": "collection:/api/hypershell/ext/repositories:#/schemas/Repository",
+      "targetViewId": "item:/api/hypershell/ext/repositories/{id}:#/schemas/Repository",
+      "sourceOperationId": "listRepositories",
+      "targetOperationId": "getRepository",
+      "provenance": "collection-item",
+      "bindings": [
+        {
+          "target": "id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
       "id": "collection:/api/hypershell/ext/sandbox_templates:#/schemas/SandboxTemplate-\u003eitem:/api/hypershell/ext/sandbox_templates/{id}:#/schemas/SandboxTemplate:item",
       "name": "details",
       "sourceViewId": "collection:/api/hypershell/ext/sandbox_templates:#/schemas/SandboxTemplate",
@@ -6821,6 +8193,40 @@
       "bindings": [
         {
           "target": "id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway-\u003ecollection:/api/hypershell/v1/gateways/{gateway_id}/access/directory:#/schemas/GatewayDirectoryUser:contains",
+      "name": "contains",
+      "sourceViewId": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway",
+      "targetViewId": "collection:/api/hypershell/v1/gateways/{gateway_id}/access/directory:#/schemas/GatewayDirectoryUser",
+      "sourceOperationId": "getGateway",
+      "targetOperationId": "searchGatewayDirectory",
+      "provenance": "inferred-path",
+      "bindings": [
+        {
+          "target": "gateway_id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway-\u003ecollection:/api/hypershell/v1/gateways/{gateway_id}/access:#/schemas/GatewayAccessListItem:contains",
+      "name": "contains",
+      "sourceViewId": "item:/api/hypershell/v1/gateways/{id}:#/schemas/Gateway",
+      "targetViewId": "collection:/api/hypershell/v1/gateways/{gateway_id}/access:#/schemas/GatewayAccessListItem",
+      "sourceOperationId": "getGateway",
+      "targetOperationId": "listGatewayAccess",
+      "provenance": "inferred-path",
+      "bindings": [
+        {
+          "target": "gateway_id",
           "sourceKind": "row-property",
           "source": "id"
         }

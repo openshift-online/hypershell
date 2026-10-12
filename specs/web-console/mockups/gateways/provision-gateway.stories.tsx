@@ -1,14 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { ProvisionGatewayMockup } from "./provision-gateway";
+import { ProvisionGatewayParityMockup } from "./provision-gateway";
 
 const meta = {
   title: "Mockups/Gateways/Provision gateway",
-  component: ProvisionGatewayMockup,
+  component: ProvisionGatewayParityMockup,
   parameters: {
     layout: "fullscreen",
   },
-} satisfies Meta<typeof ProvisionGatewayMockup>;
+} satisfies Meta<typeof ProvisionGatewayParityMockup>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

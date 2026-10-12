@@ -4,6 +4,7 @@ All URIs are relative to *http://localhost:8000*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+[**ChangeGatewayAccessRole**](DefaultAPI.md#ChangeGatewayAccessRole) | **Patch** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Change a user&#39;s access role on a gateway
 [**CreateAgentRuntime**](DefaultAPI.md#CreateAgentRuntime) | **Post** /api/hypershell/ext/agent_runtimes | Create a new agent runtime
 [**CreateGateway**](DefaultAPI.md#CreateGateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 [**CreateGatewayServiceAccount**](DefaultAPI.md#CreateGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
@@ -11,6 +12,7 @@ Method | HTTP request | Description
 [**CreateManagedCluster**](DefaultAPI.md#CreateManagedCluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
 [**CreateProviderBinding**](DefaultAPI.md#CreateProviderBinding) | **Post** /api/hypershell/ext/provider_bindings | Create a new provider binding
 [**CreateProviderSpec**](DefaultAPI.md#CreateProviderSpec) | **Post** /api/hypershell/ext/provider_specs | Create a new provider spec
+[**CreateRepository**](DefaultAPI.md#CreateRepository) | **Post** /api/hypershell/ext/repositories | Register a new repository
 [**CreateRoleBinding**](DefaultAPI.md#CreateRoleBinding) | **Post** /api/hypershell/v1/role_bindings | Create a role binding
 [**CreateSandboxTemplate**](DefaultAPI.md#CreateSandboxTemplate) | **Post** /api/hypershell/ext/sandbox_templates | Create a new sandbox template
 [**CreateSecretSource**](DefaultAPI.md#CreateSecretSource) | **Post** /api/hypershell/ext/secret_sources | Create a new secret source
@@ -21,44 +23,126 @@ Method | HTTP request | Description
 [**DeleteManagedCluster**](DefaultAPI.md#DeleteManagedCluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
 [**DeleteProviderBinding**](DefaultAPI.md#DeleteProviderBinding) | **Delete** /api/hypershell/ext/provider_bindings/{id} | Delete a provider binding
 [**DeleteProviderSpec**](DefaultAPI.md#DeleteProviderSpec) | **Delete** /api/hypershell/ext/provider_specs/{id} | Delete a provider spec
+[**DeleteRepository**](DefaultAPI.md#DeleteRepository) | **Delete** /api/hypershell/ext/repositories/{id} | Delete a repository
 [**DeleteRoleBinding**](DefaultAPI.md#DeleteRoleBinding) | **Delete** /api/hypershell/v1/role_bindings/{id} | Delete a role binding
 [**DeleteSandboxTemplate**](DefaultAPI.md#DeleteSandboxTemplate) | **Delete** /api/hypershell/ext/sandbox_templates/{id} | Delete a sandbox template
 [**DeleteSecretSource**](DefaultAPI.md#DeleteSecretSource) | **Delete** /api/hypershell/ext/secret_sources/{id} | Delete a secret source
 [**GetAgentRuntime**](DefaultAPI.md#GetAgentRuntime) | **Get** /api/hypershell/ext/agent_runtimes/{id} | Get an agent runtime by ID
 [**GetGateway**](DefaultAPI.md#GetGateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
+[**GetGatewayPlacementAvailability**](DefaultAPI.md#GetGatewayPlacementAvailability) | **Get** /api/hypershell/v1/gateways/placement-availability | Returns current provider placement eligibility
 [**GetGatewayServiceAccount**](DefaultAPI.md#GetGatewayServiceAccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 [**GetInferenceRoute**](DefaultAPI.md#GetInferenceRoute) | **Get** /api/hypershell/ext/inference_routes/{id} | Get an inference route by ID
 [**GetManagedCluster**](DefaultAPI.md#GetManagedCluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
 [**GetMetadata**](DefaultAPI.md#GetMetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
 [**GetProviderBinding**](DefaultAPI.md#GetProviderBinding) | **Get** /api/hypershell/ext/provider_bindings/{id} | Get a provider binding by ID
 [**GetProviderSpec**](DefaultAPI.md#GetProviderSpec) | **Get** /api/hypershell/ext/provider_specs/{id} | Get a provider spec by ID
+[**GetRepository**](DefaultAPI.md#GetRepository) | **Get** /api/hypershell/ext/repositories/{id} | Get a repository by ID
 [**GetRole**](DefaultAPI.md#GetRole) | **Get** /api/hypershell/v1/roles/{id} | Get a role by ID
 [**GetRoleBinding**](DefaultAPI.md#GetRoleBinding) | **Get** /api/hypershell/v1/role_bindings/{id} | Get a role binding by ID
 [**GetSandboxTemplate**](DefaultAPI.md#GetSandboxTemplate) | **Get** /api/hypershell/ext/sandbox_templates/{id} | Get a sandbox template by ID
 [**GetSecretSource**](DefaultAPI.md#GetSecretSource) | **Get** /api/hypershell/ext/secret_sources/{id} | Get a secret source by ID
 [**GetUser**](DefaultAPI.md#GetUser) | **Get** /api/hypershell/v1/users/{id} | Get a registered user by ID
+[**GrantGatewayAccess**](DefaultAPI.md#GrantGatewayAccess) | **Post** /api/hypershell/v1/gateways/{gateway_id}/access | Grant a user access to a gateway
 [**ListAgentRuntimes**](DefaultAPI.md#ListAgentRuntimes) | **Get** /api/hypershell/ext/agent_runtimes | Returns a list of agent runtimes
+[**ListGatewayAccess**](DefaultAPI.md#ListGatewayAccess) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access | List access grants on a gateway
 [**ListGatewayServiceAccounts**](DefaultAPI.md#ListGatewayServiceAccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 [**ListGateways**](DefaultAPI.md#ListGateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 [**ListInferenceRoutes**](DefaultAPI.md#ListInferenceRoutes) | **Get** /api/hypershell/ext/inference_routes | Returns a list of inference routes
 [**ListManagedClusters**](DefaultAPI.md#ListManagedClusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
 [**ListProviderBindings**](DefaultAPI.md#ListProviderBindings) | **Get** /api/hypershell/ext/provider_bindings | Returns a list of provider bindings
 [**ListProviderSpecs**](DefaultAPI.md#ListProviderSpecs) | **Get** /api/hypershell/ext/provider_specs | Returns a list of provider specs
+[**ListRepositories**](DefaultAPI.md#ListRepositories) | **Get** /api/hypershell/ext/repositories | Returns a list of repositories
 [**ListRoleBindings**](DefaultAPI.md#ListRoleBindings) | **Get** /api/hypershell/v1/role_bindings | List role bindings
 [**ListRoles**](DefaultAPI.md#ListRoles) | **Get** /api/hypershell/v1/roles | List all roles
 [**ListSandboxTemplates**](DefaultAPI.md#ListSandboxTemplates) | **Get** /api/hypershell/ext/sandbox_templates | Returns a list of sandbox templates
 [**ListSecretSources**](DefaultAPI.md#ListSecretSources) | **Get** /api/hypershell/ext/secret_sources | Returns a list of secret sources
 [**ListUsers**](DefaultAPI.md#ListUsers) | **Get** /api/hypershell/v1/users | List registered users
 [**RegisterManagedCluster**](DefaultAPI.md#RegisterManagedCluster) | **Post** /api/hypershell/v1/managed_clusters/registration | Self-register a control plane as a managed cluster
+[**RevokeGatewayAccess**](DefaultAPI.md#RevokeGatewayAccess) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Revoke a user&#39;s access to a gateway
 [**RevokeGatewayServiceAccount**](DefaultAPI.md#RevokeGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke | Permanently revoke an OpenShell gateway service account
+[**SearchGatewayDirectory**](DefaultAPI.md#SearchGatewayDirectory) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access/directory | Search the Keycloak realm directory for candidate users
 [**UpdateAgentRuntime**](DefaultAPI.md#UpdateAgentRuntime) | **Patch** /api/hypershell/ext/agent_runtimes/{id} | Update an agent runtime
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 [**UpdateProviderBinding**](DefaultAPI.md#UpdateProviderBinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
 [**UpdateProviderSpec**](DefaultAPI.md#UpdateProviderSpec) | **Patch** /api/hypershell/ext/provider_specs/{id} | Update a provider spec
+[**UpdateRepository**](DefaultAPI.md#UpdateRepository) | **Patch** /api/hypershell/ext/repositories/{id} | Update a repository
 [**UpdateSandboxTemplate**](DefaultAPI.md#UpdateSandboxTemplate) | **Patch** /api/hypershell/ext/sandbox_templates/{id} | Update a sandbox template
 [**UpdateSecretSource**](DefaultAPI.md#UpdateSecretSource) | **Patch** /api/hypershell/ext/secret_sources/{id} | Update a secret source
 
+
+
+## ChangeGatewayAccessRole
+
+> GatewayAccessGrantResponse ChangeGatewayAccessRole(ctx, gatewayId, userId).GatewayAccessChangeRoleRequest(gatewayAccessChangeRoleRequest).Execute()
+
+Change a user's access role on a gateway
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	userId := "userId_example" // string | HyperShell User ID
+	gatewayAccessChangeRoleRequest := *openapiclient.NewGatewayAccessChangeRoleRequest(openapiclient.GatewayAccessRole("owner")) // GatewayAccessChangeRoleRequest | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ChangeGatewayAccessRole(context.Background(), gatewayId, userId).GatewayAccessChangeRoleRequest(gatewayAccessChangeRoleRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ChangeGatewayAccessRole``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ChangeGatewayAccessRole`: GatewayAccessGrantResponse
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ChangeGatewayAccessRole`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+**userId** | **string** | HyperShell User ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiChangeGatewayAccessRoleRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+ **gatewayAccessChangeRoleRequest** | [**GatewayAccessChangeRoleRequest**](GatewayAccessChangeRoleRequest.md) |  | 
+
+### Return type
+
+[**GatewayAccessGrantResponse**](GatewayAccessGrantResponse.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
 
 
 ## CreateAgentRuntime
@@ -144,7 +228,7 @@ import (
 )
 
 func main() {
-	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "ClusterId_example") // GatewayCreateRequest | Gateway data
+	gatewayCreateRequest := *openapiclient.NewGatewayCreateRequest("Name_example", "TODO") // GatewayCreateRequest | Gateway data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -500,6 +584,70 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ProviderSpec**](ProviderSpec.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## CreateRepository
+
+> Repository CreateRepository(ctx).Repository(repository).Execute()
+
+Register a new repository
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	repository := *openapiclient.NewRepository("Name_example", "Url_example", "Provider_example", "SecretSourceId_example") // Repository | Repository data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.CreateRepository(context.Background()).Repository(repository).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreateRepository``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `CreateRepository`: Repository
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.CreateRepository`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiCreateRepositoryRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **repository** | [**Repository**](Repository.md) | Repository data | 
+
+### Return type
+
+[**Repository**](Repository.md)
 
 ### Authorization
 
@@ -1174,6 +1322,72 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## DeleteRepository
+
+> DeleteRepository(ctx, id).Execute()
+
+Delete a repository
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	r, err := apiClient.DefaultAPI.DeleteRepository(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.DeleteRepository``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiDeleteRepositoryRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## DeleteRoleBinding
 
 > DeleteRoleBinding(ctx, id).Execute()
@@ -1493,6 +1707,65 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**Gateway**](Gateway.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## GetGatewayPlacementAvailability
+
+> GatewayPlacementAvailability GetGatewayPlacementAvailability(ctx).Execute()
+
+Returns current provider placement eligibility
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetGatewayPlacementAvailability(context.Background()).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetGatewayPlacementAvailability``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetGatewayPlacementAvailability`: GatewayPlacementAvailability
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetGatewayPlacementAvailability`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+This endpoint does not need any parameter.
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetGatewayPlacementAvailabilityRequest struct via the builder pattern
+
+
+### Return type
+
+[**GatewayPlacementAvailability**](GatewayPlacementAvailability.md)
 
 ### Authorization
 
@@ -1910,6 +2183,74 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## GetRepository
+
+> Repository GetRepository(ctx, id).Execute()
+
+Get a repository by ID
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetRepository(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetRepository``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetRepository`: Repository
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetRepository`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetRepositoryRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+[**Repository**](Repository.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## GetRole
 
 > Role GetRole(ctx, id).Execute()
@@ -2250,6 +2591,76 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## GrantGatewayAccess
+
+> GatewayAccessGrantResponse GrantGatewayAccess(ctx, gatewayId).GatewayAccessGrantRequest(gatewayAccessGrantRequest).Execute()
+
+Grant a user access to a gateway
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	gatewayAccessGrantRequest := *openapiclient.NewGatewayAccessGrantRequest("Username_example", openapiclient.GatewayAccessRole("owner")) // GatewayAccessGrantRequest | 
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GrantGatewayAccess(context.Background(), gatewayId).GatewayAccessGrantRequest(gatewayAccessGrantRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GrantGatewayAccess``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GrantGatewayAccess`: GatewayAccessGrantResponse
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GrantGatewayAccess`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGrantGatewayAccessRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **gatewayAccessGrantRequest** | [**GatewayAccessGrantRequest**](GatewayAccessGrantRequest.md) |  | 
+
+### Return type
+
+[**GatewayAccessGrantResponse**](GatewayAccessGrantResponse.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## ListAgentRuntimes
 
 > AgentRuntimeList ListAgentRuntimes(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
@@ -2307,6 +2718,86 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**AgentRuntimeList**](AgentRuntimeList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## ListGatewayAccess
+
+> GatewayAccessList ListGatewayAccess(ctx, gatewayId).Page(page).Size(size).Role(role).Search(search).Sort(sort).Order(order).Execute()
+
+List access grants on a gateway
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	role := openapiclient.GatewayAccessRole("owner") // GatewayAccessRole | Filter by console role tier (optional)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	sort := "sort_example" // string |  (optional) (default to "created_at")
+	order := "order_example" // string |  (optional) (default to "desc")
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListGatewayAccess(context.Background(), gatewayId).Page(page).Size(size).Role(role).Search(search).Sort(sort).Order(order).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListGatewayAccess``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListGatewayAccess`: GatewayAccessList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListGatewayAccess`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListGatewayAccessRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **role** | [**GatewayAccessRole**](GatewayAccessRole.md) | Filter by console role tier | 
+ **search** | **string** | Specifies the search criteria | 
+ **sort** | **string** |  | [default to &quot;created_at&quot;]
+ **order** | **string** |  | [default to &quot;desc&quot;]
+
+### Return type
+
+[**GatewayAccessList**](GatewayAccessList.md)
 
 ### Authorization
 
@@ -2762,6 +3253,78 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## ListRepositories
+
+> RepositoryList ListRepositories(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+
+Returns a list of repositories
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
+	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListRepositories(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListRepositories``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListRepositories`: RepositoryList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListRepositories`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListRepositoriesRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **search** | **string** | Specifies the search criteria | 
+ **orderBy** | **string** | Specifies the order by criteria | 
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned | 
+
+### Return type
+
+[**RepositoryList**](RepositoryList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## ListRoleBindings
 
 > RoleBindingList ListRoleBindings(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
@@ -3188,6 +3751,75 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## RevokeGatewayAccess
+
+> RevokeGatewayAccess(ctx, gatewayId, userId).Execute()
+
+Revoke a user's access to a gateway
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	userId := "userId_example" // string | HyperShell User ID
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	r, err := apiClient.DefaultAPI.RevokeGatewayAccess(context.Background(), gatewayId, userId).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.RevokeGatewayAccess``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+**userId** | **string** | HyperShell User ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiRevokeGatewayAccessRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## RevokeGatewayServiceAccount
 
 > OpenShellGatewayServiceAccountListItem RevokeGatewayServiceAccount(ctx, gatewayId, serviceAccountId).Execute()
@@ -3244,6 +3876,76 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**OpenShellGatewayServiceAccountListItem**](OpenShellGatewayServiceAccountListItem.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## SearchGatewayDirectory
+
+> GatewayDirectoryUserList SearchGatewayDirectory(ctx, gatewayId).Search(search).Execute()
+
+Search the Keycloak realm directory for candidate users
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string | Selected Gateway ID
+	search := "search_example" // string | Specifies the search criteria (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.SearchGatewayDirectory(context.Background(), gatewayId).Search(search).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.SearchGatewayDirectory``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `SearchGatewayDirectory`: GatewayDirectoryUserList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.SearchGatewayDirectory`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** | Selected Gateway ID | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiSearchGatewayDirectoryRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **search** | **string** | Specifies the search criteria | 
+
+### Return type
+
+[**GatewayDirectoryUserList**](GatewayDirectoryUserList.md)
 
 ### Authorization
 
@@ -3594,6 +4296,76 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ProviderSpec**](ProviderSpec.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UpdateRepository
+
+> Repository UpdateRepository(ctx, id).RepositoryPatchRequest(repositoryPatchRequest).Execute()
+
+Update a repository
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+	repositoryPatchRequest := *openapiclient.NewRepositoryPatchRequest() // RepositoryPatchRequest | Updated repository data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.UpdateRepository(context.Background(), id).RepositoryPatchRequest(repositoryPatchRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdateRepository``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UpdateRepository`: Repository
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdateRepository`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record | 
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUpdateRepositoryRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **repositoryPatchRequest** | [**RepositoryPatchRequest**](RepositoryPatchRequest.md) | Updated repository data | 
+
+### Return type
+
+[**Repository**](Repository.md)
 
 ### Authorization
 

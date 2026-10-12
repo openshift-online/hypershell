@@ -20,8 +20,15 @@ import (
 // gateway info but is refused "list workspaces" with "role 'openshell-user' required".
 var keycloakRoleMap = map[string][]string{
 	"gateway:owner":  {"openshell-admin", "openshell-user"},
+	"gateway:admin":  {"openshell-admin", "openshell-user"},
 	"gateway:viewer": {"openshell-user"},
 }
+
+// allGatewayKcRoles is the full vocabulary of per-gateway Keycloak client roles
+// the OIDC Role Bridge manages. Union reconcile assigns the roles a user should
+// hold and removes the rest from this set, so it is listed explicitly (and
+// deterministically) rather than derived from map iteration order.
+var allGatewayKcRoles = []string{"openshell-admin", "openshell-user"}
 
 type RoleBindingReconciler struct {
 	mu             sync.Mutex
@@ -109,52 +116,57 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		return nil
 	}
 
-	switch event.Type {
-	case watcher.EventCreated, watcher.EventUpdated:
+	// On every event, reconcile the user's client roles on this gateway to the
+	// exact union implied by their surviving bindings (GAM-02): assign any
+	// missing role and remove any role no longer backed by a binding. This makes
+	// promotions, demotions (including an in-place role_id UPDATE from
+	// gateway:admin to gateway:viewer that must strip openshell-admin while
+	// keeping openshell-user), and overlapping grants all converge correctly and
+	// idempotently.
+	var excludeID string
+	if event.Type == watcher.EventDeleted {
+		// The deleted binding may still be visible if the event races ahead of
+		// its soft-delete; exclude it by ID.
+		excludeID = rb.GetMetadata().GetId()
+	}
+	desired, err := r.effectiveKcRoles(ctx, rb, excludeID)
+	if err != nil {
+		reconcileErr = fmt.Errorf("compute effective keycloak roles for role binding %s: %w", event.ResourceID, err)
+		return reconcileErr
+	}
+	if event.Type != watcher.EventDeleted {
+		// Include the event binding's own roles even if the list has not yet
+		// caught up with this create/update.
 		for _, kcRole := range kcRoles {
+			desired[kcRole] = true
+		}
+	}
+
+	for _, kcRole := range allGatewayKcRoles {
+		if desired[kcRole] {
 			log.Printf("INFO assigning keycloak role %s to user %s on client %s", kcRole, username, kcClientID)
 			if err := r.keycloakClient.AssignClientRole(ctx, kcClientID, username, kcRole); err != nil {
 				reconcileErr = fmt.Errorf("assign keycloak role %s to user %s on client %s: %w", kcRole, username, kcClientID, err)
 				return reconcileErr
 			}
+			continue
 		}
-
-	case watcher.EventDeleted:
-		// A single Keycloak role can be granted by more than one platform
-		// RoleBinding (both gateway:owner and gateway:viewer grant
-		// openshell-user). Revoking blindly would strip a role the user still
-		// holds via another surviving binding, so recompute the roles still
-		// desired for this user+gateway and only revoke what is no longer
-		// backed by any remaining binding.
-		stillDesired, err := r.stillDesiredKcRoles(ctx, rb)
-		if err != nil {
-			reconcileErr = fmt.Errorf("recompute effective keycloak roles for role binding %s: %w", event.ResourceID, err)
+		log.Printf("INFO removing keycloak role %s from user %s on client %s", kcRole, username, kcClientID)
+		if err := r.keycloakClient.RemoveClientRole(ctx, kcClientID, username, kcRole); err != nil {
+			reconcileErr = fmt.Errorf("remove keycloak role %s from user %s on client %s: %w", kcRole, username, kcClientID, err)
 			return reconcileErr
-		}
-		for _, kcRole := range kcRoles {
-			if stillDesired[kcRole] {
-				log.Printf("INFO keeping keycloak role %s for user %s on client %s: still granted by another role binding", kcRole, username, kcClientID)
-				continue
-			}
-			log.Printf("INFO removing keycloak role %s from user %s on client %s", kcRole, username, kcClientID)
-			if err := r.keycloakClient.RemoveClientRole(ctx, kcClientID, username, kcRole); err != nil {
-				reconcileErr = fmt.Errorf("remove keycloak role %s from user %s on client %s: %w", kcRole, username, kcClientID, err)
-				return reconcileErr
-			}
 		}
 	}
 
 	return nil
 }
 
-// stillDesiredKcRoles returns the set of Keycloak client roles the user should
-// still hold on the deleted binding's gateway, computed as the union of the role
-// mappings across every remaining (non-deleted) RoleBinding for that user and
-// gateway. The deleted binding is excluded by ID in case the delete event races
-// ahead of its soft-delete becoming visible.
-func (r *RoleBindingReconciler) stillDesiredKcRoles(ctx context.Context, deleted *pb.RoleBinding) (map[string]bool, error) {
+// effectiveKcRoles returns the union of Keycloak client roles implied by every
+// surviving RoleBinding for this user and gateway. The binding identified by
+// excludeID (the one being deleted) is omitted; pass "" to include all.
+func (r *RoleBindingReconciler) effectiveKcRoles(ctx context.Context, rb *pb.RoleBinding, excludeID string) (map[string]bool, error) {
 	desired := make(map[string]bool)
-	if deleted.GatewayId == nil {
+	if rb.GatewayId == nil {
 		return desired, nil
 	}
 
@@ -167,15 +179,15 @@ func (r *RoleBindingReconciler) stillDesiredKcRoles(ctx context.Context, deleted
 	}
 	client := pb.NewRoleBindingServiceClient(r.grpcConn)
 	resp, err := client.ListRoleBindings(ctx, &pb.ListRoleBindingsRequest{
-		UserId:    deleted.UserId,
-		GatewayId: deleted.GatewayId,
+		UserId:    rb.UserId,
+		GatewayId: rb.GatewayId,
 		ClusterId: clusterFilter,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list role bindings for user %s on gateway %s: %w", deleted.GetUserId(), *deleted.GatewayId, err)
+		return nil, fmt.Errorf("list role bindings for user %s on gateway %s: %w", rb.GetUserId(), *rb.GatewayId, err)
 	}
 
-	return unionKcRoles(resp.GetItems(), deleted.GetMetadata().GetId()), nil
+	return unionKcRoles(resp.GetItems(), excludeID), nil
 }
 
 // unionKcRoles collects the Keycloak client roles granted by every binding in

@@ -44,6 +44,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/openshell-inference-routing.spec.md` | platform | Inference router, inference.local, credential-free sandbox model access, provider translation | CP | openshell-gateway, openshell-gateway-credentials |
 | `platform/global-architecture.spec.md` | platform | Global hub, multi-cloud, cloud-managed PostgreSQL, Tekton, ArgoCD, Vault | CP, ALL | data-model, control-plane |
 | `web-console/architecture.spec.md` | web-console | Web console, BFF, browser session, UI routes | WEB, SDK, API | data-model, security, openshell-gateway-service-accounts, UI standards |
+| `web-console/gateway-provision-placement.spec.md` | web-console | Gateway placement intent, network/provider selection, random matching-cluster resolution | WEB, API, CP | architecture, managed-cluster-registration, openshell-gateway, UI standards |
 | `web-console/operational-dashboard.spec.md` | web-console | Widgetized operational dashboard, Prometheus-backed metrics adapter, admin access | WEB | web-console/architecture, gateway-metrics-dashboard, gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends, platform-inventory, registered-users, UI standards |
 | `web-console/tracing.spec.md` | web-console | Browser OTel trace sink, BFF W3C propagation, telemetry ingest, dev Jaeger | WEB, BFF | web-console/architecture, domain-observability, local-development |
 | `platform/gateway-metrics-dashboard.spec.md` | platform | Prometheus gateway phase metric, BFF metrics proxy, GatewayMetricsDashboard, operational dashboard gateway counts | API, WEB, deploy | data-model, web-console/architecture, local-development |
@@ -77,6 +78,7 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/control-plane-observability.spec.md` | platform | CP OTel SDK bootstrap, reconcile spans, gRPC client spans, watch lifecycle, K8s API spans, reconcile metrics | CP | api-server-observability, control-plane, security, local-development |
 | `platform/control-plane-reconciliation-metrics.spec.md` | platform | Reconciliation outcome taxonomy, duration/retry/terminal-failure metrics, bounded reason codes, BFF reconciliation query contract | CP, WEB | control-plane-observability, control-plane, security |
 | `platform/reconcile-trace-correlation.spec.md` | platform | Trace context persistence, span links, reconcile-to-request correlation | API, CP | api-server-observability, control-plane-observability, data-model |
+| `platform/agent-runtime-images.spec.md` | platform | Full and slim agent runtime images, pinned inputs, security and release bundle delivery | agents, CLI | hsctl-release |
 | `standards/ui/foundations.spec.md` | standards | UI foundations | WEB | - |
 | `standards/ui/brand-color.spec.md` | standards | Red Hat brand color | WEB | foundations, accessibility |
 | `standards/ui/interaction.spec.md` | standards | UI interaction | WEB | foundations |

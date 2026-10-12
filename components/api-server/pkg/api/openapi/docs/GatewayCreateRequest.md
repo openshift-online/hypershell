@@ -5,7 +5,7 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** |  | 
-**ClusterId** | **string** |  | 
+**Placement** | [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | 
 **ExternalDns** | Pointer to **string** |  | [optional] 
 **TlsMode** | Pointer to **string** |  | [optional] 
 **ServiceType** | Pointer to **string** |  | [optional] 
@@ -22,7 +22,7 @@ Name | Type | Description | Notes
 
 ### NewGatewayCreateRequest
 
-`func NewGatewayCreateRequest(name string, clusterId string, ) *GatewayCreateRequest`
+`func NewGatewayCreateRequest(name string, placement NullableGatewayPlacementIntent, ) *GatewayCreateRequest`
 
 NewGatewayCreateRequest instantiates a new GatewayCreateRequest object
 This constructor will assign default values to properties that have it defined,
@@ -57,26 +57,36 @@ and a boolean to check if the value has been set.
 SetName sets Name field to given value.
 
 
-### GetClusterId
+### GetPlacement
 
-`func (o *GatewayCreateRequest) GetClusterId() string`
+`func (o *GatewayCreateRequest) GetPlacement() GatewayPlacementIntent`
 
-GetClusterId returns the ClusterId field if non-nil, zero value otherwise.
+GetPlacement returns the Placement field if non-nil, zero value otherwise.
 
-### GetClusterIdOk
+### GetPlacementOk
 
-`func (o *GatewayCreateRequest) GetClusterIdOk() (*string, bool)`
+`func (o *GatewayCreateRequest) GetPlacementOk() (*GatewayPlacementIntent, bool)`
 
-GetClusterIdOk returns a tuple with the ClusterId field if it's non-nil, zero value otherwise
+GetPlacementOk returns a tuple with the Placement field if it's non-nil, zero value otherwise
 and a boolean to check if the value has been set.
 
-### SetClusterId
+### SetPlacement
 
-`func (o *GatewayCreateRequest) SetClusterId(v string)`
+`func (o *GatewayCreateRequest) SetPlacement(v GatewayPlacementIntent)`
 
-SetClusterId sets ClusterId field to given value.
+SetPlacement sets Placement field to given value.
 
 
+### SetPlacementNil
+
+`func (o *GatewayCreateRequest) SetPlacementNil(b bool)`
+
+ SetPlacementNil sets the value for Placement to be an explicit nil
+
+### UnsetPlacement
+`func (o *GatewayCreateRequest) UnsetPlacement()`
+
+UnsetPlacement ensures that no value is present for Placement, not even an explicit nil
 ### GetExternalDns
 
 `func (o *GatewayCreateRequest) GetExternalDns() string`

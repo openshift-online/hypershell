@@ -13,6 +13,8 @@ Name | Type | Description | Notes
 **ClusterId** | **string** |  | 
 **GatewayId** | **string** |  | 
 **SandboxTemplateId** | Pointer to **string** |  | [optional] 
+**RepositoryId** | Pointer to **string** | Optional reference to a Repository the runtime scans | [optional] 
+**Selector** | Pointer to **[]string** | Labels selecting repository work items to scan (match-any); requires repository_id | [optional] 
 **Description** | Pointer to **string** |  | [optional] 
 **Cron** | Pointer to **string** | Cron expression for scheduling the agent coordinator | [optional] 
 **CoordinatorImage** | Pointer to **string** | Container image for the agent coordinator CronJob | [optional] 
@@ -249,6 +251,56 @@ SetSandboxTemplateId sets SandboxTemplateId field to given value.
 `func (o *AgentRuntime) HasSandboxTemplateId() bool`
 
 HasSandboxTemplateId returns a boolean if a field has been set.
+
+### GetRepositoryId
+
+`func (o *AgentRuntime) GetRepositoryId() string`
+
+GetRepositoryId returns the RepositoryId field if non-nil, zero value otherwise.
+
+### GetRepositoryIdOk
+
+`func (o *AgentRuntime) GetRepositoryIdOk() (*string, bool)`
+
+GetRepositoryIdOk returns a tuple with the RepositoryId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRepositoryId
+
+`func (o *AgentRuntime) SetRepositoryId(v string)`
+
+SetRepositoryId sets RepositoryId field to given value.
+
+### HasRepositoryId
+
+`func (o *AgentRuntime) HasRepositoryId() bool`
+
+HasRepositoryId returns a boolean if a field has been set.
+
+### GetSelector
+
+`func (o *AgentRuntime) GetSelector() []string`
+
+GetSelector returns the Selector field if non-nil, zero value otherwise.
+
+### GetSelectorOk
+
+`func (o *AgentRuntime) GetSelectorOk() (*[]string, bool)`
+
+GetSelectorOk returns a tuple with the Selector field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetSelector
+
+`func (o *AgentRuntime) SetSelector(v []string)`
+
+SetSelector sets Selector field to given value.
+
+### HasSelector
+
+`func (o *AgentRuntime) HasSelector() bool`
+
+HasSelector returns a boolean if a field has been set.
 
 ### GetDescription
 

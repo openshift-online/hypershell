@@ -15,6 +15,7 @@ func ConvertManagedCluster(managedCluster openapi.ManagedCluster) *ManagedCluste
 	}
 	c.Name = managedCluster.Name
 	c.Provider = managedCluster.Provider
+	c.Visibility = managedCluster.GetVisibility()
 	c.Region = managedCluster.Region
 	c.KubeconfigSecret = managedCluster.KubeconfigSecret
 	c.Status = managedCluster.Status
@@ -30,6 +31,10 @@ func ConvertManagedCluster(managedCluster openapi.ManagedCluster) *ManagedCluste
 
 func PresentManagedCluster(managedCluster *ManagedCluster) openapi.ManagedCluster {
 	reference := presenters.PresentReference(managedCluster.ID, managedCluster)
+	var visibility *string
+	if managedCluster.Visibility != "" {
+		visibility = &managedCluster.Visibility
+	}
 	result := openapi.ManagedCluster{
 		Id:               reference.Id,
 		Kind:             reference.Kind,
@@ -38,6 +43,7 @@ func PresentManagedCluster(managedCluster *ManagedCluster) openapi.ManagedCluste
 		UpdatedAt:        openapi.PtrTime(managedCluster.UpdatedAt),
 		Name:             managedCluster.Name,
 		Provider:         managedCluster.Provider,
+		Visibility:       visibility,
 		Region:           managedCluster.Region,
 		KubeconfigSecret: managedCluster.KubeconfigSecret,
 		Status:           managedCluster.Status,

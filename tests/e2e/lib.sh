@@ -796,16 +796,18 @@ print(obj.get('cluster_id', '') or '')
   [[ -z "${E2E_CLUSTER_ID:-}" && -n "$cluster" ]] && E2E_CLUSTER_ID="$cluster"
 }
 
-# Print a gateway create body that reuses the seeded cluster id.
+# Print a gateway create body using the deployment's placement intent.
 e2e_gateway_create_body() {
   local name="${1:?gateway name required}"
   GW_NAME="$name" E2E_OIDC_ISSUER="$E2E_OIDC_ISSUER" \
     E2E_OIDC_CLIENT_ID="$E2E_OIDC_CLIENT_ID" \
-    E2E_CLUSTER_ID="${E2E_CLUSTER_ID}" python3 -c "
+    E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER:-}" python3 -c "
 import json, os
+placement = ({'mode': 'local-kind'} if os.environ['E2E_INFRA_DRIVER'] == 'kind'
+             else {'network': 'public', 'provider': 'aws'})
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': os.environ['E2E_CLUSTER_ID'],
+    'placement': placement,
     'oidc': json.dumps({
         'issuer': os.environ['E2E_OIDC_ISSUER'],
         'audience': os.environ['E2E_OIDC_CLIENT_ID'],
