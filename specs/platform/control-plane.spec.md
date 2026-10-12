@@ -198,6 +198,15 @@ while no stream is active, so a connection carrying only idle watch streams is
 still probed. All watch streams multiplex over this one connection, so the
 keepalive protects every stream.
 
+The keepalive ping interval SHALL NOT be more aggressive than the API server's
+gRPC keepalive enforcement policy. A client that pings an idle connection more
+often than the server's minimum permitted interval is struck by the server and,
+after a few strikes, receives a GOAWAY (`ENHANCE_YOUR_CALM`, `too_many_pings`)
+that closes the shared connection and drops every watch stream. The connection
+layer is only the backstop for a dead or half-open connection; detecting a stream
+that stays open but goes silent is the idle watchdog's job, so the keepalive
+interval does not need to be short.
+
 At the stream layer, each watch stream SHALL run under an idle watchdog. When a
 stream delivers neither an event nor an error for a configured maximum idle
 interval, the control plane SHALL cancel that stream attempt and reconnect

@@ -83,6 +83,16 @@ type Config struct {
 	// before it sends an HTTP/2 keepalive ping to the API server, so a wedged or
 	// half-open connection surfaces as a transport error the watchers retry rather
 	// than an indefinite silent block. Sourced from HYPERSHELL_GRPC_KEEPALIVE_TIME.
+	//
+	// The default is 5m to match the API server's keepalive enforcement policy.
+	// The server (the rh-trex-ai framework gRPC server) sets no explicit
+	// EnforcementPolicy, so it uses the gRPC default MinTime of 5m: a client that
+	// pings more often than that on an idle connection is struck and, after a few
+	// strikes, the server sends GOAWAY (ENHANCE_YOUR_CALM, too_many_pings) and
+	// closes the shared connection -- dropping every watch stream. The ping
+	// interval therefore SHALL NOT be shorter than the server's MinTime. The idle
+	// watchdog (WatchIdleTimeout), not this keepalive, is the backstop for a stream
+	// that stays open but goes silent, so a coarse keepalive is sufficient here.
 	// See specs/platform/control-plane.spec.md ("Watch Stream Liveness").
 	GRPCKeepaliveTime time.Duration
 	// GRPCKeepaliveTimeout is how long the client waits for a keepalive ping ack
@@ -161,7 +171,7 @@ func Load() (*Config, error) {
 
 		GatewayReconcileWorkers: getEnvInt("GATEWAY_RECONCILE_WORKERS", DefaultGatewayReconcileWorkers, 1),
 
-		GRPCKeepaliveTime:    getEnvDuration("HYPERSHELL_GRPC_KEEPALIVE_TIME", 30*time.Second),
+		GRPCKeepaliveTime:    getEnvDuration("HYPERSHELL_GRPC_KEEPALIVE_TIME", 5*time.Minute),
 		GRPCKeepaliveTimeout: getEnvDuration("HYPERSHELL_GRPC_KEEPALIVE_TIMEOUT", 10*time.Second),
 
 		WatchIdleTimeout:          getEnvDuration("HYPERSHELL_WATCH_IDLE_TIMEOUT", 10*time.Minute),
