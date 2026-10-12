@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider and network choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway.
+Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider, network, and version choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway.
 
 ## Requirements
 
@@ -14,7 +14,26 @@ The gateway provision request SHALL contain the gateway name and one of these pl
 - `{ selector: ["network/public", "provider/aws" | "provider/ibm"] }`
 - `{ mode: "local-kind" }`
 
+A managed-placement selector MAY additionally carry one `gateway-version/<tag>` label when the user targets a specific provisioning version, for example `{ selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"] }`. When the user leaves the version choice at its default, the selector SHALL omit the `gateway-version` label, and the backend SHALL place on any eligible cluster regardless of the version it advertises. The selector SHALL carry at most one `gateway-version` label. The `local-kind` mode SHALL NOT carry a version selector.
+
 The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL resolve and assign the concrete `cluster_id` before creating the gateway.
+
+#### Scenario: Version choice is added to the selector
+
+- GIVEN the user enters a valid gateway name
+- AND selects Public and Amazon Web Services
+- AND selects the provisioning version `v0.1.2-rhaiv.7`
+- WHEN the user submits the form
+- THEN the request SHALL contain `selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"]`
+- AND the request SHALL NOT contain a concrete `cluster_id`
+
+#### Scenario: Default version omits the version label
+
+- GIVEN the user enters a valid gateway name
+- AND selects Public and Amazon Web Services
+- AND leaves the provisioning version at its default
+- WHEN the user submits the form
+- THEN the request selector SHALL NOT contain a `gateway-version` label
 
 #### Scenario: Public IBM placement is submitted as intent
 
@@ -92,7 +111,7 @@ IBM Cloud SHALL be selected by default when Public becomes active when its selec
 
 ### Requirement: GP-04 -- Placement Availability
 
-The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request. The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every requested label. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
+The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request, including the version-bearing selectors needed to populate the provisioning-version choice (GP-11). The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every requested label. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
 
 The form SHALL disable a provider for the selected network when no eligible cluster matches that pair. When neither provider is available for a network, the form SHALL disable that network choice. Disabled controls SHALL communicate why the placement is unavailable.
 
@@ -195,7 +214,7 @@ The existing gateway-name validation and normalization rules SHALL remain unchan
 
 ### Requirement: GP-07 -- Backend Placement Resolution
 
-The backend SHALL validate every selector label using the ManagedCluster capability vocabulary. It SHALL normalize order and duplicates, reject malformed or unknown labels, and resolve a valid selector to registered clusters with connected control planes whose capability sets contain every requested label. Selector matching SHALL be literal and case-sensitive after validation; partial, wildcard, and match-any semantics SHALL NOT apply.
+The backend SHALL validate every selector label using the ManagedCluster capability vocabulary, including a `gateway-version/<tag>` label under the relaxed version-value syntax of `managed-cluster-registration.spec.md`. It SHALL normalize order and duplicates, reject malformed or unknown labels, and resolve a valid selector to registered clusters with connected control planes whose capability sets contain every requested label. Selector matching SHALL be literal and case-sensitive after validation; partial, wildcard, and match-any semantics SHALL NOT apply. A selector that omits `gateway-version` SHALL match an eligible cluster regardless of the version it advertises; a selector that includes `gateway-version/<tag>` SHALL match only a cluster advertising that exact label.
 
 When one eligible cluster matches, the backend SHALL select that cluster. When multiple eligible clusters match, the backend SHALL select one at random. Each matching eligible cluster SHALL have an equal probability of selection.
 
@@ -252,9 +271,40 @@ The Gateway table SHALL NOT require a migration unless the implementation introd
 - WHEN a gateway detail or list API is read
 - THEN the response SHALL expose the resolved cluster using the existing gateway placement representation
 
+### Requirement: GP-11 -- Provisioning Version Selection
+
+The provision form SHALL present a provisioning-version choice for managed placement, driven entirely by the `gateway-version` labels that connected spokes advertise for the currently selected network and provider. The form SHALL offer a default option ("Any version", or equivalent localized wording) that omits the `gateway-version` selector label, and one option per distinct `gateway-version/<tag>` advertised by an eligible cluster matching the selected network and provider. The form SHALL NOT offer a free-text version field, and SHALL NOT offer a version that no connected eligible spoke advertises.
+
+The version choice SHALL default to "Any version". Changing the network or provider SHALL re-derive the available versions from availability data and SHALL reset the version choice to "Any version" when the previously selected version is no longer advertised for the new network and provider. The version choice SHALL have no effect on, and SHALL NOT be shown for, `local-kind` placement.
+
+When no eligible cluster matches the selected network and provider, the form SHALL offer only "Any version". A version that becomes unavailable before submission SHALL be rejected by the backend and surfaced as a recoverable provisioning error, consistent with GP-04.
+
+#### Scenario: Version options follow advertised capabilities
+
+- GIVEN two connected clusters match Public and Amazon Web Services
+- AND one advertises `gateway-version/v0.1.2-rhaiv.7` and the other `gateway-version/v0.1.1-rhaiv.3`
+- WHEN the user selects Public and Amazon Web Services
+- THEN the version choice SHALL offer "Any version", `v0.1.2-rhaiv.7`, and `v0.1.1-rhaiv.3`
+- AND no other version SHALL be offered
+
+#### Scenario: Default selects any advertised version
+
+- GIVEN the user selects a network and provider with at least one eligible cluster
+- AND leaves the version choice at "Any version"
+- WHEN the user submits the form
+- THEN the selector SHALL NOT carry a `gateway-version` label
+- AND the backend SHALL place on any eligible cluster for that network and provider
+
+#### Scenario: Version resets when no longer offered
+
+- GIVEN the user selected `v0.1.2-rhaiv.7` for Public and Amazon Web Services
+- AND no eligible IBM Cloud cluster advertises that version for Public
+- WHEN the user changes the provider to IBM Cloud
+- THEN the version choice SHALL reset to "Any version"
+
 ### Requirement: GP-10 -- Accessibility and Localization
 
-The network, provider, availability, disabled-state, validation, local-kind, and error messages SHALL be localized. The controls SHALL expose accessible names and selected or disabled state through semantic PatternFly form controls. Keyboard users SHALL be able to select and change network, provider, and local-kind placement without pointer input.
+The network, provider, version, availability, disabled-state, validation, local-kind, and error messages SHALL be localized. The controls SHALL expose accessible names and selected or disabled state through semantic PatternFly form controls. Keyboard users SHALL be able to select and change network, provider, version, and local-kind placement without pointer input.
 
 #### Scenario: Disabled provider is announced
 
@@ -268,6 +318,8 @@ The network, provider, availability, disabled-state, validation, local-kind, and
 - Allowing users to choose both VPN and Public.
 - Hard-coding support or rejection for any provider and network combination.
 - Allowing users to select a concrete managed cluster from the provision form.
+- A free-text or unvalidated version field, or offering a version no connected spoke advertises.
+- In-place gateway upgrades: a version choice only targets newly created gateways.
 - Capacity-aware cluster selection or placement scoring.
 - Changing existing gateway naming rules.
 - Changing the resolved `cluster_id` representation on existing gateway records.
