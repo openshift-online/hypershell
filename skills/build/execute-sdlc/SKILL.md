@@ -82,6 +82,4 @@ WHILE(Labels Applied to $SELECTED_WORK_ITEM NOT INCLUDES `agent/review-code-appr
         skill(../../../.hypershell/agents/code-review, $SELECTED_WORK_ITEM)
         break
       
-      CASE
-
 STOP: Provide URL to PR associated with $SELECTED_WORK_ITEM to the human for review.
