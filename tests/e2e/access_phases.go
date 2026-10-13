@@ -54,6 +54,12 @@ func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 	})
 	s.Require().NoError(err, "owner grants developer gateway user access")
 	s.Require().NotEmpty(devGrant.UserID)
+	runtimeGrant, err := access.Create(ctx, gatewayID, &sdktypes.GatewayAccessGrantRequest{
+		Username: runtimeUsername,
+		Role:     sdktypes.GatewayAccessRoleUser,
+	})
+	s.Require().NoError(err, "owner grants runtime user gateway user access")
+	s.Require().NotEmpty(runtimeGrant.UserID)
 
 	devAPI := s.apiClientForCreds(t, s.devCreds())
 	devList, err := devAPI.GatewayAccesses().List(ctx, gatewayID, nil)
@@ -71,41 +77,41 @@ func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 		s.exerciseDeveloperSandbox(t)
 	}
 
-	s.Require().NoError(s.driver.AssignRealmRole(ctx, s.platformAdminCreds().Username, "platform:admin"), "grant platform:admin")
-	platformAPI := s.apiClientForCreds(t, s.platformAdminCreds())
-	adminGrant, err := access.Create(ctx, gatewayID, &sdktypes.GatewayAccessGrantRequest{
-		Username: s.platformAdminCreds().Username,
-		Role:     sdktypes.GatewayAccessRoleAdmin,
-	})
-	s.Require().NoError(err, "owner grants gateway admin access")
+	updated, err := access.Update(ctx, gatewayID, devGrant.UserID,
+		&sdktypes.GatewayAccessChangeRoleRequest{Role: sdktypes.GatewayAccessRoleAdmin})
+	s.Require().NoError(err, "owner promotes developer to gateway admin")
+	s.Assert().Equal(sdktypes.GatewayAccessRoleAdmin, updated.Role)
 
-	platformList, err := platformAPI.GatewayAccesses().List(ctx, gatewayID, nil)
+	devList, err = devAPI.GatewayAccesses().List(ctx, gatewayID, nil)
 	s.Require().NoError(err, "gateway admin lists access")
-	s.Assert().True(platformList.Capabilities.CanManageAccess)
-	s.Assert().False(platformList.Capabilities.CanManageOwners)
+	s.Assert().Equal(sdktypes.GatewayAccessRoleAdmin, devList.Capabilities.CallerRole)
+	s.Assert().True(devList.Capabilities.CanManageAccess)
+	s.Assert().False(devList.Capabilities.CanManageOwners)
 
-	status, body, err = platformAPI.RawJSON(ctx, http.MethodPatch,
-		fmt.Sprintf("/gateways/%s/access/%s", gatewayID, devGrant.UserID),
+	status, body, err = devAPI.RawJSON(ctx, http.MethodPatch,
+		fmt.Sprintf("/gateways/%s/access/%s", gatewayID, runtimeGrant.UserID),
 		sdktypes.GatewayAccessChangeRoleRequest{Role: sdktypes.GatewayAccessRoleOwner})
 	s.Require().NoError(err, "gateway admin owner-escalation request")
 	s.Assert().Equalf(http.StatusForbidden, status, "gateway admin cannot grant owner (body: %s)", string(body))
 
-	updated, err := platformAPI.GatewayAccesses().Update(ctx, gatewayID, devGrant.UserID,
+	updated, err = devAPI.GatewayAccesses().Update(ctx, gatewayID, runtimeGrant.UserID,
 		&sdktypes.GatewayAccessChangeRoleRequest{Role: sdktypes.GatewayAccessRoleAdmin})
 	s.Require().NoError(err, "gateway admin promotes user to admin")
 	s.Assert().Equal(sdktypes.GatewayAccessRoleAdmin, updated.Role)
-	_, err = platformAPI.GatewayAccesses().Update(ctx, gatewayID, devGrant.UserID,
+	_, err = devAPI.GatewayAccesses().Update(ctx, gatewayID, runtimeGrant.UserID,
 		&sdktypes.GatewayAccessChangeRoleRequest{Role: sdktypes.GatewayAccessRoleUser})
 	s.Require().NoError(err, "gateway admin restores user role")
 
-	updated, err = access.Update(ctx, gatewayID, adminGrant.UserID,
+	updated, err = access.Update(ctx, gatewayID, runtimeGrant.UserID,
 		&sdktypes.GatewayAccessChangeRoleRequest{Role: sdktypes.GatewayAccessRoleOwner})
 	s.Require().NoError(err, "owner grants another owner")
 	s.Assert().Equal(sdktypes.GatewayAccessRoleOwner, updated.Role)
-	_, err = access.Update(ctx, gatewayID, adminGrant.UserID,
-		&sdktypes.GatewayAccessChangeRoleRequest{Role: sdktypes.GatewayAccessRoleAdmin})
-	s.Require().NoError(err, "owner restores admin role")
+	_, err = access.Update(ctx, gatewayID, runtimeGrant.UserID,
+		&sdktypes.GatewayAccessChangeRoleRequest{Role: sdktypes.GatewayAccessRoleUser})
+	s.Require().NoError(err, "owner restores runtime user role")
 
+	s.Require().NoError(s.driver.AssignRealmRole(ctx, s.platformAdminCreds().Username, "platform:admin"), "grant platform:admin")
+	platformAPI := s.apiClientForCreds(t, s.platformAdminCreds())
 	crossGateway := s.createGateway(t, "e2e-access-"+s.runID)
 	s.trackGateway(crossGateway.ID)
 	crossGrant, err := platformAPI.GatewayAccesses().Create(ctx, crossGateway.ID, &sdktypes.GatewayAccessGrantRequest{
