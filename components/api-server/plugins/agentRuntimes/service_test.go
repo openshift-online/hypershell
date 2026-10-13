@@ -98,3 +98,16 @@ func TestCreate_NoSelectorNoRepository_OK(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// cluster_id is optional: the scheduling cluster is derived from the referenced
+// Gateway's placement, so a fully declarable agent omits it entirely.
+func TestCreate_NoClusterID_OK(t *testing.T) {
+	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{})
+	ar := &agentRuntimes.AgentRuntime{
+		Name:      "cluster-free",
+		GatewayId: "g-1",
+	}
+	if _, err := svc.Create(context.Background(), ar); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

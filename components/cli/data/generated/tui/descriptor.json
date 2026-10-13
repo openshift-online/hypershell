@@ -3054,7 +3054,8 @@
           {
             "name": "cluster_id",
             "type": "string",
-            "required": true
+            "required": false,
+            "description": "Optional. When omitted, the scheduling cluster is derived from the referenced Gateway's placement."
           },
           {
             "name": "concurrency_policy",

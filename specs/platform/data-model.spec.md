@@ -438,7 +438,9 @@ A GatewayNetwork SHALL define how gateways communicate. The `topology` field ind
 
 ### Requirement: AgentRuntime as a Top-Level Resource
 
-`AgentRuntime` SHALL be a top-level HyperShell API resource. It references a `ManagedCluster` (where its scheduling resources run), a `Gateway` (which it connects to), and a `SandboxTemplate` (the worker execution environment). It MAY reference a `Repository` through a nullable `repository_id` foreign key. It owns exactly one `AgentWorkspace` and one or more `SecretSource` declarations. Schedule configuration (cron expression, coordinator image, concurrency policy, login refresh interval) is embedded directly on `AgentRuntime`.
+`AgentRuntime` SHALL be a top-level HyperShell API resource. It references a `Gateway` (which it connects to and whose placement determines where it runs) and a `SandboxTemplate` (the worker execution environment). It MAY reference a `Repository` through a nullable `repository_id` foreign key. It owns exactly one `AgentWorkspace` and one or more `SecretSource` declarations. Schedule configuration (cron expression, coordinator image, concurrency policy, login refresh interval) is embedded directly on `AgentRuntime`.
+
+`cluster_id` SHALL be optional on create. When omitted, the `AgentRuntime`'s scheduling cluster SHALL be derived from its referenced `Gateway`: the runtime's resources run on whichever `ManagedCluster` the Gateway's capability-label placement resolves to (see [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)). This keeps an agent fully declarable - a client declares a Gateway by placement type, references it by name, and never pins a concrete cluster.
 
 An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provider driver names or credential environment variable names. Those are translation concerns of the controller.
 
@@ -446,10 +448,11 @@ An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provid
 
 #### Scenario: Create AgentRuntime
 
-- GIVEN a valid `cluster_id`, `gateway_id`, and `sandbox_template_id`
+- GIVEN a valid `gateway_id` and `sandbox_template_id`, and no `cluster_id`
 - AND a valid `cron` expression and `coordinator_image`
 - WHEN a POST request is made to `/api/hypershell/ext/agent_runtimes`
 - THEN a new `AgentRuntime` is created with status `Pending`
+- AND its scheduling cluster is derived from the referenced Gateway's placement
 - AND the controller begins reconciliation: applies cluster resources and provisions the `AgentWorkspace` on the gateway
 
 #### Scenario: Parameters Map Is Bounded
@@ -1002,7 +1005,7 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 | `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | [REMOVED] |
 | `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | [REMOVED] |
 | `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | 🔄 placement metadata moves to registration-owned capabilities and is not writable through `hsctl apply` |
-| `AgentRuntime` | `name`, `cluster_id`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` | 🔲 planned |
+| `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | 🔲 planned |
 | `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
 | `ProviderSpec` | `name`, `category`, `capability`, `profile` | 🔲 planned |
 | `Repository` | `name`, `url`, `provider`, `secret_source_id`, `default_branch`, `import_path` | 🔲 planned |

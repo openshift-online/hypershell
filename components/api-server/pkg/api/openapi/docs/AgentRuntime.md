@@ -10,7 +10,7 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional] 
 **UpdatedAt** | Pointer to **time.Time** |  | [optional] 
 **Name** | **string** |  | 
-**ClusterId** | **string** |  | 
+**ClusterId** | Pointer to **string** | Optional. When omitted, the scheduling cluster is derived from the referenced Gateway&#39;s placement. | [optional] 
 **GatewayId** | **string** |  | 
 **SandboxTemplateId** | Pointer to **string** |  | [optional] 
 **RepositoryId** | Pointer to **string** | Optional reference to a Repository the runtime scans | [optional] 
@@ -27,7 +27,7 @@ Name | Type | Description | Notes
 
 ### NewAgentRuntime
 
-`func NewAgentRuntime(name string, clusterId string, gatewayId string, ) *AgentRuntime`
+`func NewAgentRuntime(name string, gatewayId string, ) *AgentRuntime`
 
 NewAgentRuntime instantiates a new AgentRuntime object
 This constructor will assign default values to properties that have it defined,
@@ -206,6 +206,11 @@ and a boolean to check if the value has been set.
 
 SetClusterId sets ClusterId field to given value.
 
+### HasClusterId
+
+`func (o *AgentRuntime) HasClusterId() bool`
+
+HasClusterId returns a boolean if a field has been set.
 
 ### GetGatewayId
 

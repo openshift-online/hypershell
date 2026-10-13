@@ -164,7 +164,7 @@ import (
 )
 
 func main() {
-	agentRuntime := *openapiclient.NewAgentRuntime("Name_example", "ClusterId_example", "GatewayId_example") // AgentRuntime | AgentRuntime data
+	agentRuntime := *openapiclient.NewAgentRuntime("Name_example", "GatewayId_example") // AgentRuntime | AgentRuntime data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
