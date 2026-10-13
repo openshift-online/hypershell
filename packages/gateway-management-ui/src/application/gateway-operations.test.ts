@@ -416,7 +416,7 @@ describe("deriveGatewayVersionDrift", () => {
     ).toBe("none");
   });
 
-  it("does not fire when only the release suffix is behind on an equal core", () => {
+  it("fires when only the release suffix is behind on an equal core (GVV-03)", () => {
     expect(
       deriveGatewayVersionDrift({
         gatewayVersion: "v0.1.2-rhaiv.3",
