@@ -105,7 +105,7 @@ func registerRoleBindingTestCluster(t *testing.T) string {
 	t.Helper()
 	suffix := strings.ToLower(api.NewID())
 	svc := managedClusters.Service(&environments.Environment().Services)
-	cluster, _, svcErr := svc.Register(context.Background(), fmt.Sprintf("mc-%s", suffix), "", []string{"network/public", "provider/aws"}, "cp-"+suffix)
+	cluster, _, svcErr := svc.Register(context.Background(), fmt.Sprintf("mc-%s", suffix), []string{"network/public", "provider/aws"}, "cp-"+suffix)
 	if svcErr != nil {
 		t.Fatalf("register test managed cluster: %v", svcErr)
 	}

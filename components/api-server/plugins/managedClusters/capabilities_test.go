@@ -2,6 +2,7 @@ package managedClusters
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -41,8 +42,9 @@ func TestNormalizeCapabilitiesGatewayVersion(t *testing.T) {
 		{"gateway-version/v0.1.2-rhaiv.7", "gateway-version/v0.1.1-rhaiv.3"}, // single-valued
 		{"gateway-version/V0.1.2"},  // uppercase rejected
 		{"gateway-version/.v0.1.2"}, // leading dot rejected
-		{"gateway-version/v0.1.2-"}, // trailing hyphen rejected
-		{"provider/v0.1.2-rhaiv.7"}, // relaxation does not leak to other namespaces
+		{"gateway-version/v0.1.2-"},                                 // trailing hyphen rejected
+		{"provider/v0.1.2-rhaiv.7"},                                // relaxation does not leak to other namespaces
+		{"gateway-version/v0." + strings.Repeat("1", 130) + ".2"}, // over the length bound
 	} {
 		if _, svcErr := NormalizeCapabilities(labels, true); svcErr == nil {
 			t.Errorf("NormalizeCapabilities(%v) unexpectedly succeeded", labels)

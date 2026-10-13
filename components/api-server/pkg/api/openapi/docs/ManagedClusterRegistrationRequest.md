@@ -5,14 +5,13 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** | Human-readable spoke name, unique per fleet (e.g. hyp0-mc1). Must match on every subsequent call. |
-**Description** | Pointer to **string** | Optional description of the spoke. | [optional]
-**Capabilities** | **[]string** | Complete self-declared capability set. |
+**Capabilities** | Pointer to **[]string** | Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities. | [optional]
 
 ## Methods
 
 ### NewManagedClusterRegistrationRequest
 
-`func NewManagedClusterRegistrationRequest(name string, capabilities []string, ) *ManagedClusterRegistrationRequest`
+`func NewManagedClusterRegistrationRequest(name string, ) *ManagedClusterRegistrationRequest`
 
 NewManagedClusterRegistrationRequest instantiates a new ManagedClusterRegistrationRequest object
 This constructor will assign default values to properties that have it defined,
@@ -47,31 +46,6 @@ and a boolean to check if the value has been set.
 SetName sets Name field to given value.
 
 
-### GetDescription
-
-`func (o *ManagedClusterRegistrationRequest) GetDescription() string`
-
-GetDescription returns the Description field if non-nil, zero value otherwise.
-
-### GetDescriptionOk
-
-`func (o *ManagedClusterRegistrationRequest) GetDescriptionOk() (*string, bool)`
-
-GetDescriptionOk returns a tuple with the Description field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetDescription
-
-`func (o *ManagedClusterRegistrationRequest) SetDescription(v string)`
-
-SetDescription sets Description field to given value.
-
-### HasDescription
-
-`func (o *ManagedClusterRegistrationRequest) HasDescription() bool`
-
-HasDescription returns a boolean if a field has been set.
-
 ### GetCapabilities
 
 `func (o *ManagedClusterRegistrationRequest) GetCapabilities() []string`
@@ -91,6 +65,11 @@ and a boolean to check if the value has been set.
 
 SetCapabilities sets Capabilities field to given value.
 
+### HasCapabilities
+
+`func (o *ManagedClusterRegistrationRequest) HasCapabilities() bool`
+
+HasCapabilities returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

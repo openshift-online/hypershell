@@ -23,10 +23,8 @@ var _ MappedNullable = &ManagedClusterRegistrationRequest{}
 type ManagedClusterRegistrationRequest struct {
 	// Human-readable spoke name, unique per fleet (e.g. hyp0-mc1). Must match on every subsequent call.
 	Name string `json:"name"`
-	// Optional description of the spoke.
-	Description *string `json:"description,omitempty"`
-	// Complete self-declared capability set.
-	Capabilities []string `json:"capabilities"`
+	// Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 type _ManagedClusterRegistrationRequest ManagedClusterRegistrationRequest
@@ -35,10 +33,9 @@ type _ManagedClusterRegistrationRequest ManagedClusterRegistrationRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewManagedClusterRegistrationRequest(name string, capabilities []string) *ManagedClusterRegistrationRequest {
+func NewManagedClusterRegistrationRequest(name string) *ManagedClusterRegistrationRequest {
 	this := ManagedClusterRegistrationRequest{}
 	this.Name = name
-	this.Capabilities = capabilities
 	return &this
 }
 
@@ -74,58 +71,34 @@ func (o *ManagedClusterRegistrationRequest) SetName(v string) {
 	o.Name = v
 }
 
-// GetDescription returns the Description field value if set, zero value otherwise.
-func (o *ManagedClusterRegistrationRequest) GetDescription() string {
-	if o == nil || IsNil(o.Description) {
-		var ret string
+// GetCapabilities returns the Capabilities field value if set, zero value otherwise.
+func (o *ManagedClusterRegistrationRequest) GetCapabilities() []string {
+	if o == nil || IsNil(o.Capabilities) {
+		var ret []string
 		return ret
 	}
-	return *o.Description
+	return o.Capabilities
 }
 
-// GetDescriptionOk returns a tuple with the Description field value if set, nil otherwise
+// GetCapabilitiesOk returns a tuple with the Capabilities field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *ManagedClusterRegistrationRequest) GetDescriptionOk() (*string, bool) {
-	if o == nil || IsNil(o.Description) {
+func (o *ManagedClusterRegistrationRequest) GetCapabilitiesOk() ([]string, bool) {
+	if o == nil || IsNil(o.Capabilities) {
 		return nil, false
 	}
-	return o.Description, true
+	return o.Capabilities, true
 }
 
-// HasDescription returns a boolean if a field has been set.
-func (o *ManagedClusterRegistrationRequest) HasDescription() bool {
-	if o != nil && !IsNil(o.Description) {
+// HasCapabilities returns a boolean if a field has been set.
+func (o *ManagedClusterRegistrationRequest) HasCapabilities() bool {
+	if o != nil && !IsNil(o.Capabilities) {
 		return true
 	}
 
 	return false
 }
 
-// SetDescription gets a reference to the given string and assigns it to the Description field.
-func (o *ManagedClusterRegistrationRequest) SetDescription(v string) {
-	o.Description = &v
-}
-
-// GetCapabilities returns the Capabilities field value
-func (o *ManagedClusterRegistrationRequest) GetCapabilities() []string {
-	if o == nil {
-		var ret []string
-		return ret
-	}
-
-	return o.Capabilities
-}
-
-// GetCapabilitiesOk returns a tuple with the Capabilities field value
-// and a boolean to check if the value has been set.
-func (o *ManagedClusterRegistrationRequest) GetCapabilitiesOk() ([]string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return o.Capabilities, true
-}
-
-// SetCapabilities sets field value
+// SetCapabilities gets a reference to the given []string and assigns it to the Capabilities field.
 func (o *ManagedClusterRegistrationRequest) SetCapabilities(v []string) {
 	o.Capabilities = v
 }
@@ -141,10 +114,9 @@ func (o ManagedClusterRegistrationRequest) MarshalJSON() ([]byte, error) {
 func (o ManagedClusterRegistrationRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["name"] = o.Name
-	if !IsNil(o.Description) {
-		toSerialize["description"] = o.Description
+	if !IsNil(o.Capabilities) {
+		toSerialize["capabilities"] = o.Capabilities
 	}
-	toSerialize["capabilities"] = o.Capabilities
 	return toSerialize, nil
 }
 
@@ -154,7 +126,6 @@ func (o *ManagedClusterRegistrationRequest) UnmarshalJSON(data []byte) (err erro
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"capabilities",
 	}
 
 	allProperties := make(map[string]interface{})

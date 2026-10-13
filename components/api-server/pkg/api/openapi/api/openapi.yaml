@@ -3530,24 +3530,21 @@ components:
         - capabilities
         - capabilities
         name: name
-        description: description
       properties:
         name:
           description: "Human-readable spoke name, unique per fleet (e.g. hyp0-mc1).\
             \ Must match on every subsequent call."
           type: string
-        description:
-          description: Optional description of the spoke.
-          type: string
         capabilities:
-          description: Complete self-declared capability set.
+          description: "Complete self-declared capability set. Optional for backward\
+            \ compatibility: a control plane that predates the capability model may\
+            \ omit it, in which case the heartbeat is accepted as a no-op that preserves\
+            \ any stored capabilities."
           items:
             type: string
-          minItems: 1
           type: array
           uniqueItems: true
       required:
-      - capabilities
       - name
       type: object
     ManagedClusterRegistrationResponse:

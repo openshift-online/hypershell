@@ -20,7 +20,7 @@ type registrationServiceStub struct {
 	called       bool
 }
 
-func (s *registrationServiceStub) Register(_ context.Context, _, _ string, capabilities []string, _ string) (*ManagedCluster, bool, *errors.ServiceError) {
+func (s *registrationServiceStub) Register(_ context.Context, _ string, capabilities []string, _ string) (*ManagedCluster, bool, *errors.ServiceError) {
 	s.called = true
 	s.capabilities = capabilities
 	cluster := &ManagedCluster{}
@@ -37,19 +37,25 @@ func TestRegisterCapabilitiesJSONSemantics(t *testing.T) {
 		wantCapabilities []string
 	}{
 		{
-			name:       "omitted is rejected",
+			// Backward compatibility: an older control plane sends a
+			// capability-less heartbeat, which is accepted as a no-op rather than
+			// rejected, so a rolling upgrade does not disconnect the cluster.
+			name:       "omitted is accepted as a capability-less heartbeat",
 			body:       `{"name":"cluster-one"}`,
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusCreated,
+			wantCalled: true,
 		},
 		{
-			name:       "empty array is rejected",
+			name:       "empty array is accepted as a capability-less heartbeat",
 			body:       `{"name":"cluster-one","capabilities":[]}`,
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusCreated,
+			wantCalled: true,
 		},
 		{
-			name:       "null is rejected",
+			name:       "null is accepted as a capability-less heartbeat",
 			body:       `{"name":"cluster-one","capabilities":null}`,
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusCreated,
+			wantCalled: true,
 		},
 		{
 			name:             "valid array is accepted",

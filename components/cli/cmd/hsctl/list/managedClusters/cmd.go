@@ -38,7 +38,11 @@ func init() {
 	fs := Cmd.Flags()
 	arguments.AddParameterFlag(fs, &args.parameter)
 	arguments.AddNoHeadersFlag(fs, &args.noHeaders)
-	arguments.AddColumnsFlag(fs, &args.columns, "id, api_server_url, capabilities, kubeconfig_secret, last_seen_at, created_at")
+	// Hand-maintained column default (see HAND_MAINTAINED in scripts/generate-cli.sh):
+	// keeps `name`, the primary human-readable identifier, alongside the generated
+	// columns. The generator's four-field alphabetical window drops `name` once
+	// `capabilities` is present, so this file is excluded from CLI drift regeneration.
+	arguments.AddColumnsFlag(fs, &args.columns, "id, name, api_server_url, capabilities, kubeconfig_secret, last_seen_at, created_at")
 	arguments.AddOutputFlag(fs, &args.outputFmt)
 	fs.StringVar(&args.search, "search", "", "Search filter expression.")
 	fs.StringVar(&args.orderBy, "order-by", "", "Order by expression.")

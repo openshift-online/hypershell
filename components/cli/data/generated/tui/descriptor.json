@@ -6994,14 +6994,8 @@
           {
             "name": "capabilities",
             "type": "array",
-            "required": true,
-            "description": "Complete self-declared capability set."
-          },
-          {
-            "name": "description",
-            "type": "string",
             "required": false,
-            "description": "Optional description of the spoke."
+            "description": "Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities."
           },
           {
             "name": "name",

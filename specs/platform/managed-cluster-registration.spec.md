@@ -32,7 +32,6 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
 ```json
 {
   "name": "hyp0-mc1",
-  "description": "optional",
   "capabilities": [
     "provider/aws",
     "network/vpn",
@@ -308,15 +307,29 @@ them. A heartbeat SHALL replace the prior set in one transaction and update
 
 ### Requirement: Capability Deployment Convergence
 
-The registration request SHALL require a non-empty `capabilities` array. It
-SHALL NOT accept omitted capabilities or derive capabilities from the legacy
-`provider`, `visibility`, or `region` fields. Every deployed control plane SHALL
-send its complete GitOps-configured capability set on registration and each
-heartbeat.
+Every deployed control plane SHALL send its complete GitOps-configured capability
+set on registration and each heartbeat. The registration request SHALL NOT derive
+capabilities from the legacy `provider`, `visibility`, or `region` fields.
+
+For backward compatibility during a rolling upgrade, a capability-less heartbeat
+(omitted, `null`, or empty `capabilities`) from a control plane that predates the
+capability model SHALL be accepted rather than rejected, and SHALL be a no-op for
+the capability set: it SHALL update `last_seen_at` and SHALL preserve the stored
+capabilities instead of clearing them. This prevents a mixed-version upgrade from
+disconnecting the cluster or dropping its placement data. A malformed or
+unknown-namespace label is still rejected with 400 (see "Capability input is
+rejected atomically").
 
 Existing gateway records require no migration because they continue to persist
 the resolved `cluster_id`. A control plane restart SHALL upsert its configured
 capabilities without changing those gateway assignments.
+
+#### Scenario: Capability-less heartbeat preserves the stored set
+
+- GIVEN a registered cluster has `provider/aws` and `network/public`
+- WHEN a heartbeat arrives with omitted or empty `capabilities`
+- THEN the API SHALL accept it and update `last_seen_at`
+- AND the stored capabilities SHALL remain `provider/aws` and `network/public`
 
 #### Scenario: Restart publishes configured capabilities
 

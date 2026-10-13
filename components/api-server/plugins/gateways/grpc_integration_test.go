@@ -137,7 +137,7 @@ func TestGRPCCapabilitySelectorPlacementSurvivesCapabilityReplacement(t *testing
 	clusterService := managedClusters.Service(&environments.Environment().Services)
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	selector := "runtime/test-" + suffix
-	cluster, _, svcErr := clusterService.Register(ctx, "selector-"+suffix, "", []string{"network/public", "provider/aws", selector}, "cp-"+suffix)
+	cluster, _, svcErr := clusterService.Register(ctx, "selector-"+suffix, []string{"network/public", "provider/aws", selector}, "cp-"+suffix)
 	Expect(svcErr).To(BeNil())
 	initialSeenAt := *cluster.LastSeenAt
 
@@ -152,7 +152,7 @@ func TestGRPCCapabilitySelectorPlacementSurvivesCapabilityReplacement(t *testing
 	Expect(created.Gateway.ClusterId).To(Equal(cluster.ID))
 
 	time.Sleep(time.Millisecond)
-	replaced, createdCluster, svcErr := clusterService.Register(ctx, cluster.Name, "", []string{"network/vpn", "provider/aws"}, cluster.OIDCSubject)
+	replaced, createdCluster, svcErr := clusterService.Register(ctx, cluster.Name, []string{"network/vpn", "provider/aws"}, cluster.OIDCSubject)
 	Expect(svcErr).To(BeNil())
 	Expect(createdCluster).To(BeFalse())
 	Expect(replaced.Capabilities).To(Equal([]string{"network/vpn", "provider/aws"}))
@@ -161,7 +161,7 @@ func TestGRPCCapabilitySelectorPlacementSurvivesCapabilityReplacement(t *testing
 	beforeInvalid, svcErr := clusterService.Get(ctx, cluster.ID)
 	Expect(svcErr).To(BeNil())
 	beforeInvalidSeenAt := *beforeInvalid.LastSeenAt
-	_, _, svcErr = clusterService.Register(ctx, cluster.Name, "", []string{"unknown/value"}, cluster.OIDCSubject)
+	_, _, svcErr = clusterService.Register(ctx, cluster.Name, []string{"unknown/value"}, cluster.OIDCSubject)
 	Expect(svcErr).NotTo(BeNil())
 	afterInvalid, svcErr := clusterService.Get(ctx, cluster.ID)
 	Expect(svcErr).To(BeNil())
