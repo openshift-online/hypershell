@@ -537,7 +537,27 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	ns := s.waitGatewayNamespace(t, gw.ID)
 	s.Require().NotEmpty(ns, "gateway namespace")
 	s.runner.Show("DELETE /gateways/%s  # then expect namespace %s to be garbage-collected", gw.ID, ns)
-	s.Require().NoError(s.admin.Gateways().Delete(ctx, gw.ID), "delete gateway")
+	// The delete-path service-account cleanup barrier (deletion_cleanup.go) holds a
+	// per-gateway lock across the Keycloak cleanup call; under concurrent phase load
+	// it can transiently report 503 "cleanup is unavailable" even though no
+	// service accounts exist for this gateway. That status is the server's own
+	// retry signal, so poll it rather than failing the phase on a transient lock
+	// contention/provisioner hiccup.
+	s.Require().NoError(harness.Poll(ctx, 2*time.Second, 30*time.Second, func(ctx context.Context) (bool, error) {
+		status, body, err := s.admin.RawJSON(ctx, http.MethodDelete, "/gateways/"+gw.ID, nil)
+		if err != nil {
+			return false, err
+		}
+		switch status {
+		case http.StatusNoContent, http.StatusOK, http.StatusAccepted:
+			return true, nil
+		case http.StatusServiceUnavailable:
+			t.Logf("delete gateway %s returned 503 (service-account cleanup busy); retrying: %s", gw.ID, body)
+			return false, nil
+		default:
+			return false, fmt.Errorf("delete gateway status %d: %s", status, body)
+		}
+	}), "delete gateway")
 	s.Require().NoError(harness.Poll(ctx, time.Second, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second), func(ctx context.Context) (bool, error) {
 		status, _, err := s.admin.RawJSON(ctx, http.MethodGet, "/gateways/"+gw.ID, nil)
 		return err == nil && status == http.StatusNotFound, nil
