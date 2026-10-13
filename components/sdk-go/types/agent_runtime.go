@@ -12,19 +12,19 @@ import (
 type AgentRuntime struct {
 	ObjectReference
 
-	ClusterID           string `json:"cluster_id,omitempty"`
-	ConcurrencyPolicy   string `json:"concurrency_policy,omitempty"`
-	CoordinatorImage    string `json:"coordinator_image,omitempty"`
-	Cron                string `json:"cron,omitempty"`
-	Description         string `json:"description,omitempty"`
-	GatewayID           string `json:"gateway_id"`
-	LoginRefreshSeconds int32  `json:"login_refresh_seconds,omitempty"`
-	Name                string `json:"name"`
-	Parameters          string `json:"parameters,omitempty"`
-	RepositoryID        string `json:"repository_id,omitempty"`
-	SandboxTemplateID   string `json:"sandbox_template_id,omitempty"`
-	Selector            string `json:"selector,omitempty"`
-	Status              string `json:"status,omitempty"`
+	ClusterID           string   `json:"cluster_id,omitempty"`
+	ConcurrencyPolicy   string   `json:"concurrency_policy,omitempty"`
+	CoordinatorImage    string   `json:"coordinator_image,omitempty"`
+	Cron                string   `json:"cron,omitempty"`
+	Description         string   `json:"description,omitempty"`
+	GatewayID           string   `json:"gateway_id"`
+	LoginRefreshSeconds int32    `json:"login_refresh_seconds,omitempty"`
+	Name                string   `json:"name"`
+	Parameters          string   `json:"parameters,omitempty"`
+	RepositoryID        string   `json:"repository_id,omitempty"`
+	SandboxTemplateID   string   `json:"sandbox_template_id,omitempty"`
+	Selector            []string `json:"selector,omitempty"`
+	Status              string   `json:"status,omitempty"`
 }
 
 type AgentRuntimeList struct {
@@ -101,7 +101,7 @@ func (b *AgentRuntimeBuilder) SandboxTemplateID(v string) *AgentRuntimeBuilder {
 	return b
 }
 
-func (b *AgentRuntimeBuilder) Selector(v string) *AgentRuntimeBuilder {
+func (b *AgentRuntimeBuilder) Selector(v []string) *AgentRuntimeBuilder {
 	b.resource.Selector = v
 	return b
 }
@@ -172,7 +172,7 @@ func (b *AgentRuntimePatchBuilder) SandboxTemplateID(v string) *AgentRuntimePatc
 	return b
 }
 
-func (b *AgentRuntimePatchBuilder) Selector(v string) *AgentRuntimePatchBuilder {
+func (b *AgentRuntimePatchBuilder) Selector(v []string) *AgentRuntimePatchBuilder {
 	b.patch["selector"] = v
 	return b
 }

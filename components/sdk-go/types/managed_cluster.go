@@ -14,7 +14,7 @@ type ManagedCluster struct {
 	ObjectReference
 
 	APIServerURL     string     `json:"api_server_url,omitempty"`
-	Capabilities     string     `json:"capabilities,omitempty"`
+	Capabilities     []string   `json:"capabilities,omitempty"`
 	KubeconfigSecret string     `json:"kubeconfig_secret"`
 	LastSeenAt       *time.Time `json:"last_seen_at,omitempty"`
 	Name             string     `json:"name"`

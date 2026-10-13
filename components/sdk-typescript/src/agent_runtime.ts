@@ -16,7 +16,7 @@ export type AgentRuntime = ObjectReference & {
   parameters: string;
   repository_id: string;
   sandbox_template_id: string;
-  selector: string;
+  selector: string[];
   status: string;
 };
 
@@ -36,7 +36,7 @@ export type AgentRuntimeCreateRequest = {
   parameters?: string;
   repository_id?: string;
   sandbox_template_id?: string;
-  selector?: string;
+  selector?: string[];
 };
 
 export type AgentRuntimePatchRequest = {
@@ -49,7 +49,7 @@ export type AgentRuntimePatchRequest = {
   parameters?: string;
   repository_id?: string;
   sandbox_template_id?: string;
-  selector?: string;
+  selector?: string[];
 };
 
 export class AgentRuntimeBuilder {
@@ -111,7 +111,7 @@ export class AgentRuntimeBuilder {
     return this;
   }
 
-  selector(value: string): this {
+  selector(value: string[]): this {
     this.data['selector'] = value;
     return this;
   }
@@ -176,7 +176,7 @@ export class AgentRuntimePatchBuilder {
     return this;
   }
 
-  selector(value: string): this {
+  selector(value: string[]): this {
     this.data['selector'] = value;
     return this;
   }
