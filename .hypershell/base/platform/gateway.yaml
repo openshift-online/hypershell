@@ -20,5 +20,5 @@ spec:
     selector:
       - network/public
       - provider/ibm
+  # TLS stays enabled (edge). The gateway is never declared insecure here.
   tls_mode: edge
-  service_type: ClusterIP

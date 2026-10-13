@@ -7,18 +7,18 @@ metadata:
   name: agent-runtime-slim
   description: Lightweight agent sandbox with a basic egress-restricted network policy
 spec:
-  image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-slim-main:latest
+  image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-slim-main@sha256:0b22e22656c2bf9c60511a154ae71399be3324c6478baa8e155aa953489fc103
   name_prefix: hypershell-agent-slim-
   policy: |
     {
       "filesystem": {
         "read_only": ["/usr", "/etc"],
-        "read_write": ["/sandbox", "/tmp"],
+        "read_write": ["/sandbox", "/tmp", "/home/agent"],
         "landlock": "best_effort"
       },
       "network": [
         {"name": "claude_code", "hosts": ["inference.local:443"], "binaries": ["claude"]},
         {"name": "github_rest_api", "hosts": ["api.github.com:443", "github.com:443"], "binaries": ["gh", "git"]}
       ],
-      "process": {"user": "agent", "group": "agent"}
+      "process": {"user": "agent", "group": "root"}
     }

@@ -100,7 +100,7 @@ release-verification
 ## Reference resolution
 
 Foreign keys in these manifests reference other declared resources **by name**
-(e.g. `repository_id: hypershell`, `sandbox_template_id: agent-runtime-slim`,
+(e.g. `repository_id: openshift-online/hypershell`, `sandbox_template_id: agent-runtime-slim`,
 `provider_spec_id: claude-inference`, `workspace_id: <runtime-name>`). The import
 process resolves each name to the concrete resource ID at reconcile time.
 `workspace_id` references the runtime's own name because the control plane

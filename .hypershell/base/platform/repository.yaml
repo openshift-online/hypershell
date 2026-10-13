@@ -5,7 +5,7 @@
 apiVersion: hypershell.redhat.io/v1
 kind: Repository
 metadata:
-  name: hypershell
+  name: openshift-online/hypershell
   description: openshift-online/hypershell SDLC automation repository
 spec:
   url: https://github.com/openshift-online/hypershell
