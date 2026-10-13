@@ -26,7 +26,7 @@ Managed Cluster (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, ManagedClusters, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
 
 ### Reconciler
 
@@ -40,6 +40,7 @@ The Reconciler receives resource events from the Watcher and converges the Kuber
 - Configure network meshes between gateways
 - Manage release rollouts (including canary strategies)
 - Provision and reconcile OpenShellGatewayServiceAccount identities in Keycloak through an internal in-cluster gRPC service
+- Reconcile AgentRuntime resources into cluster scheduling resources and gateway-side workspace objects (see "AgentRuntime Reconciliation" below)
 - Update resource status back to the API server
 
 #### Gateway Provisioning Specifications
@@ -179,6 +180,109 @@ The control plane SHALL connect to the API server via gRPC watch streams for eac
 - WHEN it opens `WatchGateways`
 - THEN the request SHALL carry `cluster_id: X` and the control plane's bearer token
 - AND events for gateways assigned to other clusters SHALL NOT be delivered
+
+### Requirement: AgentRuntime Watch Stream
+
+The control plane SHALL watch `AgentRuntime` resources over a `WatchAgentRuntimes`
+gRPC stream, scoped to its own registered `cluster_id`, and SHALL seed that stream
+from an initial `ListAgentRuntimes` call on every (re)connect. The stream SHALL
+reuse the same reconnect-with-backoff, HTTP/2 keepalive, idle watchdog, and
+seed-on-reconnect machinery as the existing watch streams ("gRPC Watch Streams",
+"Watch Stream Liveness"). Every RPC SHALL carry the control plane's OIDC bearer
+token as per-RPC credentials, like every other watch stream.
+
+An `AgentRuntime` MAY omit `cluster_id`, in which case its scheduling cluster is
+derived from its referenced `Gateway`'s capability-label placement (see
+[`data-model.spec.md`](./data-model.spec.md), "AgentRuntime as a Top-Level
+Resource"). The API server SHALL resolve this derived placement server-side and
+SHALL deliver on each control plane's stream only the `AgentRuntime` records whose
+effective cluster matches that control plane's `cluster_id`, exactly as it binds
+the `WatchGateways` and `WatchRoleBindings` streams to the caller's cluster
+(`managed-cluster-registration.spec.md`, "Watch Stream Caller Binding"). As
+defense in depth, the control plane SHALL re-resolve each delivered
+`AgentRuntime`'s effective cluster and SHALL skip, without error, any record that
+does not resolve to its own `cluster_id`.
+
+#### Scenario: AgentRuntime watch is opened with the control plane's own cluster filter
+
+- GIVEN a control plane registered as `cluster_id: X`
+- WHEN it opens `WatchAgentRuntimes`
+- THEN the request SHALL carry `cluster_id: X` and the control plane's bearer token
+- AND `AgentRuntime` records whose effective cluster is not `X` SHALL NOT be delivered
+
+#### Scenario: Derived placement routes an AgentRuntime to the Gateway's cluster
+
+- GIVEN an `AgentRuntime` with no `cluster_id` whose referenced `Gateway` is placed on `cluster_id: Y`
+- WHEN control planes registered as `X` and `Y` each open `WatchAgentRuntimes`
+- THEN only the control plane registered as `Y` SHALL receive the `AgentRuntime` event
+- AND should the event reach `X` anyway, `X` SHALL skip it without error
+
+#### Scenario: Seed on reconnect recovers missed AgentRuntime state
+
+- GIVEN a `WatchAgentRuntimes` stream that went silent and was torn down by the idle watchdog
+- WHEN the control plane reconnects the stream
+- THEN it SHALL re-run `ListAgentRuntimes` scoped to its `cluster_id` before resuming the stream
+- AND any `AgentRuntime` create or update missed during the silence SHALL be reconciled
+
+### Requirement: AgentRuntime Reconciliation
+
+The control plane SHALL reconcile each `AgentRuntime` delivered on its watch stream
+into the cluster scheduling resources and gateway-side workspace objects defined by
+[`data-model.spec.md`](./data-model.spec.md) ("AgentRuntime Cluster Resource
+Provisioning", "Gateway-Side Provisioning", "WorkspaceMembership", and "AgentRuntime
+Status Lifecycle"). Reconciliation SHALL converge, not create-and-skip: re-running
+against unchanged desired state SHALL be idempotent and SHALL update mutable fields
+in place.
+
+On reconcile the control plane SHALL, using its in-cluster credentials, create or
+update on the target cluster the `AgentRuntime`'s `Namespace`, `ServiceAccount`
+(with `automountServiceAccountToken: false`), default-deny-ingress `NetworkPolicy`,
+one `ExternalSecret` per `SecretSource` (with the purpose-to-env-var wiring from the
+data-model "SecretSource" table), and the coordinator `CronJob`. It SHALL then
+provision the gateway-side `AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`,
+and `InferenceRoute` objects through the gateway gRPC API, the same idempotent
+mechanism it uses for gateway database provisioning.
+
+The control plane SHALL drive `AgentRuntime.status` through
+`Pending -> Provisioning -> Running -> Degraded -> Terminating` as the data-model
+status lifecycle defines, and SHALL write the status back to the API server. When a
+`SecretSource` `ExternalSecret` enters a sync error, or gateway-side provisioning
+fails, the control plane SHALL set `status` to `Degraded` and SHALL surface the
+failing `SecretSource` name or the gateway-side error in the status message.
+
+On `AgentRuntime` deletion the control plane SHALL delete the cluster resources it
+created (`Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources,
+and the `CronJob`) and SHALL delete the gateway-side `AgentWorkspace` and its
+sub-resources through the gateway gRPC API.
+
+#### Scenario: New AgentRuntime is provisioned end to end
+
+- GIVEN a new `AgentRuntime` with status `Pending` whose effective cluster is this control plane's `cluster_id`
+- WHEN the control plane reconciles it
+- THEN it SHALL create the `Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources, and `CronJob` on this cluster
+- AND it SHALL transition the `AgentRuntime` status to `Provisioning`
+- AND after it has provisioned the gateway-side `AgentWorkspace` and providers, it SHALL transition the status to `Running`
+
+#### Scenario: AgentRuntime change re-applies affected resources
+
+- GIVEN an `AgentRuntime` with status `Running`
+- WHEN its `cron` field changes
+- THEN the control plane SHALL update the coordinator `CronJob` on the target cluster
+- AND reconciliation SHALL remain idempotent for the unchanged resources
+
+#### Scenario: SecretSource sync failure degrades the AgentRuntime
+
+- GIVEN an `AgentRuntime` with status `Running`
+- WHEN one of its `SecretSource` `ExternalSecret` resources enters a sync error
+- THEN the control plane SHALL set the `AgentRuntime` status to `Degraded`
+- AND the status message SHALL identify the failing `SecretSource` by name
+
+#### Scenario: AgentRuntime deletion removes cluster and gateway-side resources
+
+- GIVEN an `AgentRuntime` with status `Running`
+- WHEN a delete event arrives on the watch stream
+- THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources, and `CronJob` from the cluster
+- AND it SHALL delete the gateway-side `AgentWorkspace` and its sub-resources through the gateway gRPC API
 
 ### Requirement: Watch Stream Liveness
 
@@ -437,3 +541,5 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | One control plane per cluster, in-cluster credentials only | No hub holds a spoke kubeconfig, so a compromised hub cannot reach into spokes and a spoke keeps reconciling its own gateways while the hub is unreachable. Matches the platform GitOps pull model in `global-architecture.spec.md`. |
 | Transport security inferred from the dial address, not a separate `HYPERSHELL_GRPC_TLS` flag | The address already tells you whether the hop leaves the cluster. A second flag could drift from the address (TLS off against an external host, or on against an in-cluster one) with no compile-time or admission check to catch it. |
 | TLS handshake failure retries like any other disconnect, rather than exiting | A control plane should tolerate a hub certificate renewal without operator intervention. Contrast with the `managed-cluster-registrar` 403 and the name-conflict 409, which are fail-closed because retrying truly cannot help. |
+| AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
+| AgentRuntime reconciled by the control plane; declarative `.hypershell` import hosted by the api-server | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import, by contrast, only reads Repository credentials and writes API resources (the same create/update/delete the REST layer already owns); it never touches a cluster, so it is hosted by the api-server, not the control plane (see [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). |

@@ -558,6 +558,18 @@ is created, a changed resource is updated, and a resource removed from
 `.hypershell` is pruned. Re-running the import against unchanged repository state
 SHALL be idempotent.
 
+The import process SHALL be hosted by the **API server** as a background worker,
+not by the control plane. The import reads each `Repository`'s provider credential
+and writes API resources - the same create, update, and delete operations the REST
+layer already owns - and never applies anything to a Kubernetes cluster. The
+control plane, by contrast, holds per-cluster in-cluster credentials and only reads
+desired state over watch streams; it SHALL NOT write API resources. Hosting the
+import in the API server keeps it co-located with the Repository credentials and the
+ownership and pruning bookkeeping it maintains, and keeps the control plane a pure
+reader of desired state. The pruning of imported resources SHALL be scoped to the
+owning `Repository`, so one Repository's import SHALL NOT delete resources owned by
+another Repository or created directly through the REST API or `hsctl apply`.
+
 > **Replaces the script coordinator model.** This declarative import, together
 > with `AgentRuntime.selector`, supersedes the imperative `discover.sh` / `run.sh`
 > "script-at-endpoint" coordinator contract previously documented in
@@ -1205,5 +1217,6 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0
 | Repository credential via SecretSource FK | Reuses the existing abstract secret backend model (Vault/AWS/Kubernetes) and `ExternalSecret` wiring, keeping provider secrets out of the database and consistent with every other credential in the platform. |
 | AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
 | Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
+| `.hypershell` import hosted by the api-server, not the control plane | The import reads Repository credentials and writes API resources (create/update/delete), the operations the REST layer already owns; it never applies to a cluster. The control plane holds per-cluster credentials and is a pure reader of desired state over watch streams. Hosting the import in the api-server co-locates it with the Repository credentials and the ownership/pruning bookkeeping, and keeps the control plane from ever writing API resources. |
 | Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
 | Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |
