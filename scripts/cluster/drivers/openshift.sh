@@ -1110,8 +1110,10 @@ seed_via_api() {
     info "Creating Gateway with OIDC..."
     local oidc
     oidc="{\\\"issuer\\\":\\\"${OPENSHIFT_OIDC_ISSUER}\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}"
+    # Create takes a required placement intent, not a cluster_id. The selector
+    # matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES in deploy/openshift.
     raw="$(api_exec POST /api/hypershell/v1/gateways \
-      "{\"name\":\"dev-gateway\",\"cluster_id\":\"${CLUSTER_ID}\",\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
+      "{\"name\":\"dev-gateway\",\"placement\":{\"selector\":[\"network/public\",\"provider/aws\"]},\"oidc\":\"${oidc}\",\"route\":\"{\\\"enabled\\\":true}\"}")"
     http="$(printf '%s' "${raw}" | tail -1)"
     body="$(printf '%s' "${raw}" | sed '$d')"
     GATEWAY_ID="$(extract_id "${body}")"

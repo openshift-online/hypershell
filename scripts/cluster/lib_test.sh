@@ -477,6 +477,16 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: Kind seed does not look up existing resources with json_named_id'
 fi
+# Gateway create takes a required placement intent and rejects cluster_id as an
+# unknown field, so both seeds must send placement.
+if grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"mode\\":\\"local-kind\\"}' "${REPO_ROOT}/scripts/kind/seed.sh" \
+  && grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"selector\\":' "${SCRIPT_DIR}/drivers/openshift.sh" \
+  && ! grep -q 'dev-gateway\\",\\"cluster_id' "${REPO_ROOT}/scripts/kind/seed.sh" "${SCRIPT_DIR}/drivers/openshift.sh"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: a seed script creates dev-gateway without a placement intent (or still sends cluster_id)'
+fi
 # Every control plane self-registers its ManagedCluster; seeding waits for the
 # registered record and never creates one (a manual record would 409 the
 # control plane's registration; managed-cluster-registration.spec.md).

@@ -3509,6 +3509,10 @@ except Exception: pass" "$PADMIN_USERS_FILE" 2>/dev/null)
     fail_test "Could not create the owned gateway for unknown-phase validation"
   else
     E2E_EXTRA_GW_IDS+=("$PHASE_GW_ID")
+    # Let the new gateway settle first: the control plane moves it through
+    # Provisioning on its own, which the before/after comparison below would
+    # misread as the rejected write having been stored.
+    e2e_wait_gateway_running "$PHASE_GW_ID" "$E2E_PROVISION_TIMEOUT" >/dev/null || true
     PHASE_BEFORE=$(api_curl "${API_HOST}/api/hypershell/v1/gateways/${PHASE_GW_ID}" 2>/dev/null | e2e_json_field phase)
     show_cmd "api_curl -X PATCH .../gateways/${PHASE_GW_ID} -d '{phase: Bogus}'  # expect 400"
     PHASE_FILE=$(mktemp)
