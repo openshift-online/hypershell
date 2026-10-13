@@ -115,9 +115,13 @@ environment:
 
 | Placeholder | Where | Supply via |
 |-------------|-------|------------|
-| `REPLACE_WITH_GCP_PROJECT_ID` | `base/platform/provider-specs.yaml` (inference) | patch or pre-provision |
-| `REPLACE_WITH_SA_EMAIL` | inference `ProviderBinding.refresh_strategy` | patch or pre-provision |
 | `REPLACE_WITH_GITHUB_APP_ID` | github `ProviderBinding.refresh_strategy` | patch or pre-provision |
+
+Inference uses a URL + token provider: the `claude-inference` ProviderSpec points
+at `https://api.anthropic.com` and the token is supplied by each agent's
+`*-inference-key` SecretSource (`purpose: api-key`). The sandbox reaches
+`api.anthropic.com` directly; the supervisor egress proxy injects the token, so
+no credential enters the sandbox and there is no `inference.local` host.
 
 The GitHub App credential `SecretSource` named `github-app-credentials`
 (referenced by `base/platform/repository.yaml`) is a platform-provisioned secret

@@ -1,6 +1,8 @@
 # Reusable slim sandbox execution environment with a basic network policy:
-# egress only to the gateway inference endpoint and the GitHub API. policy is a
-# JSON-encoded SandboxPolicy (filesystem, network, process).
+# egress only to the Anthropic inference API and the GitHub API. The supervisor
+# egress proxy injects the provider credential for the allowed binary, so the
+# sandbox reaches the real upstream host directly (there is no inference.local
+# virtual host in current OpenShell). policy is a JSON-encoded SandboxPolicy.
 apiVersion: hypershell.redhat.io/v1
 kind: SandboxTemplate
 metadata:
@@ -17,7 +19,7 @@ spec:
         "landlock": "best_effort"
       },
       "network": [
-        {"name": "claude_code", "hosts": ["inference.local:443"], "binaries": ["claude"]},
+        {"name": "claude_code", "hosts": ["api.anthropic.com:443"], "binaries": ["claude"]},
         {"name": "github_rest_api", "hosts": ["api.github.com:443", "github.com:443"], "binaries": ["gh", "git"]}
       ],
       "process": {"user": "agent", "group": "root"}

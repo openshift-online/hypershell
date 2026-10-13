@@ -38,9 +38,9 @@ metadata:
   name: spec-review-inference-key
 spec:
   agent_runtime_id: spec-review
-  purpose: service-account-key
+  purpose: api-key
   backend: vault
-  path: hypershell/spec-review/vertex-service-account
+  path: hypershell/spec-review/anthropic-api-key
 ---
 apiVersion: hypershell.redhat.io/v1
 kind: SecretSource
@@ -61,7 +61,7 @@ spec:
   provider_spec_id: claude-inference
   secret_source_id: spec-review-inference-key
   refresh_strategy: |
-    {"type": "service-account-jwt", "material": {"client_email": "REPLACE_WITH_SA_EMAIL"}, "secret_material": [{"key": "private_key", "secret_source_id": "spec-review-inference-key"}]}
+    {"type": "static-token", "secret_material": [{"key": "api_key", "secret_source_id": "spec-review-inference-key"}]}
 ---
 apiVersion: hypershell.redhat.io/v1
 kind: ProviderBinding

@@ -38,9 +38,9 @@ metadata:
   name: triage-inference-key
 spec:
   agent_runtime_id: triage
-  purpose: service-account-key
+  purpose: api-key
   backend: vault
-  path: hypershell/triage/vertex-service-account
+  path: hypershell/triage/anthropic-api-key
 ---
 apiVersion: hypershell.redhat.io/v1
 kind: SecretSource
@@ -61,7 +61,7 @@ spec:
   provider_spec_id: claude-inference
   secret_source_id: triage-inference-key
   refresh_strategy: |
-    {"type": "service-account-jwt", "material": {"client_email": "REPLACE_WITH_SA_EMAIL"}, "secret_material": [{"key": "private_key", "secret_source_id": "triage-inference-key"}]}
+    {"type": "static-token", "secret_material": [{"key": "api_key", "secret_source_id": "triage-inference-key"}]}
 ---
 apiVersion: hypershell.redhat.io/v1
 kind: ProviderBinding

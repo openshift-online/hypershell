@@ -5,13 +5,13 @@ apiVersion: hypershell.redhat.io/v1
 kind: ProviderSpec
 metadata:
   name: claude-inference
-  description: Claude LLM inference via the gateway inference route (Vertex-backed)
+  description: Claude LLM inference via the Anthropic API (URL + token provider)
 spec:
   category: inference
   capability: |
     {
-      "refresh_strategy": "service-account-jwt",
-      "config": {"region": "us-east5", "projectId": "REPLACE_WITH_GCP_PROJECT_ID"}
+      "refresh_strategy": "static-token",
+      "config": {"base_url": "https://api.anthropic.com", "auth_header": "x-api-key"}
     }
 ---
 apiVersion: hypershell.redhat.io/v1
