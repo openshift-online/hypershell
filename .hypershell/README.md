@@ -12,10 +12,12 @@ rendered HyperShell ext-API resources into the API. The former imperative
 `discover.sh` / `run.sh` script contract has been removed; an `AgentRuntime` with
 a `selector` now expresses discovery declaratively.
 
-These manifests reference only HyperShell ext-API kinds and carry **no cluster
-information**. The control plane assigns a `ManagedCluster` by matching
-capability labels against what is available, so the gateway is declared and
-referenced by name with provisioning deferred.
+These manifests carry **no explicit cluster**. The `Gateway` is fully
+declarable: it states the *type* of placement it wants as capability-label
+selectors (e.g. `network/public`, `provider/ibm`) rather than a `cluster_id`, and
+the control plane resolves and assigns a matching `ManagedCluster` at provision
+time. Agents reference that gateway by name and assume it provisions when applied
+to a cluster whose capabilities match.
 
 ## Layout
 
@@ -28,7 +30,7 @@ referenced by name with provisioning deferred.
 │   └── platform/               # shared, reusable kinds referenced by name
 │       ├── kustomization.yaml
 │       ├── repository.yaml     # Repository (this repo) + credential reference
-│       ├── gateway.yaml        # Gateway the agents connect to (agents-gateway)
+│       ├── gateway.yaml        # Gateway (agents-gateway) placed by capability selector
 │       ├── sandbox-template.yaml # agent-runtime-slim + basic network policy
 │       └── provider-specs.yaml # claude-inference, github-source-control
 └── agents/<name>/              # agent instances (overlays on base/platform)

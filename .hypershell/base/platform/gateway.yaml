@@ -1,15 +1,24 @@
 # Gateway the agent runtimes connect to (inference + workspace provisioning).
 # Every AgentRuntime references this Gateway by name (gateway_id: agents-gateway).
 #
-# No cluster is named here: the control plane assigns a ManagedCluster by
-# matching capability labels against what is available, so the gateway can be
-# declared and referenced by name with provisioning deferred. namespace is
-# omitted because the API server assigns it at creation.
+# Fully declarable by placement: instead of an explicit cluster_id, the gateway
+# declares the *type* of placement it wants as capability-label selectors. The
+# control plane resolves and assigns a matching ManagedCluster at provision time
+# (see specs/web-console/gateway-provision-placement.spec.md and
+# specs/platform/managed-cluster-registration.spec.md). namespace is omitted
+# because the API server assigns it at creation.
+#
+# This gateway targets a public IBM cluster (the hypc-ibm-00 dev target). For a
+# local kind cluster, replace `placement.selector` with `placement: {mode: local-kind}`.
 apiVersion: hypershell.redhat.io/v1
 kind: Gateway
 metadata:
   name: agents-gateway
   description: Shared gateway for HyperShell SDLC automation agents
 spec:
+  placement:
+    selector:
+      - network/public
+      - provider/ibm
   tls_mode: edge
   service_type: ClusterIP
