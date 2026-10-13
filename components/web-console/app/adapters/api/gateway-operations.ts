@@ -336,9 +336,8 @@ const registeredPlacementFilter = "oidc_subject <> ''";
 const gatewayVersionCapabilityPrefix = "gateway-version/";
 
 // The managed-cluster capabilities field is a set of `namespace/value` labels.
-// The generated SDK types it as a string, but the API serializes it as a JSON
-// array, so normalize both shapes (array at runtime, comma-joined string as a
-// defensive fallback) into a label list.
+// The API contract uses an array. Retain the comma-joined string fallback for
+// compatibility with responses from older API server deployments.
 function clusterCapabilityLabels(cluster: ManagedCluster): string[] {
   const raw: unknown = cluster.capabilities;
   if (Array.isArray(raw)) {
