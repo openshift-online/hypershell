@@ -35,9 +35,36 @@ type RouteConfig struct {
 	Enabled bool
 }
 
-// CredentialDriverConfig represents credential driver configuration.
+// CredentialDriverConfig represents credential driver configuration. Type is the
+// resolved driver (`vault`, `kubernetes-secrets`, or `kek-db`); the matching
+// sub-struct carries the resolved coordinates when set.
 type CredentialDriverConfig struct {
-	Type string
+	Type              string
+	KubernetesSecrets *KubernetesSecretsValues
+	Vault             *VaultValues
+}
+
+// KubernetesSecretsValues holds resolved Kubernetes Secrets driver values.
+type KubernetesSecretsValues struct {
+	Namespace string
+}
+
+// VaultValues holds the resolved Vault credential-driver coordinates the control
+// plane fills from conventions (HYPERSHELL-369). They map to the chart's
+// server.credentialDrivers.vault.* values and the projected vault-audience token.
+type VaultValues struct {
+	Address                 string
+	Mount                   string
+	KVVersion               string
+	AuthMethod              string
+	Role                    string
+	KubernetesAuthMount     string
+	ServiceAccountTokenPath string
+	TokenAudience           string
+	TokenDir                string
+	TokenExpirySeconds      int
+	CAConfigMapName         string
+	TimeoutSecs             int
 }
 
 // ValuesBuilder builds Helm chart values from a Gateway configuration.
@@ -69,6 +96,10 @@ type ValuesBuilder struct {
 	ExternalCAIssuerKind string
 	// HasTrustedCA indicates whether the gateway-trusted-ca ConfigMap exists
 	HasTrustedCA bool
+	// HasVaultCA indicates whether the per-tenant openshell-gateway-vault-ca
+	// ConfigMap (the mirrored Vault serving CA) exists, so the vault driver's
+	// caConfigMapName is set only when the gateway can actually mount it.
+	HasVaultCA bool
 	// Resources overrides the gateway container requests and limits
 	// (GATEWAY_RESOURCES). Nil uses DefaultGatewayResources.
 	Resources *corev1.ResourceRequirements
@@ -227,21 +258,102 @@ func (b *ValuesBuilder) buildOIDCValues(values map[string]interface{}) {
 	}
 }
 
-// buildCredentialDriverValues builds credential driver Helm chart values.
+// buildCredentialDriverValues builds credential driver Helm chart values. The
+// chart reads these under server.credentialDrivers.* (not top-level). When neither
+// external driver is enabled the chart provisions the KEK-encrypted database store.
 func (b *ValuesBuilder) buildCredentialDriverValues(values map[string]interface{}) {
-	if b.Gateway.CredentialDriver == nil {
-		// KEK mode (default)
-		setNestedValue(values, false, "credentialDrivers", "kubernetesSecrets", "enabled")
+	driver := b.Gateway.CredentialDriver
+	if driver == nil {
+		// Default (KEK). Wave 2 of HYPERSHELL-369 flips the omitted default to vault.
+		setNestedValue(values, false, "server", "credentialDrivers", "kubernetesSecrets", "enabled")
+		setNestedValue(values, false, "server", "credentialDrivers", "vault", "enabled")
 		return
 	}
 
-	driver := b.Gateway.CredentialDriver
 	switch driver.Type {
 	case "kubernetes-secrets":
-		setNestedValue(values, true, "credentialDrivers", "kubernetesSecrets", "enabled")
-	case "vault":
-		setNestedValue(values, true, "credentialDrivers", "vault", "enabled")
+		setNestedValue(values, true, "server", "credentialDrivers", "kubernetesSecrets", "enabled")
+		if driver.KubernetesSecrets != nil && driver.KubernetesSecrets.Namespace != "" {
+			setNestedValue(values, driver.KubernetesSecrets.Namespace, "server", "credentialDrivers", "kubernetesSecrets", "namespace")
+		}
+	case "kek-db":
+		// Explicit KEK-encrypted database store: neither external driver enabled.
+		setNestedValue(values, false, "server", "credentialDrivers", "kubernetesSecrets", "enabled")
+		setNestedValue(values, false, "server", "credentialDrivers", "vault", "enabled")
+	case "vault", "":
+		b.buildVaultValues(values, driver.Vault)
 	}
+}
+
+// buildVaultValues wires the resolved Vault coordinates into the chart and injects
+// a projected ServiceAccount token scoped to the `vault` audience (least-privilege;
+// the chart's default is the generic SA token) via the extraVolumes hooks.
+func (b *ValuesBuilder) buildVaultValues(values map[string]interface{}, v *VaultValues) {
+	if v == nil {
+		return
+	}
+	setNestedValue(values, true, "server", "credentialDrivers", "vault", "enabled")
+	setNestedValue(values, v.Address, "server", "credentialDrivers", "vault", "address")
+	setNestedValue(values, v.Mount, "server", "credentialDrivers", "vault", "mount")
+	setNestedValue(values, v.KVVersion, "server", "credentialDrivers", "vault", "kvVersion")
+	setNestedValue(values, v.AuthMethod, "server", "credentialDrivers", "vault", "authMethod")
+	setNestedValue(values, v.Role, "server", "credentialDrivers", "vault", "role")
+	setNestedValue(values, v.KubernetesAuthMount, "server", "credentialDrivers", "vault", "kubernetesAuthMount")
+	setNestedValue(values, v.ServiceAccountTokenPath, "server", "credentialDrivers", "vault", "serviceAccountTokenPath")
+	if v.TimeoutSecs > 0 {
+		setNestedValue(values, v.TimeoutSecs, "server", "credentialDrivers", "vault", "timeoutSecs")
+	}
+	// Point the chart at the mirrored CA ConfigMap only when the mirror succeeded,
+	// mirroring the trusted-CA-bundle pattern. When absent the gateway falls back to
+	// platform trust roots (Wave 3 adds a fail-closed reachability check).
+	if b.HasVaultCA && v.CAConfigMapName != "" {
+		setNestedValue(values, v.CAConfigMapName, "server", "credentialDrivers", "vault", "caConfigMapName")
+	}
+
+	tokenVolume := map[string]interface{}{
+		"name": "vault-sa-token",
+		"projected": map[string]interface{}{
+			"sources": []interface{}{
+				map[string]interface{}{
+					"serviceAccountToken": map[string]interface{}{
+						"path":              "token",
+						"audience":          v.TokenAudience,
+						"expirationSeconds": int64(v.TokenExpirySeconds),
+					},
+				},
+			},
+		},
+	}
+	tokenMount := map[string]interface{}{
+		"name":      "vault-sa-token",
+		"mountPath": v.TokenDir,
+		"readOnly":  true,
+	}
+	appendNestedSlice(values, []interface{}{tokenVolume}, "server", "extraVolumes")
+	appendNestedSlice(values, []interface{}{tokenMount}, "server", "extraVolumeMounts")
+}
+
+// appendNestedSlice appends items to the []interface{} at path, creating the path
+// if absent and preserving anything already there. server.extraVolumes /
+// extraVolumeMounts are a shared extension point (Helm replaces arrays rather than
+// merging), so writers must accumulate rather than assign, or the last writer wins
+// and silently drops the others.
+func appendNestedSlice(m map[string]interface{}, items []interface{}, path ...string) {
+	if len(path) == 0 || len(items) == 0 {
+		return
+	}
+	current := m
+	for i := 0; i < len(path)-1; i++ {
+		next, ok := current[path[i]].(map[string]interface{})
+		if !ok {
+			next = make(map[string]interface{})
+			current[path[i]] = next
+		}
+		current = next
+	}
+	key := path[len(path)-1]
+	existing, _ := current[key].([]interface{})
+	current[key] = append(existing, items...)
 }
 
 // buildIngressValues builds ingress-related Helm chart values.

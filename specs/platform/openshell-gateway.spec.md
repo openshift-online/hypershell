@@ -16,7 +16,7 @@ This specification covers core provisioning. Domain-specific concerns are define
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), route discovery |
 | [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | Per-gateway PostgreSQL provisioning from the mounted admin credential Secret, admin TLS `verify-full` and tenant TLS `require`, credential security, cleanup |
-| [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) | Credential storage driver selection (encrypted DB, Kubernetes Secrets, Vault), RBAC, TOML generation |
+| [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) | Credential storage driver selection (Vault by default, Kubernetes Secrets, KEK-encrypted DB), convention addressing, serving-CA propagation, fail-closed behavior, RBAC, TOML generation |
 | [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) | Automated per-gateway Keycloak OIDC client provisioning, RBAC-driven role assignment, visibility scoping |
 | [`openshell-gateway-console.spec.md`](./openshell-gateway-console.spec.md) | Per-gateway Gateway Console (OpenShell dashboard) with an oauth2-proxy sidecar, deployed when the gateway has a route |
 
@@ -478,7 +478,7 @@ The gateway Deployment SHALL specify:
   - Readiness: `GET /readyz` on `health` port (period 2s, failureThreshold 3)
 - **Env vars:**
   - `OPENSHELL_DB_URL` from Secret `openshell-gateway-db-credentials` key `uri` (carries `sslmode=require`; the chart cannot mount a database CA, see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md))
-  - `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` from Secret `openshell-gateway-credential-kek` key `key-encryption-key`
+  - `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` from Secret `openshell-gateway-credential-kek` key `key-encryption-key` - **only** when the credential driver is `kek-db`. New gateways default to the Vault driver, which uses a projected `audience: vault` ServiceAccount token instead of a KEK (see [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md))
 - **Volume mounts:**
   - `/etc/openshell` - ConfigMap `openshell-gateway-config` (readOnly)
   - `/etc/openshell-jwt` - Secret `openshell-gateway-jwt-keys` (readOnly)
@@ -635,6 +635,10 @@ cert_path      = "/etc/openshell-tls/server/tls.crt"
 key_path       = "/etc/openshell-tls/server/tls.key"
 client_ca_path = "/etc/openshell-tls/client-ca/ca.crt"
 
+# Credential storage is driver-dependent (see openshell-gateway-credentials.spec.md).
+# New gateways default to the Vault driver, which emits credential_drivers = ["vault"]
+# plus an [openshell.credential_drivers.vault] section instead of the KEK block below.
+# The KEK block is emitted only for the explicit `kek-db` driver:
 [openshell.gateway.credential_storage]
 key_encryption_key_env = "OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY"
 

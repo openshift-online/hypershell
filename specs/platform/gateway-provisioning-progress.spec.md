@@ -188,6 +188,18 @@ conditions are `Complete`.
 - AND subsequent conditions SHALL remain at `condition_status` `Pending`
 - AND the gateway `phase` SHALL be set to `Failed`
 
+#### Scenario: Vault-backed gateway fails EnvironmentReady when its credential backend is unreachable
+
+- GIVEN a Vault-backed Gateway (the default driver) on a cluster whose provider
+  Vault is unreachable or denies the gateway role
+- WHEN the GatewayReconciler verifies the credential backend as part of
+  `EnvironmentReady`
+- THEN it SHALL set `EnvironmentReady` to `Failed` with a user-facing reason that
+  names Vault (for example "vault unreachable" or "vault auth denied")
+- AND it SHALL NOT advance the gateway to `Running`
+- AND the message SHALL NOT contain the ServiceAccount token (see
+  [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md))
+
 #### Scenario: IdP step skipped for non-OIDC gateways
 
 - GIVEN a Gateway with no OIDC configuration
