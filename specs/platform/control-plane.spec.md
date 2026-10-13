@@ -26,7 +26,7 @@ Managed Cluster (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, ManagedClusters, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
 
 ### Reconciler
 
@@ -488,7 +488,7 @@ The control plane SHALL read the gateway database server's administrative connec
 - GIVEN the admin Secret is mounted with `host`, `port`, `user`, `password` and a PEM `sslrootcert`
 - WHEN the control plane starts
 - THEN it SHALL validate the files without connecting to the server
-- AND it SHALL serve watch streams for Gateways, GatewayReleases, ManagedClusters and GatewayNetworks
+- AND it SHALL serve watch streams for Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings and AgentRuntimes
 
 #### Scenario: Controller refuses to start on invalid admin credential files
 - GIVEN a required admin credential file is missing, or `sslmode` is present with a value other than `verify-full`
