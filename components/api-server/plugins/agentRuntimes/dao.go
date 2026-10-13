@@ -11,6 +11,10 @@ import (
 
 type AgentRuntimeDao interface {
 	Get(ctx context.Context, id string) (*AgentRuntime, error)
+	// GetUnscoped returns an AgentRuntime including soft-deleted rows. The watch
+	// handler uses it on a delete event, whose row is already soft-deleted, to
+	// resolve the deleted runtime's effective cluster for stream scoping.
+	GetUnscoped(ctx context.Context, id string) (*AgentRuntime, error)
 	Create(ctx context.Context, agentRuntime *AgentRuntime) (*AgentRuntime, error)
 	Replace(ctx context.Context, agentRuntime *AgentRuntime) (*AgentRuntime, error)
 	Delete(ctx context.Context, id string) error
@@ -34,6 +38,15 @@ func (d *sqlAgentRuntimeDao) Get(ctx context.Context, id string) (*AgentRuntime,
 	g2 := (*d.sessionFactory).New(ctx)
 	var agentRuntime AgentRuntime
 	if err := g2.Take(&agentRuntime, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &agentRuntime, nil
+}
+
+func (d *sqlAgentRuntimeDao) GetUnscoped(ctx context.Context, id string) (*AgentRuntime, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var agentRuntime AgentRuntime
+	if err := g2.Unscoped().Take(&agentRuntime, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &agentRuntime, nil

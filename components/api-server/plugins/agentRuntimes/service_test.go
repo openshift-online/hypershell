@@ -4,10 +4,41 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
+
+// fakeEventService is a no-op services.EventService for validation tests: the
+// service emits a broker event on every successful create/update/delete, so the
+// constructor needs an event service even though these tests do not assert on
+// the emitted events.
+type fakeEventService struct{}
+
+func (f *fakeEventService) Get(ctx context.Context, id string) (*api.Event, *errors.ServiceError) {
+	return &api.Event{}, nil
+}
+func (f *fakeEventService) Create(ctx context.Context, event *api.Event) (*api.Event, *errors.ServiceError) {
+	return event, nil
+}
+func (f *fakeEventService) Replace(ctx context.Context, event *api.Event) (*api.Event, *errors.ServiceError) {
+	return event, nil
+}
+func (f *fakeEventService) Delete(ctx context.Context, id string) *errors.ServiceError { return nil }
+func (f *fakeEventService) All(ctx context.Context) (api.EventList, *errors.ServiceError) {
+	return api.EventList{}, nil
+}
+func (f *fakeEventService) FindByIDs(ctx context.Context, ids []string) (api.EventList, *errors.ServiceError) {
+	return api.EventList{}, nil
+}
+func (f *fakeEventService) FindUnreconciled(ctx context.Context, olderThan time.Duration) (api.EventList, *errors.ServiceError) {
+	return api.EventList{}, nil
+}
+func (f *fakeEventService) FindBySourceAndType(ctx context.Context, source string, eventType api.EventType) (api.EventList, *errors.ServiceError) {
+	return api.EventList{}, nil
+}
 
 // fakeAgentRuntimeDao is an in-memory AgentRuntimeDao for validation tests.
 type fakeAgentRuntimeDao struct {
@@ -15,6 +46,10 @@ type fakeAgentRuntimeDao struct {
 }
 
 func (f *fakeAgentRuntimeDao) Get(ctx context.Context, id string) (*agentRuntimes.AgentRuntime, error) {
+	return &agentRuntimes.AgentRuntime{}, nil
+}
+
+func (f *fakeAgentRuntimeDao) GetUnscoped(ctx context.Context, id string) (*agentRuntimes.AgentRuntime, error) {
 	return &agentRuntimes.AgentRuntime{}, nil
 }
 
@@ -43,7 +78,7 @@ func (f *fakeAgentRuntimeDao) RepositoryExists(ctx context.Context, id string) (
 func strPtr(s string) *string { return &s }
 
 func TestCreate_SelectorWithoutRepository_422(t *testing.T) {
-	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{})
+	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{}, &fakeEventService{})
 	ar := &agentRuntimes.AgentRuntime{
 		Name:      "reviewer",
 		ClusterId: "c-1",
@@ -60,7 +95,7 @@ func TestCreate_SelectorWithoutRepository_422(t *testing.T) {
 }
 
 func TestCreate_SelectorWithRepository_OK(t *testing.T) {
-	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{repositoryExists: true})
+	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{repositoryExists: true}, &fakeEventService{})
 	ar := &agentRuntimes.AgentRuntime{
 		Name:         "reviewer",
 		ClusterId:    "c-1",
@@ -74,7 +109,7 @@ func TestCreate_SelectorWithRepository_OK(t *testing.T) {
 }
 
 func TestCreate_RepositoryDoesNotExist(t *testing.T) {
-	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{repositoryExists: false})
+	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{repositoryExists: false}, &fakeEventService{})
 	ar := &agentRuntimes.AgentRuntime{
 		Name:         "reviewer",
 		ClusterId:    "c-1",
@@ -88,7 +123,7 @@ func TestCreate_RepositoryDoesNotExist(t *testing.T) {
 }
 
 func TestCreate_NoSelectorNoRepository_OK(t *testing.T) {
-	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{})
+	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{}, &fakeEventService{})
 	ar := &agentRuntimes.AgentRuntime{
 		Name:      "plain",
 		ClusterId: "c-1",
@@ -102,7 +137,7 @@ func TestCreate_NoSelectorNoRepository_OK(t *testing.T) {
 // cluster_id is optional: the scheduling cluster is derived from the referenced
 // Gateway's placement, so a fully declarable agent omits it entirely.
 func TestCreate_NoClusterID_OK(t *testing.T) {
-	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{})
+	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{}, &fakeEventService{})
 	ar := &agentRuntimes.AgentRuntime{
 		Name:      "cluster-free",
 		GatewayId: "g-1",

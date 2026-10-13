@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+message AgentRuntime {
+  ObjectReference metadata = 1;
+  string name = 2;
+  // cluster_id is the AgentRuntime's own scheduling cluster when set. When
+  // empty the effective cluster is derived server-side from the referenced
+  // gateway's placement (data-model.spec.md, "AgentRuntime as a Top-Level
+  // Resource"); watch/list delivery is scoped by that effective cluster.
+  string cluster_id = 3;
+  string gateway_id = 4;
+  string sandbox_template_id = 5;
+  optional string repository_id = 6;
+  repeated string selector = 7;
+  optional string description = 8;
+  optional string cron = 9;
+  optional string coordinator_image = 10;
+  optional string concurrency_policy = 11;
+  optional int32 login_refresh_seconds = 12;
+  optional string parameters = 13;
+  optional string status = 14;
+}
+
+message WatchAgentRuntimesRequest {
+  // cluster_id, when set, restricts the stream to AgentRuntimes whose effective
+  // cluster is that managed cluster. The effective cluster is the AgentRuntime's
+  // own cluster_id when set, else the cluster of its referenced gateway. Because
+  // the event broker fans every AgentRuntime out to every subscriber, this filter
+  // is the security boundary that keeps a spoke's stream scoped to its own
+  // cluster; a registered caller must set it to its own cluster id
+  // (managed-cluster-registration.spec.md, "Watch Stream Caller Binding").
+  optional string cluster_id = 1;
+}
+
+message WatchAgentRuntimesResponse {
+  EventType type = 1;
+  AgentRuntime agent_runtime = 2;
+  string resource_id = 3;
+}
+
+message ListAgentRuntimesRequest {
+  // cluster_id, when set, excludes AgentRuntimes whose effective cluster is not
+  // that managed cluster. Same semantics as WatchAgentRuntimesRequest.cluster_id;
+  // a registered caller must set it to its own cluster id. Used to seed the watch
+  // on (re)connect.
+  optional string cluster_id = 1;
+}
+
+message ListAgentRuntimesResponse {
+  repeated AgentRuntime items = 1;
+}
+
+service AgentRuntimeService {
+  rpc WatchAgentRuntimes(WatchAgentRuntimesRequest) returns (stream WatchAgentRuntimesResponse);
+  rpc ListAgentRuntimes(ListAgentRuntimesRequest) returns (ListAgentRuntimesResponse);
+}

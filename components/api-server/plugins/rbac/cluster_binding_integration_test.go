@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/test"
@@ -188,6 +189,100 @@ func TestGRPCClusterCallerBindingRoleBindings(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred(), "a user's unfiltered list must not be bound")
 }
 
+// The same caller binding covers the AgentRuntime watch and list, which are
+// scoped by each AgentRuntime's effective cluster: its own cluster_id when set,
+// else the cluster of its referenced gateway (derived placement). Own id is
+// accepted and delivers only the runtimes whose effective cluster is this one; a
+// foreign id is PERMISSION_DENIED; a missing id is INVALID_ARGUMENT.
+func TestGRPCClusterCallerBindingAgentRuntimes(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	ownID, subject := registerTestClusterWithSubject(t)
+	foreignID := registerTestCluster(t)
+
+	cpAccount := h.NewAccount("service-account-cp-"+subject, "cp", "")
+	cpToken := h.CreateJWTStringWithClaims(cpAccount, test.ControlPlaneClaims(subject))
+	cp := pb.NewAgentRuntimeServiceClient(dialGRPC(t, h, cpToken))
+
+	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
+
+	// ListAgentRuntimes: own accepted, foreign denied, unfiltered rejected.
+	_, err := cp.ListAgentRuntimes(context.Background(), &pb.ListAgentRuntimesRequest{ClusterId: strPtr(ownID)})
+	Expect(err).NotTo(HaveOccurred(), "own cluster list must be accepted")
+	_, err = cp.ListAgentRuntimes(context.Background(), &pb.ListAgentRuntimesRequest{ClusterId: strPtr(foreignID)})
+	Expect(status.Code(err)).To(Equal(codes.PermissionDenied), "foreign cluster list: %v", err)
+	_, err = cp.ListAgentRuntimes(context.Background(), &pb.ListAgentRuntimesRequest{})
+	Expect(status.Code(err)).To(Equal(codes.InvalidArgument), "unfiltered list: %v", err)
+
+	// WatchAgentRuntimes: foreign and missing ids are rejected before the handler
+	// subscribes, so the first Recv returns the status.
+	for _, tc := range []struct {
+		clusterID *string
+		want      codes.Code
+	}{
+		{clusterID: strPtr(foreignID), want: codes.PermissionDenied},
+		{clusterID: nil, want: codes.InvalidArgument},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stream, err := cp.WatchAgentRuntimes(ctx, &pb.WatchAgentRuntimesRequest{ClusterId: tc.clusterID})
+		if err == nil {
+			_, err = stream.Recv()
+		}
+		cancel()
+		Expect(status.Code(err)).To(Equal(tc.want), "watch with cluster_id %v: %v", tc.clusterID, err)
+	}
+
+	// Own id: accepted, and only runtimes whose effective cluster is this one are
+	// delivered.
+	watchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	stream, err := cp.WatchAgentRuntimes(watchCtx, &pb.WatchAgentRuntimesRequest{ClusterId: strPtr(ownID)})
+	Expect(err).NotTo(HaveOccurred())
+	_, err = stream.Header()
+	Expect(err).NotTo(HaveOccurred(), "own cluster watch must be accepted")
+
+	// Gateways on each cluster back the derived-placement cases: an AgentRuntime
+	// that omits cluster_id inherits its referenced gateway's cluster.
+	gwService := gateways.Service(&environments.Environment().Services)
+	foreignGw, svcErr := gwService.Create(userCtx, &gateways.Gateway{Name: "ar-binding-foreign-gw", ClusterId: foreignID})
+	Expect(svcErr).NotTo(HaveOccurred())
+	ownGw, svcErr := gwService.Create(userCtx, &gateways.Gateway{Name: "ar-binding-own-gw", ClusterId: ownID})
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	arService := agentRuntimes.Service(&environments.Environment().Services)
+	// Foreign runtimes (explicit and derived) must never reach this stream.
+	foreignAR, svcErr := arService.Create(userCtx, &agentRuntimes.AgentRuntime{Name: "ar-explicit-foreign", ClusterId: foreignID, GatewayId: foreignGw.ID, SandboxTemplateId: "st-1"})
+	Expect(svcErr).NotTo(HaveOccurred())
+	derivedForeignAR, svcErr := arService.Create(userCtx, &agentRuntimes.AgentRuntime{Name: "ar-derived-foreign", GatewayId: foreignGw.ID, SandboxTemplateId: "st-1"})
+	Expect(svcErr).NotTo(HaveOccurred())
+	// Own runtimes (explicit and derived) must both be delivered.
+	ownAR, svcErr := arService.Create(userCtx, &agentRuntimes.AgentRuntime{Name: "ar-explicit-own", ClusterId: ownID, GatewayId: ownGw.ID, SandboxTemplateId: "st-1"})
+	Expect(svcErr).NotTo(HaveOccurred())
+	derivedOwnAR, svcErr := arService.Create(userCtx, &agentRuntimes.AgentRuntime{Name: "ar-derived-own", GatewayId: ownGw.ID, SandboxTemplateId: "st-1"})
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	remaining := map[string]bool{ownAR.ID: true, derivedOwnAR.ID: true}
+	for len(remaining) > 0 {
+		evt, recvErr := stream.Recv()
+		Expect(recvErr).NotTo(HaveOccurred(), "stream closed before both own-cluster runtimes arrived")
+		Expect(evt.ResourceId).NotTo(Equal(foreignAR.ID), "an explicit foreign-cluster runtime was delivered")
+		Expect(evt.ResourceId).NotTo(Equal(derivedForeignAR.ID), "a runtime whose gateway is on a foreign cluster was delivered")
+		if evt.GetAgentRuntime() != nil && evt.GetAgentRuntime().GetClusterId() != "" {
+			Expect(evt.GetAgentRuntime().GetClusterId()).To(Equal(ownID))
+		}
+		delete(remaining, evt.ResourceId)
+	}
+
+	// Callers that are not a registered cluster (users, hsctl) are unaffected by
+	// the caller binding: an unfiltered request is not rejected for a missing
+	// cluster_id the way a registered cluster's is. (Separate role-binding
+	// authorization governs them, and is not enforced in this test environment.)
+	user := pb.NewAgentRuntimeServiceClient(dialGRPC(t, h, h.CreateJWTString(h.NewRandAccount())))
+	_, err = user.ListAgentRuntimes(context.Background(), &pb.ListAgentRuntimesRequest{})
+	Expect(err).NotTo(HaveOccurred(), "a user's unfiltered list must not be cluster-bound")
+}
+
 // Anonymous watch rejected: every Watch* RPC requires a JWT; none is exempted by
 // --auth-bypass-methods.
 func TestGRPCWatchRPCsRejectAnonymous(t *testing.T) {
@@ -221,6 +316,13 @@ func TestGRPCWatchRPCsRejectAnonymous(t *testing.T) {
 		},
 		"WatchRoleBindings": func(ctx context.Context) (func() error, error) {
 			s, err := pb.NewRoleBindingServiceClient(conn).WatchRoleBindings(ctx, &pb.WatchRoleBindingsRequest{})
+			if err != nil {
+				return nil, err
+			}
+			return func() error { _, e := s.Recv(); return e }, nil
+		},
+		"WatchAgentRuntimes": func(ctx context.Context) (func() error, error) {
+			s, err := pb.NewAgentRuntimeServiceClient(conn).WatchAgentRuntimes(ctx, &pb.WatchAgentRuntimesRequest{})
 			if err != nil {
 				return nil, err
 			}

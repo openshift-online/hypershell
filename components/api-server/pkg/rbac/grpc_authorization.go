@@ -141,6 +141,14 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			return nil
 		}
 		return denied()
+	case "AgentRuntimeService":
+		if method == "ListAgentRuntimes" || method == "WatchAgentRuntimes" {
+			// Scoped to the caller's cluster by the caller binding, which resolves
+			// each AgentRuntime's effective cluster (its own cluster_id, or the
+			// cluster of its referenced gateway) server-side.
+			return nil
+		}
+		return denied()
 	}
 	return denied()
 }
@@ -231,6 +239,15 @@ func authorizeUserGRPC(fullMethod string, req interface{}, bindings []BindingSum
 		return allowIf(hasPlatformAdmin(bindings))
 	case "RoleBindingService":
 		// Unfiltered by user or gateway; users manage bindings over HTTP.
+		return denied()
+	case "AgentRuntimeService":
+		switch method {
+		case "ListAgentRuntimes", "WatchAgentRuntimes":
+			// The gRPC list and watch are unfiltered by caller, so only
+			// platform:admin (who sees every agent runtime over HTTP too) may use
+			// them, mirroring GatewayService.
+			return allowIf(hasPlatformAdmin(bindings))
+		}
 		return denied()
 	}
 	return denied()

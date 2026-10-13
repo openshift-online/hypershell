@@ -24,10 +24,12 @@ import (
 // authorization.
 
 const (
-	watchGatewaysMethod     = "/hypershell.v1.GatewayService/WatchGateways"
-	listGatewaysMethod      = "/hypershell.v1.GatewayService/ListGateways"
-	watchRoleBindingsMethod = "/hypershell.v1.RoleBindingService/WatchRoleBindings"
-	listRoleBindingsMethod  = "/hypershell.v1.RoleBindingService/ListRoleBindings"
+	watchGatewaysMethod      = "/hypershell.v1.GatewayService/WatchGateways"
+	listGatewaysMethod       = "/hypershell.v1.GatewayService/ListGateways"
+	watchRoleBindingsMethod  = "/hypershell.v1.RoleBindingService/WatchRoleBindings"
+	listRoleBindingsMethod   = "/hypershell.v1.RoleBindingService/ListRoleBindings"
+	watchAgentRuntimesMethod = "/hypershell.v1.AgentRuntimeService/WatchAgentRuntimes"
+	listAgentRuntimesMethod  = "/hypershell.v1.AgentRuntimeService/ListAgentRuntimes"
 )
 
 // RegisteredClusterResolver maps an OIDC subject to the id of the ManagedCluster
@@ -46,7 +48,8 @@ type clusterScopedRequest interface {
 
 func isClusterBoundMethod(fullMethod string) bool {
 	switch fullMethod {
-	case watchGatewaysMethod, listGatewaysMethod, watchRoleBindingsMethod, listRoleBindingsMethod:
+	case watchGatewaysMethod, listGatewaysMethod, watchRoleBindingsMethod, listRoleBindingsMethod,
+		watchAgentRuntimesMethod, listAgentRuntimesMethod:
 		return true
 	}
 	return false

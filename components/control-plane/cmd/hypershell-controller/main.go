@@ -361,7 +361,7 @@ func main() {
 	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
 	defer gatewayQueue.Stop()
 
-	watchCount := 2 // managed clusters, gateways
+	watchCount := 3 // managed clusters, gateways, agent runtimes
 	if kcClient != nil {
 		watchCount++ // role bindings
 	}
@@ -413,6 +413,14 @@ func main() {
 			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler, clusterID, cfg.WatchIdleTimeout, cfg.RoleBindingResyncInterval)
 		})
 	}
+
+	// AgentRuntime watch (issue #521 Wave A): cluster-scoped, seed-on-reconnect
+	// transport feeding a no-op reconciler. Cluster-side and gateway-side
+	// provisioning are deferred to Wave B.
+	agentRuntimeReconciler := reconciler.NewAgentRuntimeReconciler()
+	supervise("AgentRuntime watch", func(ctx context.Context) error {
+		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
+	})
 
 	log.Printf("INFO all %d watch streams launched", watchCount)
 
