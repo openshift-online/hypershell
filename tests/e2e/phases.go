@@ -623,7 +623,7 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	// 12e: placement, rather than a caller-supplied cluster id, selects the
 	// registered control plane. Unsupported placement requests are rejected.
 	invalidPlacement := gatewayCreateRequestForDriver("e2e-invalid-placement-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
-	invalidPlacement.Placement = gatewayPlacementIntent{Network: "invalid", Provider: "aws"}
+	invalidPlacement.Placement = gatewayPlacementIntent{Mode: "invalid"}
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", invalidPlacement)
 	s.Require().NoError(err, "gateway create with invalid placement")
 	s.Assert().Equalf(http.StatusBadRequest, st, "invalid placement must be 400 (body: %s)", string(body))
@@ -764,11 +764,11 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 // --- low-level helpers ---
 
 // gatewayPlacementIntent is the client-selected placement intent. The API server
-// resolves it to a registered managed-cluster id during gateway creation.
+// resolves it to a registered managed-cluster id during gateway creation. Exactly
+// one of Mode or Selector must be set (GatewayPlacementIntent, openapi.gateways.yaml).
 type gatewayPlacementIntent struct {
-	Mode     string `json:"mode,omitempty"`
-	Network  string `json:"network,omitempty"`
-	Provider string `json:"provider,omitempty"`
+	Mode     string   `json:"mode,omitempty"`
+	Selector []string `json:"selector,omitempty"`
 }
 
 // gatewayCreateRequest contains only fields accepted by GatewayCreateRequest.
@@ -785,7 +785,7 @@ type gatewayCreateRequest struct {
 // functional and performance e2e tests. Kind resolves the local development
 // control plane; OpenShift resolves an available public AWS control plane.
 func gatewayCreateRequestForDriver(name, driverName, oidc string) gatewayCreateRequest {
-	placement := gatewayPlacementIntent{Network: "public", Provider: "aws"}
+	placement := gatewayPlacementIntent{Selector: []string{"network/public", "provider/aws"}}
 	if driverName == "kind" {
 		placement = gatewayPlacementIntent{Mode: "local-kind"}
 	}

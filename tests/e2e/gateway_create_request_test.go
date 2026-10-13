@@ -25,7 +25,7 @@ func TestGatewayCreateRequestForDriver(t *testing.T) {
 		{
 			name:       "OpenShift uses managed AWS public placement",
 			driverName: "openshift",
-			placement:  map[string]any{"network": "public", "provider": "aws"},
+			placement:  map[string]any{"selector": []any{"network/public", "provider/aws"}},
 		},
 	}
 
