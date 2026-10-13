@@ -60,7 +60,10 @@ Execute the [amber-review skill](../../../skills/review/amber-review/SKILL.md) a
 If the review produces findings:
 - Return to Step 4 and address the findings
 Else:
-- Address any failing CI checks found in Step 2.
+- Address any failing CI checks found in Step 2. Before pushing, run the
+  authoritative CI-equivalent gate locally (the commands in the reconcile skill
+  Phase 6 step 3, or `make lint`) and require it green to avoid format/gofmt/SDK
+  drift CI ping-pong.
 - Address any merge conflicts found in Step 2.
 - Commit (if not already) and push code to `$LINKED_PULL_REQUEST`.
 - Remove label `agent/review-code-rejected` from `$GITHUB_ISSUE_URL` if present.
