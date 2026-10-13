@@ -36,17 +36,18 @@ type GatewayOwnerLookup interface {
 }
 
 type gatewayHandler struct {
-	gateway          GatewayService
-	generic          services.GenericService
-	ownerBinding     OwnerBindingCreator
-	visibilityFilter GatewayVisibilityFilter
-	ownerLookup      GatewayOwnerLookup
-	bindingLookup    rbac.RoleBindingLookup
-	clusters         RegisteredClusterLookup
-	clusterVersions  ClusterProvisioningVersionLookup
-	enforceRBAC      bool
-	placement        PlacementResolver
-	availability     PlacementAvailabilityResolver
+	gateway            GatewayService
+	generic            services.GenericService
+	ownerBinding       OwnerBindingCreator
+	visibilityFilter   GatewayVisibilityFilter
+	ownerLookup        GatewayOwnerLookup
+	bindingLookup      rbac.RoleBindingLookup
+	clusters           RegisteredClusterLookup
+	clusterVersions    ClusterProvisioningVersionLookup
+	enforceRBAC        bool
+	placement          PlacementResolver
+	availability       PlacementAvailabilityResolver
+	versionLogThrottle *logThrottle
 }
 
 // provisioningVersionLogInterval throttles the provisioning-version lookup
@@ -55,10 +56,31 @@ type gatewayHandler struct {
 // failure visible without the flood.
 const provisioningVersionLogInterval = time.Minute
 
-var (
-	provisioningVersionLogMu   sync.Mutex
-	provisioningVersionLogLast time.Time
-)
+// logThrottle rate-limits a recurring log line to at most one emission per
+// interval. It is held by pointer on the handler so value copies of the handler
+// share the same throttle state (and so tests get an isolated instance rather
+// than package-global state).
+type logThrottle struct {
+	interval time.Duration
+	mu       sync.Mutex
+	last     time.Time
+}
+
+// allow reports whether a log line may be emitted now, recording the emission
+// time when it returns true. A nil throttle always allows (unthrottled).
+func (t *logThrottle) allow() bool {
+	if t == nil {
+		return true
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now()
+	if !t.last.IsZero() && now.Sub(t.last) < t.interval {
+		return false
+	}
+	t.last = now
+	return true
+}
 
 // provisioningVersions resolves the provisioning version advertised by each of
 // the given clusters. A nil lookup or a lookup error yields an empty map, so the
@@ -72,7 +94,7 @@ func (h gatewayHandler) provisioningVersions(ctx context.Context, clusterIDs []s
 	}
 	versions, svcErr := h.clusterVersions(ctx, clusterIDs)
 	if svcErr != nil {
-		logProvisioningVersionLookupFailure(svcErr)
+		h.logProvisioningVersionLookupFailure(svcErr)
 		return map[string]string{}
 	}
 	return versions
@@ -81,15 +103,10 @@ func (h gatewayHandler) provisioningVersions(ctx context.Context, clusterIDs []s
 // logProvisioningVersionLookupFailure records a provisioning-version lookup
 // failure at most once per provisioningVersionLogInterval. It logs only the
 // error, which carries no secret material.
-func logProvisioningVersionLookupFailure(err error) {
-	provisioningVersionLogMu.Lock()
-	defer provisioningVersionLogMu.Unlock()
-	now := time.Now()
-	if !provisioningVersionLogLast.IsZero() && now.Sub(provisioningVersionLogLast) < provisioningVersionLogInterval {
-		return
+func (h gatewayHandler) logProvisioningVersionLookupFailure(err error) {
+	if h.versionLogThrottle.allow() {
+		glog.Warningf("gateway provisioning-version enrichment failed; gateway versions degraded to absent: %v", err)
 	}
-	provisioningVersionLogLast = now
-	glog.Warningf("gateway provisioning-version enrichment failed; gateway versions degraded to absent: %v", err)
 }
 
 // callerBindings loads the current caller's role bindings once, or nil when RBAC
@@ -169,17 +186,18 @@ func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
 
 func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, clusterVersions ClusterProvisioningVersionLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
 	h := &gatewayHandler{
-		gateway:          gateway,
-		generic:          generic,
-		ownerBinding:     ownerBinding,
-		visibilityFilter: visibilityFilter,
-		ownerLookup:      ownerLookup,
-		bindingLookup:    bindingLookup,
-		clusters:         clusters,
-		clusterVersions:  clusterVersions,
-		enforceRBAC:      enforceRBAC,
-		placement:        placement,
-		availability:     availability,
+		gateway:            gateway,
+		generic:            generic,
+		ownerBinding:       ownerBinding,
+		visibilityFilter:   visibilityFilter,
+		ownerLookup:        ownerLookup,
+		bindingLookup:      bindingLookup,
+		clusters:           clusters,
+		clusterVersions:    clusterVersions,
+		enforceRBAC:        enforceRBAC,
+		placement:          placement,
+		availability:       availability,
+		versionLogThrottle: &logThrottle{interval: provisioningVersionLogInterval},
 	}
 	return h
 }

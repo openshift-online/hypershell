@@ -467,8 +467,12 @@ describe("gateway API operations adapter", () => {
         total: 21,
       });
 
+    const { getGatewayProvisioningVersions } = controlPlane;
+    if (!getGatewayProvisioningVersions) {
+      throw new Error("getGatewayProvisioningVersions is not implemented");
+    }
     await expect(
-      controlPlane.getGatewayProvisioningVersions(context),
+      getGatewayProvisioningVersions(context),
     ).resolves.toEqual(["v0.1.2-rhaiv.7", "v0.2.0-rhaiv.1"]);
     expect(managedClusterApi.list).toHaveBeenCalledTimes(2);
     expect(managedClusterApi.list).toHaveBeenNthCalledWith(
@@ -485,8 +489,12 @@ describe("gateway API operations adapter", () => {
       ]),
     );
 
+    const { getGatewayProvisioningVersions } = controlPlane;
+    if (!getGatewayProvisioningVersions) {
+      throw new Error("getGatewayProvisioningVersions is not implemented");
+    }
     await expect(
-      controlPlane.getGatewayProvisioningVersions(context),
+      getGatewayProvisioningVersions(context),
     ).resolves.toEqual(["v0.1.2-rhaiv.7"]);
     expect(managedClusterApi.list).toHaveBeenCalledOnce();
   });
