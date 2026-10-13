@@ -202,6 +202,51 @@ jobs:
             printf '%s@%s\n' "${selected%:*}" "${digest}"
           }
 
+          # main_component_image <component image name> <release baseline ref> <trigger path...>
+          #
+          # Resolve a component that THIS pull request does not rebuild to the
+          # Konflux image built from the newest origin/main commit that touched
+          # the component's on-push trigger paths. The caller passes the exact
+          # path set from that component's
+          # .tekton/hypershell-<component>-main-push.yaml on-cel-expression (a
+          # superset of detect-konflux-components for api-server, which also
+          # builds on deploy/, tests/e2e/, and the release-bundle scripts), so
+          # the resolved commit is the one whose image Konflux actually tagged.
+          # That commit-tagged image is what main runs right now, so a PR that
+          # rebuilds a different component still deploys this one against main's
+          # current source.
+          #
+          # The redhat-services-prod :latest baseline is only the fallback. It
+          # tracks promoted releases, so it can lag main by many merges and
+          # deploy a binary whose contract is older than a merged change the PR
+          # relies on -- e.g. before capability-based registration
+          # (managed-cluster-registration.spec.md) the control plane required
+          # HYPERSHELL_MANAGED_CLUSTER_PROVIDER, so a release-baseline controller
+          # CrashLoopBackOffs against the capability-form overlay that main (and
+          # this PR) now ship. fetch-depth: 0 on checkout makes the git log over
+          # origin/main reliable.
+          main_component_image() {
+            local component="$1" fallback="$2"
+            shift 2
+            local sha candidate
+            # Any git failure (e.g. origin/main not fetched) degrades to the
+            # baseline rather than aborting the step under the runner's default
+            # `set -eo pipefail`.
+            sha="$(git log -1 --format=%H origin/main -- "$@" 2>/dev/null || true)"
+            if [[ -n "${sha}" ]]; then
+              candidate="${KONFLUX_REGISTRY}/${component}:${sha}"
+              if skopeo inspect --raw "docker://${candidate}" >/dev/null 2>&1; then
+                echo "  ${component} -> ${candidate} (main build ${sha})" >&2
+                printf '%s\n' "${candidate}"
+                return 0
+              fi
+              echo "  ${component} has no Konflux image for main build ${sha}; using release baseline" >&2
+            else
+              echo "  ${component} has no main trigger-path history; using release baseline" >&2
+            fi
+            printf '%s\n' "${fallback}"
+          }
+
           # Default: nothing to wait for. The e2e-kind job waits for Konflux builds
           # sequentially before e2e tests when the current event triggers a
           # component build.
@@ -261,38 +306,22 @@ jobs:
               fi
 
               if [[ "${api_konflux}" != "true" && "${cp_konflux}" != "true" && "${wc_konflux}" != "true" ]]; then
-                echo "No source components changed -- using latest Konflux on-push images from main"
-                main_sha=$(git rev-parse origin/main)
-                main_tag="${main_sha}"
-                konflux_api="${KONFLUX_REGISTRY}/hypershell-api-server-main:${main_tag}"
-                konflux_cp="${KONFLUX_REGISTRY}/hypershell-control-plane-main:${main_tag}"
-                konflux_wc="${KONFLUX_REGISTRY}/hypershell-web-console-main:${main_tag}"
+                echo "No source components changed -- using main's current component images"
                 # Konflux publishes component images independently based on path
-                # filters. Use each available main image independently; a component
-                # that did not change on main has no commit-tagged image and should
-                # use the stable baseline instead of forcing the whole set back to
-                # an older revision.
-                api_img="${baseline_api}"
-                cp_img="${baseline_cp}"
-                wc_img="${baseline_wc}"
-                if skopeo inspect --raw "docker://${konflux_api}" >/dev/null 2>&1; then
-                  api_img="${konflux_api}"
-                  echo "  api-server -> ${api_img}"
-                else
-                  echo "  api-server image not found for main -- using baseline"
-                fi
-                if skopeo inspect --raw "docker://${konflux_cp}" >/dev/null 2>&1; then
-                  cp_img="${konflux_cp}"
-                  echo "  control-plane -> ${cp_img}"
-                else
-                  echo "  control-plane image not found for main -- using baseline"
-                fi
-                if skopeo inspect --raw "docker://${konflux_wc}" >/dev/null 2>&1; then
-                  wc_img="${konflux_wc}"
-                  echo "  web-console -> ${wc_img}"
-                else
-                  echo "  web-console image not found for main -- using baseline"
-                fi
+                # filters and tags each on-push build with its commit sha, so
+                # main HEAD has an image only when HEAD itself rebuilt the
+                # component. Resolve each component to the newest main commit that
+                # touched its trigger paths (release baseline as the fallback)
+                # instead of main HEAD, which otherwise silently drops back to the
+                # lagging baseline for every component main HEAD did not change.
+                api_img="$(main_component_image hypershell-api-server-main "${baseline_api}" \
+                  components/api-server .tekton/hypershell-api-server-main-push.yaml \
+                  deploy pipelines/release-bundle scripts/release_bundle.py \
+                  scripts/render_release_bundle_pipeline.py tests/e2e)"
+                cp_img="$(main_component_image hypershell-control-plane-main "${baseline_cp}" \
+                  components/control-plane Dockerfile .tekton/hypershell-control-plane-main-push.yaml)"
+                wc_img="$(main_component_image hypershell-web-console-main "${baseline_wc}" \
+                  components/web-console packages/gateway-management-ui .tekton/hypershell-web-console-main-push.yaml)"
                 echo "should_run=true" >> "${GITHUB_OUTPUT}"
                 echo "api_server_image=${api_img}" >> "${GITHUB_OUTPUT}"
                 echo "control_plane_image=${cp_img}" >> "${GITHUB_OUTPUT}"
@@ -300,14 +329,23 @@ jobs:
                 exit 0
               fi
 
-              # Source components changed. The image ref is deterministic
-              # (on-pr-<head_sha>); e2e-kind waits for the matching Konflux build
-              # in parallel with kind-up, then swaps the image in.
-              # Components that did not change keep the stable baseline image.
+              # Source components changed. The changed component's image ref is
+              # deterministic (on-pr-<head_sha>); e2e-kind waits for the matching
+              # Konflux build in parallel with kind-up, then swaps the image in.
+              # Components the PR did NOT change deploy main's current image for
+              # that component (release baseline as the fallback), so their binary
+              # matches the overlays and specs this PR merges against -- not the
+              # slower release baseline, which can predate a merged contract
+              # change the PR relies on.
               tag="on-pr-${konflux_ref}"
-              api_img="${baseline_api}"
-              cp_img="${baseline_cp}"
-              wc_img="${baseline_wc}"
+              api_img="$(main_component_image hypershell-api-server-main "${baseline_api}" \
+                components/api-server .tekton/hypershell-api-server-main-push.yaml \
+                deploy pipelines/release-bundle scripts/release_bundle.py \
+                scripts/render_release_bundle_pipeline.py tests/e2e)"
+              cp_img="$(main_component_image hypershell-control-plane-main "${baseline_cp}" \
+                components/control-plane Dockerfile .tekton/hypershell-control-plane-main-push.yaml)"
+              wc_img="$(main_component_image hypershell-web-console-main "${baseline_wc}" \
+                components/web-console packages/gateway-management-ui .tekton/hypershell-web-console-main-push.yaml)"
 
               if [[ "${api_konflux}" == "true" ]]; then
                 api_img="${KONFLUX_REGISTRY}/hypershell-api-server-main:${tag}"
