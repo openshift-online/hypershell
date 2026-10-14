@@ -20,7 +20,7 @@ The functional suite, the performance harness, and the managed-cluster matrix ru
 
 The browser/console suite is TypeScript Playwright (`components/web-console/e2e-live/console.live.spec.ts`). Its thin Bash launcher only discovers the Kind or OpenShift route. A separate **Bash smoke script** (`tests/e2e/smoke.sh`, `make e2e-smoke`) narrates the command-line user story. The Go suite remains the authoritative non-browser gate.
 
-This spec defines the driver abstraction, test framework, CI workflow, and deploy restructuring required to run the same tests across Kind and OpenShift. The functional suite validates the full provisioning path -- gateway provisioning, infrastructure verification, route discovery, connectivity, sandbox lifecycle, and sandbox interaction -- plus the extended areas (ManagedCluster registration, release promotion, admin inventory) defined below.
+This spec defines the driver abstraction, test framework, CI workflow, and deploy restructuring required to run the same tests across Kind and OpenShift. The functional suite validates the full provisioning path -- gateway provisioning, infrastructure verification, route discovery, connectivity, sandbox lifecycle, and sandbox interaction -- plus the extended areas (ManagedCluster registration, gateway access management, gateway service accounts, admin inventory) defined below.
 
 HyperShell also needs a **performance test**. The performance test measures how the platform behaves under scale. It provisions a large fleet of gateways on the target cluster. It then runs the functional e2e suite to confirm the platform still works correctly under that load. The performance test reuses the same driver abstraction, so it runs against Kind for local checks and against any OpenShift cluster for on-demand load tests (see [Performance Testing](#performance-testing)).
 
@@ -409,11 +409,11 @@ The functional suite SHALL exploit the following parallelization levers, all bou
 
 2. **The serial preflight + bring-up gate (P0, P1).** The cheap preconditions (P0) and the one unavoidable gate -- the primary gateway's bring-up chain, provision (P1.1) -> infra verify (P1.2) -> token + CA (P1.3) -> route + CLI registration (P1.4) -> connectivity (P1.5) -- SHALL run sequentially with `Require`, because each step depends on the one before and a failure here invalidates everything downstream. This gate runs first precisely so a broken environment fails within seconds-to-minutes rather than after cheap checks pass.
 
-3. **Parallel hard behaviors on their own gateways (P2).** The highest-value lever: the integration-heavy P2 steps -- sandbox lifecycle + count (P2.1), RBAC (P2.2), deletion + GC (P2.3), ManagedCluster + control-plane lifecycle (P2.4), release promotion (P2.5) -- SHALL run as parallel subtests (`t.Run` + `t.Parallel`) bounded by `E2E_CONCURRENCY`. A step that mutates per-gateway state (notably `active_sandbox_count`) or destroys a gateway SHALL own its own uniquely named gateway so it is isolated; at most one P2 step may reuse the P1 primary gateway. Because provisioning is the dominant cost (~minutes each), provisioning these gateways concurrently up front collapses the critical path from the sum of the steps toward the slowest step. The scheduler SHALL start the longest steps first (provisioning-heavy P2.5 and P2.4), and each step SHALL tear its own gateway down on every exit path.
+3. **Parallel hard behaviors on their own gateways (P2).** The highest-value lever: the integration-heavy P2 steps -- sandbox lifecycle + count (P2.1), RBAC (P2.2), deletion + GC (P2.3), ManagedCluster + control-plane lifecycle (P2.4), gateway access management (P2.5), gateway service accounts (P2.6) -- SHALL run as parallel subtests (`t.Run` + `t.Parallel`) bounded by `E2E_CONCURRENCY`. A step that destroys a gateway or leaves per-gateway state changed (notably `active_sandbox_count`) SHALL own its own uniquely named gateway so it is isolated. P2.5 and P2.6 act on the P1 primary gateway: they do not delete it, and they remove every grant, sandbox, and service account they create. Because provisioning is the dominant cost (~minutes each), provisioning these gateways concurrently up front collapses the critical path from the sum of the steps toward the slowest step. Each step SHALL tear its own gateway down on every exit path. At `E2E_CONCURRENCY` above 1, the scheduler SHALL queue P2.1, P2.3, P2.5, P2.6, and P2.2 before P2.4. P2.4 starts in parallel, but its control-plane disconnect SHALL wait until the Keycloak- and controller-sensitive steps P2.2, P2.5, and P2.6 have completed, so the outage cannot fail them. At `E2E_CONCURRENCY=1` the steps run in canonical order.
 
 4. **Parallel read-only verification (P3).** The P3 read-only steps (admin inventory + API validation) SHALL run as parallel subtests bounded by `E2E_CONCURRENCY`; they never mutate shared state and never gate the run.
 
-5. **Intra-step fan-out.** Within a step, independent client-go/API checks SHALL use an `errgroup`: P1.2's resource gets (Deployment, Service, TLS Secret, certgen Job, NetworkPolicy) SHALL be fetched concurrently; P2.1's multiple sandboxes and P2.5's multi-cluster promotion (under `E2E_MULTICLUSTER`) SHALL act on their independent targets concurrently.
+5. **Intra-step fan-out.** Within a step, independent client-go/API checks SHALL use an `errgroup`: P1.2's resource gets (Deployment, Service, TLS Secret, certgen Job, NetworkPolicy) SHALL be fetched concurrently; P2.1's multiple sandboxes SHALL act on their independent targets concurrently.
 
 6. **Background orphan reaper.** The periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
 
@@ -431,7 +431,7 @@ The performance harness and the matrix runner are the two widest fan-outs (see [
 #### Scenario: Hard Behaviors Fan Out on Their Own Gateways
 
 - GIVEN the P0/P1 gate has passed, with `E2E_CONCURRENCY=4` in long mode
-- WHEN the P2 steps run (sandbox, RBAC, deletion+GC, ManagedCluster, release promotion)
+- WHEN the P2 steps run (sandbox, RBAC, deletion+GC, ManagedCluster, gateway access management, gateway service accounts)
 - THEN they SHALL run as parallel subtests bounded by `E2E_CONCURRENCY`, longest-first
 - AND each step that mutates `active_sandbox_count` or destroys a gateway SHALL own its own uniquely named gateway
 - AND no step SHALL mutate or delete another step's gateway
@@ -528,37 +528,40 @@ The ordering principle is: cheap preconditions that gate everything run first an
 - **P2.2 RBAC enforcement** -- the developer (`openshell-user`) tier MAY create a sandbox but MAY NOT create a gateway, and the platform-admin tier has the elevated permissions the developer is denied including gateway delete (see Developer RBAC Enforcement). Each identity owns its own gateway.
 - **P2.3 Gateway deletion + namespace GC** -- both GC paths from `openshell-gateway-namespace-gc.spec.md`: delete-driven reap of the gateway's managed namespace, and the periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event for a synthetic orphan namespace seeded right after P1.1 (its reaper runs in the background throughout P2; see Gateway Deletion and Namespace GC).
 - **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an empty/unregistered `cluster_id`; under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus connect-time snapshot, disconnect/reconnect convergence, and rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane Reconnect and Identity Rejection Coverage).
-- **P2.5 Release promotion** -- repoint a gateway's `release_id` (or update a referenced release image) and validate a revision-aware, last-good-preserving rollout, `observed_release_id`, and a failed rollout surfaced as `Degraded`; under `E2E_MULTICLUSTER=1`, promote across both clusters (see Gateway Release Promotion Coverage and Reconciled Status Assertions).
+- **P2.5 Gateway access management** -- on the primary gateway, the owner lists access and searches the gateway user directory (including a user created during the run), grants the developer and a runtime user the `user` role, and checks each role's capabilities: a gateway `user` cannot grant access, a gateway `admin` can manage access but cannot grant `owner`, and the owner can grant and remove another owner. The developer creates and deletes a sandbox as a workspace user. A `platform:admin` grants and revokes access on a gateway it does not own. The owner finally revokes the developer. Runs only on Kind with the password grant, because it signs in as several secondary users; elsewhere it skips.
+- **P2.6 Gateway service accounts** -- on the primary gateway, create an `openshell-admin` service account with a `client_secret` credential, check the returned credential (grant type, audience, issuer, token endpoint), mint client-credentials tokens and validate their claims, revoke the account and confirm new tokens are refused, then delete it and confirm `GET` returns `404`.
 
 **Phase P3 -- Read-only verification** (parallel, non-gating, runs last):
 
 - **P3.1 Admin inventory + API validation** -- the admin-only `/v1/users` boundary (non-admin `403`, singleton Get an opaque `404`) and rejection of an unknown gateway phase write (see Admin Inventory and API Validation Coverage).
 
-Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, the sandbox step (P2.1) and the delete-driven half of P2.3 are `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.4 and P2.5 are long-only. P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
+Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, the sandbox step (P2.1) and the delete-driven half of P2.3 are `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.4, P2.5, and P2.6 are long-only. P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
 
 **Old area -> new phase step** (for traceability against the former 14-area numbering and the in-flight `e2e-feature-coverage.spec.md`):
 
-| Old area                                    | New step |
-| ------------------------------------------- | -------- |
-| 1 OIDC auth                                 | P0.1     |
-| (infra deps) + seed discovery               | P0.2     |
-| 2 Provisioning                              | P1.1     |
-| 3 Infra verification                        | P1.2     |
-| 4 Token + CA trust                          | P1.3     |
-| 5 Route + CLI registration                  | P1.4     |
-| 6 Connectivity                              | P1.5     |
-| 7 Sandbox lifecycle + 8 interaction         | P2.1     |
-| 9 Developer RBAC + 10 platform-admin RBAC   | P2.2     |
-| 11 Deletion + namespace GC (both paths)     | P2.3     |
-| 12 ManagedCluster + control-plane lifecycle | P2.4     |
-| 13 Release promotion                        | P2.5     |
-| 14 Admin inventory + API validation         | P3.1     |
+| Old area                                    | New step                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 1 OIDC auth                                 | P0.1                                                                                                   |
+| (infra deps) + seed discovery               | P0.2                                                                                                   |
+| 2 Provisioning                              | P1.1                                                                                                   |
+| 3 Infra verification                        | P1.2                                                                                                   |
+| 4 Token + CA trust                          | P1.3                                                                                                   |
+| 5 Route + CLI registration                  | P1.4                                                                                                   |
+| 6 Connectivity                              | P1.5                                                                                                   |
+| 7 Sandbox lifecycle + 8 interaction         | P2.1                                                                                                   |
+| 9 Developer RBAC + 10 platform-admin RBAC   | P2.2                                                                                                   |
+| 11 Deletion + namespace GC (both paths)     | P2.3                                                                                                   |
+| 12 ManagedCluster + control-plane lifecycle | P2.4                                                                                                   |
+| 13 Release promotion                        | retired (`GatewayRelease` was removed from the data model; the Bash suite skipped area 13 permanently) |
+| (new) Gateway access management             | P2.5                                                                                                   |
+| (new) Gateway service accounts              | P2.6                                                                                                   |
+| 14 Admin inventory + API validation         | P3.1                                                                                                   |
 
 #### Scenario: Full Suite Execution
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all phases P0--P3 SHALL be executed in long mode, in the fail-fast / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only steps P2.4, P2.5, and P3.1)
+- THEN all phases P0--P3 SHALL be executed in long mode, in the fail-fast / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only steps P2.4, P2.5, P2.6, and P3.1)
 - AND results SHALL be reported as pass/fail/skip counts with per-step detail
 
 #### Scenario: Gateway Provisioning
@@ -860,14 +863,12 @@ identity), so `short` and `perf` runs skip it.
 ### Requirement: Multi-Cluster Fleet Coverage
 
 When `E2E_MULTICLUSTER=1`, the suite SHALL exercise a two-cluster fleet so
-cross-cluster placement and promotion are validated (P2.4, multi-cluster
-steps, and P2.5). A second `ManagedCluster` SHALL be established by a second
+cross-cluster placement is validated (the P2.4 multi-cluster steps). A second `ManagedCluster` SHALL be established by a second
 control-plane deployment reconciling into the same physical cluster under a
 distinct `HYPERSHELL_MANAGED_CLUSTER_NAME` (`E2E_SEED_CLUSTER_NAME_2`) and its own
 registrar OIDC client, so each control plane filters only its own `cluster_id`.
 The two-cluster harness is opt-in: when `E2E_MULTICLUSTER` is unset or `0`, P2.4
-runs only the single-cluster registration assertions above and P2.5 runs
-its single-cluster rollout path. Deploying the second control plane is owned by
+runs only the single-cluster registration assertions above. Deploying the second control plane is owned by
 `local-development.spec.md` / `openshift-development.spec.md`; this spec owns only
 the assertions.
 
@@ -908,40 +909,6 @@ access to the cluster API. Long only.
 - THEN the api-server SHALL return `UNAUTHENTICATED` for the missing or revoked token, `PERMISSION_DENIED` for the wrong `cluster_id`, and `INVALID_ARGUMENT` when the required filter is omitted
 - AND no events SHALL be delivered to the rejected stream
 
-### Requirement: Gateway Release Promotion Coverage
-
-The suite SHALL validate release promotion as P2.5, closing the
-`gateway-release-rollout.spec.md` gap. Promotion is a release-version change
-applied to a running gateway: repoint the gateway's `release_id` to a second
-`GatewayRelease`, or update the referenced release's image, and confirm a safe,
-revision-aware rollout that preserves the last-good workload. P2.5 is long-only.
-
-#### Scenario: Rollout reports the serving release
-
-- GIVEN a `Running` gateway on release A and a second release B with a valid image
-- WHEN the suite repoints the gateway to release B
-- THEN the control plane SHALL roll the workload to B, keeping the last-good workload until B passes its health gates
-- AND the gateway SHALL report `observed_release_id` equal to B within `E2E_PROVISION_TIMEOUT` seconds (`gateway-release-rollout.spec.md`)
-
-#### Scenario: Failed rollout is Degraded and recovers on repoint
-
-- GIVEN a gateway repointed to a bad release (an image whose pods never become Ready)
-- WHEN the rollout does not converge within `E2E_PROVISION_TIMEOUT` seconds
-- THEN the gateway SHALL be reported `Degraded`, never as a successful move to the bad release, and the last-good revision SHALL keep serving
-- AND WHEN the suite repoints the gateway back to the last-good release
-- THEN the gateway SHALL return to `Running` and report `observed_release_id` equal to the last-good release
-
-#### Scenario: Promotion across clusters (multi-cluster)
-
-- GIVEN `E2E_MULTICLUSTER=1` and a gateway on each cluster referencing release A
-- WHEN the suite promotes A to B (updates the release image, or repoints both gateways)
-- THEN each cluster's control plane SHALL roll its own gateway to B independently
-- AND each gateway SHALL report `observed_release_id` equal to B
-
-The fleet-dashboard promotion pipeline (`/api/promotion`, rendered by the
-promotion map) is validated in the browser suite (see
-`e2e-console-browser-testing.spec.md`, "Fleet Dashboard Promotion").
-
 ### Requirement: Reconciled Status Assertions
 
 The suite SHALL assert the reconciled `status` of resources it creates, not only
@@ -949,7 +916,7 @@ that they were accepted. Today the suite creates `GatewayRelease` and
 `GatewayNetwork` records but never waits on the control plane's status write-back,
 leaving `gateway-release-reconciliation.spec.md` and
 `gateway-network-reconciliation.spec.md` under-verified. These assertions run
-alongside the resource lifecycle steps (P2.5 and the hsctl resource coverage)
+alongside the hsctl resource coverage
 and are long-only.
 
 #### Scenario: Release settles to Available
@@ -1586,7 +1553,7 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_SEED_RELEASE_NAME` | `dev-release` on kind and openshift; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
 | `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
 | `E2E_DEV_PASSWORD` | `developer` | Password for the developer OIDC user (local dev only) |
-| `E2E_MULTICLUSTER` | `0` | `1` enables the two-cluster fleet (P2.4 multi-cluster steps and P2.5 cross-cluster promotion); requires a second control plane deployed as `E2E_SEED_CLUSTER_NAME_2` |
+| `E2E_MULTICLUSTER` | `0` | `1` enables the two-cluster fleet (P2.4 multi-cluster steps); requires a second control plane deployed as `E2E_SEED_CLUSTER_NAME_2` |
 | `E2E_SEED_CLUSTER_NAME_2` | (unset) | Name of the second registered ManagedCluster when `E2E_MULTICLUSTER=1` |
 | `E2E_REGISTRAR_CLIENT_ID` | `hypershell-control-plane` | OIDC client (holding `managed-cluster-registrar`) the suite uses for the P2.4 `/registration` calls |
 | `E2E_REGISTRAR_CLIENT_SECRET` | (dev client secret) | Secret for `E2E_REGISTRAR_CLIENT_ID` |
@@ -1874,7 +1841,7 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
 | P2.3 Deletion + namespace GC | short: delete-driven GC of the run's own gateway; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration assertions; second-cluster placement + reconnect/identity under `E2E_MULTICLUSTER=1` |
-| P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner/admin/viewer access grants and the gateway user directory, on the Kind password-grant environment |
+| P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner, admin, and user access grants and the gateway user directory, on the Kind password-grant environment |
 | P2.6 Gateway service accounts | skipped | create, use, revoke, and delete a gateway service account |
 | P3.1 Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
 
