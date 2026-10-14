@@ -475,12 +475,22 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 	for i, sandboxName := range names {
 		i, sandboxName := i, sandboxName
 		g.Go(func() error {
-			args := []string{"sandbox", action}
-			if action == "create" {
-				args = append(args, "--name")
+			steps := sandboxCLISteps(action, sandboxName)
+			outputs := make([]string, 0, len(steps))
+			for j, args := range steps {
+				out, err := s.cli(t, local, args...)
+				outputs = append(outputs, out)
+				// Only the final command decides the result; an earlier step (the
+				// stop before a delete) is best-effort, so its error is only logged.
+				if j < len(steps)-1 {
+					if err != nil {
+						t.Logf("sandbox %s %s: %q returned an error (continuing): %v", action, sandboxName, args, err)
+					}
+					continue
+				}
+				results[i].err = err
 			}
-			args = append(args, sandboxName)
-			results[i].output, results[i].err = s.cli(t, local, args...)
+			results[i].output = strings.Join(outputs, "\n")
 			return nil
 		})
 	}
@@ -489,6 +499,23 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 		if results[i].err != nil {
 			t.Logf("sandbox %s %s returned an error (state will be verified): %v\n%s", action, sandboxName, results[i].err, results[i].output)
 		}
+	}
+}
+
+// sandboxCLISteps returns the openshell CLI invocations that perform action on
+// one sandbox. A delete stops the sandbox first: `sandbox stop` shuts the
+// sandbox and supervisor processes down in order, while a bare `sandbox delete`
+// leaves the pods to Kubernetes, whose SIGTERM those processes ignore, so every
+// delete waits out the 30s termination grace period and the gateway route
+// answers it with "upstream request timeout" after 15s.
+func sandboxCLISteps(action, name string) [][]string {
+	switch action {
+	case "create":
+		return [][]string{{"sandbox", "create", "--name", name}}
+	case "delete":
+		return [][]string{{"sandbox", "stop", name}, {"sandbox", "delete", name}}
+	default:
+		return [][]string{{"sandbox", action, name}}
 	}
 }
 

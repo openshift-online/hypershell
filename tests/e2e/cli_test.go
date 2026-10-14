@@ -29,3 +29,19 @@ func TestOpenShiftCLICommandSharesCallerConfig(t *testing.T) {
 		t.Errorf("openShiftCLICommand() = %q, want %q", got, want)
 	}
 }
+
+func TestSandboxCLIStepsStopBeforeDelete(t *testing.T) {
+	tests := []struct {
+		action string
+		want   [][]string
+	}{
+		{"create", [][]string{{"sandbox", "create", "--name", "sb-1"}}},
+		{"delete", [][]string{{"sandbox", "stop", "sb-1"}, {"sandbox", "delete", "sb-1"}}},
+		{"stop", [][]string{{"sandbox", "stop", "sb-1"}}},
+	}
+	for _, tt := range tests {
+		if got := sandboxCLISteps(tt.action, "sb-1"); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("sandboxCLISteps(%q) = %q, want %q", tt.action, got, tt.want)
+		}
+	}
+}
