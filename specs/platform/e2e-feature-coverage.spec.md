@@ -3,63 +3,80 @@
 **Date:** 2026-10-06
 **Status:** Draft
 **Jira:** HYPERSHELL-368
-**Related:** `e2e-testing.spec.md` (driver contract, `E2E_MODE` short/long/perf tags, the numbered area model this spec extends, the TLS-trust rule, the `E2E_QUALIFY_*` opt-in pattern);
+**Related:** `e2e-testing.spec.md` (the Go `testify/suite` framework, the named phase model P0.x-P3.x, `E2E_MODE` short/long, the `E2EInfraDriver` contract, the `harness` helpers, the parallel scheduler, and the TLS-trust rule);
              `e2e-console-browser-testing.spec.md` (browser suite; CON-E2E-14 install-docs link);
              `openshell-gateway-credentials.spec.md` (credential driver fields, TOML, RBAC, Vault SA token, KEK);
-             `managed-cluster-registration.spec.md` and the Admin Inventory area (user-id discovery via `/v1/users`);
+             `managed-cluster-registration.spec.md` (registration, orphan-on-delete, user-id discovery via `/users`);
              `openshell-gateway-oidc.spec.md` and `specs/security/rbac-enforcement.spec.md` (`gateway:owner`/`gateway:viewer` -> `openshell-admin`/`openshell-user`);
-             `control-plane-reconciliation-metrics.spec.md` (reconcile outcome/error metrics the alerting area asserts on)
+             `control-plane-reconciliation-metrics.spec.md` (reconcile outcome/error metrics the alerting phase asserts on)
 
 ---
 
 ## Purpose
 
 Five platform features are implemented and shipped but carry no (or only
-indirect) end-to-end coverage in the Go functional suite (`E2ESuite`, `tests/e2e/`)
-or the browser suite (`tests/e2e/e2e-console.sh`): per-gateway provider credential storage drivers
-(Vault and Kubernetes Secrets), sharing a gateway between users through the
-`role_bindings` API, Kata-runtime sandboxes, automated alerting / incident
-signal, and parity between the CLI commands the web console renders and the
-commands the e2e suite actually executes. This specification defines the e2e
-coverage that closes those gaps.
+indirect) end-to-end coverage in the Go functional suite (`E2ESuite`,
+`tests/e2e/`) or the browser suite (`tests/e2e/e2e-console.sh`): per-gateway
+provider credential storage drivers (Vault and Kubernetes Secrets), sharing a
+gateway between users through the `role_bindings` API, Kata-runtime sandboxes,
+automated alerting / incident signal, and parity between the CLI commands the web
+console renders and the commands the e2e suite actually executes. This
+specification defines the e2e coverage that closes those gaps.
 
-The five feature gaps become **numbered areas 15-19** of the functional e2e suite,
-continuing the area model defined by the E2E Test Suite Coverage requirement in
-`e2e-testing.spec.md` (areas 1-14). They are added as ordered named subtests of
-`E2ESuite` (`tests/e2e/`), the Go `testify/suite` the e2e framework is now built
-on (see the Test Framework and Suite Structure requirement in `e2e-testing.spec.md`).
-This spec additionally defines two cross-component coverage **extensions to existing
-areas 12 and 13** (see
-[Cross-Component Route Coverage Extensions](#cross-component-route-coverage-extensions)),
-which close the only two API routes whose cross-component behavior no area asserts
-today. Like areas 12-14, every area here is
-**long-only**: it is skipped (`t.Skip`) in `short` and `perf` modes (it mutates shared
-state, acts as a second identity, or depends on infrastructure the quick gate
-does not provide). Each area reuses the existing `E2EInfraDriver` contract and the
-shared `harness` helpers (the Go equivalents of the former `e2e_area`, `e2e_step`,
-`e2e_multi_identity`, `api_curl`, `acquire_oidc_token`, `acquire_gateway_token_with_role`,
-`retry_until`, `pass`, `fail_test`: ordered subtests, the `E2ESuite.multiIdentity()`
-predicate, the shared `apiclient`, `E2EInfraDriver.AcquireOIDCToken` /
-`AcquireGatewayTokenWithRole`, poll/retry helpers, and testify assertions) and adds
-no new `E2EInfraDriver` methods.
+The e2e suite was refactored from Bash to a Go `testify/suite` (`E2ESuite`,
+`tests/e2e/suite.go`). Work is organized into **named phase steps** with dotted
+identifiers (P0.x preflight, P1.x the provisioning gate, P2.x parallel feature
+waves, P3.x admin/validation), registered in `TestPhases` (`suite.go`) via
+`s.gate(...)` (serial) or `s.parallelStep(...)` (parallel wave) and marked
+`tagShort` or `tagLong`. There is no longer a numbered "area" model.
 
-Backends that the Kind CI gate cannot host (a running Vault server; a
-`kata-containers` RuntimeClass) are gated behind opt-in `E2E_QUALIFY_*` variables
-in the same manner as the existing DNS/TLS-renewal, DB-rotation, backup/restore,
-and restricted-registry qualifications. The halves that Kind can host (the
-Kubernetes Secrets credential driver, the full gateway-sharing flow, CLI/UI
-command parity, and the metric-signal half of alerting) run in long mode on
-every target, including the Kind merge-queue gate's long runs.
+The five feature gaps become **new long-tagged phase steps** appended to the P2
+parallel wave (`p2ParallelSteps()`), each a `func (s *E2ESuite) p2_N<name>(t *testing.T)`.
+This spec additionally defines two **cross-component coverage additions**: a new
+release-image fan-out phase, and an extension of the existing
+`managedcluster-lifecycle` phase (P2.4) (see
+[Cross-Component Route Coverage Additions](#cross-component-route-coverage-additions)).
+Proposed identifiers below (P2.7-P2.12) are assigned when the steps are appended;
+the slug is the stable name.
+
+| Proposed step | Slug | Feature |
+|---|---|---|
+| P2.7 | `credential-drivers` | Provider credential drivers |
+| P2.8 | `gateway-sharing-rolebindings` | Gateway sharing via `role_bindings` |
+| P2.9 | `kata-runtime` | Kata-runtime sandboxes |
+| P2.10 | `alerting-signal` | Alerting / incident signal |
+| P2.11 | `cli-ui-parity` | CLI/UI command parity |
+| P2.12 | `release-image-fanout` | Release-image fan-out (new) |
+| P2.4 (ext) | `managedcluster-lifecycle` | ManagedCluster delete + re-registration |
+
+Every step here is **long-tagged**: it runs only in `long` mode and is skipped
+(`t.Skipf`) in `short` mode and in the matrix's default short runs
+(`modeAllows`). `perf` is no longer an `E2E_MODE` (performance is a separate Go
+benchmark). Steps that act as a second identity use the dev / platform-admin
+credentials the suite seeds only in long mode (`s.devCreds()`,
+`apiClientForCreds`). Each step reuses the `E2EInfraDriver` contract
+(`AcquireOIDCToken`, `AcquireGatewayTokenWithRole`, `AssignGatewayClientRole`,
+`APIClient`), the typed `apiclient.Client` (no raw curl), client-go via
+`harness.Clients`, `harness.Poll`/`Retry`, and testify assertions, and adds no new
+`E2EInfraDriver` methods.
+
+Backends the Kind CI gate cannot host (a running Vault server; a
+`kata-containers` RuntimeClass) are opt-in: the step reads an enable flag and
+`t.Skipf`s with a reason when the flag or backing infrastructure is absent - the
+suite's three-outcome skip idiom (as the matrix uses `E2E_MANAGED_SKIP_UNHEALTHY`),
+never a false pass. The halves Kind can host (the Kubernetes Secrets credential
+driver, the full `role_bindings` sharing flow, CLI/UI parity, and the
+metric-signal half of alerting) run in long mode on every target, including the
+Kind merge-queue gate's long runs.
 
 ### Scope
 
-In scope: the five new functional e2e areas (15-19), the two cross-component
-coverage extensions to existing areas 12-13, their short/long-mode placement, and
-the environment variables they add. Out of scope: the feature
-implementations themselves (owned by the specs cross-referenced above), the
-browser console suite's own areas (owned by `e2e-console-browser-testing.spec.md`,
-except where this spec notes a browser counterpart), and authoring a
-`PrometheusRule` for the alerting feature (see
+In scope: the five new feature phase steps, the two cross-component coverage
+additions, their mode placement, and the environment variables they add. Out of
+scope: the feature implementations themselves (owned by the specs cross-referenced
+above), the browser console suite's own areas (owned by
+`e2e-console-browser-testing.spec.md`, except where this spec notes a browser
+counterpart), and authoring a `PrometheusRule` for the alerting feature (see
 [Alerting and Incident Signal Coverage](#requirement-alerting-and-incident-signal-coverage)).
 
 ---
@@ -70,21 +87,21 @@ except where this spec notes a browser counterpart), and authoring a
 
 The e2e test suite SHALL validate the per-gateway credential storage drivers
 specified in `openshell-gateway-credentials.spec.md`, not only the default
-encrypted-database store. This is area 15 and is long-only (it provisions
-additional gateways and, for Vault, depends on external infrastructure).
+encrypted-database store. This is the `credential-drivers` phase (P2.7),
+long-tagged (it provisions additional gateways and, for Vault, depends on external
+infrastructure).
 
 The suite SHALL cover the **Kubernetes Secrets** driver unconditionally in long
-mode on every target, because Kind can host it. It SHALL provision a gateway
-with `credential_driver.type = kubernetes-secrets` through
-`POST /api/hypershell/v1/gateways`, wait for `Running`, and assert the
-control-plane reconciled the driver: the generated gateway configuration carries
-`credential_drivers = ["kubernetes-secrets"]` and omits
-`[openshell.gateway.credential_storage]`, the Secret
+mode on every target, because Kind can host it. It SHALL provision a gateway with
+`credential_driver.type = kubernetes-secrets` through the typed `apiclient`
+(`Gateways().Create`), wait for `Running`, and assert the control-plane reconciled
+the driver, reading cluster state through `harness.Clients` (client-go): the
+generated gateway configuration carries `credential_drivers = ["kubernetes-secrets"]`
+and omits `[openshell.gateway.credential_storage]`, the Secret
 `openshell-gateway-credential-kek` is absent, the KEK env var
 `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` is absent from the gateway
 Deployment, and the Role and RoleBinding `openshell-gateway-credential-secrets`
-exist in the credential namespace bound to the `openshell-gateway`
-ServiceAccount.
+exist in the credential namespace bound to the `openshell-gateway` ServiceAccount.
 
 The suite SHALL cover the **Vault** driver only when `E2E_QUALIFY_VAULT=1` and a
 reachable Vault is supplied through `E2E_VAULT_ADDR` / `E2E_VAULT_ROLE`, because
@@ -92,20 +109,19 @@ the Kind gate hosts no Vault server. When enabled, it SHALL provision a gateway
 with `credential_driver.type = vault`, wait for `Running`, and assert the
 generated configuration carries `credential_drivers = ["vault"]`, omits the KEK
 sections, and that the gateway Deployment mounts a projected ServiceAccount token
-volume with audience `vault` at `/var/run/secrets/vault`. When
-`E2E_QUALIFY_VAULT` is unset the suite SHALL record a skip for the Vault steps,
-never a false pass.
+volume with audience `vault` at `/var/run/secrets/vault`. When `E2E_QUALIFY_VAULT`
+is unset the Vault sub-check SHALL `t.Skipf`, never a false pass.
 
 The suite SHALL assert the **default** driver is unaffected: the primary gateway
-from area 2 (no `credential_driver`) still provisions its KEK Secret and
-`[openshell.gateway.credential_storage]` section. It SHALL also assert the two
-negative paths from `openshell-gateway-credentials.spec.md`: an unsupported
-`type` is rejected by the API or surfaced as a reconcile error, and a
+from the `provisioning` phase (P1.1, no `credential_driver`) still provisions its
+KEK Secret and `[openshell.gateway.credential_storage]` section. It SHALL also
+assert the two negative paths from `openshell-gateway-credentials.spec.md`: an
+unsupported `type` is rejected by the API or surfaced as a reconcile error, and a
 driver-change after credentials exist is rejected.
 
-Credential-driver gateways SHALL be owned and torn down by the area (delete plus
-namespace-GC wait, as area 11 does for the run's own gateway), leaving nothing
-behind.
+Credential-driver gateways SHALL be owned and torn down by the phase (delete plus
+namespace-GC wait, as the `deletion-namespace-gc` phase (P2.3) does for its own
+gateway), leaving nothing behind.
 
 #### Scenario: Kubernetes Secrets driver reconciled
 
@@ -125,13 +141,13 @@ behind.
 #### Scenario: Vault qualification skipped by default
 
 - GIVEN `E2E_QUALIFY_VAULT` is unset
-- WHEN the suite reaches the Vault steps of area 15
-- THEN it SHALL record a skip and continue, and SHALL NOT report a false pass
+- WHEN the suite reaches the Vault sub-check of the `credential-drivers` phase
+- THEN it SHALL `t.Skipf` with a reason and continue, and SHALL NOT report a false pass
 
 #### Scenario: Default driver unaffected
 
-- GIVEN the primary gateway created in area 2 with no `credential_driver`
-- WHEN area 15 inspects its credential configuration
+- GIVEN the primary gateway created in the `provisioning` phase with no `credential_driver`
+- WHEN the `credential-drivers` phase inspects its credential configuration
 - THEN the `[openshell.gateway.credential_storage]` section and the KEK Secret `openshell-gateway-credential-kek` SHALL be present, proving the external drivers did not regress the default path
 
 #### Scenario: Invalid driver and post-storage change rejected
@@ -144,74 +160,79 @@ behind.
 ### Requirement: Gateway Sharing Coverage
 
 The e2e test suite SHALL validate a complete "owner shares a gateway with a
-second user" flow through the `role_bindings` API, exercising the product path
-that area 9's `assign_gateway_client_role` driver shortcut currently bypasses.
-This is area 16, long-only (it acts as a second identity and mutates bindings),
-and gated on `E2ESuite.multiIdentity()`.
+second user" flow through the `role_bindings` API
+(`/api/hypershell/v1/role_bindings`). This is the `gateway-sharing-rolebindings`
+phase (P2.8), long-tagged (it acts as a second identity and mutates bindings).
+The `role_bindings` API is a distinct, active public surface; the existing
+`gateway-access-management` phase (P2.5) covers the parallel
+`/gateways/{id}/access` sharing surface, so this phase covers the `role_bindings`
+path without overlap - in particular the RoleBinding-reconciler -> Keycloak
+client-role propagation that the `/access` phase does not exercise.
 
-The flow SHALL use the gateway owned by the admin (the owner RoleBinding the
-control plane auto-creates at provisioning). The suite SHALL discover the second
-user's id through the admin `/v1/users` inventory (ensuring that user record
-exists first by acquiring a token for `E2E_DEV_USERNAME`), then as the owner
-`POST /api/hypershell/v1/role_bindings` with `scope = gateway`,
-`role = gateway:viewer`, `user_id = <second user>`, and `gateway_id = <owned gateway>`.
-It SHALL then prove the RoleBinding reconciler propagated the grant into Keycloak
-by acquiring a per-gateway token for the second user with
-`E2EInfraDriver.AcquireGatewayTokenWithRole` and asserting the `openshell-user` role lands
-in it, and by confirming the second user MAY now create a sandbox on that gateway.
+The flow SHALL use a gateway owned by the admin (the owner RoleBinding the control
+plane auto-creates at provisioning). The suite SHALL discover the second user's id
+through the admin `/users` inventory (ensuring that user record exists first by
+acquiring a token for `E2E_DEV_USERNAME` via `AcquireOIDCToken`), then as the
+owner create a `role_bindings` entry through `apiclient` (`RoleBindings().Create`,
+or `RawJSON` where the typed op is absent) with `scope = gateway`,
+`role = gateway:viewer`, `user_id = <second user>`, and
+`gateway_id = <owned gateway>`. It SHALL then prove the RoleBinding reconciler
+propagated the grant into Keycloak by acquiring a per-gateway token for the second
+user with `E2EInfraDriver.AcquireGatewayTokenWithRole` and asserting the
+`openshell-user` role lands in it, and by confirming the second user MAY now
+create a sandbox on that gateway (via the openshell CLI as that identity).
 
-The suite SHALL then revoke access: `DELETE /role_bindings/<id>` as the owner and
+The suite SHALL then revoke access (`RoleBindings().Delete`) as the owner and
 assert the second user loses the grant (a freshly minted per-gateway token no
 longer carries `openshell-user`, and a sandbox create is denied), confirming the
 reconciler's delete-side role recomputation. It SHALL also assert the
 authorization guard: a caller who is not `gateway:owner` on the target gateway
 SHALL be rejected when creating a `gateway:viewer`/`gateway:owner` binding, and a
-`POST /role_bindings` for `gateway:creator` or `platform:admin` SHALL be refused
+`role_bindings` create for `gateway:creator` or `platform:admin` SHALL be refused
 (those are Keycloak-only).
 
-The suite SHALL clean up any binding it creates on every exit path.
+The suite SHALL clean up any binding and gateway it creates on every exit path.
 
 #### Scenario: Owner shares viewer access and the reconciler propagates it
 
-- GIVEN the admin owns a `Running` gateway and the second user's id has been resolved from `/v1/users`
-- WHEN the owner `POST`s a `role_bindings` entry with `scope = gateway`, `role = gateway:viewer`, and the second user's id
+- GIVEN the admin owns a `Running` gateway and the second user's id has been resolved from `/users`
+- WHEN the owner creates a `role_bindings` entry with `scope = gateway`, `role = gateway:viewer`, and the second user's id
 - THEN `E2EInfraDriver.AcquireGatewayTokenWithRole` for the second user SHALL observe the `openshell-user` role on the per-gateway client within the role-reconcile timeout
 - AND the second user SHALL be able to create a sandbox on that gateway
 
 #### Scenario: Revoking the binding removes access
 
 - GIVEN a `gateway:viewer` binding the owner created for the second user
-- WHEN the owner `DELETE`s that binding
+- WHEN the owner deletes that binding
 - THEN a newly minted per-gateway token for the second user SHALL NOT carry `openshell-user`
 - AND a sandbox create by the second user SHALL be denied
 
 #### Scenario: Non-owner cannot share and privileged roles are refused
 
 - GIVEN a caller who does not hold `gateway:owner` on the target gateway
-- WHEN that caller `POST`s a `gateway:viewer` binding for the gateway
+- WHEN that caller creates a `gateway:viewer` binding for the gateway
 - THEN the API SHALL reject the request
-- AND a `POST /role_bindings` requesting `gateway:creator` or `platform:admin` SHALL be refused as Keycloak-only, regardless of caller
+- AND a `role_bindings` create requesting `gateway:creator` or `platform:admin` SHALL be refused as Keycloak-only, regardless of caller
 
 ### Requirement: Kata Runtime Sandbox Coverage
 
 The e2e test suite SHALL validate that a sandbox honors a configured Kata
 RuntimeClass, closing the gap that the suite exercises only the cluster-default
-runtime. This is area 17, long-only. Because the Kind gate hosts no
-`kata-containers` RuntimeClass, the area is gated on `E2E_QUALIFY_KATA=1`; when
-unset the suite SHALL record a skip, not a pass.
+runtime. This is the `kata-runtime` phase (P2.9), long-tagged. Because the Kind
+gate hosts no `kata-containers` RuntimeClass, the phase is gated on
+`E2E_QUALIFY_KATA=1`; when unset it SHALL `t.Skipf`, not pass.
 
 The runtime class is a gateway-level configuration value
-(`server.defaultRuntimeClassName`, rendered as `default_runtime_class_name` in
-the gateway configuration), with a per-request override possible on sandbox
-create. When enabled, the suite SHALL provision a gateway configured with the
-Kata RuntimeClass (name from `E2E_KATA_RUNTIME_CLASS`, default
-`kata-containers`), create a sandbox, and assert the resulting Kubernetes pod
-carries `spec.runtimeClassName` equal to that RuntimeClass. A run against a
-cluster where that RuntimeClass admits the pod SHALL additionally wait for the
-pod to reach `Running`; where the qualification cluster provides the
+(`server.defaultRuntimeClassName`, rendered as `default_runtime_class_name` in the
+gateway configuration), with a per-request override possible on sandbox create.
+When enabled, the suite SHALL provision a gateway configured with the Kata
+RuntimeClass (name from `E2E_KATA_RUNTIME_CLASS`, default `kata-containers`),
+create a sandbox, and assert the resulting Kubernetes pod (read via
+`harness.Clients`) carries `spec.runtimeClassName` equal to that RuntimeClass. A
+run against a cluster where that RuntimeClass admits the pod SHALL additionally
+wait for the pod to reach `Running`; where the qualification cluster provides the
 RuntimeClass object but no node handler, asserting the pod's `runtimeClassName`
-field is set SHALL suffice and the readiness wait SHALL be reported as a skip,
-not a failure.
+field is set SHALL suffice and the readiness wait SHALL `t.Skipf`, not fail.
 
 #### Scenario: Sandbox lands on the configured Kata runtime
 
@@ -223,41 +244,42 @@ not a failure.
 #### Scenario: Kata qualification skipped by default
 
 - GIVEN `E2E_QUALIFY_KATA` is unset
-- WHEN the suite reaches area 17
-- THEN it SHALL record a skip and continue, and SHALL NOT report a false pass
+- WHEN the suite reaches the `kata-runtime` phase
+- THEN it SHALL `t.Skipf` with a reason and continue, and SHALL NOT report a false pass
 
 ### Requirement: Alerting and Incident Signal Coverage
 
-The e2e test suite SHALL validate that an operational fault surfaces an
-observable signal. This is area 18, long-only.
+The e2e test suite SHALL validate that an operational fault surfaces an observable
+signal. This is the `alerting-signal` phase (P2.10), long-tagged.
 
 The repository today defines **metrics but no alert rules**: there is no
 `PrometheusRule` and no alert definition in any spec (the observability and
-reconciliation-metrics specs define counters and histograms only). The area
+reconciliation-metrics specs define counters and histograms only). The phase
 therefore has two tiers:
 
 1. **Metric signal (unconditional, long mode).** The suite SHALL provoke a
    reconcile fault condition and assert the corresponding control-plane metric
-   moves. It SHALL read the control-plane `/metrics` endpoint, capture a baseline
-   for the reconcile outcome/error series defined in
+   moves. It SHALL read the control-plane `/metrics` endpoint (through
+   `harness.Clients` port-forward or the metrics service), capture a baseline for
+   the reconcile outcome/error series defined in
    `control-plane-reconciliation-metrics.spec.md`, drive a condition that fails a
    reconcile (for example a gateway referencing an unresolvable release or a
    provisioning precondition that cannot be met), and assert the failure series
-   increments while the condition holds. This is the actionable near-term
-   coverage and is testable on Kind.
+   increments while the condition holds. This is the actionable near-term coverage
+   and is testable on Kind.
 
 2. **Alert firing (deferred, opt-in).** Asserting that an alert actually fires
    requires an alert rule to exist first. Until a `PrometheusRule` (or equivalent
    alerting artifact) is authored for the platform, this tier SHALL be gated on
-   `E2E_QUALIFY_ALERTING=1` and SHALL record a skip when unset. When a rule and an
+   `E2E_QUALIFY_ALERTING=1` and SHALL `t.Skipf` when unset. When a rule and an
    Alertmanager are present, the suite SHALL provoke the rule's condition and
    assert the alert reaches `firing` (via the Alertmanager/Prometheus API) and is
    cleared when the condition resolves. This tier SHALL NOT be added to the Kind
-   gate until the alerting feature lands; its presence here records the contract
-   so the e2e follows the feature rather than blocking on it.
+   gate until the alerting feature lands; its presence here records the contract so
+   the e2e follows the feature rather than blocking on it.
 
-The suite SHALL restore any state it perturbed (delete the fault-inducing
-gateway, wait out its namespace GC) on every exit path.
+The suite SHALL restore any state it perturbed (delete the fault-inducing gateway,
+wait out its namespace GC) on every exit path.
 
 #### Scenario: Reconcile fault increments the failure metric
 
@@ -275,32 +297,35 @@ gateway, wait out its namespace GC) on every exit path.
 #### Scenario: Alert firing skipped until the feature exists
 
 - GIVEN `E2E_QUALIFY_ALERTING` is unset (the default while no `PrometheusRule` exists)
-- WHEN the suite reaches the alert-firing tier of area 18
-- THEN it SHALL record a skip and continue, and SHALL NOT report a false pass
+- WHEN the suite reaches the alert-firing tier of the `alerting-signal` phase
+- THEN it SHALL `t.Skipf` with a reason and continue, and SHALL NOT report a false pass
 
 ### Requirement: CLI and UI Command Parity Coverage
 
 The e2e test suite SHALL assert that the CLI commands the web console renders are
 the same commands the e2e suite executes, and that they stay valid across
-OpenShell upgrades. This is area 19, long-only. Today the UI's
-`buildOpenShellInstallCommand` / `buildProviderCreateCommand`
+OpenShell upgrades. This is the `cli-ui-parity` phase (P2.11), long-tagged. Today
+the UI's `buildOpenShellInstallCommand` / `buildProviderCreateCommand`
 (`packages/gateway-management-ui/src/gateways/gateway-connections.ts`) and the
-suite's version-derivation helper in `tests/e2e/harness` (the Go port of the former
-`openshell_cli_image_tag`) share version-derivation logic coupled only by a "keep in
-sync" comment and separate unit tests; nothing asserts identical command strings end to end.
+suite's version-derivation logic (the Go port of the former
+`openshell_cli_image_tag`, now in `tests/e2e/cli.go`) share version-derivation
+logic coupled only by a "keep in sync" comment and separate unit tests; nothing
+asserts identical command strings end to end.
 
 The suite SHALL derive the install command the UI would render for the live,
 reconciled `gateway_version` (invoking the same `buildOpenShellInstallCommand`
 logic, or scraping the rendered command from the console's connection tab) and
 assert it string-equals the command the suite executes for that same version,
 including the version-suffix handling (for example `v0.0.116-rhaiv.6` preserved,
-not truncated) and the correct branch of `scripts/install-openshell.sh` (the
-quay image path for suffixed versions, the GitHub-release-with-checksum path for
-plain semver). It SHALL then execute the UI-rendered install command through
+not truncated) and the correct branch of `scripts/install-openshell.sh` (the quay
+image path for suffixed versions, the GitHub-release-with-checksum path for plain
+semver). It SHALL then execute the UI-rendered install command through
 `scripts/install-openshell.sh` with the UI's `OPENSHELL_VERSION` value and assert
-the installed `openshell --version` matches the deployed gateway
-(via the `harness` version-match helper, the Go port of `openshell_cli_matches_version`), proving the command the console shows a user
-actually produces a working, version-matched CLI.
+the installed `openshell --version` matches the deployed gateway (the Go port of
+`openshell_cli_matches_version`), proving the command the console shows a user
+actually produces a working, version-matched CLI. The phase SHALL install into an
+isolated location (its own temp dir / PATH) so it does not perturb the shared CLI
+binary other phases resolve through `resolveOpenshellBin`.
 
 The suite SHALL additionally cover the provider-add command: it SHALL derive the
 UI's `buildProviderCreateCommand` (`openshell provider create ... --from-gcloud-adc`)
@@ -310,7 +335,7 @@ coverage it lacks today.
 
 Validity across upgrades SHALL be exercised by driving the parity assertion from
 the live reconciled `gateway_version` rather than a pinned constant, so a version
-bump that breaks suffix handling or branch selection fails this area.
+bump that breaks suffix handling or branch selection fails this phase.
 
 #### Scenario: UI install command equals the executed command
 
@@ -321,8 +346,8 @@ bump that breaks suffix handling or branch selection fails this area.
 #### Scenario: UI-rendered install command produces a matching CLI
 
 - GIVEN the UI-rendered install command and its `OPENSHELL_VERSION` value
-- WHEN the suite runs it through `scripts/install-openshell.sh`
-- THEN the installed `openshell --version` SHALL match the deployed gateway version (the `harness` version-match helper, Go port of `openshell_cli_matches_version`)
+- WHEN the suite runs it through `scripts/install-openshell.sh` into an isolated location
+- THEN the installed `openshell --version` SHALL match the deployed gateway version
 - AND the checksum-verified GitHub-release branch SHALL be used for plain-semver versions and the quay-image branch for suffixed versions
 
 #### Scenario: Provider-add command runs end to end
@@ -334,43 +359,46 @@ bump that breaks suffix handling or branch selection fails this area.
 #### Scenario: Parity is driven by the live version, not a constant
 
 - GIVEN an OpenShell upgrade that changes `gateway_version`
-- WHEN area 19 runs against the upgraded gateway
-- THEN the parity assertions SHALL use the reconciled `gateway_version`, so a regression in suffix handling or branch selection fails the area rather than passing against a stale pinned value
+- WHEN the `cli-ui-parity` phase runs against the upgraded gateway
+- THEN the parity assertions SHALL use the reconciled `gateway_version`, so a regression in suffix handling or branch selection fails the phase rather than passing against a stale pinned value
 
-## Cross-Component Route Coverage Extensions
+## Cross-Component Route Coverage Additions
 
-A review of every published REST route against the e2e suite found that
-route-level validation (does a route accept input, enforce auth, return the right
-status, and persist a record) is already owned by the trex integration tests -
-each resource plugin's `integration_test.go` drives List, Get, Create, Patch,
-Delete, paging, and search over real HTTP against a testcontainers Postgres,
-including 401 and 404 cases. e2e adds nothing by re-issuing those routes. e2e adds
-value only where a route triggers **cross-component** behavior (an API write that
-the control plane must reconcile across the api-server, the control plane, and the
-cluster) that no existing area asserts.
+A review of every published REST route against the suite found that route-level
+validation (does a route accept input, enforce auth, return the right status, and
+persist a record) is already owned by the trex integration tests - each resource
+plugin's `integration_test.go` drives List, Get, Create, Patch, Delete, paging,
+and search over real HTTP against a testcontainers Postgres, including 401 and 404
+cases. e2e adds nothing by re-issuing those routes. e2e adds value only where a
+route triggers **cross-component** behavior (an API write the control plane must
+reconcile across the api-server, the control plane, and the cluster) that no
+phase asserts.
 
-Of the routes no area exercises today, exactly two carry untested cross-component
-behavior. Both are extensions to existing long-only areas, not new areas:
-`PATCH /gateway_releases/{id}` (area 13) and `DELETE /managed_clusters/{id}`
-(area 12). The remaining uncovered routes are pure CRUD or reads
-(`GET /roles`, `GET /gateway_releases` List, `GET /role_bindings/{id}`,
-`PATCH`/`GET` `/gateway_networks`, `GET /metrics/gateways`, metadata/openapi/
-healthcheck) whose only observable effect is already covered - by the trex
-integration tests, by a prior e2e area (gateway-network `status` write-back at
-area 13; sandbox-count gRPC flow at areas 7-8), or by a dedicated unit test
-(`plugins/gateways/metrics_test.go` for the `managed_cluster` metric attribution,
-which `gateway-managed-cluster-attribution.spec.md` GMCA-06 assigns to unit
-tests). Those SHALL NOT be re-tested in e2e.
+Of the routes no phase exercises today, exactly two carry untested cross-component
+behavior: `PATCH /gateway_releases/{id}` (release-image fan-out) and
+`DELETE /managed_clusters/{id}` (orphan-and-restore). The first becomes a new
+phase (`release-image-fanout`, P2.12) because the Go suite has no
+release-promotion phase at all; the second extends the existing
+`managedcluster-lifecycle` phase (P2.4), which already covers re-registration. The
+remaining uncovered routes are pure CRUD or reads (`GET /roles`,
+`GET /gateway_releases` List, `GET /role_bindings/{id}`, `GET`/`PATCH`
+`/gateway_networks`, `GET /metrics/gateways`, metadata/openapi/healthcheck): their
+only observable effects are covered by the trex integration tests, by a prior
+phase (sandbox-count gRPC write-back at the `sandbox-lifecycle` phase, P2.1), or
+by a dedicated unit test (`plugins/gateways/metrics_test.go` for the
+`managed_cluster` metric attribution, which
+`gateway-managed-cluster-attribution.spec.md` GMCA-06 assigns to unit tests).
+Those SHALL NOT be re-tested in e2e.
 
 ### Requirement: Release Image Fan-Out Coverage
 
-The e2e test suite SHALL validate the release-image fan-out path:
-updating a referenced `GatewayRelease`'s image (`PATCH /gateway_releases/{id}`)
-and asserting that every gateway referencing that release rolls to the new image,
-as `gateway-release-rollout.spec.md` and `gateway-release-reconciliation.spec.md`
-define. This extends area 13, which today exercises only the other rollout trigger
-- repointing a single gateway's `release_id` - and never mutates a shared
-release's image. It is long-only.
+The e2e test suite SHALL validate the release-image fan-out path: updating a
+referenced `GatewayRelease`'s image (`PATCH /gateway_releases/{id}`) and asserting
+that every gateway referencing that release rolls to the new image, as
+`gateway-release-rollout.spec.md` and `gateway-release-reconciliation.spec.md`
+define. This is a new phase (`release-image-fanout`, P2.12), long-tagged; the Go
+suite has no release-promotion phase today, so this fan-out trigger is wholly
+untested.
 
 Against a dedicated disposable release and gateway (so the seeded release and
 other gateways are not perturbed), the suite SHALL: create a release, create a
@@ -409,18 +437,19 @@ restore-on-re-registration semantics in `managed-cluster-registration.spec.md`:
 deleting a registered ManagedCluster's record (`DELETE /managed_clusters/{id}`)
 detaches the gateways placed on it until the control plane registers again, and
 the control plane's next `/registration` restores the **same** `cluster_id` so the
-gateways re-attach. This extends area 12, which today deletes only the inert
-placeholder record (empty `oidc_subject`, which by spec holds no gateways) and
-never a registered cluster with a gateway on it. It is long-only.
+gateways re-attach. This extends the `managedcluster-lifecycle` phase (P2.4),
+which today covers idempotent re-registration, the non-registrar 403, the
+name-collision 409, and gRPC identity, but never deletes a registered cluster with
+a gateway on it. It is long-tagged.
 
 Because deleting a registered cluster's record disrupts every gateway on that
 cluster, the suite SHALL run this against a **second** real cluster, gated on
 `E2E_MULTICLUSTER=1`, so the primary cluster the rest of the suite depends on is
-never disrupted; on a single-cluster run it SHALL record a skip (a single real
-control plane cannot be deleted without breaking the run, and a synthetic record
-cannot hold a gateway). It SHALL place a throwaway gateway on the second cluster,
-delete that cluster's record, assert the gateway is detached (no longer
-reconciled) within a bounded window, then wait for the second control plane's next
+never disrupted; on a single-cluster run it SHALL `t.Skipf` (a single real control
+plane cannot be deleted without breaking the run, and a synthetic record cannot
+hold a gateway). It SHALL place a throwaway gateway on the second cluster, delete
+that cluster's record, assert the gateway is detached (no longer reconciled)
+within a bounded window, then wait for the second control plane's next
 `/registration` to restore the same `cluster_id` and the gateway to re-attach,
 leaving the fleet as it found it. The suite SHALL delete the throwaway gateway on
 all exit paths.
@@ -440,98 +469,103 @@ all exit paths.
 #### Scenario: Single-cluster run skips the delete
 
 - GIVEN a single-cluster run (no `E2E_MULTICLUSTER`)
-- WHEN the suite reaches the cluster-delete coverage
-- THEN it SHALL record a skip, because deleting the only registered cluster would break the run and a synthetic record cannot hold a gateway
+- WHEN the suite reaches the cluster-delete sub-check of `managedcluster-lifecycle`
+- THEN it SHALL `t.Skipf`, because deleting the only registered cluster would break the run and a synthetic record cannot hold a gateway
 
-### Requirement: Area Placement and Mode Tags
+### Requirement: Phase Placement and Mode Tags
 
-Areas 15-19 SHALL extend the numbered area model in `e2e-testing.spec.md` as
-additional ordered subtests of `E2ESuite`, and the two cross-component extensions
-above SHALL extend existing areas 13 and 12. All SHALL be long-only: skipped
-(`t.Skip`) in `short` and `perf` modes, consistent with the long-step /
-`E2ESuite.multiIdentity()` gating that areas 12-14 use. A step that cannot run
-because its `E2E_QUALIFY_*` backend is absent SHALL `t.Skip` with a reason, never
-record a pass (the three-outcome model in `e2e-testing.spec.md`). The E2E Test
-Suite Coverage requirement and the short/long mode table in `e2e-testing.spec.md`
-SHALL be amended to list areas 15-19 as long-only and to note the area-12/13
-extensions rather than restating them here; this spec owns their content.
+The five feature phases and the two cross-component additions SHALL register as
+steps of `E2ESuite`: the feature phases and `release-image-fanout` as new
+long-tagged entries in `p2ParallelSteps()` (and mirrored in the scheduler golden
+order), and the ManagedCluster delete coverage as a sub-check of the existing P2.4
+phase. All SHALL be long-tagged: they run only in `long` mode and are skipped
+(`t.Skipf`/`modeAllows`) in `short` mode and in the matrix's default short runs,
+consistent with the long-step gating P2.4-P2.6 use. A sub-check that cannot run
+because its opt-in backend is absent SHALL `t.Skipf` with a reason, never record a
+pass. `e2e-testing.spec.md`'s phase list SHALL be amended to name these steps
+rather than restating their content here; this spec owns their content.
 
-| Area | Title | Mode | Gate |
+| Proposed step | Slug | Mode | Gate |
 |------|-------|------|------|
-| 15 | Provider credential drivers | long-only | Kubernetes Secrets always; Vault on `E2E_QUALIFY_VAULT=1` |
-| 16 | Gateway sharing via `role_bindings` | long-only | `E2ESuite.multiIdentity()` |
-| 17 | Kata runtime sandbox | long-only | `E2E_QUALIFY_KATA=1` |
-| 18 | Alerting / incident signal | long-only | metric tier always; alert-firing on `E2E_QUALIFY_ALERTING=1` |
-| 19 | CLI/UI command parity | long-only | none (Kind-hostable) |
-| 13 (ext) | Release image fan-out | long-only | `E2E_MULTICLUSTER=1` for the cross-cluster scenario |
-| 12 (ext) | ManagedCluster delete + re-registration | long-only | `E2E_MULTICLUSTER=1` (single-cluster skips) |
-| 20 | API route coverage completeness | long-only | none (Kind-hostable) |
+| P2.7 | `credential-drivers` | long | Kubernetes Secrets always; Vault on `E2E_QUALIFY_VAULT=1` |
+| P2.8 | `gateway-sharing-rolebindings` | long | long-tagged (seeded second identity) |
+| P2.9 | `kata-runtime` | long | `E2E_QUALIFY_KATA=1` |
+| P2.10 | `alerting-signal` | long | metric tier always; alert-firing on `E2E_QUALIFY_ALERTING=1` |
+| P2.11 | `cli-ui-parity` | long | none (Kind-hostable) |
+| P2.12 | `release-image-fanout` | long | `E2E_MULTICLUSTER=1` for the cross-cluster scenario |
+| P2.4 (ext) | `managedcluster-lifecycle` | long | `E2E_MULTICLUSTER=1` (single-cluster skips the delete) |
 
-#### Scenario: New areas skipped in short and perf
+#### Scenario: New phases skipped in short mode
 
-- GIVEN `E2E_MODE=short` or `E2E_MODE=perf`
+- GIVEN `E2E_MODE=short` (including the matrix's default short runs)
 - WHEN the suite runs
-- THEN areas 15-19 SHALL each print a skip notice and SHALL NOT execute, exactly as areas 12-14 do
-- AND the area-12/13 cross-component extensions, being long-only, SHALL likewise not execute
+- THEN each new phase above SHALL `t.Skipf` and SHALL NOT execute, exactly as P2.4-P2.6 do
+- AND `E2E_MODE=perf` SHALL remain an invalid mode (performance is a separate benchmark)
 
-#### Scenario: New areas run in long mode
+#### Scenario: New phases run in long mode
 
 - GIVEN `E2E_MODE=long` (or unset)
 - WHEN the suite runs
-- THEN areas 15, 16, and 19 SHALL execute on every target
-- AND areas 17 and 18's infra-gated tiers SHALL execute only when their `E2E_QUALIFY_*` variable is set, otherwise record a skip
-- AND the area-13 release fan-out extension SHALL execute on every target (its cross-cluster scenario only under `E2E_MULTICLUSTER=1`), while the area-12 cluster-delete extension SHALL execute only under `E2E_MULTICLUSTER=1` and otherwise record a skip
+- THEN `credential-drivers` (Kubernetes Secrets tier), `gateway-sharing-rolebindings`, `cli-ui-parity`, and `release-image-fanout` SHALL execute on every target
+- AND `kata-runtime`, the Vault tier of `credential-drivers`, and the alert-firing tier of `alerting-signal` SHALL execute only when their opt-in variable is set, otherwise `t.Skipf`
+- AND the P2.4 cluster-delete sub-check SHALL execute only under `E2E_MULTICLUSTER=1` and otherwise `t.Skipf`
 
 ## Environment Variables
 
-These extend the table in `e2e-testing.spec.md`.
+These extend the variables the Go suite already reads (via `envOrDefault` /
+`os.Getenv`); they are introduced by this spec.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `E2E_QUALIFY_VAULT` | `0` | `1` runs the Vault credential-driver qualification (area 15); requires a reachable Vault |
-| `E2E_VAULT_ADDR` | (unset) | Vault server URL for the Vault qualification |
-| `E2E_VAULT_ROLE` | (unset) | Vault role for the gateway's Kubernetes auth in the Vault qualification |
-| `E2E_QUALIFY_KATA` | `0` | `1` runs the Kata runtime sandbox qualification (area 17); requires a Kata RuntimeClass on the cluster |
-| `E2E_KATA_RUNTIME_CLASS` | `kata-containers` | RuntimeClass name the area 17 gateway configures and asserts on the sandbox pod |
-| `E2E_QUALIFY_ALERTING` | `0` | `1` runs the deferred alert-firing tier of area 18; requires an authored alert rule and a reachable Alertmanager/Prometheus |
-| `E2E_SHARE_USERNAME` | `${E2E_DEV_USERNAME}` | The second user with whom area 16 shares the gateway (defaults to the developer identity) |
+| `E2E_QUALIFY_VAULT` | `0` | `1` runs the Vault tier of the `credential-drivers` phase; requires a reachable Vault |
+| `E2E_VAULT_ADDR` | (unset) | Vault server URL for the Vault tier |
+| `E2E_VAULT_ROLE` | (unset) | Vault role for the gateway's Kubernetes auth in the Vault tier |
+| `E2E_QUALIFY_KATA` | `0` | `1` runs the `kata-runtime` phase; requires a Kata RuntimeClass on the cluster |
+| `E2E_KATA_RUNTIME_CLASS` | `kata-containers` | RuntimeClass name the `kata-runtime` gateway configures and asserts on the sandbox pod |
+| `E2E_QUALIFY_ALERTING` | `0` | `1` runs the deferred alert-firing tier of `alerting-signal`; requires an authored alert rule and a reachable Alertmanager/Prometheus |
 
-Area 16 reuses `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD` for the second identity and
-the admin token (areas 1, 14) for `/v1/users` discovery. Area 18's metric tier
-reads the control-plane `/metrics` endpoint already used by the observability
-specs. Area 19 reuses `OPENSHELL_INSTALL_SCRIPT_URL`, `E2E_OPENSHELL_CLI_IMAGE`,
-and the version helpers already defined for the CLI install path.
+The `gateway-sharing-rolebindings` phase reuses the suite's existing
+`E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD` (the seeded second identity) and the admin
+token (`authentication` phase P0.1, `admin-inventory-validation` phase P3.1) for
+`/users` discovery. The `alerting-signal` metric tier reads the control-plane
+`/metrics` endpoint already used by the observability specs. The `cli-ui-parity`
+phase reuses `OPENSHELL_BIN`, `scripts/install-openshell.sh`, and the version
+helpers in `tests/e2e/cli.go`. The cross-component additions reuse the existing
+`E2E_MULTICLUSTER` and `E2E_SEED_CLUSTER_NAME_2`.
 
 ## Design Decisions
 
-- **One spec, five areas plus two targeted extensions, not fragment files.** The
-  epic's five rows share the e2e driver contract, the mode model, and the area
-  numbering; batching them as areas 15-19 keeps the area count in one place,
-  exactly as areas 12-14 were added together. The epic's child stories can each
-  reference the matching requirement section here.
-- **Route coverage is behavior coverage, not a route checklist.** A review of
-  every published REST route found that route-level validation (status codes,
-  auth, persistence, paging, search) is already owned by the trex
-  `integration_test.go` suites over real HTTP, so re-issuing those routes in e2e
-  adds nothing. e2e earns its cost only where a route drives cross-component
-  reconciliation no area asserts - which, across the whole uncovered set, is
-  exactly two routes (`PATCH /gateway_releases/{id}` fan-out, and
-  `DELETE /managed_clusters/{id}` orphan-and-restore). Those become extensions to
-  the areas that already own those resources (13 and 12), not a catch-all route
-  area. Everything else uncovered is pure CRUD or is covered at a better layer
-  (prior e2e area, or a unit test the owning spec assigns), so it is deliberately
+- **New phase steps in the Go suite, not a parallel structure.** The five feature
+  gaps plus the release-fanout and cluster-delete additions register as
+  long-tagged steps of the existing `E2ESuite` (`p2ParallelSteps()` / the P2.4
+  phase), reusing the driver contract, typed `apiclient`, `harness` helpers, and
+  the parallel scheduler. This keeps one suite and one mode model; the epic's
+  child stories can each reference the matching requirement section here.
+- **Behavior coverage, not a route checklist.** A review of every published REST
+  route found route-level validation (status codes, auth, persistence, paging,
+  search) is already owned by the trex `integration_test.go` suites over real
+  HTTP, so re-issuing those routes in e2e adds nothing. e2e earns its cost only
+  where a route drives cross-component reconciliation no phase asserts - which,
+  across the whole uncovered set, is exactly two routes
+  (`PATCH /gateway_releases/{id}` fan-out, `DELETE /managed_clusters/{id}`
+  orphan-and-restore). Everything else uncovered is pure CRUD or is covered at a
+  better layer (a prior phase, or a unit test the owning spec assigns), so it is
   left to those layers.
-- **Infra-heavy backends are opt-in, not gate-blocking.** Vault, Kata, and
-  alert-firing need infrastructure the Kind merge-queue gate does not provide, so
-  they follow the established `E2E_QUALIFY_*` opt-in pattern and record skips (not
-  passes, not failures) when their infrastructure is absent. The Kind-hostable
-  halves (Kubernetes Secrets, the full sharing flow, CLI/UI parity, the metric
-  tier of alerting) run in long mode on every target.
+- **Opt-in backends skip, they do not block.** Vault, Kata, and alert-firing need
+  infrastructure the Kind merge-queue gate does not provide. Rather than the
+  removed `E2E_QUALIFY_*` qualification harness of the old Bash suite, each is a
+  new opt-in flag whose step `t.Skipf`s (the suite's three-outcome skip idiom)
+  when the flag or infrastructure is absent - never a pass, never a failure. The
+  Kind-hostable halves (Kubernetes Secrets, the `role_bindings` sharing flow,
+  CLI/UI parity, the metric tier of alerting, release fan-out) run in long mode on
+  every target.
 - **Alerting follows the feature.** No alert artifact exists in the repository
   today. The actionable near-term coverage asserts the reconcile failure *metric*
   moves; the alert-*firing* contract is recorded but deferred behind
   `E2E_QUALIFY_ALERTING` so the e2e lands with, not before, a `PrometheusRule`.
-- **Sharing exercises the product path, not the test shortcut.** Area 16
-  deliberately drives `POST /role_bindings` -> RoleBinding reconciler -> Keycloak
-  client role, the bridge that area 9's `assign_gateway_client_role` driver
-  shortcut forges directly. Once proven, area 9 may adopt this path.
+- **Sharing covers the `role_bindings` surface distinctly.** `role_bindings` is an
+  active public API alongside `/gateways/{id}/access`; the existing
+  `gateway-access-management` phase (P2.5) covers `/access`, so the new phase
+  drives `role_bindings` create -> RoleBinding reconciler -> Keycloak client role -
+  the propagation bridge the `AssignGatewayClientRole` driver helper (used by the
+  RBAC phase) forges directly and that the `/access` phase does not exercise.
