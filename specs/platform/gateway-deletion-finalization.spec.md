@@ -329,11 +329,13 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
 
 - GIVEN a Vault-backed Gateway delete whose KV purge cannot complete (the provider
   Vault is unreachable, or the gateway identity is already gone)
-- WHEN the control plane returns the error for retry
+- WHEN the control plane runs the best-effort purge before removing the gateway
+  ServiceAccount
 - THEN it SHALL record a durable, operator-visible `VaultCredentialPath` orphan
   signal in the control-plane namespace naming the tenant namespace and the reason
 - AND the signal SHALL NOT contain any provider secret value
-- AND the delete SHALL NOT be reported complete while the KV path remains reclaimable
+- AND it SHALL continue the rest of teardown, because once the ServiceAccount is removed
+  the purge is not inline-recoverable, so the orphan signal is the operator recovery path
 
 #### Scenario: Invalid stored identity does not silently orphan the client
 

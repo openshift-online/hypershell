@@ -473,11 +473,19 @@ templated policy scopes that identity to its own namespace path), never as a Vau
 administrator, and SHALL perform the purge before the gateway ServiceAccount and
 namespace are removed, so the identity it authenticates with still exists.
 
+The purge enumerates the namespace path (a Vault `LIST` on
+`secret/metadata/openshell/<tenant-namespace>`) and deletes each secret's metadata, so
+the templated policy MUST grant the gateway identity `list` on its own namespace path
+(see the GitOps Contract), not only on the child entries.
+
 This is an out-of-namespace owned-resource class: the namespace cascade does not reach
-Vault. If the purge cannot complete inline (Vault unreachable, or the identity already
-gone), the control plane SHALL record a durable, operator-visible `VaultCredentialPath`
-orphan signal naming the tenant namespace and reason (never a secret value), consistent
-with the no-silent-orphan contract in
+Vault. The purge is **best-effort**: it runs once, before the gateway ServiceAccount is
+removed by teardown, and if it cannot complete (Vault unreachable, or the identity
+already gone) the control plane SHALL record a durable, operator-visible
+`VaultCredentialPath` orphan signal naming the tenant namespace and reason (never a
+secret value) and SHALL NOT block the rest of teardown - because once the ServiceAccount
+is gone the purge is not inline-recoverable, so the orphan signal is the operator
+recovery path, consistent with the no-silent-orphan contract in
 [`gateway-deletion-finalization.spec.md`](./gateway-deletion-finalization.spec.md).
 
 There is no audit-retention exception: if an audit trail is required, it comes from
@@ -599,6 +607,7 @@ GitOps repo implements against.
 | Kubernetes auth mount | `kubernetes` |
 | Shared Vault role | `openshell-gateway` |
 | Isolation | one namespace-templated ACL policy resolves each caller's verified `service_account_namespace` at login |
+| Policy capabilities | the templated policy grants the gateway identity CRUD+list on `secret/data/openshell/<ns>/*`, read/list/delete on `secret/metadata/openshell/<ns>/*`, **and `list` on the namespace path `secret/metadata/openshell/<ns>`** so the control plane can enumerate the path for purge-on-delete |
 | Gateway SA token | projected, `audience: vault`, `expirationSeconds: 3600`, mounted at `/var/run/secrets/vault/token` |
 | Serving-CA source | Secret `openshell-gateway-vault-tls` (key `ca.crt`) in namespace `openshell-vault` |
 | Serving-CA in tenant ns | ConfigMap `openshell-gateway-vault-ca` (key `ca.crt`), wired to the chart's `credentialDrivers.vault.caConfigMapName` |
