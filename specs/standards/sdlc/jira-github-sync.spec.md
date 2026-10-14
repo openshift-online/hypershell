@@ -3,7 +3,7 @@
 **Date:** 2026-10-14
 **Status:** Active
 **Ticket:** HYPERSHELL-374
-**Related:** `.hypershell/execute-sdlc/SKILL.md` (funnel entrypoint and scope selector), `.hypershell/agents/ingest/SKILL.md` (bidirectional intake), `.hypershell/agents/reconcile/SKILL.md` (bidirectional reconciliation), `.hypershell/agents/triage/SKILL.md` (work discovery), `.hypershell/agents/spec-implementation/SKILL.md` (spec phase), `skills/plan/spec/SKILL.md` (spec authoring)
+**Related:** `.hypershell/execute-sdlc/SKILL.md` (funnel entrypoint and scope selector), `.hypershell/agents/ingest/SKILL.md` (bidirectional intake), `.hypershell/agents/reconcile/SKILL.md` (bidirectional reconciliation), `.hypershell/agents/jira-reconciliation/SKILL.md` (retroactive reflection of completed work), `.hypershell/agents/triage/SKILL.md` (work discovery), `.hypershell/agents/spec-implementation/SKILL.md` (spec phase), `skills/plan/spec/SKILL.md` (spec authoring)
 
 ---
 
@@ -98,6 +98,9 @@ projection uses this mapping:
 | `agent/reviewable-code`, `agent/review-code-rejected` | `In Progress` |
 | `agent/review-code-approved` | `In Progress` |
 | `agent/blocked` | `In Progress` |
+| `agent/release-pending` | `In Progress` |
+| `agent/release-verification-failed` | `In Progress` |
+| `agent/release-verified` | `Done` |
 | Pull request merged to `main` | `Done` |
 | `agent/duplicate` (issue closed as duplicate) | `Done` |
 
@@ -393,6 +396,68 @@ already-merged-but-open execution record. Re-running SHALL change nothing.
 - WHEN reconciliation runs again
 - THEN no change is made to the execution record
 
+### Requirement: Retroactive Jira Reflection
+
+Work that bypasses the funnel SHALL still be reflected into Jira. A bugfix or
+task merged and released without a Jira item - work that was never planned in
+Jira and never ingested - is invisible to the management view. The
+`jira-reconciliation` agent (a cron-scheduled fleet member selecting
+`agent/release-verified`) SHALL examine each release-verified item's completed
+work units and reflect them into Jira retroactively. Intake links a work item
+to Jira at funnel entry; this agent links completed work at delivery.
+
+For each completed work unit:
+
+- IF the unit has a canonical Jira counterpart, the agent SHALL perform the
+  terminal projection: project the Jira item to the `Done` category, ensure the
+  artifact remote links, and post an attributed narrative comment. This is the
+  same projection `reconcile` performs on merge, so an item already projected
+  is a no-op.
+- IF the unit has no canonical counterpart and no existing Jira item references
+  it, the agent SHALL create a Jira task or bug for it, carrying the delivery
+  evidence (pull request, merge commit, release verification), canonically
+  linked where a GitHub anchor exists, remote-linked, and projected to `Done`.
+- IF the unit is ambiguous (only a descriptive key mention, a partial match
+  with an existing item, or an unclear scope), the agent SHALL stage a proposal
+  for a human and SHALL NOT write.
+
+Retroactive capture SHALL be idempotent: the agent SHALL search for an existing
+Jira item referencing the unit (canonical link or remote link to the GitHub
+artifact) before creating one, and a second run SHALL make zero writes. Issue
+type SHALL be inferred conservatively: `Bug` for fixes, `Task` otherwise. The
+agent SHALL NOT create epics or stories and SHALL NOT set the Jira assignee.
+
+#### Scenario: Unplanned bugfix gets a retroactive Jira bug
+
+- GIVEN a release-verified item whose linked pull request is merged to `main`
+- AND the pull request has no canonical Jira counterpart
+- WHEN the jira-reconciliation agent runs
+- THEN a Jira bug is created carrying the pull request and merge commit as
+  remote links and the delivery evidence in its description
+- AND the Jira bug is projected to the `Done` category
+
+#### Scenario: Retroactive capture is idempotent
+
+- GIVEN a work unit that was already reflected into Jira by a prior run
+- WHEN the jira-reconciliation agent runs again
+- THEN no Jira item is created
+- AND no field is written in either system
+
+#### Scenario: Linked work projects to Done on release verification
+
+- GIVEN a release-verified item with a canonical Jira counterpart
+- WHEN the jira-reconciliation agent runs
+- THEN the Jira item's status is in the `Done` category
+- AND the merge commit appears as a remote link
+
+#### Scenario: Ambiguous unit is staged, not guessed
+
+- GIVEN a release-verified item whose work unit mentions a Jira key
+  descriptively but has no canonical link of its own
+- WHEN the jira-reconciliation agent runs
+- THEN no Jira write occurs
+- AND a staged proposal is posted for a human decision
+
 ### Requirement: Artifact Remote Links
 
 The branch, each pull request, and the merge commit of a work item SHALL appear
@@ -565,6 +630,17 @@ request is merged - close `#537`. This is a self-healing consequence of the
 bidirectional intake and both-origins scope reconciliation defined above; no
 manual closure is required.
 
+### New `jira-reconciliation` fleet agent
+
+A cron-scheduled `jira-reconciliation` AgentRuntime SHALL select
+`agent/release-verified` issues and reflect their completed work into Jira
+retroactively (see the Retroactive Jira Reflection requirement). It SHALL
+remove `agent/release-verified` on any terminal verdict (`agent/jira-synced`,
+`agent/jira-sync-blocked`) so the coordinator does not re-run it; a human
+re-applies the label to retry a blocked sync. It SHALL bind a Jira provider
+(the `jira-issue-tracker` ProviderSpec) and run on a sandbox template that
+grants Jira REST egress.
+
 ---
 
 ## Acceptance Criteria
@@ -595,6 +671,12 @@ manual closure is required.
   canonically, projects status, and closes `#537` because pull request `#538` is
   merged. Re-running changes nothing, creating no duplicate epics, records, or
   links.
+- A bugfix merged and released without any Jira item ends up reflected in Jira:
+  the `jira-reconciliation` agent creates the bug, links the pull request and
+  merge commit, projects `Done`, and a second run makes zero writes.
+- A release-verified item with a canonical Jira counterpart is projected to the
+  `Done` category without duplicating the merge-time projection `reconcile`
+  already performed.
 
 #### Scenario: GitHub-first item converges on merge
 

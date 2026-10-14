@@ -1,0 +1,156 @@
+# jira-reconciliation agent instance (overlay on ../../base/platform).
+# Repository scanner: on each cron tick the coordinator queries the referenced
+# Repository for items carrying any selector label and fans out one sandbox per match.
+# Ext-API kinds only; no cluster information (placement is resolved by the
+# control plane via capability labels). FK references use names; the importer
+# resolves them (see ../../README.md).
+#
+# This agent owns two kinds beyond the standard pattern:
+# - SandboxTemplate agent-runtime-slim-jira: the shared agent-runtime-slim
+#   policy plus Jira REST egress for the Atlassian CLI.
+# - ProviderSpec jira-issue-tracker: Jira REST access on redhat.atlassian.net
+#   (Atlassian Cloud, REST API v3), matching the instance the
+#   jira-github-sync spec and the ingest/reconcile responsibilities use. The
+#   data model's ProviderSpec.category enum is inference | source_control |
+#   knowledge; Jira is mapped to knowledge (host/auth/allowed_operations/
+#   binaries schema fit). A dedicated issue_tracker category may replace this
+#   mapping later.
+apiVersion: hypershell.redhat.io/v1
+kind: AgentRuntime
+metadata:
+  name: jira-reconciliation
+  description: SDLC automation agent (jira-reconciliation)
+spec:
+  sandbox_template_id: agent-runtime-slim-jira
+  gateway_id: agents-gateway
+  repository_id: openshift-online/hypershell
+  cron: "*/15 * * * *"
+  coordinator_image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-slim-main@sha256:0b22e22656c2bf9c60511a154ae71399be3324c6478baa8e155aa953489fc103
+  concurrency_policy: Forbid
+  login_refresh_seconds: 1800
+  selector:
+    - agent/release-verified
+  parameters: |
+    {"REPOSITORY": "openshift-online/hypershell", "JIRA_PROJECT": "HYPERSHELL", "DRY_RUN": "false"}
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
+metadata:
+  name: agent-runtime-slim-jira
+  description: Slim agent sandbox with Jira REST egress in addition to Anthropic and GitHub
+spec:
+  image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-slim-main@sha256:0b22e22656c2bf9c60511a154ae71399be3324c6478baa8e155aa953489fc103
+  name_prefix: hypershell-agent-slim-jira-
+  policy: |
+    {
+      "filesystem": {
+        "read_only": ["/usr", "/etc"],
+        "read_write": ["/sandbox", "/tmp", "/home/agent"],
+        "landlock": "best_effort"
+      },
+      "network": [
+        {"name": "claude_code", "hosts": ["api.anthropic.com:443"], "binaries": ["claude"]},
+        {"name": "github_rest_api", "hosts": ["api.github.com:443", "github.com:443"], "binaries": ["gh", "git"]},
+        {"name": "jira_rest_api", "hosts": ["redhat.atlassian.net:443"], "binaries": ["acli"]}
+      ],
+      "process": {"user": "agent", "group": "root"}
+    }
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderSpec
+metadata:
+  name: jira-issue-tracker
+  description: Jira issue tracker REST access for redhat.atlassian.net
+spec:
+  category: knowledge
+  capability: |
+    {
+      "host": "redhat.atlassian.net",
+      "auth_method": "bearer",
+      "allowed_operations": [
+        {"methods": ["GET", "POST", "PUT"], "paths": ["/rest/api/3/issue/*", "/rest/api/3/search*"]}
+      ],
+      "binaries": ["acli"]
+    }
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: jira-reconciliation-gateway-identity
+spec:
+  agent_runtime_id: jira-reconciliation
+  purpose: gateway-identity
+  backend: kubernetes
+  path: hypershell/jira-reconciliation/gateway-identity
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: jira-reconciliation-inference-key
+spec:
+  agent_runtime_id: jira-reconciliation
+  purpose: api-key
+  backend: vault
+  path: hypershell/jira-reconciliation/anthropic-api-key
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: jira-reconciliation-github-key
+spec:
+  agent_runtime_id: jira-reconciliation
+  purpose: app-private-key
+  backend: vault
+  path: hypershell/jira-reconciliation/github-app
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: jira-reconciliation-jira-token
+spec:
+  agent_runtime_id: jira-reconciliation
+  purpose: api-key
+  backend: vault
+  path: hypershell/jira-reconciliation/jira-api-token
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderBinding
+metadata:
+  name: jira-reconciliation-inference
+spec:
+  workspace_id: jira-reconciliation
+  provider_spec_id: claude-inference
+  secret_source_id: jira-reconciliation-inference-key
+  refresh_strategy: |
+    {"type": "static-token", "secret_material": [{"key": "api_key", "secret_source_id": "jira-reconciliation-inference-key"}]}
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderBinding
+metadata:
+  name: jira-reconciliation-github
+spec:
+  workspace_id: jira-reconciliation
+  provider_spec_id: github-source-control
+  secret_source_id: jira-reconciliation-github-key
+  refresh_strategy: |
+    {"type": "app-installation-token", "material": {"app_id": "REPLACE_WITH_GITHUB_APP_ID"}, "secret_material": [{"key": "private_key", "secret_source_id": "jira-reconciliation-github-key"}]}
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderBinding
+metadata:
+  name: jira-reconciliation-jira
+spec:
+  workspace_id: jira-reconciliation
+  provider_spec_id: jira-issue-tracker
+  secret_source_id: jira-reconciliation-jira-token
+  refresh_strategy: |
+    {"type": "static-token", "secret_material": [{"key": "api_token", "secret_source_id": "jira-reconciliation-jira-token"}]}
+---
+apiVersion: hypershell.redhat.io/v1
+kind: InferenceRoute
+metadata:
+  name: jira-reconciliation-inference-route
+spec:
+  workspace_id: jira-reconciliation
+  provider_binding_id: jira-reconciliation-inference
+  model: claude-sonnet-4-5
