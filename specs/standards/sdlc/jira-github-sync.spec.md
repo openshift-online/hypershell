@@ -310,14 +310,14 @@ the work in any Jira field or comment.
 These are the desired behaviors the later code phase SHALL implement in the SDLC
 skills. They are stated here as contract, not as code.
 
-### `execute-sdlc` Step 0 and Step 1 gain a Jira-origin intake path
+### `execute-sdlc` gains a Jira-origin intake path (Step 0)
 
 `execute-sdlc` SHALL accept a Jira source as part of its scope, alongside the
-existing GitHub `$LABEL_SCOPE`. Before triage and work selection, Step 0 SHALL
-run intake (see the new `ingest` responsibility) so that every in-scope Jira item
-has a linked GitHub execution record. Step 1 work selection SHALL then choose
-from execution records regardless of origin, using the existing
-`agent/workable` gate. A Jira-origin item that has been ingested SHALL be
+existing GitHub `$LABEL_SCOPE`. Before triage (Step 1) and work selection
+(Step 2), a new Step 0 SHALL run intake (see the new `ingest` responsibility) so
+that every in-scope Jira item has a linked GitHub execution record. Step 2 work
+selection SHALL then choose from execution records regardless of origin, using
+the existing `agent/workable` gate. A Jira-origin item that has been ingested SHALL be
 selectable exactly like a GitHub-origin item.
 
 ### `triage` discovers work from either origin
