@@ -65,6 +65,9 @@ before any phase runs.
 
 Resolve exactly one GitHub execution record for the work item. This step is
 IDEMPOTENT: running it again resolves the same record and creates nothing new.
+The intake itself is owned by the [`ingest` responsibility](../../../.hypershell/agents/ingest/SKILL.md),
+which this step delegates to; it is create-if-missing, idempotent, and dry-run
+aware.
 
 Determine the origin of the work item (`$ISSUE_OVERRIDE`, or each candidate
 found under `$LABEL_SCOPE`):
@@ -72,24 +75,25 @@ found under `$LABEL_SCOPE`):
 - IF the work item is a GitHub issue (URL or number): the issue IS its own
   execution record. OUTPUT `$EXECUTION_RECORD` = that issue.
 
-- IF the work item is a Jira key / URL (eg. `HYPERSHELL-374`), resolve a GitHub
-  execution record for that Jira key:
-  1. Search `openshift-online/hypershell` issues (open AND closed) for an
-     execution record for this Jira key. A match REQUIRES both: the exact Jira
-     key present in the issue body, AND the marker label `agent/execution-record`.
-     The exact-key match is the idempotency key and prevents duplicates.
-  2. IF exactly one match: reuse it. OUTPUT `$EXECUTION_RECORD` = that issue.
-     Create nothing.
-  3. IF more than one match: STOP. Exit with:
-     "ERROR: multiple execution records for <JIRA_KEY>. Resolve duplicates."
-  4. IF no match AND NOT `$DRY_RUN`: create ONE GitHub issue:
-     - Title: `<JIRA_KEY>: <jira summary>`
-     - Body: a link to `https://redhat.atlassian.net/browse/<JIRA_KEY>`, the
-       Jira key on its own line (for exact matching), and the Jira item intent.
-     - Labels: `agent/execution-record`, `agent/allowed`, and `$LABEL_SCOPE`
-       (create any label that does not exist first).
-     Then, once only, add a web link / comment on the Jira item pointing at the
-     new GitHub issue. OUTPUT `$EXECUTION_RECORD` = the new issue.
+- IF the work item is a Jira key / URL (eg. `HYPERSHELL-374`), OR `$ISSUE_OVERRIDE`
+  is EMPTY (a scope-based run that may include Jira-origin items), run intake via
+  the `ingest` responsibility so every in-scope Jira item has a linked GitHub
+  execution record before triage:
+
+  skill(../../../.hypershell/agents/ingest, $LABEL_SCOPE, $ISSUE_OVERRIDE)
+
+  `ingest` resolves each Jira item to exactly one execution record (reusing an
+  existing one on an exact Jira-key match, creating one only when missing),
+  ensures the bidirectional canonical link, and STOPs on ambiguity (more than one
+  execution record for one work item). It never creates a second record for a
+  GitHub-origin item. When `$ISSUE_OVERRIDE` is a single Jira key, OUTPUT
+  `$EXECUTION_RECORD` = the record `ingest` resolved for it.
+
+For a scope-based run (`$ISSUE_OVERRIDE` empty), `ingest` resolves a SET of
+execution records. The per-record steps below (artifact association, initial
+phase derivation, and the newly-ingested reconcile) SHALL be applied to EACH
+execution record `ingest` resolved. For an `$ISSUE_OVERRIDE` run they apply to
+the single `$EXECUTION_RECORD`.
 
 - Associate existing artifacts (idempotent reuse, prevents duplicate PRs):
   Find any PR whose head branch or title contains `<JIRA_KEY>` (eg.
@@ -105,6 +109,16 @@ found under `$LABEL_SCOPE`):
 - Phase labels are GitHub-authoritative. Do NOT keep SDLC phase labels on the
   Jira item; the Jira item keeps only its scope selector and its (derived)
   status. Remove any stale phase label from the Jira item if present.
+
+- Reconcile the newly ingested record so its initial phase projects into Jira
+  (an `agent/workable` record projects to `To Do`) and its canonical link and
+  any existing artifacts surface as remote links:
+
+  skill(../../../.hypershell/agents/reconcile, $EXECUTION_RECORD)
+
+  This runs with no `$PREVIOUS_PHASE`, so it projects status and syncs artifacts
+  without posting a transition comment. It is idempotent, so an already-advanced
+  record writes nothing new.
 
 From here on, `$SELECTED_WORK_ITEM` refers to `$EXECUTION_RECORD`.
 
@@ -141,7 +155,15 @@ OUTPUT: $SELECTED_WORK_ITEM
 
 ### Step 3: Invoke Agents
 
+Keep Jira in sync as the GitHub phase advances. Before the loop, record the
+current phase as `$PREVIOUS_PHASE`. After every iteration (every phase
+transition), project the new phase into Jira and sync artifacts and the phase
+narrative by invoking the [`reconcile` responsibility](../../../.hypershell/agents/reconcile/SKILL.md).
+Reconciliation is idempotent, so a no-op transition writes nothing.
+
 WHILE(Labels Applied to $SELECTED_WORK_ITEM NOT INCLUDES `agent/review-code-approved`):
+
+  $PREVIOUS_PHASE = the current phase label of $SELECTED_WORK_ITEM
 
   SWITCH(Labels Applied to $SELECTED_WORK_ITEM):
     CASE `agent/workable`:
@@ -164,5 +186,24 @@ WHILE(Labels Applied to $SELECTED_WORK_ITEM NOT INCLUDES `agent/review-code-appr
         Remove Label `agent/reviewable-code`
         skill(../../../.hypershell/agents/code-review, $SELECTED_WORK_ITEM)
         break
-      
-STOP: Provide URL to PR associated with $SELECTED_WORK_ITEM to the human for review.
+
+  # After the phase transition, keep Jira converged with the new GitHub phase:
+  # derived status, artifact remote links, and an attributed phase-narrative
+  # comment. Idempotent and dry-run aware.
+  skill(../../../.hypershell/agents/reconcile, $SELECTED_WORK_ITEM, $PREVIOUS_PHASE)
+
+# The loop ended at `agent/review-code-approved`. The last loop iteration already
+# ran reconcile for the `reviewable-code -> review-code-approved` transition, so
+# the approved state (which projects to In Review) and the artifact remote links
+# are already synced. The pull request is approved but NOT yet merged (a human
+# performs the merge), so Jira is NOT yet Done.
+
+# Terminal Done projection: reconcile is idempotent and drift-correcting, keyed
+# only on the execution record. Once the human merges the pull request, reconcile
+# MUST be run one more time against this record so it detects the merge and
+# projects the Jira item to Done with the merge commit as a remote link. Request
+# that post-merge reconcile in the handoff below.
+STOP: Provide the PR URL for $SELECTED_WORK_ITEM to the human for review, and ask
+them to merge it and then re-run reconcile against this record so Jira projects to
+Done:
+    skill(../../../.hypershell/agents/reconcile, $SELECTED_WORK_ITEM)

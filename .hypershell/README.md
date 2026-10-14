@@ -45,7 +45,11 @@ to a cluster whose capabilities match.
 - **`agents/<name>/`** are the real agent instances. Each is an overlay that
   reuses the shared `base/platform` kinds (by name) and adds its own
   `AgentRuntime` (with `selector`) and owned ext-API objects. None of them
-  contain cluster information.
+  contain cluster information. Exceptions: `agents/ingest/` and
+  `agents/reconcile/` are orchestration responsibilities (see "Orchestration
+  responsibilities" below); they carry a `SKILL.md` only, with no `agent.yaml`,
+  because `execute-sdlc` invokes them inline rather than the coordinator
+  scheduling them.
 
 `SKILL.md` holds each agent's workflow prompt and is still authored by hand; it
 has no declarative equivalent and is loaded by the coordinator at run time.
@@ -67,6 +71,31 @@ selector: it is purely scheduled.
 | `review-response` | `agent/needs-review-response` | re-queues spec/code review |
 | `release-verification` | `agent/release-pending` | `agent/release-verified`, `agent/release-verification-failed` |
 | `update-openshell` | (scheduled, no selector) | opens an update PR (`agent/reviewable-code`) |
+
+### Orchestration responsibilities
+
+Two responsibilities under `agents/` are not cron-scheduled fleet members: they
+are invoked by the `execute-sdlc` orchestrator (which is itself a `SKILL.md` with
+no `AgentRuntime`). They have a `SKILL.md` only, no `agent.yaml`/selector, because
+they run inside a funnel pass rather than on their own cron tick:
+
+| Responsibility | Invoked by | Purpose |
+|----------------|------------|---------|
+| `ingest` | `execute-sdlc` Step 0 | Origin-agnostic intake: ensure every in-scope Jira item has a linked GitHub execution record (create-if-missing, idempotent). |
+| `reconcile` | `execute-sdlc` Step 0 (newly ingested record) and Step 3 (after each phase transition) | Bidirectional Jira <-> GitHub sync under a per-field authority rule: derived Jira status, artifact remote links, attributed phase comments, credit preservation. |
+
+`ingest` marks each execution record with the `agent/execution-record` label.
+This label is the canonical-link marker: combined with the exact Jira key in the
+issue body, it is the idempotency key that lets `ingest` reuse (never duplicate)
+an execution record. It is not a phase label and does not appear in the phase
+state machine below.
+
+The terminal `Done` projection happens when `reconcile` runs AFTER the human
+merges the pull request: `execute-sdlc` ends at `agent/review-code-approved`
+(approved, not merged, projecting In Review), and its handoff asks the human to
+merge and then re-run `reconcile`, which is idempotent and detects the merge.
+
+These realize `specs/standards/sdlc/jira-github-sync.spec.md`.
 
 ### Label state machine
 

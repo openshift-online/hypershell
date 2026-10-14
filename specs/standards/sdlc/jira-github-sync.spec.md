@@ -68,6 +68,7 @@ mapping:
 | `agent/review-code-approved` | In Review |
 | Pull request merged to `main` | Done |
 | `agent/needs-input` | Blocked |
+| `agent/blocked` | Blocked |
 | `agent/duplicate` (issue closed as duplicate) | Won't Do |
 
 Target Jira statuses are named by their canonical workflow meaning. The code

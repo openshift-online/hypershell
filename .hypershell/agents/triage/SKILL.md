@@ -36,6 +36,12 @@ Exclude issues that are already in flight. An issue that already carries any
 `agent/blocked`, `agent/needs-input`, `agent/duplicate`) has already been
 triaged. Triage SHALL NOT re-read or re-classify it.
 
+Triage is origin-agnostic. A Jira-origin work item reaches triage as its GitHub
+execution record (created by the `ingest` responsibility before triage runs), so
+triage classifies it exactly like a GitHub-origin issue. Triage operates only on
+GitHub issues and SHALL NOT read Jira items directly, including any Jira item
+outside the configured Jira source.
+
 Output: `$LIST_OF_ISSUES`
 
 ### Step 2: Classify Issues
