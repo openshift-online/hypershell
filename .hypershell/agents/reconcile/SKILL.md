@@ -13,9 +13,10 @@ Keeps a work item's Jira item and its GitHub execution record converged. It is
 invoked by `execute-sdlc` after each phase transition and after merge, so a
 manager sees progress in Jira without ever editing it by hand.
 
-Realizes the `Status Projection`, `Artifact Remote Links`, `Narrative Comments`,
-`Bidirectional Reconciliation`, `Safety and Approval Gates`, and `Credit
-Preservation` requirements of `specs/standards/sdlc/jira-github-sync.spec.md`.
+Realizes the `Status Projection`, `Terminal Execution Record Closure`,
+`Artifact Remote Links`, `Narrative Comments`, `Bidirectional Reconciliation`,
+`Safety and Approval Gates`, and `Credit Preservation` requirements of
+`specs/standards/sdlc/jira-github-sync.spec.md`.
 
 Reconciliation is IDEMPOTENT and drift-correcting: a field that has diverged is
 restored to its authority's value; a run with no drift makes no change; a second
@@ -51,6 +52,7 @@ authority TO the other system and NEVER writes back toward the authority.
 | Assignee | Jira | Jira -> GitHub (never set by an agent) |
 | Epic linkage and hierarchy | Jira | Jira -> GitHub |
 | Phase, labels, SDLC state machine | GitHub | not copied to Jira as labels |
+| Execution record open/closed | GitHub | closed on terminal merge (Step 3) |
 | Jira status | Derived from GitHub phase | GitHub phase -> Jira status |
 | Branch, pull requests, commits, specs | GitHub | GitHub -> Jira remote links |
 
@@ -78,7 +80,7 @@ unchanged. IF they already match, make no write.
 
 Do NOT write any of these fields back toward Jira: Jira is the authority.
 
-### Step 3: Project Jira status from the GitHub phase
+### Step 3: Project Jira status from the GitHub phase, and close on terminal merge
 
 Read the current GitHub phase (the record's `agent/*` label state) and merge
 state. Derive the target Jira status **category** per this mapping. The mapping
@@ -120,6 +122,33 @@ name:
 
 Jira status is DERIVED and SHALL NEVER be hand-set to an arbitrary value.
 
+#### Terminal execution record closure
+
+When the mapped category is `Done` BECAUSE the linked pull request is merged to
+`main`, the execution record has reached its terminal state. Converge the whole
+stack in this single run: in addition to the Done status projection above and the
+merge-commit remote link (Step 5), CLOSE the GitHub execution record issue.
+
+Closure is DERIVED from the merge state and scoped to the merged case ONLY. The
+`agent/duplicate` Done path does not close the record here (a duplicate is already
+closed as part of triage), so do NOT close the record for the duplicate path:
+
+1. Read the execution record's open/closed state and its linked pull request's
+   merge state.
+2. IF the linked pull request is merged to `main` AND the execution record is
+   still Open: close it (`gh issue close $EXECUTION_RECORD`).
+3. IF the linked pull request is merged AND the record is already Closed: make no
+   write (no-op).
+4. IF the linked pull request is NOT merged: leave the record Open. NEVER close a
+   record whose pull request has not merged.
+
+Closure is IDEMPOTENT and drift-correcting: a run over a record whose pull request
+has merged but which is still Open closes it, and a re-run changes nothing. Under
+`--dry-run`, report the would-be close and perform no write. The record's
+open/closed state is GitHub-authoritative; the Jira item is never closed from
+here, only projected to the `Done` category. Any failure to close MUST be
+collected and reported (Step 7), never silently swallowed.
+
 ### Step 4: Narrative comment on phase transition
 
 IF `$PREVIOUS_PHASE` is provided AND differs from the current phase (a real
@@ -158,7 +187,8 @@ Jira-authoritative.
 
 - Under `--dry-run`, every write in Steps 2-5 MUST be reported as a would-be
   write and none performed.
-- Report every change made (status transition, field copy, comment, remote link)
-  and every collected failure. A pass with no drift reports "no changes".
+- Report every change made (status transition, execution record closure, field
+  copy, comment, remote link) and every collected failure. A pass with no drift
+  reports "no changes".
 - A second pass over an already-reconciled item MUST make zero writes in either
   system.

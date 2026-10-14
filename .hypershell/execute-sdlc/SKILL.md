@@ -218,9 +218,11 @@ WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
 # Terminal Done projection: reconcile is idempotent and drift-correcting, keyed
 # only on the execution record. Once the human merges the pull request, reconcile
 # MUST be run one more time against this record so it detects the merge and
-# projects the Jira item to Done with the merge commit as a remote link. Request
-# that post-merge reconcile in the handoff below.
+# converges the whole stack: it projects the Jira item to Done with the merge
+# commit as a remote link AND closes this GitHub execution record (closure is
+# derived from the merge state, so the record is closed by the funnel, not by
+# hand). Request that post-merge reconcile in the handoff below.
 STOP: Provide the PR URL for $SELECTED_WORK_ITEM to the human for review, and ask
 them to merge it and then re-run reconcile against this record so Jira projects to
-Done:
+Done and this execution record is closed automatically:
     skill(../../../.hypershell/agents/reconcile, $SELECTED_WORK_ITEM)

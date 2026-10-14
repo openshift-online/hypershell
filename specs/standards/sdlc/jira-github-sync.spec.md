@@ -103,6 +103,7 @@ system and never the reverse:
 | Assignee | Jira |
 | Epic linkage and hierarchy | Jira |
 | Phase, labels, SDLC state machine | GitHub |
+| Execution record open/closed | GitHub |
 | Jira status | Derived from GitHub phase (see mapping) |
 | Branch, pull requests, commits, specs | GitHub |
 
@@ -231,10 +232,12 @@ consistent terminal state in a single run. In addition to projecting the Jira
 item to the `Done` category and linking the merge commit as a remote link, the
 reconciler SHALL close the GitHub execution record issue.
 
-Closure SHALL be derived from the merge state, exactly like the Done projection:
-the GitHub execution record SHALL be closed if and only if its linked pull
-request is merged. An execution record whose pull request is not yet merged SHALL
-remain Open.
+Closure SHALL be derived from the merge state, scoped to the merged case: the
+GitHub execution record SHALL be closed if and only if its linked pull request is
+merged to `main`. This covers only the merge path to `Done`; the `agent/duplicate`
+path to `Done` (a record already closed as a duplicate during triage) SHALL NOT
+trigger a separate closure here. An execution record whose pull request is not yet
+merged SHALL remain Open.
 
 Closure SHALL be idempotent and drift-correcting: closing an already-closed
 execution record SHALL be a no-op, and a run over a record whose pull request has
