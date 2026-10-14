@@ -5,6 +5,7 @@
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
+import type { UsersData } from "../domain/users";
 import type { FleetApi, InstancesData, TopologyData } from "./ports";
 
 export function getFleet(
@@ -33,4 +34,11 @@ export function getInstances(
   signal?: AbortSignal,
 ): Promise<Plane<InstancesData>> {
   return api.getInstances(signal);
+}
+
+export function getUsers(
+  api: FleetApi,
+  signal?: AbortSignal,
+): Promise<Plane<UsersData>> {
+  return api.getUsers(signal);
 }

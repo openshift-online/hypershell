@@ -69,6 +69,28 @@ export const messages = defineMessages({
     defaultMessage: "Role",
     description: "Instances table column header for the instance role.",
   },
+  columnSpokeClusters: {
+    id: "fleet.users.column.spoke-clusters",
+    defaultMessage: "Spoke clusters",
+    description:
+      "Users table column header for the spoke clusters hosting the user's gateways.",
+  },
+  columnUserGateways: {
+    id: "fleet.users.column.gateways",
+    defaultMessage: "Gateways",
+    description: "Users table column header for the user's gateway count.",
+  },
+  columnUsername: {
+    id: "fleet.users.column.username",
+    defaultMessage: "User",
+    description: "Users table column header for the username.",
+  },
+  columnUserSandboxes: {
+    id: "fleet.users.column.sandboxes",
+    defaultMessage: "Sandboxes",
+    description:
+      "Users table column header for the user's active sandbox count.",
+  },
   detailAlias: {
     id: "fleet.map.detail.alias",
     defaultMessage: "Alias",
@@ -413,6 +435,11 @@ export const messages = defineMessages({
     defaultMessage: "Release bundles",
     description: "Accessible label for the release freight bar.",
   },
+  sectionUsers: {
+    id: "fleet.section.users",
+    defaultMessage: "Fleet users",
+    description: "Heading for the per-user gateway and sandbox usage section.",
+  },
   statusDegraded: {
     id: "fleet.status.degraded",
     defaultMessage: "Degraded",
@@ -479,6 +506,38 @@ export const messages = defineMessages({
     id: "fleet.map.tab.links",
     defaultMessage: "Links",
     description: "Detail-panel tab showing the selected instance's deep links.",
+  },
+  tabMap: {
+    id: "fleet.tab.map",
+    defaultMessage: "Promotion topology",
+    description: "Top-level tab showing the promotion topology map view.",
+  },
+  tabUsers: {
+    id: "fleet.tab.users",
+    defaultMessage: "Fleet users",
+    description: "Top-level tab showing per-user gateway and sandbox usage.",
+  },
+  usersCardGateways: {
+    id: "fleet.users.card.gateways",
+    defaultMessage: "Gateways",
+    description: "Summary card label for the fleet-wide gateway total.",
+  },
+  usersCardOwners: {
+    id: "fleet.users.card.owners",
+    defaultMessage: "Gateway owners",
+    description:
+      "Summary card label for the count of users owning at least one gateway.",
+  },
+  usersCardSandboxes: {
+    id: "fleet.users.card.sandboxes",
+    defaultMessage: "Sandboxes",
+    description: "Summary card label for the fleet-wide active sandbox total.",
+  },
+  usersCardUsers: {
+    id: "fleet.users.card.users",
+    defaultMessage: "Distinct users",
+    description:
+      "Summary card label for the count of distinct registered users.",
   },
   valueNone: {
     id: "fleet.value.none",

@@ -16,6 +16,7 @@ import type {
   PullRequest,
   ReleaseBundle,
 } from "../../domain/promotion";
+import type { UserUsage, UsersData } from "../../domain/users";
 
 /** A pull request within a release bundle, as the delivery GitHub App reports it. */
 interface WirePR {
@@ -80,6 +81,35 @@ interface WirePromotion {
 /** `/api/instances` returns a bare list of instance names. */
 interface WireInstances {
   readonly instances?: readonly string[] | null;
+}
+
+/** One user's usage record on the wire (`/api/users`, all fields optional). */
+interface WireUserUsage {
+  readonly username?: string;
+  readonly gateways?: number;
+  readonly sandboxes?: number;
+  readonly clusters?: readonly string[] | null;
+}
+
+interface WireUsers {
+  readonly users?: readonly WireUserUsage[] | null;
+}
+
+export function mapUsers(raw: unknown): UsersData {
+  const wire = (raw ?? {}) as WireUsers;
+  const users: UserUsage[] = (wire.users ?? [])
+    .filter((u) => typeof u.username === "string" && u.username !== "")
+    .map((u) => ({
+      username: u.username ?? "",
+      gateways: num(u.gateways),
+      sandboxes: num(u.sandboxes),
+      // Older servers omit the field; an absent cluster list is empty, not
+      // unknown, so the table renders "-" rather than erroring.
+      clusters: (u.clusters ?? []).filter(
+        (c): c is string => typeof c === "string" && c !== "",
+      ),
+    }));
+  return { users };
 }
 
 function mapGate(gate: WireGate): PromotionGate {

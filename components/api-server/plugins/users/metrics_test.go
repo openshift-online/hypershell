@@ -18,6 +18,8 @@ type testUserDao struct {
 	registeredErr     error
 	created7Err       error
 	created30Err      error
+	gatewayUsage      []UserGatewayUsage
+	gatewayUsageErr   error
 }
 
 func (d *testUserDao) Get(context.Context, string) (*User, error)            { return nil, nil }
@@ -28,6 +30,9 @@ func (d *testUserDao) Delete(context.Context, string) error                  { r
 func (d *testUserDao) Upsert(context.Context, *User) (*User, error)          { return nil, nil }
 func (d *testUserDao) FindByIDs(context.Context, []string) (UserList, error) { return nil, nil }
 func (d *testUserDao) All(context.Context) (UserList, error)                 { return nil, nil }
+func (d *testUserDao) GatewayUsageByUser(context.Context) ([]UserGatewayUsage, error) {
+	return d.gatewayUsage, d.gatewayUsageErr
+}
 func (d *testUserDao) CountRegistered(context.Context) (int64, error) {
 	return d.registeredTotal, d.registeredErr
 }
@@ -95,7 +100,111 @@ func TestRegisteredUsersCollectorActivityFailureDoesNotInvalidateRegistrationSer
 	}
 }
 
-func collectRegisteredUserMetrics(collector *registeredUsersCollector) (map[string]float64, []string, error) {
+func TestUserGatewayUsageCollectorEmitsPerUserPerClusterGaugePairs(t *testing.T) {
+	collector := newUserGatewayUsageCollector(&testUserDao{
+		gatewayUsage: []UserGatewayUsage{
+			{Username: "alice", Cluster: "useast-1", Gateways: 5, Sandboxes: 40},
+			{Username: "alice", Cluster: "euwest-1", Gateways: 2, Sandboxes: 24},
+			{Username: "bob", Cluster: "useast-1", Gateways: 1, Sandboxes: 0},
+			{Username: "carol", Cluster: "", Gateways: 0, Sandboxes: 0},
+		},
+	})
+
+	samples, err := collectUserUsageMetrics(collector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][2]float64{
+		"alice|useast-1": {5, 40},
+		"alice|euwest-1": {2, 24},
+		"bob|useast-1":   {1, 0},
+		"carol|":         {0, 0},
+	}
+	if len(samples) != len(want) {
+		t.Fatalf("got %d series, want %d", len(samples), len(want))
+	}
+	for key, expected := range want {
+		got, ok := samples[key]
+		if !ok {
+			t.Fatalf("series %q missing from collected samples", key)
+		}
+		if got != expected {
+			t.Errorf("series %q = {gateways %v, sandboxes %v}, want {gateways %v, sandboxes %v}",
+				key, got[0], got[1], expected[0], expected[1])
+		}
+	}
+}
+
+func TestUserGatewayUsageCollectorDaoErrorSurfacesAsInvalidMetric(t *testing.T) {
+	collector := newUserGatewayUsageCollector(&testUserDao{
+		gatewayUsageErr: errors.New("usage query failed"),
+	})
+
+	ch := make(chan prometheus.Metric, 8)
+	collector.Collect(ch)
+	close(ch)
+
+	invalid := 0
+	for metric := range ch {
+		dtoMetric := &dto.Metric{}
+		if err := metric.Write(dtoMetric); err != nil {
+			invalid++
+			continue
+		}
+		if dtoMetric.GetGauge() == nil {
+			invalid++
+		}
+	}
+	if invalid != 2 {
+		t.Fatalf("expected 2 invalid metrics (one per desc), got %d", invalid)
+	}
+}
+
+// collectUserUsageMetrics drains the usage collector into a "username|cluster"
+// keyed map of {gateways, sandboxes} pairs, failing on any invalid sample.
+func collectUserUsageMetrics(collector *userGatewayUsageCollector) (map[string][2]float64, error) {
+	ch := make(chan prometheus.Metric, 64)
+	collector.Collect(ch)
+	close(ch)
+
+	samples := make(map[string][2]float64)
+	for metric := range ch {
+		dtoMetric := &dto.Metric{}
+		if err := metric.Write(dtoMetric); err != nil {
+			return nil, err
+		}
+		if dtoMetric.GetGauge() == nil {
+			return nil, errors.New("usage metric is not a gauge")
+		}
+		username := ""
+		cluster := ""
+		for _, label := range dtoMetric.GetLabel() {
+			switch label.GetName() {
+			case "username":
+				username = label.GetValue()
+			case "cluster":
+				cluster = label.GetValue()
+			}
+		}
+		if username == "" {
+			return nil, errors.New("usage metric missing username label")
+		}
+		name := metricFQName(metric.Desc().String())
+		// Map values are not addressable; read-modify-write the pair.
+		pair := samples[username+"|"+cluster]
+		if name == "hypershell_users_gateways_total" {
+			pair[0] = dtoMetric.GetGauge().GetValue()
+		} else if name == "hypershell_users_sandboxes_total" {
+			pair[1] = dtoMetric.GetGauge().GetValue()
+		} else {
+			return nil, errors.New("unexpected usage metric name: " + name)
+		}
+		samples[username+"|"+cluster] = pair
+	}
+	return samples, nil
+}
+
+func collectRegisteredUserMetrics(collector prometheus.Collector) (map[string]float64, []string, error) {
 	ch := make(chan prometheus.Metric, 64)
 	collector.Collect(ch)
 	close(ch)

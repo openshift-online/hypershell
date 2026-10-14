@@ -76,4 +76,28 @@ describe("createHttpFleetApi", () => {
 
     await expect(api.getInstances()).rejects.toBeInstanceOf(HttpError);
   });
+
+  it("requests the users route under the injected base path", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      okResponse({
+        data: {
+          users: [{ username: "alpha-user", gateways: 2, sandboxes: 5 }],
+        },
+        generatedAt: "2026-01-01T00:00:00Z",
+        stale: false,
+        error: null,
+      }),
+    );
+    const api = createHttpFleetApi({ basePath: "/api", fetchImpl });
+
+    const plane = await api.getUsers();
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/users",
+      expect.objectContaining({ headers: { Accept: "application/json" } }),
+    );
+    expect(plane.data.users).toEqual([
+      { username: "alpha-user", gateways: 2, sandboxes: 5, clusters: [] },
+    ]);
+  });
 });

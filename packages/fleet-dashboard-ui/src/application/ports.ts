@@ -5,6 +5,7 @@
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
+import type { UsersData } from "../domain/users";
 
 /** Topology is opaque to the domain - the server owns its shape entirely. */
 export interface TopologyData {
@@ -42,4 +43,5 @@ export interface FleetApi {
   getPromotion(signal?: AbortSignal): Promise<Plane<PromotionData>>;
   getTopology(signal?: AbortSignal): Promise<Plane<TopologyData>>;
   getInstances(signal?: AbortSignal): Promise<Plane<InstancesData>>;
+  getUsers(signal?: AbortSignal): Promise<Plane<UsersData>>;
 }

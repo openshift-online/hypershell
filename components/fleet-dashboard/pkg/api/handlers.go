@@ -17,6 +17,7 @@ type Handlers struct {
 	Promotion *cache.Source
 	Topology  *cache.Source
 	Instances *cache.Source
+	Users     *cache.Source
 }
 
 // Register mounts the /api/* routes on the mux.
@@ -25,6 +26,7 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/promotion", h.serve(h.Promotion))
 	mux.HandleFunc("GET /api/topology", h.serve(h.Topology))
 	mux.HandleFunc("GET /api/instances", h.serve(h.Instances))
+	mux.HandleFunc("GET /api/users", h.serve(h.Users))
 }
 
 // serve returns the source's snapshot. A source that has never produced data

@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm/clause"
 
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 )
@@ -22,6 +23,7 @@ type UserDao interface {
 	All(ctx context.Context) (UserList, error)
 	CountRegistered(ctx context.Context) (int64, error)
 	CountCreatedSince(ctx context.Context, since time.Time) (int64, error)
+	GatewayUsageByUser(ctx context.Context) ([]UserGatewayUsage, error)
 }
 
 var _ UserDao = &sqlUserDao{}
@@ -133,6 +135,56 @@ func (d *sqlUserDao) CountRegistered(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// UserGatewayUsage is one registered user's fleet usage on one spoke cluster
+// (ManagedCluster referenced by their owned gateways): the number of gateways
+// they own there (gateway:owner RoleBindings) and the total active sandboxes
+// across those gateways. Users with no gateways appear once with zero counts
+// and an empty cluster so the caller can distinguish adoption from ownership.
+type UserGatewayUsage struct {
+	Username  string
+	Cluster   string
+	Gateways  int64
+	Sandboxes int64
+}
+
+// GatewayUsageByUser returns per-user, per-spoke-cluster gateway and
+// active-sandbox counts for every registered user, ordered by username then
+// cluster. Ownership is the gateway:owner RoleBinding (the binding created
+// with each gateway); viewer bindings do not count. The DISTINCT inner join
+// dedupes a user holding multiple bindings for the same gateway so sandbox
+// counts never double-count. Gateways referencing a soft-deleted cluster
+// report an empty cluster name but still count toward the user's totals.
+func (d *sqlUserDao) GatewayUsageByUser(ctx context.Context) ([]UserGatewayUsage, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var rows []UserGatewayUsage
+	if err := g2.Raw(`
+		SELECT users.username AS username,
+		       COALESCE(managed_clusters.name, '') AS cluster,
+		       COUNT(DISTINCT gateways.id) AS gateways,
+		       COALESCE(SUM(COALESCE(gateways.active_sandbox_count, 0)), 0) AS sandboxes
+		FROM users
+		LEFT JOIN (
+			SELECT DISTINCT role_bindings.user_id, role_bindings.gateway_id
+			FROM role_bindings
+			JOIN roles ON roles.id = role_bindings.role_id
+				AND roles.deleted_at IS NULL
+				AND roles.name = ?
+			WHERE role_bindings.deleted_at IS NULL
+				AND role_bindings.gateway_id IS NOT NULL
+		) owned ON owned.user_id = users.id
+		LEFT JOIN gateways ON gateways.id = owned.gateway_id
+			AND gateways.deleted_at IS NULL
+		LEFT JOIN managed_clusters ON managed_clusters.id = gateways.cluster_id
+			AND managed_clusters.deleted_at IS NULL
+		WHERE users.deleted_at IS NULL
+		GROUP BY users.id, users.username, managed_clusters.name
+		ORDER BY users.username, cluster
+	`, roles.RoleGatewayOwner).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("gateway usage by user: %w", err)
+	}
+	return rows, nil
 }
 
 func (d *sqlUserDao) CountCreatedSince(ctx context.Context, since time.Time) (int64, error) {

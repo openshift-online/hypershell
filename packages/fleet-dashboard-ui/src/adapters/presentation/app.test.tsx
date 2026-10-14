@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
 import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
 import type { PromotionData } from "../../domain/promotion";
+import type { UsersData } from "../../domain/users";
 import type {
   FleetApi,
   InstancesData,
@@ -90,6 +92,7 @@ describe("App", () => {
         Promise.resolve(plane<TopologyData>({ nodes: [], edges: [] })),
       getInstances: () =>
         Promise.resolve(plane<InstancesData>({ instances: [] })),
+      getUsers: () => Promise.resolve(plane<UsersData>({ users: [] })),
     } satisfies FleetApi;
 
     renderApp(empty);
@@ -101,5 +104,80 @@ describe("App", () => {
     // Governing instance came from gate data, not any hard-coded mapping. It is
     // only in the (visually hidden, still accessible) promotion table now.
     expect(await screen.findByText("gov-from-data")).toBeDefined();
+  });
+
+  it("renders per-user gateway and sandbox usage on the Fleet users tab", async () => {
+    const promotion: PromotionData = {
+      order: [],
+      environments: {},
+      releases: [],
+      releaseByDigest: {},
+      frontier: null,
+    };
+    const api = {
+      getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
+      getPromotion: () => Promise.resolve(plane(promotion)),
+      getTopology: () =>
+        Promise.resolve(plane<TopologyData>({ nodes: [], edges: [] })),
+      getInstances: () =>
+        Promise.resolve(plane<InstancesData>({ instances: [] })),
+      getUsers: () =>
+        Promise.resolve(
+          plane<UsersData>({
+            users: [
+              {
+                username: "alpha-user",
+                gateways: 7,
+                sandboxes: 64,
+                clusters: ["useast-1"],
+              },
+              {
+                username: "beta-user",
+                gateways: 0,
+                sandboxes: 0,
+                clusters: [],
+              },
+            ],
+          }),
+        ),
+    } satisfies FleetApi;
+
+    renderApp(api);
+
+    // The users plane is only fetched once its tab is selected.
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Fleet users" }),
+    );
+    expect(await screen.findByText("alpha-user")).toBeDefined();
+    expect(screen.getByText("beta-user")).toBeDefined();
+    // Summary cards carry the aggregate counts.
+    expect(screen.getByText("Distinct users")).toBeDefined();
+    expect(screen.getByText("Gateway owners")).toBeDefined();
+  });
+
+  it("deep-links to the users view from ?view=users", async () => {
+    const promotion: PromotionData = {
+      order: [],
+      environments: {},
+      releases: [],
+      releaseByDigest: {},
+      frontier: null,
+    };
+    const api = {
+      getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
+      getPromotion: () => Promise.resolve(plane(promotion)),
+      getTopology: () =>
+        Promise.resolve(plane<TopologyData>({ nodes: [], edges: [] })),
+      getInstances: () =>
+        Promise.resolve(plane<InstancesData>({ instances: [] })),
+      getUsers: () => Promise.resolve(plane<UsersData>({ users: [] })),
+    } satisfies FleetApi;
+
+    window.history.pushState(null, "", "?view=users");
+    renderApp(api);
+
+    // The users plane is fetched without clicking the tab.
+    expect(await screen.findByText("Distinct users")).toBeDefined();
+    window.history.pushState(null, "", "?");
   });
 });

@@ -76,6 +76,7 @@ type Config struct {
 	RefreshPromotion time.Duration
 	RefreshTopology  time.Duration
 	RefreshInstances time.Duration
+	RefreshUsers     time.Duration
 }
 
 // SubjectAccessReview describes the resource attributes the forwarded identity
@@ -129,6 +130,7 @@ func Load() (*Config, error) {
 		RefreshPromotion:    envDuration("FD_REFRESH_PROMOTION", 30*time.Second),
 		RefreshTopology:     envDuration("FD_REFRESH_TOPOLOGY", 30*time.Second),
 		RefreshInstances:    envDuration("FD_REFRESH_INSTANCES", 60*time.Second),
+		RefreshUsers:        envDuration("FD_REFRESH_USERS", 60*time.Second),
 	}
 
 	if c.PromURL == "" {

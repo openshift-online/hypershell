@@ -7,12 +7,14 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
 import type { PromotionData } from "../../domain/promotion";
+import type { UsersData } from "../../domain/users";
 import type { InstancesData, TopologyData } from "../../application/ports";
 import {
   getFleet,
   getInstances,
   getPromotion,
   getTopology,
+  getUsers,
 } from "../../application/use-cases";
 import { useFleetApi } from "./api-context";
 import { queryKeys } from "./keys";
@@ -31,6 +33,7 @@ const REFETCH_MS = {
   promotion: FAST_POLL_MS ?? 20_000,
   instances: 30_000,
   topology: 60_000,
+  users: 30_000,
 };
 
 export function useFleet(): UseQueryResult<Plane<FleetData>> {
@@ -66,5 +69,14 @@ export function useInstances(): UseQueryResult<Plane<InstancesData>> {
     queryKey: queryKeys.instances,
     queryFn: ({ signal }) => getInstances(api, signal),
     refetchInterval: REFETCH_MS.instances,
+  });
+}
+
+export function useUsers(): UseQueryResult<Plane<UsersData>> {
+  const api = useFleetApi();
+  return useQuery({
+    queryKey: queryKeys.users,
+    queryFn: ({ signal }) => getUsers(api, signal),
+    refetchInterval: REFETCH_MS.users,
   });
 }

@@ -23,11 +23,12 @@ var (
 	lastActivityPruneDay atomic.Int64
 )
 
-// RegisterUserMetrics registers Prometheus gauges for registered user adoption.
-// Safe to call multiple times.
+// RegisterUserMetrics registers Prometheus gauges for registered user adoption
+// and per-user fleet usage. Safe to call multiple times.
 func RegisterUserMetrics(userDao UserDao, activityDao UserActivityDao) {
 	userMetricsOnce.Do(func() {
 		prometheus.MustRegister(newRegisteredUsersCollector(userDao, activityDao))
+		prometheus.MustRegister(newUserGatewayUsageCollector(userDao))
 	})
 }
 
@@ -195,6 +196,62 @@ func (c *registeredUsersCollector) Collect(ch chan<- prometheus.Metric) {
 		prometheus.GaugeValue,
 		float64(loginSnapshot.UniqueLoginsLast30Days),
 	)
+}
+
+const gatewaysHelp = "Number of gateways owned by each registered user on each spoke cluster (gateway:owner RoleBindings)."
+const sandboxesHelp = "Total active agent sandboxes across the gateways owned by each registered user on each spoke cluster."
+
+// userGatewayUsageCollector emits one gauge pair per registered user and
+// spoke cluster, keyed by username and cluster, so the fleet dashboard can
+// show how many distinct users hold how many gateways and sandboxes and where.
+// Users owning nothing still appear once with zero counts and no cluster (the
+// usage query includes every registered user) so adoption and ownership stay
+// distinguishable in downstream aggregations. Summing over the cluster label
+// yields the per-user fleet totals.
+type userGatewayUsageCollector struct {
+	dao           UserDao
+	gatewaysDesc  *prometheus.Desc
+	sandboxesDesc *prometheus.Desc
+}
+
+func newUserGatewayUsageCollector(dao UserDao) *userGatewayUsageCollector {
+	return &userGatewayUsageCollector{
+		dao: dao,
+		gatewaysDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(metricsNamespace, metricsSubsystem, "gateways_total"),
+			gatewaysHelp,
+			[]string{"username", "cluster"},
+			nil,
+		),
+		sandboxesDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(metricsNamespace, metricsSubsystem, "sandboxes_total"),
+			sandboxesHelp,
+			[]string{"username", "cluster"},
+			nil,
+		),
+	}
+}
+
+func (c *userGatewayUsageCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.gatewaysDesc
+	ch <- c.sandboxesDesc
+}
+
+func (c *userGatewayUsageCollector) Collect(ch chan<- prometheus.Metric) {
+	usage, err := c.dao.GatewayUsageByUser(context.Background())
+	if err != nil {
+		// Emit an error metric so the scrape does not silently drop the series.
+		ch <- prometheus.NewInvalidMetric(c.gatewaysDesc, err)
+		ch <- prometheus.NewInvalidMetric(c.sandboxesDesc, err)
+		return
+	}
+	for _, u := range usage {
+		// An empty cluster label is equivalent to the label being absent in
+		// Prometheus, so zero-ownership users aggregate cleanly under
+		// sum by (username).
+		ch <- prometheus.MustNewConstMetric(c.gatewaysDesc, prometheus.GaugeValue, float64(u.Gateways), u.Username, u.Cluster)
+		ch <- prometheus.MustNewConstMetric(c.sandboxesDesc, prometheus.GaugeValue, float64(u.Sandboxes), u.Username, u.Cluster)
+	}
 }
 
 func maybePruneActivity(ctx context.Context, activityDao UserActivityDao, cutoff time.Time) {

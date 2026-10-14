@@ -87,11 +87,12 @@ func run(logger *slog.Logger) error {
 	promotionSrc := cache.NewSource("promotion", cfg.RefreshPromotion, promotion.Promotion, metrics.Observe)
 	topologySrc := cache.NewSource("topology", cfg.RefreshTopology, topology.Topology, metrics.Observe)
 	instancesSrc := cache.NewSource("instances", cfg.RefreshInstances, prom.Instances, metrics.Observe)
+	usersSrc := cache.NewSource("users", cfg.RefreshUsers, prom.Users, metrics.Observe)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	for _, s := range []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc} {
+	for _, s := range []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc, usersSrc} {
 		go s.Run(ctx)
 	}
 
@@ -100,6 +101,7 @@ func run(logger *slog.Logger) error {
 		Promotion: promotionSrc,
 		Topology:  topologySrc,
 		Instances: instancesSrc,
+		Users:     usersSrc,
 	}
 	authn := auth.New(cfg, kube.Clientset)
 

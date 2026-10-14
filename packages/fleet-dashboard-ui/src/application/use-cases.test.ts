@@ -3,8 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
+import type { UsersData } from "../domain/users";
 import type { FleetApi, InstancesData, TopologyData } from "./ports";
-import { getFleet, getInstances, getPromotion, getTopology } from "./use-cases";
+import {
+  getFleet,
+  getInstances,
+  getPromotion,
+  getTopology,
+  getUsers,
+} from "./use-cases";
 
 function plane<T>(data: T): Plane<T> {
   return {
@@ -26,11 +33,13 @@ function fakeApi(overrides: Partial<FleetApi> = {}): FleetApi {
   };
   const topology: TopologyData = { nodes: [], edges: [] };
   const instances: InstancesData = { instances: [] };
+  const users: UsersData = { users: [] };
   return {
     getFleet: vi.fn().mockResolvedValue(plane(fleet)),
     getPromotion: vi.fn().mockResolvedValue(plane(promotion)),
     getTopology: vi.fn().mockResolvedValue(plane(topology)),
     getInstances: vi.fn().mockResolvedValue(plane(instances)),
+    getUsers: vi.fn().mockResolvedValue(plane(users)),
     ...overrides,
   };
 }
@@ -44,12 +53,14 @@ describe("use cases", () => {
     await getPromotion(api, controller.signal);
     await getTopology(api, controller.signal);
     await getInstances(api, controller.signal);
+    await getUsers(api, controller.signal);
 
     /* eslint-disable @typescript-eslint/unbound-method -- asserting on vi.fn() mocks, not calling them */
     expect(api.getFleet).toHaveBeenCalledWith(controller.signal);
     expect(api.getPromotion).toHaveBeenCalledWith(controller.signal);
     expect(api.getTopology).toHaveBeenCalledWith(controller.signal);
     expect(api.getInstances).toHaveBeenCalledWith(controller.signal);
+    expect(api.getUsers).toHaveBeenCalledWith(controller.signal);
     /* eslint-enable @typescript-eslint/unbound-method */
   });
 

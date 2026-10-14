@@ -5,7 +5,7 @@ import {
   governingInstance,
   orderedEnvironments,
 } from "../../domain/promotion";
-import { mapFleet, mapInstances, mapPromotion } from "./wire";
+import { mapFleet, mapInstances, mapPromotion, mapUsers } from "./wire";
 
 // Fixtures use deliberately fictional environment/instance names (alpha/beta/
 // gamma) and a fake release id. The fleet-dashboard source is public, so real
@@ -203,5 +203,58 @@ describe("mapInstances", () => {
   it("tolerates a null/absent list", () => {
     expect(mapInstances({}).instances).toEqual([]);
     expect(mapInstances({ instances: null }).instances).toEqual([]);
+  });
+});
+
+describe("mapUsers", () => {
+  it("projects the wire list into the domain shape", () => {
+    const data = mapUsers({
+      users: [
+        {
+          username: "alpha-user",
+          gateways: 7,
+          sandboxes: 64,
+          clusters: ["euwest-1", "useast-1"],
+        },
+        { username: "beta-user", gateways: 0, sandboxes: 0, clusters: [] },
+      ],
+    });
+    expect(data.users).toEqual([
+      {
+        username: "alpha-user",
+        gateways: 7,
+        sandboxes: 64,
+        clusters: ["euwest-1", "useast-1"],
+      },
+      { username: "beta-user", gateways: 0, sandboxes: 0, clusters: [] },
+    ]);
+  });
+
+  it("defaults absent clusters to an empty list", () => {
+    const data = mapUsers({
+      users: [{ username: "alpha-user", gateways: 1, sandboxes: 0 }],
+    });
+    expect(data.users).toEqual([
+      {
+        username: "alpha-user",
+        gateways: 1,
+        sandboxes: 0,
+        clusters: [],
+      },
+    ]);
+  });
+
+  it("defaults absent counts to zero and drops blank usernames", () => {
+    const data = mapUsers({
+      users: [{ username: "alpha-user" }, { username: "" }, {}],
+    });
+    expect(data.users).toEqual([
+      { username: "alpha-user", gateways: 0, sandboxes: 0, clusters: [] },
+    ]);
+  });
+
+  it("tolerates a null/absent payload", () => {
+    expect(mapUsers({}).users).toEqual([]);
+    expect(mapUsers(null).users).toEqual([]);
   });
 });

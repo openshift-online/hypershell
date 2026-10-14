@@ -4,7 +4,7 @@
 
 import type { Plane } from "../../domain/plane";
 import type { FleetApi, TopologyData } from "../../application/ports";
-import { mapFleet, mapInstances, mapPromotion } from "./wire";
+import { mapFleet, mapInstances, mapPromotion, mapUsers } from "./wire";
 
 export interface HttpFleetApiOptions {
   /** BFF base path, e.g. "/api". No trailing slash. */
@@ -55,5 +55,6 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
     getTopology: (signal) =>
       getPlane<TopologyData>("/topology", (raw) => raw as TopologyData, signal),
     getInstances: (signal) => getPlane("/instances", mapInstances, signal),
+    getUsers: (signal) => getPlane("/users", mapUsers, signal),
   };
 }

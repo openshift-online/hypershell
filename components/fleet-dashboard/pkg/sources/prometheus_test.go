@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -116,5 +118,128 @@ func TestQueryRangeStepFloor(t *testing.T) {
 	}
 	if gotStep != "1s" {
 		t.Errorf("step = %q, want 1s (floored)", gotStep)
+	}
+}
+
+// TestUsersPlane covers the /api/users source: it must discover instances from
+// the gateway metric, aggregate the per-user per-cluster gauges by username
+// across instances, union the distinct spoke clusters per user, keep a user
+// present in only one of the two gauges (missing side zero), keep zero-ownership
+// users distinguishable (no clusters), sort by username, and fail the whole
+// snapshot when either gauge query fails (a half-built usage table would
+// silently under-report).
+func TestUsersPlane(t *testing.T) {
+	responses := map[string]string{
+		"group by (namespace) (hypershell_gateways_total)": `{"status":"success","data":{"resultType":"vector","result":[` +
+			`{"metric":{"namespace":"inst-a"},"value":[1,"1"]},` +
+			`{"metric":{"namespace":"inst-b"},"value":[1,"1"]}` +
+			`]}}`,
+		"sum by (username, cluster) (hypershell_users_gateways_total{namespace=~\"inst-a|inst-b\"})": `{"status":"success","data":{"resultType":"vector","result":[` +
+			`{"metric":{"username":"alice","cluster":"useast-1"},"value":[1,"5"]},` +
+			`{"metric":{"username":"alice","cluster":"euwest-1"},"value":[1,"2"]},` +
+			`{"metric":{"username":"bob","cluster":"useast-1"},"value":[1,"1"]},` +
+			`{"metric":{"username":"dave"},"value":[1,"0"]}` +
+			`]}}`,
+		"sum by (username, cluster) (hypershell_users_sandboxes_total{namespace=~\"inst-a|inst-b\"})": `{"status":"success","data":{"resultType":"vector","result":[` +
+			`{"metric":{"username":"alice","cluster":"useast-1"},"value":[1,"40"]},` +
+			`{"metric":{"username":"alice","cluster":"euwest-1"},"value":[1,"24"]},` +
+			`{"metric":{"username":"carol"},"value":[1,"3"]}` +
+			`]}}`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := responses[r.URL.Query().Get("query")]
+		if !ok {
+			t.Errorf("unexpected query: %q", r.URL.Query().Get("query"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:      srv.URL,
+		instLabel: "namespace",
+		metric:    "hypershell_gateways_total",
+		client:    srv.Client(),
+		logger:    slog.Default(),
+	}
+	got, err := p.Users(context.Background())
+	if err != nil {
+		t.Fatalf("Users: %v", err)
+	}
+	envelope, ok := got.(UserUsageEnvelope)
+	if !ok {
+		t.Fatalf("Users returned %T, want UserUsageEnvelope", got)
+	}
+	want := []UserUsage{
+		{Username: "alice", Gateways: 7, Sandboxes: 64, Clusters: []string{"euwest-1", "useast-1"}},
+		{Username: "bob", Gateways: 1, Clusters: []string{"useast-1"}},
+		{Username: "carol", Sandboxes: 3, Clusters: []string{}},
+		{Username: "dave", Clusters: []string{}},
+	}
+	if len(envelope.Users) != len(want) {
+		t.Fatalf("got %d users, want %d: %+v", len(envelope.Users), len(want), envelope.Users)
+	}
+	for i, u := range want {
+		if !reflect.DeepEqual(envelope.Users[i], u) {
+			t.Errorf("users[%d] = %+v, want %+v", i, envelope.Users[i], u)
+		}
+	}
+}
+
+// TestUsersPlaneEmptyInstances confirms an instance-less discovery yields an
+// empty list, not nil, so the JSON payload stays a stable shape.
+func TestUsersPlaneEmptyInstances(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:      srv.URL,
+		instLabel: "namespace",
+		metric:    "hypershell_gateways_total",
+		client:    srv.Client(),
+		logger:    slog.Default(),
+	}
+	got, err := p.Users(context.Background())
+	if err != nil {
+		t.Fatalf("Users: %v", err)
+	}
+	envelope, ok := got.(UserUsageEnvelope)
+	if !ok {
+		t.Fatalf("Users returned %T, want UserUsageEnvelope", got)
+	}
+	if envelope.Users == nil || len(envelope.Users) != 0 {
+		t.Fatalf("users = %#v, want empty non-nil slice", envelope.Users)
+	}
+}
+
+// TestUsersPlaneQueryFailureFailsSnapshot is the anti-silent-under-report guard:
+// when either per-user gauge query fails, the plane must return an error so the
+// cache serves the last-good snapshot flagged stale instead of a partial table.
+func TestUsersPlaneQueryFailureFailsSnapshot(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Query().Get("query"), "hypershell_users_sandboxes_total") {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"status":"error","error":"boom"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+			`{"metric":{"namespace":"inst-a"},"value":[1,"1"]}]}}`))
+	}))
+	defer srv.Close()
+
+	p := &Prometheus{
+		base:      srv.URL,
+		instLabel: "namespace",
+		metric:    "hypershell_gateways_total",
+		client:    srv.Client(),
+		logger:    slog.Default(),
+	}
+	if _, err := p.Users(context.Background()); err == nil {
+		t.Fatal("Users should fail when a per-user gauge query fails")
 	}
 }

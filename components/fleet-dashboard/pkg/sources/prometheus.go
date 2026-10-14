@@ -207,6 +207,124 @@ type InstanceFleet struct {
 	GatewayHistory []GatewayHistorySample `json:"gatewayHistory"`
 }
 
+// UserUsage is one registered user's fleet usage, summed across instances:
+// gateway ownership and active sandbox counts plus the distinct spoke clusters
+// their owned gateways run on.
+type UserUsage struct {
+	Username  string   `json:"username"`
+	Gateways  float64  `json:"gateways"`
+	Sandboxes float64  `json:"sandboxes"`
+	Clusters  []string `json:"clusters"`
+}
+
+// UserUsageEnvelope is the /api/users payload data.
+type UserUsageEnvelope struct {
+	Users []UserUsage `json:"users"`
+}
+
+// Users builds the /api/users payload: per-user gateway ownership, active
+// sandbox counts, and the spoke clusters involved, from the api-server's
+// per-user gauges, aggregated across the discovered instances by username.
+// Both gauges come from the same scrape-side query in the api-server, so a
+// username present in one but missing from the other still yields a record
+// (the missing side stays zero) rather than a silently dropped user. Unlike
+// the fleet plane, a Prometheus failure fails the whole snapshot: a half-built
+// usage table would silently under-report.
+func (p *Prometheus) Users(ctx context.Context) (any, error) {
+	inst, err := p.DiscoverInstances(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(inst) == 0 {
+		return UserUsageEnvelope{Users: []UserUsage{}}, nil
+	}
+	nsRE := strings.Join(inst, "|")
+
+	// byUserCluster queries one per-user gauge, aggregated by (username,
+	// cluster) across instances. The cluster label is absent for users owning
+	// nothing (the api-server emits their zero series without a cluster).
+	byUserCluster := func(metric string) (map[string]map[string]float64, error) {
+		res, err := p.instant(ctx, fmt.Sprintf("sum by (username, cluster) (%s{%s=~%q})", metric, p.instLabel, nsRE))
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[string]map[string]float64, len(res))
+		for _, r := range res {
+			username := r.Metric["username"]
+			if username == "" {
+				continue
+			}
+			if out[username] == nil {
+				out[username] = map[string]float64{}
+			}
+			out[username][r.Metric["cluster"]] = sampleValue(r.Value)
+		}
+		return out, nil
+	}
+
+	gateways, err := byUserCluster("hypershell_users_gateways_total")
+	if err != nil {
+		return nil, fmt.Errorf("user gateways query: %w", err)
+	}
+	sandboxes, err := byUserCluster("hypershell_users_sandboxes_total")
+	if err != nil {
+		return nil, fmt.Errorf("user sandboxes query: %w", err)
+	}
+
+	// Union the per-gauge (username, cluster) keys: any cluster a user's
+	// gateways run on appears in both, but a defensive union keeps a user
+	// visible even if one gauge momentarily drops a series. The empty cluster
+	// key (owns nothing) contributes counts but no cluster entry.
+	type acc struct {
+		gateways, sandboxes float64
+		clusters            map[string]bool
+	}
+	byUser := make(map[string]*acc, len(gateways)+len(sandboxes))
+	get := func(username string) *acc {
+		a, ok := byUser[username]
+		if !ok {
+			a = &acc{clusters: map[string]bool{}}
+			byUser[username] = a
+		}
+		return a
+	}
+	for username, byCluster := range gateways {
+		a := get(username)
+		for cluster, value := range byCluster {
+			a.gateways += value
+			if cluster != "" {
+				a.clusters[cluster] = true
+			}
+		}
+	}
+	for username, byCluster := range sandboxes {
+		a := get(username)
+		for cluster, value := range byCluster {
+			a.sandboxes += value
+			if cluster != "" {
+				a.clusters[cluster] = true
+			}
+		}
+	}
+
+	users := make([]UserUsage, 0, len(byUser))
+	for username, a := range byUser {
+		clusters := make([]string, 0, len(a.clusters))
+		for cluster := range a.clusters {
+			clusters = append(clusters, cluster)
+		}
+		sort.Strings(clusters)
+		users = append(users, UserUsage{
+			Username:  username,
+			Gateways:  a.gateways,
+			Sandboxes: a.sandboxes,
+			Clusters:  clusters,
+		})
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
+	return UserUsageEnvelope{Users: users}, nil
+}
+
 // RateStats is a rate + error% + p95 latency triple.
 type RateStats struct {
 	Rate     float64 `json:"rate"`
