@@ -1,7 +1,7 @@
 # Jira and GitHub SDLC Synchronization
 
 **Date:** 2026-10-14
-**Status:** Draft
+**Status:** Active
 **Ticket:** HYPERSHELL-374
 **Related:** `.hypershell/execute-sdlc/SKILL.md` (funnel entrypoint and scope selector), `.hypershell/agents/triage/SKILL.md` (work discovery), `.hypershell/agents/spec-implementation/SKILL.md` (spec phase), `skills/plan/spec/SKILL.md` (spec authoring)
 
@@ -24,8 +24,11 @@ keeps the two converged under a per-field authority rule, so a manager sees
 progress and credits the human owner without ever editing Jira by hand.
 
 This is a cross-cutting process standard. It constrains the SDLC skills under
-`.hypershell/` and defines the desired behavior the later code phase implements.
-It does not itself change skill code.
+`.hypershell/` and defines the desired behavior the code phase implements. The
+pull request that introduces this standard also makes the first realization of
+it: the `execute-sdlc` entrypoint gains an origin-agnostic intake step (Step 0)
+and a scope selector that accepts a Jira source. The remaining skill changes
+listed under "Required Skill Changes" are realized by later code-phase work.
 
 ---
 
@@ -114,6 +117,12 @@ A Jira-origin item SHALL be ingested into a GitHub execution record created in
 the funnel's GitHub repository, carrying the funnel scope label so the existing
 state machine applies unchanged.
 
+Intake SHALL resolve exactly one execution record for a work item. The canonical
+link is the idempotency key. If intake finds more than one execution record for
+one work item, the state is ambiguous: intake SHALL NOT guess, SHALL NOT create
+another record, and SHALL STOP and report an error that names the work item and
+asks a human to resolve the duplicates.
+
 #### Scenario: Jira epic enters the funnel
 
 - GIVEN a Jira scope that selects epic `HYPERSHELL-374`
@@ -136,6 +145,16 @@ state machine applies unchanged.
 - WHEN intake runs
 - THEN the issue itself is the execution record
 - AND no additional GitHub issue is created
+
+#### Scenario: Multiple execution records for one item stop intake
+
+- GIVEN a Jira-origin work item
+- AND more than one GitHub execution record matches that work item
+- WHEN intake runs
+- THEN intake does not guess which record to use
+- AND intake creates no new GitHub execution record
+- AND intake stops and reports an error that names the work item and asks a
+  human to resolve the duplicate records
 
 ### Requirement: Canonical Identity Link
 
