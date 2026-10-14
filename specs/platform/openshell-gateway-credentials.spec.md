@@ -345,15 +345,21 @@ because a gateway resolves to exactly one driver at creation. The control plane 
 make Vault unavailability observable rather than letting a gateway come up
 non-functional.
 
-- **At provisioning:** before a Vault-backed gateway advances to `Running`, the control
-  plane SHALL verify the per-cluster Vault is reachable and that the gateway's identity
-  can authenticate (acting as the gateway's own ServiceAccount identity against role
-  `openshell-gateway`, never as a Vault administrator). On failure it SHALL set the
-  `EnvironmentReady` provisioning condition (see
-  [`gateway-provisioning-progress.spec.md`](./gateway-provisioning-progress.spec.md)) to
-  `Failed` with a named, user-facing reason (for example `vault unreachable at <address>`
-  or `vault auth denied for role openshell-gateway`), SHALL NOT mark the gateway
-  `Running`, and SHALL return the error so the reconcile queue retries with backoff.
+- **At provisioning (two stages):** a Vault-backed gateway SHALL be verified in two
+  stages, because the gateway's ServiceAccount does not exist until its workload is
+  deployed.
+  - **Reachability (pre-deploy):** during `EnvironmentReady`, before the workload is
+    deployed, the control plane SHALL verify the per-cluster Vault is reachable and
+    serving TLS trusted by the serving CA (an unauthenticated health check). On failure
+    it SHALL set `EnvironmentReady` to `Failed` with a named reason (for example
+    `vault unreachable at <address>`) and return the error so the reconcile retries.
+  - **Authentication (before `Running`):** after the workload is deployed (so the
+    gateway ServiceAccount exists) and before the gateway is marked `Running`, the
+    control plane SHALL verify the gateway's identity can authenticate - acting as the
+    gateway's own ServiceAccount identity against role `openshell-gateway`, never as a
+    Vault administrator. On failure it SHALL report a `GatewayDeployed`-stage failure
+    with a named reason (such as `vault auth denied for role openshell-gateway`), SHALL
+    NOT mark the gateway `Running`, and SHALL return the error so the reconcile retries.
 - **At runtime:** a later Vault outage SHALL move the gateway to `Degraded` through the
   existing health reconciler (see [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md)),
   recoverable without recreation once Vault returns.
@@ -363,11 +369,20 @@ non-functional.
 - A `provider`/`sandbox` call made against an unreachable Vault surfaces as OpenShell's
   own gRPC error to the `openshell` CLI; the control plane SHALL NOT swallow it.
 
-#### Scenario: Vault unreachable at provisioning
+#### Scenario: Vault unreachable at provisioning (pre-deploy)
 
 - GIVEN a new Vault-backed Gateway on a cluster whose provider Vault is unreachable
 - WHEN the GatewayReconciler reconciles
 - THEN it SHALL set `EnvironmentReady` to `Failed` with a reason naming Vault
+- AND it SHALL NOT deploy the gateway workload or mark the gateway `Running`
+- AND the reconcile SHALL be retried
+
+#### Scenario: Gateway identity cannot authenticate to Vault (before Running)
+
+- GIVEN a Vault-backed Gateway whose workload has deployed but whose identity is not
+  authorized by the Vault role (or Vault denies the login)
+- WHEN the GatewayReconciler verifies authentication before marking the gateway `Running`
+- THEN it SHALL report a `GatewayDeployed`-stage failure with a reason naming Vault
 - AND it SHALL NOT mark the gateway `Running`
 - AND the reconcile SHALL be retried
 

@@ -72,6 +72,22 @@ func (c *vaultClient) login(ctx context.Context, authMount, role, saJWT string) 
 	return out.Auth.ClientToken, nil
 }
 
+// health performs an unauthenticated reachability check (sys/health). A transport or
+// TLS error means Vault is unreachable or its serving cert is not trusted; a non-200
+// means Vault is reachable but not ready (sealed/uninitialized). No auth is needed, so
+// this is usable pre-deploy, before the gateway ServiceAccount exists.
+func (c *vaultClient) health(ctx context.Context) error {
+	url := fmt.Sprintf("%s/v1/sys/health?standbyok=true&perfstandbyok=true", c.address)
+	code, _, err := c.do(ctx, http.MethodGet, url, "", nil)
+	if err != nil {
+		return fmt.Errorf("vault unreachable at %s: %w", c.address, err)
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("vault at %s not ready (sys/health HTTP %d)", c.address, code)
+	}
+	return nil
+}
+
 // listKeys lists the immediate keys under a KV v2 metadata path (mount/metadata/path).
 // A 404 (empty path) returns an empty slice, not an error.
 func (c *vaultClient) listKeys(ctx context.Context, token, mount, path string) ([]string, error) {
