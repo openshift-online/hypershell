@@ -29,6 +29,13 @@ Supported arguments:
 Using the GitHub API, fetch the issues in `$GITHUB_REPO_URL` that have the
 labels `agent/allowed` AND `$LABEL_SCOPE`. You MUST NOT read any issue that does not have the `agent/allowed` or `$LABEL_SCOPE` labels.
 
+Exclude issues that are already in flight. An issue that already carries any
+`agent/*` phase label (for example `agent/workable`, `agent/reviewable-spec`,
+`agent/review-spec-approved`, `agent/review-spec-rejected`,
+`agent/reviewable-code`, `agent/review-code-rejected`, `agent/review-code-approved`,
+`agent/blocked`, `agent/needs-input`, `agent/duplicate`) has already been
+triaged. Triage SHALL NOT re-read or re-classify it.
+
 Output: `$LIST_OF_ISSUES`
 
 ### Step 2: Classify Issues

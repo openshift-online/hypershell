@@ -113,10 +113,26 @@ From here on, `$SELECTED_WORK_ITEM` refers to `$EXECUTION_RECORD`.
 IF `$ISSUE_OVERRIDE` IS EMPTY:
   skill(../../../.hypershell/agents/triage, openshift-online/hypershell, $LABEL_SCOPE)
 
+Triage classifies only items that are not already in flight. An item that already
+carries any active or terminal `agent/*` phase label (for example
+`agent/workable`, `agent/reviewable-spec`, `agent/review-spec-approved`,
+`agent/reviewable-code`, `agent/review-code-approved`, `agent/blocked`) has
+already been triaged and SHALL be left unchanged.
+
 ### Step 2: Choose Work Item
 
+The funnel resumes in-flight work; it does not only start new `agent/workable`
+items. The ACTIVE phase labels are: `agent/workable`, `agent/reviewable-spec`,
+`agent/review-spec-approved`, `agent/review-spec-rejected`,
+`agent/reviewable-code`, `agent/review-code-rejected`.
+
 IF `$ISSUE_OVERRIDE` IS EMPTY:
-    Choose randomly an execution record that has both `$LABEL_SCOPE` and `agent/workable` labels.
+    Let the candidate set be every execution record that has `$LABEL_SCOPE` AND
+    at least one ACTIVE phase label. Exclude records that are terminal or paused
+    (`agent/review-code-approved`, `agent/needs-input`, `agent/duplicate`,
+    `agent/blocked`). Choose one candidate at random.
+    IF the candidate set is empty:
+        STOP. No further action. Exit with: "No in-flight or workable items in scope: $LABEL_SCOPE."
 ELSE:
     IF `$EXECUTION_RECORD` does not have `$LABEL_SCOPE` label applied:
         STOP. No further action. Exit with: "ERROR: work item does not have required scope label: $LABEL_SCOPE.
