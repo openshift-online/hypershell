@@ -122,6 +122,12 @@ func (s *sqlAgentRuntimeService) Replace(ctx context.Context, agentRuntime *Agen
 // write and fires no self-event - the server-side guard against a status
 // write-back loop. A real transition persists and emits an update event so the
 // control-plane watch, console, and CLI observe the new lifecycle value.
+//
+// The persist goes through dao.UpdateStatus, a column-scoped UPDATE of only the
+// status columns, rather than a full-row Replace. A full-row Save would re-persist
+// the spec snapshot read above and silently clobber a user PATCH that landed
+// between the read and the write; scoping the write to the status columns leaves a
+// concurrent spec change intact.
 func (s *sqlAgentRuntimeService) UpdateStatus(ctx context.Context, id, statusValue string, statusMessage *string) (*AgentRuntime, *errors.ServiceError) {
 	agentRuntime, getErr := s.Get(ctx, id)
 	if getErr != nil {
@@ -132,10 +138,7 @@ func (s *sqlAgentRuntimeService) UpdateStatus(ctx context.Context, id, statusVal
 		return agentRuntime, nil
 	}
 
-	agentRuntime.Status = &statusValue
-	agentRuntime.StatusMessage = statusMessage
-
-	agentRuntime, err := s.dao.Replace(ctx, agentRuntime)
+	agentRuntime, err := s.dao.UpdateStatus(ctx, id, statusValue, statusMessage)
 	if err != nil {
 		return nil, errors.GeneralError("Unable to update agent runtime status: %s", err)
 	}

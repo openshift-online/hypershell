@@ -34,15 +34,44 @@ func newTestReconciler(objects ...runtime.Object) (*AgentRuntimeReconciler, *[]s
 	)
 	writes := &[]statusWrite{}
 	r := &AgentRuntimeReconciler{
-		active: make(map[string]struct{}),
-		kube:   kube,
-		dyn:    dyn,
+		kube: kube,
+		dyn:  dyn,
 		statusWriter: func(_ context.Context, id, status string, message *string) error {
 			*writes = append(*writes, statusWrite{id: id, status: status, message: message})
 			return nil
 		},
 	}
 	return r, writes
+}
+
+// readyExternalSecret builds an ExternalSecret for a SecretSource whose Ready
+// condition is True, modelling a secret the external-secrets operator has already
+// synced. The reconciler promotes an AgentRuntime to Running only once every
+// SecretSource reports Ready=True, so tests that expect Running seed these.
+func readyExternalSecret(ar *pb.AgentRuntime, source *pb.SecretSource, ns string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": externalSecretGVR.Group + "/" + externalSecretGVR.Version,
+		"kind":       "ExternalSecret",
+		"metadata": map[string]interface{}{
+			"name":      secretName(source),
+			"namespace": ns,
+			"labels":    map[string]interface{}{agentRuntimeIDLabel: ar.GetMetadata().GetId()},
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{"type": "Ready", "status": "True", "reason": "SecretSynced", "message": "secret synced"},
+			},
+		},
+	}}
+}
+
+// readyExternalSecrets builds a Ready ExternalSecret for every SecretSource on ar.
+func readyExternalSecrets(ar *pb.AgentRuntime, ns string) []runtime.Object {
+	objs := make([]runtime.Object, 0, len(ar.GetSecretSources()))
+	for _, s := range ar.GetSecretSources() {
+		objs = append(objs, readyExternalSecret(ar, s, ns))
+	}
+	return objs
 }
 
 func testAgentRuntime() *pb.AgentRuntime {
@@ -61,9 +90,11 @@ func testAgentRuntime() *pb.AgentRuntime {
 }
 
 func TestAgentRuntimeReconcile_CreatesClusterResources(t *testing.T) {
-	r, writes := newTestReconciler()
 	ar := testAgentRuntime()
 	ns := agentRuntimeNamespace(ar)
+	// Seed each SecretSource's ExternalSecret as already synced so the reconcile
+	// reaches Running rather than requeueing for a pending sync.
+	r, writes := newTestReconciler(readyExternalSecrets(ar, ns)...)
 
 	if err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
 		Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar,
@@ -175,9 +206,9 @@ func TestAgentRuntimeReconcile_DegradedOnSecretSyncFailure(t *testing.T) {
 }
 
 func TestAgentRuntimeReconcile_DeleteRemovesNamespace(t *testing.T) {
-	r, writes := newTestReconciler()
 	ar := testAgentRuntime()
 	ns := agentRuntimeNamespace(ar)
+	r, writes := newTestReconciler(readyExternalSecrets(ar, ns)...)
 
 	if err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
 		Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar,
@@ -207,8 +238,9 @@ func TestAgentRuntimeReconcile_DeleteRemovesNamespace(t *testing.T) {
 }
 
 func TestAgentRuntimeReconcile_Idempotent(t *testing.T) {
-	r, _ := newTestReconciler()
 	ar := testAgentRuntime()
+	ns := agentRuntimeNamespace(ar)
+	r, _ := newTestReconciler(readyExternalSecrets(ar, ns)...)
 
 	for i := 0; i < 2; i++ {
 		if err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
@@ -218,7 +250,6 @@ func TestAgentRuntimeReconcile_Idempotent(t *testing.T) {
 		}
 	}
 
-	ns := agentRuntimeNamespace(ar)
 	esList, err := r.dyn.Resource(externalSecretGVR).Namespace(ns).List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("list external secrets: %v", err)
@@ -232,10 +263,13 @@ func TestAgentRuntimeReconcile_Idempotent(t *testing.T) {
 // no status (no Provisioning regression, no redundant Running), so the status
 // write-back does not become a self-triggering hot loop.
 func TestAgentRuntimeReconcile_RunningConvergesWithoutStatusWrite(t *testing.T) {
-	r, writes := newTestReconciler()
 	ar := testAgentRuntime()
+	ns := agentRuntimeNamespace(ar)
 	running := agentRuntimeStatusRunning
 	ar.Status = &running
+	// Secrets are already synced, so the converged reconcile confirms Running and
+	// writes nothing.
+	r, writes := newTestReconciler(readyExternalSecrets(ar, ns)...)
 
 	if err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
 		Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar,
@@ -245,6 +279,99 @@ func TestAgentRuntimeReconcile_RunningConvergesWithoutStatusWrite(t *testing.T) 
 
 	if len(*writes) != 0 {
 		t.Fatalf("expected no status writes for a converged Running runtime, got %d: %+v", len(*writes), *writes)
+	}
+}
+
+// A freshly provisioned runtime whose ExternalSecrets have not yet reported a
+// successful sync must NOT latch Running: it requeues (returns a retryable error)
+// so a sync that later fails is still observed, instead of sitting Running with a
+// broken coordinator.
+func TestAgentRuntimeReconcile_FreshSecretsPendingRequeues(t *testing.T) {
+	r, writes := newTestReconciler()
+	ar := testAgentRuntime()
+
+	err := r.Handle(context.Background(), watcher.Event[*pb.AgentRuntime]{
+		Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar,
+	})
+	if err == nil {
+		t.Fatalf("expected a retryable error while secrets are still syncing")
+	}
+	for _, w := range *writes {
+		if w.status == agentRuntimeStatusRunning {
+			t.Fatalf("runtime must not be marked Running before its secrets sync")
+		}
+	}
+	// It is stamped Provisioning (the in-progress marker), not Running/Degraded.
+	if len(*writes) == 0 || (*writes)[0].status != agentRuntimeStatusProvisioning {
+		t.Fatalf("expected a Provisioning status write, got %+v", *writes)
+	}
+}
+
+// Once the external-secrets operator reports a successful sync on a later pass, the
+// previously-pending runtime self-heals to Running - the requeue armed by the
+// pending pass is what re-drives this check.
+func TestAgentRuntimeReconcile_PendingSelfHealsToRunning(t *testing.T) {
+	r, writes := newTestReconciler()
+	ar := testAgentRuntime()
+	ns := agentRuntimeNamespace(ar)
+	ev := watcher.Event[*pb.AgentRuntime]{Type: watcher.EventUpdated, ResourceID: ar.GetMetadata().GetId(), Resource: ar}
+
+	// First pass: secrets are still syncing, so the reconcile requeues.
+	if err := r.Handle(context.Background(), ev); err == nil {
+		t.Fatalf("expected a retryable error on the pending first pass")
+	}
+
+	// The operator reports Ready=True on both ExternalSecrets.
+	client := r.dyn.Resource(externalSecretGVR).Namespace(ns)
+	for _, s := range ar.SecretSources {
+		obj, err := client.Get(context.Background(), secretName(s), metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get external secret %s: %v", secretName(s), err)
+		}
+		if err := unstructured.SetNestedSlice(obj.Object, []interface{}{
+			map[string]interface{}{"type": "Ready", "status": "True", "reason": "SecretSynced", "message": "synced"},
+		}, "status", "conditions"); err != nil {
+			t.Fatalf("set status: %v", err)
+		}
+		if _, err := client.Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
+			t.Fatalf("update external secret: %v", err)
+		}
+	}
+
+	// Second pass (the armed requeue): secrets are synced, so it promotes to Running.
+	if err := r.Handle(context.Background(), ev); err != nil {
+		t.Fatalf("expected a clean reconcile once secrets synced, got %v", err)
+	}
+	last := (*writes)[len(*writes)-1]
+	if last.status != agentRuntimeStatusRunning {
+		t.Fatalf("final status = %q, want Running", last.status)
+	}
+}
+
+// Two SecretSources whose synced-secret names share a long prefix must still
+// produce distinct, DNS-1123-valid (<=63 char) pod volume names: truncating the
+// "secret-" prefix away must not drop the disambiguating hash and collide them
+// (which the CronJob API would reject).
+func TestSecretFileMount_PreservesHashUniqueness(t *testing.T) {
+	base := strings.Repeat("a", 54)
+	// Model two secretName outputs that differ only in their trailing hash.
+	s1 := base + "-00000001"
+	s2 := base + "-00000002"
+
+	v1, _ := secretFileMount(s1, "/mnt/one")
+	v2, _ := secretFileMount(s2, "/mnt/two")
+	n1, n2 := v1[0].Name, v2[0].Name
+
+	if len(n1) > 63 || len(n2) > 63 {
+		t.Fatalf("volume names must be <=63 chars, got %d and %d", len(n1), len(n2))
+	}
+	if n1 == n2 {
+		t.Fatalf("volume names collided despite distinct secrets: %q", n1)
+	}
+	for _, n := range []string{n1, n2} {
+		if dns1123Invalid.MatchString(n) || strings.HasPrefix(n, "-") || strings.HasSuffix(n, "-") {
+			t.Fatalf("volume name %q is not a valid DNS-1123 label", n)
+		}
 	}
 }
 

@@ -75,6 +75,32 @@ func sanitizeDNS1123(name string) string {
 	return s
 }
 
+// sanitizeDNS1123WithHash is sanitizeDNS1123 that preserves uniqueness across
+// truncation: when the sanitized value exceeds the 63-char DNS-1123 limit it
+// appends an 8-char hash of the full sanitized value, so two distinct inputs that
+// share a 63-char prefix do not collapse to the same label. A plain prefix
+// truncation would drop the disambiguating tail (for secret volume names, the
+// per-source hash secretName already carries), producing duplicate pod volume
+// names the CronJob API rejects.
+func sanitizeDNS1123WithHash(name string) string {
+	s := dns1123Invalid.ReplaceAllString(strings.ToLower(name), "-")
+	s = strings.Trim(s, "-")
+	if s == "" {
+		s = "unnamed"
+	}
+	if len(s) <= 63 {
+		return s
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	suffix := fmt.Sprintf("%08x", h.Sum32())
+	base := strings.Trim(s[:63-9], "-")
+	if base == "" {
+		base = "secret"
+	}
+	return base + "-" + suffix
+}
+
 // agentRuntimeLabels are applied to every owned resource for ownership and cleanup.
 func agentRuntimeLabels(ar *pb.AgentRuntime) map[string]string {
 	return map[string]string{
@@ -325,6 +351,30 @@ func externalSecretSyncFailed(obj *unstructured.Unstructured) (bool, string) {
 	return false, ""
 }
 
+// externalSecretSyncReady reports whether an ExternalSecret has confirmed a
+// successful sync (its Ready condition is True). A freshly created ExternalSecret
+// whose operator has not yet reconciled it has no Ready condition and is not yet
+// ready; the reconciler treats that as still-syncing and requeues rather than
+// latching the AgentRuntime to Running before the secret has actually landed.
+func externalSecretSyncReady(obj *unstructured.Unstructured) bool {
+	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found {
+		return false
+	}
+	for _, c := range conditions {
+		cond, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		condType, _ := cond["type"].(string)
+		condStatus, _ := cond["status"].(string)
+		if condType == "Ready" && condStatus == "True" {
+			return true
+		}
+	}
+	return false
+}
+
 // secretEnvWiring is the env vars, volumes, and volume mounts a SecretSource
 // contributes to the coordinator container, derived from its purpose.
 type secretEnvWiring struct {
@@ -379,7 +429,10 @@ func secretEnv(envName, secret, key string) corev1.EnvVar {
 // secretFileMount builds the volume and mount that surface a file-valued secret in
 // the coordinator container.
 func secretFileMount(secret, mountPath string) ([]corev1.Volume, []corev1.VolumeMount) {
-	volName := sanitizeDNS1123("secret-" + secret)
+	// Hash-preserving truncation: secret already carries a per-source hash suffix
+	// (secretName), so the volume name must keep it to stay unique once "secret-"
+	// pushes the label past 63 chars.
+	volName := sanitizeDNS1123WithHash("secret-" + secret)
 	return []corev1.Volume{{
 			Name:         volName,
 			VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: secret}},

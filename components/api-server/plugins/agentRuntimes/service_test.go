@@ -49,6 +49,10 @@ type fakeAgentRuntimeDao struct {
 	// replaceCalls counts Replace invocations so a test can assert the status
 	// write short-circuits when nothing changes.
 	replaceCalls int
+	// updateStatusCalls counts UpdateStatus invocations so a test can assert the
+	// status write-back goes through the column-scoped path (and short-circuits
+	// when nothing changes).
+	updateStatusCalls int
 }
 
 func (f *fakeAgentRuntimeDao) Get(ctx context.Context, id string) (*agentRuntimes.AgentRuntime, error) {
@@ -68,6 +72,19 @@ func (f *fakeAgentRuntimeDao) Create(ctx context.Context, ar *agentRuntimes.Agen
 
 func (f *fakeAgentRuntimeDao) Replace(ctx context.Context, ar *agentRuntimes.AgentRuntime) (*agentRuntimes.AgentRuntime, error) {
 	f.replaceCalls++
+	return ar, nil
+}
+
+func (f *fakeAgentRuntimeDao) UpdateStatus(ctx context.Context, id string, status string, statusMessage *string) (*agentRuntimes.AgentRuntime, error) {
+	f.updateStatusCalls++
+	ar := &agentRuntimes.AgentRuntime{}
+	if f.getResult != nil {
+		cp := *f.getResult
+		ar = &cp
+	}
+	s := status
+	ar.Status = &s
+	ar.StatusMessage = statusMessage
 	return ar, nil
 }
 
@@ -168,8 +185,13 @@ func TestUpdateStatus_PersistsTransition(t *testing.T) {
 	if got.Status == nil || *got.Status != "Provisioning" {
 		t.Fatalf("status = %v, want Provisioning", got.Status)
 	}
-	if dao.replaceCalls != 1 {
-		t.Fatalf("replaceCalls = %d, want 1", dao.replaceCalls)
+	// The write-back must go through the column-scoped UpdateStatus, not a full-row
+	// Replace that could clobber a concurrent spec PATCH.
+	if dao.updateStatusCalls != 1 {
+		t.Fatalf("updateStatusCalls = %d, want 1", dao.updateStatusCalls)
+	}
+	if dao.replaceCalls != 0 {
+		t.Fatalf("replaceCalls = %d, want 0 (status write must not full-row Replace)", dao.replaceCalls)
 	}
 }
 
@@ -196,7 +218,7 @@ func TestUpdateStatus_ShortCircuitsWhenUnchanged(t *testing.T) {
 	if _, err := svc.UpdateStatus(context.Background(), "ar-1", "Running", nil); err != nil {
 		t.Fatalf("UpdateStatus returned error: %v", err)
 	}
-	if dao.replaceCalls != 0 {
-		t.Fatalf("replaceCalls = %d, want 0 (no write when unchanged)", dao.replaceCalls)
+	if dao.updateStatusCalls != 0 {
+		t.Fatalf("updateStatusCalls = %d, want 0 (no write when unchanged)", dao.updateStatusCalls)
 	}
 }

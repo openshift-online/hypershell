@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sync"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
@@ -39,10 +38,12 @@ const (
 // workspace API design (issue #526) and is therefore excluded from Wave B. The
 // Running transition here reflects cluster-side success only; once #4 lands it will
 // additionally gate on the AgentWorkspace being provisioned.
+//
+// Handle holds no per-resource dedup state: the watch reconcile queue serializes
+// work per AgentRuntime id (a key in flight is never handed to a second worker),
+// so a mutex-guarded in-flight set here would be dead code - and, if it ever
+// fired, would drop the coalesced latest state instead of reconciling it.
 type AgentRuntimeReconciler struct {
-	mu     sync.Mutex
-	active map[string]struct{}
-
 	// kube and dyn are the target cluster's typed and dynamic clients. They are
 	// nil when the control plane has no in-cluster Kubernetes access, in which case
 	// cluster-side provisioning is skipped (mirroring the other reconcilers).
@@ -63,7 +64,6 @@ type AgentRuntimeReconciler struct {
 // inject their own status writer.
 func NewAgentRuntimeReconciler(kube kubernetes.Interface, dyn dynamic.Interface, grpcConn *grpc.ClientConn, clusterID string) *AgentRuntimeReconciler {
 	r := &AgentRuntimeReconciler{
-		active:    make(map[string]struct{}),
 		kube:      kube,
 		dyn:       dyn,
 		grpcConn:  grpcConn,
@@ -76,19 +76,6 @@ func NewAgentRuntimeReconciler(kube kubernetes.Interface, dyn dynamic.Interface,
 }
 
 func (r *AgentRuntimeReconciler) Handle(ctx context.Context, event watcher.Event[*pb.AgentRuntime]) error {
-	r.mu.Lock()
-	if _, ok := r.active[event.ResourceID]; ok {
-		r.mu.Unlock()
-		return nil
-	}
-	r.active[event.ResourceID] = struct{}{}
-	r.mu.Unlock()
-	defer func() {
-		r.mu.Lock()
-		delete(r.active, event.ResourceID)
-		r.mu.Unlock()
-	}()
-
 	ar := event.Resource
 	if ar == nil {
 		log.Printf("WARN AgentRuntime event %s has nil resource, skipping", event.ResourceID)
@@ -158,18 +145,29 @@ func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentR
 		return r.fail(ctx, ar, fmt.Errorf("apply cronjob: %w", err))
 	}
 
-	// Degrade if any SecretSource's ExternalSecret reports a sync failure, surfacing
-	// the failing source name (data-model.spec.md "SecretSource Sync Failure
-	// Degrades AgentRuntime"). The sync state lives on a separate ExternalSecret
-	// object, which fires no AgentRuntime watch event when it later recovers, so a
-	// retryable error is returned: the watch queue requeues this runtime with
-	// backoff and promotes it to Running once the secret syncs, rather than leaving
-	// it stuck at Degraded until the next watch reseed.
-	if sourceName, message, degraded := r.firstFailedSecretSync(ctx, ar, namespace); degraded {
-		msg := fmt.Sprintf("SecretSource %q failed to sync: %s", sourceName, message)
+	// Evaluate the SecretSources' ExternalSecret sync state. The sync result lives on
+	// a separate ExternalSecret object that fires no AgentRuntime watch event when it
+	// changes, so neither a failure nor a not-yet-synced secret would re-drive this
+	// runtime on its own. Both cases therefore return a retryable error so the watch
+	// queue requeues with backoff until the secrets reach a terminal Ready state.
+	syncState := r.evaluateSecretSyncs(ctx, ar, namespace)
+	switch {
+	case syncState.degraded:
+		// A SecretSource failed to sync (data-model.spec.md "SecretSource Sync
+		// Failure Degrades AgentRuntime"). Mark Degraded and requeue so recovery is
+		// observed and the runtime is promoted to Running once the secret syncs.
+		msg := fmt.Sprintf("SecretSource %q failed to sync: %s", syncState.failedSource, syncState.failedMessage)
 		r.setStatus(ctx, ar, agentRuntimeStatusDegraded, &msg)
 		log.Printf("WARN AgentRuntime %s degraded: %s", ar.GetMetadata().GetId(), msg)
 		return fmt.Errorf("agent runtime %s degraded: %s", ar.GetMetadata().GetId(), msg)
+	case syncState.pending:
+		// At least one just-created ExternalSecret has not yet reported a successful
+		// sync. Keep the runtime out of Running (it stays Provisioning) and return a
+		// retryable error: latching Running here would leave the runtime stuck
+		// Running with a broken coordinator if the secret's sync then fails
+		// permanently, because no AgentRuntime event would ever re-arm the check.
+		log.Printf("INFO AgentRuntime %s waiting on SecretSource %q to sync; requeueing", ar.GetMetadata().GetId(), syncState.pendingSource)
+		return fmt.Errorf("agent runtime %s waiting on secret source %q to sync", ar.GetMetadata().GetId(), syncState.pendingSource)
 	}
 
 	r.setStatus(ctx, ar, agentRuntimeStatusRunning, nil)
@@ -213,21 +211,50 @@ func (r *AgentRuntimeReconciler) pruneExternalSecrets(ctx context.Context, ar *p
 	return nil
 }
 
-// firstFailedSecretSync returns the first SecretSource whose ExternalSecret reports
-// a sync failure, with the failure message. A missing or statusless ExternalSecret
-// is treated as still syncing, not failed.
-func (r *AgentRuntimeReconciler) firstFailedSecretSync(ctx context.Context, ar *pb.AgentRuntime, namespace string) (sourceName, message string, degraded bool) {
+// agentRuntimeSecretSyncState is the aggregate observed sync state of an
+// AgentRuntime's SecretSources' ExternalSecrets.
+type agentRuntimeSecretSyncState struct {
+	// degraded is set when a SecretSource's ExternalSecret reports a sync failure.
+	degraded      bool
+	failedSource  string
+	failedMessage string
+	// pending is set when at least one SecretSource's ExternalSecret has not yet
+	// confirmed a successful (Ready=True) sync and none has failed - the new-runtime
+	// case where the secret was just created. It must requeue rather than latch
+	// Running (see handleUpsert).
+	pending       bool
+	pendingSource string
+}
+
+// evaluateSecretSyncs inspects each SecretSource's ExternalSecret and returns the
+// aggregate sync state. A failure takes precedence over a pending sync; a
+// missing/statusless or not-yet-Ready ExternalSecret is pending (still syncing),
+// not failed.
+func (r *AgentRuntimeReconciler) evaluateSecretSyncs(ctx context.Context, ar *pb.AgentRuntime, namespace string) agentRuntimeSecretSyncState {
 	client := r.dyn.Resource(externalSecretGVR).Namespace(namespace)
+	var state agentRuntimeSecretSyncState
 	for _, source := range ar.GetSecretSources() {
 		obj, err := client.Get(ctx, secretName(source), metav1.GetOptions{})
 		if err != nil {
+			// Not readable yet (just created / not found): still syncing.
+			if !state.pending {
+				state.pending = true
+				state.pendingSource = source.GetName()
+			}
 			continue
 		}
 		if failed, msg := externalSecretSyncFailed(obj); failed {
-			return source.GetName(), msg, true
+			state.degraded = true
+			state.failedSource = source.GetName()
+			state.failedMessage = msg
+			return state
+		}
+		if !externalSecretSyncReady(obj) && !state.pending {
+			state.pending = true
+			state.pendingSource = source.GetName()
 		}
 	}
-	return "", "", false
+	return state
 }
 
 // fail logs the error, marks the runtime Degraded with the error message, and
