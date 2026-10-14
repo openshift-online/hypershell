@@ -16,6 +16,7 @@
     "dev:bff": "pnpm --filter @openshift-online/hypershell-web-console-bff dev",
     "test:e2e": "pnpm --filter @openshift-online/hypershell-web-console test:e2e",
     "test:e2e:chromium": "pnpm --filter @openshift-online/hypershell-web-console test:e2e:chromium",
+    "test:e2e:all": "KIND_JAEGER=true make kind-up && pnpm test:e2e:chromium && E2E_MODE=short make e2e-console && make e2e-tracing",
     "build:architecture": "pnpm --filter @openshift-online/hypershell-architecture-site build",
     "check:architecture": "pnpm --filter @openshift-online/hypershell-architecture-site check"
   }

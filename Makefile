@@ -136,7 +136,7 @@ help:
 	@echo "    unit-test-all            Run all unit test suites (Go, frontend, shell)"
 	@echo "    ci-test                  Run all *_test.sh shell unit tests (auto-discovered)"
 	@echo "    e2e                      Run E2E tests against target KUBECONFIG cluster"
-	@echo "    e2e-console              Run browser E2E of the web console and OpenShell console (agent-browser)"
+	@echo "    e2e-console              Run Playwright E2E of the web console and OpenShell console"
 	@echo "    e2e-performance          Run the performance benchmark (modify with E2E_PERF_GATEWAY_COUNT, E2E_PERF_BATCH_SIZE)"
 	@echo "    lint                     Run all linters (Go + JS/TS)"
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
@@ -666,10 +666,8 @@ e2e-smoke:
 	@echo ""
 	@bash tests/e2e/smoke.sh
 
-# Browser-driven e2e of the HyperShell web console and the per-gateway OpenShell
-# console (agent-browser headless Chromium). Requires port 443 forwarding from
-# `make kind-up` (not KIND_NO_SUDO) and the agent-browser version pinned in
-# dependency-age-tools.json. See specs/platform/e2e-console-browser-testing.spec.md.
+# Browser-driven Playwright e2e of the HyperShell web console and per-gateway
+# OpenShell console. The shell entry point only discovers cluster routes.
 .PHONY: e2e-console
 e2e-console:
 	@echo ""
@@ -698,7 +696,7 @@ e2e-tracing:
 	@echo "==> Verifying end-to-end traces reach Jaeger (Kind)"
 	@echo "    (requires: KIND_JAEGER=true make kind-up)"
 	@echo ""
-	@pnpm --filter @openshift-online/hypershell-web-console test:e2e:live
+	@pnpm --filter @openshift-online/hypershell-web-console test:e2e:tracing:live
 
 .PHONY: test-release-bundle
 test-release-bundle:
