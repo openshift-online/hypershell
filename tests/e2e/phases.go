@@ -3,8 +3,10 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"strings"
@@ -740,6 +742,16 @@ func (s *E2ESuite) assertControllerReconnectConvergence(t *testing.T) {
 	}
 	s.Require().Positive(originalReplicas, "controller has at least one replica before reconnect test")
 
+	if gate := os.Getenv("E2E_DISRUPTIVE_GATE_FILE"); gate != "" {
+		t.Log("waiting for the concurrent suites to finish before scaling the controller to zero")
+		timeout := durationSecondsEnv("E2E_DISRUPTIVE_GATE_TIMEOUT", 900*time.Second)
+		opened, err := waitDisruptiveGate(ctx, gate, timeout, 2*time.Second)
+		s.Require().NoError(err, "wait for the disruptive-step gate")
+		if !opened {
+			t.Logf("concurrent suites still running after %s; continuing anyway", timeout)
+		}
+	}
+
 	zero := int32(0)
 	s.Require().NoError(setDeploymentReplicas(ctx, deployments, zero), "scale controller to zero")
 	restoreNeeded := true
@@ -768,6 +780,30 @@ func (s *E2ESuite) assertControllerReconnectConvergence(t *testing.T) {
 	restoreNeeded = false
 	running := s.waitGatewayRunning(t, created.ID)
 	s.Assert().Equal("Running", running.Phase, "gateway created while disconnected converges from reconnect snapshot")
+}
+
+// waitDisruptiveGate blocks until gate exists, which is how
+// tests/e2e/run-parallel.sh signals that every concurrently running suite other
+// than this one has exited and the shared controller may be scaled down. It
+// mirrors e2e_wait_disruptive_gate in lib.sh: after timeout it reports false so
+// the caller can warn and proceed rather than hang the run.
+func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(gate); err == nil {
+			return true, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return false, fmt.Errorf("check disruptive gate %s: %w", gate, err)
+		}
+		if !time.Now().Before(deadline) {
+			return false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(interval):
+		}
+	}
 }
 
 func setDeploymentReplicas(ctx context.Context, deployments typedappsv1.DeploymentInterface, replicas int32) error {
