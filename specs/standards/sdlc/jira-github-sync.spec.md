@@ -35,12 +35,13 @@ canonical link ALONE - the `agent/execution-record` marker label plus the exact
 Jira key - never by a descriptive mention of some other ticket's key in a body.
 
 This is a cross-cutting process standard. It constrains the SDLC skills under
-`.hypershell/` and defines the behavior those skills implement. The pull request
-that introduces this standard also realizes it: `execute-sdlc` gains an
-origin-agnostic intake step (Step 0) and a Jira-capable scope selector, the
-`ingest` and `reconcile` responsibilities are added, and triage becomes
-origin-agnostic. The "Required Skill Changes" section records that realized
-behavior as the contract the skills satisfy.
+`.hypershell/` and defines the behavior those skills SHALL implement. It is a
+desired-state contract, independent of when any given skill change lands:
+`execute-sdlc` SHALL carry an origin-agnostic intake step (Step 0) and a
+Jira-capable scope selector, the `ingest` and `reconcile` responsibilities SHALL
+be bidirectional and origin-agnostic, and triage SHALL be origin-agnostic. The
+"Required Skill Changes" section states that behavior as the normative contract
+the skills SHALL satisfy.
 
 ---
 
@@ -492,8 +493,10 @@ the work in any Jira field or comment.
 
 ## Required Skill Changes
 
-These are the behaviors the SDLC skills implement, realized in this standard's
-pull request. They are stated here as the contract the skills satisfy.
+These are the behaviors the SDLC skills SHALL implement. They are stated here as
+the normative contract the skills must satisfy, regardless of when the
+corresponding skill changes land. Each subsection is a desired-state requirement,
+not a record of work already performed.
 
 ### `execute-sdlc` gains a Jira-origin intake path (Step 0)
 
