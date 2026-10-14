@@ -57,3 +57,26 @@ func migrationAddRepositorySelector() *gormigrate.Migration {
 		},
 	}
 }
+
+// migrationAddStatusMessage adds the nullable status_message column that the
+// control plane writes alongside status to surface the Degraded reason (the
+// failing SecretSource name). Raw ALTER TABLE is used instead of AutoMigrate
+// because AutoMigrate's add-column path is unreliable under the test session's
+// lib/pq driver with PreferSimpleProtocol.
+func migrationAddStatusMessage() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026101300000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE agent_runtimes
+					ADD COLUMN IF NOT EXISTS status_message TEXT
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE agent_runtimes
+					DROP COLUMN IF EXISTS status_message
+			`).Error
+		},
+	}
+}

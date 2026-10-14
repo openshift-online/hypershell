@@ -15,6 +15,9 @@ type SecretSourceDao interface {
 	Replace(ctx context.Context, secretSource *SecretSource) (*SecretSource, error)
 	Delete(ctx context.Context, id string) error
 	FindByIDs(ctx context.Context, ids []string) (SecretSourceList, error)
+	// FindByAgentRuntimeID returns the live SecretSources owned by an AgentRuntime,
+	// ordered by id for deterministic rendering of the ExternalSecret set.
+	FindByAgentRuntimeID(ctx context.Context, agentRuntimeID string) (SecretSourceList, error)
 	All(ctx context.Context) (SecretSourceList, error)
 }
 
@@ -68,6 +71,15 @@ func (d *sqlSecretSourceDao) FindByIDs(ctx context.Context, ids []string) (Secre
 	g2 := (*d.sessionFactory).New(ctx)
 	items := SecretSourceList{}
 	if err := g2.Where("id in (?)", ids).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (d *sqlSecretSourceDao) FindByAgentRuntimeID(ctx context.Context, agentRuntimeID string) (SecretSourceList, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	items := SecretSourceList{}
+	if err := g2.Where("agent_runtime_id = ?", agentRuntimeID).Order("id").Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil

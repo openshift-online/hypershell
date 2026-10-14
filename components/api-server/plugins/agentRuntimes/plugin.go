@@ -56,6 +56,23 @@ func gatewayClusterLookup(s *environments.Services) GatewayClusterLookup {
 	return source.GatewayClusterLookup()
 }
 
+// secretSourceLookup resolves the SecretSources owned by an AgentRuntime through
+// the secretSources plugin's service locator, looked up per call so it follows
+// the environment's service registry. It returns nil when the secretSources
+// plugin is absent, which the gRPC handler treats as "no sources" rather than
+// breaking the watch. It is resolved through a local interface so this package
+// does not import secretSources (which imports this one to implement the seam).
+func secretSourceLookup(s *environments.Services) SecretSourceLookup {
+	if s == nil || s.GetService("SecretSources") == nil {
+		return nil
+	}
+	source, ok := s.GetService("SecretSources").(SecretSourceLookupSource)
+	if !ok {
+		return nil
+	}
+	return source.SecretSourceLookup()
+}
+
 func init() {
 	registry.RegisterService("AgentRuntimes", func(env interface{}) interface{} {
 		return NewServiceLocator(env.(*environments.Env))
@@ -84,7 +101,7 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterAgentRuntimeServiceServer(grpcServer, NewAgentRuntimeGRPCHandler(svc, gatewayClusterLookup(envServices), brokerFunc))
+		pb.RegisterAgentRuntimeServiceServer(grpcServer, NewAgentRuntimeGRPCHandler(svc, gatewayClusterLookup(envServices), secretSourceLookup(envServices), brokerFunc))
 	})
 
 	presenters.RegisterPath(AgentRuntime{}, "agent_runtimes")
@@ -94,4 +111,5 @@ func init() {
 
 	db.RegisterMigration(migration())
 	db.RegisterMigration(migrationAddRepositorySelector())
+	db.RegisterMigration(migrationAddStatusMessage())
 }

@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentRuntimeService_WatchAgentRuntimes_FullMethodName = "/hypershell.v1.AgentRuntimeService/WatchAgentRuntimes"
-	AgentRuntimeService_ListAgentRuntimes_FullMethodName  = "/hypershell.v1.AgentRuntimeService/ListAgentRuntimes"
+	AgentRuntimeService_WatchAgentRuntimes_FullMethodName       = "/hypershell.v1.AgentRuntimeService/WatchAgentRuntimes"
+	AgentRuntimeService_ListAgentRuntimes_FullMethodName        = "/hypershell.v1.AgentRuntimeService/ListAgentRuntimes"
+	AgentRuntimeService_UpdateAgentRuntimeStatus_FullMethodName = "/hypershell.v1.AgentRuntimeService/UpdateAgentRuntimeStatus"
 )
 
 // AgentRuntimeServiceClient is the client API for AgentRuntimeService service.
@@ -29,6 +30,7 @@ const (
 type AgentRuntimeServiceClient interface {
 	WatchAgentRuntimes(ctx context.Context, in *WatchAgentRuntimesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchAgentRuntimesResponse], error)
 	ListAgentRuntimes(ctx context.Context, in *ListAgentRuntimesRequest, opts ...grpc.CallOption) (*ListAgentRuntimesResponse, error)
+	UpdateAgentRuntimeStatus(ctx context.Context, in *UpdateAgentRuntimeStatusRequest, opts ...grpc.CallOption) (*AgentRuntime, error)
 }
 
 type agentRuntimeServiceClient struct {
@@ -68,12 +70,23 @@ func (c *agentRuntimeServiceClient) ListAgentRuntimes(ctx context.Context, in *L
 	return out, nil
 }
 
+func (c *agentRuntimeServiceClient) UpdateAgentRuntimeStatus(ctx context.Context, in *UpdateAgentRuntimeStatusRequest, opts ...grpc.CallOption) (*AgentRuntime, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentRuntime)
+	err := c.cc.Invoke(ctx, AgentRuntimeService_UpdateAgentRuntimeStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentRuntimeServiceServer is the server API for AgentRuntimeService service.
 // All implementations must embed UnimplementedAgentRuntimeServiceServer
 // for forward compatibility.
 type AgentRuntimeServiceServer interface {
 	WatchAgentRuntimes(*WatchAgentRuntimesRequest, grpc.ServerStreamingServer[WatchAgentRuntimesResponse]) error
 	ListAgentRuntimes(context.Context, *ListAgentRuntimesRequest) (*ListAgentRuntimesResponse, error)
+	UpdateAgentRuntimeStatus(context.Context, *UpdateAgentRuntimeStatusRequest) (*AgentRuntime, error)
 	mustEmbedUnimplementedAgentRuntimeServiceServer()
 }
 
@@ -89,6 +102,9 @@ func (UnimplementedAgentRuntimeServiceServer) WatchAgentRuntimes(*WatchAgentRunt
 }
 func (UnimplementedAgentRuntimeServiceServer) ListAgentRuntimes(context.Context, *ListAgentRuntimesRequest) (*ListAgentRuntimesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListAgentRuntimes not implemented")
+}
+func (UnimplementedAgentRuntimeServiceServer) UpdateAgentRuntimeStatus(context.Context, *UpdateAgentRuntimeStatusRequest) (*AgentRuntime, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateAgentRuntimeStatus not implemented")
 }
 func (UnimplementedAgentRuntimeServiceServer) mustEmbedUnimplementedAgentRuntimeServiceServer() {}
 func (UnimplementedAgentRuntimeServiceServer) testEmbeddedByValue()                             {}
@@ -140,6 +156,24 @@ func _AgentRuntimeService_ListAgentRuntimes_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentRuntimeService_UpdateAgentRuntimeStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateAgentRuntimeStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentRuntimeServiceServer).UpdateAgentRuntimeStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentRuntimeService_UpdateAgentRuntimeStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentRuntimeServiceServer).UpdateAgentRuntimeStatus(ctx, req.(*UpdateAgentRuntimeStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentRuntimeService_ServiceDesc is the grpc.ServiceDesc for AgentRuntimeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -150,6 +184,10 @@ var AgentRuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAgentRuntimes",
 			Handler:    _AgentRuntimeService_ListAgentRuntimes_Handler,
+		},
+		{
+			MethodName: "UpdateAgentRuntimeStatus",
+			Handler:    _AgentRuntimeService_UpdateAgentRuntimeStatus_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

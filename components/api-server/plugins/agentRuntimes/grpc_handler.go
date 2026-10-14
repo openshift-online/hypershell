@@ -29,11 +29,28 @@ type agentRuntimeGRPCHandler struct {
 	pb.UnimplementedAgentRuntimeServiceServer
 	service         AgentRuntimeService
 	gatewayClusters GatewayClusterLookup
+	secretSources   SecretSourceLookup
 	brokerFunc      func() *pkgserver.EventBroker
 }
 
-func NewAgentRuntimeGRPCHandler(svc AgentRuntimeService, gatewayClusters GatewayClusterLookup, brokerFunc func() *pkgserver.EventBroker) pb.AgentRuntimeServiceServer {
-	return &agentRuntimeGRPCHandler{service: svc, gatewayClusters: gatewayClusters, brokerFunc: brokerFunc}
+func NewAgentRuntimeGRPCHandler(svc AgentRuntimeService, gatewayClusters GatewayClusterLookup, secretSources SecretSourceLookup, brokerFunc func() *pkgserver.EventBroker) pb.AgentRuntimeServiceServer {
+	return &agentRuntimeGRPCHandler{service: svc, gatewayClusters: gatewayClusters, secretSources: secretSources, brokerFunc: brokerFunc}
+}
+
+// resolveSecretSources returns the SecretSources owned by the runtime for
+// embedding in its gRPC payload. When the lookup seam is unavailable (the
+// secretSources plugin is absent) it returns nil so the stream still delivers the
+// runtime; the reconciler then provisions no ExternalSecrets for it rather than the
+// watch silently breaking.
+func (h *agentRuntimeGRPCHandler) resolveSecretSources(ctx context.Context, ar *AgentRuntime) ([]SecretSourceView, error) {
+	if h.secretSources == nil || ar == nil {
+		return nil, nil
+	}
+	sources, svcErr := h.secretSources(ctx, ar.ID)
+	if svcErr != nil {
+		return nil, status.Errorf(codes.Internal, "resolve secret sources for agent runtime %s: %v", ar.ID, svcErr)
+	}
+	return sources, nil
 }
 
 // clusterScope filters AgentRuntimes to those whose effective cluster is one
@@ -138,9 +155,39 @@ func (h *agentRuntimeGRPCHandler) ListAgentRuntimes(ctx context.Context, req *pb
 				continue
 			}
 		}
-		resp.Items = append(resp.Items, agentRuntimeToProto(ar))
+		sources, srcErr := h.resolveSecretSources(ctx, ar)
+		if srcErr != nil {
+			return nil, srcErr
+		}
+		resp.Items = append(resp.Items, agentRuntimeToProto(ar, sources))
 	}
 	return resp, nil
+}
+
+// UpdateAgentRuntimeStatus is the control-plane status write-back path. The
+// control plane owns the AgentRuntime status lifecycle, so this persists the new
+// status and status_message and republishes the runtime (firing a watch event) so
+// the value is observable by the console and CLI. See data-model.spec.md
+// "AgentRuntime Status Lifecycle".
+func (h *agentRuntimeGRPCHandler) UpdateAgentRuntimeStatus(ctx context.Context, req *pb.UpdateAgentRuntimeStatusRequest) (*pb.AgentRuntime, error) {
+	if err := grpcutil.ValidateStringField("id", req.GetId(), true); err != nil {
+		return nil, err
+	}
+	if err := grpcutil.ValidateStringField("status", req.GetStatus(), true); err != nil {
+		return nil, err
+	}
+	ar, svcErr := h.service.UpdateStatus(ctx, req.GetId(), req.GetStatus(), req.StatusMessage)
+	if svcErr != nil {
+		if svcErr.Is404() {
+			return nil, status.Errorf(codes.NotFound, "agent runtime %s not found", req.GetId())
+		}
+		return nil, status.Errorf(codes.Internal, "update agent runtime %s status: %v", req.GetId(), svcErr)
+	}
+	sources, srcErr := h.resolveSecretSources(ctx, ar)
+	if srcErr != nil {
+		return nil, srcErr
+	}
+	return agentRuntimeToProto(ar, sources), nil
 }
 
 func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesRequest, stream grpc.ServerStreamingServer[pb.WatchAgentRuntimesResponse]) error {
@@ -231,10 +278,15 @@ func (h *agentRuntimeGRPCHandler) WatchAgentRuntimes(req *pb.WatchAgentRuntimesR
 				}
 			}
 
+			sources, srcErr := h.resolveSecretSources(ctx, ar)
+			if srcErr != nil {
+				glog.Warningf("WatchAgentRuntimes: failed to resolve secret sources for agent runtime %s: %v", ar.ID, srcErr)
+				return srcErr
+			}
 			watchEvent := &pb.WatchAgentRuntimesResponse{
 				Type:         pb.EventType(grpcutil.APIEventTypeToProto(evt.EventType)),
 				ResourceId:   ar.ID,
-				AgentRuntime: agentRuntimeToProto(ar),
+				AgentRuntime: agentRuntimeToProto(ar, sources),
 			}
 			if err := stream.Send(watchEvent); err != nil {
 				glog.V(4).Infof("WatchAgentRuntimes: send error for subscriber %s: %v", sub.ID, err)
@@ -268,10 +320,14 @@ func (h *agentRuntimeGRPCHandler) replayAgentRuntimes(ctx context.Context, strea
 				continue
 			}
 		}
+		sources, srcErr := h.resolveSecretSources(ctx, ar)
+		if srcErr != nil {
+			return srcErr
+		}
 		if err := stream.Send(&pb.WatchAgentRuntimesResponse{
 			Type:         pb.EventType_EVENT_TYPE_UPDATED,
 			ResourceId:   ar.ID,
-			AgentRuntime: agentRuntimeToProto(ar),
+			AgentRuntime: agentRuntimeToProto(ar, sources),
 		}); err != nil {
 			return status.Errorf(codes.Unavailable, "failed to replay agent runtime %s: %v", ar.ID, err)
 		}

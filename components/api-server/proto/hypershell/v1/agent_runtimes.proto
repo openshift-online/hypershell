@@ -25,6 +25,31 @@ message AgentRuntime {
   optional int32 login_refresh_seconds = 12;
   optional string parameters = 13;
   optional string status = 14;
+  // secret_sources carries the SecretSources this AgentRuntime owns, embedded in
+  // the watch/list payload so the control-plane reconciler can render one
+  // ExternalSecret per source (and wire the coordinator CronJob env vars by
+  // purpose) without a second round trip. Server-populated; ignored on inbound
+  // writes. See data-model.spec.md "AgentRuntime Cluster Resource Provisioning".
+  repeated SecretSource secret_sources = 15;
+  // status_message carries the human-readable detail behind a status value - in
+  // particular, for a Degraded runtime, the failing SecretSource name and the
+  // gateway-side error (data-model.spec.md "AgentRuntime Status Lifecycle"). It
+  // is control-plane-owned and written only through UpdateAgentRuntimeStatus.
+  optional string status_message = 16;
+}
+
+// SecretSource is the subset of a SecretSource the control-plane reconciler needs
+// to render an ExternalSecret and wire the coordinator CronJob. It mirrors the
+// stored secretSources model (data-model.spec.md "SecretSource").
+message SecretSource {
+  string name = 1;
+  // purpose drives the ExternalSecret field mapping and the CronJob env var
+  // wiring (gateway-identity, service-account-key, app-private-key, api-key).
+  string purpose = 2;
+  // backend is one of vault, aws-secrets-manager, kubernetes.
+  string backend = 3;
+  string path = 4;
+  optional string key_mappings = 5;
 }
 
 message WatchAgentRuntimesRequest {
@@ -56,7 +81,19 @@ message ListAgentRuntimesResponse {
   repeated AgentRuntime items = 1;
 }
 
+// UpdateAgentRuntimeStatusRequest is the control-plane status write-back. The
+// control plane owns the AgentRuntime status lifecycle (Pending -> Provisioning
+// -> Running -> Degraded -> Terminating) and is the only writer of status and
+// status_message through this RPC. See data-model.spec.md "AgentRuntime Status
+// Lifecycle".
+message UpdateAgentRuntimeStatusRequest {
+  string id = 1;
+  string status = 2;
+  optional string status_message = 3;
+}
+
 service AgentRuntimeService {
   rpc WatchAgentRuntimes(WatchAgentRuntimesRequest) returns (stream WatchAgentRuntimesResponse);
   rpc ListAgentRuntimes(ListAgentRuntimesRequest) returns (ListAgentRuntimesResponse);
+  rpc UpdateAgentRuntimeStatus(UpdateAgentRuntimeStatusRequest) returns (AgentRuntime);
 }

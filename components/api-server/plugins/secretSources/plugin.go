@@ -1,20 +1,52 @@
 package secretSources
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gorilla/mux"
 
+	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() SecretSourceService
+
+// SecretSourceLookup satisfies agentRuntimes.SecretSourceLookupSource so the
+// agentRuntimes gRPC handler can embed a runtime's SecretSources in its payload
+// without importing this plugin. The dependency points secretSources ->
+// agentRuntimes only, so no import cycle forms.
+var _ agentRuntimes.SecretSourceLookupSource = ServiceLocator(nil)
+
+func (l ServiceLocator) SecretSourceLookup() agentRuntimes.SecretSourceLookup {
+	return func(ctx context.Context, agentRuntimeID string) ([]agentRuntimes.SecretSourceView, *errors.ServiceError) {
+		sources, svcErr := l().FindByAgentRuntimeID(ctx, agentRuntimeID)
+		if svcErr != nil {
+			return nil, svcErr
+		}
+		views := make([]agentRuntimes.SecretSourceView, 0, len(sources))
+		for _, s := range sources {
+			if s == nil {
+				continue
+			}
+			views = append(views, agentRuntimes.SecretSourceView{
+				Name:        s.Name,
+				Purpose:     s.Purpose,
+				Backend:     s.Backend,
+				Path:        s.Path,
+				KeyMappings: s.KeyMappings,
+			})
+		}
+		return views, nil
+	}
+}
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewSecretSourceDao(&env.Database.SessionFactory)

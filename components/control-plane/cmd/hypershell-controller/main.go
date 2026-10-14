@@ -414,10 +414,20 @@ func main() {
 		})
 	}
 
-	// AgentRuntime watch (issue #521 Wave A): cluster-scoped, seed-on-reconnect
-	// transport feeding a no-op reconciler. Cluster-side and gateway-side
-	// provisioning are deferred to Wave B.
-	agentRuntimeReconciler := reconciler.NewAgentRuntimeReconciler()
+	// AgentRuntime watch (issue #521): cluster-scoped, seed-on-reconnect transport
+	// feeding the Wave B reconciler. It applies cluster-side scheduling resources
+	// (Namespace, ServiceAccount, NetworkPolicy, one ExternalSecret per SecretSource,
+	// coordinator CronJob) and drives the status lifecycle. Gateway-side workspace
+	// provisioning (#4) is deferred, blocked on the gateway workspace API design
+	// (#526). clientset/dynamicClient may be nil on a control plane without cluster
+	// access, in which case the reconciler skips cluster-side provisioning.
+	// Pass a typed-nil *kubernetes.Clientset as a genuinely nil interface so the
+	// reconciler's nil check works (a nil pointer in an interface is not == nil).
+	var agentRuntimeKube kubernetes.Interface
+	if clientset != nil {
+		agentRuntimeKube = clientset
+	}
+	agentRuntimeReconciler := reconciler.NewAgentRuntimeReconciler(agentRuntimeKube, dynamicClient, conn, clusterID)
 	supervise("AgentRuntime watch", func(ctx context.Context) error {
 		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
 	})

@@ -23,6 +23,9 @@ type AgentRuntimeService interface {
 	Delete(ctx context.Context, id string) *errors.ServiceError
 	All(ctx context.Context) (AgentRuntimeList, *errors.ServiceError)
 	FindByIDs(ctx context.Context, ids []string) (AgentRuntimeList, *errors.ServiceError)
+	// UpdateStatus persists a control-plane-owned status lifecycle transition and
+	// its detail message, then republishes the runtime so watchers observe it.
+	UpdateStatus(ctx context.Context, id, statusValue string, statusMessage *string) (*AgentRuntime, *errors.ServiceError)
 }
 
 func NewAgentRuntimeService(dao AgentRuntimeDao, events services.EventService) AgentRuntimeService {
@@ -110,6 +113,52 @@ func (s *sqlAgentRuntimeService) Replace(ctx context.Context, agentRuntime *Agen
 	}
 
 	return agentRuntime, nil
+}
+
+// UpdateStatus writes a control-plane-owned status lifecycle transition. It does
+// not re-run the create/update validation (status is server-owned, not a
+// client-supplied spec change) and short-circuits when neither status nor message
+// changes, so a reconcile that re-confirms the current state issues no redundant
+// write and fires no self-event - the server-side guard against a status
+// write-back loop. A real transition persists and emits an update event so the
+// control-plane watch, console, and CLI observe the new lifecycle value.
+func (s *sqlAgentRuntimeService) UpdateStatus(ctx context.Context, id, statusValue string, statusMessage *string) (*AgentRuntime, *errors.ServiceError) {
+	agentRuntime, getErr := s.Get(ctx, id)
+	if getErr != nil {
+		return nil, getErr
+	}
+
+	if stringPtrEqual(agentRuntime.Status, &statusValue) && stringPtrEqual(agentRuntime.StatusMessage, statusMessage) {
+		return agentRuntime, nil
+	}
+
+	agentRuntime.Status = &statusValue
+	agentRuntime.StatusMessage = statusMessage
+
+	agentRuntime, err := s.dao.Replace(ctx, agentRuntime)
+	if err != nil {
+		return nil, errors.GeneralError("Unable to update agent runtime status: %s", err)
+	}
+
+	if _, evErr := s.events.Create(ctx, &api.Event{
+		Source:    agentRuntimeEventSource,
+		SourceID:  agentRuntime.ID,
+		EventType: api.UpdateEventType,
+	}); evErr != nil {
+		return nil, services.HandleUpdateError("AgentRuntime", evErr)
+	}
+
+	return agentRuntime, nil
+}
+
+// stringPtrEqual reports whether two optional strings carry the same value,
+// treating nil and a pointer to "" as distinct so clearing a message is a real
+// change.
+func stringPtrEqual(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func (s *sqlAgentRuntimeService) Delete(ctx context.Context, id string) *errors.ServiceError {
