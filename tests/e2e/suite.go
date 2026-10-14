@@ -31,7 +31,7 @@ const (
 
 // step tags select which modes a step runs in.
 const (
-	tagShort = "short" // runs in short, long, and perf
+	tagShort = "short" // runs in short and long
 	tagLong  = "long"  // runs in long only
 )
 
@@ -424,6 +424,21 @@ func (s *E2ESuite) modeAllows(tag string) bool {
 	}
 	// long-tagged steps run only in long mode.
 	return s.mode == modeLong
+}
+
+// longOnly runs a long-only sub-check of a short-tagged step as a named subtest.
+// Outside long mode the subtest is skipped rather than silently passed, so the
+// report shows which deep checks a short run did not exercise. A failure inside
+// fn fails the subtest and its parent step.
+func (s *E2ESuite) longOnly(check string, fn func(t *testing.T)) {
+	s.Run(check, func() {
+		t := s.T()
+		if !s.modeAllows(tagLong) {
+			t.Skipf("%s is long-only; mode is %s", check, s.mode)
+			return
+		}
+		fn(t)
+	})
 }
 
 func validE2EMode(mode string) bool {

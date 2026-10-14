@@ -1844,22 +1844,23 @@ When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so the CI e2
 
 `perf` runs the same `short`-tagged subset but is tailored to the performance harness (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)) and SHALL be set only in-process by the harness (`TestPerformance`), never via `E2E_MODE`. It differs from `short` in two ways: it follows the harness's reuse-or-preserve pattern -- it may reuse a supplied long-lived canary gateway and SHALL NOT tear it down, so the canary survives repeated checkpoints -- and it exercises the multi-identity developer-RBAC check of P2.2. It is not a live-environment gate; it assumes the harness owns the canary's lifecycle.
 
-Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every phase step (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only checks; P2.4, P2.5, and P3.1 are long-only and run in neither short nor perf:
+Short mode SHALL stay fast enough to run after every scale-up batch. The table below maps every phase step (see [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)) to its short and long-only checks; P2.4, P2.5, P2.6, and P3.1 are long-only and run in neither short nor perf. A long-only check inside a `short`-tagged step SHALL run as a named subtest through the same depth helper, so a short run reports it as a skip:
 
 | Step | Short (essential checks) | Long-only (deep / slow checks) |
 |------|--------------------------|--------------------------------|
-| P0.1 Authentication | acquire the admin token via `AcquireOIDCToken`; 401 on an unauthenticated call | BFF PKCE/session contract and the control-plane gRPC-auth check |
-| P0.2 Environment readiness | resolve the seeded cluster/release ids | full platform-dependency CRD/Keycloak/NetworkPolicy assertions |
+| P0.1 Authentication | acquire the admin token via `AcquireOIDCToken`; 401 on an unauthenticated call; the admin token is accepted | BFF PKCE/session contract and the control-plane gRPC-auth check (no `Unauthenticated` controller log lines) |
+| P0.2 Environment readiness | resolve the seeded cluster/release ids | platform-dependency API groups served (Gateway API, cert-manager, agent-sandbox), baseline platform NetworkPolicies, API server and controller Deployments available |
 | P1.1 Provisioning | reuse-or-create the gateway, wait `Running` | n/a (both modes need a running gateway) |
-| P1.2 Infrastructure verification | deployment and service present and healthy | TLS secret, certgen job, NetworkPolicy, and image-matches-release assertions |
-| P1.3 Token + CA trust | fetch token and CA bundle, establish trusted TLS | n/a |
+| P1.2 Infrastructure verification | deployment and service present and healthy | server TLS secret populated, cert-manager CA and server Certificates `Ready`, database credentials pin `sslmode=require`, gateway config ConfigMap present, no managed gateway NetworkPolicies |
+| P1.3 Token + CA trust | fetch token and CA bundle, establish trusted TLS | per-gateway OAuth device authorization with PKCE (Kind only) |
 | P1.4 Route discovery + CLI registration | discover the endpoint, register the openshell CLI | n/a |
 | P1.5 Connectivity | one route reachability check | n/a |
 | P2.1 Sandbox lifecycle + interaction | one sandbox create -> ready -> exec (`uname -a`) -> delete, `active_sandbox_count` 1 then 0 | second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
 | P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
 | P2.3 Deletion + namespace GC | short: delete-driven GC of the run's own gateway. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration assertions; second-cluster placement + reconnect/identity under `E2E_MULTICLUSTER=1` |
-| P2.5 Release promotion | skipped | repoint + revision-aware rollout, `observed_release_id`, Degraded-and-recover; cross-cluster promotion under `E2E_MULTICLUSTER=1` |
+| P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner/admin/viewer access grants and the gateway user directory, on the Kind password-grant environment |
+| P2.6 Gateway service accounts | skipped | create, use, revoke, and delete a gateway service account |
 | P3.1 Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
 
 `short` mode SHALL own the gateway it provisions: it SHALL delete that gateway at the end and assert its namespace is garbage collected (the same delete-driven GC path P2.3 runs for a long run's own gateway), and its cleanup path SHALL also delete the gateway on any exit, so a short run leaves nothing behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace (that periodic-reaper assertion is long-only) and SHALL NOT mutate shared controller state (namespace-GC timing is adjusted only for long runs). The platform-admin gateway-deletion check of P2.2 SHALL NOT run in short or perf mode; P2.3's own-gateway deletion, being the assertion itself, SHALL run in short and long but not perf.
