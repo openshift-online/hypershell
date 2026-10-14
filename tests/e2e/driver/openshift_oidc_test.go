@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -79,6 +80,70 @@ func TestOpenShiftAPITokenImpersonatesNamedUserForClientCredentials(t *testing.T
 	}
 	if got := calls[1].Get("requested_subject"); got != "developer" {
 		t.Errorf("exchange requested_subject = %q, want developer", got)
+	}
+}
+
+func TestOpenShiftGatewayTokenReportsRefusedExchange(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse token form: %v", err)
+		}
+		if r.Form.Get("grant_type") == grantTokenExchange {
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(tokenResponse{
+				Error:            "access_denied",
+				ErrorDescription: "Client not allowed to exchange",
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(tokenResponse{AccessToken: "subject-token"})
+	}))
+	defer server.Close()
+
+	t.Setenv("E2E_OIDC_GRANT", grantClientCredentials)
+	t.Setenv("E2E_OIDC_SA_CLIENT_ID", "hypershell-release-check")
+	t.Setenv("E2E_OIDC_SA_CLIENT_SECRET", "super-secret-value")
+	t.Setenv("E2E_GATEWAY_TOKEN_TIMEOUT", "1")
+	d := &openshiftDriver{oidcIssuer: server.URL + "/realms/hypershell", httpClient: server.Client()}
+
+	_, err := d.AcquireGatewayTokenWithRole(context.Background(), Credentials{Username: "admin"}, "gateway-client", "openshell-admin")
+	if err == nil {
+		t.Fatal("refused token exchange was reported as success")
+	}
+	for _, want := range []string{`never gained role "openshell-admin"`, "status 403", "access_denied", "Client not allowed to exchange"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+	for _, secret := range []string{"super-secret-value", "subject-token"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("error leaks %q: %v", secret, err)
+		}
+	}
+}
+
+func TestOpenShiftGatewayTokenReportsMissingRole(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(tokenResponse{AccessToken: testJWT(map[string]any{
+			"hypershell": map[string]any{"roles": []string{"openshell-user"}},
+		})})
+	}))
+	defer server.Close()
+
+	t.Setenv("E2E_OIDC_GRANT", grantClientCredentials)
+	t.Setenv("E2E_OIDC_SA_CLIENT_ID", "hypershell-e2e")
+	t.Setenv("E2E_OIDC_SA_CLIENT_SECRET", "test-secret")
+	t.Setenv("E2E_GATEWAY_TOKEN_TIMEOUT", "1")
+	d := &openshiftDriver{oidcIssuer: server.URL + "/realms/hypershell", httpClient: server.Client()}
+
+	_, err := d.AcquireGatewayTokenWithRole(context.Background(), Credentials{Username: "admin"}, "gateway-client", "openshell-admin")
+	if err == nil {
+		t.Fatal("token without the requested role was reported as success")
+	}
+	for _, want := range []string{`never gained role "openshell-admin"`, "openshell-user"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
 	}
 }
 

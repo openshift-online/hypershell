@@ -251,6 +251,10 @@ func (d *openshiftDriver) AcquireGatewayTokenWithRole(ctx context.Context, user 
 	timeout := durationEnv("E2E_GATEWAY_TOKEN_TIMEOUT", 300*time.Second)
 	grant := envOr("E2E_OIDC_GRANT", grantPassword)
 	var last Token
+	// lastErr keeps the most recent reason the token was not usable, so a poll that
+	// gives up reports why (for example a refused token exchange) instead of only
+	// that the role never appeared.
+	var lastErr error
 	err := harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
 		var (
 			tok Token
@@ -270,12 +274,20 @@ func (d *openshiftDriver) AcquireGatewayTokenWithRole(ctx context.Context, user 
 			return false, fmt.Errorf("unsupported E2E_OIDC_GRANT %q", grant)
 		}
 		if err != nil {
+			lastErr = err
 			return false, nil
 		}
 		last = tok
-		return tokenHasRole(tok.AccessToken, role), nil
+		if tokenHasRole(tok.AccessToken, role) {
+			return true, nil
+		}
+		lastErr = fmt.Errorf("token was issued but carries roles %v, not %q", tokenRoles(tok.AccessToken), role)
+		return false, nil
 	})
 	if err != nil {
+		if lastErr != nil {
+			return Token{}, fmt.Errorf("gateway token for client %s never gained role %q: %w (last token error: %v)", clientID, role, err, lastErr)
+		}
 		return Token{}, fmt.Errorf("gateway token for client %s never gained role %q: %w", clientID, role, err)
 	}
 	return last, nil
@@ -427,13 +439,41 @@ func postTokenForm(ctx context.Context, client *http.Client, endpoint string, fi
 		return Token{}, fmt.Errorf("parse token response (status %d): %w", resp.StatusCode, err)
 	}
 	if tr.AccessToken == "" {
-		msg := tr.ErrorDescription
-		if msg == "" {
-			msg = tr.Error
-		}
-		return Token{}, fmt.Errorf("token request failed (status %d): %s", resp.StatusCode, msg)
+		return Token{}, &tokenEndpointError{Status: resp.StatusCode, Code: tr.Error, Description: tr.ErrorDescription}
 	}
 	return Token{AccessToken: tr.AccessToken}, nil
+}
+
+// tokenEndpointError is a refused token request: the HTTP status and the OAuth
+// error code and description the token endpoint returned. It carries nothing from
+// the request, so a client secret or subject token cannot reach a test log.
+type tokenEndpointError struct {
+	Status      int
+	Code        string
+	Description string
+}
+
+func (e *tokenEndpointError) Error() string {
+	switch {
+	case e.Code == "" && e.Description == "":
+		return fmt.Sprintf("token request failed (status %d)", e.Status)
+	case e.Code == "":
+		return fmt.Sprintf("token request failed (status %d): %s", e.Status, e.Description)
+	case e.Description == "":
+		return fmt.Sprintf("token request failed (status %d, error %s)", e.Status, e.Code)
+	default:
+		return fmt.Sprintf("token request failed (status %d, error %s): %s", e.Status, e.Code, e.Description)
+	}
+}
+
+// tokenRoles returns the hypershell roles in an access token, or nil when the
+// token is not a decodable JWT.
+func tokenRoles(token string) []string {
+	claims, err := decodeJWTClaims(token)
+	if err != nil {
+		return nil
+	}
+	return extractHypershellRoles(claims)
 }
 
 func kcDoJSON(ctx context.Context, client *http.Client, method, rawURL, adminTok string, body any) (int, []byte, error) {

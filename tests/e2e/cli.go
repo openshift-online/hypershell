@@ -51,6 +51,32 @@ type cliOIDCToken struct {
 	AccessToken string `json:"access_token"`
 	Issuer      string `json:"issuer"`
 	ClientID    string `json:"client_id"`
+	// ExpiresAt (Unix seconds) is set only for short-lived gateway service-account
+	// tokens, which the suite renews; identity-mode files omit it.
+	ExpiresAt int64 `json:"expires_at,omitempty"`
+}
+
+// cliGatewayConfigDir is the CLI's per-gateway config directory for a handle.
+func cliGatewayConfigDir(local string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".config", "openshell", "gateways", local), nil
+}
+
+// writeCLIOIDCToken atomically replaces the CLI's oidc_token.json in dir with
+// mode 0600, so a CLI process that starts while the token is renewed reads either
+// the old or the new token and never a partial file.
+func writeCLIOIDCToken(dir string, token cliOIDCToken) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create gateway config dir: %w", err)
+	}
+	data, err := json.MarshalIndent(token, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal oidc_token.json: %w", err)
+	}
+	return writePrivateFile(dir, "oidc_token.json", data)
 }
 
 // cliLocalName is the CLI's local gateway handle, "<namespace>-openshell".
@@ -200,6 +226,14 @@ func (s *E2ESuite) registerGateway(t *testing.T, ref driver.GatewayRef, endpoint
 		OIDCClientID:    fmt.Sprintf("%s-%s", ref.Name, ref.ID),
 		GatewayInsecure: gatewayTLSInsecure(s.driver.Name()),
 	}
+	if s.usesGatewayServiceAccount() {
+		// The CLI authenticates as the gateway service account, so its config names
+		// that account's client, as the retired Bash suite's mode did. The token
+		// passed in may be minutes old; use the current one.
+		cred, err := s.serviceAccounts.Acquire(t.Context(), s.serviceAccountClient(), ref)
+		s.Require().NoError(err, "gateway service-account token for CLI registration")
+		meta.OIDCClientID, token = cred.ClientID, cred.AccessToken
+	}
 	s.registerGatewayCLI(t, meta, token)
 	return meta.Name
 }
@@ -207,6 +241,11 @@ func (s *E2ESuite) registerGateway(t *testing.T, ref driver.GatewayRef, endpoint
 // cli runs `openshell -g <local> <args...>` with the CLI environment and returns
 // combined output.
 func (s *E2ESuite) cli(t *testing.T, local string, args ...string) (string, error) {
+	// Service-account tokens live about five minutes; renew before every CLI call
+	// (a no-op in identity mode).
+	if err := s.renewGatewayCLIToken(t.Context(), local); err != nil {
+		return "", fmt.Errorf("renew gateway service-account token for the CLI: %w", err)
+	}
 	// On OpenShift, run the gateway-version-matched CLI image unless an operator
 	// supplied a real path/image override. A generic "openshell" value means the
 	// default binary and is not a version pin; using it can skew the sandbox

@@ -337,8 +337,12 @@ func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
 	// The per-gateway Keycloak client is "<gw-name>-<gw-id>"; block until the
 	// admin role lands in a token for it (roles reconcile asynchronously).
 	clientID := fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID)
-	s.runner.Comment("acquire per-gateway token for client %s with role openshell-admin", clientID)
-	tok, err := s.driver.AcquireGatewayTokenWithRole(t.Context(), s.adminCreds(), clientID, "openshell-admin")
+	if s.usesGatewayServiceAccount() {
+		s.runner.Comment("create a gateway service account for client %s and mint its client_credentials token (no token exchange)", clientID)
+	} else {
+		s.runner.Comment("acquire per-gateway token for client %s with role openshell-admin", clientID)
+	}
+	tok, err := s.gatewayToken(t.Context(), s.primary)
 	s.Require().NoError(err, "acquire gateway token with openshell-admin role")
 	s.Require().NotEmpty(tok.AccessToken, "gateway token")
 	s.primaryGatewayToken = tok
@@ -395,8 +399,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	endpoint, err := s.driver.DiscoverGatewayEndpoint(ctx, ref)
 	s.Require().NoError(err, "discover sandbox gateway endpoint")
 
-	clientID := fmt.Sprintf("%s-%s", ref.Name, ref.ID)
-	tok, err := s.driver.AcquireGatewayTokenWithRole(ctx, s.adminCreds(), clientID, "openshell-admin")
+	tok, err := s.gatewayToken(ctx, ref)
 	s.Require().NoError(err, "sandbox gateway admin token")
 	local := s.registerGateway(t, ref, endpoint, tok.AccessToken)
 	s.cliStatusConnected(t, local, durationSecondsEnv("E2E_CONNECT_TIMEOUT", 90*time.Second))
@@ -454,6 +457,10 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	s.pollActiveSandboxCount(t, gw.ID, int32(len(names)))
 	s.runSandboxCLIConcurrently(t, local, "delete", names)
 	s.pollActiveSandboxCount(t, gw.ID, 0)
+
+	// The CLI is done with this gateway: retire its service account (a no-op in
+	// identity mode).
+	s.retireGatewayServiceAccount(ref)
 }
 
 func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string, names []string) {
@@ -553,6 +560,10 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 		t.Skip("no per-cluster kube context; skipping namespace garbage collection")
 	}
 	ctx := t.Context()
+
+	// The primary gateway's CLI steps (P1.4/P1.5) are finished, so its service
+	// account is revoked, verified, and deleted here (a no-op in identity mode).
+	s.retireGatewayServiceAccount(s.primary)
 
 	// Delete-driven reap: create an own gateway, delete it, assert its namespace GCs.
 	gw := s.createGateway(t, "e2e-del-"+s.runID)

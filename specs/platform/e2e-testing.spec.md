@@ -116,7 +116,7 @@ type E2EInfraDriver interface {
 | `APIClient` | Return a generated-SDK client that carries the bearer token from `AcquireOIDCToken` on every request | SDK client against the discovered API host, trusting the Kind CA | SDK client against the API Route host, trusting the cluster CA |
 | `AssignGatewayClientRole` | Grant a user a role on a gateway's per-gateway OIDC client (mirrors the `gateway:viewer` RoleBinding); idempotent | Keycloak admin API assigns the client role in the `hypershell` realm | HyperShell Keycloak admin API (at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace) assigns the client role in the `hypershell` realm |
 | `AssignRealmRole` | Grant a user a platform-wide realm role, for example `platform:admin`; idempotent | Keycloak admin API assigns the realm role | HyperShell Keycloak admin API (at its Route in the `${OPENSHIFT_NAMESPACE}-keycloak` namespace) assigns the realm role in the `hypershell` realm |
-| `AcquireGatewayTokenWithRole` | Acquire a per-gateway OIDC token and block until the named role lands in it (roles reconcile asynchronously after gateway create); returns the `Token` | Password grant against the per-gateway client, polling until the role appears | Grant-agnostic against the per-gateway client on the HyperShell Keycloak at its Route, polling until the role appears. Manual OpenShift defaults to the password grant. GitHub-brokered pull-request environments obtain developer tokens by token-exchange impersonation of the seeded developer principal, and admin per-gateway tokens by token-exchange of the `hypershell-e2e` service account targeting that gateway client (`ephemeral-pr-environments.spec.md`) |
+| `AcquireGatewayTokenWithRole` | Acquire a per-gateway OIDC token and block until the named role lands in it (roles reconcile asynchronously after gateway create); returns the `Token`. The suite calls it for its own gateways only when `E2E_GATEWAY_AUTH=identity` (the default); with `service_account` the suite obtains per-gateway tokens from a gateway service account and never calls it (see [Gateway Service-Account Authentication](#requirement-gateway-service-account-authentication)) | Password grant against the per-gateway client, polling until the role appears | Grant-agnostic against the per-gateway client on the HyperShell Keycloak at its Route, polling until the role appears. Manual OpenShift defaults to the password grant. GitHub-brokered pull-request environments obtain developer tokens by token-exchange impersonation of the seeded developer principal, and admin per-gateway tokens by token-exchange of the `hypershell-e2e` service account targeting that gateway client (`ephemeral-pr-environments.spec.md`). When the poll gives up, the returned error SHALL include the last token-endpoint failure (HTTP status and OAuth error code, for example a refused exchange) and never a secret, so an operator can tell a missing exchange right from a role that never propagated |
 | `ConfigureNamespaceGCTiming` | Temporarily shorten the controller's namespace-GC interval/grace period for the duration of a long-mode run, so the orphan-GC assertion (P2.3) doesn't have to wait out production timing; blocks until the resulting rollout completes | Patch the `hypershell-controller` Deployment env via the shared client through the Kind platform namespace, then wait for the rollout | Patch the `hypershell-controller` Deployment env via the shared client through `OPENSHIFT_NAMESPACE`, then wait for the rollout |
 | `RestoreNamespaceGCTiming` | Revert the override applied by `ConfigureNamespaceGCTiming`, restoring the deployment's configured (production) defaults; a no-op if never patched | Same mechanism as `ConfigureNamespaceGCTiming`, in reverse; `TearDownSuite` always calls it, including on failure | Same mechanism as `ConfigureNamespaceGCTiming`, in reverse on success. A failed OpenShift run SHALL skip restore so cleanup can move to teardown instead of waiting on a controller rollout that the environment destroy is about to delete |
 | `DeSeedTestUsers` | Cleanup hook so a future driver can tear down test users; called unconditionally from `TearDownSuite`, even on failure | No-op: seeded users last until the environment does | No-op: CI-owned and developer-owned OpenShift users last until the namespace group is destroyed |
@@ -255,6 +255,8 @@ The `E2EInfraDriver` interface SHALL declare the methods in the [Driver Interfac
 - unset or `password` -- resource-owner password grant against the supplied (or default seeded) username and password. This is the Kind path and the default for manual OpenShift runs.
 - `client_credentials` -- the GitHub-brokered pull-request path. Admin HyperShell API tokens SHALL use the `hypershell-e2e` client-credentials grant. Admin per-gateway tokens SHALL token-exchange that service account onto the gateway client without impersonating the seeded `admin` user. Developer HyperShell API tokens and per-gateway `openshell-user` tokens SHALL use token-exchange impersonation of the seeded developer principal, as `ephemeral-pr-environments.spec.md` defines.
 
+The exchange is the default (`E2E_GATEWAY_AUTH=identity`) and needs an OIDC client with exchange rights, such as `hypershell-e2e`. A short-mode run that must not hold those rights (an unattended release gate) SHALL set `E2E_GATEWAY_AUTH=service_account`: the same `client_credentials` grant authenticates only the management identity, and per-gateway tokens come from a gateway service account created through the public API, with no token exchange. The OIDC client named by `E2E_OIDC_SA_CLIENT_ID` then needs only the realm roles `gateway:creator` and `hypershell-users`, and token exchange MAY be disabled on it (`standard.token.exchange.enabled=false`). See [Gateway Service-Account Authentication](#requirement-gateway-service-account-authentication).
+
 The pull-request workflow SHALL set `E2E_OIDC_GRANT=client_credentials`. Kind CI SHALL leave it unset or set `password`.
 
 The suite SHALL call `DeSeedTestUsers` from `TearDownSuite` alongside `RestoreNamespaceGCTiming`, on every exit path (success, failed assertion, or panic), using a cleanup registered so it runs even when `SetupSuite` fails partway. Kind and OpenShift SHALL both no-op. Test-tier principals last for the environment lifetime, as `ephemeral-test-credentials.spec.md` defines.
@@ -312,6 +314,14 @@ The suite SHALL call `DeSeedTestUsers` from `TearDownSuite` alongside `RestoreNa
 - AND when the suite calls `acquire_gateway_token_with_role` for the admin path
 - THEN the driver SHALL token-exchange the `hypershell-e2e` service account onto that gateway client without impersonating the seeded `admin` user
 - AND neither call SHALL use a password grant
+
+#### Scenario: Unattended gate uses client credentials without token exchange
+
+- GIVEN `E2E_MODE=short`, `E2E_GATEWAY_AUTH=service_account`, and `E2E_OIDC_GRANT=client_credentials`
+- AND the OIDC client in `E2E_OIDC_SA_CLIENT_ID` has only `gateway:creator` and `hypershell-users` and token exchange disabled
+- WHEN the suite runs P1.3 and the later short steps
+- THEN it SHALL obtain every per-gateway token with a `client_credentials` grant for a gateway service account
+- AND it SHALL NOT send a token-exchange request or a `requested_subject`
 
 #### Scenario: De-seed is a no-op on Kind and OpenShift
 
@@ -1566,6 +1576,9 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_OIDC_USERNAME` | `admin` | Admin OIDC user (member of `hypershell-admins` + `hypershell-users`) used for the admin-authenticated steps (P0, P1, and the admin paths of P2/P3) |
 | `E2E_OIDC_PASSWORD` | `admin` | Password for the admin OIDC user (developer-owned default). Unused when `E2E_OIDC_GRANT=client_credentials`. A password-grant run against a CI-owned `pr-*` environment SHALL read Secret `hypershell-e2e-test-users` instead of this default (`ephemeral-test-credentials.spec.md`) |
 | `E2E_OIDC_GRANT` | `password` | Token grant for `acquire_oidc_token` and `acquire_gateway_token_with_role`: `password` (Kind and manual OpenShift) or `client_credentials` (GitHub-brokered pull-request environments, see `ephemeral-pr-environments.spec.md`) |
+| `E2E_GATEWAY_AUTH` | `identity` | How the suite authenticates to gateways it creates: `identity` (per-gateway token from `AcquireGatewayTokenWithRole`; a token exchange when `E2E_OIDC_GRANT=client_credentials`) or `service_account` (short mode only: a short-lived gateway service account created through the public API; no token exchange, impersonation, `platform:admin`, or Keycloak admin credentials). Any other value, or `service_account` outside short mode, fails `SetupSuite`. See [Gateway Service-Account Authentication](#requirement-gateway-service-account-authentication) |
+| `E2E_OIDC_SA_CLIENT_ID` | (unset) | OIDC client for the `client_credentials` grant. With `E2E_GATEWAY_AUTH=service_account` it needs only `gateway:creator` and `hypershell-users`; token exchange can be disabled |
+| `E2E_OIDC_SA_CLIENT_SECRET` | (unset) | Secret for `E2E_OIDC_SA_CLIENT_ID`. Never logged |
 | `E2E_SEED_CLUSTER_NAME` | `local-kind` on kind; `local-openshift` on openshift; unset otherwise | Pin seed discovery to this managed-cluster name. Unset means the first list item |
 | `E2E_SEED_RELEASE_NAME` | `dev-release` on kind and openshift; unset otherwise | Pin seed discovery to this gateway-release name. Unset means the first list item |
 | `E2E_DEV_USERNAME` | `developer` | Standard OIDC user (`openshell-user` tier) used for the RBAC boundary assertions |
@@ -1840,7 +1853,7 @@ When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so the CI e2
 
 `short` is the canonical quick check. It owns the gateway it creates and SHALL tear it fully down at the end (the same delete-driven namespace-GC path a long run uses for its own gateway), leaving nothing behind. `short` is therefore a self-contained, non-destructive full-lifecycle check -- create, run, interact, delete -- safe to run repeatedly against a live or shared environment: a post-rollout promotion gate, synthetic monitoring, or a post-deploy sanity check.
 
-`short` additionally runs as a single identity: it SHALL NOT impersonate other users (token-exchange with `requested_subject`), so it SHALL skip the developer-RBAC check of P2.2, which mints a token for a second principal. This keeps the check minimal-privilege -- its OIDC client needs only `gateway:creator` and `hypershell-users` (plus same-subject token-exchange for the per-gateway audience), not `platform:admin` or an impersonation policy -- so it is safe as a live-environment promotion gate. The suite SHALL express this through a mode predicate (`E2ESuite.multiIdentity()`, the Go form of the former `e2e_multi_identity`), false for `short` and true for `perf` and `long`; any step that acts as a principal other than the run's own identity SHALL gate on it and `t.Skip` when it is false. The platform-admin check of P2.2 is long-only and so is already skipped in `short`.
+`short` additionally runs as a single identity: it SHALL NOT impersonate other users (token-exchange with `requested_subject`), so it SHALL skip the developer-RBAC check of P2.2, which mints a token for a second principal. This keeps the check minimal-privilege -- its OIDC client needs only `gateway:creator` and `hypershell-users`, not `platform:admin`, an impersonation policy, or Keycloak administrator access -- so it is safe as a live-environment promotion gate. By default (`E2E_GATEWAY_AUTH=identity`) the per-gateway token is a same-subject token exchange onto the per-gateway audience when `E2E_OIDC_GRANT=client_credentials`, which also requires the client to hold exchange rights. With `E2E_GATEWAY_AUTH=service_account` the per-gateway token comes from a short-lived gateway service account and no exchange happens, so exchange rights are not needed; this is the minimal-privilege path for unattended gates (see [Gateway Service-Account Authentication](#requirement-gateway-service-account-authentication)). The suite SHALL express this through a mode predicate (`E2ESuite.multiIdentity()`, the Go form of the former `e2e_multi_identity`), false for `short` and true for `perf` and `long`; any step that acts as a principal other than the run's own identity SHALL gate on it and `t.Skip` when it is false. The platform-admin check of P2.2 is long-only and so is already skipped in `short`.
 
 `perf` runs the same `short`-tagged subset but is tailored to the performance harness (see [Incremental Scale-Up Checkpoints](#requirement-incremental-scale-up-checkpoints)) and SHALL be set only in-process by the harness (`TestPerformance`), never via `E2E_MODE`. It differs from `short` in two ways: it follows the harness's reuse-or-preserve pattern -- it may reuse a supplied long-lived canary gateway and SHALL NOT tear it down, so the canary survives repeated checkpoints -- and it exercises the multi-identity developer-RBAC check of P2.2. It is not a live-environment gate; it assumes the harness owns the canary's lifecycle.
 
@@ -1852,12 +1865,12 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | P0.2 Environment readiness | resolve the seeded cluster/release ids | platform-dependency API groups served (Gateway API, cert-manager, agent-sandbox), baseline platform NetworkPolicies, API server and controller Deployments available |
 | P1.1 Provisioning | reuse-or-create the gateway, wait `Running` | n/a (both modes need a running gateway) |
 | P1.2 Infrastructure verification | deployment and service present and healthy | server TLS secret populated, cert-manager CA and server Certificates `Ready`, database credentials pin `sslmode=require`, gateway config ConfigMap present, no managed gateway NetworkPolicies |
-| P1.3 Token + CA trust | fetch token and CA bundle, establish trusted TLS | per-gateway OAuth device authorization with PKCE (Kind only) |
+| P1.3 Token + CA trust | fetch the per-gateway token (the driver's, or with `E2E_GATEWAY_AUTH=service_account` a gateway service account's) and CA bundle, establish trusted TLS | per-gateway OAuth device authorization with PKCE (Kind only) |
 | P1.4 Route discovery + CLI registration | discover the endpoint, register the openshell CLI | n/a |
 | P1.5 Connectivity | one route reachability check | n/a |
-| P2.1 Sandbox lifecycle + interaction | one sandbox create -> ready -> exec (`uname -a`) -> delete, `active_sandbox_count` 1 then 0 | second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
+| P2.1 Sandbox lifecycle + interaction | one sandbox create -> ready -> exec (`uname -a`) -> delete, `active_sandbox_count` 1 then 0; with `E2E_GATEWAY_AUTH=service_account`, also revoke, verify, and delete the sandbox gateway's service account | second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
 | P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
-| P2.3 Deletion + namespace GC | short: delete-driven GC of the run's own gateway. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
+| P2.3 Deletion + namespace GC | short: delete-driven GC of the run's own gateway; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration assertions; second-cluster placement + reconnect/identity under `E2E_MULTICLUSTER=1` |
 | P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner/admin/viewer access grants and the gateway user directory, on the Kind password-grant environment |
 | P2.6 Gateway service accounts | skipped | create, use, revoke, and delete a gateway service account |
@@ -1903,6 +1916,72 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 - GIVEN `E2E_MODE=perf` (or any value other than `short` or `long`)
 - WHEN the e2e suite starts
 - THEN it SHALL exit non-zero and state that the valid `E2E_MODE` values are `short` and `long` (perf depth is harness-driven, not user-selectable)
+
+### Requirement: Gateway Service-Account Authentication
+
+`E2E_GATEWAY_AUTH` SHALL select how the suite authenticates to the gateways it creates. `identity` (the default, also when the variable is empty) SHALL keep the existing behavior unchanged: the per-gateway token comes from `AcquireGatewayTokenWithRole`. `service_account` SHALL be accepted only with `E2E_MODE=short`. `SetupSuite` SHALL fail before any network call, with a message that names the variable, when the value is anything other than `identity` or `service_account`, or when `service_account` is combined with a mode other than `short`. The messages SHALL be `E2E_GATEWAY_AUTH must be identity or service_account` and `E2E_GATEWAY_AUTH=service_account requires E2E_MODE=short`, as the retired Bash suite reported them.
+
+With `service_account` the suite SHALL:
+
+1. create each gateway as the management identity, as it does today;
+2. call `/gateways/{id}/service_accounts` through the SDK (`OpenShellGatewayServiceAccounts().Create`) as that gateway's owner, requesting role `openshell-admin`, a `client_secret` credential, and an expiry two hours out. The controller creates a separate subject holding exactly that gateway's `openshell-admin` and `openshell-user` roles;
+3. obtain the gateway token with a `client_credentials` grant for that service account at the credential's token endpoint, and use it everywhere identity mode uses the per-gateway token: P1.3, the CLI registration of P1.4 and P1.5, and the P2.1 sandbox gateway (each gateway gets its own account).
+
+It SHALL NOT use token exchange, `requested_subject` impersonation, `platform:admin`, a password grant for per-gateway tokens, or Keycloak administrator credentials anywhere in the run.
+
+The suite SHALL handle the credential as follows:
+
+- The secret returned at creation SHALL live only in memory or in a `0600` file in a `0700` run-private directory, and SHALL never be logged or placed in an error.
+- The secret SHALL be sent only to the HTTPS token endpoint that equals the expected issuer (`E2E_OIDC_ISSUER`) plus `/protocol/openid-connect/token`, and only after the credential is checked: it names the gateway's own audience, the `client_credentials` grant, the service account's client id, and the `openshell-admin` role in `ready` status. The request SHALL NOT follow redirects.
+- Access tokens last about five minutes. The suite SHALL cache a token and replace it before it is within one minute of expiry, and SHALL renew the token in the CLI's `oidc_token.json` before every CLI operation. That file SHALL be replaced atomically with mode `0600`.
+- A minted token SHALL have exactly the gateway's client as its only audience, the service account's subject, the service account's issuer, exactly the roles `openshell-admin` and `openshell-user`, and a lifetime of about five minutes. Any other token SHALL fail the step.
+- Retiring an account SHALL revoke it, then poll the token endpoint until it rejects the credential with `invalid_client` or `unauthorized_client` (a transport failure, a server error, or any other response fails the check), then delete the account and wait for the API to report it gone. A failed check SHALL NOT skip the delete. P2.3 SHALL do this for the primary gateway, as a named subtest, before its own deletion assertion, and P2.1 SHALL do it for the sandbox gateway after its last CLI call.
+- `TearDownSuite` SHALL retire every account still live, and SHALL remove the credential directory and the CLI token files on every path, including a failed step and `E2E_SKIP_CLEANUP=1`. `E2E_SKIP_CLEANUP=1` keeps gateways for inspection; it SHALL NOT keep credentials. Teardown SHALL run before the gateways are deleted, because the service-account API is addressed through the gateway.
+- A failed create SHALL NOT be retried automatically, because the request may have succeeded and a retry would orphan an account.
+
+Steps that need a second principal need no special handling in this mode, because they are already long-only and short mode runs none of them: P2.2 (developer and platform-admin RBAC), P2.4, P2.5, P2.6 (which exercises the same API as a long-mode feature check), P3.1, and the device-authorization sub-check of P1.3. The short steps (P0.1, P0.2, P1.1 to P1.5, P2.1, P2.3) act only as the management identity and the gateway service accounts.
+
+The OIDC client that authenticates the management identity SHALL need only the realm roles `gateway:creator` and `hypershell-users`. It SHALL NOT need token-exchange rights (`standard.token.exchange.enabled` MAY be `false`), `platform:admin`, an impersonation policy, or access to the Keycloak admin API. Long mode, the Kind driver's behavior, the pull-request OpenShift path (`hypershell-e2e` with `client_credentials` and exchange), and the `identity` default SHALL be unchanged.
+
+#### Scenario: Invalid Gateway Auth Value or Mode Fails Fast
+
+- GIVEN `E2E_GATEWAY_AUTH=service_account` and `E2E_MODE` unset or `long`
+- OR `E2E_GATEWAY_AUTH` set to any value other than `identity` or `service_account`
+- WHEN the e2e suite starts
+- THEN `SetupSuite` SHALL fail before any API or Keycloak call
+- AND the message SHALL say `E2E_GATEWAY_AUTH=service_account requires E2E_MODE=short` or `E2E_GATEWAY_AUTH must be identity or service_account`
+
+#### Scenario: Service-Account Gateway Token
+
+- GIVEN `E2E_MODE=short` and `E2E_GATEWAY_AUTH=service_account`
+- AND the primary gateway is `Running`
+- WHEN P1.3 runs
+- THEN the suite SHALL create one gateway service account through the public API as the gateway owner
+- AND it SHALL obtain a `client_credentials` token whose audience is the gateway's client and whose subject is the service account
+- AND P1.4 and P1.5 SHALL register and connect the CLI with that token, renewing it before each CLI call
+
+#### Scenario: Revocation Is Verified Before Deletion
+
+- GIVEN a gateway service account the suite created
+- WHEN P2.3 (primary gateway) or P2.1 (sandbox gateway) retires it
+- THEN the suite SHALL revoke it and see the token endpoint reject the credential with `invalid_client` or `unauthorized_client`
+- AND it SHALL then delete the account and see the API report it gone
+- AND a token request that still succeeds, or fails in any other way, SHALL fail the step without skipping the delete
+
+#### Scenario: Credentials Are Removed Even When Cleanup Is Skipped
+
+- GIVEN `E2E_SKIP_CLEANUP=1`
+- WHEN the run ends, passed or failed
+- THEN the suite SHALL have revoked and deleted its gateway service accounts
+- AND the credential directory and the CLI `oidc_token.json` files it wrote SHALL be gone
+- AND the gateways SHALL remain
+
+#### Scenario: Secret Goes Only to the Expected Endpoint
+
+- GIVEN the API returns a credential whose token endpoint is not `E2E_OIDC_ISSUER` plus `/protocol/openid-connect/token`, is not HTTPS, or names another gateway's audience
+- WHEN the suite is about to mint a token
+- THEN it SHALL fail without sending the secret anywhere
+- AND it SHALL still delete the account
 
 ### Requirement: Functional Validation Under Load
 
