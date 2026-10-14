@@ -522,14 +522,20 @@ The `ingest` responsibility SHALL ensure a canonically linked Jira-and-GitHub
 pair for every in-scope work item, from EITHER origin. It SHALL:
 
 - Resolve the Jira source to the set of in-scope Jira items, and resolve the
-  GitHub scope to the set of in-scope GitHub execution records (those carrying
-  the funnel scope label and the `agent/execution-record` marker).
+  GitHub scope to the set of in-scope GitHub issues carrying the funnel scope
+  label. An in-scope GitHub issue that already carries the
+  `agent/execution-record` marker is an established execution record; one
+  carrying the scope label but not the marker is a GitHub-origin candidate that
+  the GitHub-first path ingests.
 - Jira-first: for each in-scope Jira item without a canonical link, create a
   GitHub execution record carrying the funnel scope label and create the
   bidirectional canonical link.
-- GitHub-first: for each in-scope GitHub-origin execution record with no
-  canonically linked Jira item, create a Jira epic for it and create the
-  bidirectional canonical link.
+- GitHub-first: for each in-scope GitHub-origin issue with no canonically linked
+  Jira item, create a Jira epic for it and create the bidirectional canonical
+  link, applying the `agent/execution-record` marker to the GitHub issue as part
+  of that link. (This is when a GitHub-origin issue acquires the marker: `ingest`
+  applies it during the GitHub-first path.) The GitHub issue remains the
+  execution record.
 - Resolve the counterpart ONLY through the canonical link (the
   `agent/execution-record` marker plus the exact Jira key), never from a
   descriptive key mention.

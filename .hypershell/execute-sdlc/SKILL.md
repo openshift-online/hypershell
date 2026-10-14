@@ -61,44 +61,57 @@ GitHub-origin work item is its own execution record. A Jira-origin work item is
 ingested into a GitHub execution record. Step 0 guarantees that record exists
 before any phase runs.
 
-### Step 0: Resolve Execution Record (Ingest)
+### Step 0: Resolve Execution Records (Ingest)
 
-Resolve exactly one GitHub execution record for the work item. This step is
-IDEMPOTENT: running it again resolves the same record and creates nothing new.
-The intake itself is owned by the [`ingest` responsibility](../../../.hypershell/agents/ingest/SKILL.md),
-which this step delegates to; it is create-if-missing, idempotent, and dry-run
-aware.
+Resolve the GitHub execution record(s) for the in-scope work. This step is
+IDEMPOTENT: running it again resolves the same records and creates nothing new.
+Intake is owned by the [`ingest` responsibility](../../../.hypershell/agents/ingest/SKILL.md),
+which this step delegates to; it is bidirectional, origin-agnostic,
+create-if-missing, idempotent, and dry-run aware. For every in-scope work item of
+EITHER origin it ensures BOTH a GitHub execution record and a canonically linked
+Jira counterpart exist before triage runs.
 
-Determine the origin of the work item (`$ISSUE_OVERRIDE`, or each candidate
-found under `$LABEL_SCOPE`):
-
-- IF the work item is a GitHub issue (URL or number): the issue IS its own
-  execution record. OUTPUT `$EXECUTION_RECORD` = that issue.
-
-- IF the work item is a Jira key / URL (eg. `HYPERSHELL-374`), OR `$ISSUE_OVERRIDE`
-  is EMPTY (a scope-based run that may include Jira-origin items), run intake via
-  the `ingest` responsibility so every in-scope Jira item has a linked GitHub
-  execution record before triage:
+Delegate intake to `ingest`, passing any `$ISSUE_OVERRIDE` through as its source
+selector (a single Jira key / URL, a single GitHub issue, or empty for a full
+scope run):
 
   skill(../../../.hypershell/agents/ingest, $LABEL_SCOPE, $ISSUE_OVERRIDE)
 
-  `ingest` resolves each Jira item to exactly one execution record (reusing an
-  existing one on an exact Jira-key match, creating one only when missing),
-  ensures the bidirectional canonical link, and STOPs on ambiguity (more than one
-  execution record for one work item). It never creates a second record for a
-  GitHub-origin item. When `$ISSUE_OVERRIDE` is a single Jira key, OUTPUT
-  `$EXECUTION_RECORD` = the record `ingest` resolved for it.
+`ingest` resolves the in-scope set from BOTH the Jira source AND GitHub issues
+carrying `$LABEL_SCOPE`, so GitHub-origin records are discovered, not only
+Jira-ingested ones. For each item it resolves exactly one execution record
+(reusing an existing one on a canonical-link match, creating one only when
+missing), creates the missing counterpart (a GitHub record for a Jira-first item,
+a Jira epic for a GitHub-first item), ensures the bidirectional canonical link,
+and STOPs on ambiguity (more than one execution record for one work item). It
+never creates a second record for a GitHub-origin item and never a duplicate Jira
+epic. A GitHub-origin issue acquires the `agent/execution-record` marker here,
+during `ingest`'s GitHub-first path.
 
-For a scope-based run (`$ISSUE_OVERRIDE` empty), `ingest` resolves a SET of
-execution records. The per-record steps below (artifact association, initial
-phase derivation, and the newly-ingested reconcile) SHALL be applied to EACH
-execution record `ingest` resolved. For an `$ISSUE_OVERRIDE` run they apply to
-the single `$EXECUTION_RECORD`.
+`ingest` returns the SET of in-scope execution records (`$EXECUTION_RECORDS`), of
+EITHER origin:
+- For `$ISSUE_OVERRIDE` empty: every execution record carrying `$LABEL_SCOPE`
+  (Jira-ingested and GitHub-origin alike).
+- For `$ISSUE_OVERRIDE` a single Jira key or a single GitHub issue: the one record
+  it resolved. OUTPUT `$EXECUTION_RECORD` = that record.
+
+The per-record steps below (artifact association, initial phase derivation, and
+the newly-ingested reconcile) SHALL be applied to EVERY execution record `ingest`
+resolved, regardless of origin. Reconciling every in-scope record of either
+origin - not only the Jira-ingested set - is what gives a GitHub-origin record
+the same status projection, artifact links, narrative, and terminal closure as a
+Jira-origin record (Scope Reconciliation Covers Both Origins). For an
+`$ISSUE_OVERRIDE` run they apply to the single `$EXECUTION_RECORD`.
 
 - Associate existing artifacts (idempotent reuse, prevents duplicate PRs):
   Find any PR whose head branch or title contains `<JIRA_KEY>` (eg.
-  `implementer/spec-<JIRA_KEY>-*`). IF found and not already linked to
-  `$EXECUTION_RECORD`, add a reference comment linking the PR to the record.
+  `implementer/spec-<JIRA_KEY>-*`). For a GitHub-origin record the Jira key is
+  freshly minted, so its pre-existing PR will NOT match that pattern; also
+  discover the record's natively linked PRs (those referencing this GitHub issue,
+  eg. `gh pr list --search <issue-number>` or the issue's linked pull requests).
+  IF found and not already linked to `$EXECUTION_RECORD`, add a reference comment
+  linking the PR to the record. (Terminal closure does not depend on this step:
+  `reconcile` reads the record's linked PR merge state directly.)
 
 - Derive the initial phase label (only if `$EXECUTION_RECORD` carries NO phase
   label yet, so this never overwrites an advanced state):

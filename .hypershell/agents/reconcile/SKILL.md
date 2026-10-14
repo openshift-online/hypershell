@@ -15,6 +15,7 @@ manager sees progress in Jira without ever editing it by hand.
 
 Realizes the `Status Projection`, `Terminal Execution Record Closure`,
 `Artifact Remote Links`, `Narrative Comments`, `Bidirectional Reconciliation`,
+`Canonical-Link-Only Resolution`, `Scope Reconciliation Covers Both Origins`,
 `Safety and Approval Gates`, and `Credit Preservation` requirements of
 `specs/standards/sdlc/jira-github-sync.spec.md`.
 
@@ -60,10 +61,24 @@ authority TO the other system and NEVER writes back toward the authority.
 
 ### Step 1: Resolve the canonical link
 
-Resolve the Jira item linked to `$EXECUTION_RECORD`: read the exact Jira key from
-the execution record body. IF no Jira key / no canonical link is present, there is
-nothing to reconcile; report and STOP without error (a GitHub-origin item with no
-Jira counterpart is a valid state).
+Resolve the Jira item linked to `$EXECUTION_RECORD` using Canonical-Link-Only
+Resolution: the counterpart resolves ONLY through the canonical link - the
+`agent/execution-record` marker label on `$EXECUTION_RECORD` PLUS the exact Jira
+key recorded in its body for the purpose of the link. Resolution REQUIRES the
+marker: a GitHub issue without `agent/execution-record` is NOT an execution record
+and resolves no Jira item.
+
+A descriptive mention of a Jira key in the body - a key named to describe related
+or prior work (for example a GitHub-origin record that mentions `HYPERSHELL-374`
+where that key canonically belongs to a DIFFERENT execution record) - SHALL NEVER
+resolve that Jira item. Do NOT infer a link from such a mention, and do NOT write
+to a Jira item resolved that way. This keeps a GitHub-first-linked record (whose
+canonical link `ingest` established) reconciled against its OWN epic and never the
+wrong one.
+
+IF no canonical link resolves a Jira counterpart, there is nothing to reconcile;
+report and STOP without error (a GitHub-origin item whose Jira counterpart has not
+yet been created and linked by `ingest` is a valid state).
 
 The **human owner** referenced throughout this responsibility (for comment
 attribution in Step 4 and credit preservation in Step 6) is the Jira item's
