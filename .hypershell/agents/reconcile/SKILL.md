@@ -81,26 +81,42 @@ Do NOT write any of these fields back toward Jira: Jira is the authority.
 ### Step 3: Project Jira status from the GitHub phase
 
 Read the current GitHub phase (the record's `agent/*` label state) and merge
-state. Derive the target Jira status per this mapping:
+state. Derive the target Jira status **category** per this mapping. The mapping
+targets a category, NOT a hardcoded status name: every Jira project has exactly
+three categories - `To Do` (key `new`), `In Progress` (key `indeterminate`), and
+`Done` (key `done`) - while the concrete status names (eg. `New`, `Refinement`,
+`Closed`) are per-project workflow configuration. Targeting the category keeps
+status names out of this skill (the "separate configuration from code"
+convention).
 
-| GitHub phase | Derived Jira status |
-|--------------|---------------------|
-| `agent/workable` (ingested, not started) | To Do |
-| `agent/reviewable-spec`, `agent/review-spec-rejected` | In Progress |
-| `agent/review-spec-approved` | In Progress |
-| `agent/reviewable-code`, `agent/review-code-rejected` | In Review |
-| `agent/review-code-approved` | In Review |
-| Pull request merged to `main` | Done |
-| `agent/needs-input` | Blocked |
-| `agent/blocked` | Blocked |
-| `agent/duplicate` (issue closed as duplicate) | Won't Do |
+| GitHub phase | Derived Jira status category |
+|--------------|------------------------------|
+| No execution record yet | `To Do` |
+| `agent/needs-input` | `To Do` |
+| `agent/workable` | `In Progress` |
+| `agent/reviewable-spec`, `agent/review-spec-rejected` | `In Progress` |
+| `agent/review-spec-approved` | `In Progress` |
+| `agent/reviewable-code`, `agent/review-code-rejected` | `In Progress` |
+| `agent/review-code-approved` | `In Progress` |
+| `agent/blocked` | `In Progress` |
+| Pull request merged to `main` | `Done` |
+| `agent/duplicate` (issue closed as duplicate) | `Done` |
 
-Resolve the canonical target status to the concrete status id on the Jira
-project workflow. Then:
-- IF the Jira item is ALREADY in the target status: make no transition (no-op).
-- ELSE transition the Jira item to the target status.
-- IF the transition is unreachable on the workflow: report it as an error. Do
-  NOT silently skip it.
+Resolve the concrete Jira status for the mapped category by category, not by
+name:
+
+1. Read the Jira item's CURRENT status and its `statusCategory.key`
+   (`new` / `indeterminate` / `done`).
+2. IF the current status's category already equals the mapped category: make no
+   transition (no-op). The item is already converged.
+3. ELSE discover the available transitions
+   (`GET /rest/api/3/issue/{key}/transitions`) and select one whose target
+   status's `statusCategory` matches the mapped category. IF several qualify,
+   pick the project's canonical (first) status in that category.
+4. Perform that transition (`POST .../transitions`).
+5. IF no transition targets a status in the mapped category (the category is
+   unreachable on this workflow): report it as an error. Do NOT silently skip it
+   and do NOT hand-set an arbitrary status.
 
 Jira status is DERIVED and SHALL NEVER be hand-set to an arbitrary value.
 

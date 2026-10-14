@@ -57,25 +57,36 @@ requirement in this spec depends on.
 ## Phase-to-Status Mapping
 
 The GitHub label state machine is the authority for phase. Jira status is
-DERIVED from the GitHub phase and SHALL NOT be hand-set. The projection uses this
-mapping:
+DERIVED from the GitHub phase and SHALL NOT be hand-set. The projection targets
+a Jira **status category**, not a hardcoded status name. Every Jira project has
+exactly three status categories - `To Do` (key `new`), `In Progress` (key
+`indeterminate`), and `Done` (key `done`) - while the concrete status names are
+per-project workflow configuration. Targeting the category and resolving the name
+per project keeps status names out of the code (the "separate configuration from
+code" convention) and makes the mapping portable across any Jira workflow. The
+projection uses this mapping:
 
-| GitHub phase (label state) | Derived Jira status |
-|----------------------------|---------------------|
-| `agent/workable` (ingested, not started) | To Do |
-| `agent/reviewable-spec`, `agent/review-spec-rejected` | In Progress |
-| `agent/review-spec-approved` | In Progress |
-| `agent/reviewable-code`, `agent/review-code-rejected` | In Review |
-| `agent/review-code-approved` | In Review |
-| Pull request merged to `main` | Done |
-| `agent/needs-input` | Blocked |
-| `agent/blocked` | Blocked |
-| `agent/duplicate` (issue closed as duplicate) | Won't Do |
+| GitHub phase (label state) | Derived Jira status category |
+|----------------------------|------------------------------|
+| No execution record yet | `To Do` |
+| `agent/needs-input` | `To Do` |
+| `agent/workable` | `In Progress` |
+| `agent/reviewable-spec`, `agent/review-spec-rejected` | `In Progress` |
+| `agent/review-spec-approved` | `In Progress` |
+| `agent/reviewable-code`, `agent/review-code-rejected` | `In Progress` |
+| `agent/review-code-approved` | `In Progress` |
+| `agent/blocked` | `In Progress` |
+| Pull request merged to `main` | `Done` |
+| `agent/duplicate` (issue closed as duplicate) | `Done` |
 
-Target Jira statuses are named by their canonical workflow meaning. The code
-phase SHALL resolve each to the concrete status id available on the Jira project
-workflow and SHALL treat an unreachable transition as a reported error, not a
-silent skip.
+The reconciler SHALL resolve the concrete Jira status for a mapped category by
+selecting an available transition whose target status has that `statusCategory`.
+If several transitions qualify, it SHALL pick the project's canonical (first)
+status in that category. If no status in the mapped category exists on the
+workflow, the reconciler SHALL report an error and SHALL NOT hand-set an
+arbitrary status. A phase whose mapped category already matches the Jira item's
+current status category SHALL produce no transition (no-op). This never silently
+skips an unreachable category.
 
 ---
 
@@ -186,10 +197,13 @@ phases and the reconciler locate the counterpart without re-deriving it.
 ### Requirement: Status Projection
 
 As the GitHub execution record moves through SDLC phases, the linked Jira item's
-status SHALL reflect the current phase per the Phase-to-Status Mapping. Jira
-status SHALL be derived from the GitHub phase and SHALL NEVER be hand-set by an
-agent. A phase that maps to the Jira item's current status SHALL produce no
-transition.
+status SHALL reflect the current phase per the Phase-to-Status Mapping. The
+mapping targets a status category; the reconciler resolves the concrete status by
+selecting an available transition whose target status has the mapped category.
+Jira status SHALL be derived from the GitHub phase and SHALL NEVER be hand-set by
+an agent. A phase whose mapped category matches the Jira item's current status
+category SHALL produce no transition. An unreachable category SHALL be reported as
+an error, never a hand-set arbitrary status.
 
 #### Scenario: Spec phase moves Jira to In Progress
 
