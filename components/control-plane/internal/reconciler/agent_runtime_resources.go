@@ -42,10 +42,12 @@ const (
 
 // externalSecretGVR is the external-secrets.io ExternalSecret resource the
 // reconciler renders one of per SecretSource. It is a CRD, so it is applied
-// through the dynamic client.
+// through the dynamic client. The served version is v1, matching the version the
+// rest of the repo installs and references (deploy/components manifests,
+// specs/platform, README); no v1beta1 CRD is installed on target clusters.
 var externalSecretGVR = schema.GroupVersionResource{
 	Group:    "external-secrets.io",
-	Version:  "v1beta1",
+	Version:  "v1",
 	Resource: "externalsecrets",
 }
 
