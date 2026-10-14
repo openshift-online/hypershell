@@ -603,6 +603,10 @@ func newSettledHealthRec(clientset kubernetes.Interface, gatewayID string) *Gate
 		deploymentNotReadySince: make(map[string]time.Time),
 		routeTornDown:           make(map[string]bool),
 		routeVerifiedAt:         make(map[string]time.Time),
+		// Default gateways now resolve to the vault driver; treat Vault as reachable
+		// here so settled-health tests exercise readiness/release logic, not Vault.
+		// Vault-degradation behavior is covered by TestReconcileGatewayHealth_VaultUnreachable.
+		vaultReachable: func(context.Context, kubernetes.Interface, string) error { return nil },
 	}
 	// Pre-settle teardown so it short-circuits (marker set, addresses empty, and
 	// the verification stamped now so no residual-absence probe is due this tick).
@@ -1111,5 +1115,65 @@ func TestDeploymentReadyTimeout_Env(t *testing.T) {
 	t.Setenv("GATEWAY_DEPLOYMENT_READY_TIMEOUT", "bogus")
 	if got := deploymentReadyTimeout(); got != defaultDeploymentReadyTimeout {
 		t.Errorf("invalid value: got %s, want default %s", got, defaultDeploymentReadyTimeout)
+	}
+}
+
+// TestReconcileGatewayHealth_VaultUnreachable covers CRED-REACH runtime behavior: a
+// vault-backed gateway whose workload is fully ready but whose provider Vault is
+// unreachable is moved to Degraded (recoverable), not Running.
+func TestReconcileGatewayHealth_VaultUnreachable(t *testing.T) {
+	const namespace = "openshell-vault-down"
+	clientset := k8sfake.NewSimpleClientset(
+		healthGatewayDeployment(namespace, "rel-1", 1, 2, 2, 1, 1, 1),
+	)
+	h := newSettledHealthRec(clientset, "gw-1")
+	h.vaultReachable = func(context.Context, kubernetes.Interface, string) error {
+		return errors.New("vault unreachable")
+	}
+
+	var update *pb.UpdateGatewayRequest
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, in *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		update = in
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	// Default credential_driver => vault-backed; workload is ready so it would be Running.
+	gw := nonRoutedGateway("gw-1", namespace, "Running", "Healthy", "")
+	h.reconcileGatewayHealth(context.Background(), client, gw)
+
+	if update == nil {
+		t.Fatal("expected a phase update, got none")
+	}
+	if update.GetPhase() != "Degraded" {
+		t.Fatalf("phase = %q, want Degraded", update.GetPhase())
+	}
+	if !strings.Contains(update.GetStatus(), "Vault") {
+		t.Errorf("status = %q, want it to name Vault", update.GetStatus())
+	}
+}
+
+// TestReconcileGatewayHealth_VaultReachableStaysRunning is the companion: when the
+// Vault is reachable, a ready vault-backed gateway stays Running.
+func TestReconcileGatewayHealth_VaultReachableStaysRunning(t *testing.T) {
+	const namespace = "openshell-vault-ok"
+	clientset := k8sfake.NewSimpleClientset(
+		healthGatewayDeployment(namespace, "rel-1", 1, 2, 2, 1, 1, 1),
+	)
+	h := newSettledHealthRec(clientset, "gw-1") // vaultReachable stub returns nil
+
+	var update *pb.UpdateGatewayRequest
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, in *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		if in.Phase != nil || in.Status != nil {
+			update = in
+		}
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	gw := nonRoutedGateway("gw-1", namespace, "Running", "Healthy", "")
+	if _, ready := h.reconcileGatewayHealth(context.Background(), client, gw); !ready {
+		t.Fatal("ready = false, want true when Vault is reachable")
+	}
+	if update != nil && update.GetPhase() == "Degraded" {
+		t.Fatalf("gateway degraded unexpectedly: %v", update)
 	}
 }

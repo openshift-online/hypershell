@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
@@ -51,6 +53,34 @@ func probeVaultReachable(ctx context.Context, clientset kubernetes.Interface, dr
 		return err
 	}
 	return c.health(ctx)
+}
+
+// ParseCredentialDriver parses a gateway's stored credential_driver JSON (which may be
+// empty) into a config. An empty or unparseable value returns nil, which
+// effectiveCredentialDriver treats as the default (vault).
+func ParseCredentialDriver(s string) *CredentialDriverConfig {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	var c CredentialDriverConfig
+	if err := json.Unmarshal([]byte(s), &c); err != nil {
+		return nil
+	}
+	return &c
+}
+
+// IsVaultBacked reports whether a gateway with this stored credential_driver JSON
+// resolves to the vault driver (including the flat default for an empty/absent value).
+func IsVaultBacked(credentialDriverJSON string) bool {
+	return isVaultDriver(effectiveCredentialDriver(ParseCredentialDriver(credentialDriverJSON)))
+}
+
+// ProbeVaultReachable (exported) runs the unauthenticated reachability check for a
+// gateway described by its stored credential_driver JSON. Used by the health loop to
+// degrade a Running vault-backed gateway when its Vault goes away.
+func ProbeVaultReachable(ctx context.Context, clientset kubernetes.Interface, credentialDriverJSON string) error {
+	return probeVaultReachable(ctx, clientset, ParseCredentialDriver(credentialDriverJSON))
 }
 
 // probeVaultAuth is the post-deploy check that the gateway's own identity can
