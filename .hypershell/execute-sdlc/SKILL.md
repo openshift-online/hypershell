@@ -161,35 +161,52 @@ transition), project the new phase into Jira and sync artifacts and the phase
 narrative by invoking the [`reconcile` responsibility](../../../.hypershell/agents/reconcile/SKILL.md).
 Reconciliation is idempotent, so a no-op transition writes nothing.
 
-WHILE(Labels Applied to $SELECTED_WORK_ITEM NOT INCLUDES `agent/review-code-approved`):
+The phase is single-valued: exactly one ACTIVE phase label drives the item. The
+ACTIVE phase labels, furthest-along first, map to one step each:
 
-  $PREVIOUS_PHASE = the current phase label of $SELECTED_WORK_ITEM
+  1. `agent/reviewable-code`      -> code-review
+  2. `agent/review-code-rejected` -> code-implementation
+  3. `agent/review-spec-approved` -> code-implementation
+  4. `agent/reviewable-spec`      -> spec-review
+  5. `agent/review-spec-rejected` -> spec-implementation
+  6. `agent/workable`             -> spec-implementation
 
-  SWITCH(Labels Applied to $SELECTED_WORK_ITEM):
+`agent/review-code-approved` is terminal. `agent/needs-input`, `agent/duplicate`,
+and `agent/blocked` are paused; the loop does not act on them.
+
+WHILE $SELECTED_WORK_ITEM has at least one ACTIVE phase label:
+
+  # Pick the FURTHEST-ALONG active phase, so a stale earlier label never re-runs a
+  # completed phase. This precedence is what makes a full top-to-bottom run correct
+  # and idempotent.
+  $CURRENT_PHASE = the highest-precedence ACTIVE phase label on $SELECTED_WORK_ITEM
+  $PREVIOUS_PHASE = $CURRENT_PHASE
+
+  SWITCH($CURRENT_PHASE):
     CASE `agent/workable`:
     CASE `agent/review-spec-rejected`:
       skill(../../../.hypershell/agents/spec-implementation, $SELECTED_WORK_ITEM)
       break
+    CASE `agent/reviewable-spec`:
+      skill(../../../.hypershell/agents/spec-review, $SELECTED_WORK_ITEM)
+      break
+    CASE `agent/review-spec-approved`:
+    CASE `agent/review-code-rejected`:
+      skill(../../../.hypershell/agents/code-implementation, $SELECTED_WORK_ITEM)
+      break
+    CASE `agent/reviewable-code`:
+      skill(../../../.hypershell/agents/code-review, $SELECTED_WORK_ITEM)
+      break
 
-      CASE `agent/reviewable-spec`:
-        Remove Label `agent/reviewable-spec`
-        skill(../../../.hypershell/agents/spec-review, $SELECTED_WORK_ITEM)
-        break
+  # Normalize to a single phase label (idempotent, self-correcting). The invoked
+  # skill applies the OUTPUT phase label for this transition. Remove EVERY other
+  # phase label (including `$CURRENT_PHASE` and any stale label) so exactly one
+  # phase label remains on the record. This keeps the state single-valued whether
+  # the funnel runs end-to-end or is re-entered, and removes the whole class of
+  # stale-label bugs. Removing a label that is already absent is a no-op.
 
-      CASE `agent/review-spec-approved`:
-      CASE `agent/review-code-rejected`:
-        Remove Label `agent/review-spec-approved`
-        skill(../../../.hypershell/agents/code-implementation, $SELECTED_WORK_ITEM)
-        break
-
-      CASE `agent/reviewable-code`:
-        Remove Label `agent/reviewable-code`
-        skill(../../../.hypershell/agents/code-review, $SELECTED_WORK_ITEM)
-        break
-
-  # After the phase transition, keep Jira converged with the new GitHub phase:
-  # derived status, artifact remote links, and an attributed phase-narrative
-  # comment. Idempotent and dry-run aware.
+  # Keep Jira converged with the new phase: derived status, artifact remote links,
+  # and an attributed phase-narrative comment. Idempotent and dry-run aware.
   skill(../../../.hypershell/agents/reconcile, $SELECTED_WORK_ITEM, $PREVIOUS_PHASE)
 
 # The loop ended at `agent/review-code-approved`. The last loop iteration already

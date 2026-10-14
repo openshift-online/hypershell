@@ -24,11 +24,12 @@ keeps the two converged under a per-field authority rule, so a manager sees
 progress and credits the human owner without ever editing Jira by hand.
 
 This is a cross-cutting process standard. It constrains the SDLC skills under
-`.hypershell/` and defines the desired behavior the code phase implements. The
-pull request that introduces this standard also makes the first realization of
-it: the `execute-sdlc` entrypoint gains an origin-agnostic intake step (Step 0)
-and a scope selector that accepts a Jira source. The remaining skill changes
-listed under "Required Skill Changes" are realized by later code-phase work.
+`.hypershell/` and defines the behavior those skills implement. The pull request
+that introduces this standard also realizes it: `execute-sdlc` gains an
+origin-agnostic intake step (Step 0) and a Jira-capable scope selector, the
+`ingest` and `reconcile` responsibilities are added, and triage becomes
+origin-agnostic. The "Required Skill Changes" section records that realized
+behavior as the contract the skills satisfy.
 
 ---
 
@@ -308,8 +309,8 @@ the work in any Jira field or comment.
 
 ## Required Skill Changes
 
-These are the desired behaviors the later code phase SHALL implement in the SDLC
-skills. They are stated here as contract, not as code.
+These are the behaviors the SDLC skills implement, realized in this standard's
+pull request. They are stated here as the contract the skills satisfy.
 
 ### `execute-sdlc` gains a Jira-origin intake path (Step 0)
 
