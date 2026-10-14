@@ -223,6 +223,48 @@ an error, never a hand-set arbitrary status.
 - WHEN status projection runs
 - THEN no transition is attempted
 
+### Requirement: Terminal Execution Record Closure
+
+When a work item reaches its terminal Done state - the linked pull request is
+merged to `main` - the reconciler SHALL converge the ENTIRE stack of tickets to a
+consistent terminal state in a single run. In addition to projecting the Jira
+item to the `Done` category and linking the merge commit as a remote link, the
+reconciler SHALL close the GitHub execution record issue.
+
+Closure SHALL be derived from the merge state, exactly like the Done projection:
+the GitHub execution record SHALL be closed if and only if its linked pull
+request is merged. An execution record whose pull request is not yet merged SHALL
+remain Open.
+
+Closure SHALL be idempotent and drift-correcting: closing an already-closed
+execution record SHALL be a no-op, and a run over a record whose pull request has
+merged but which is still Open SHALL close it. A reconcile pass over a scope whose
+record has a merged pull request SHALL therefore converge the record, the pull
+request, and the Jira item to a consistent terminal state, including closing any
+already-merged-but-open execution record. Re-running SHALL change nothing.
+
+#### Scenario: Merge closes the execution record
+
+- GIVEN a linked work item whose pull request has merged to `main`
+- AND whose GitHub execution record is still Open
+- WHEN reconciliation runs
+- THEN the GitHub execution record is closed
+- AND the Jira item's status is in the `Done` category
+- AND the merge commit appears as a remote link on the Jira item
+
+#### Scenario: Unmerged record stays open
+
+- GIVEN a linked work item whose pull request is not yet merged
+- WHEN reconciliation runs
+- THEN the GitHub execution record remains Open
+
+#### Scenario: Closing an already-closed record is a no-op
+
+- GIVEN a linked work item whose pull request is merged
+- AND whose GitHub execution record is already closed
+- WHEN reconciliation runs again
+- THEN no change is made to the execution record
+
 ### Requirement: Artifact Remote Links
 
 The branch, each pull request, and the merge commit of a work item SHALL appear
@@ -371,6 +413,11 @@ of the funnel operates uniformly on GitHub execution records.
   on behalf of the human owner, and the Jira assignee unchanged.
 - A second reconcile pass over the same work item makes zero changes in either
   system.
+- After the funnel runs against a scope whose execution record has a merged pull
+  request, the whole stack is terminal and consistent: the GitHub execution
+  record is Closed, the Jira item is in the `Done` category, and the merge commit
+  is linked. The execution record is closed by the funnel, not by hand, and
+  re-running changes nothing.
 - A GitHub-origin issue and a Jira-origin story that describe the same intent
   converge to the same end state: linked record, projected status, remote links,
   and attributed comments.
