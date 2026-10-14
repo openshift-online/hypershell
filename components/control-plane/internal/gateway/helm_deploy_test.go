@@ -6,31 +6,22 @@ import "testing"
 // an omitted credential_driver defaults to kek-db unless the deployment opts into
 // vault via GATEWAY_DEFAULT_CREDENTIAL_DRIVER; an explicit driver is never changed.
 func TestEffectiveCredentialDriver(t *testing.T) {
-	t.Run("omitted defaults to kek-db (unset)", func(t *testing.T) {
-		t.Setenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER", "")
-		if got := effectiveCredentialDriver(nil); got != nil {
-			t.Errorf("expected nil (kek-db default), got %+v", got)
-		}
-	})
-
-	t.Run("omitted defaults to vault when deployment opts in", func(t *testing.T) {
-		t.Setenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER", "vault")
+	t.Run("omitted (nil) resolves to the flat vault default", func(t *testing.T) {
 		got := effectiveCredentialDriver(nil)
 		if got == nil || got.Type != "vault" {
 			t.Errorf("expected vault, got %+v", got)
 		}
 	})
 
-	t.Run("unrecognized value falls back to kek-db", func(t *testing.T) {
-		t.Setenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER", "s3")
-		if got := effectiveCredentialDriver(nil); got != nil {
-			t.Errorf("expected nil (kek-db) for unrecognized value, got %+v", got)
+	t.Run("explicit kek-db is returned unchanged", func(t *testing.T) {
+		in := &CredentialDriverConfig{Type: "kek-db"}
+		if got := effectiveCredentialDriver(in); got != in {
+			t.Errorf("explicit driver should be returned unchanged, got %+v", got)
 		}
 	})
 
-	t.Run("explicit driver is unchanged even when default is vault", func(t *testing.T) {
-		t.Setenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER", "vault")
-		in := &CredentialDriverConfig{Type: "kek-db"}
+	t.Run("explicit kubernetes-secrets is returned unchanged", func(t *testing.T) {
+		in := &CredentialDriverConfig{Type: "kubernetes-secrets"}
 		if got := effectiveCredentialDriver(in); got != in {
 			t.Errorf("explicit driver should be returned unchanged, got %+v", got)
 		}
@@ -41,23 +32,14 @@ func TestEffectiveCredentialDriver(t *testing.T) {
 // it must behave like an omitted driver (defer to the deployment default), not
 // bypass the selector and resolve to vault. (Review finding: empty-type bypass.)
 func TestEffectiveCredentialDriver_EmptyType(t *testing.T) {
-	t.Run("empty-type object defaults to kek-db when selector unset", func(t *testing.T) {
-		t.Setenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER", "")
-		if got := effectiveCredentialDriver(&CredentialDriverConfig{Type: ""}); got != nil {
-			t.Errorf("empty-type object should resolve to kek-db (nil), got %+v", got)
-		}
-	})
-
-	t.Run("empty-type object resolves to vault only when selector opts in", func(t *testing.T) {
-		t.Setenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER", "vault")
+	t.Run("empty-type object resolves to vault (same as omitted)", func(t *testing.T) {
 		got := effectiveCredentialDriver(&CredentialDriverConfig{Type: ""})
 		if got == nil || got.Type != "vault" {
-			t.Errorf("empty-type object with vault selector should resolve to vault, got %+v", got)
+			t.Errorf("empty-type object should resolve to vault, got %+v", got)
 		}
 	})
 
-	t.Run("empty-type object preserves vault overrides when resolved to vault", func(t *testing.T) {
-		t.Setenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER", "vault")
+	t.Run("empty-type object preserves vault overrides", func(t *testing.T) {
 		in := &CredentialDriverConfig{Type: "", Vault: &VaultCredentialConfig{Role: "custom"}}
 		got := effectiveCredentialDriver(in)
 		if got == nil || got.Vault == nil || got.Vault.Role != "custom" {
