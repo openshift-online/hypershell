@@ -56,27 +56,23 @@ CLI, and it carries the same RBAC as any other gateway field.
 
 | `credential_driver` | Resolves to | Notes |
 |---|---|---|
-| omitted / null | `vault` | **New default (HYPERSHELL-369).** Convention-addressed per-cluster Vault; no user input required |
+| omitted / null | `vault` | **Default (HYPERSHELL-369).** Convention-addressed per-cluster Vault; no user input required |
 | `type: vault` | `vault` | Explicit; same outcome as omitted. MAY carry optional overrides |
 | `type: kubernetes-secrets` | Kubernetes Secrets | Explicit opt-in; unchanged |
 | `type: kek-db` | KEK-encrypted database | Explicit opt-in to the former default; provisions the KEK Secret |
 
-> **Rollout note (transitional).** The flat `vault` default in the table above is the
-> *target* end state. It is reached in stages, to be safe: **(1)** ship the Vault
-> driver as a pure **opt-in** - an *explicit* `credential_driver: vault` works
-> end-to-end, while the resolved value of an *omitted* field stays `kek-db` on every
-> cluster, so nothing changes until a gateway asks for Vault; **(2)** once a cluster's
-> per-cluster Vault is proven, flip that cluster's omitted-default to `vault` via the
-> `GATEWAY_DEFAULT_CREDENTIAL_DRIVER` control-plane setting (which itself defaults to
-> `kek-db`); **(3)** once every gateway-hosting cluster has a Vault, make `vault` the
-> flat code default and remove the selector. No cluster flips its default until its
-> Vault is validated; an *explicit* `credential_driver` is always honored regardless.
+> **Default flip (HYPERSHELL-369).** `vault` is the **flat default**: an omitted
+> `credential_driver` resolves to `vault` in control-plane code, with no per-deployment
+> selector. **Prerequisite:** every gateway-hosting cluster must already run its
+> per-cluster Vault (stood up by `hypershell-gitops`) before this default takes effect -
+> so the GitOps per-cluster Vault rollout MUST merge before (or together with) this
+> change. An *explicit* `credential_driver` is always honored, so a cluster that does
+> not yet have its Vault should pin new gateways to `kek-db` explicitly until it does.
 
 An **unspecified** `type` - the field omitted/null, *or* an object with an empty
-`type` (`credential_driver: {}`) - is treated the same as omitted: it resolves
-through the deployment default (the table above), **not** as an implicit `vault`
-selection. This keeps an empty object from bypassing the staged rollout on a
-`kek-db` cluster.
+`type` (`credential_driver: {}`) - is treated the same as omitted and resolves to the
+default (`vault`, per the table above). An empty object behaves identically to no
+field at all.
 
 When `type` is `vault`, every sub-field is **optional**: omitted sub-fields take the
 control-plane convention defaults (see Requirement: Vault Convention Defaults). The
@@ -537,6 +533,42 @@ previous backend.
 
 ---
 
+### Requirement: End-to-End Vault Coverage in CI
+
+The Vault credential driver SHALL be exercised end-to-end by the Kind e2e suite, so the
+whole path is proven in CI and so `vault` can become the flat default (see Requirement:
+Credential Driver Configuration Field) without reddening e2e. The suite SHALL stand up a
+Vault-compatible server in the Kind environment (an OSS Vault such as OpenBao), configured
+to the GitOps Contract below (KV v2 at `secret`, Kubernetes auth, the `openshell-gateway`
+role and the namespace-templated policy, a serving CA), so a Vault-backed gateway can
+authenticate and store secrets exactly as on a real cluster. See
+[`e2e-testing.spec.md`](./e2e-testing.spec.md).
+
+#### Scenario: Vault-backed gateway stores and reads a provider secret
+
+- GIVEN the Kind e2e environment with a Vault stood up to the GitOps Contract
+- AND a gateway provisioned with `credential_driver.type` = `vault`
+- WHEN the suite stores a provider credential through the gateway and reads it back
+- THEN the value SHALL round-trip, and it SHALL be stored under
+  `secret/data/openshell/<tenant-namespace>/*` in Vault
+
+#### Scenario: Namespace isolation holds between two gateways
+
+- GIVEN two Vault-backed gateways in different tenant namespaces
+- WHEN each authenticates to Vault as its own identity
+- THEN each SHALL reach only its own `secret/data/openshell/<its-namespace>/*` path
+- AND SHALL be denied any other gateway's path
+
+#### Scenario: Fail-closed is observable when Vault is unavailable
+
+- GIVEN a Vault-backed gateway on an environment whose Vault is unreachable
+- WHEN the gateway is provisioned
+- THEN the suite SHALL observe the fail-closed signal (provisioning fails with a
+  Vault-named reason / the gateway reports `Degraded`), never a gateway that reports
+  healthy while unable to reach Vault
+
+---
+
 ## GitOps Contract
 
 The per-cluster Vault is stood up by `hypershell-gitops`
@@ -571,7 +603,6 @@ purge.
 | `GATEWAY_VAULT_ADDRESS` | controller env | the convention svc URL | Override the per-cluster Vault address (dev / external Vault) |
 | `GATEWAY_VAULT_ROLE` | controller env | `openshell-gateway` | Override the shared Vault role (must match GitOps) |
 | `GATEWAY_VAULT_CA_SECRET` | controller env | `openshell-vault/openshell-gateway-vault-tls` | Override the serving-CA source Secret (namespace/name) |
-| `GATEWAY_DEFAULT_CREDENTIAL_DRIVER` | controller env | `kek-db` | **Transitional (HYPERSHELL-369 rollout).** Driver an omitted `credential_driver` resolves to. Set to `vault` to default new gateways to Vault (hyp0 does this via hypershell-gitops). Removed once Vault is the flat default everywhere |
 
 The API server reads no Vault configuration for gateways; the `credential_driver` field
 is the only API-level input, and for the default Vault case it need not be set at all.
