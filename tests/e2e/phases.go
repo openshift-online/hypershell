@@ -285,6 +285,20 @@ func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	s.Assert().Zero(managedNetworkPolicies, "control plane must not create managed gateway NetworkPolicies")
 	s.Assert().True(caReady, "gateway CA Certificate Ready")
 	s.Assert().True(serverReady, "gateway server Certificate Ready")
+
+	// HYPERSHELL-369: the e2e gateway is created with no credential_driver, so it
+	// resolves to the flat vault default. Reaching this phase (provisioned + Running)
+	// already proves the two-stage fail-closed probes and serving-CA propagation
+	// succeeded against the stand-in Vault (scripts/kind/vault.sh); assert the wiring
+	// explicitly so a regression is caught precisely. See
+	// specs/platform/openshell-gateway-credentials.spec.md (End-to-End Vault Coverage).
+	cfg, err := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(ctx, "openshell-gateway-config", metav1.GetOptions{})
+	s.Require().NoError(err, "get gateway config ConfigMap")
+	s.Assert().Contains(cfg.Data["gateway.toml"], "[openshell.credential_drivers.vault]", "gateway.toml selects the vault credential driver")
+	_, caErr := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(ctx, "openshell-gateway-vault-ca", metav1.GetOptions{})
+	s.Assert().NoError(caErr, "vault serving CA mirrored into the tenant namespace")
+	_, kekErr := s.clients.Kube.CoreV1().Secrets(ns).Get(ctx, "openshell-gateway-credential-kek", metav1.GetOptions{})
+	s.Assert().True(apierrors.IsNotFound(kekErr), "no KEK secret is provisioned for a vault-backed gateway")
 }
 
 func validateGatewayDatabaseSecret(data map[string][]byte) error {
