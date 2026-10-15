@@ -4,8 +4,13 @@
 
 For every new or materially changed production page with an approved mockup,
 read and execute `skills/build/ui-build-gate/SKILL.md`. Do not report or hand
-off the page until the gate returns `Complete`. Treat pending stories,
-fixtures, captures, inspection, or mismatches as implementation work.
+off the page until the gate returns a completion state. In image-capable runs,
+treat pending stories, fixtures, captures, inspection, or mismatches as
+implementation work.
+
+If the current agent runtime cannot inspect images, follow the gate's
+`Complete without visual review` path: skip screenshot capture and comparison,
+record the capability reason, and continue all non-parity checks.
 
 When a build or reconcile task changes UI and no corresponding mockup exists,
 warn the user and continue. Do not create a mockup unless the task includes
