@@ -7,7 +7,7 @@ import {
   alignDailyIntegerSeries,
   dailyRangeStepSeconds,
   queryPrometheusRangeScalarSamples,
-  sevenDayUtcCalendarRange,
+  utcCalendarRange,
 } from "./prometheus-range-query.js";
 
 import {
@@ -120,8 +120,9 @@ async function queryGatewayDailyFleetTotals(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
   namespace?: string,
+  rangeDays: 7 | 30 = 7,
 ): Promise<DailyFleetTotal[]> {
-  const { end, start } = sevenDayUtcCalendarRange();
+  const { end, start } = utcCalendarRange(rangeDays);
   const samples = await queryPrometheusRangeScalarSamples(
     prometheusUrl,
     gatewayFleetTotalDailyQuery(namespace),
@@ -141,6 +142,7 @@ export async function queryGatewayMetrics(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
   namespace?: string,
+  rangeDays: 7 | 30 = 7,
 ): Promise<GatewayMetricsResponse> {
   const counts = await queryGatewayPhaseCounts(
     prometheusUrl,
@@ -153,6 +155,7 @@ export async function queryGatewayMetrics(
       prometheusUrl,
       timeoutMs,
       namespace,
+      rangeDays,
     );
     return { counts, daily_fleet_totals };
   } catch {

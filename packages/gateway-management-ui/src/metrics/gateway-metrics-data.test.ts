@@ -51,6 +51,37 @@ describe("fetchGatewayMetrics", () => {
     });
   });
 
+  it("returns optional fleet totals and forwards the selected time range", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          counts: { Running: 4 },
+          daily_fleet_totals: [
+            { date: "2026-09-01", total: 3 },
+            { date: "2026-09-02", total: 4 },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(fetchGatewayMetrics(undefined, 30)).resolves.toEqual({
+      Pending: 0,
+      Running: 4,
+      Provisioning: 0,
+      Degraded: 0,
+      Failed: 0,
+      dailyFleetTotals: [
+        { date: "2026-09-01", total: 3 },
+        { date: "2026-09-02", total: 4 },
+      ],
+    });
+    expect(fetch).toHaveBeenCalledWith("/api/metrics/gateways?range=30", {
+      credentials: "same-origin",
+      signal: undefined,
+    });
+  });
+
   it("throws when the response is not ok", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 502 }),

@@ -1,11 +1,13 @@
 export interface OperationalMetricTrendPoint {
   label: string;
-  value: number;
+  value: number | null;
 }
 
 export interface OperationalMetricTrend {
   points: readonly OperationalMetricTrendPoint[];
 }
+
+export type DashboardTimeRange = 7 | 30;
 
 export interface OperationalMetricStatus {
   degraded?: number;
@@ -26,6 +28,8 @@ export interface OperationalMetricProvisionDuration {
   mean: string;
   p50: string;
   p95: string;
+  p50Trend?: OperationalMetricTrend;
+  p95Trend?: OperationalMetricTrend;
 }
 
 export type ProvisionSuccessCountWindow =
@@ -36,6 +40,7 @@ export interface OperationalMetricProvisionOutcomes {
   successCount24h: string;
   successCountWindow?: ProvisionSuccessCountWindow;
   successRatePercent: string;
+  successRateTrend?: OperationalMetricTrend;
 }
 
 export interface OperationalMetric {
@@ -89,6 +94,7 @@ export type ReliabilityMetricId =
   | "api-latency"
   | "reconciliation-failures"
   | "reconciliation-retries"
+  | "reconciliation-successes"
   | "reconciliation-lag"
   | "stale-resource-status-count";
 
@@ -99,11 +105,18 @@ export interface OperationalDashboardMetrics {
   failedSources?: readonly DashboardFailedSourceId[];
   lastSuccessfulRefresh: Date;
   metrics: readonly OperationalMetric[];
+  timeRange?: DashboardTimeRange;
 }
 
 export interface DashboardInvocationContext {
   correlationId: string;
+  isAdmin?: boolean;
+  timeRange?: DashboardTimeRange;
   signal?: AbortSignal;
+}
+
+export interface DashboardOperationalMetricsOptions {
+  isAdmin?: boolean;
 }
 
 /** Application-owned driven port for operational and reliability dashboard metrics. */
@@ -120,6 +133,8 @@ export interface DashboardControlPlane {
 export interface DashboardOperations {
   getOperationalMetrics(
     signal?: AbortSignal,
+    timeRange?: DashboardTimeRange,
+    options?: DashboardOperationalMetricsOptions,
   ): Promise<OperationalDashboardMetrics>;
   getReliabilityMetrics(
     signal?: AbortSignal,

@@ -27,7 +27,7 @@ export function DashboardStatPanel({
   return (
     <DataList
       aria-label={ariaLabel}
-      className="hypershell-dashboard-users-card__stats"
+      className="hypershell-dashboard-gateway-releases__stats"
       isCompact
       isPlain
     >
@@ -40,12 +40,10 @@ export function DashboardStatPanel({
               <DataListItemCells
                 dataListCells={[
                   <DataListCell key="label" width={2}>
-                    <strong>{row.label}</strong>
+                    {row.label}
                   </DataListCell>,
                   <DataListCell key="value" alignRight width={1}>
-                    <span className="hypershell-dashboard-users-stat-cell__value">
-                      {row.value}
-                    </span>
+                    <strong>{row.value}</strong>
                   </DataListCell>,
                 ]}
                 rowid={`${rowId}-row`}

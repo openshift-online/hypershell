@@ -20,6 +20,7 @@ function env(
     cluster: null,
     argoHealth: null,
     argoSync: null,
+    syncRetries: null,
     consoleUrl: null,
     grafanaUrl: null,
     argoUrl: null,
@@ -262,6 +263,7 @@ describe("buildMapModel - gates", () => {
           gates: [{ name: "g", phase: "failed", governingInstance: null }],
           analysisUrl: "https://ci/hi",
           argoUrl: "https://argo/hi",
+          syncRetries: 9,
         }),
         hp: env({ name: "hp", envLabel: "prod", role: "hub" }),
       }),
@@ -276,9 +278,13 @@ describe("buildMapModel - gates", () => {
     expect(model.gates[0]?.badge.tone).toBe("danger");
     expect(model.gates[0]?.analysisUrl).toBe("https://ci/hi");
     expect(model.gates[0]?.argoUrl).toBe("https://argo/hi");
+    // The gate carries its SOURCE env's sync-retry count.
+    expect(model.gates[0]?.syncRetries).toBe(9);
     expect(model.gates[1]?.fromColumnKey).toBe("hp");
     expect(model.gates[1]?.toColumnKey).toBe("");
     expect(model.gates[1]?.terminal).toBe(true);
+    // The terminal gate's source env had no sync data: null stays null.
+    expect(model.gates[1]?.syncRetries).toBeNull();
   });
 
   it("surfaces EVERY source gate as its own check, not just the worst-case", () => {

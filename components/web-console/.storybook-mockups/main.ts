@@ -23,9 +23,17 @@ const config: StorybookConfig = {
           process.cwd(),
           "node_modules/@patternfly/react-icons",
         ),
+        "@patternfly/react-charts": resolve(
+          process.cwd(),
+          "node_modules/@patternfly/react-charts",
+        ),
         "@patternfly/react-table": resolve(
           process.cwd(),
           "node_modules/@patternfly/react-table",
+        ),
+        "@patternfly/widgetized-dashboard": resolve(
+          process.cwd(),
+          "node_modules/@patternfly/widgetized-dashboard",
         ),
       }),
     },

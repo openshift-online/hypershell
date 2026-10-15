@@ -7,7 +7,7 @@ import {
   mapHourlyIntegerSeries,
   queryPrometheusRangeScalarSamples,
   rollingHourlyRange,
-  sevenDayUtcCalendarRange,
+  utcCalendarRange,
 } from "./prometheus-range-query.js";
 import { namespaceSelector, type MetricsSource } from "./metrics-source.js";
 
@@ -93,8 +93,9 @@ async function queryDailyActiveSandboxes(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
   namespace?: string,
+  rangeDays: 7 | 30 = 7,
 ): Promise<GatewaySandboxesDailyActive[]> {
-  const { end, start } = sevenDayUtcCalendarRange();
+  const { end, start } = utcCalendarRange(rangeDays);
   const query = activeSandboxesFleetQuery(namespace);
   const samples = await queryPrometheusRangeScalarSamples(
     prometheusUrl,
@@ -115,6 +116,7 @@ export async function queryGatewaySandboxes(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
   namespace?: string,
+  rangeDays: 7 | 30 = 7,
 ): Promise<GatewaySandboxesCounts> {
   const activeSandboxes = await queryPrometheusInstantScalar(
     prometheusUrl,
@@ -170,6 +172,7 @@ export async function queryGatewaySandboxes(
       prometheusUrl,
       timeoutMs,
       namespace,
+      rangeDays,
     );
   } catch {
     // Omit daily trend only.

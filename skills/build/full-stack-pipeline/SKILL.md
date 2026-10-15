@@ -150,13 +150,16 @@ Gateway         CLI         partial     get/list implemented, delete missing
   PR environment workflow. The legacy `components/pr-test/e2e-openshell.sh`
   script has been removed.)
 
-#### Mandatory Storybook screenshot hard stop
+#### Capability-gated Storybook screenshot hard stop
 
 For a new or materially changed production page with an approved mockup, read
 and execute `skills/build/ui-build-gate/SKILL.md` after the production page and
-story render together. Wait for its terminal state. Close the wave only when
-the gate returns `Complete`, and record the validated manifest path in the wave
-handoff.
+story render together. If the agent runtime can inspect images, wait for
+`Complete`, and record the validated manifest path in the wave handoff.
+
+If the runtime cannot inspect images, record `Complete without visual review`
+and the capability reason in the wave handoff, then continue all non-parity
+checks. Do not block the wave on unavailable visual comparison.
 
 If no corresponding mockup exists, retain the earlier warning in the wave
 handoff and skip this hard stop.

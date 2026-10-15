@@ -25,12 +25,12 @@ HyperShell also removed the ManagedDatabase resource: the gateway database serve
 
 ### Relationship to other specifications
 
-| Concern | Platform inventory (this spec) | Operational dashboard |
-| --- | --- | --- |
-| Data source | Prometheus inventory gauges via BFF `GET /api/metrics/platform-inventory` | Widget layout, refresh, access control |
-| Managed cluster placement UI | Gateway provisioning uses bounded REST list search (`web-console/architecture.spec.md`) | Inventory adapter loads Prometheus-backed aggregates |
-| Hub cluster nodes | Unrelated (Prometheus kube-state-metrics; `platform/cluster-nodes.spec.md`) | `nodes` widget counts hub-cluster Kubernetes nodes, not ManagedCluster registrations |
-| Registered users | Same Prometheus-first dashboard pattern (`platform/registered-users.spec.md`) | Both appear on the operational overview |
+| Concern                      | Platform inventory (this spec)                                                          | Operational dashboard                                                                |
+| ---------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Data source                  | Prometheus inventory gauges via BFF `GET /api/metrics/platform-inventory`               | Widget layout, refresh, access control                                               |
+| Managed cluster placement UI | Gateway provisioning uses bounded REST list search (`web-console/architecture.spec.md`) | Inventory adapter loads Prometheus-backed aggregates                                 |
+| Hub cluster nodes            | Unrelated (Prometheus kube-state-metrics; `platform/cluster-nodes.spec.md`)             | `nodes` widget counts hub-cluster Kubernetes nodes, not ManagedCluster registrations |
+| Registered users             | Same Prometheus-first dashboard pattern (`platform/registered-users.spec.md`)           | Both appear on the operational overview                                              |
 
 Prometheus gateway metrics (`platform/gateway-metrics-dashboard.spec.md`) cover gateway phase counts, not managed cluster inventory.
 
@@ -40,8 +40,8 @@ Prometheus gateway metrics (`platform/gateway-metrics-dashboard.spec.md`) cover 
 
 Platform inventory version 1 SHALL cover:
 
-| Resource | List endpoint | Aggregated fields |
-| --- | --- | --- |
+| Resource       | List endpoint                             | Aggregated fields                                     |
+| -------------- | ----------------------------------------- | ----------------------------------------------------- |
 | ManagedCluster | `GET /api/hypershell/v1/managed_clusters` | `total`, `status`, `provider`, `region`, `created_at` |
 
 The adapter SHALL NOT invent counts from gateway `cluster_id` references. Only registered ManagedCluster records returned by the List API SHALL contribute to inventory metrics.
@@ -63,11 +63,12 @@ The operational dashboard adapter SHALL load managed cluster inventory from BFF 
 
 Managed cluster Prometheus series:
 
-| Metric | Meaning |
-| --- | --- |
-| `hypershell_managed_clusters_total` | Total registered managed clusters |
-| `hypershell_managed_clusters_created_last_30_days_total` | Clusters created in the last 30 × 24 hours (UTC) |
-| `hypershell_managed_clusters_inventory_total{status, provider, region}` | Cluster counts by inventory dimensions |
+| Metric                                                                  | Meaning                                          |
+| ----------------------------------------------------------------------- | ------------------------------------------------ |
+| `hypershell_managed_clusters_total`                                     | Total registered managed clusters                |
+| `hypershell_managed_clusters_created_last_7_days_total`                 | Clusters created in the last 7 × 24 hours (UTC)  |
+| `hypershell_managed_clusters_created_last_30_days_total`                | Clusters created in the last 30 × 24 hours (UTC) |
+| `hypershell_managed_clusters_inventory_total{status, provider, region}` | Cluster counts by inventory dimensions           |
 
 The adapter SHALL map the BFF JSON response into the `managed-clusters` operational metric per PI-04 and PI-05. A non-success BFF response SHALL fail only the `platform-inventory` metric source (`web-console/operational-dashboard.spec.md` OP-DASH-19).
 
@@ -103,7 +104,7 @@ When OIDC is enabled, the route SHALL require dashboard-operator authorization m
 
 - GIVEN 42 managed clusters exist with known status, provider, and region buckets
 - WHEN Prometheus scrapes the API server `/metrics` endpoint
-- THEN samples for `hypershell_managed_clusters_total`, `hypershell_managed_clusters_created_last_30_days_total`, and `hypershell_managed_clusters_inventory_total` SHALL be present
+- THEN samples for `hypershell_managed_clusters_total`, `hypershell_managed_clusters_created_last_7_days_total`, `hypershell_managed_clusters_created_last_30_days_total`, and `hypershell_managed_clusters_inventory_total` SHALL be present
 
 #### Scenario: BFF maps Prometheus inventory into JSON
 
@@ -150,11 +151,11 @@ The RBAC middleware SHALL treat `managed_clusters` collection List (`GET` with e
 
 Inventory breakdowns SHALL use **exact** API field values as bucket keys after trimming leading and trailing ASCII whitespace. Mapping SHALL NOT reinterpret lifecycle phases from other resources.
 
-| Field | Bucket key when absent | Display label rule |
-| --- | --- | --- |
-| `status` | `unknown` | Localize `unknown` as **Unknown**; otherwise show the API value verbatim |
-| `provider` (clusters) | `unknown` | Show the API value verbatim (providers are operator-defined strings such as `aws`, `gcp`, `ibm`, `openshift`) |
-| `region` (clusters) | `unknown` | Placement donut keys SHALL be `{region} ({provider})` using PI-04 bucket keys for each field (for example `us-east-1 (aws)`, `unknown (openshift)`) |
+| Field                 | Bucket key when absent | Display label rule                                                                                                                                  |
+| --------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`              | `unknown`              | Localize `unknown` as **Unknown**; otherwise show the API value verbatim                                                                            |
+| `provider` (clusters) | `unknown`              | Show the API value verbatim (providers are operator-defined strings such as `aws`, `gcp`, `ibm`, `openshift`)                                       |
+| `region` (clusters)   | `unknown`              | Placement donut keys SHALL be `{region} ({provider})` using PI-04 bucket keys for each field (for example `us-east-1 (aws)`, `unknown (openshift)`) |
 
 Status donut widgets SHALL render only buckets with count greater than zero. When more than five distinct non-zero status buckets exist for a resource kind, the status donut widget for that kind SHALL NOT render segments (the widget shell remains; the inventory summary still shows the total).
 
@@ -173,9 +174,9 @@ Provider breakdown SHALL appear in the `managed-cluster-providers` donut widget 
 
 The host `DashboardControlPlane` adapter SHALL populate this connected metric:
 
-| Metric ID | `value` | Additional fields |
-| --- | --- | --- |
-| `managed-clusters` | Total managed cluster count (decimal string) | `inventoryStatus`, `createdLast30Days`, `inventoryProviders`, `inventoryRegions` |
+| Metric ID          | `value`                                      | Additional fields                                                                                    |
+| ------------------ | -------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `managed-clusters` | Total managed cluster count (decimal string) | `inventoryStatus`, `createdLast7Days`, `createdLast30Days`, `inventoryProviders`, `inventoryRegions` |
 
 Metrics SHALL NOT include `trend`, `unit`, `total`, or gateway-style `status` buckets (`healthy`, `provisioning`, `degraded`, `failed`) in version 1.
 
@@ -184,7 +185,8 @@ Metrics SHALL NOT include `trend`, `unit`, `total`, or gateway-style `status` bu
 - `inventoryStatus?: Record<string, number>` - per-status bucket counts keyed by PI-04 bucket keys (for example `Ready`, `unknown`)
 - `inventoryProviders?: Record<string, number>` - per-provider bucket counts keyed by PI-04 bucket keys (for example `aws`, `kind`, `unknown`)
 - `inventoryRegions?: Record<string, number>` - per-placement bucket counts keyed as `{region} ({provider})` using PI-04 bucket keys (for example `us-east-1 (aws)`, `unknown (openshift)`)
-- `createdLast30Days?: string` - managed clusters created within the PI-02 lookback window
+- `createdLast7Days?: string` - managed clusters created within the 7-day PI-02 lookback window
+- `createdLast30Days?: string` - managed clusters created within the 30-day PI-02 lookback window
 
 Inventory presentation code SHALL read status breakdowns from `inventoryStatus`, not from `OperationalMetric.status`.
 
@@ -199,28 +201,38 @@ Provider donut widgets SHALL read breakdowns from `inventoryProviders`. Region d
 
 ---
 
-### Requirement: PI-06 -- Inventory Summary Card
+### Requirement: PI-06 -- Inventory Summary Card and Dashboard Route
 
-The operational dashboard SHALL add an `inventory-summary` widget that renders an `InventorySummaryCard` DescriptionList sourced from the `managed-clusters` metric.
+The operational dashboard and dedicated Platform inventory route SHALL render inventory summaries sourced from the `managed-clusters` metric. The operational dashboard uses the `InventorySummaryCard` presentation; `/dashboard/inventory` uses the Platform inventory dashboard page surface.
 
-The card SHALL include these rows:
+The dedicated Platform inventory summary SHALL include these rows:
 
-| Row | Source |
-| --- | --- |
-| Clusters | `managed-clusters.value` |
-| Clusters created (30 days) | `managed-clusters.createdLast30Days` |
+| Row                            | Source                                                                                 |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| Managed clusters               | `managed-clusters.value`                                                               |
+| Recently added (`7d` or `30d`) | `createdLast7Days` or `createdLast30Days`, selected by the dashboard time-range filter |
+| Healthy clusters               | the count of `inventoryStatus` buckets whose key is case-insensitive `Ready`           |
+| Clusters needing attention     | `managed-clusters.value` minus the healthy-cluster count                               |
 
 When the managed cluster metric exposes non-zero failure or warning `inventoryStatus` buckets, the summary SHALL show an exception row beneath the total using the same danger/warning icon semantics as gateway and node summary rows: any bucket whose label matches `/fail/i` uses the danger icon; any bucket whose label matches `/degrad/i` or `/pending/i` uses the warning icon. Healthy-only inventories (no matching failure or warning buckets) SHALL omit the exception status row, including when multiple non-exception status buckets exist.
 
 When a metric is absent from the adapter response, the corresponding inventory summary rows SHALL render the localized **Metric unavailable** empty-state message for that row group (not a silent zero).
 
-The default layout template SHALL place the inventory summary on the operational overview (`/dashboard`) without creating a separate Platform inventory route in version 1.
+The web console SHALL expose the dedicated route `/dashboard/inventory`. It SHALL use the existing operational metrics query, refresh policy, and 7/30-day time-range selector. The route SHALL be visible only to callers holding `platform:admin`; an authenticated non-admin SHALL be redirected to `/dashboard` by the SPA and away from the protected dashboard surface by the BFF, matching the provisioning dashboard rule.
 
 #### Scenario: Inventory summary shows totals
 
-- GIVEN inventory metrics loaded with `managed-clusters.value: "8"` and `createdLast30Days: "2"`
-- WHEN the inventory summary widget renders
-- THEN the card SHALL list cluster total `8` and recent count `2`
+- GIVEN inventory metrics loaded with `managed-clusters.value: "8"`, `createdLast7Days: "1"`, `createdLast30Days: "2"`, and `inventoryStatus: { Ready: 7, Failed: 1 }`
+- WHEN the Platform inventory dashboard renders with the 7-day time range
+- THEN the summary SHALL list `Managed clusters: 8`, `Recently added (7d): 1`, `Healthy clusters: 7`, and `Clusters needing attention: 1`
+- WHEN the time range changes to 30 days and metrics reload
+- THEN `Recently added (30d)` SHALL use `createdLast30Days`
+
+#### Scenario: Non-admin cannot open the inventory route
+
+- GIVEN an authenticated caller without `platform:admin`
+- WHEN the caller navigates to `/dashboard/inventory`
+- THEN the SPA SHALL redirect the caller to `/dashboard`
 
 ---
 
@@ -228,16 +240,14 @@ The default layout template SHALL place the inventory summary on the operational
 
 The widget catalog SHALL add these types:
 
-| Widget type | Metric ID | Default layout | Presentation |
-| --- | --- | --- | --- |
-| `managed-cluster-providers` | `managed-clusters` | Yes | Provider donut from `inventoryProviders`; legend ordered by descending count (PI-05) |
-| `managed-cluster-regions` | `managed-clusters` | Yes | Placement donut from `inventoryRegions` (`{region} ({provider})` keys); legend ordered by descending count (PI-05) |
+| Widget type                 | Metric ID          | Default layout | Presentation                                                                                                       |
+| --------------------------- | ------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `managed-cluster-providers` | `managed-clusters` | Yes            | Provider donut from `inventoryProviders`; legend ordered by descending count (PI-05)                               |
+| `managed-cluster-regions`   | `managed-clusters` | Yes            | Placement donut from `inventoryRegions` (`{region} ({provider})` keys); legend ordered by descending count (PI-05) |
 
 The widget catalog SHALL NOT register standalone `managed-clusters`, `managed-cluster-status`, `managed-databases`, or `managed-database-status` widget types: the ManagedDatabase resource no longer exists (see `platform/openshell-gateway-database.spec.md`), and a standalone cluster count or cluster status donut duplicates the totals and breakdowns already covered below. Cluster totals SHALL be presented through `inventory-summary` (PI-06); dimension breakdowns SHALL use the default-layout provider and region donut widgets above (`web-console/operational-dashboard.spec.md` OP-DASH-22, OP-DASH-21). No inventory status donut widget SHALL exist.
 
 Users MAY add optional widgets from the add-widgets drawer when not already on the grid. Status and provider donut widgets SHALL omit sparklines.
-
-A dedicated **Platform inventory** dashboard route (`/dashboard/inventory`) SHALL NOT be introduced in version 1. Future work MAY add that route when the inventory summary exceeds eight rows or multiple full-width breakdown charts are required.
 
 ---
 
@@ -282,4 +292,4 @@ The operational dashboard package SHALL extend `mockOperationalDashboardMetrics`
 
 - GIVEN a `platform-inventory` BFF fixture with mixed inventory buckets
 - WHEN dashboard adapter unit tests run
-- THEN they SHALL assert the stringified total, `inventoryStatus` buckets, `createdLast30Days`, `inventoryProviders`, and `inventoryRegions` mapping
+- THEN they SHALL assert the stringified total, `inventoryStatus` buckets, `createdLast7Days`, `createdLast30Days`, `inventoryProviders`, and `inventoryRegions` mapping

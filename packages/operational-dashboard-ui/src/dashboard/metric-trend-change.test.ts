@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { OperationalMetric } from "../application/dashboard-types";
 import { getMetricTrendChange } from "./metric-trend-change";
 
-function metricWithTrend(values: number[]): OperationalMetric {
+function metricWithTrend(values: (number | null)[]): OperationalMetric {
   return {
     id: "pods",
     trend: {
@@ -37,6 +37,13 @@ describe("getMetricTrendChange", () => {
 
   it("returns undefined when the starting trend value is zero", () => {
     expect(getMetricTrendChange(metricWithTrend([0, 50]))).toBeUndefined();
+  });
+
+  it("uses the first and last available values when samples contain gaps", () => {
+    expect(getMetricTrendChange(metricWithTrend([100, null, 110]))).toEqual({
+      direction: "increase",
+      percent: 10,
+    });
   });
 
   it("uses successRateTrend for provision reliability summary arrows", () => {

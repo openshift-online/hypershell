@@ -95,17 +95,17 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
         value: "97",
       }),
       Object.freeze({
-        expiringSandboxes: 12,
+        expiringSandboxes: 4,
         hourlyTrend: Object.freeze({
           points: Object.freeze(buildHourlyTrendPoints(180, 1)),
         }),
         id: "provisioned-sandboxes",
-        idleSandboxes: 7,
-        orphanedSandboxes: 3,
+        idleSandboxes: 3,
+        orphanedSandboxes: 1,
         trend: Object.freeze({
-          points: Object.freeze(buildSevenDayTrendPoints(190, 3)),
+          points: Object.freeze(buildSevenDayTrendPoints(20, 2)),
         }),
-        value: "214",
+        value: "28",
       }),
       Object.freeze({
         id: "gateway-releases",
@@ -175,6 +175,12 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
           mean: "315.00",
           p50: "288.00",
           p95: "726.00",
+          p50Trend: Object.freeze({
+            points: Object.freeze(buildSevenDayTrendPoints(240, 8)),
+          }),
+          p95Trend: Object.freeze({
+            points: Object.freeze(buildSevenDayTrendPoints(680, 12)),
+          }),
         }),
         unit: "sec",
         value: "315.00",
@@ -187,14 +193,12 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
           successRatePercent: "90.0",
         }),
         successRateTrend: Object.freeze({
-          points: Object.freeze([
-            Object.freeze({ label: "2026-08-09T12:00", value: 80 }),
-            Object.freeze({ label: "2026-08-09T13:00", value: 100 }),
-          ]),
+          points: Object.freeze(buildSevenDayTrendPoints(88, 1.2)),
         }),
         value: "90.0",
       }),
       Object.freeze({
+        createdLast7Days: "1",
         createdLast30Days: "2",
         id: "managed-clusters",
         inventoryProviders: Object.freeze({

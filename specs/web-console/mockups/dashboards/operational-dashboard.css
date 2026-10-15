@@ -1,0 +1,20 @@
+/* patternfly-gap: specs/web-console/operational-dashboard.spec.md - the approved widgetized-dashboard reference requires fixed desktop rows and a single-column narrow override that PatternFly Grid cannot express while preserving the draggable tile geometry */
+.operational-dashboard-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: 220px 260px 220px;
+}
+
+@media (max-width: 768px) {
+  .operational-dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .operational-dashboard-grid > * {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    min-height: 220px;
+  }
+}

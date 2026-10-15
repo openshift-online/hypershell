@@ -2,27 +2,19 @@ import {
   Alert,
   AlertActionLink,
   Bullseye,
-  Button,
   Content,
-  Flex,
-  FlexItem,
   PageSection,
-  PageSectionTypes,
   Spinner,
-  Timestamp,
-  TimestampFormat,
   Title,
 } from "@patternfly/react-core";
 import {
   ChartLineIcon,
-  CheckCircleIcon,
   ExclamationCircleIcon,
   OutlinedClockIcon,
   SyncAltIcon,
   TachometerAltIcon,
 } from "@patternfly/react-icons";
 import {
-  AddWidgetsButton,
   GridLayout,
   WidgetDrawer,
   type ExtendedTemplateConfig,
@@ -36,7 +28,10 @@ import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 import type { OperationalDashboardMetrics } from "../application/dashboard-types";
 import type { DashboardProbe } from "../application/dashboard-probes";
 import { noopDashboardProbePublisher } from "../application/dashboard-probes";
-import { DashboardSecondaryNav } from "../dashboard/dashboard-secondary-nav";
+import {
+  DashboardFilterToolbar,
+  DashboardNavigation,
+} from "../dashboard/dashboard-toolbar";
 import {
   getActiveWidgetTypes,
   isValidSavedTemplate,
@@ -50,14 +45,13 @@ import {
   RELIABILITY_SUMMARY_WIDGET_HEIGHT,
   RELIABILITY_TREND_WIDGET_HEIGHT,
 } from "../dashboard/reliability-dashboard-layout-template";
-import { ReconciliationOverTimeChart } from "../dashboard/reconciliation-over-time-chart";
 import {
   ApiReliabilityTrendCard,
   ReliabilitySummaryCard,
 } from "../dashboard/reliability-dashboard-widgets";
 import { useDashboardUi } from "../dashboard-ui-provider";
 import { messages } from "../messages";
-import { ResourceRefreshButton } from "../shared/resource-refresh-button";
+import { DashboardPurpose } from "./dashboard-purpose";
 import { dashboardResizeWidgetConfig } from "./dashboard-resize-handle";
 import "./dashboard-widget.css";
 import { useGetReliabilityMetricsData } from "./get-reliability-metrics-data";
@@ -226,23 +220,6 @@ function createWidgetMapping(
           messages.widgetReconciliationFailures,
         ),
     },
-    "reconciliation-successes": {
-      defaults: {
-        h: RELIABILITY_TREND_WIDGET_HEIGHT,
-        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <CheckCircleIcon />,
-        title: intl.formatMessage(messages.widgetReconciliationSuccesses),
-      },
-      renderWidget: () =>
-        renderTrend(
-          "reconciliation-successes",
-          messages.widgetReconciliationSuccesses,
-        ),
-    },
     "reconciliation-retries": {
       defaults: {
         h: RELIABILITY_TREND_WIDGET_HEIGHT,
@@ -291,25 +268,6 @@ function createWidgetMapping(
           messages.widgetStaleResourceStatus,
         ),
     },
-    "reconciliation-over-time": {
-      defaults: {
-        h: RELIABILITY_TREND_WIDGET_HEIGHT + 2,
-        maxH: RELIABILITY_TREND_WIDGET_HEIGHT + 4,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: RELIABILITY_DASHBOARD_COLUMN_COUNT,
-      },
-      config: {
-        icon: <ChartLineIcon />,
-        title: intl.formatMessage(messages.widgetReconciliationOverTime),
-      },
-      renderWidget: () => (
-        <ReconciliationOverTimeChart
-          failures={metricById.get("reconciliation-failures")}
-          retries={metricById.get("reconciliation-retries")}
-          successes={metricById.get("reconciliation-successes")}
-        />
-      ),
-    },
   };
 }
 
@@ -325,10 +283,20 @@ export function ReliabilityDashboardPage({
   const intl = useIntl();
   const { probes = noopDashboardProbePublisher } = useDashboardUi();
   const pageTitle = title ?? intl.formatMessage(messages.reliabilityTitle);
+  const [currentTime, setCurrentTime] = useState(0);
   const metricsQuery = useGetReliabilityMetricsData({
     enabled: metrics === undefined,
   });
   const dashboardMetrics = metrics ?? metricsQuery.data;
+  const updatedMinutesAgo = dashboardMetrics?.lastSuccessfulRefresh
+    ? Math.max(
+        0,
+        Math.floor(
+          (currentTime - dashboardMetrics.lastSuccessfulRefresh.getTime()) /
+            60000,
+        ),
+      )
+    : undefined;
   const showTotalInitialLoadError =
     metrics === undefined && metricsQuery.isError && !metricsQuery.data;
   const showPartialLoadWarning =
@@ -354,6 +322,18 @@ export function ReliabilityDashboardPage({
   );
 
   const invalidTemplateProbePublishedRef = useRef(false);
+
+  useEffect(() => {
+    const updateCurrentTime = () => {
+      setCurrentTime(Date.now());
+    };
+    const timeoutId = window.setTimeout(updateCurrentTime, 0);
+    const intervalId = window.setInterval(updateCurrentTime, 60000);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     if (
@@ -390,16 +370,6 @@ export function ReliabilityDashboardPage({
         : undefined,
     [dashboardMetrics, intl],
   );
-
-  const hasWidgetsToAdd = useMemo(() => {
-    if (!widgetMapping) {
-      return false;
-    }
-
-    return Object.keys(widgetMapping).some(
-      (type) => !activeWidgetTypes.includes(type),
-    );
-  }, [widgetMapping, activeWidgetTypes]);
 
   const handleTemplateChange = (nextTemplate: ExtendedTemplateConfig) => {
     const addedTypes = getAddedWidgetTypes(dashboardTemplate, nextTemplate);
@@ -485,90 +455,46 @@ export function ReliabilityDashboardPage({
 
   return (
     <Fragment>
-      <PageSection type={PageSectionTypes.subNav}>
-        <DashboardSecondaryNav active="reliability" />
+      <PageSection
+        data-page-region="header"
+        hasBodyWrapper={false}
+        variant="default"
+      >
+        <Content>
+          <Title headingLevel="h1">{pageTitle}</Title>
+          <p>
+            <FormattedMessage {...messages.reliabilityDescription} />
+          </p>
+        </Content>
       </PageSection>
-      <PageSection isFilled padding={{ default: "padding" }}>
-        <Flex
-          alignItems={{ default: "alignItemsFlexStart" }}
-          justifyContent={{ default: "justifyContentSpaceBetween" }}
+      <PageSection
+        data-page-region="body"
+        hasBodyWrapper={false}
+        isFilled
+        variant="secondary"
+      >
+        <DashboardNavigation
+          active="reliability"
+          isRefreshing={metrics === undefined && metricsQuery.isFetching}
+          onRefresh={() => {
+            if (metrics === undefined) {
+              void metricsQuery.refetch();
+            }
+          }}
+          updatedMinutesAgo={updatedMinutesAgo}
+        />
+        <DashboardPurpose
+          heading={<FormattedMessage {...messages.reliabilityPurposeHeading} />}
         >
-          <FlexItem>
-            <Content>
-              <Title headingLevel="h1">{pageTitle}</Title>
-              <p>
-                <FormattedMessage {...messages.reliabilityDescription} />
-              </p>
-            </Content>
-          </FlexItem>
-          {metrics === undefined || widgetMapping ? (
-            <FlexItem className="hypershell-dashboard-header-actions">
-              <Flex
-                alignItems={{ default: "alignItemsCenter" }}
-                direction={{ default: "column" }}
-                spaceItems={{ default: "spaceItemsSm" }}
-              >
-                {metrics === undefined ? (
-                  <Flex
-                    alignItems={{ default: "alignItemsCenter" }}
-                    spaceItems={{ default: "spaceItemsSm" }}
-                  >
-                    {dashboardMetrics?.lastSuccessfulRefresh ? (
-                      <FlexItem>
-                        <span className="hypershell-dashboard-last-refreshed">
-                          <FormattedMessage
-                            {...messages.lastRefreshed}
-                            values={{
-                              timestamp: (
-                                <Timestamp
-                                  date={dashboardMetrics.lastSuccessfulRefresh}
-                                  dateFormat={TimestampFormat.medium}
-                                  timeFormat={TimestampFormat.medium}
-                                />
-                              ),
-                            }}
-                          />
-                        </span>
-                      </FlexItem>
-                    ) : null}
-                    <FlexItem>
-                      <ResourceRefreshButton
-                        ariaLabel={intl.formatMessage(messages.refresh)}
-                        isRefreshing={metricsQuery.isFetching}
-                        onRefresh={() => {
-                          void metricsQuery.refetch();
-                        }}
-                      />
-                    </FlexItem>
-                  </Flex>
-                ) : null}
-                {widgetMapping ? (
-                  <Flex
-                    alignItems={{ default: "alignItemsCenter" }}
-                    spaceItems={{ default: "spaceItemsSm" }}
-                  >
-                    <FlexItem>
-                      <Button variant="link" onClick={handleResetToDefault}>
-                        {intl.formatMessage(messages.resetToDefault)}
-                      </Button>
-                    </FlexItem>
-                    {hasWidgetsToAdd ? (
-                      <FlexItem>
-                        <AddWidgetsButton
-                          onClick={() => {
-                            setDrawerOpen(!drawerOpen);
-                          }}
-                        >
-                          {intl.formatMessage(messages.addWidgets)}
-                        </AddWidgetsButton>
-                      </FlexItem>
-                    ) : null}
-                  </Flex>
-                ) : null}
-              </Flex>
-            </FlexItem>
-          ) : null}
-        </Flex>
+          <FormattedMessage {...messages.reliabilityPurpose} />
+        </DashboardPurpose>
+        <DashboardFilterToolbar
+          onAddWidgets={() => {
+            setDrawerOpen(!drawerOpen);
+          }}
+          onResetToDefault={handleResetToDefault}
+          showTimeRange={false}
+        />
         {metricsQuery.isPending && metrics === undefined ? (
           <Bullseye>
             <Spinner

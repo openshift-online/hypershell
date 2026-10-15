@@ -17,10 +17,25 @@ code, review) acts on unchanged. This responsibility is invoked by `execute-sdlc
 Step 0, before triage, so every later phase operates uniformly on GitHub
 execution records of either origin.
 
-Realizes the `Origin-Agnostic Intake`, `Canonical Identity Link`,
-`Canonical-Link-Only Resolution`, and `ingest becomes bidirectional and
-origin-agnostic` requirements of
+Realizes the `Authorization Gate Is Load-Bearing`, `Origin-Agnostic Intake`,
+`Canonical Identity Link`, `Canonical-Link-Only Resolution`, and `ingest becomes
+bidirectional and origin-agnostic` requirements of
 `specs/standards/sdlc/jira-github-sync.spec.md`.
+
+## The Authorization Gate
+
+`agent/allowed` is the human authorization gate for the ENTIRE funnel, separate
+from the `$LABEL_SCOPE` run selector. Scope selects an item for a run;
+authorization is a separate, human-controlled decision that the item MAY be acted
+on. The two are orthogonal: an item that is scoped but NOT authorized SHALL NOT be
+acted on by intake. Intake SHALL NOT create a Jira epic, a GitHub execution
+record, or a canonical link for an item that does not carry `agent/allowed`.
+
+Authorization is a human act. `ingest` SHALL NOT apply `agent/allowed` to any
+record: an agent that granted the gate to a record it created would defeat the
+gate. A GitHub execution record created by `ingest` therefore starts
+UN-authorized, carrying only `agent/execution-record` and `$LABEL_SCOPE`, and
+stays inert until a human grants `agent/allowed`.
 
 ## Input
 
@@ -69,32 +84,45 @@ ingests.
 
 Resolve the work to intake from BOTH a Jira source AND GitHub issues carrying the
 scope label, so GitHub-origin records are discovered, not only Jira-ingested ones.
+The in-scope set is GATED by `agent/allowed` (see The Authorization Gate): an item
+is in scope only if it carries `agent/allowed` in addition to the scope selector.
+An item that is scoped but not authorized SHALL NOT be in scope for intake.
 
-Resolve `$JIRA_ITEMS`, the in-scope Jira items:
+Resolve `$JIRA_ITEMS`, the in-scope Jira items (each MUST carry the `agent/allowed`
+authorization marker as a Jira label; drop any that do not):
 
-- IF `$SOURCE` is an epic key (eg. `HYPERSHELL-374`): the item is that epic. (Do
-  NOT auto-expand the epic into its children; only items the source directly
-  selects are in scope.)
-- IF `$SOURCE` is a JQL query: the items are the query result.
-- IF `$SOURCE` is a Jira label: the items are those carrying that label.
+- IF `$SOURCE` is an epic key (eg. `HYPERSHELL-374`): the item is that epic, only
+  if it carries `agent/allowed`. (Do NOT auto-expand the epic into its children;
+  only items the source directly selects are in scope.)
+- IF `$SOURCE` is a JQL query: the items are the query result that also carry
+  `agent/allowed`.
+- IF `$SOURCE` is a Jira label: the items are those carrying that label AND
+  `agent/allowed`.
 - IF `$SOURCE` is a single GitHub issue: `$JIRA_ITEMS` is EMPTY (this is a
   GitHub-first single-item run).
-- IF `$SOURCE` is omitted: the items are those carrying `$LABEL_SCOPE` as a Jira
-  label.
+- IF `$SOURCE` is omitted: the items are those carrying BOTH `$LABEL_SCOPE` AND
+  `agent/allowed` as Jira labels.
 
-Resolve `$GITHUB_ITEMS`, the in-scope GitHub issues:
+Resolve `$GITHUB_ITEMS`, the in-scope GitHub issues (each MUST carry
+`agent/allowed`; drop any that do not, symmetric with the `triage` contract):
 
-- IF `$SOURCE` is a single GitHub issue: `$GITHUB_ITEMS` is just that issue.
+- IF `$SOURCE` is a single GitHub issue: `$GITHUB_ITEMS` is just that issue, only
+  if it carries `agent/allowed`.
 - IF `$SOURCE` is a Jira source: `$GITHUB_ITEMS` is EMPTY (this is a Jira-first
   single-item run).
 - IF `$SOURCE` is omitted: `$GITHUB_ITEMS` is every GitHub issue (open AND
-  closed) in `openshift-online/hypershell` carrying `$LABEL_SCOPE`. Discover open
-  AND closed so an already-merged-but-closed GitHub-origin record is still linked
-  and reconciled (symmetric with the Jira-first search in Step 2, which spans open
-  AND closed). An in-scope GitHub issue that already carries the
-  `agent/execution-record` marker is an established execution record; one carrying
-  the scope label but NOT the marker is a GitHub-origin candidate the GitHub-first
-  path ingests (Step 3), applying the marker as part of the canonical link.
+  closed) in `openshift-online/hypershell` carrying BOTH `$LABEL_SCOPE` AND
+  `agent/allowed`. Discover open AND closed so an already-merged-but-closed
+  GitHub-origin record is still linked and reconciled (symmetric with the
+  Jira-first search in Step 2, which spans open AND closed). An in-scope GitHub
+  issue that already carries the `agent/execution-record` marker is an established
+  execution record; one carrying the scope label and `agent/allowed` but NOT the
+  marker is a GitHub-origin candidate the GitHub-first path ingests (Step 3),
+  applying the marker as part of the canonical link.
+
+An item that carries the scope selector but not `agent/allowed` is NOT in scope:
+intake creates no epic, record, or link for it. Authorization is a human act;
+adding `agent/allowed` by hand lets the next run ingest it.
 
 You MUST NOT read Jira items that are outside the configured Jira source.
 
@@ -128,8 +156,11 @@ on an already-linked item makes no change and returns the existing record.
        Jira key on its own line (for exact matching), and the Jira item intent
        (description and acceptance criteria copied from the Jira item, which is
        the authority for intent).
-     - Labels: `agent/execution-record`, `agent/allowed`, and `$LABEL_SCOPE`
-       (create any label that does not exist first).
+     - Labels: `agent/execution-record` and `$LABEL_SCOPE` (create any label that
+       does not exist first). Do NOT apply `agent/allowed`: authorization is a
+       human act and `ingest` SHALL NOT self-authorize a record it creates (see
+       The Authorization Gate). The created record starts un-authorized and stays
+       inert until a human grants `agent/allowed`.
    - `$EXECUTION_RECORD` = the new issue.
 
 Intake SHALL resolve exactly one execution record per work item. A GitHub-origin

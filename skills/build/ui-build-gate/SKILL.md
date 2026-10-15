@@ -2,27 +2,49 @@
 name: ui-build-gate
 description: >
   Executes and enforces Storybook screenshot parity for new or materially
-  changed HyperShell web-console UI with an approved mockup. Produces required
-  evidence; use before reporting UI implementation complete.
+  changed HyperShell web-console UI with an approved mockup when the current
+  agent runtime can inspect images. Produces required evidence; use before
+  reporting UI implementation complete.
 ---
 
 # UI build gate
 
 Own Storybook parity completion. Calling skills must stop their completion path
-until this gate returns `Complete` or `Blocked`.
+until this gate returns `Complete` or `Blocked` when the current agent runtime
+can inspect images.
 
 ## Terminal states
 
-The task has only two terminal states:
+The gate has these terminal states:
 
 - `Complete`: `visual-parity.json` validates with `status: complete`.
+- `Complete without visual review`: the current agent runtime has no
+  image-inspection tool. Visual comparison is not required for that run;
+  continue all non-parity checks and record the capability skip in the handoff.
 - `Blocked`: an external failure prevents capture or inspection after safe
-  recovery attempts. Record the attempted recovery and external cause.
+  recovery attempts in the image-capable path. Record the attempted recovery and
+  external cause.
 
-Never return `Implemented, incomplete`. Missing code, providers, fixtures,
-stories, screenshots, or review is implementation work, not a blocker.
+In an image-capable run, never return `Implemented, incomplete`. Missing code,
+providers, fixtures, stories, screenshots, or review is implementation work,
+not a blocker.
 
-## Required loop
+## Capability selection
+
+Before entering the parity loop, inspect the tools available to the current
+agent. Visual comparison capability exists only when the runtime exposes a tool
+that can open and visually inspect a local image. Do not infer capability from
+model identity, model family, or confidence.
+
+If image inspection is available, it is required and the full loop below is
+mandatory. If it is unavailable, do not capture or review screenshots and do not
+fabricate `visual-parity.json`. Run every non-parity check available to the task,
+report `Complete without visual review`, and continue the calling skill.
+
+When capability is uncertain, treat it as unavailable and continue without
+claiming visual review.
+
+## Required image-capable loop
 
 Advance in order. Do not skip a state or report a later state without evidence
 from the earlier one.
@@ -111,8 +133,8 @@ Storybook's static assets.
 
 ### 3. Inspect
 
-Call `view_image` on all four paths from `visual-parity.json` in the current
-task. Inspect production desktop vs mockup desktop and production narrow vs
+Open all four paths from `visual-parity.json` with the runtime's image-inspection
+tool. Inspect production desktop vs mockup desktop and production narrow vs
 mockup narrow.
 
 Compare layout, page-owned chrome, background colors, section order, content type and
@@ -153,7 +175,8 @@ visible mismatch using this exact format:
 
 Record differences in background, component type, icon/status treatment,
 spacing, typography, sectioning, placement, and responsive behavior
-separately. Never record `pass` before all four `view_image` calls.
+separately. Never record `pass` before all four images have been opened and
+inspected.
 
 `review --result fail` requires a nonempty difference ledger and exits nonzero.
 Edit every listed production file immediately. Do not send a final response,
@@ -169,10 +192,10 @@ python3 skills/build/ui-build-gate/scripts/visual_parity_gate.py validate \
   --manifest <task-evidence-directory>/visual-parity.json
 ```
 
-Do not report UI work or its parent wave complete unless this exits zero. The
-final handoff must link the production story, mockup story, manifest, all four
-captures, viewport sizes, review result, fixes made, and spec-backed intentional
-differences.
+Do not report image-capable UI work or its parent wave complete unless this
+exits zero. The final handoff must link the production story, mockup story,
+manifest, all four captures, viewport sizes, review result, fixes made, and
+spec-backed intentional differences.
 
 Do not send a final response containing unresolved parity language such as
 "still needs", "needs one iteration", "remaining visual difference", "close

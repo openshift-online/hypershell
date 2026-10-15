@@ -1,9 +1,9 @@
 import { fetchMetrics, type MetricsSource } from "./metrics-source.js";
 import {
-  alignDailyIntegerSeries,
+  alignDailySeriesPreservingGaps,
   dailyRangeStepSeconds,
   queryPrometheusRangeScalarSamples,
-  sevenDayUtcCalendarRange,
+  utcCalendarRange,
 } from "./prometheus-range-query.js";
 
 export const clusterCpuCapacityPromql =
@@ -17,7 +17,7 @@ const usedExceedsCapacityToleranceCores = 0.01;
 
 export interface ClusterCpuDailyUsed {
   date: string;
-  value: number;
+  value: number | null;
 }
 
 export interface ClusterCpuCores {
@@ -87,6 +87,7 @@ async function queryPrometheusInstant(
 export async function queryClusterCpu(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
+  rangeDays: 7 | 30 = 7,
 ): Promise<ClusterCpuCores> {
   const [capacity_cores, used_cores] = await Promise.all([
     queryPrometheusInstant(prometheusUrl, clusterCpuCapacityPromql, timeoutMs),
@@ -110,7 +111,7 @@ export async function queryClusterCpu(
   };
 
   try {
-    const { end, start } = sevenDayUtcCalendarRange();
+    const { end, start } = utcCalendarRange(rangeDays);
     const samples = await queryPrometheusRangeScalarSamples(
       prometheusUrl,
       clusterCpuDailyUsedPromql,
@@ -119,12 +120,13 @@ export async function queryClusterCpu(
       `${String(clusterCpuDailyUsedStepSeconds)}s`,
       timeoutMs,
     );
-    response.daily_used = alignDailyIntegerSeries(samples).map(
-      ({ date, value }) => ({
-        date,
-        value: Math.round(value),
-      }),
-    );
+    response.daily_used = alignDailySeriesPreservingGaps(
+      samples,
+      rangeDays,
+    ).map(({ date, value }) => ({
+      date,
+      value: value === null ? null : Math.round(value),
+    }));
   } catch {
     // Omit trend only.
   }

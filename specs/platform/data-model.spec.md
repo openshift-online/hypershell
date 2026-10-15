@@ -15,7 +15,7 @@ Current model:
 - **Gateway** - an API gateway instance deployed onto a specific cluster within an API-assigned namespace. Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
-- **Repository** - a registered git repository (e.g. `https://github.com/openshift-online/hypershell`) paired with the provider credential HyperShell uses to reach it. A server-side import process discovers a `.hypershell/` directory in each registered Repository and renders the declarative HyperShell resources it finds into the API.
+- **Repository** - a registered git repository (e.g. `https://github.com/openshift-online/hypershell`) paired with the provider credential HyperShell uses to reach it. The control-plane declarative-import reconciler discovers a `.hypershell/` directory in each registered Repository and renders the declarative HyperShell resources it finds into the API.
 - **SandboxTemplate** - reusable OCI image + filesystem/network/process policy for agent worker sandboxes.
 - **ProviderSpec** - reusable capability definition (inference, source_control, or knowledge) shared across ProviderBindings.
 - **ProviderBinding** - wires a ProviderSpec into an AgentWorkspace with workspace-specific credential and refresh configuration.
@@ -544,52 +544,128 @@ SHALL reference an existing `SecretSource`.
 
 ### Requirement: Declarative `.hypershell` Import
 
-A server-side import process SHALL enumerate all registered `Repository` records,
-read each at its `import_path` (default `.hypershell`), and render the declarative
-HyperShell resources it finds into the API. The `.hypershell` directory SHALL be
-a Kustomize root: the import process SHALL build the kustomization and reconcile
-the rendered resources - the same kinds `hsctl apply` supports (`AgentRuntime`,
-`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`,
-`SecretSource`) - into the API.
+The declarative import process SHALL enumerate all registered `Repository`
+records, read each at its `import_path` (default `.hypershell`), and render the
+declarative HyperShell resources it finds into the API. The `.hypershell`
+directory SHALL be a Kustomize root: the import process SHALL build the
+kustomization and reconcile the rendered resources - the same kinds `hsctl apply`
+supports (`AgentRuntime`, `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
+`InferenceRoute`, `SecretSource`) - into the API.
+
+The import process SHALL be hosted by the **control plane**, the reconciler of the
+system, NOT by the API server. For each `Repository` the control plane SHALL:
+
+1. Resolve the `Repository`'s `secret_source_id` credential cluster-side, through
+   the same `SecretSource` -> `ExternalSecret` -> External Secrets Operator ->
+   Kubernetes `Secret` resolution path the control plane already uses for
+   AgentRuntime provisioning.
+2. Git-clone the `Repository` at its `default_branch` (or the branch otherwise
+   specified) using that resolved credential.
+3. Render the Kustomize root at `import_path`.
+4. Reconcile (create / update / prune) the rendered ext resources into the API,
+   over the same create, update, and delete operations the REST layer owns.
+
+The control plane holds per-cluster in-cluster credentials and the cluster-side
+`SecretSource` resolution and git access the import requires; the API server holds
+no in-process `SecretSource` resolver and no git access. Hosting the import in the
+control plane therefore places it where the credential resolution and repository
+access already exist, and removes the in-process-secret-resolution blocker that
+would otherwise fall on the API server.
+
+The API server's only secret role in this flow is the secret-submission endpoint
+defined in "Requirement: Secret Submission and Storage" below: it stores a
+submitted secret value in the secret manager and the reference to it
+(a `SecretSource` record) in the database. The API server SHALL NOT resolve a
+secret value in-process and SHALL NOT clone a git repository.
+
+**Control-plane write exception (bounded).** The control plane is otherwise the
+reader of desired state and never authors API desired state: it writes back only
+derived resource `status` and provisions gateway-side objects through the gateway
+gRPC API. The declarative-import reconciler is the SINGLE, clearly-bounded
+control-plane path that writes HyperShell API desired-state resources. That
+exception is scoped precisely: the import reconciler SHALL write ONLY ext
+resources that are owned by the originating `Repository`, SHALL perform only
+create / update / prune on those Repository-owned resources, SHALL mark each
+written resource with its owning `Repository` so ownership is explicit, and SHALL
+be idempotent against unchanged repository state. Outside this bounded path the
+control plane SHALL NOT write API desired-state resources. This resolves what
+would otherwise contradict the "control plane is a reader of desired state"
+principle: the principle holds everywhere except this one named, ownership-scoped
+reconciler.
 
 Imported resources SHALL be owned by the originating `Repository`. The import
 process SHALL reconcile, not create-and-skip: a resource added to `.hypershell`
 is created, a changed resource is updated, and a resource removed from
 `.hypershell` is pruned. Re-running the import against unchanged repository state
-SHALL be idempotent.
-
-The import process SHALL be hosted by the **API server** as a background worker,
-not by the control plane. The import reads each `Repository`'s provider credential
-and writes API resources - the same create, update, and delete operations the REST
-layer already owns - and never applies anything to a Kubernetes cluster. The
-control plane, by contrast, holds per-cluster in-cluster credentials and only reads
-desired state over watch streams; it SHALL NOT write API resources. Hosting the
-import in the API server keeps it co-located with the Repository credentials and the
-ownership and pruning bookkeeping it maintains, and keeps the control plane a pure
-reader of desired state. The pruning of imported resources SHALL be scoped to the
-owning `Repository`, so one Repository's import SHALL NOT delete resources owned by
-another Repository or created directly through the REST API or `hsctl apply`.
+SHALL be idempotent. The pruning of imported resources SHALL be scoped to the
+owning `Repository`, so one Repository's import SHALL NOT delete resources owned
+by another Repository or created directly through the REST API or `hsctl apply`.
 
 > **Replaces the script coordinator model.** This declarative import, together
 > with `AgentRuntime.selector`, supersedes the imperative `discover.sh` / `run.sh`
 > "script-at-endpoint" coordinator contract previously documented in
 > `.hypershell/README.md`. That script contract is **deprecated and slated for
-> removal**: a server-side process SHALL render declared YAML rather than invoke
+> removal**: the control-plane import SHALL render declared YAML rather than invoke
 > scripts found in the repository. Updating `.hypershell/README.md` and removing
 > the `discover.sh` / `run.sh` scripts is a follow-up outside this spec change.
 
 #### Scenario: Import Renders Declared Resources
 
 - GIVEN a registered `Repository` whose `.hypershell` directory declares a `SandboxTemplate` and an `AgentRuntime`
-- WHEN the import process runs
-- THEN it SHALL build the kustomization and upsert both resources into the API
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve the `Repository`'s credential cluster-side, git-clone the repository, and build the kustomization
+- AND it SHALL upsert both resources into the API
 - AND the resources SHALL be owned by the `Repository`
 
 #### Scenario: Removed Declaration Is Pruned
 
 - GIVEN a `Repository` that previously imported an `AgentRuntime`
 - WHEN that `AgentRuntime` is removed from `.hypershell` and the import re-runs
-- THEN the API server SHALL delete the imported `AgentRuntime`
+- THEN the control-plane import reconciler SHALL delete the imported `AgentRuntime` through the API
+
+#### Scenario: Prune Is Scoped to the Owning Repository
+
+- GIVEN two `Repository` records, `R1` and `R2`, and an `AgentRuntime` created directly through the REST API
+- WHEN `R1`'s import re-runs after its declarations change
+- THEN the import SHALL prune only resources owned by `R1`
+- AND it SHALL NOT delete resources owned by `R2` or the directly-created `AgentRuntime`
+
+#### Scenario: Idempotent Against Unchanged Repository State
+
+- GIVEN a `Repository` whose `.hypershell` contents are unchanged since the last import
+- WHEN the control-plane import reconciler runs again
+- THEN it SHALL make no create, update, or prune write to the API
+
+---
+
+### Requirement: Secret Submission and Storage
+
+The API server SHALL expose an endpoint that lets a user submit a secret for
+storage in the HyperShell backend. On submission the API server SHALL store the
+secret **value** in the configured secret manager and SHALL persist only a
+**reference** to that stored value as a `SecretSource` record in the database. The
+response SHALL identify the created `SecretSource`.
+
+The API server SHALL NOT persist the raw secret value in the database, SHALL NOT
+resolve a stored secret value in-process, and SHALL NOT clone a git repository.
+Cluster-side resolution of a stored `SecretSource` into a usable credential is the
+control plane's responsibility (see "Requirement: Declarative `.hypershell`
+Import" and the control-plane `SecretSource` -> `ExternalSecret` wiring).
+
+#### Scenario: Submit a Secret
+
+- GIVEN a user POSTs a secret value to the secret-submission endpoint
+- WHEN the API server accepts the submission
+- THEN it SHALL write the secret value to the secret manager
+- AND it SHALL persist a `SecretSource` record referencing that stored value in the database
+- AND the response SHALL identify the created `SecretSource`
+
+#### Scenario: Raw Secret Value Is Never Stored in the Database
+
+- GIVEN a submitted secret value
+- WHEN the API server persists the `SecretSource` record
+- THEN the database record SHALL contain only the reference to the secret manager entry
+- AND it SHALL NOT contain the raw secret value
 
 ---
 
@@ -1217,6 +1293,6 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0
 | Repository credential via SecretSource FK | Reuses the existing abstract secret backend model (Vault/AWS/Kubernetes) and `ExternalSecret` wiring, keeping provider secrets out of the database and consistent with every other credential in the platform. |
 | AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
 | Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
-| `.hypershell` import hosted by the api-server, not the control plane | The import reads Repository credentials and writes API resources (create/update/delete), the operations the REST layer already owns; it never applies to a cluster. The control plane holds per-cluster credentials and is a pure reader of desired state over watch streams. Hosting the import in the api-server co-locates it with the Repository credentials and the ownership/pruning bookkeeping, and keeps the control plane from ever writing API resources. |
+| `.hypershell` import hosted by the control plane, not the api-server | The import must resolve each `Repository`'s `secret_source_id` credential and git-clone the repository. The control plane already has cluster-side `SecretSource` -> `ExternalSecret` resolution and git/cluster access; the api-server has no in-process `SecretSource` resolver and no git access. Hosting the import in the control plane places it where credential resolution and repository access already live and removes the in-process-secret-resolution blocker. The import is the single bounded control-plane path that writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources. The api-server's only secret role is a POST endpoint that stores the submitted value in the secret manager and its reference (a `SecretSource`) in the database. |
 | Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
 | Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |

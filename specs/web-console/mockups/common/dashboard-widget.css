@@ -1,0 +1,18 @@
+/* patternfly-gap: specs/web-console/provisioning-dashboard.spec.md - widgetized-dashboard GridTile has no header-label slot, so the administrator-only System badge requires a scoped title augmentation */
+.mockup-widget-system .pf-v6-widget-grid-tile__title {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+}
+
+.mockup-widget-system .pf-v6-widget-grid-tile__title::after {
+  background: var(--pf-t--global--color--nonstatus--orange--default);
+  border-radius: var(--pf-t--global--border--radius--pill);
+  color: var(--pf-t--global--text--color--nonstatus--on-orange--default);
+  content: "System";
+  font-size: var(--pf-t--global--font--size--body--sm);
+  font-weight: var(--pf-t--global--font--weight--body--regular);
+  margin-inline-start: var(--pf-t--global--spacer--sm);
+  padding-block: var(--pf-t--global--spacer--xs);
+  padding-inline: var(--pf-t--global--spacer--sm);
+}

@@ -88,10 +88,17 @@ never creates a second record for a GitHub-origin item and never a duplicate Jir
 epic. A GitHub-origin issue acquires the `agent/execution-record` marker here,
 during `ingest`'s GitHub-first path.
 
+`ingest` gates its in-scope set on `agent/allowed` (the human authorization gate
+for the whole funnel): it resolves only items carrying `agent/allowed` alongside
+the scope, and it never self-authorizes a record it creates (see
+`Authorization Gate Is Load-Bearing` in
+`specs/standards/sdlc/jira-github-sync.spec.md`). A scoped but un-authorized item
+is inert: `ingest` creates no epic, record, or link for it.
+
 `ingest` returns the SET of in-scope execution records (`$EXECUTION_RECORDS`), of
 EITHER origin:
-- For `$ISSUE_OVERRIDE` empty: every execution record carrying `$LABEL_SCOPE`
-  (Jira-ingested and GitHub-origin alike).
+- For `$ISSUE_OVERRIDE` empty: every execution record carrying BOTH `$LABEL_SCOPE`
+  AND `agent/allowed` (Jira-ingested and GitHub-origin alike).
 - For `$ISSUE_OVERRIDE` a single Jira key or a single GitHub issue: the one record
   it resolved. OUTPUT `$EXECUTION_RECORD` = that record.
 
@@ -153,16 +160,24 @@ items. The ACTIVE phase labels are: `agent/workable`, `agent/reviewable-spec`,
 `agent/review-spec-approved`, `agent/review-spec-rejected`,
 `agent/reviewable-code`, `agent/review-code-rejected`.
 
+`agent/allowed` is the human authorization gate for the whole funnel, so work
+selection requires it in the candidate-set predicate alongside the scope and
+active-phase conditions. An un-authorized record SHALL NOT be selected for any
+SDLC phase (see `Authorization Gate Is Load-Bearing` in
+`specs/standards/sdlc/jira-github-sync.spec.md`).
+
 IF `$ISSUE_OVERRIDE` IS EMPTY:
     Let the candidate set be every execution record that has `$LABEL_SCOPE` AND
-    at least one ACTIVE phase label. Exclude records that are terminal or paused
-    (`agent/review-code-approved`, `agent/needs-input`, `agent/duplicate`,
-    `agent/blocked`). Choose one candidate at random.
+    `agent/allowed` AND at least one ACTIVE phase label. Exclude records that are
+    terminal or paused (`agent/review-code-approved`, `agent/needs-input`,
+    `agent/duplicate`, `agent/blocked`). Choose one candidate at random.
     IF the candidate set is empty:
         STOP. No further action. Exit with: "No in-flight or workable items in scope: $LABEL_SCOPE."
 ELSE:
     IF `$EXECUTION_RECORD` does not have `$LABEL_SCOPE` label applied:
         STOP. No further action. Exit with: "ERROR: work item does not have required scope label: $LABEL_SCOPE.
+    IF `$EXECUTION_RECORD` does not have the `agent/allowed` label applied:
+        STOP. No further action. Exit with: "ERROR: work item is not authorized (missing agent/allowed): $EXECUTION_RECORD."
 
 OUTPUT: $SELECTED_WORK_ITEM
 
