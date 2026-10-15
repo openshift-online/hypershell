@@ -545,12 +545,6 @@ export const messages = defineMessages({
     defaultMessage: "Current bundle on {cluster}",
     description: "Accessible label for a hub cluster's current-bundle marker.",
   },
-  sdlcMatrixDrift: {
-    id: "fleet.sdlc.matrix.drift",
-    defaultMessage:
-      "{count, plural, one {# bundle behind} other {# bundles behind}}",
-    description: "How far behind a hub cluster runs in the release matrix.",
-  },
   sdlcMatrixEmpty: {
     id: "fleet.sdlc.matrix.empty",
     defaultMessage: "No release history yet.",
@@ -627,11 +621,6 @@ export const messages = defineMessages({
     id: "fleet.sdlc.section",
     defaultMessage: "Agent SDLC",
     description: "Card title for the Agent SDLC tab content.",
-  },
-  sdlcSleCrossed: {
-    id: "fleet.sdlc.sle.crossed",
-    defaultMessage: "Past the service-level expectation.",
-    description: "Non-color cue that a card has crossed its column SLE.",
   },
   sdlcSleLine: {
     id: "fleet.sdlc.sle.line",
