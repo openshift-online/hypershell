@@ -13,7 +13,7 @@ func ConvertAgentRuntime(ar openapi.AgentRuntime) *AgentRuntime {
 			ID: util.NilToEmptyString(ar.Id),
 		},
 		Name:      ar.Name,
-		ClusterId: ar.ClusterId,
+		ClusterId: util.NilToEmptyString(ar.ClusterId),
 		GatewayId: ar.GatewayId,
 	}
 	if ar.SandboxTemplateId != nil {
@@ -46,7 +46,6 @@ func PresentAgentRuntime(ar *AgentRuntime) openapi.AgentRuntime {
 		CreatedAt:         openapi.PtrTime(ar.CreatedAt),
 		UpdatedAt:         openapi.PtrTime(ar.UpdatedAt),
 		Name:              ar.Name,
-		ClusterId:         ar.ClusterId,
 		GatewayId:         ar.GatewayId,
 		Description:       ar.Description,
 		Cron:              ar.Cron,
@@ -54,6 +53,9 @@ func PresentAgentRuntime(ar *AgentRuntime) openapi.AgentRuntime {
 		ConcurrencyPolicy: ar.ConcurrencyPolicy,
 		Parameters:        ar.Parameters,
 		Status:            ar.Status,
+	}
+	if ar.ClusterId != "" {
+		result.ClusterId = &ar.ClusterId
 	}
 	if ar.SandboxTemplateId != "" {
 		result.SandboxTemplateId = &ar.SandboxTemplateId

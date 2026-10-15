@@ -14,6 +14,9 @@ type SecretSourceService interface {
 	Delete(ctx context.Context, id string) *errors.ServiceError
 	All(ctx context.Context) (SecretSourceList, *errors.ServiceError)
 	FindByIDs(ctx context.Context, ids []string) (SecretSourceList, *errors.ServiceError)
+	// FindByAgentRuntimeID returns the SecretSources owned by an AgentRuntime, used
+	// to embed them in the AgentRuntime gRPC watch/list payload.
+	FindByAgentRuntimeID(ctx context.Context, agentRuntimeID string) (SecretSourceList, *errors.ServiceError)
 }
 
 func NewSecretSourceService(dao SecretSourceDao) SecretSourceService {
@@ -69,6 +72,14 @@ func (s *sqlSecretSourceService) FindByIDs(ctx context.Context, ids []string) (S
 	items, err := s.dao.FindByIDs(ctx, ids)
 	if err != nil {
 		return nil, errors.GeneralError("Unable to get secret sources: %s", err)
+	}
+	return items, nil
+}
+
+func (s *sqlSecretSourceService) FindByAgentRuntimeID(ctx context.Context, agentRuntimeID string) (SecretSourceList, *errors.ServiceError) {
+	items, err := s.dao.FindByAgentRuntimeID(ctx, agentRuntimeID)
+	if err != nil {
+		return nil, errors.GeneralError("Unable to get secret sources for agent runtime %s: %s", agentRuntimeID, err)
 	}
 	return items, nil
 }

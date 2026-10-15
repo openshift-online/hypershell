@@ -27,8 +27,7 @@ func registerTestCluster(t *testing.T) string {
 func managedGatewayCreateRequest(name string) openapi.GatewayCreateRequest {
 	request := openapi.GatewayCreateRequest{Name: name}
 	request.SetPlacement(openapi.GatewayPlacementIntent{
-		Network:  openapi.PtrString("public"),
-		Provider: openapi.PtrString("aws"),
+		Selector: []string{"network/public", "provider/aws"},
 	})
 	return request
 }
@@ -49,7 +48,7 @@ func mustRegisterCluster() (string, string) {
 	subject := "cp-" + suffix
 	name := fmt.Sprintf("mc-%s", suffix)
 	svc := managedClusters.Service(&environments.Environment().Services)
-	cluster, _, svcErr := svc.Register(context.Background(), name, "", "aws", "public", subject)
+	cluster, _, svcErr := svc.Register(context.Background(), name, []string{"network/public", "provider/aws"}, subject)
 	Expect(svcErr).To(BeNil(), "register test managed cluster %s", name)
 	return cluster.ID, subject
 }

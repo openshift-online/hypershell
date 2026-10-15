@@ -30,6 +30,22 @@ MANAGED_FILES: list[tuple[Path, list[str]]] = [
     ),
 ]
 
+# Manifests that advertise the control plane's provisioning version through the
+# single-valued gateway-version capability in HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES.
+# The label value is rendered from OPENSHELL_TAG so the advertised provisioning
+# version always matches the images the overlay deploys, with no runtime image-tag
+# parsing (managed-cluster-registration.spec.md, gateway-version-visibility.spec.md).
+CAPABILITY_FILES: list[Path] = [
+    REPO_ROOT / "deploy" / "base" / "platform-resources" / "controller.yaml",
+    REPO_ROOT / "deploy" / "gitops" / "platform" / "kustomization.yaml",
+    REPO_ROOT / "deploy" / "ibm" / "kustomization.yaml",
+    REPO_ROOT / "deploy" / "kind" / "kustomization.yaml",
+    REPO_ROOT / "deploy" / "openshift" / "kustomization.yaml",
+]
+
+CAPABILITY_ENV = "HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES"
+GATEWAY_VERSION_NAMESPACE = "gateway-version"
+
 # Go source file containing the defaultConsoleImage constant, pinned by
 # digest (image@sha256:...).  OPENSHELL_CONSOLE_IMAGE and
 # OPENSHELL_CONSOLE_DIGEST from OPENSHELL_VERSION are the source of truth.
@@ -128,6 +144,60 @@ def stamp_file(
     return mismatches
 
 
+def stamp_capabilities(
+    path: Path, tag: str, *, check_only: bool
+) -> list[str]:
+    """Stamp or verify the gateway-version capability label in a manifest's
+    HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES value so it carries exactly one
+    gateway-version/<tag> label matching OPENSHELL_TAG."""
+    lines = path.read_text().splitlines(keepends=True)
+    mismatches: list[str] = []
+    expected_label = f"{GATEWAY_VERSION_NAMESPACE}/{tag}"
+    try:
+        rel = path.relative_to(REPO_ROOT)
+    except ValueError:
+        rel = path
+
+    for i, line in enumerate(lines):
+        if not re.search(rf"name:\s*{CAPABILITY_ENV}\s*$", line):
+            continue
+        if i + 1 >= len(lines):
+            continue
+        value_line = lines[i + 1]
+        m = re.search(r'(value:\s*")([^"]*)(")', value_line)
+        if not m:
+            raise RuntimeError(
+                f"{rel}: {CAPABILITY_ENV} value must be a double-quoted "
+                "comma-separated label string"
+            )
+        labels = [lbl for lbl in m.group(2).split(",") if lbl]
+        rebuilt = [
+            lbl for lbl in labels
+            if not lbl.startswith(f"{GATEWAY_VERSION_NAMESPACE}/")
+        ]
+        rebuilt.append(expected_label)
+        new_value = ",".join(rebuilt)
+        if new_value != m.group(2):
+            mismatches.append(
+                f"  {rel}: {CAPABILITY_ENV} has {m.group(2)!r}, "
+                f"expected {new_value!r}"
+            )
+            if not check_only:
+                lines[i + 1] = (
+                    value_line[: m.start()]
+                    + m.group(1) + new_value + m.group(3)
+                    + value_line[m.end():]
+                )
+        # Stamp every HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES block in the file,
+        # not just the first: a manifest that patches more than one controller
+        # must have each block's gateway-version label kept in sync.
+
+    if not check_only and mismatches:
+        path.write_text("".join(lines))
+
+    return mismatches
+
+
 def stamp_console_image(
     path: Path,
     image: str,
@@ -180,6 +250,13 @@ def main() -> int:
             continue
         all_mismatches.extend(
             stamp_file(path, env_names, tag, check_only=check_only)
+        )
+
+    for path in CAPABILITY_FILES:
+        if not path.exists():
+            continue
+        all_mismatches.extend(
+            stamp_capabilities(path, tag, check_only=check_only)
         )
 
     console_image = env.get("OPENSHELL_CONSOLE_IMAGE", "")

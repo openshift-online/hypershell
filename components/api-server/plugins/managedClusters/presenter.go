@@ -35,6 +35,11 @@ func PresentManagedCluster(managedCluster *ManagedCluster) openapi.ManagedCluste
 	if managedCluster.Visibility != "" {
 		visibility = &managedCluster.Visibility
 	}
+	// Registered clusters self-declare provider/region through the capability
+	// model and no longer write the legacy Provider/Region columns. Present the
+	// column when set (manually created records) and fall back to the provider/
+	// and region/ capability labels, so the inventory dashboard that buckets by
+	// these fields does not report every registered cluster as "unknown".
 	result := openapi.ManagedCluster{
 		Id:               reference.Id,
 		Kind:             reference.Kind,
@@ -42,9 +47,9 @@ func PresentManagedCluster(managedCluster *ManagedCluster) openapi.ManagedCluste
 		CreatedAt:        openapi.PtrTime(managedCluster.CreatedAt),
 		UpdatedAt:        openapi.PtrTime(managedCluster.UpdatedAt),
 		Name:             managedCluster.Name,
-		Provider:         managedCluster.Provider,
+		Provider:         clusterProvider(managedCluster),
 		Visibility:       visibility,
-		Region:           managedCluster.Region,
+		Region:           presentedRegion(managedCluster),
 		KubeconfigSecret: managedCluster.KubeconfigSecret,
 		Status:           managedCluster.Status,
 		ApiServerUrl:     managedCluster.ApiServerUrl,
@@ -53,7 +58,19 @@ func PresentManagedCluster(managedCluster *ManagedCluster) openapi.ManagedCluste
 		result.OidcSubject = &managedCluster.OIDCSubject
 	}
 	result.LastSeenAt = managedCluster.LastSeenAt
+	result.Capabilities = append([]string(nil), managedCluster.Capabilities...)
 	return result
+}
+
+// presentedRegion returns the region to expose on the API: the column when it is
+// set, otherwise the region/ capability value, preserving a nil column when no
+// region is known either way.
+func presentedRegion(managedCluster *ManagedCluster) *string {
+	region := clusterRegion(managedCluster)
+	if region == "" {
+		return managedCluster.Region
+	}
+	return &region
 }
 
 func PresentRegistrationResponse(clusterID string) openapi.ManagedClusterRegistrationResponse {

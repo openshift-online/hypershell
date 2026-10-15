@@ -20,6 +20,7 @@ type ManagedCluster struct {
 	ApiServerUrl     *string    `json:"api_server_url"`
 	OIDCSubject      string     `json:"oidc_subject" gorm:"column:oidc_subject"`
 	LastSeenAt       *time.Time `json:"last_seen_at" gorm:"column:last_seen_at"`
+	Capabilities     []string   `json:"capabilities" gorm:"serializer:json;type:jsonb"`
 }
 
 type ManagedClusterList []*ManagedCluster

@@ -5,39 +5,30 @@ import (
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
 type PlacementResolver func(context.Context, openapi.GatewayPlacementIntent) (string, *errors.ServiceError)
-type PlacementAvailabilityResolver func(context.Context) (openapi.GatewayPlacementAvailability, *errors.ServiceError)
+type PlacementAvailabilityResolver func(context.Context, [][]string) (openapi.GatewayPlacementAvailability, *errors.ServiceError)
 
 func validatePlacementIntent(intent openapi.GatewayPlacementIntent) *errors.ServiceError {
-	mode, network, provider := "", "", ""
+	mode := ""
+	selector := intent.Selector
 	if intent.Mode != nil {
 		mode = *intent.Mode
 	}
-	if intent.Network != nil {
-		network = *intent.Network
-	}
-	if intent.Provider != nil {
-		provider = *intent.Provider
-	}
 	if mode != "" {
-		if mode != "local-kind" || network != "" || provider != "" {
-			return errors.Validation("placement mode must be local-kind and cannot include network or provider")
+		if mode != "local-kind" || selector != nil {
+			return errors.Validation("placement mode must be local-kind and cannot include selector")
 		}
 		return nil
 	}
-	if network != "public" && network != "vpn" {
-		return errors.Validation("placement.network must be public or vpn")
+	if selector != nil {
+		_, svcErr := managedClusters.NormalizeSelector(selector)
+		return svcErr
 	}
-	if provider != "aws" && provider != "ibm" {
-		return errors.Validation("placement.provider must be aws or ibm")
-	}
-	if network == "vpn" && provider != "aws" {
-		return errors.Validation("VPN placement requires provider aws")
-	}
-	return nil
+	return errors.Validation("placement must include selector or mode")
 }
 
 // RegisteredClusterLookup reports whether id names a ManagedCluster that a
@@ -45,6 +36,13 @@ func validatePlacementIntent(intent openapi.GatewayPlacementIntent) *errors.Serv
 // an unknown id or a manually created record, and an error only when the lookup
 // itself fails.
 type RegisteredClusterLookup func(ctx context.Context, id string) (bool, *errors.ServiceError)
+
+// ClusterProvisioningVersionLookup returns, for a set of cluster IDs, the
+// provisioning version each cluster advertises through its single-valued
+// gateway-version capability. Clusters with no such capability, and unknown ids,
+// are absent from the returned map. It backs the read-only
+// Gateway.provisioning_version field (gateway-version-visibility.spec.md, GVV-04).
+type ClusterProvisioningVersionLookup func(ctx context.Context, clusterIDs []string) (map[string]string, *errors.ServiceError)
 
 // validateClusterReference enforces "Gateways Reference a Registered Cluster"
 // (managed-cluster-registration.spec.md): every control plane filters its

@@ -334,6 +334,10 @@ func projectModels(document *ir.Document, roots []string) []Model {
 	models := make([]Model, 0, len(names))
 	for _, name := range names {
 		schema := document.Schema(name)
+		openAPIType, _ := schemaType(schema)
+		if openAPIType == "array" {
+			continue
+		}
 		model := Model{Name: name}
 		if len(schema.Enum) > 0 {
 			model.IsEnum = true
@@ -514,6 +518,7 @@ func projectResource(document *ir.Document, schema *ir.Schema, collection *ir.Re
 	}
 	if schema.Name == "Gateway" && document.Schema("GatewayPlacementAvailability") != nil {
 		roots = append(roots, "GatewayPlacementAvailability")
+		roots = append(roots, "GatewayPlacementAvailabilityRequest")
 	}
 	models := projectModels(document, roots)
 	createSchemaName := ""
@@ -655,13 +660,12 @@ func projectFields(document *ir.Document, schemaRef string, includeReadOnly bool
 		if isObjectReferenceField(name) || (!includeReadOnly && property.ReadOnly) {
 			continue
 		}
-		propertySchema := document.Schema(property.Schema.Ref)
-		openAPIType, format := schemaType(propertySchema)
+		openAPIType, format, goType, tsType, modelRef := projectedTypes(document, property.Schema, property.Required, property.Nullable)
 		field := Field{
 			Name: name, GoName: toGoName(name), PythonName: name, TSName: toCamelCase(name),
 			Type: openAPIType, Format: format,
-			GoType: toGoType(openAPIType, format), PythonType: toPythonType(openAPIType, format), TSType: toTSType(openAPIType, format),
-			Required: property.Required, ReadOnly: property.ReadOnly, JSONTag: jsonTag(name, property.Required),
+			GoType: goType, PythonType: toPythonType(openAPIType, format), TSType: tsType,
+			Required: property.Required, ReadOnly: property.ReadOnly, ModelRef: modelRef, JSONTag: jsonTag(name, property.Required),
 		}
 		if !includeReadOnly {
 			field.Required = false

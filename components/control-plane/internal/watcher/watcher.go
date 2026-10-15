@@ -718,6 +718,142 @@ func seedRoleBindings(ctx context.Context, client pb.RoleBindingServiceClient, s
 	return nil
 }
 
+// WatchAgentRuntimes streams AgentRuntime events for this control plane's own
+// cluster and dispatches each to the handler through a reconcile queue. The
+// stream is cluster-scoped: the api-server resolves each AgentRuntime's effective
+// cluster (its own cluster_id, or the cluster of its referenced gateway) and
+// delivers only the records that match this control plane's registered
+// cluster_id (managed-cluster-registration.spec.md, "Watch Stream Caller
+// Binding"). On every (re)connect it seeds from ListAgentRuntimes so an event
+// missed while the stream was down is still reconciled, mirroring WatchGateways
+// and WatchRoleBindings; it reuses the shared watchLoop reconnect/backoff, the
+// idle watchdog, and the connection-level HTTP/2 keepalive.
+//
+// The handler is the Wave A no-op reconciler (issue #521); cluster-side and
+// gateway-side provisioning are deferred to Wave B.
+func WatchAgentRuntimes(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.AgentRuntime], clusterID string, idleTimeout time.Duration) error {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return err
+	}
+	client := pb.NewAgentRuntimeServiceClient(conn)
+	rq := newReconcileQueue(ctx, "AgentRuntime", handler)
+	defer rq.stop()
+	return watchLoop(ctx, "AgentRuntime", idleTimeout, func(ctx context.Context, heartbeat func()) error {
+		// Derive a cancelable child so the receiver and the seed goroutine can
+		// cancel and join each other without waiting for watchLoop to cancel the
+		// parent attempt ctx (mirrors WatchGateways and WatchRoleBindings).
+		runCtx, runCancel := context.WithCancel(ctx)
+		defer runCancel()
+
+		stream, err := client.WatchAgentRuntimes(runCtx, &pb.WatchAgentRuntimesRequest{ClusterId: clusterFilter})
+		if err != nil {
+			return fmt.Errorf("starting agent runtime watch: %w", err)
+		}
+		// Wait for the subscription header before seeding, so an AgentRuntime event
+		// that fires during the seed LIST is captured by the watch rather than lost
+		// -- the same list-watch gap WatchGateways closes. The api-server flushes the
+		// header only after it subscribes to the broker.
+		if _, err := stream.Header(); err != nil {
+			return fmt.Errorf("awaiting agent runtime watch subscription header: %w", err)
+		}
+		heartbeat()
+
+		// Drain live events concurrently with the seed so the broker's bounded
+		// per-subscriber buffer does not fill and drop events while the (potentially
+		// slow) seed LIST runs.
+		streamErr := make(chan error, 1)
+		go func() {
+			defer close(streamErr)
+			for {
+				event, err := stream.Recv()
+				if err == io.EOF {
+					runCancel()
+					streamErr <- nil
+					return
+				}
+				if err != nil {
+					runCancel()
+					streamErr <- fmt.Errorf("receiving agent runtime event: %w", err)
+					return
+				}
+				heartbeat()
+				rq.enqueue(Event[*pb.AgentRuntime]{
+					Type:       toEventType(event.Type),
+					ResourceID: event.ResourceId,
+					Resource:   event.AgentRuntime,
+				})
+			}
+		}()
+
+		// Seed from the current inventory on every (re)connect. The watch stream
+		// sends only future events and never replays existing runtimes, so without
+		// this LIST an AgentRuntime whose create event was missed (or arrived on a
+		// stream that later went silent) is never reconciled.
+		if err := seedAgentRuntimes(runCtx, client, rq, clusterID); err != nil {
+			// Distinguish a receiver-caused cancellation from a genuine seed failure
+			// (same reasoning as WatchGateways) so neither masks the other.
+			if runCtx.Err() != nil {
+				recvErr := <-streamErr
+				if recvErr != nil {
+					return recvErr
+				}
+				return err
+			}
+			runCancel()
+			<-streamErr
+			return err
+		}
+
+		recvErr := <-streamErr
+		runCancel()
+		return recvErr
+	})
+}
+
+// agentRuntimeSeedSink is the subset of the reconcile queue that
+// seedAgentRuntimes drives: enqueue an AgentRuntime for reconciliation. A test
+// seam.
+type agentRuntimeSeedSink interface {
+	enqueue(Event[*pb.AgentRuntime])
+}
+
+// The reconcile queue is the production agentRuntimeSeedSink.
+var _ agentRuntimeSeedSink = (*reconcileQueue[*pb.AgentRuntime])(nil)
+
+// seedAgentRuntimes lists every AgentRuntime for this control plane's cluster and
+// enqueues each for reconciliation, so a runtime whose create event the watch
+// missed or dropped while silent is still reconciled. It is the LIST half of the
+// list-then-watch pattern the gateway and role-binding watches already use.
+//
+// Like seedRoleBindings it does NOT prune: a plain ListAgentRuntimes reports only
+// surviving runtimes, so an absence cannot be distinguished from a runtime the
+// list simply did not return, and the stream remains the authority for deletions.
+func seedAgentRuntimes(ctx context.Context, client pb.AgentRuntimeServiceClient, sink agentRuntimeSeedSink, clusterID string) error {
+	clusterFilter, err := ClusterFilter(clusterID)
+	if err != nil {
+		return err
+	}
+	resp, err := client.ListAgentRuntimes(ctx, &pb.ListAgentRuntimesRequest{ClusterId: clusterFilter})
+	if err != nil {
+		return fmt.Errorf("listing agent runtimes to seed reconcile queue: %w", err)
+	}
+	var seeded int
+	for _, ar := range resp.GetItems() {
+		if ar == nil {
+			continue
+		}
+		sink.enqueue(Event[*pb.AgentRuntime]{
+			Type:       EventUpdated,
+			ResourceID: ar.GetMetadata().GetId(),
+			Resource:   ar,
+		})
+		seeded++
+	}
+	log.Printf("INFO seeded %d agent runtime(s) into reconcile queue on agent runtime watch (re)connect", seeded)
+	return nil
+}
+
 func isMissingKeycloakClient(err error) bool {
 	var notFound *keycloak.ClientNotFoundError
 	return errors.As(err, &notFound)

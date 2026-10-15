@@ -140,7 +140,7 @@ type GatewayPlacementIntent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Placement:
 	//
-	//	*GatewayPlacementIntent_NetworkProvider
+	//	*GatewayPlacementIntent_CapabilitySelector
 	//	*GatewayPlacementIntent_LocalKind
 	Placement     isGatewayPlacementIntent_Placement `protobuf_oneof:"placement"`
 	unknownFields protoimpl.UnknownFields
@@ -184,10 +184,10 @@ func (x *GatewayPlacementIntent) GetPlacement() isGatewayPlacementIntent_Placeme
 	return nil
 }
 
-func (x *GatewayPlacementIntent) GetNetworkProvider() *NetworkProviderPlacement {
+func (x *GatewayPlacementIntent) GetCapabilitySelector() *CapabilitySelectorPlacement {
 	if x != nil {
-		if x, ok := x.Placement.(*GatewayPlacementIntent_NetworkProvider); ok {
-			return x.NetworkProvider
+		if x, ok := x.Placement.(*GatewayPlacementIntent_CapabilitySelector); ok {
+			return x.CapabilitySelector
 		}
 	}
 	return nil
@@ -206,40 +206,39 @@ type isGatewayPlacementIntent_Placement interface {
 	isGatewayPlacementIntent_Placement()
 }
 
-type GatewayPlacementIntent_NetworkProvider struct {
-	NetworkProvider *NetworkProviderPlacement `protobuf:"bytes,1,opt,name=network_provider,json=networkProvider,proto3,oneof"`
+type GatewayPlacementIntent_CapabilitySelector struct {
+	CapabilitySelector *CapabilitySelectorPlacement `protobuf:"bytes,1,opt,name=capability_selector,json=capabilitySelector,proto3,oneof"`
 }
 
 type GatewayPlacementIntent_LocalKind struct {
 	LocalKind *LocalKindPlacement `protobuf:"bytes,2,opt,name=local_kind,json=localKind,proto3,oneof"`
 }
 
-func (*GatewayPlacementIntent_NetworkProvider) isGatewayPlacementIntent_Placement() {}
+func (*GatewayPlacementIntent_CapabilitySelector) isGatewayPlacementIntent_Placement() {}
 
 func (*GatewayPlacementIntent_LocalKind) isGatewayPlacementIntent_Placement() {}
 
-type NetworkProviderPlacement struct {
+type CapabilitySelectorPlacement struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Network       string                 `protobuf:"bytes,1,opt,name=network,proto3" json:"network,omitempty"`
-	Provider      string                 `protobuf:"bytes,2,opt,name=provider,proto3" json:"provider,omitempty"`
+	Selector      []string               `protobuf:"bytes,1,rep,name=selector,proto3" json:"selector,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *NetworkProviderPlacement) Reset() {
-	*x = NetworkProviderPlacement{}
+func (x *CapabilitySelectorPlacement) Reset() {
+	*x = CapabilitySelectorPlacement{}
 	mi := &file_hypershell_v1_gateways_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *NetworkProviderPlacement) String() string {
+func (x *CapabilitySelectorPlacement) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*NetworkProviderPlacement) ProtoMessage() {}
+func (*CapabilitySelectorPlacement) ProtoMessage() {}
 
-func (x *NetworkProviderPlacement) ProtoReflect() protoreflect.Message {
+func (x *CapabilitySelectorPlacement) ProtoReflect() protoreflect.Message {
 	mi := &file_hypershell_v1_gateways_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -251,23 +250,16 @@ func (x *NetworkProviderPlacement) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use NetworkProviderPlacement.ProtoReflect.Descriptor instead.
-func (*NetworkProviderPlacement) Descriptor() ([]byte, []int) {
+// Deprecated: Use CapabilitySelectorPlacement.ProtoReflect.Descriptor instead.
+func (*CapabilitySelectorPlacement) Descriptor() ([]byte, []int) {
 	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *NetworkProviderPlacement) GetNetwork() string {
+func (x *CapabilitySelectorPlacement) GetSelector() []string {
 	if x != nil {
-		return x.Network
+		return x.Selector
 	}
-	return ""
-}
-
-func (x *NetworkProviderPlacement) GetProvider() string {
-	if x != nil {
-		return x.Provider
-	}
-	return ""
+	return nil
 }
 
 type LocalKindPlacement struct {
@@ -336,8 +328,16 @@ type Gateway struct {
 	ObservedReleaseId  *string `protobuf:"bytes,25,opt,name=observed_release_id,json=observedReleaseId,proto3,oneof" json:"observed_release_id,omitempty"`
 	Generation         int64   `protobuf:"varint,26,opt,name=generation,proto3" json:"generation,omitempty"`
 	ObservedGeneration *int64  `protobuf:"varint,27,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// provisioning_version is the gateway version the gateway's cluster advertises
+	// provisioning onto new gateways (that cluster's single-valued gateway-version
+	// capability). It is read-only and derived at read time from cluster_id, never
+	// stored on the Gateway row. See gateway-version-visibility.spec.md.
+	ProvisioningVersion *string `protobuf:"bytes,28,opt,name=provisioning_version,json=provisioningVersion,proto3,oneof" json:"provisioning_version,omitempty"`
+	// image_pinned reports whether this gateway pins an explicit image and so need
+	// not track its cluster's provisioning version. Read-only, derived from image.
+	ImagePinned   *bool `protobuf:"varint,29,opt,name=image_pinned,json=imagePinned,proto3,oneof" json:"image_pinned,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -536,6 +536,20 @@ func (x *Gateway) GetObservedGeneration() int64 {
 		return *x.ObservedGeneration
 	}
 	return 0
+}
+
+func (x *Gateway) GetProvisioningVersion() string {
+	if x != nil && x.ProvisioningVersion != nil {
+		return *x.ProvisioningVersion
+	}
+	return ""
+}
+
+func (x *Gateway) GetImagePinned() bool {
+	if x != nil && x.ImagePinned != nil {
+		return *x.ImagePinned
+	}
+	return false
 }
 
 type CreateGatewayRequest struct {
@@ -1684,17 +1698,15 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15ProvisioningCondition\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12U\n" +
 	"\x10condition_status\x18\x02 \x01(\x0e2*.hypershell.v1.ProvisioningConditionStatusR\x0fconditionStatus\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xbf\x01\n" +
-	"\x16GatewayPlacementIntent\x12T\n" +
-	"\x10network_provider\x18\x01 \x01(\v2'.hypershell.v1.NetworkProviderPlacementH\x00R\x0fnetworkProvider\x12B\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\xc8\x01\n" +
+	"\x16GatewayPlacementIntent\x12]\n" +
+	"\x13capability_selector\x18\x01 \x01(\v2*.hypershell.v1.CapabilitySelectorPlacementH\x00R\x12capabilitySelector\x12B\n" +
 	"\n" +
 	"local_kind\x18\x02 \x01(\v2!.hypershell.v1.LocalKindPlacementH\x00R\tlocalKindB\v\n" +
-	"\tplacement\"P\n" +
-	"\x18NetworkProviderPlacement\x12\x18\n" +
-	"\anetwork\x18\x01 \x01(\tR\anetwork\x12\x1a\n" +
-	"\bprovider\x18\x02 \x01(\tR\bprovider\"\x14\n" +
-	"\x12LocalKindPlacement\"\x91\n" +
-	"\n" +
+	"\tplacement\"9\n" +
+	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
+	"\bselector\x18\x01 \x03(\tR\bselector\"\x14\n" +
+	"\x12LocalKindPlacement\"\x9b\v\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1725,7 +1737,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\n" +
 	"generation\x18\x1a \x01(\x03R\n" +
 	"generation\x124\n" +
-	"\x13observed_generation\x18\x1b \x01(\x03H\x0fR\x12observedGeneration\x88\x01\x01B\x0f\n" +
+	"\x13observed_generation\x18\x1b \x01(\x03H\x0fR\x12observedGeneration\x88\x01\x01\x126\n" +
+	"\x14provisioning_version\x18\x1c \x01(\tH\x10R\x13provisioningVersion\x88\x01\x01\x12&\n" +
+	"\fimage_pinned\x18\x1d \x01(\bH\x11R\vimagePinned\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1741,7 +1755,9 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x10_console_addressB\x12\n" +
 	"\x10_gateway_versionB\x16\n" +
 	"\x14_observed_release_idB\x16\n" +
-	"\x14_observed_generationJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"\xdf\x05\n" +
+	"\x14_observed_generationB\x17\n" +
+	"\x15_provisioning_versionB\x0f\n" +
+	"\r_image_pinnedJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\bfleet_idR\vdatabase_id\"\xdf\x05\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -1893,7 +1909,7 @@ var file_hypershell_v1_gateways_proto_goTypes = []any{
 	(ProvisioningConditionStatus)(0),         // 0: hypershell.v1.ProvisioningConditionStatus
 	(*ProvisioningCondition)(nil),            // 1: hypershell.v1.ProvisioningCondition
 	(*GatewayPlacementIntent)(nil),           // 2: hypershell.v1.GatewayPlacementIntent
-	(*NetworkProviderPlacement)(nil),         // 3: hypershell.v1.NetworkProviderPlacement
+	(*CapabilitySelectorPlacement)(nil),      // 3: hypershell.v1.CapabilitySelectorPlacement
 	(*LocalKindPlacement)(nil),               // 4: hypershell.v1.LocalKindPlacement
 	(*Gateway)(nil),                          // 5: hypershell.v1.Gateway
 	(*CreateGatewayRequest)(nil),             // 6: hypershell.v1.CreateGatewayRequest
@@ -1920,7 +1936,7 @@ var file_hypershell_v1_gateways_proto_goTypes = []any{
 }
 var file_hypershell_v1_gateways_proto_depIdxs = []int32{
 	0,  // 0: hypershell.v1.ProvisioningCondition.condition_status:type_name -> hypershell.v1.ProvisioningConditionStatus
-	3,  // 1: hypershell.v1.GatewayPlacementIntent.network_provider:type_name -> hypershell.v1.NetworkProviderPlacement
+	3,  // 1: hypershell.v1.GatewayPlacementIntent.capability_selector:type_name -> hypershell.v1.CapabilitySelectorPlacement
 	4,  // 2: hypershell.v1.GatewayPlacementIntent.local_kind:type_name -> hypershell.v1.LocalKindPlacement
 	24, // 3: hypershell.v1.Gateway.metadata:type_name -> hypershell.v1.ObjectReference
 	1,  // 4: hypershell.v1.Gateway.provisioning_conditions:type_name -> hypershell.v1.ProvisioningCondition
@@ -1965,7 +1981,7 @@ func file_hypershell_v1_gateways_proto_init() {
 	}
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_gateways_proto_msgTypes[1].OneofWrappers = []any{
-		(*GatewayPlacementIntent_NetworkProvider)(nil),
+		(*GatewayPlacementIntent_CapabilitySelector)(nil),
 		(*GatewayPlacementIntent_LocalKind)(nil),
 	}
 	file_hypershell_v1_gateways_proto_msgTypes[4].OneofWrappers = []any{}

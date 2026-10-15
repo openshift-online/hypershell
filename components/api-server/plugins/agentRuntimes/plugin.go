@@ -4,22 +4,28 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"google.golang.org/grpc"
 
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() AgentRuntimeService
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
-	dao := NewAgentRuntimeDao(&env.Database.SessionFactory)
 	return func() AgentRuntimeService {
-		return NewAgentRuntimeService(dao)
+		return NewAgentRuntimeService(
+			NewAgentRuntimeDao(&env.Database.SessionFactory),
+			events.Service(&env.Services),
+		)
 	}
 }
 
@@ -32,6 +38,39 @@ func Service(s *environments.Services) AgentRuntimeService {
 		return locator()
 	}
 	return nil
+}
+
+// gatewayClusterLookup resolves gateway -> cluster assignments through the
+// gateways plugin's service locator, looked up per call so it follows the
+// environment's service registry. It returns nil when the gateways plugin is
+// absent, which the gRPC handler treats as fail-closed for cluster-scoped
+// requests. It reuses the same seam the roleBindings plugin exposes.
+func gatewayClusterLookup(s *environments.Services) GatewayClusterLookup {
+	if s == nil || s.GetService("Gateways") == nil {
+		return nil
+	}
+	source, ok := s.GetService("Gateways").(roleBindings.GatewayClusterLookupSource)
+	if !ok {
+		return nil
+	}
+	return source.GatewayClusterLookup()
+}
+
+// secretSourceLookup resolves the SecretSources owned by an AgentRuntime through
+// the secretSources plugin's service locator, looked up per call so it follows
+// the environment's service registry. It returns nil when the secretSources
+// plugin is absent, which the gRPC handler treats as "no sources" rather than
+// breaking the watch. It is resolved through a local interface so this package
+// does not import secretSources (which imports this one to implement the seam).
+func secretSourceLookup(s *environments.Services) SecretSourceLookup {
+	if s == nil || s.GetService("SecretSources") == nil {
+		return nil
+	}
+	source, ok := s.GetService("SecretSources").(SecretSourceLookupSource)
+	if !ok {
+		return nil
+	}
+	return source.SecretSourceLookup()
 }
 
 func init() {
@@ -53,6 +92,18 @@ func init() {
 		router.Use(authzMiddleware.AuthorizeApi)
 	})
 
+	pkgserver.RegisterGRPCService("agentRuntimes", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
+		envServices := services.(*environments.Services)
+		svc := Service(envServices)
+		brokerFunc := func() *pkgserver.EventBroker {
+			if obj := envServices.GetService("EventBroker"); obj != nil {
+				return obj.(*pkgserver.EventBroker)
+			}
+			return nil
+		}
+		pb.RegisterAgentRuntimeServiceServer(grpcServer, NewAgentRuntimeGRPCHandler(svc, gatewayClusterLookup(envServices), secretSourceLookup(envServices), brokerFunc))
+	})
+
 	presenters.RegisterPath(AgentRuntime{}, "agent_runtimes")
 	presenters.RegisterPath(&AgentRuntime{}, "agent_runtimes")
 	presenters.RegisterKind(AgentRuntime{}, "AgentRuntime")
@@ -60,4 +111,5 @@ func init() {
 
 	db.RegisterMigration(migration())
 	db.RegisterMigration(migrationAddRepositorySelector())
+	db.RegisterMigration(migrationAddStatusMessage())
 }

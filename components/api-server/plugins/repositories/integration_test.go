@@ -56,7 +56,6 @@ func TestRepositoryCreateAndSelectorContract(t *testing.T) {
 	// AgentRuntime selector WITHOUT repository_id -> 422.
 	_, resp, err = client.DefaultAPI.CreateAgentRuntime(ctx).AgentRuntime(openapi.AgentRuntime{
 		Name:      "rev-norepo",
-		ClusterId: "c1",
 		GatewayId: "g1",
 		Selector:  []string{"agent/reviewable"},
 	}).Execute()
@@ -66,7 +65,6 @@ func TestRepositoryCreateAndSelectorContract(t *testing.T) {
 	// AgentRuntime WITH repository_id + selector -> 201.
 	_, resp, err = client.DefaultAPI.CreateAgentRuntime(ctx).AgentRuntime(openapi.AgentRuntime{
 		Name:         "reviewer",
-		ClusterId:    "c1",
 		GatewayId:    "g1",
 		RepositoryId: repo.Id,
 		Selector:     []string{"agent/reviewable", "agent/ready"},

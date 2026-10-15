@@ -3308,8 +3308,15 @@ func (a *DefaultAPIService) GetGatewayExecute(r ApiGetGatewayRequest) (*Gateway,
 }
 
 type ApiGetGatewayPlacementAvailabilityRequest struct {
-	ctx        context.Context
-	ApiService *DefaultAPIService
+	ctx                                 context.Context
+	ApiService                          *DefaultAPIService
+	gatewayPlacementAvailabilityRequest *GatewayPlacementAvailabilityRequest
+}
+
+// Capability selectors to evaluate
+func (r ApiGetGatewayPlacementAvailabilityRequest) GatewayPlacementAvailabilityRequest(gatewayPlacementAvailabilityRequest GatewayPlacementAvailabilityRequest) ApiGetGatewayPlacementAvailabilityRequest {
+	r.gatewayPlacementAvailabilityRequest = &gatewayPlacementAvailabilityRequest
+	return r
 }
 
 func (r ApiGetGatewayPlacementAvailabilityRequest) Execute() (*GatewayPlacementAvailability, *http.Response, error) {
@@ -3317,7 +3324,7 @@ func (r ApiGetGatewayPlacementAvailabilityRequest) Execute() (*GatewayPlacementA
 }
 
 /*
-GetGatewayPlacementAvailability Returns current provider placement eligibility
+GetGatewayPlacementAvailability Returns current placement eligibility for a batch of selectors
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@return ApiGetGatewayPlacementAvailabilityRequest
@@ -3334,7 +3341,7 @@ func (a *DefaultAPIService) GetGatewayPlacementAvailability(ctx context.Context)
 //	@return GatewayPlacementAvailability
 func (a *DefaultAPIService) GetGatewayPlacementAvailabilityExecute(r ApiGetGatewayPlacementAvailabilityRequest) (*GatewayPlacementAvailability, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
+		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
 		localVarReturnValue *GatewayPlacementAvailability
@@ -3350,9 +3357,12 @@ func (a *DefaultAPIService) GetGatewayPlacementAvailabilityExecute(r ApiGetGatew
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
+	if r.gatewayPlacementAvailabilityRequest == nil {
+		return localVarReturnValue, nil, reportError("gatewayPlacementAvailabilityRequest is required and must be specified")
+	}
 
 	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{}
+	localVarHTTPContentTypes := []string{"application/json"}
 
 	// set Content-Type header
 	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
@@ -3368,6 +3378,8 @@ func (a *DefaultAPIService) GetGatewayPlacementAvailabilityExecute(r ApiGetGatew
 	if localVarHTTPHeaderAccept != "" {
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
+	// body params
+	localVarPostBody = r.gatewayPlacementAvailabilityRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

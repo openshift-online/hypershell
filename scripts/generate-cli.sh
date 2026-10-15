@@ -21,6 +21,14 @@ HAND_MAINTAINED=(
   cmd/hsctl/main.go
   go.mod
   go.sum
+  # The generator derives list columns by taking id + the first four
+  # alphabetically-sorted schema fields + created_at. Once ManagedCluster gained
+  # the `capabilities` field it sorts ahead of `name` and pushes `name` out of
+  # that four-field window, dropping the cluster's primary human-readable column.
+  # We hand-maintain this one list command to keep both `name` and `capabilities`
+  # (see the --columns default below) until the generator supports a column
+  # override.
+  cmd/hsctl/list/managedClusters/cmd.go
 )
 
 # Resource commands that live beside the generated ones but are written by hand:

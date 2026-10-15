@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "hypershell/v1/common.proto";
+
+message AgentRuntime {
+  ObjectReference metadata = 1;
+  string name = 2;
+  // cluster_id is the AgentRuntime's own scheduling cluster when set. When
+  // empty the effective cluster is derived server-side from the referenced
+  // gateway's placement (data-model.spec.md, "AgentRuntime as a Top-Level
+  // Resource"); watch/list delivery is scoped by that effective cluster.
+  string cluster_id = 3;
+  string gateway_id = 4;
+  string sandbox_template_id = 5;
+  optional string repository_id = 6;
+  repeated string selector = 7;
+  optional string description = 8;
+  optional string cron = 9;
+  optional string coordinator_image = 10;
+  optional string concurrency_policy = 11;
+  optional int32 login_refresh_seconds = 12;
+  optional string parameters = 13;
+  optional string status = 14;
+  // secret_sources carries the SecretSources this AgentRuntime owns, embedded in
+  // the watch/list payload so the control-plane reconciler can render one
+  // ExternalSecret per source (and wire the coordinator CronJob env vars by
+  // purpose) without a second round trip. Server-populated; ignored on inbound
+  // writes. See data-model.spec.md "AgentRuntime Cluster Resource Provisioning".
+  repeated SecretSource secret_sources = 15;
+  // status_message carries the human-readable detail behind a status value - in
+  // particular, for a Degraded runtime, the failing SecretSource name and the
+  // gateway-side error (data-model.spec.md "AgentRuntime Status Lifecycle"). It
+  // is control-plane-owned and written only through UpdateAgentRuntimeStatus.
+  optional string status_message = 16;
+}
+
+// SecretSource is the subset of a SecretSource the control-plane reconciler needs
+// to render an ExternalSecret and wire the coordinator CronJob. It mirrors the
+// stored secretSources model (data-model.spec.md "SecretSource").
+message SecretSource {
+  string name = 1;
+  // purpose drives the ExternalSecret field mapping and the CronJob env var
+  // wiring (gateway-identity, service-account-key, app-private-key, api-key).
+  string purpose = 2;
+  // backend is one of vault, aws-secrets-manager, kubernetes.
+  string backend = 3;
+  string path = 4;
+  optional string key_mappings = 5;
+}
+
+message WatchAgentRuntimesRequest {
+  // cluster_id, when set, restricts the stream to AgentRuntimes whose effective
+  // cluster is that managed cluster. The effective cluster is the AgentRuntime's
+  // own cluster_id when set, else the cluster of its referenced gateway. Because
+  // the event broker fans every AgentRuntime out to every subscriber, this filter
+  // is the security boundary that keeps a spoke's stream scoped to its own
+  // cluster; a registered caller must set it to its own cluster id
+  // (managed-cluster-registration.spec.md, "Watch Stream Caller Binding").
+  optional string cluster_id = 1;
+}
+
+message WatchAgentRuntimesResponse {
+  EventType type = 1;
+  AgentRuntime agent_runtime = 2;
+  string resource_id = 3;
+}
+
+message ListAgentRuntimesRequest {
+  // cluster_id, when set, excludes AgentRuntimes whose effective cluster is not
+  // that managed cluster. Same semantics as WatchAgentRuntimesRequest.cluster_id;
+  // a registered caller must set it to its own cluster id. Used to seed the watch
+  // on (re)connect.
+  optional string cluster_id = 1;
+}
+
+message ListAgentRuntimesResponse {
+  repeated AgentRuntime items = 1;
+}
+
+// UpdateAgentRuntimeStatusRequest is the control-plane status write-back. The
+// control plane owns the AgentRuntime status lifecycle (Pending -> Provisioning
+// -> Running -> Degraded -> Terminating) and is the only writer of status and
+// status_message through this RPC. See data-model.spec.md "AgentRuntime Status
+// Lifecycle".
+message UpdateAgentRuntimeStatusRequest {
+  string id = 1;
+  string status = 2;
+  optional string status_message = 3;
+}
+
+service AgentRuntimeService {
+  rpc WatchAgentRuntimes(WatchAgentRuntimesRequest) returns (stream WatchAgentRuntimesResponse);
+  rpc ListAgentRuntimes(ListAgentRuntimesRequest) returns (ListAgentRuntimesResponse);
+  rpc UpdateAgentRuntimeStatus(UpdateAgentRuntimeStatusRequest) returns (AgentRuntime);
+}

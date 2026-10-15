@@ -1,0 +1,84 @@
+# code-implementation agent instance (overlay on ../../base/platform).
+# Repository scanner: on each cron tick the coordinator queries the referenced
+# Repository for items carrying any selector label and fans out one sandbox per match.
+# Ext-API kinds only; no cluster information (placement is resolved by the
+# control plane via capability labels). FK references use names; the importer
+# resolves them (see ../../README.md).
+apiVersion: hypershell.redhat.io/v1
+kind: AgentRuntime
+metadata:
+  name: code-implementation
+  description: SDLC automation agent (code-implementation)
+spec:
+  sandbox_template_id: agent-runtime-slim
+  gateway_id: agents-gateway
+  repository_id: openshift-online/hypershell
+  cron: "*/10 * * * *"
+  coordinator_image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-agent-runtime-slim-main@sha256:0b22e22656c2bf9c60511a154ae71399be3324c6478baa8e155aa953489fc103
+  concurrency_policy: Forbid
+  login_refresh_seconds: 1800
+  selector:
+    - agent/review-spec-approved
+  parameters: |
+    {"REPOSITORY": "openshift-online/hypershell", "DRY_RUN": "false"}
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: code-implementation-gateway-identity
+spec:
+  agent_runtime_id: code-implementation
+  purpose: gateway-identity
+  backend: kubernetes
+  path: hypershell/code-implementation/gateway-identity
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: code-implementation-inference-key
+spec:
+  agent_runtime_id: code-implementation
+  purpose: api-key
+  backend: vault
+  path: hypershell/code-implementation/anthropic-api-key
+---
+apiVersion: hypershell.redhat.io/v1
+kind: SecretSource
+metadata:
+  name: code-implementation-github-key
+spec:
+  agent_runtime_id: code-implementation
+  purpose: app-private-key
+  backend: vault
+  path: hypershell/code-implementation/github-app
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderBinding
+metadata:
+  name: code-implementation-inference
+spec:
+  workspace_id: code-implementation
+  provider_spec_id: claude-inference
+  secret_source_id: code-implementation-inference-key
+  refresh_strategy: |
+    {"type": "static-token", "secret_material": [{"key": "api_key", "secret_source_id": "code-implementation-inference-key"}]}
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderBinding
+metadata:
+  name: code-implementation-github
+spec:
+  workspace_id: code-implementation
+  provider_spec_id: github-source-control
+  secret_source_id: code-implementation-github-key
+  refresh_strategy: |
+    {"type": "app-installation-token", "material": {"app_id": "REPLACE_WITH_GITHUB_APP_ID"}, "secret_material": [{"key": "private_key", "secret_source_id": "code-implementation-github-key"}]}
+---
+apiVersion: hypershell.redhat.io/v1
+kind: InferenceRoute
+metadata:
+  name: code-implementation-inference-route
+spec:
+  workspace_id: code-implementation
+  provider_binding_id: code-implementation-inference
+  model: claude-sonnet-4-5

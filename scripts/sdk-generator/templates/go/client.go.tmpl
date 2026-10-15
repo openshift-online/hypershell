@@ -23,9 +23,13 @@ func (c *Client) {{.Resource.Plural}}() *{{.Resource.Name}}API {
 	return &{{.Resource.Name}}API{client: c}
 }
 {{if eq .Resource.Name "Gateway"}}
-func (a *GatewayAPI) PlacementAvailability(ctx context.Context) (*types.GatewayPlacementAvailability, error) {
+func (a *GatewayAPI) PlacementAvailability(ctx context.Context, request types.GatewayPlacementAvailabilityRequest) (*types.GatewayPlacementAvailability, error) {
+	body, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("marshal gateway placement availability request: %w", err)
+	}
 	var result types.GatewayPlacementAvailability
-	if err := a.client.do(ctx, http.MethodGet, "{{.Resource.AbsoluteCollectionPath}}/placement-availability", nil, http.StatusOK, &result); err != nil {
+	if err := a.client.do(ctx, http.MethodPost, "{{.Resource.AbsoluteCollectionPath}}/placement-availability", body, http.StatusOK, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil

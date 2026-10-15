@@ -71,6 +71,7 @@ const gatewaySortFields = {
   name: "name",
   owner: "created_by",
   status: "status",
+  version: "gateway_version",
 } as const satisfies Record<GatewayListRequest["sortField"], string>;
 
 function escapeIlikeLiteral(value: string): string {
@@ -177,6 +178,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
   const activeSandboxCount = optionalNumber(gateway.active_sandbox_count);
   const consoleUrl = optionalString(gateway.console_address);
   const gatewayVersion = optionalString(gateway.gateway_version);
+  const provisioningVersion = optionalString(gateway.provisioning_version);
   const provisioningConditions = parseProvisioningConditions(
     gateway.provisioning_conditions,
   );
@@ -197,6 +199,9 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
       gateway.external_dns || endpointFromRouteAddress(gateway.route_address),
     ...(gatewayVersion ? { gatewayVersion } : {}),
     id: gateway.id,
+    ...(typeof gateway.image_pinned === "boolean"
+      ? { imagePinned: gateway.image_pinned }
+      : {}),
     name: gateway.name,
     namespace: gateway.namespace,
     ...(oidcAudience ? { oidcAudience } : {}),
@@ -204,6 +209,7 @@ function toGatewayRecord(gateway: Gateway): GatewayRecord {
     ...(oidcIssuer ? { oidcIssuer } : {}),
     phase: gateway.phase,
     ...(provisioningConditions ? { provisioningConditions } : {}),
+    ...(provisioningVersion ? { provisioningVersion } : {}),
     status: gateway.status,
   };
 }
@@ -326,6 +332,25 @@ function optionalNumber(value: unknown): number | undefined {
 }
 
 const registeredPlacementFilter = "oidc_subject <> ''";
+
+const gatewayVersionCapabilityPrefix = "gateway-version/";
+
+// The managed-cluster capabilities field is a set of `namespace/value` labels.
+// The API contract uses an array. Retain the comma-joined string fallback for
+// compatibility with responses from older API server deployments.
+function clusterCapabilityLabels(cluster: ManagedCluster): string[] {
+  const raw: unknown = cluster.capabilities;
+  if (Array.isArray(raw)) {
+    return raw.filter((label): label is string => typeof label === "string");
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return raw
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
 
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
   const region = optionalString(cluster.region);
@@ -532,24 +557,70 @@ export function createGatewayControlPlaneAdapter(
         };
       });
     },
-    async getGatewayPlacementAvailability(context) {
+    async getGatewayPlacementAvailability(selectors, context) {
       return mapFailure(async () => {
         const gatewaysApi = apiClient(apiFactory, context).gateways;
         if (!gatewaysApi.placementAvailability) {
           throw new Error("placement availability API is unavailable");
         }
-        const availability = await gatewaysApi.placementAvailability({
-          signal: context.signal,
-        });
+        const availability = await gatewaysApi.placementAvailability(
+          { selectors: selectors.map((selector) => [...selector]) },
+          { signal: context.signal },
+        );
         return {
-          awsPublic: availability.aws_public,
-          awsVpn: availability.aws_vpn,
-          awsReason: availability.aws_reason,
-          ibmPublic: availability.ibm_public,
-          ibmVpn: availability.ibm_vpn,
-          ibmReason: availability.ibm_reason,
           localKind: availability.local_kind,
+          placements: availability.placements.map((placement) => ({
+            available: placement.available,
+            reason: placement.reason,
+            selector: placement.selector,
+          })),
         } satisfies GatewayPlacementAvailability;
+      });
+    },
+    async getGatewayProvisioningVersions(context) {
+      return mapFailure(async () => {
+        const clustersApi = apiClient(apiFactory, context).managedClusters;
+        const versions = new Set<string>();
+        // A version advertised only by a cluster beyond the first page must still
+        // be offered, so page through every registered cluster rather than
+        // reading only the first page.
+        for (let page = 1; ; page += 1) {
+          const result = await clustersApi.list(
+            {
+              orderBy: "name asc",
+              page,
+              // Only a cluster whose control plane has self-registered can host a
+              // gateway, so only its advertised version is a real provisioning
+              // choice. Connectedness and network/provider eligibility are
+              // confirmed separately by getGatewayPlacementAvailability.
+              search: registeredPlacementFilter,
+              size: placementPageSize,
+            },
+            { signal: context.signal },
+          );
+          if (result.page !== page || result.total < 0) {
+            throw new GatewayOperationError("unavailable");
+          }
+          for (const cluster of result.items) {
+            for (const label of clusterCapabilityLabels(cluster)) {
+              if (label.startsWith(gatewayVersionCapabilityPrefix)) {
+                const tag = label.slice(gatewayVersionCapabilityPrefix.length);
+                if (tag) {
+                  versions.add(tag);
+                }
+              }
+            }
+          }
+          // A short page is the last page; the >= guard also terminates when the
+          // reported total shrinks between pages (clusters disconnecting).
+          if (
+            result.items.length < placementPageSize ||
+            page * placementPageSize >= result.total
+          ) {
+            break;
+          }
+        }
+        return [...versions].sort();
       });
     },
     async getGatewayPlacement(clusterId, context) {

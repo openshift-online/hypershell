@@ -5,12 +5,13 @@
 # Usage:
 #   bash tests/e2e/run-parallel.sh NAME=COMMAND [NAME=COMMAND ...]
 #
-# Each COMMAND runs under `bash -c` with its output captured to its own log.
-# When every suite has exited, the logs are replayed one after another (one
-# collapsible group each under GitHub Actions) followed by a one-line result per
-# suite. The exit status is non-zero if any suite failed. While suites run, a
-# heartbeat line is printed every E2E_PARALLEL_HEARTBEAT seconds (default 60) so
-# a long run is not silent.
+# Each COMMAND runs under `bash -c`, with its output streamed live using a
+# `[NAME]` prefix and simultaneously captured to a separate log. When every
+# suite has exited, the logs are replayed one after another (one collapsible
+# group each under GitHub Actions) followed by a one-line result per suite. Set
+# E2E_PARALLEL_LOG_DIR to preserve copies after the runner exits. The exit status
+# is non-zero if any suite failed. While suites run, a heartbeat line is printed
+# every E2E_PARALLEL_HEARTBEAT seconds (default 60) so a long run is not silent.
 #
 # The first NAME is the primary suite (e2e-openshell.sh). It is the only suite
 # that disturbs the shared control plane (the area 12g scale-down), so this
@@ -44,6 +45,7 @@ workdir="$(mktemp -d "${TMPDIR:-/tmp}/hypershell-e2e-parallel.XXXXXX")"
 gate="${workdir}/disruptive-gate"
 export E2E_DISRUPTIVE_GATE_FILE="$gate"
 heartbeat="${E2E_PARALLEL_HEARTBEAT:-60}"
+log_dir="${E2E_PARALLEL_LOG_DIR:-}"
 
 pids=()
 stop_children() {
@@ -55,14 +57,39 @@ stop_children() {
     kill "$pid" 2>/dev/null || true
   done
 }
-trap 'stop_children; rm -rf "$workdir"; exit 130' INT TERM
-trap 'rm -rf "$workdir"' EXIT
+persist_logs() {
+  [[ -n "$log_dir" ]] || return 0
+  if ! mkdir -p "$log_dir"; then
+    echo "[run-parallel] warning: could not create log directory ${log_dir}" >&2
+    return 0
+  fi
+
+  local i log
+  for i in "${!names[@]}"; do
+    log="${workdir}/${names[$i]}.log"
+    [[ -f "$log" ]] && cp "$log" "${log_dir}/${names[$i]}.log"
+  done
+}
+cleanup() {
+  persist_logs
+  rm -rf "$workdir"
+}
+trap 'stop_children; exit 130' INT TERM
+trap cleanup EXIT
 
 start=$(date +%s)
 for i in "${!names[@]}"; do
-  bash -c "${cmds[$i]}" >"${workdir}/${names[$i]}.log" 2>&1 &
+  (
+    # `sed -u` keeps suite output live through the pipeline on both GNU and BSD
+    # sed. Capture PIPESTATUS before the subshell exits so a suite failure is
+    # not hidden by successful tee/sed processes.
+    bash -c "${cmds[$i]}" 2>&1 | tee "${workdir}/${names[$i]}.log" | sed -u "s/^/[${names[$i]}] /"
+    statuses=("${PIPESTATUS[@]}")
+    ((statuses[1] == 0 && statuses[2] == 0)) || exit 1
+    exit "${statuses[0]}"
+  ) &
   pids+=("$!")
-  echo "[run-parallel] started ${names[$i]} (pid ${pids[$i]})"
+  echo "[run-parallel] started ${names[$i]} (pid ${pids[$i]}; live prefix [${names[$i]}])"
 done
 ((${#names[@]} == 1)) && : >"$gate"
 
@@ -122,4 +149,15 @@ echo "[run-parallel] results ($(($(date +%s) - start))s total):"
 for line in "${summary[@]}"; do
   echo "[run-parallel]   ${line}"
 done
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    echo ""
+    echo "### E2E suite timings"
+    echo ""
+    for line in "${summary[@]}"; do
+      echo "- ${line}"
+    done
+    echo "- total: $(($(date +%s) - start))s"
+  } >>"${GITHUB_STEP_SUMMARY}"
+fi
 exit "$failed"

@@ -3,6 +3,7 @@ package agentRuntimes
 import (
 	"context"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
@@ -11,8 +12,16 @@ import (
 
 type AgentRuntimeDao interface {
 	Get(ctx context.Context, id string) (*AgentRuntime, error)
+	// GetUnscoped returns an AgentRuntime including soft-deleted rows. The watch
+	// handler uses it on a delete event, whose row is already soft-deleted, to
+	// resolve the deleted runtime's effective cluster for stream scoping.
+	GetUnscoped(ctx context.Context, id string) (*AgentRuntime, error)
 	Create(ctx context.Context, agentRuntime *AgentRuntime) (*AgentRuntime, error)
 	Replace(ctx context.Context, agentRuntime *AgentRuntime) (*AgentRuntime, error)
+	// UpdateStatus writes only the control-plane-owned status columns for id,
+	// leaving every spec column untouched so a concurrent user PATCH is not
+	// clobbered by the status write-back. It returns the reloaded row.
+	UpdateStatus(ctx context.Context, id string, status string, statusMessage *string) (*AgentRuntime, error)
 	Delete(ctx context.Context, id string) error
 	FindByIDs(ctx context.Context, ids []string) (AgentRuntimeList, error)
 	All(ctx context.Context) (AgentRuntimeList, error)
@@ -39,6 +48,15 @@ func (d *sqlAgentRuntimeDao) Get(ctx context.Context, id string) (*AgentRuntime,
 	return &agentRuntime, nil
 }
 
+func (d *sqlAgentRuntimeDao) GetUnscoped(ctx context.Context, id string) (*AgentRuntime, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var agentRuntime AgentRuntime
+	if err := g2.Unscoped().Take(&agentRuntime, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &agentRuntime, nil
+}
+
 func (d *sqlAgentRuntimeDao) Create(ctx context.Context, agentRuntime *AgentRuntime) (*AgentRuntime, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	if err := g2.Omit(clause.Associations).Create(agentRuntime).Error; err != nil {
@@ -55,6 +73,31 @@ func (d *sqlAgentRuntimeDao) Replace(ctx context.Context, agentRuntime *AgentRun
 		return nil, err
 	}
 	return agentRuntime, nil
+}
+
+// UpdateStatus writes only the status and status_message columns through a scoped
+// UPDATE rather than a full-row Save. This closes the lost-update race in the
+// status write-back: a full-row Save re-persists every column from a snapshot read
+// before the write, so a user PATCH that lands between that read and the write is
+// silently clobbered. Restricting the UPDATE to the two control-plane-owned columns
+// means a concurrent spec PATCH to any other column survives untouched. GORM stamps
+// updated_at on the UPDATE, so watchers still observe a new version.
+func (d *sqlAgentRuntimeDao) UpdateStatus(ctx context.Context, id string, status string, statusMessage *string) (*AgentRuntime, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	res := g2.Model(&AgentRuntime{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"status":         status,
+			"status_message": statusMessage,
+		})
+	if res.Error != nil {
+		db.MarkForRollback(ctx, res.Error)
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return d.Get(ctx, id)
 }
 
 func (d *sqlAgentRuntimeDao) Delete(ctx context.Context, id string) error {

@@ -505,8 +505,15 @@ paths:
       - Bearer: []
       summary: Create a new gateway
   /api/hypershell/v1/gateways/placement-availability:
-    get:
+    post:
       operationId: getGatewayPlacementAvailability
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayPlacementAvailabilityRequest"
+        description: Capability selectors to evaluate
+        required: true
       responses:
         "200":
           content:
@@ -528,7 +535,7 @@ paths:
           description: Unexpected error evaluating placement availability
       security:
       - Bearer: []
-      summary: Returns current provider placement eligibility
+      summary: Returns current placement eligibility for a batch of selectors
   /api/hypershell/v1/gateways/{id}:
     delete:
       operationId: deleteGateway
@@ -3411,12 +3418,23 @@ components:
             format: date-time
             readOnly: true
             type: string
+          capabilities:
+            description: Registration-owned capability labels used by match-all placement
+              selectors.
+            items:
+              type: string
+            readOnly: true
+            type: array
+            uniqueItems: true
         required:
         - kubeconfig_secret
         - name
         - provider
         type: object
       example:
+        capabilities:
+        - capabilities
+        - capabilities
         visibility: public
         kind: kind
         created_at: 2000-01-23T04:56:07.000+00:00
@@ -3450,7 +3468,10 @@ components:
         id: id
         href: href
         items:
-        - visibility: public
+        - capabilities:
+          - capabilities
+          - capabilities
+          visibility: public
           kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           oidc_subject: oidc_subject
@@ -3464,7 +3485,10 @@ components:
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - visibility: public
+        - capabilities:
+          - capabilities
+          - capabilities
+          visibility: public
           kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
           oidc_subject: oidc_subject
@@ -3502,31 +3526,24 @@ components:
       type: object
     ManagedClusterRegistrationRequest:
       example:
-        visibility: public
-        provider: aws
+        capabilities:
+        - capabilities
+        - capabilities
         name: name
-        description: description
       properties:
         name:
           description: "Human-readable spoke name, unique per fleet (e.g. hyp0-mc1).\
             \ Must match on every subsequent call."
           type: string
-        description:
-          description: Optional description of the spoke.
-          type: string
-        provider:
-          description: Cloud provider hosting this control plane.
-          enum:
-          - aws
-          - ibm
-          - kind
-          type: string
-        visibility:
-          description: Network visibility supported for gateways on this control plane.
-          enum:
-          - public
-          - vpn
-          type: string
+        capabilities:
+          description: "Complete self-declared capability set. Optional for backward\
+            \ compatibility: a control plane that predates the capability model may\
+            \ omit it, in which case the heartbeat is accepted as a no-op that preserves\
+            \ any stored capabilities."
+          items:
+            type: string
+          type: array
+          uniqueItems: true
       required:
       - name
       type: object
@@ -3587,6 +3604,19 @@ components:
             description: Runtime version from the last successful gateway health response
             readOnly: true
             type: string
+          provisioning_version:
+            description: "Gateway version the gateway's cluster advertises provisioning\
+              \ onto new gateways, derived from that cluster's single-valued gateway-version\
+              \ capability. Empty when the cluster advertises no provisioning version."
+            readOnly: true
+            type: string
+          image_pinned:
+            description: "Whether this gateway pins an explicit image and therefore\
+              \ need not track its cluster's provisioning version. True suppresses\
+              \ the newer-version-available drift indicator, because a pinned gateway\
+              \ may intentionally run a different version from its cluster default."
+            readOnly: true
+            type: boolean
           oidc:
             description: JSON-encoded OIDC authentication configuration (auto-populated
               by Keycloak provisioning)
@@ -3651,6 +3681,7 @@ components:
         server_dns_names:
         - server_dns_names
         - server_dns_names
+        image_pinned: true
         created_at: 2000-01-23T04:56:07.000+00:00
         credential_driver: credential_driver
         cluster_id: cluster_id
@@ -3665,6 +3696,7 @@ components:
         generation: 5
         image: image
         active_sandbox_count: 5
+        provisioning_version: provisioning_version
         provisioning_conditions:
         - condition_status: Pending
           type: type
@@ -3707,6 +3739,7 @@ components:
         - server_dns_names:
           - server_dns_names
           - server_dns_names
+          image_pinned: true
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
           cluster_id: cluster_id
@@ -3721,6 +3754,7 @@ components:
           generation: 5
           image: image
           active_sandbox_count: 5
+          provisioning_version: provisioning_version
           provisioning_conditions:
           - condition_status: Pending
             type: type
@@ -3744,6 +3778,7 @@ components:
         - server_dns_names:
           - server_dns_names
           - server_dns_names
+          image_pinned: true
           created_at: 2000-01-23T04:56:07.000+00:00
           credential_driver: credential_driver
           cluster_id: cluster_id
@@ -3758,6 +3793,7 @@ components:
           generation: 5
           image: image
           active_sandbox_count: 5
+          provisioning_version: provisioning_version
           provisioning_conditions:
           - condition_status: Pending
             type: type
@@ -3829,25 +3865,20 @@ components:
           type: string
       type: object
     GatewayPlacementIntent:
-      description: Exactly one of network/provider or mode must be supplied.
+      description: Exactly one of selector or mode must be supplied.
       example:
         mode: local-kind
-        provider: aws
-        network: public
+        selector:
+        - selector
+        - selector
       nullable: true
       oneOf: []
       properties:
-        network:
-          enum:
-          - public
-          - vpn
-          type: string
-        provider:
-          description: IBM Cloud supports public placement only; VPN requires AWS.
-          enum:
-          - aws
-          - ibm
-          type: string
+        selector:
+          items:
+            type: string
+          minItems: 1
+          type: array
         mode:
           enum:
           - local-kind
@@ -3855,38 +3886,28 @@ components:
       type: object
     GatewayPlacementAvailability:
       example:
-        aws_public: true
-        aws_reason: no-eligible-cluster
         local_kind: true
-        ibm_reason: no-eligible-cluster
-        ibm_public: true
-        aws_vpn: true
-        ibm_vpn: true
+        placements:
+        - reason: no-eligible-cluster
+          available: true
+          selector:
+          - selector
+          - selector
+        - reason: no-eligible-cluster
+          available: true
+          selector:
+          - selector
+          - selector
       properties:
-        aws_public:
-          type: boolean
-        aws_vpn:
-          type: boolean
-        ibm_public:
-          type: boolean
-        ibm_vpn:
-          type: boolean
+        placements:
+          items:
+            $ref: "#/components/schemas/GatewayPlacementAvailabilityItem"
+          type: array
         local_kind:
           type: boolean
-        aws_reason:
-          enum:
-          - no-eligible-cluster
-          type: string
-        ibm_reason:
-          enum:
-          - no-eligible-cluster
-          type: string
       required:
-      - aws_public
-      - aws_vpn
-      - ibm_public
-      - ibm_vpn
       - local_kind
+      - placements
       type: object
     OpenShellGatewayServiceAccountRole:
       enum:
@@ -4660,6 +4681,8 @@ components:
           name:
             type: string
           cluster_id:
+            description: "Optional. When omitted, the scheduling cluster is derived\
+              \ from the referenced Gateway's placement."
             type: string
           gateway_id:
             type: string
@@ -4696,7 +4719,6 @@ components:
             readOnly: true
             type: string
         required:
-        - cluster_id
         - gateway_id
         - name
         type: object
@@ -5262,8 +5284,9 @@ components:
         name: name
         placement:
           mode: local-kind
-          provider: aws
-          network: public
+          selector:
+          - selector
+          - selector
         external_dns: external_dns
         status: status
       properties:
@@ -5304,6 +5327,57 @@ components:
       required:
       - name
       - placement
+      type: object
+    GatewayPlacementSelector:
+      items:
+        type: string
+      minItems: 1
+      type: array
+    GatewayPlacementAvailabilityItem:
+      example:
+        reason: no-eligible-cluster
+        available: true
+        selector:
+        - selector
+        - selector
+      properties:
+        selector:
+          items:
+            type: string
+          minItems: 1
+          type: array
+        available:
+          type: boolean
+        reason:
+          enum:
+          - no-eligible-cluster
+          type: string
+      required:
+      - available
+      - selector
+      type: object
+    GatewayPlacementAvailabilityRequest:
+      example:
+        selectors:
+        - - null
+          - null
+        - - null
+          - null
+        - - null
+          - null
+        - - null
+          - null
+        - - null
+          - null
+      properties:
+        selectors:
+          items:
+            $ref: "#/components/schemas/GatewayPlacementSelector"
+          maxItems: 32
+          minItems: 1
+          type: array
+      required:
+      - selectors
       type: object
     RepositoryList:
       allOf:

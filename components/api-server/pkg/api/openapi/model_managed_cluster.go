@@ -40,6 +40,8 @@ type ManagedCluster struct {
 	OidcSubject *string `json:"oidc_subject,omitempty"`
 	// Timestamp of the most recent registration call. Updated on every POST /registration.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	// Registration-owned capability labels used by match-all placement selectors.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 type _ManagedCluster ManagedCluster
@@ -488,6 +490,38 @@ func (o *ManagedCluster) SetLastSeenAt(v time.Time) {
 	o.LastSeenAt = &v
 }
 
+// GetCapabilities returns the Capabilities field value if set, zero value otherwise.
+func (o *ManagedCluster) GetCapabilities() []string {
+	if o == nil || IsNil(o.Capabilities) {
+		var ret []string
+		return ret
+	}
+	return o.Capabilities
+}
+
+// GetCapabilitiesOk returns a tuple with the Capabilities field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedCluster) GetCapabilitiesOk() ([]string, bool) {
+	if o == nil || IsNil(o.Capabilities) {
+		return nil, false
+	}
+	return o.Capabilities, true
+}
+
+// HasCapabilities returns a boolean if a field has been set.
+func (o *ManagedCluster) HasCapabilities() bool {
+	if o != nil && !IsNil(o.Capabilities) {
+		return true
+	}
+
+	return false
+}
+
+// SetCapabilities gets a reference to the given []string and assigns it to the Capabilities field.
+func (o *ManagedCluster) SetCapabilities(v []string) {
+	o.Capabilities = v
+}
+
 func (o ManagedCluster) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -533,6 +567,9 @@ func (o ManagedCluster) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.LastSeenAt) {
 		toSerialize["last_seen_at"] = o.LastSeenAt
+	}
+	if !IsNil(o.Capabilities) {
+		toSerialize["capabilities"] = o.Capabilities
 	}
 	return toSerialize, nil
 }

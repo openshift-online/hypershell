@@ -804,7 +804,7 @@ e2e_gateway_create_body() {
     E2E_INFRA_DRIVER="${E2E_INFRA_DRIVER:-}" python3 -c "
 import json, os
 placement = ({'mode': 'local-kind'} if os.environ['E2E_INFRA_DRIVER'] == 'kind'
-             else {'network': 'public', 'provider': 'aws'})
+             else {'selector': ['network/public', 'provider/aws']})
 body = {
     'name': os.environ['GW_NAME'],
     'placement': placement,

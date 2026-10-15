@@ -169,8 +169,8 @@ plane's hairpin dial reaches the same router.
 A hub SHALL NOT expose its gRPC port outside the cluster while any
 `/hypershell.v1.*/Watch*` method is listed in `--auth-bypass-methods`. On every hub,
 and in every environment that runs the control plane with OIDC credentials, the
-api-server SHALL require a valid JWT on the five watch RPCs and SHALL bind
-`WatchGateways` and `WatchRoleBindings` to the caller's registered cluster as defined in
+api-server SHALL require a valid JWT on the six watch RPCs and SHALL bind
+`WatchGateways`, `WatchRoleBindings`, and `WatchAgentRuntimes` to the caller's registered cluster as defined in
 `managed-cluster-registration.spec.md` ("Requirement: Watch Stream Caller Binding").
 Only `/grpc.health.v1.Health/` and `/grpc.reflection.v1alpha.ServerReflection/`
 remain exempt. This supersedes the "gRPC Bypass" list in `oidc-integration.spec.md`.

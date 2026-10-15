@@ -4,8 +4,7 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Network** | Pointer to **string** |  | [optional] 
-**Provider** | Pointer to **string** | IBM Cloud supports public placement only; VPN requires AWS. | [optional] 
+**Selector** | Pointer to **[]string** |  | [optional] 
 **Mode** | Pointer to **string** |  | [optional] 
 
 ## Methods
@@ -27,55 +26,30 @@ NewGatewayPlacementIntentWithDefaults instantiates a new GatewayPlacementIntent 
 This constructor will only assign default values to properties that have it defined,
 but it doesn't guarantee that properties required by API are set
 
-### GetNetwork
+### GetSelector
 
-`func (o *GatewayPlacementIntent) GetNetwork() string`
+`func (o *GatewayPlacementIntent) GetSelector() []string`
 
-GetNetwork returns the Network field if non-nil, zero value otherwise.
+GetSelector returns the Selector field if non-nil, zero value otherwise.
 
-### GetNetworkOk
+### GetSelectorOk
 
-`func (o *GatewayPlacementIntent) GetNetworkOk() (*string, bool)`
+`func (o *GatewayPlacementIntent) GetSelectorOk() (*[]string, bool)`
 
-GetNetworkOk returns a tuple with the Network field if it's non-nil, zero value otherwise
+GetSelectorOk returns a tuple with the Selector field if it's non-nil, zero value otherwise
 and a boolean to check if the value has been set.
 
-### SetNetwork
+### SetSelector
 
-`func (o *GatewayPlacementIntent) SetNetwork(v string)`
+`func (o *GatewayPlacementIntent) SetSelector(v []string)`
 
-SetNetwork sets Network field to given value.
+SetSelector sets Selector field to given value.
 
-### HasNetwork
+### HasSelector
 
-`func (o *GatewayPlacementIntent) HasNetwork() bool`
+`func (o *GatewayPlacementIntent) HasSelector() bool`
 
-HasNetwork returns a boolean if a field has been set.
-
-### GetProvider
-
-`func (o *GatewayPlacementIntent) GetProvider() string`
-
-GetProvider returns the Provider field if non-nil, zero value otherwise.
-
-### GetProviderOk
-
-`func (o *GatewayPlacementIntent) GetProviderOk() (*string, bool)`
-
-GetProviderOk returns a tuple with the Provider field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetProvider
-
-`func (o *GatewayPlacementIntent) SetProvider(v string)`
-
-SetProvider sets Provider field to given value.
-
-### HasProvider
-
-`func (o *GatewayPlacementIntent) HasProvider() bool`
-
-HasProvider returns a boolean if a field has been set.
+HasSelector returns a boolean if a field has been set.
 
 ### GetMode
 

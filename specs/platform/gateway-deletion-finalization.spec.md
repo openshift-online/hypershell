@@ -37,7 +37,8 @@ and coordinates the deletion requirements defined in:
   - per-gateway database and role cleanup on the gateway database server, and
     the `PostgreSQLDatabase` orphan signal.
 - [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)
-  - credential-namespace RBAC cleanup.
+  - credential-namespace RBAC cleanup, and purge of the gateway's provider-credential
+    Vault KV path, with the `VaultCredentialPath` orphan signal.
 
 Where a per-resource spec already defines a resource's cleanup behavior, that
 spec remains authoritative for that resource. This spec defines the enumeration
@@ -97,6 +98,11 @@ resource classes is:
    controller.
 5. Any credential-namespace RBAC (Role and RoleBinding) the gateway created in a
    separate credential namespace.
+6. For a Vault-backed gateway, the provider secrets stored under the gateway's
+   Vault KV path (`secret/data/openshell/<tenant-namespace>/*` and its metadata) on
+   the per-cluster provider Vault, purged by authenticating as the gateway's own
+   identity before the ServiceAccount and namespace are removed (see
+   [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)).
 
 The enumeration SHALL be authoritative and SHALL NOT depend on the namespace
 delete cascade reaching a resource. Every out-of-namespace resource class SHALL
@@ -318,6 +324,16 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
   signal an operator uses if the controller restarts before a retry succeeds
   (recovery per the runbook in
   [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md))
+
+#### Scenario: Failed Vault KV purge is recorded as a VaultCredentialPath orphan
+
+- GIVEN a Vault-backed Gateway delete whose KV purge cannot complete (the provider
+  Vault is unreachable, or the gateway identity is already gone)
+- WHEN the control plane returns the error for retry
+- THEN it SHALL record a durable, operator-visible `VaultCredentialPath` orphan
+  signal in the control-plane namespace naming the tenant namespace and the reason
+- AND the signal SHALL NOT contain any provider secret value
+- AND the delete SHALL NOT be reported complete while the KV path remains reclaimable
 
 #### Scenario: Invalid stored identity does not silently orphan the client
 

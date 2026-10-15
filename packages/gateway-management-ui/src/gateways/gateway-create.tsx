@@ -1,7 +1,6 @@
 import {
   ActionGroup,
   Alert,
-  AlertActionLink,
   Button,
   Card,
   CardBody,
@@ -10,6 +9,8 @@ import {
   Content,
   Form,
   FormGroup,
+  FormSelect,
+  FormSelectOption,
   Gallery,
   FormHelperText,
   HelperText,
@@ -34,16 +35,87 @@ import { FormattedMessage, useIntl } from "react-intl";
 import { z } from "zod";
 
 import { useGatewayUi } from "../gateway-ui-provider";
-import type { GatewayProvisionInput } from "../application/gateway-types";
+import type {
+  GatewayPlacementAvailability,
+  GatewayPlacementAvailabilityItem,
+  GatewayProvisionInput,
+} from "../application/gateway-types";
+import {
+  compareGatewayVersions,
+  parseGatewayVersion,
+} from "../application/gateway-operations";
 import { messages } from "../messages";
 import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
 import styles from "./gateway-create.module.css";
-import awsLogo from "../assets/aws-logo.svg";
+import awsLogoSvg from "../assets/aws-logo.svg?raw";
 import ibmCloudLogo from "../assets/ibm-cloud.svg";
 
 const placementReasonMessages = {
   "no-eligible-cluster": messages.noEligibleCluster,
 } as const;
+
+const placementSelectors = {
+  awsPublic: ["network/public", "provider/aws"],
+  awsVpn: ["network/vpn", "provider/aws"],
+  ibmPublic: ["network/public", "provider/ibm"],
+  ibmVpn: ["network/vpn", "provider/ibm"],
+} as const;
+const requestedPlacementSelectors = Object.values(placementSelectors);
+
+const gatewayVersionSelectorPrefix = "gateway-version/";
+// The default provisioning-version option omits the gateway-version label.
+const anyVersionOption = "";
+// The placement-availability request accepts at most 32 selectors. Four base
+// network/provider pairs leave room for the version-bearing selectors
+// (four pairs per version), so cap the advertised versions we probe. We probe
+// the newest versions first (compareProvisioningVersionsDescending), so when a
+// fleet advertises more distinct versions than this cap, only the newest ones
+// are offered; an older version advertised solely by an out-of-top-N spoke is
+// not selectable. One version per spoke makes exceeding this cap unusual, and
+// the gateway-provision-placement spec records it as an accepted limitation.
+const maxProvisioningVersions = Math.floor(
+  (32 - requestedPlacementSelectors.length) /
+    requestedPlacementSelectors.length,
+);
+
+// Newest first; version tags that cannot be parsed fall back to a stable
+// descending string order so the choice is deterministic.
+function compareProvisioningVersionsDescending(left: string, right: string) {
+  const leftParsed = parseGatewayVersion(left);
+  const rightParsed = parseGatewayVersion(right);
+  if (leftParsed && rightParsed) {
+    return compareGatewayVersions(rightParsed, leftParsed);
+  }
+  if (leftParsed) {
+    return -1;
+  }
+  if (rightParsed) {
+    return 1;
+  }
+  return right.localeCompare(left);
+}
+
+function versionBearingSelector(
+  pair: readonly string[],
+  version: string,
+): string[] {
+  return [...pair, `${gatewayVersionSelectorPrefix}${version}`];
+}
+
+function placementResult(
+  availability: GatewayPlacementAvailability | undefined,
+  selector: readonly string[],
+): GatewayPlacementAvailabilityItem | undefined {
+  return availability?.placements.find(
+    (item) =>
+      item.selector.length === selector.length &&
+      item.selector.every((label) => selector.includes(label)),
+  );
+}
+const awsLogoThemedSvg = awsLogoSvg.replace(
+  "#252F3E",
+  "var(--aws-wordmark-color, #252F3E)",
+);
 
 function placementReasonKey(
   ...reasons: readonly (string | null | undefined)[]
@@ -62,6 +134,8 @@ interface GatewayFormValues {
   network: "public" | "vpn" | null;
   provider: "aws" | "ibm" | null;
   localKind: boolean;
+  // Empty string means the default "Any version" (no gateway-version label).
+  version: string;
 }
 
 interface GatewayTextFieldProps {
@@ -79,6 +153,8 @@ function Choice({
   value,
   selected,
   icon,
+  iconDark,
+  iconSvg,
   iconPadding,
   isDisabled,
   name,
@@ -90,6 +166,8 @@ function Choice({
   value: string;
   selected?: boolean;
   icon?: string;
+  iconDark?: string;
+  iconSvg?: string;
   iconPadding?: string;
   isDisabled?: boolean;
   name: string;
@@ -138,14 +216,41 @@ function Choice({
           {descriptionLabel ? (
             <Label isCompact>{descriptionLabel}</Label>
           ) : null}
-          {icon ? (
+          {icon || iconSvg ? (
             <span className={styles.providerContent}>
-              <img
-                className={styles.providerLogo}
-                src={icon}
-                alt=""
-                style={iconPadding ? { padding: iconPadding } : undefined}
-              />
+              {icon ? (
+                <img
+                  className={[
+                    styles.providerLogo,
+                    value === "ibm" ? styles.providerLogoIbm : undefined,
+                    iconDark ? styles.providerLogoLight : undefined,
+                  ]
+                    .filter((className): className is string =>
+                      Boolean(className),
+                    )
+                    .join(" ")}
+                  src={icon}
+                  alt=""
+                  style={iconPadding ? { padding: iconPadding } : undefined}
+                />
+              ) : null}
+              {iconSvg ? (
+                <span
+                  className={[styles.providerLogo, styles.providerLogoSvg]
+                    .filter((className): className is string =>
+                      Boolean(className),
+                    )
+                    .join(" ")}
+                  dangerouslySetInnerHTML={{ __html: iconSvg }}
+                />
+              ) : iconDark ? (
+                <img
+                  className={styles.providerLogoDark}
+                  src={iconDark}
+                  alt=""
+                  style={iconPadding ? { padding: iconPadding } : undefined}
+                />
+              ) : null}
               <span>{description}</span>
             </span>
           ) : descriptionLabel ? (
@@ -258,6 +363,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
         network: z.enum(["public", "vpn"]).nullable(),
         provider: z.enum(["aws", "ibm"]).nullable(),
         localKind: z.boolean(),
+        version: z.string(),
       })
       .superRefine((values, context) => {
         if (!values.localKind && values.network === null) {
@@ -287,6 +393,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
         network: null,
         provider: null,
         localKind: false,
+        version: anyVersionOption,
       },
       resolver: zodResolver(schema) as never,
     });
@@ -313,29 +420,86 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     },
   });
 
+  const getProvisioningVersions =
+    gateways.getGatewayProvisioningVersions?.bind(gateways);
+  const provisioningVersionsQuery = useQuery({
+    queryKey: ["gateway", "provisioning-versions"],
+    queryFn:
+      getProvisioningVersions === undefined
+        ? skipToken
+        : ({ signal }) => getProvisioningVersions(signal),
+    staleTime: 30_000,
+  });
+  const candidateVersions = useMemo(
+    () =>
+      [...(provisioningVersionsQuery.data ?? [])]
+        .sort(compareProvisioningVersionsDescending)
+        .slice(0, maxProvisioningVersions),
+    [provisioningVersionsQuery.data],
+  );
+  const requestedSelectors = useMemo(
+    () => [
+      ...requestedPlacementSelectors.map((selector) => [...selector]),
+      ...candidateVersions.flatMap((version) =>
+        requestedPlacementSelectors.map((selector) =>
+          versionBearingSelector(selector, version),
+        ),
+      ),
+    ],
+    [candidateVersions],
+  );
+
   const getPlacementAvailability =
     gateways.getGatewayPlacementAvailability?.bind(gateways);
   const availability = useQuery({
-    queryKey: ["gateway", "placement-availability"],
+    queryKey: ["gateway", "placement-availability", candidateVersions],
     queryFn:
       getPlacementAvailability === undefined
         ? skipToken
-        : ({ signal }) => getPlacementAvailability(signal),
+        : ({ signal }) => getPlacementAvailability(requestedSelectors, signal),
     staleTime: 30_000,
   });
-  const hasManagedPlacement = availability.data
-    ? availability.data.awsPublic ||
-      availability.data.awsVpn ||
-      availability.data.ibmPublic ||
-      availability.data.ibmVpn
-    : false;
+  const awsPublic = placementResult(
+    availability.data,
+    placementSelectors.awsPublic,
+  );
+  const awsVpn = placementResult(availability.data, placementSelectors.awsVpn);
+  const ibmPublic = placementResult(
+    availability.data,
+    placementSelectors.ibmPublic,
+  );
+  const ibmVpn = placementResult(availability.data, placementSelectors.ibmVpn);
+  const hasManagedPlacement =
+    availability.data?.placements.some(({ available }) => available) === true;
   const canUseLocalKind =
     availability.data?.localKind === true && !hasManagedPlacement;
   const defaultToLocalKind = canUseLocalKind && !hasManagedPlacement;
-  const publicPlacementAvailable = availability.data
-    ? availability.data.awsPublic || availability.data.ibmPublic
-    : false;
-  const vpnPlacementAvailable = availability.data?.awsVpn === true;
+  const publicPlacementAvailable =
+    awsPublic?.available === true || ibmPublic?.available === true;
+  const vpnPlacementAvailable =
+    awsVpn?.available === true || ibmVpn?.available === true;
+
+  const network = useWatch({ control, name: "network" });
+  const provider = useWatch({ control, name: "provider" });
+  const localKind = useWatch({ control, name: "localKind" });
+  const version = useWatch({ control, name: "version" });
+  // Versions advertised by an eligible cluster for the selected network and
+  // provider, confirmed through the batched availability request (GP-11). An
+  // option is never offered unless a connected eligible spoke advertises it.
+  const offeredVersions = useMemo(() => {
+    if (!availability.data || network === null || provider === null) {
+      return [] as string[];
+    }
+    const pair = [`network/${network}`, `provider/${provider}`];
+    return candidateVersions.filter(
+      (candidate) =>
+        placementResult(
+          availability.data,
+          versionBearingSelector(pair, candidate),
+        )?.available === true,
+    );
+  }, [availability.data, candidateVersions, network, provider]);
+  const showVersionChoice = !localKind && network !== null && provider !== null;
 
   const submit = handleSubmit((values) => {
     if (values.localKind) {
@@ -346,26 +510,56 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
       return;
     }
     if (values.network === null || values.provider === null) return;
-    if (values.network === "vpn") {
-      if (values.provider !== "aws") return;
-      createGateway.mutate({
-        name: values.name,
-        placement: { network: "vpn", provider: "aws" },
-      });
-      return;
+    const selector = [
+      `network/${values.network}`,
+      `provider/${values.provider}`,
+    ];
+    // Only attach a version label the user actively chose and that an eligible
+    // spoke still advertises; the default "Any version" omits it entirely.
+    if (values.version && offeredVersions.includes(values.version)) {
+      selector.push(`${gatewayVersionSelectorPrefix}${values.version}`);
     }
     createGateway.mutate({
       name: values.name,
-      placement: { network: "public", provider: values.provider },
+      placement: { selector },
     });
   });
-  const network = useWatch({ control, name: "network" });
-  const provider = useWatch({ control, name: "provider" });
-  const localKind = useWatch({ control, name: "localKind" });
+  useEffect(() => {
+    if (!availability.data || localKind) return;
+
+    const availableNetworks = [
+      awsPublic?.available || ibmPublic?.available ? "public" : null,
+      awsVpn?.available || ibmVpn?.available ? "vpn" : null,
+    ].filter((value): value is "public" | "vpn" => value !== null);
+    const defaultNetwork =
+      awsPublic?.available || ibmPublic?.available
+        ? "public"
+        : (availableNetworks[0] ?? null);
+
+    if (
+      defaultNetwork !== null &&
+      (network === null || !availableNetworks.includes(network))
+    ) {
+      setValue("network", defaultNetwork, { shouldValidate: true });
+    }
+  }, [
+    availability.data,
+    awsPublic?.available,
+    awsVpn?.available,
+    ibmPublic?.available,
+    ibmVpn?.available,
+    localKind,
+    network,
+    setValue,
+  ]);
   useEffect(() => {
     if (!availability.data || localKind) return;
     if (network === "vpn") {
-      const availableProvider = availability.data.awsVpn ? "aws" : null;
+      const availableProvider = ibmVpn?.available
+        ? "ibm"
+        : awsVpn?.available
+          ? "aws"
+          : null;
       if (provider === availableProvider) return;
       setValue("provider", availableProvider, {
         shouldValidate: true,
@@ -373,20 +567,33 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     } else if (
       network === "public" &&
       (provider === null ||
-        (provider === "ibm" && !availability.data.ibmPublic) ||
-        (provider === "aws" && !availability.data.awsPublic))
+        (provider === "ibm" && !ibmPublic?.available) ||
+        (provider === "aws" && !awsPublic?.available))
     ) {
       setValue(
         "provider",
-        availability.data.ibmPublic
-          ? "ibm"
-          : availability.data.awsPublic
-            ? "aws"
-            : null,
+        ibmPublic?.available ? "ibm" : awsPublic?.available ? "aws" : null,
         { shouldValidate: true },
       );
     }
-  }, [availability.data, localKind, network, provider, setValue]);
+  }, [
+    availability.data,
+    awsPublic?.available,
+    awsVpn?.available,
+    ibmPublic?.available,
+    ibmVpn?.available,
+    localKind,
+    network,
+    provider,
+    setValue,
+  ]);
+  useEffect(() => {
+    // Re-derive on network/provider change: reset to "Any version" whenever the
+    // previously selected version is no longer advertised for the new pair.
+    if (version !== anyVersionOption && !offeredVersions.includes(version)) {
+      setValue("version", anyVersionOption);
+    }
+  }, [offeredVersions, setValue, version]);
   useEffect(() => {
     if (defaultToLocalKind && !localKind) {
       setValue("localKind", true, { shouldValidate: true });
@@ -460,82 +667,91 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
               )}
             />
           ) : null}
-          <Controller
-            control={control}
-            name="network"
-            render={({ field, fieldState }) => (
-              <ChoiceGroup
-                id="network-access"
-                error={fieldState.error?.message}
-                label={intl.formatMessage(messages.networkAccess)}
-              >
-                <Choice
-                  name="placement"
-                  value="public"
-                  selected={!localKind && field.value === "public"}
-                  title={intl.formatMessage(messages.publicNetwork)}
-                  description={
-                    availability.data && !publicPlacementAvailable
-                      ? intl.formatMessage(messages.unavailableNetwork, {
-                          network: intl.formatMessage(messages.publicNetwork),
-                          reason: intl.formatMessage(
-                            placementReasonMessages[
-                              placementReasonKey(
-                                availability.data.awsReason,
-                                availability.data.ibmReason,
-                              )
-                            ],
-                          ),
-                        })
-                      : intl.formatMessage(messages.publicNetworkDescription)
-                  }
-                  isDisabled={!publicPlacementAvailable}
-                  onChoose={() => {
-                    setValue("localKind", false);
-                    field.onChange("public");
-                    setValue(
-                      "provider",
-                      availability.data?.ibmPublic
-                        ? "ibm"
-                        : availability.data?.awsPublic
-                          ? "aws"
-                          : null,
-                    );
-                  }}
-                />
-                <Choice
-                  name="placement"
-                  value="vpn"
-                  selected={!localKind && field.value === "vpn"}
-                  title={intl.formatMessage(messages.vpnNetwork)}
-                  descriptionLabel={intl.formatMessage(
-                    messages.vpnRequiresLabel,
-                  )}
-                  description={
-                    availability.data && !vpnPlacementAvailable
-                      ? intl.formatMessage(messages.unavailableNetwork, {
-                          network: intl.formatMessage(messages.vpnNetwork),
-                          reason: intl.formatMessage(
-                            placementReasonMessages[
-                              placementReasonKey(availability.data.awsReason)
-                            ],
-                          ),
-                        })
-                      : intl.formatMessage(messages.vpnNetworkDescription)
-                  }
-                  isDisabled={!vpnPlacementAvailable}
-                  onChoose={() => {
-                    setValue("localKind", false);
-                    field.onChange("vpn");
-                    setValue(
-                      "provider",
-                      availability.data?.awsVpn === true ? "aws" : null,
-                    );
-                  }}
-                />
-              </ChoiceGroup>
-            )}
-          />
+          {!canUseLocalKind ? (
+            <Controller
+              control={control}
+              name="network"
+              render={({ field, fieldState }) => (
+                <ChoiceGroup
+                  id="network-access"
+                  error={fieldState.error?.message}
+                  label={intl.formatMessage(messages.networkAccess)}
+                >
+                  <Choice
+                    name="placement"
+                    value="public"
+                    selected={!localKind && field.value === "public"}
+                    title={intl.formatMessage(messages.publicNetwork)}
+                    description={
+                      availability.data && !publicPlacementAvailable
+                        ? intl.formatMessage(messages.unavailableNetwork, {
+                            network: intl.formatMessage(messages.publicNetwork),
+                            reason: intl.formatMessage(
+                              placementReasonMessages[
+                                placementReasonKey(
+                                  awsPublic?.reason,
+                                  ibmPublic?.reason,
+                                )
+                              ],
+                            ),
+                          })
+                        : intl.formatMessage(messages.publicNetworkDescription)
+                    }
+                    isDisabled={!publicPlacementAvailable}
+                    onChoose={() => {
+                      setValue("localKind", false);
+                      field.onChange("public");
+                      setValue(
+                        "provider",
+                        ibmPublic?.available
+                          ? "ibm"
+                          : awsPublic?.available
+                            ? "aws"
+                            : null,
+                      );
+                    }}
+                  />
+                  <Choice
+                    name="placement"
+                    value="vpn"
+                    selected={!localKind && field.value === "vpn"}
+                    title={intl.formatMessage(messages.vpnNetwork)}
+                    descriptionLabel={intl.formatMessage(
+                      messages.vpnRequiresLabel,
+                    )}
+                    description={
+                      availability.data && !vpnPlacementAvailable
+                        ? intl.formatMessage(messages.unavailableNetwork, {
+                            network: intl.formatMessage(messages.vpnNetwork),
+                            reason: intl.formatMessage(
+                              placementReasonMessages[
+                                placementReasonKey(
+                                  awsVpn?.reason,
+                                  ibmVpn?.reason,
+                                )
+                              ],
+                            ),
+                          })
+                        : intl.formatMessage(messages.vpnNetworkDescription)
+                    }
+                    isDisabled={!vpnPlacementAvailable}
+                    onChoose={() => {
+                      setValue("localKind", false);
+                      field.onChange("vpn");
+                      setValue(
+                        "provider",
+                        ibmVpn?.available
+                          ? "ibm"
+                          : awsVpn?.available
+                            ? "aws"
+                            : null,
+                      );
+                    }}
+                  />
+                </ChoiceGroup>
+              )}
+            />
+          ) : null}
           {network !== null ? (
             <Controller
               control={control}
@@ -554,25 +770,29 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                     description={
                       availability.data &&
                       !(network === "vpn"
-                        ? availability.data.awsVpn
-                        : availability.data.awsPublic)
+                        ? awsVpn?.available
+                        : awsPublic?.available)
                         ? intl.formatMessage(messages.unavailableProvider, {
                             provider: intl.formatMessage(messages.awsProvider),
                             reason: intl.formatMessage(
                               placementReasonMessages[
-                                placementReasonKey(availability.data.awsReason)
+                                placementReasonKey(
+                                  network === "vpn"
+                                    ? awsVpn?.reason
+                                    : awsPublic?.reason,
+                                )
                               ],
                             ),
                           })
                         : intl.formatMessage(messages.awsProviderDescription)
                     }
-                    icon={awsLogo}
+                    iconSvg={awsLogoThemedSvg}
                     iconPadding="0.5rem 0"
                     isDisabled={
                       availability.data
                         ? !(network === "vpn"
-                            ? availability.data.awsVpn
-                            : availability.data.awsPublic)
+                            ? awsVpn?.available
+                            : awsPublic?.available)
                         : true
                     }
                     onChoose={() => {
@@ -585,35 +805,78 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                     selected={field.value === "ibm"}
                     title={intl.formatMessage(messages.ibmCloudProvider)}
                     description={
-                      network === "vpn"
-                        ? intl.formatMessage(messages.vpnRequiresAws)
-                        : availability.data && !availability.data.ibmPublic
-                          ? intl.formatMessage(messages.unavailableProvider, {
-                              provider: intl.formatMessage(
-                                messages.ibmCloudProvider,
-                              ),
-                              reason: intl.formatMessage(
-                                placementReasonMessages[
-                                  placementReasonKey(
-                                    availability.data.ibmReason,
-                                  )
-                                ],
-                              ),
-                            })
-                          : intl.formatMessage(
-                              messages.ibmCloudProviderDescription,
-                            )
+                      availability.data &&
+                      !(network === "vpn"
+                        ? ibmVpn?.available
+                        : ibmPublic?.available)
+                        ? intl.formatMessage(messages.unavailableProvider, {
+                            provider: intl.formatMessage(
+                              messages.ibmCloudProvider,
+                            ),
+                            reason: intl.formatMessage(
+                              placementReasonMessages[
+                                placementReasonKey(
+                                  network === "vpn"
+                                    ? ibmVpn?.reason
+                                    : ibmPublic?.reason,
+                                )
+                              ],
+                            ),
+                          })
+                        : intl.formatMessage(
+                            messages.ibmCloudProviderDescription,
+                          )
                     }
                     icon={ibmCloudLogo}
                     isDisabled={
-                      network === "vpn" ||
-                      (availability.data ? !availability.data.ibmPublic : true)
+                      availability.data
+                        ? !(network === "vpn"
+                            ? ibmVpn?.available
+                            : ibmPublic?.available)
+                        : true
                     }
                     onChoose={() => {
                       field.onChange("ibm");
                     }}
                   />
                 </ChoiceGroup>
+              )}
+            />
+          ) : null}
+          {showVersionChoice ? (
+            <Controller
+              control={control}
+              name="version"
+              render={({ field }) => (
+                <FormGroup
+                  fieldId="provisioning-version"
+                  label={intl.formatMessage(messages.provisioningVersion)}
+                >
+                  <FormSelect
+                    aria-label={intl.formatMessage(
+                      messages.provisioningVersion,
+                    )}
+                    id="provisioning-version"
+                    isDisabled={createGateway.isPending}
+                    onChange={(_event, value) => {
+                      field.onChange(value);
+                    }}
+                    value={field.value}
+                  >
+                    <FormSelectOption
+                      key="any-version"
+                      label={intl.formatMessage(messages.anyVersion)}
+                      value={anyVersionOption}
+                    />
+                    {offeredVersions.map((offeredVersion) => (
+                      <FormSelectOption
+                        key={offeredVersion}
+                        label={offeredVersion}
+                        value={offeredVersion}
+                      />
+                    ))}
+                  </FormSelect>
+                </FormGroup>
               )}
             />
           ) : null}
@@ -626,15 +889,6 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
           ) : null}
           {availability.isError ? (
             <Alert
-              actionLinks={
-                <AlertActionLink
-                  onClick={() => {
-                    void availability.refetch();
-                  }}
-                >
-                  {intl.formatMessage(messages.retry)}
-                </AlertActionLink>
-              }
               isInline
               title={intl.formatMessage(messages.placementAvailabilityError)}
               variant="warning"

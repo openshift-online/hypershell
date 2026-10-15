@@ -58,13 +58,25 @@ test.beforeEach(async ({ browserName, page }) => {
     ) {
       await route.fulfill({
         body: JSON.stringify({
-          aws_public: true,
-          aws_reason: "no-eligible-cluster",
-          aws_vpn: false,
-          ibm_public: false,
-          ibm_reason: "no-eligible-cluster",
-          ibm_vpn: false,
           local_kind: false,
+          placements: [
+            { selector: ["network/public", "provider/aws"], available: true },
+            {
+              selector: ["network/vpn", "provider/aws"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+            {
+              selector: ["network/public", "provider/ibm"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+            {
+              selector: ["network/vpn", "provider/ibm"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+          ],
         }),
         contentType: "application/json",
         status: 200,
@@ -483,13 +495,25 @@ test("provisions a gateway on an existing managed cluster", async ({
         contentType: "application/json",
         status: 200,
         body: JSON.stringify({
-          aws_public: true,
-          aws_reason: "no-eligible-cluster",
-          aws_vpn: false,
-          ibm_public: false,
-          ibm_reason: "no-eligible-cluster",
-          ibm_vpn: false,
           local_kind: false,
+          placements: [
+            { selector: ["network/public", "provider/aws"], available: true },
+            {
+              selector: ["network/vpn", "provider/aws"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+            {
+              selector: ["network/public", "provider/ibm"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+            {
+              selector: ["network/vpn", "provider/ibm"],
+              available: false,
+              reason: "no-eligible-cluster",
+            },
+          ],
         }),
       });
     },
@@ -527,10 +551,16 @@ test("provisions a gateway on an existing managed cluster", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "Provision gateway" }),
   ).toBeFocused();
-  await page.getByText("Public", { exact: true }).click({ force: true });
-  await page
-    .getByText("Amazon Web Services", { exact: true })
-    .click({ force: true });
+  const publicPlacement = page.getByRole("radio", { name: "Public" });
+  await publicPlacement.focus();
+  await page.keyboard.press("Space");
+  await expect(publicPlacement).toBeChecked();
+  const awsProvider = page.getByRole("radio", {
+    name: "Amazon Web Services",
+  });
+  await awsProvider.focus();
+  await page.keyboard.press("Space");
+  await expect(awsProvider).toBeChecked();
   await expect(page.getByText("Provider: AWS; region: us-east-1")).toHaveCount(
     0,
   );
@@ -562,7 +592,7 @@ test("provisions a gateway on an existing managed cluster", async ({
   await expect(page.getByText("Not available")).toHaveCount(1);
   expect(requestBody).toEqual({
     name: "team-gateway",
-    placement: { network: "public", provider: "aws" },
+    placement: { selector: ["network/public", "provider/aws"] },
     route: '{"enabled":true}',
   });
 });

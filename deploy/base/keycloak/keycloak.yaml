@@ -290,7 +290,7 @@ data:
               "protocolMapper": "oidc-audience-mapper",
               "consentRequired": false,
               "config": {
-                "included.client.audience": "hypershell-frontend",
+                "included.custom.audience": "hypershell-api",
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
@@ -358,7 +358,7 @@ data:
               "protocolMapper": "oidc-audience-mapper",
               "consentRequired": false,
               "config": {
-                "included.client.audience": "hypershell-frontend",
+                "included.custom.audience": "hypershell-api",
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
@@ -435,7 +435,7 @@ data:
               "protocolMapper": "oidc-audience-mapper",
               "consentRequired": false,
               "config": {
-                "included.client.audience": "hypershell-frontend",
+                "included.custom.audience": "hypershell-api",
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"
@@ -459,7 +459,7 @@ data:
               "protocolMapper": "oidc-audience-mapper",
               "consentRequired": false,
               "config": {
-                "included.client.audience": "hypershell-frontend",
+                "included.custom.audience": "hypershell-api",
                 "id.token.claim": "false",
                 "access.token.claim": "true",
                 "introspection.token.claim": "true"

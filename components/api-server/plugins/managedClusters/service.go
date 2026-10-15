@@ -3,6 +3,9 @@ package managedClusters
 import (
 	"context"
 	stderrors "errors"
+	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -31,7 +34,7 @@ type ManagedClusterService interface {
 	// held by a record with a different or empty oidc_subject, or a subject
 	// already registered under another name, is a 409 Conflict: registration
 	// never creates a duplicate name and never adopts an existing record.
-	Register(ctx context.Context, name, description, provider, visibility, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError)
+	Register(ctx context.Context, name string, capabilities []string, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError)
 	// FindRegisteredBySubject returns the ManagedCluster a control plane
 	// registered under the given OIDC subject, or (nil, nil) when the subject
 	// has not registered. An empty subject never matches.
@@ -169,7 +172,120 @@ func (s *sqlManagedClusterService) All(ctx context.Context) (ManagedClusterList,
 	return managedClusters, nil
 }
 
-func (s *sqlManagedClusterService) Register(ctx context.Context, name, description, provider, visibility, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError) {
+var capabilitySegmentRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// gatewayVersionValueRE relaxes the value segment for the gateway-version
+// namespace only: a gateway version tag carries dots and a release suffix (for
+// example v0.1.2-rhaiv.7), which is not a DNS label. The value is a lowercase
+// string of alphanumerics, dots, and hyphens that both begins and ends with an
+// alphanumeric. The namespace segment stays DNS-label strict (capabilitySegmentRE).
+// See managed-cluster-registration.spec.md, "Self-Declared Capability Labels".
+var gatewayVersionValueRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
+
+// gatewayVersionNamespace is the single-valued namespace through which a control
+// plane advertises the gateway version it provisions onto new gateways.
+const gatewayVersionNamespace = "gateway-version"
+
+// providerNamespace and regionNamespace are the single-valued namespaces the
+// inventory metric derives its provider/region buckets from (see inventory.go).
+const (
+	providerNamespace = "provider"
+	regionNamespace   = "region"
+)
+
+// gatewayVersionValueMaxLen bounds the gateway-version value segment. The relaxed
+// value regex accepts dots and hyphens but is otherwise unbounded, so a long
+// label could otherwise be persisted into the JSONB capability set. A version tag
+// such as v0.1.2-rhaiv.7 is far shorter; 128 is a generous ceiling.
+const gatewayVersionValueMaxLen = 128
+
+var capabilityNamespaces = map[string]bool{providerNamespace: true, "network": true, regionNamespace: true, "runtime": true, "environment": true, gatewayVersionNamespace: true}
+var singleCapabilityNamespaces = map[string]bool{providerNamespace: true, regionNamespace: true, "environment": true, gatewayVersionNamespace: true}
+
+// capabilityValueValid reports whether value is a valid value segment for the
+// given namespace. Every namespace stays DNS-label strict except gateway-version,
+// whose value accepts a dotted, suffixed version tag up to gatewayVersionValueMaxLen.
+func capabilityValueValid(namespace, value string) bool {
+	if namespace == gatewayVersionNamespace {
+		return len(value) <= gatewayVersionValueMaxLen && gatewayVersionValueRE.MatchString(value)
+	}
+	return capabilitySegmentRE.MatchString(value)
+}
+
+// capabilityValue returns the value advertised through the given single-valued
+// capability namespace, or "" when the set declares none. Inputs are assumed
+// already normalized; the first matching label wins.
+func capabilityValue(capabilities []string, namespace string) string {
+	prefix := namespace + "/"
+	for _, label := range capabilities {
+		if strings.HasPrefix(label, prefix) {
+			return strings.TrimPrefix(label, prefix)
+		}
+	}
+	return ""
+}
+
+// GatewayVersionCapability returns the version advertised through the
+// single-valued gateway-version capability, or "" when the set declares none.
+func GatewayVersionCapability(capabilities []string) string {
+	return capabilityValue(capabilities, gatewayVersionNamespace)
+}
+
+// NormalizeCapabilities validates capability labels and returns a stable,
+// deduplicated representation suitable for persistence and selector matching.
+func NormalizeCapabilities(labels []string, requireNonEmpty bool) ([]string, *errors.ServiceError) {
+	return normalizeCapabilityLabels(labels, requireNonEmpty, true, true)
+}
+
+// NormalizeSelector applies the same vocabulary while collapsing duplicates,
+// because selectors are query intent rather than the declared source-of-truth set.
+func NormalizeSelector(labels []string) ([]string, *errors.ServiceError) {
+	return normalizeCapabilityLabels(labels, true, false, false)
+}
+
+func normalizeCapabilityLabels(labels []string, requireNonEmpty, rejectDuplicates, enforceSingleValue bool) ([]string, *errors.ServiceError) {
+	if len(labels) == 0 {
+		if requireNonEmpty {
+			return nil, errors.Validation("capabilities must contain at least one label")
+		}
+		return nil, nil
+	}
+	seen, namespaceCounts := map[string]bool{}, map[string]int{}
+	result := make([]string, 0, len(labels))
+	for _, label := range labels {
+		parts := strings.Split(label, "/")
+		if len(parts) != 2 || !capabilityNamespaces[parts[0]] || !capabilitySegmentRE.MatchString(parts[0]) || !capabilityValueValid(parts[0], parts[1]) {
+			return nil, errors.Validation("invalid capability label %q: expected a recognized namespace and lowercase DNS-label value", label)
+		}
+		if seen[label] {
+			if rejectDuplicates {
+				return nil, errors.Validation("duplicate capability label %q", label)
+			}
+			continue
+		}
+		seen[label] = true
+		namespaceCounts[parts[0]]++
+		if enforceSingleValue && singleCapabilityNamespaces[parts[0]] && namespaceCounts[parts[0]] > 1 {
+			return nil, errors.Validation("capability namespace %q accepts only one value", parts[0])
+		}
+		result = append(result, label)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func (s *sqlManagedClusterService) Register(ctx context.Context, name string, capabilities []string, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError) {
+	// Backward compatibility: a capability-less heartbeat is accepted as a no-op
+	// for the capability set. An older control plane that has not yet rolled to a
+	// capability-aware image sends no capabilities every 60s; rejecting it would
+	// stop last_seen_at and disconnect the cluster for the duration of a rolling
+	// upgrade. We therefore allow an empty set here and preserve the stored
+	// capabilities below rather than clobbering them. See
+	// managed-cluster-registration.spec.md, "Capability Deployment Convergence".
+	capabilities, validationErr := NormalizeCapabilities(capabilities, false)
+	if validationErr != nil {
+		return nil, false, validationErr
+	}
 	lockOwnerID, lockErr := s.lockFactory.NewAdvisoryLock(ctx, oidcSubject, managedClustersLockType)
 	if lockErr != nil {
 		return nil, false, errors.DatabaseAdvisoryLock(lockErr)
@@ -187,11 +303,11 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 		}
 		now := time.Now()
 		existing.LastSeenAt = &now
-		// A legacy control plane omits placement metadata. Its heartbeat must
-		// refresh connectivity without erasing values from a newer registration.
-		if provider != "" {
-			existing.Provider = provider
-			existing.Visibility = visibility
+		// A capability-less heartbeat (older control plane) is a no-op for the
+		// capability set: keep the stored capabilities rather than wiping them, so
+		// a mixed-version rolling upgrade does not drop placement data.
+		if len(capabilities) > 0 {
+			existing.Capabilities = append([]string(nil), capabilities...)
 		}
 		updated, replaceErr := s.managedClusterDao.Replace(ctx, existing)
 		if replaceErr != nil {
@@ -225,11 +341,16 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 		return nil, false, errors.GeneralError("registration lookup failed: %s", delErr)
 	}
 	if deleted != nil {
-		if provider == "" {
-			provider = deleted.Provider
-			visibility = deleted.Visibility
+		// A capability-less heartbeat preserves the stored set on restore too: the
+		// soft-deleted record still holds its last capabilities, so a downgraded
+		// control plane re-registering within the deletion window keeps its
+		// placement data rather than clearing it. See
+		// managed-cluster-registration.spec.md, "Capability Deployment Convergence".
+		restoreCapabilities := capabilities
+		if len(restoreCapabilities) == 0 {
+			restoreCapabilities = deleted.Capabilities
 		}
-		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, provider, visibility, now)
+		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, "", "", restoreCapabilities, now)
 		if restoreErr != nil {
 			if isUniqueViolation(restoreErr) {
 				if winner, err := s.managedClusterDao.FindByName(ctx, name); err == nil && winner != nil {
@@ -249,11 +370,10 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name, descripti
 	}
 
 	cluster := &ManagedCluster{
-		Name:        name,
-		OIDCSubject: oidcSubject,
-		LastSeenAt:  &now,
-		Provider:    provider,
-		Visibility:  visibility,
+		Name:         name,
+		OIDCSubject:  oidcSubject,
+		LastSeenAt:   &now,
+		Capabilities: append([]string(nil), capabilities...),
 	}
 	cluster.CaptureTraceContext(ctx)
 	created, createErr := s.managedClusterDao.Create(ctx, cluster)

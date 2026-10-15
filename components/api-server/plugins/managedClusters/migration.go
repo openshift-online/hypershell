@@ -52,6 +52,18 @@ func migrationAddPlacementVisibility() *gormigrate.Migration {
 	}
 }
 
+func migrationAddCapabilities() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026101200000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE managed_clusters ADD COLUMN IF NOT EXISTS capabilities JSONB`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE managed_clusters DROP COLUMN IF EXISTS capabilities`).Error
+		},
+	}
+}
+
 // migrationUniqueName makes managed_clusters.name unique across all live
 // records, registered or not, so discovery by name (seed scripts, e2e,
 // operators) is unambiguous and a registration can never create a second

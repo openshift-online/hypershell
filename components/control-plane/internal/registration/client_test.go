@@ -2,6 +2,7 @@ package registration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -43,12 +44,19 @@ func TestRegisterStatusHandling(t *testing.T) {
 				if got := r.Header.Get("Authorization"); got != "Bearer tok" {
 					t.Errorf("Authorization = %q", got)
 				}
+				var request registrationRequest
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Errorf("decode request: %v", err)
+				}
+				if request.Name != "local-kind" || strings.Join(request.Capabilities, ",") != "provider/kind,network/public,environment/kind" {
+					t.Errorf("request = %+v", request)
+				}
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer srv.Close()
 
-			id, err := NewClient(srv.URL, "local-kind", staticToken("tok")).Register(context.Background())
+			id, err := NewClient(srv.URL, "local-kind", []string{"provider/kind", "network/public", "environment/kind"}, staticToken("tok")).Register(context.Background())
 			if tc.wantID != "" {
 				if err != nil || id != tc.wantID {
 					t.Fatalf("Register() = (%q, %v), want (%q, nil)", id, err, tc.wantID)

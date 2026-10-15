@@ -21,13 +21,8 @@ var _ MappedNullable = &GatewayPlacementAvailability{}
 
 // GatewayPlacementAvailability struct for GatewayPlacementAvailability
 type GatewayPlacementAvailability struct {
-	AwsPublic bool    `json:"aws_public"`
-	AwsVpn    bool    `json:"aws_vpn"`
-	IbmPublic bool    `json:"ibm_public"`
-	IbmVpn    bool    `json:"ibm_vpn"`
-	LocalKind bool    `json:"local_kind"`
-	AwsReason *string `json:"aws_reason,omitempty"`
-	IbmReason *string `json:"ibm_reason,omitempty"`
+	Placements []GatewayPlacementAvailabilityItem `json:"placements"`
+	LocalKind  bool                               `json:"local_kind"`
 }
 
 type _GatewayPlacementAvailability GatewayPlacementAvailability
@@ -36,12 +31,9 @@ type _GatewayPlacementAvailability GatewayPlacementAvailability
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayPlacementAvailability(awsPublic bool, awsVpn bool, ibmPublic bool, ibmVpn bool, localKind bool) *GatewayPlacementAvailability {
+func NewGatewayPlacementAvailability(placements []GatewayPlacementAvailabilityItem, localKind bool) *GatewayPlacementAvailability {
 	this := GatewayPlacementAvailability{}
-	this.AwsPublic = awsPublic
-	this.AwsVpn = awsVpn
-	this.IbmPublic = ibmPublic
-	this.IbmVpn = ibmVpn
+	this.Placements = placements
 	this.LocalKind = localKind
 	return &this
 }
@@ -54,100 +46,28 @@ func NewGatewayPlacementAvailabilityWithDefaults() *GatewayPlacementAvailability
 	return &this
 }
 
-// GetAwsPublic returns the AwsPublic field value
-func (o *GatewayPlacementAvailability) GetAwsPublic() bool {
+// GetPlacements returns the Placements field value
+func (o *GatewayPlacementAvailability) GetPlacements() []GatewayPlacementAvailabilityItem {
 	if o == nil {
-		var ret bool
+		var ret []GatewayPlacementAvailabilityItem
 		return ret
 	}
 
-	return o.AwsPublic
+	return o.Placements
 }
 
-// GetAwsPublicOk returns a tuple with the AwsPublic field value
+// GetPlacementsOk returns a tuple with the Placements field value
 // and a boolean to check if the value has been set.
-func (o *GatewayPlacementAvailability) GetAwsPublicOk() (*bool, bool) {
+func (o *GatewayPlacementAvailability) GetPlacementsOk() ([]GatewayPlacementAvailabilityItem, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return &o.AwsPublic, true
+	return o.Placements, true
 }
 
-// SetAwsPublic sets field value
-func (o *GatewayPlacementAvailability) SetAwsPublic(v bool) {
-	o.AwsPublic = v
-}
-
-// GetAwsVpn returns the AwsVpn field value
-func (o *GatewayPlacementAvailability) GetAwsVpn() bool {
-	if o == nil {
-		var ret bool
-		return ret
-	}
-
-	return o.AwsVpn
-}
-
-// GetAwsVpnOk returns a tuple with the AwsVpn field value
-// and a boolean to check if the value has been set.
-func (o *GatewayPlacementAvailability) GetAwsVpnOk() (*bool, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.AwsVpn, true
-}
-
-// SetAwsVpn sets field value
-func (o *GatewayPlacementAvailability) SetAwsVpn(v bool) {
-	o.AwsVpn = v
-}
-
-// GetIbmPublic returns the IbmPublic field value
-func (o *GatewayPlacementAvailability) GetIbmPublic() bool {
-	if o == nil {
-		var ret bool
-		return ret
-	}
-
-	return o.IbmPublic
-}
-
-// GetIbmPublicOk returns a tuple with the IbmPublic field value
-// and a boolean to check if the value has been set.
-func (o *GatewayPlacementAvailability) GetIbmPublicOk() (*bool, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.IbmPublic, true
-}
-
-// SetIbmPublic sets field value
-func (o *GatewayPlacementAvailability) SetIbmPublic(v bool) {
-	o.IbmPublic = v
-}
-
-// GetIbmVpn returns the IbmVpn field value
-func (o *GatewayPlacementAvailability) GetIbmVpn() bool {
-	if o == nil {
-		var ret bool
-		return ret
-	}
-
-	return o.IbmVpn
-}
-
-// GetIbmVpnOk returns a tuple with the IbmVpn field value
-// and a boolean to check if the value has been set.
-func (o *GatewayPlacementAvailability) GetIbmVpnOk() (*bool, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.IbmVpn, true
-}
-
-// SetIbmVpn sets field value
-func (o *GatewayPlacementAvailability) SetIbmVpn(v bool) {
-	o.IbmVpn = v
+// SetPlacements sets field value
+func (o *GatewayPlacementAvailability) SetPlacements(v []GatewayPlacementAvailabilityItem) {
+	o.Placements = v
 }
 
 // GetLocalKind returns the LocalKind field value
@@ -174,70 +94,6 @@ func (o *GatewayPlacementAvailability) SetLocalKind(v bool) {
 	o.LocalKind = v
 }
 
-// GetAwsReason returns the AwsReason field value if set, zero value otherwise.
-func (o *GatewayPlacementAvailability) GetAwsReason() string {
-	if o == nil || IsNil(o.AwsReason) {
-		var ret string
-		return ret
-	}
-	return *o.AwsReason
-}
-
-// GetAwsReasonOk returns a tuple with the AwsReason field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *GatewayPlacementAvailability) GetAwsReasonOk() (*string, bool) {
-	if o == nil || IsNil(o.AwsReason) {
-		return nil, false
-	}
-	return o.AwsReason, true
-}
-
-// HasAwsReason returns a boolean if a field has been set.
-func (o *GatewayPlacementAvailability) HasAwsReason() bool {
-	if o != nil && !IsNil(o.AwsReason) {
-		return true
-	}
-
-	return false
-}
-
-// SetAwsReason gets a reference to the given string and assigns it to the AwsReason field.
-func (o *GatewayPlacementAvailability) SetAwsReason(v string) {
-	o.AwsReason = &v
-}
-
-// GetIbmReason returns the IbmReason field value if set, zero value otherwise.
-func (o *GatewayPlacementAvailability) GetIbmReason() string {
-	if o == nil || IsNil(o.IbmReason) {
-		var ret string
-		return ret
-	}
-	return *o.IbmReason
-}
-
-// GetIbmReasonOk returns a tuple with the IbmReason field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *GatewayPlacementAvailability) GetIbmReasonOk() (*string, bool) {
-	if o == nil || IsNil(o.IbmReason) {
-		return nil, false
-	}
-	return o.IbmReason, true
-}
-
-// HasIbmReason returns a boolean if a field has been set.
-func (o *GatewayPlacementAvailability) HasIbmReason() bool {
-	if o != nil && !IsNil(o.IbmReason) {
-		return true
-	}
-
-	return false
-}
-
-// SetIbmReason gets a reference to the given string and assigns it to the IbmReason field.
-func (o *GatewayPlacementAvailability) SetIbmReason(v string) {
-	o.IbmReason = &v
-}
-
 func (o GatewayPlacementAvailability) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -248,17 +104,8 @@ func (o GatewayPlacementAvailability) MarshalJSON() ([]byte, error) {
 
 func (o GatewayPlacementAvailability) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["aws_public"] = o.AwsPublic
-	toSerialize["aws_vpn"] = o.AwsVpn
-	toSerialize["ibm_public"] = o.IbmPublic
-	toSerialize["ibm_vpn"] = o.IbmVpn
+	toSerialize["placements"] = o.Placements
 	toSerialize["local_kind"] = o.LocalKind
-	if !IsNil(o.AwsReason) {
-		toSerialize["aws_reason"] = o.AwsReason
-	}
-	if !IsNil(o.IbmReason) {
-		toSerialize["ibm_reason"] = o.IbmReason
-	}
 	return toSerialize, nil
 }
 
@@ -267,10 +114,7 @@ func (o *GatewayPlacementAvailability) UnmarshalJSON(data []byte) (err error) {
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"aws_public",
-		"aws_vpn",
-		"ibm_public",
-		"ibm_vpn",
+		"placements",
 		"local_kind",
 	}
 

@@ -12,28 +12,28 @@ type Resource struct {
 	PathSegment            string
 	AbsoluteCollectionPath string
 	Scoped                 bool
-	ScopeParameters    []PathParameter
-	ItemParameter      *PathParameter
-	GoCollectionPath   string
-	GoItemPath         string
-	TSCollectionPath   string
-	TSItemPath         string
-	ListType           string
-	ItemType           string
-	CreateRequestType  string
-	CreateResponseType string
-	GetResponseType    string
-	Models             []Model
-	ListParameters     []Field
-	Fields             []Field
-	CreateFields       []Field
-	RequiredFields     []string
-	PatchFields        []Field
-	StatusPatchFields  []Field
-	HasDelete          bool
-	HasPatch           bool
-	HasStatusPatch     bool
-	Actions            []string
+	ScopeParameters        []PathParameter
+	ItemParameter          *PathParameter
+	GoCollectionPath       string
+	GoItemPath             string
+	TSCollectionPath       string
+	TSItemPath             string
+	ListType               string
+	ItemType               string
+	CreateRequestType      string
+	CreateResponseType     string
+	GetResponseType        string
+	Models                 []Model
+	ListParameters         []Field
+	Fields                 []Field
+	CreateFields           []Field
+	RequiredFields         []string
+	PatchFields            []Field
+	StatusPatchFields      []Field
+	HasDelete              bool
+	HasPatch               bool
+	HasStatusPatch         bool
+	Actions                []string
 
 	// Scoped-resource capabilities (data-driven from the OpenAPI spec).
 	HasGet             bool     // item GET exists
@@ -145,6 +145,8 @@ func toGoType(openAPIType, format string) string {
 		return "float64"
 	case "boolean":
 		return "bool"
+	case "object":
+		return "map[string]any"
 	default:
 		return "string"
 	}
@@ -206,6 +208,8 @@ func toTSType(openAPIType, format string) string {
 		return "number"
 	case "boolean":
 		return "boolean"
+	case "object":
+		return "Record<string, unknown>"
 	default:
 		return "string"
 	}

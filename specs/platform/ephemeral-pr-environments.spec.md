@@ -202,11 +202,13 @@ cluster namespace; a unit failure does not stop the deploy, and the existing tea
 between deploy and the suite. `/pr-extend` and `/pr-destroy` live in
 `.github/workflows/pr-environment-commands.yml` (`issue_comment`). A dedicated
 destroy workflow SHALL trigger on `closed` (which covers both merge and close)
-to destroy a retained environment (see the Timebox and Reaping requirement), so
-Tests runs do not list a skipped Destroy check. None of these jobs SHALL run
-on `merge_group`: this ephemeral-environment lifecycle (GitHub-brokered
-OAuth, the access comment, `/pr-extend`/`/pr-destroy`) is pull-request-only,
-and this environment does not share a namespace with a merge-queue SHA.
+and `enqueued` (the pull request enters the merge queue, which does not close
+it) to destroy a retained environment (see the Timebox and Reaping
+requirement), so Tests runs do not list a skipped Destroy check. None of
+these jobs SHALL run on `merge_group`: this ephemeral-environment lifecycle
+(GitHub-brokered OAuth, the access comment, `/pr-extend`/`/pr-destroy`) is
+pull-request-only, and this environment does not share a namespace with a
+merge-queue SHA.
 `e2e-testing.spec.md` separately runs Kind and OpenShift as the merge-queue
 gate, the latter through the same `Deploy OpenShift Environment`/`OpenShift`
 jobs this spec's pull-request path uses, but without any of this spec's
@@ -658,14 +660,17 @@ cannot leave `openshell-*` workloads behind. It SHALL NOT delete namespaces
 labeled for a different instance, including `hyp4`, `hyp5`, and local
 `make openshift-up` environments.
 
-On pull-request `closed` (merge or close), CI SHALL destroy the environment as
-the primary path by running the same teardown as `make openshift-down`, whether
-or not the pull request was retained. That destroy SHALL live in a `closed`-only
+On pull-request `closed` (merge or close) or `enqueued` (the pull request enters
+the merge queue), CI SHALL destroy the environment as the primary path by
+running the same teardown as `make openshift-down`, whether or not the pull
+request was retained. `enqueued` destroys early because `e2e-testing.spec.md`'s
+mq-<sha> environment takes over validation once the pull request is queued, so
+this pull request's own namespace would otherwise sit idle on the cluster for
+the whole queue wait. That destroy SHALL live in a `closed`/`enqueued`-only
 workflow so open and synchronize runs do not list a skipped Destroy check. The
-timebox SHALL remain the backstop for the case where the close event does not
-fire or its destroy cannot be confirmed; when the destroy step cannot confirm the
-destroy, the workflow SHALL report the failure so an operator can free the
-environment.
+timebox SHALL remain the backstop for the case where neither event fires or its
+destroy cannot be confirmed; when the destroy step cannot confirm the destroy,
+the workflow SHALL report the failure so an operator can free the environment.
 
 #### Scenario: Retained deploying run refreshes the inactivity expiry
 

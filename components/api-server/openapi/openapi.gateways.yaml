@@ -91,11 +91,18 @@ paths:
               schema:
                 $ref: 'openapi.yaml#/components/schemas/Error'
   /api/hypershell/v1/gateways/placement-availability:
-    get:
+    post:
       operationId: getGatewayPlacementAvailability
-      summary: Returns current provider placement eligibility
+      summary: Returns current placement eligibility for a batch of selectors
       security:
         - Bearer: []
+      requestBody:
+        description: Capability selectors to evaluate
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GatewayPlacementAvailabilityRequest'
       responses:
         '200':
           description: Current backend placement eligibility
@@ -300,6 +307,21 @@ components:
               type: string
               readOnly: true
               description: Runtime version from the last successful gateway health response
+            provisioning_version:
+              type: string
+              readOnly: true
+              description: >-
+                Gateway version the gateway's cluster advertises provisioning onto new
+                gateways, derived from that cluster's single-valued gateway-version
+                capability. Empty when the cluster advertises no provisioning version.
+            image_pinned:
+              type: boolean
+              readOnly: true
+              description: >-
+                Whether this gateway pins an explicit image and therefore need not track
+                its cluster's provisioning version. True suppresses the newer-version-available
+                drift indicator, because a pinned gateway may intentionally run a different
+                version from its cluster default.
             oidc:
               type: string
               readOnly: true
@@ -400,49 +422,58 @@ components:
           description: JSON-encoded credential storage driver configuration
     GatewayPlacementIntent:
       type: object
-      description: Exactly one of network/provider or mode must be supplied.
+      description: Exactly one of selector or mode must be supplied.
       oneOf:
-        - title: Managed placement
-          required: [network, provider]
+        - title: Capability selector placement
+          required: [selector]
           not:
             required: [mode]
         - title: Local Kind placement
           required: [mode]
           not:
-            anyOf:
-              - required: [network]
-              - required: [provider]
+            required: [selector]
       properties:
-        network:
-          type: string
-          enum: [public, vpn]
-        provider:
-          type: string
-          enum: [aws, ibm]
-          description: IBM Cloud supports public placement only; VPN requires AWS.
+        selector:
+          $ref: '#/components/schemas/GatewayPlacementSelector'
         mode:
           type: string
           enum: [local-kind]
+    GatewayPlacementSelector:
+      type: array
+      minItems: 1
+      items:
+        type: string
+    GatewayPlacementAvailabilityRequest:
+      type: object
+      required: [selectors]
+      properties:
+        selectors:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/GatewayPlacementSelector'
+    GatewayPlacementAvailabilityItem:
+      type: object
+      required: [selector, available]
+      properties:
+        selector:
+          $ref: '#/components/schemas/GatewayPlacementSelector'
+        available:
+          type: boolean
+        reason:
+          type: string
+          enum: [no-eligible-cluster]
     GatewayPlacementAvailability:
       type: object
-      required: [aws_public, aws_vpn, ibm_public, ibm_vpn, local_kind]
+      required: [placements, local_kind]
       properties:
-        aws_public:
-          type: boolean
-        aws_vpn:
-          type: boolean
-        ibm_public:
-          type: boolean
-        ibm_vpn:
-          type: boolean
+        placements:
+          type: array
+          items:
+            $ref: '#/components/schemas/GatewayPlacementAvailabilityItem'
         local_kind:
           type: boolean
-        aws_reason:
-          type: string
-          enum: [no-eligible-cluster]
-        ibm_reason:
-          type: string
-          enum: [no-eligible-cluster]
     # NEW SCHEMA START
     GatewayList:
     # NEW SCHEMA END

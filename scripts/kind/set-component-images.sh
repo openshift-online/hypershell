@@ -72,10 +72,25 @@ swap_deployment() {
   kube rollout status "deployment/${deployment}" -n "${KIND_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}"
 }
 
+swap_control_plane() {
+  [[ -n "${_cp_img}" ]] || return 0
+
+  info "  control-plane -> ${_cp_img}"
+  kube set image deployment/hypershell-controller \
+    "controller=${_cp_img}" -n "${KIND_NAMESPACE}"
+  # Remove settings used only to start a stale baseline image. Branch images
+  # must pass readiness with the current deployment contract.
+  kube set env deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
+    HYPERSHELL_MANAGED_CLUSTER_PROVIDER- \
+    HYPERSHELL_MANAGED_CLUSTER_VISIBILITY-
+  kube rollout status deployment/hypershell-controller \
+    -n "${KIND_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}"
+}
+
 header "Component Image Swap"
 
 swap_deployment "hypershell-api-server" api-server "${_api_img}" api-server migrate
-swap_deployment "hypershell-controller" control-plane "${_cp_img}" controller
+swap_control_plane
 swap_deployment "hypershell-web-console" web-console "${_wc_img}" web-console
 
 success "Component images ready"

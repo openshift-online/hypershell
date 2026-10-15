@@ -16,6 +16,7 @@ message ManagedCluster {
   string kubeconfig_secret = 6;
   optional string status = 7;
   optional string api_server_url = 8;
+  repeated string capabilities = 9;
 }
 
 message CreateManagedClusterRequest {

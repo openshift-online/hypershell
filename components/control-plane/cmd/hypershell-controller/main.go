@@ -315,7 +315,7 @@ func main() {
 	// service-account provisioner above is not cluster-scoped and is already
 	// serving, so the pod's probes stay green while registration retries (for
 	// example while the hub API server is still starting).
-	regClient := registration.NewClientWithPlacement(cfg.APIServerURL, cfg.ManagedClusterName, cfg.ManagedClusterProvider, cfg.ManagedClusterVisibility, tokenProvider)
+	regClient := registration.NewClient(cfg.APIServerURL, cfg.ManagedClusterName, cfg.ManagedClusterCapabilities, tokenProvider)
 	clusterID, regErr := registerWithBackoff(ctx, regClient, time.Second)
 	if regErr != nil {
 		if ctx.Err() != nil {
@@ -361,7 +361,7 @@ func main() {
 	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
 	defer gatewayQueue.Stop()
 
-	watchCount := 2 // managed clusters, gateways
+	watchCount := 3 // managed clusters, gateways, agent runtimes
 	if kcClient != nil {
 		watchCount++ // role bindings
 	}
@@ -413,6 +413,24 @@ func main() {
 			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler, clusterID, cfg.WatchIdleTimeout, cfg.RoleBindingResyncInterval)
 		})
 	}
+
+	// AgentRuntime watch (issue #521): cluster-scoped, seed-on-reconnect transport
+	// feeding the Wave B reconciler. It applies cluster-side scheduling resources
+	// (Namespace, ServiceAccount, NetworkPolicy, one ExternalSecret per SecretSource,
+	// coordinator CronJob) and drives the status lifecycle. Gateway-side workspace
+	// provisioning (#4) is deferred, blocked on the gateway workspace API design
+	// (#526). clientset/dynamicClient may be nil on a control plane without cluster
+	// access, in which case the reconciler skips cluster-side provisioning.
+	// Pass a typed-nil *kubernetes.Clientset as a genuinely nil interface so the
+	// reconciler's nil check works (a nil pointer in an interface is not == nil).
+	var agentRuntimeKube kubernetes.Interface
+	if clientset != nil {
+		agentRuntimeKube = clientset
+	}
+	agentRuntimeReconciler := reconciler.NewAgentRuntimeReconciler(agentRuntimeKube, dynamicClient, conn, clusterID)
+	supervise("AgentRuntime watch", func(ctx context.Context) error {
+		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
+	})
 
 	log.Printf("INFO all %d watch streams launched", watchCount)
 

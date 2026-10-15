@@ -39,9 +39,8 @@ type Config struct {
 	// unregistered (unfiltered) mode, and a cluster id is never read from
 	// configuration. Sourced from HYPERSHELL_MANAGED_CLUSTER_NAME.
 	// See specs/platform/control-plane.spec.md ("Mandatory Cluster Identity").
-	ManagedClusterName       string
-	ManagedClusterProvider   string
-	ManagedClusterVisibility string
+	ManagedClusterName         string
+	ManagedClusterCapabilities []string
 
 	// OIDC client credentials used both for registration and as per-RPC bearer
 	// credentials on every gRPC call (including the watch streams). All three
@@ -155,8 +154,7 @@ func Load() (*Config, error) {
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
 		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
 		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
-		ManagedClusterProvider:           strings.ToLower(strings.TrimSpace(getEnv("HYPERSHELL_MANAGED_CLUSTER_PROVIDER", ""))),
-		ManagedClusterVisibility:         strings.ToLower(strings.TrimSpace(getEnv("HYPERSHELL_MANAGED_CLUSTER_VISIBILITY", ""))),
+		ManagedClusterCapabilities:       parseCapabilities(getEnv("HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES", "")),
 		OIDCIssuer:                       getEnv("OIDC_ISSUER", ""),
 		OIDCClientID:                     getEnv("OIDC_CLIENT_ID", ""),
 		OIDCClientSecret:                 getEnv("OIDC_CLIENT_SECRET", ""),
@@ -198,8 +196,7 @@ func Load() (*Config, error) {
 	// the first missing variable.
 	required := []struct{ name, value string }{
 		{"HYPERSHELL_MANAGED_CLUSTER_NAME", cfg.ManagedClusterName},
-		{"HYPERSHELL_MANAGED_CLUSTER_PROVIDER", cfg.ManagedClusterProvider},
-		{"HYPERSHELL_MANAGED_CLUSTER_VISIBILITY", cfg.ManagedClusterVisibility},
+		{"HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES", strings.Join(cfg.ManagedClusterCapabilities, ",")},
 		{"OIDC_ISSUER", cfg.OIDCIssuer},
 		{"OIDC_CLIENT_ID", cfg.OIDCClientID},
 		{"OIDC_CLIENT_SECRET", cfg.OIDCClientSecret},
@@ -209,13 +206,6 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("%s is required: every control plane registers with the hub as a managed cluster (specs/platform/control-plane.spec.md, Mandatory Cluster Identity)", r.name)
 		}
 	}
-	if (cfg.ManagedClusterProvider != "aws" && cfg.ManagedClusterProvider != "ibm" && cfg.ManagedClusterProvider != "kind") ||
-		(cfg.ManagedClusterVisibility != "public" && cfg.ManagedClusterVisibility != "vpn") ||
-		(cfg.ManagedClusterProvider == "ibm" && cfg.ManagedClusterVisibility == "vpn") ||
-		(cfg.ManagedClusterProvider == "kind" && cfg.ManagedClusterVisibility != "public") {
-		return nil, fmt.Errorf("invalid managed cluster placement: provider=%q visibility=%q", cfg.ManagedClusterProvider, cfg.ManagedClusterVisibility)
-	}
-
 	// An invalid GATEWAY_RESOURCES fails startup rather than falling back to the
 	// defaults like the other tunables: silently ignoring an operator's sizing
 	// could leave gateways under-provisioned and OOMKilled with no signal.
@@ -233,6 +223,27 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// parseCapabilities converts the comma-separated deployment setting into the
+// complete ordered set sent on every registration call. Empty entries and
+// duplicates are ignored so harmless whitespace or repetition in a manifest
+// cannot produce invalid placement metadata.
+func parseCapabilities(value string) []string {
+	seen := make(map[string]struct{})
+	capabilities := make([]string, 0)
+	for _, raw := range strings.Split(value, ",") {
+		capability := strings.TrimSpace(raw)
+		if capability == "" {
+			continue
+		}
+		if _, exists := seen[capability]; exists {
+			continue
+		}
+		seen[capability] = struct{}{}
+		capabilities = append(capabilities, capability)
+	}
+	return capabilities
 }
 
 func getEnv(key, fallback string) string {

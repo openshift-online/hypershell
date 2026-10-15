@@ -556,6 +556,22 @@ fi
 # preserve swap state the same way.
 restore_swaps_after_reconcile
 
+# CI initially deploys the main-branch controller while the branch image builds
+# in parallel. A branch that removes a required legacy setting would otherwise
+# be unable to bring Kind up far enough to perform the image swap. Keep this
+# compatibility input scoped to that temporary bootstrap pod; the swap helper
+# removes it before validating the branch image.
+if [[ -n "${KIND_BASELINE_MANAGED_CLUSTER_PROVIDER:-}" || -n "${KIND_BASELINE_MANAGED_CLUSTER_VISIBILITY:-}" ]] && ! is_swapped control-plane; then
+  if [[ -z "${KIND_BASELINE_MANAGED_CLUSTER_PROVIDER:-}" || -z "${KIND_BASELINE_MANAGED_CLUSTER_VISIBILITY:-}" ]]; then
+    error "KIND baseline managed-cluster provider and visibility must be set together"
+    exit 1
+  fi
+  info "Adding temporary managed-cluster placement for the baseline controller..."
+  kube set env deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
+    HYPERSHELL_MANAGED_CLUSTER_PROVIDER="${KIND_BASELINE_MANAGED_CLUSTER_PROVIDER}" \
+    HYPERSHELL_MANAGED_CLUSTER_VISIBILITY="${KIND_BASELINE_MANAGED_CLUSTER_VISIBILITY}"
+fi
+
 # After the overlay apply so hostAliases is not wiped. CI image swap is
 # kubectl set image and keeps this pin. The TLS probe above already proved
 # the server; this pin is for the controller's later per-reconcile lookups,

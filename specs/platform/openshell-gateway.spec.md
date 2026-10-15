@@ -16,7 +16,7 @@ This specification covers core provisioning. Domain-specific concerns are define
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), route discovery |
 | [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | Per-gateway PostgreSQL provisioning from the mounted admin credential Secret, admin TLS `verify-full` and tenant TLS `require`, credential security, cleanup |
-| [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) | Credential storage driver selection (encrypted DB, Kubernetes Secrets, Vault), RBAC, TOML generation |
+| [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) | Credential storage driver selection (Vault by default, Kubernetes Secrets, KEK-encrypted DB), convention addressing, serving-CA propagation, fail-closed behavior, RBAC, TOML generation |
 | [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) | Automated per-gateway Keycloak OIDC client provisioning, RBAC-driven role assignment, visibility scoping |
 | [`openshell-gateway-console.spec.md`](./openshell-gateway-console.spec.md) | Per-gateway Gateway Console (OpenShell dashboard) with an oauth2-proxy sidecar, deployed when the gateway has a route |
 
@@ -191,7 +191,7 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16
+  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:e59fea2fc97144ed2f402af69be73c6dbbf9a76739f042e86c2237f65852284e
   ```
 - WHEN a user runs `hsctl apply -k overlays/tenant-a/`
 - THEN the CLI SHALL render the kustomization and POST the Gateway resource to the API server
@@ -379,7 +379,7 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 - THEN validation SHALL fail with a descriptive error
 - AND the Gateway SHALL not be reconciled until the configuration is corrected
 
-> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.2-rhaiv.7`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
+> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.3-rhaiv.3`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
 
 #### Scenario: Invalid DNS name
 
@@ -422,7 +422,7 @@ Gateway resources SHALL be expressible in the existing `examples/` kustomize ove
   ```yaml
   kind: Gateway
   name: openshell-gateway
-  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16
+  image: quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:e59fea2fc97144ed2f402af69be73c6dbbf9a76739f042e86c2237f65852284e
   serverDnsNames: []
   ```
 - AND a tenant overlay patches the DNS names:
@@ -478,7 +478,7 @@ The gateway Deployment SHALL specify:
   - Readiness: `GET /readyz` on `health` port (period 2s, failureThreshold 3)
 - **Env vars:**
   - `OPENSHELL_DB_URL` from Secret `openshell-gateway-db-credentials` key `uri` (carries `sslmode=require`; the chart cannot mount a database CA, see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md))
-  - `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` from Secret `openshell-gateway-credential-kek` key `key-encryption-key`
+  - `OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY` from Secret `openshell-gateway-credential-kek` key `key-encryption-key` - **only** when the credential driver is `kek-db`. New gateways default to the Vault driver, which uses a projected `audience: vault` ServiceAccount token instead of a KEK (see [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md))
 - **Volume mounts:**
   - `/etc/openshell` - ConfigMap `openshell-gateway-config` (readOnly)
   - `/etc/openshell-jwt` - Secret `openshell-gateway-jwt-keys` (readOnly)
@@ -635,6 +635,10 @@ cert_path      = "/etc/openshell-tls/server/tls.crt"
 key_path       = "/etc/openshell-tls/server/tls.key"
 client_ca_path = "/etc/openshell-tls/client-ca/ca.crt"
 
+# Credential storage is driver-dependent (see openshell-gateway-credentials.spec.md).
+# New gateways default to the Vault driver, which emits credential_drivers = ["vault"]
+# plus an [openshell.credential_drivers.vault] section instead of the KEK block below.
+# The KEK block is emitted only for the explicit `kek-db` driver:
 [openshell.gateway.credential_storage]
 key_encryption_key_env = "OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY"
 
@@ -818,8 +822,8 @@ Control Plane
 
 | Variable | Default | Description |
 |---|---|---|
-| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
-| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.7@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
+| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
+| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.3-rhaiv.3@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_IMAGE` | *(unset - published community default)* | Sandbox base image used when a Gateway resource does not specify `sandbox_image`. Passed to the chart as `server.sandboxImage`. See [`global-architecture.spec.md`](./global-architecture.spec.md). |
 | `GATEWAY_SANDBOX_RUNTIME_CLASS` | *(unset - cluster default RuntimeClass)* | Kubernetes `RuntimeClass` name applied to every sandbox pod on the cluster (e.g. `kata`, `kata-remote`). Passed to the chart as `server.defaultRuntimeClassName`. Omitted from chart values when unset, so sandbox pods carry no `runtimeClassName` field and the cluster default (runc) is used. Requires the named `RuntimeClass` to exist on the cluster. |
 | `GATEWAY_RESOURCES` | *(unset - requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`)* | Gateway container requests and limits as a JSON Kubernetes `ResourceRequirements` object, e.g. `{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}`. Replaces the defaults entirely (not merged). MUST set `limits.memory`; no request may exceed its limit; `claims` is not supported. An invalid value fails controller startup. Applied to every gateway on the cluster on its next reconcile (Helm upgrade, which restarts the gateway pod). The Kind overlay (`deploy/kind`) sets lower requests (`cpu: 50m`, `memory: 128Mi`) with the default limits, so more gateways fit on the single Kind node. |
@@ -833,7 +837,7 @@ Control Plane
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16
+image: quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:e59fea2fc97144ed2f402af69be73c6dbbf9a76739f042e86c2237f65852284e
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 oidc:

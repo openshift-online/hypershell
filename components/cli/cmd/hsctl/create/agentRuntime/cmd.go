@@ -41,7 +41,7 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.name, "name", "", "Agent runtime name.")
-	fs.StringVar(&args.clusterId, "cluster-id", "", "Cluster ID to run the agent on.")
+	fs.StringVar(&args.clusterId, "cluster-id", "", "Optional cluster ID to run the agent on. When omitted, derived from the gateway's placement.")
 	fs.StringVar(&args.gatewayId, "gateway-id", "", "Gateway ID the agent connects to.")
 	fs.StringVar(&args.sandboxTemplateId, "sandbox-template-id", "", "Sandbox template ID for agent worker sandboxes.")
 	fs.StringVar(&args.description, "description", "", "Description.")

@@ -13,7 +13,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 type bearerToken struct {
@@ -114,6 +116,68 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	_, err = grpcClient.GetGateway(ctx, getReq)
+	Expect(err).To(HaveOccurred())
+}
+
+func TestGRPCCapabilitySelectorPlacementSurvivesCapabilityReplacement(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+	jwtToken := h.CreateJWTString(account)
+	conn, err := grpc.NewClient(
+		h.GRPCAddress(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	t.Cleanup(func() { Expect(conn.Close()).To(Succeed()) })
+
+	clusterService := managedClusters.Service(&environments.Environment().Services)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	selector := "runtime/test-" + suffix
+	cluster, _, svcErr := clusterService.Register(ctx, "selector-"+suffix, []string{"network/public", "provider/aws", selector}, "cp-"+suffix)
+	Expect(svcErr).To(BeNil())
+	initialSeenAt := *cluster.LastSeenAt
+
+	grpcClient := pb.NewGatewayServiceClient(conn)
+	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
+		Name: "selector-placement-" + suffix,
+		Placement: &pb.GatewayPlacementIntent{Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
+			CapabilitySelector: &pb.CapabilitySelectorPlacement{Selector: []string{selector}},
+		}},
+	})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(created.Gateway.ClusterId).To(Equal(cluster.ID))
+
+	time.Sleep(time.Millisecond)
+	replaced, createdCluster, svcErr := clusterService.Register(ctx, cluster.Name, []string{"network/vpn", "provider/aws"}, cluster.OIDCSubject)
+	Expect(svcErr).To(BeNil())
+	Expect(createdCluster).To(BeFalse())
+	Expect(replaced.Capabilities).To(Equal([]string{"network/vpn", "provider/aws"}))
+	Expect(replaced.LastSeenAt.After(initialSeenAt)).To(BeTrue())
+
+	beforeInvalid, svcErr := clusterService.Get(ctx, cluster.ID)
+	Expect(svcErr).To(BeNil())
+	beforeInvalidSeenAt := *beforeInvalid.LastSeenAt
+	_, _, svcErr = clusterService.Register(ctx, cluster.Name, []string{"unknown/value"}, cluster.OIDCSubject)
+	Expect(svcErr).NotTo(BeNil())
+	afterInvalid, svcErr := clusterService.Get(ctx, cluster.ID)
+	Expect(svcErr).To(BeNil())
+	Expect(afterInvalid.Capabilities).To(Equal(replaced.Capabilities))
+	Expect(*afterInvalid.LastSeenAt).To(Equal(beforeInvalidSeenAt))
+
+	readBack, err := grpcClient.GetGateway(ctx, &pb.GetGatewayRequest{Id: created.Gateway.Metadata.Id})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(readBack.Gateway.ClusterId).To(Equal(cluster.ID))
+
+	_, err = grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
+		Name: "empty-selector-" + suffix,
+		Placement: &pb.GatewayPlacementIntent{Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
+			CapabilitySelector: &pb.CapabilitySelectorPlacement{},
+		}},
+	})
 	Expect(err).To(HaveOccurred())
 }
 

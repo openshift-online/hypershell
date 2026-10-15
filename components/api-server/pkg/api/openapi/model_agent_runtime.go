@@ -22,15 +22,16 @@ var _ MappedNullable = &AgentRuntime{}
 
 // AgentRuntime struct for AgentRuntime
 type AgentRuntime struct {
-	Id                *string    `json:"id,omitempty"`
-	Kind              *string    `json:"kind,omitempty"`
-	Href              *string    `json:"href,omitempty"`
-	CreatedAt         *time.Time `json:"created_at,omitempty"`
-	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
-	Name              string     `json:"name"`
-	ClusterId         string     `json:"cluster_id"`
-	GatewayId         string     `json:"gateway_id"`
-	SandboxTemplateId *string    `json:"sandbox_template_id,omitempty"`
+	Id        *string    `json:"id,omitempty"`
+	Kind      *string    `json:"kind,omitempty"`
+	Href      *string    `json:"href,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	Name      string     `json:"name"`
+	// Optional. When omitted, the scheduling cluster is derived from the referenced Gateway's placement.
+	ClusterId         *string `json:"cluster_id,omitempty"`
+	GatewayId         string  `json:"gateway_id"`
+	SandboxTemplateId *string `json:"sandbox_template_id,omitempty"`
 	// Optional reference to a Repository the runtime scans
 	RepositoryId *string `json:"repository_id,omitempty"`
 	// Labels selecting repository work items to scan (match-any); requires repository_id
@@ -55,10 +56,9 @@ type _AgentRuntime AgentRuntime
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewAgentRuntime(name string, clusterId string, gatewayId string) *AgentRuntime {
+func NewAgentRuntime(name string, gatewayId string) *AgentRuntime {
 	this := AgentRuntime{}
 	this.Name = name
-	this.ClusterId = clusterId
 	this.GatewayId = gatewayId
 	return &this
 }
@@ -255,28 +255,36 @@ func (o *AgentRuntime) SetName(v string) {
 	o.Name = v
 }
 
-// GetClusterId returns the ClusterId field value
+// GetClusterId returns the ClusterId field value if set, zero value otherwise.
 func (o *AgentRuntime) GetClusterId() string {
-	if o == nil {
+	if o == nil || IsNil(o.ClusterId) {
 		var ret string
 		return ret
 	}
-
-	return o.ClusterId
+	return *o.ClusterId
 }
 
-// GetClusterIdOk returns a tuple with the ClusterId field value
+// GetClusterIdOk returns a tuple with the ClusterId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *AgentRuntime) GetClusterIdOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.ClusterId) {
 		return nil, false
 	}
-	return &o.ClusterId, true
+	return o.ClusterId, true
 }
 
-// SetClusterId sets field value
+// HasClusterId returns a boolean if a field has been set.
+func (o *AgentRuntime) HasClusterId() bool {
+	if o != nil && !IsNil(o.ClusterId) {
+		return true
+	}
+
+	return false
+}
+
+// SetClusterId gets a reference to the given string and assigns it to the ClusterId field.
 func (o *AgentRuntime) SetClusterId(v string) {
-	o.ClusterId = v
+	o.ClusterId = &v
 }
 
 // GetGatewayId returns the GatewayId field value
@@ -649,7 +657,9 @@ func (o AgentRuntime) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated_at"] = o.UpdatedAt
 	}
 	toSerialize["name"] = o.Name
-	toSerialize["cluster_id"] = o.ClusterId
+	if !IsNil(o.ClusterId) {
+		toSerialize["cluster_id"] = o.ClusterId
+	}
 	toSerialize["gateway_id"] = o.GatewayId
 	if !IsNil(o.SandboxTemplateId) {
 		toSerialize["sandbox_template_id"] = o.SandboxTemplateId
@@ -690,7 +700,6 @@ func (o *AgentRuntime) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"cluster_id",
 		"gateway_id",
 	}
 

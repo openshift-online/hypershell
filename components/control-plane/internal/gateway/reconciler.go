@@ -118,6 +118,27 @@ func ReconcileGateway(
 	// Copy trusted CA bundle (for OIDC issuer verification)
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
 
+	// For a Vault-backed gateway, mirror the per-cluster Vault serving CA into the
+	// tenant namespace so the gateway can verify Vault's TLS (HYPERSHELL-369). The
+	// source Vault and the gateway are on the same cluster, so this is a local copy,
+	// mirroring reconcileTrustedCABundle.
+	var hasVaultCA bool
+	if isVaultDriver(effectiveCredentialDriver(nsConfig.Gateway.CredentialDriver)) {
+		hasVaultCA = reconcileVaultCABundle(ctx, clientset, nsConfig.Name)
+		if !hasVaultCA {
+			// Fail closed: a Vault-backed gateway must be able to verify Vault's TLS.
+			// If the serving CA could not be propagated (source Secret missing or
+			// unreadable), do NOT deploy a gateway that would silently fall back to
+			// platform trust roots and be unable to verify Vault. This matches
+			// openshell-gateway-credentials.spec.md (Vault Serving-CA Propagation:
+			// "the gateway SHALL NOT be deployed … fail-closed … naming the missing
+			// CA source"). Retryable: a later reconcile deploys once the CA appears.
+			caNS, caName := VaultCASource()
+			report(ConditionGatewayDeployed, StatusFailed, "Vault credential backend selected but its serving CA is unavailable")
+			return fmt.Errorf("vault serving CA not propagated for %s: source Secret %s/%s missing or unreadable", nsConfig.Name, caNS, caName)
+		}
+	}
+
 	// Reconcile OpenShift SCC binding BEFORE Helm install
 	// (sandbox pods need privileged SCC to schedule)
 	if opts.IsOpenShift {
@@ -129,7 +150,7 @@ func ReconcileGateway(
 	// Deploy gateway via Helm
 	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
 	// BackendTLSPolicy, Route, credential KEK
-	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA); err != nil {
+	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA, hasVaultCA); err != nil {
 		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
 	}
@@ -1062,6 +1083,65 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 	targetCM.ResourceVersion = existing.ResourceVersion
 	if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Update(ctx, targetCM, metav1.UpdateOptions{}); err != nil {
 		log.Printf("WARN failed to update trusted CA ConfigMap in %s: %v", targetNamespace, err)
+		return false
+	}
+	return true
+}
+
+// reconcileVaultCABundle mirrors the per-cluster Vault serving CA into the gateway's
+// tenant namespace as the openshell-gateway-vault-ca ConfigMap (key ca.crt), so a
+// Vault-backed gateway can verify Vault's TLS (HYPERSHELL-369). The source Secret
+// (openshell-gateway-vault-tls in openshell-vault, overridable via
+// GATEWAY_VAULT_CA_SECRET) lives on the same cluster as the gateway, so this is a
+// local copy, mirroring reconcileTrustedCABundle. It returns true when the target
+// ConfigMap is present after reconciliation, so the caller wires the chart's
+// caConfigMapName only when the gateway can actually mount it. The ConfigMap carries
+// the management label so tenant-namespace cleanup reclaims it on deletion.
+func reconcileVaultCABundle(ctx context.Context, clientset *kubernetes.Clientset, targetNamespace string) bool {
+	srcNamespace, srcName := VaultCASource()
+
+	secret, err := clientset.CoreV1().Secrets(srcNamespace).Get(ctx, srcName, metav1.GetOptions{})
+	if err != nil {
+		log.Printf("WARN vault serving CA source Secret %s/%s not readable; gateway falls back to platform trust roots: %v", srcNamespace, srcName, err)
+		return false
+	}
+	caPEM, ok := secret.Data[VaultCAKey]
+	if !ok || len(caPEM) == 0 {
+		log.Printf("WARN vault serving CA source Secret %s/%s has no %q key", srcNamespace, srcName, VaultCAKey)
+		return false
+	}
+
+	targetCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      VaultCATargetConfigMapName,
+			Namespace: targetNamespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "openshell",
+				"app.kubernetes.io/component":  "gateway",
+				"app.kubernetes.io/managed-by": "hypershell-control-plane",
+				"hypershell.redhat.io/managed": "true",
+			},
+		},
+		Data: map[string]string{VaultCAKey: string(caPEM)},
+	}
+
+	existing, err := clientset.CoreV1().ConfigMaps(targetNamespace).Get(ctx, VaultCATargetConfigMapName, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Create(ctx, targetCM, metav1.CreateOptions{}); err != nil {
+				log.Printf("WARN failed to create vault CA ConfigMap in %s: %v", targetNamespace, err)
+				return false
+			}
+			log.Printf("INFO copied vault serving CA ConfigMap to %s", targetNamespace)
+			return true
+		}
+		log.Printf("WARN failed to get vault CA ConfigMap in %s: %v", targetNamespace, err)
+		return false
+	}
+
+	targetCM.ResourceVersion = existing.ResourceVersion
+	if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Update(ctx, targetCM, metav1.UpdateOptions{}); err != nil {
+		log.Printf("WARN failed to update vault CA ConfigMap in %s: %v", targetNamespace, err)
 		return false
 	}
 	return true

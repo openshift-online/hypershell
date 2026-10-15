@@ -20,6 +20,11 @@ type AgentRuntime struct {
 	LoginRefreshSeconds *int32   `json:"login_refresh_seconds"`
 	Parameters          *string  `json:"parameters" gorm:"type:jsonb"`
 	Status              *string  `json:"status"`
+	// StatusMessage carries the human-readable detail behind Status - for a
+	// Degraded runtime, the failing SecretSource name and gateway-side error. It
+	// is control-plane-owned, written only through the UpdateAgentRuntimeStatus
+	// gRPC path (data-model.spec.md "AgentRuntime Status Lifecycle").
+	StatusMessage *string `json:"status_message"`
 }
 
 type AgentRuntimeList []*AgentRuntime

@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. The provision form SHALL let a user choose exactly one network visibility: VPN or public. Public placement SHALL support AWS and IBM Cloud. VPN placement SHALL support AWS only. The client SHALL submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway.
+Define the placement choices presented while provisioning an OpenShell gateway and the server-side resolution of those choices to a concrete `ManagedCluster`. ManagedClusters self-declare independent capability labels, and placement uses match-all label selectors rather than a hard-coded provider-by-network matrix. The provision form SHALL keep the user-facing provider, network, and version choices, map them to selectors, and submit placement intent rather than a cluster identifier. The backend SHALL randomly select a matching eligible cluster and persist its identifier on the created gateway.
+
+The production design-review states are represented by the `Default`, `LocalDevelopmentOnly`, and `VpnUnavailable` stories in `components/web-console/app/features/gateways/gateway-create.stories.tsx`. The implementation mockup and parity story are `specs/web-console/mockups/gateways/provision-gateway.stories.tsx` and `specs/web-console/mockups/gateways/provision-gateway.parity.stories.tsx`.
 
 ## Requirements
 
@@ -10,11 +12,30 @@ Define the placement choices presented while provisioning an OpenShell gateway a
 
 The gateway provision request SHALL contain the gateway name and one of these placement intents:
 
-- `{ network: "vpn", provider: "aws" }`
-- `{ network: "public", provider: "aws" | "ibm" }`
+- `{ selector: ["network/vpn", "provider/aws"] }`
+- `{ selector: ["network/public", "provider/aws" | "provider/ibm"] }`
 - `{ mode: "local-kind" }`
 
+A managed-placement selector MAY additionally carry one `gateway-version/<tag>` label when the user targets a specific provisioning version, for example `{ selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"] }`. When the user leaves the version choice at its default, the selector SHALL omit the `gateway-version` label, and the backend SHALL place on any eligible cluster regardless of the version it advertises. The selector SHALL carry at most one `gateway-version` label. The `local-kind` mode SHALL NOT carry a version selector.
+
 The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL resolve and assign the concrete `cluster_id` before creating the gateway.
+
+#### Scenario: Version choice is added to the selector
+
+- GIVEN the user enters a valid gateway name
+- AND selects Public and Amazon Web Services
+- AND selects the provisioning version `v0.1.2-rhaiv.7`
+- WHEN the user submits the form
+- THEN the request SHALL contain `selector: ["network/public", "provider/aws", "gateway-version/v0.1.2-rhaiv.7"]`
+- AND the request SHALL NOT contain a concrete `cluster_id`
+
+#### Scenario: Default version omits the version label
+
+- GIVEN the user enters a valid gateway name
+- AND selects Public and Amazon Web Services
+- AND leaves the provisioning version at its default
+- WHEN the user submits the form
+- THEN the request selector SHALL NOT contain a `gateway-version` label
 
 #### Scenario: Public IBM placement is submitted as intent
 
@@ -22,7 +43,7 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 - AND selects Public
 - AND selects IBM Cloud
 - WHEN the user submits the form
-- THEN the request SHALL contain `network: public` and `provider: ibm`
+- THEN the request SHALL contain `selector: ["network/public", "provider/ibm"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
 
 #### Scenario: VPN placement is submitted as AWS intent
@@ -30,12 +51,12 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 - GIVEN the user enters a valid gateway name
 - AND selects VPN
 - WHEN the user submits the form
-- THEN the request SHALL contain `network: vpn` and `provider: aws`
+- THEN the request SHALL contain `selector: ["network/vpn", "provider/aws"]`
 - AND the request SHALL NOT contain a concrete `cluster_id`
 
 ### Requirement: GP-02 -- Network Visibility Selection
 
-The provision form SHALL present VPN and Public as mutually exclusive choices. The form SHALL require exactly one network visibility before submission. Selecting one visibility SHALL clear the other visibility.
+The provision form SHALL present VPN and Public as mutually exclusive choices. The form SHALL require exactly one network visibility before submission. Selecting one visibility SHALL clear the other visibility. When both Public and VPN are available and the user has not made a choice, Public SHALL be selected by default. When only one network is available, that network SHALL be selected automatically.
 
 The form SHALL NOT present the former cluster selector.
 
@@ -65,21 +86,24 @@ The provider choices SHALL be labeled Amazon Web Services and IBM Cloud and incl
 
 The VPN network choice SHALL display the label "Red Hat VPN required" above the guidance "For gateways that need to reach GitLab and other internal Red Hat services."
 
-IBM Cloud SHALL be selected by default when Public becomes active. When VPN becomes active, AWS SHALL be selected and IBM Cloud SHALL be disabled. The user SHALL NOT be able to submit VPN placement with IBM Cloud.
+IBM Cloud SHALL be selected by default when Public becomes active when its selector is available. When VPN becomes active, the form SHALL select an available provider. A provider SHALL be disabled only when no connected cluster matches the corresponding provider and network selector.
+
+When Public is the default network, IBM Cloud SHALL be the default provider when available. When only one provider is available for the selected network, that provider SHALL be selected automatically.
 
 #### Scenario: Public defaults to IBM Cloud
 
 - GIVEN the user selects Public
+- AND a connected cluster matches `provider/ibm` and `network/public`
 - WHEN the provider controls render
 - THEN IBM Cloud SHALL be selected
 - AND Amazon Web Services SHALL be unselected
 
-#### Scenario: VPN supports AWS only
+#### Scenario: VPN provider choices follow capabilities
 
 - GIVEN the user selects VPN
 - WHEN the provider controls render
-- THEN Amazon Web Services SHALL be selected
-- AND IBM Cloud SHALL be disabled
+- THEN each provider SHALL be enabled only when a connected cluster matches its provider and `network/vpn` labels
+- AND the form SHALL select an available provider when one exists
 
 #### Scenario: Provider is required
 
@@ -91,9 +115,11 @@ IBM Cloud SHALL be selected by default when Public becomes active. When VPN beco
 
 ### Requirement: GP-04 -- Placement Availability
 
-The form SHALL obtain placement availability from current managed-cluster data. Each managed cluster used for placement SHALL identify its provider and supported network visibility in backend-owned placement data. AWS SHALL support Public and VPN placement. IBM Cloud SHALL support Public placement only. For each supported network and provider pair, availability SHALL require at least one registered cluster with a connected control plane that matches both choices.
+The form SHALL obtain placement availability from current managed-cluster capability data. It SHALL send the finite set of selectors rendered by the form in one batch request, including the version-bearing selectors needed to populate the provisioning-version choice (GP-11). The response SHALL contain one result per normalized selector, including whether at least one registered cluster with a connected control plane contains every requested label. The response SHALL NOT expose an enumerated `aws_public`, `aws_vpn`, `ibm_public`, or `ibm_vpn` matrix.
 
 The form SHALL disable a provider for the selected network when no eligible cluster matches that pair. When neither provider is available for a network, the form SHALL disable that network choice. Disabled controls SHALL communicate why the placement is unavailable.
+
+When VPN is unavailable but Public is available, VPN SHALL remain visible as a disabled choice with its unavailability reason. This state is represented by the production `VpnUnavailable` story.
 
 Placement availability SHALL NOT depend on CPU, memory, pod usage, or other capacity data.
 
@@ -109,12 +135,20 @@ A placement pair that becomes unavailable before submission SHALL be rejected by
 - THEN AWS SHALL be disabled
 - AND IBM Cloud SHALL remain selectable
 
-#### Scenario: IBM Cloud is unsupported for VPN
+#### Scenario: IBM Cloud VPN availability is data-driven
 
-- GIVEN the user selects VPN
+- GIVEN no connected cluster has both `provider/ibm` and `network/vpn`
+- AND the user selects VPN
 - WHEN the provider controls render
-- THEN IBM Cloud SHALL be disabled regardless of IBM Cloud cluster availability
-- AND the form SHALL communicate that IBM Cloud does not support VPN placement
+- THEN IBM Cloud SHALL be disabled
+- AND the form SHALL communicate that no eligible cluster matches the choice
+
+#### Scenario: A new capability combination needs no schema change
+
+- GIVEN a connected cluster registers `provider/ibm` and `network/vpn`
+- WHEN the form requests availability for that selector
+- THEN the selector SHALL be available
+- AND no gateway API schema or placement code change SHALL be required
 
 #### Scenario: Both managed networks are unavailable
 
@@ -133,9 +167,11 @@ A placement pair that becomes unavailable before submission SHALL be rejected by
 
 ### Requirement: GP-05 -- Local-kind Development Placement
 
-When the platform is running in the Kind development environment and the registered `local-kind` cluster is connected, and no managed placement is available, the form SHALL expose a **Use local-kind** option. The option SHALL NOT be shown when an AWS or IBM Cloud managed placement is available, or outside the Kind development environment.
+When the platform is running in the Kind development environment and the registered `local-kind` cluster is connected, and no managed placement is available, the form SHALL expose a **Kind** option under **Local development**. The option SHALL NOT be shown when an AWS or IBM Cloud managed placement is available, or outside the Kind development environment.
 
 Local-kind SHALL be mutually exclusive with VPN and Public. Local-kind SHALL be selected by default only when no managed placement is available.
+
+When local-kind is the only available placement, Kind SHALL be the only placement choice rendered. The managed network and provider groups SHALL NOT be rendered in that state.
 
 Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 
@@ -144,8 +180,9 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - GIVEN the platform is running in the Kind development environment
 - AND the registered `local-kind` cluster is connected
 - WHEN the provision form renders
-- THEN Use local-kind SHALL be visible
-- AND Use local-kind SHALL be available for selection
+- THEN Kind SHALL be visible under Local development
+- AND Kind SHALL be available for selection
+- AND Public, VPN, Amazon Web Services, and IBM Cloud SHALL NOT be rendered
 
 #### Scenario: Local-kind is hidden with managed placement
 
@@ -153,7 +190,7 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - AND the platform is running in the Kind development environment
 - AND the registered `local-kind` cluster is connected
 - WHEN the provision form renders
-- THEN Use local-kind SHALL NOT be visible
+- THEN Kind SHALL NOT be visible
 - AND managed placement choices SHALL remain available
 
 #### Scenario: Local-kind is hidden outside Kind development
@@ -161,7 +198,7 @@ Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
 - GIVEN no managed placement pair is available
 - AND the platform is not running in the Kind development environment
 - WHEN the provision form renders
-- THEN Use local-kind SHALL NOT be visible
+- THEN Kind SHALL NOT be visible
 - AND the form SHALL explain that no managed placement is currently available
 
 ### Requirement: GP-06 -- Form Submission Validation
@@ -186,13 +223,13 @@ The existing gateway-name validation and normalization rules SHALL remain unchan
 
 ### Requirement: GP-07 -- Backend Placement Resolution
 
-The backend SHALL reject a VPN IBM Cloud placement intent as unsupported. The backend SHALL resolve every supported managed placement intent to the set of registered clusters with connected control planes that match the requested network and provider.
+The backend SHALL validate every selector label using the ManagedCluster capability vocabulary, including a `gateway-version/<tag>` label under the relaxed version-value syntax of `managed-cluster-registration.spec.md`. It SHALL normalize order and duplicates, reject malformed or unknown labels, and resolve a valid selector to registered clusters with connected control planes whose capability sets contain every requested label. Selector matching SHALL be literal and case-sensitive after validation; partial, wildcard, and match-any semantics SHALL NOT apply. A selector that omits `gateway-version` SHALL match an eligible cluster regardless of the version it advertises; a selector that includes `gateway-version/<tag>` SHALL match only a cluster advertising that exact label.
 
 When one eligible cluster matches, the backend SHALL select that cluster. When multiple eligible clusters match, the backend SHALL select one at random. Each matching eligible cluster SHALL have an equal probability of selection.
 
 The backend SHALL NOT inspect, score, or rank clusters by CPU, memory, pod usage, or other capacity data. The client SHALL neither calculate nor submit the selected cluster.
 
-If no eligible cluster matches the requested network and provider, the backend SHALL return a placement-unavailable error. The backend SHALL NOT fall back to another network, another provider, or local-kind.
+If no eligible cluster matches the selector, the backend SHALL return a placement-unavailable error. The backend SHALL NOT drop selector labels or fall back to another selector or local-kind.
 
 The backend SHALL persist the selected cluster identifier on the Gateway record. Gateway reconciliation SHALL use the persisted identifier.
 
@@ -233,9 +270,9 @@ The backend SHALL reject local-kind placement with a typed client-visible error 
 
 ### Requirement: GP-09 -- API and Persistence Compatibility
 
-The API contract, generated clients or adapters, authorization boundaries, and gateway provisioning tests SHALL be updated consistently for the placement-intent request. Existing gateway records and read APIs SHALL continue to expose their resolved `cluster_id`.
+The API contract, generated clients or adapters, authorization boundaries, and gateway provisioning tests SHALL be updated consistently for selector-based placement and batched availability. Existing gateway records and read APIs SHALL continue to expose their resolved `cluster_id`. Gateway creation SHALL require selector-based placement and SHALL NOT accept the former provider/network request shape.
 
-The change SHALL NOT require a database migration unless the implementation introduces persisted placement-intent fields. Placement intent MAY remain request-scoped after the backend resolves `cluster_id`.
+The Gateway table SHALL NOT require a migration unless the implementation introduces persisted placement-intent fields. Placement intent MAY remain request-scoped after the backend resolves `cluster_id`.
 
 #### Scenario: Existing gateway placement remains readable
 
@@ -243,22 +280,58 @@ The change SHALL NOT require a database migration unless the implementation intr
 - WHEN a gateway detail or list API is read
 - THEN the response SHALL expose the resolved cluster using the existing gateway placement representation
 
+### Requirement: GP-11 -- Provisioning Version Selection
+
+The provision form SHALL present a provisioning-version choice for managed placement, driven entirely by the `gateway-version` labels that connected spokes advertise for the currently selected network and provider. The form SHALL offer a default option ("Any version", or equivalent localized wording) that omits the `gateway-version` selector label, and one option per distinct `gateway-version/<tag>` advertised by an eligible cluster matching the selected network and provider. The form SHALL NOT offer a free-text version field, and SHALL NOT offer a version that no connected eligible spoke advertises.
+
+The version choice SHALL default to "Any version". Changing the network or provider SHALL re-derive the available versions from availability data and SHALL reset the version choice to "Any version" when the previously selected version is no longer advertised for the new network and provider. The version choice SHALL have no effect on, and SHALL NOT be shown for, `local-kind` placement.
+
+When no eligible cluster matches the selected network and provider, the form SHALL offer only "Any version". A version that becomes unavailable before submission SHALL be rejected by the backend and surfaced as a recoverable provisioning error, consistent with GP-04.
+
+Because the single batched placement-availability request (GP-04) carries a bounded number of selectors, the form probes versions newest-first and MAY cap the number of distinct versions it offers. When a fleet advertises more distinct `gateway-version` tags than that cap, the form SHALL offer the newest capped set; an older tag advertised only by a spoke outside that set MAY be unselectable. One version per spoke makes exceeding the cap unusual. This cap bounds only the provision form's choice; it does not affect which clusters the backend resolves for an explicitly submitted version selector.
+
+#### Scenario: Version options follow advertised capabilities
+
+- GIVEN two connected clusters match Public and Amazon Web Services
+- AND one advertises `gateway-version/v0.1.2-rhaiv.7` and the other `gateway-version/v0.1.1-rhaiv.3`
+- WHEN the user selects Public and Amazon Web Services
+- THEN the version choice SHALL offer "Any version", `v0.1.2-rhaiv.7`, and `v0.1.1-rhaiv.3`
+- AND no other version SHALL be offered
+
+#### Scenario: Default selects any advertised version
+
+- GIVEN the user selects a network and provider with at least one eligible cluster
+- AND leaves the version choice at "Any version"
+- WHEN the user submits the form
+- THEN the selector SHALL NOT carry a `gateway-version` label
+- AND the backend SHALL place on any eligible cluster for that network and provider
+
+#### Scenario: Version resets when no longer offered
+
+- GIVEN the user selected `v0.1.2-rhaiv.7` for Public and Amazon Web Services
+- AND no eligible IBM Cloud cluster advertises that version for Public
+- WHEN the user changes the provider to IBM Cloud
+- THEN the version choice SHALL reset to "Any version"
+
 ### Requirement: GP-10 -- Accessibility and Localization
 
-The network, provider, availability, disabled-state, validation, local-kind, and error messages SHALL be localized. The controls SHALL expose accessible names and selected or disabled state through semantic PatternFly form controls. Keyboard users SHALL be able to select and change network, provider, and local-kind placement without pointer input.
+The network, provider, version, availability, disabled-state, validation, local-kind, and error messages SHALL be localized. The controls SHALL expose accessible names and selected or disabled state through semantic PatternFly form controls. Keyboard users SHALL be able to select and change network, provider, version, and local-kind placement without pointer input.
 
 #### Scenario: Disabled provider is announced
 
 - GIVEN VPN is selected
 - WHEN a keyboard or assistive-technology user inspects the provider controls
 - THEN IBM Cloud SHALL be exposed as disabled
-- AND the unsupported reason SHALL be conveyed in localized text or an accessible description
+- AND the unavailable reason SHALL be conveyed in localized text or an accessible description
 
 ## Non-Goals
 
 - Allowing users to choose both VPN and Public.
-- Supporting IBM Cloud VPN placement.
+- Hard-coding support or rejection for any provider and network combination.
 - Allowing users to select a concrete managed cluster from the provision form.
+- A free-text or unvalidated version field, or offering a version no connected spoke advertises.
+- In-place gateway upgrades: a version choice only targets newly created gateways.
 - Capacity-aware cluster selection or placement scoring.
+- Offering every distinct advertised version in the provision form when a fleet advertises more than the availability-batch cap allows: the form offers the newest capped set (GP-11).
 - Changing existing gateway naming rules.
 - Changing the resolved `cluster_id` representation on existing gateway records.

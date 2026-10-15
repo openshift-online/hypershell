@@ -104,7 +104,20 @@ dependency order: API → SDK → BE+gRPC+CP → CLI → FE → Integration.
 For each wave:
 1. Present wave plan (unless `--auto-approve`)
 2. Dispatch subagents per gap item following `/full-stack-pipeline` patterns
-3. Verify with layer-specific gate (lint, build, test)
+3. Verify against the authoritative CI-equivalent gate. Reproduce the gates in
+   `.github/workflows/checks.yml` locally; do not substitute an ad-hoc subset.
+   Formatting (`format:check`/`gofmt`) and generated-artifact drift are required
+   gates, not optional. All must be green before continuing or pushing:
+   - Frontend: `pnpm --filter @openshift-online/hypershell-web-console check`,
+     `pnpm --filter @openshift-online/hypershell-gateway-management-ui check`,
+     `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`
+     (each runs `format:check`, lint, typecheck, tests, `i18n:check`, and builds).
+   - Go: `make lint-api-server`, `make lint-cli`, `make lint-control-plane`
+     (each runs `gofmt`, `go vet`, golangci-lint), plus build and test.
+   - Contract/SDK drift: `cd components/api-server && make generate generate-sdk`
+     (and `make proto` if proto changed); confirm `git status` shows NO drift.
+   - Repo policy: `make check`. The single aggregate `make lint` runs all of the
+     above.
 4. Run `/align` for affected component scope
 5. Re-gap analysis for this wave's items (max 3 retries)
 6. Update `RECONCILE.md`: mark items done, update coverage, update date/commit

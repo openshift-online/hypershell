@@ -369,7 +369,7 @@ func TestBuild_SandboxRuntimeClassRendersInChart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helm template: %v\n%s", err, out)
 	}
-	want := `default_runtime_class_name   = "kata"`
+	want := `default_runtime_class_name = "kata"`
 	if !strings.Contains(string(out), want) {
 		t.Errorf("rendered chart does not contain %q", want)
 	}
@@ -416,8 +416,140 @@ func TestBuild_SandboxRuntimeImageRendersInChart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helm template: %v\n%s", err, out)
 	}
-	want := `sandbox_runtime_image        = "quay.io/test/sandbox:v1"`
+	want := `sandbox_runtime_image = "quay.io/test/sandbox:v1"`
 	if !strings.Contains(string(out), want) {
 		t.Errorf("rendered chart does not carry the sandbox runtime pin %q", want)
+	}
+}
+
+// TestBuild_VaultCredentialDriver locks in the HYPERSHELL-369 Vault driver wiring:
+// the resolved coordinates land under server.credentialDrivers.vault.*, the CA
+// ConfigMap is referenced only when HasVaultCA, and a projected ServiceAccount
+// token scoped to the `vault` audience is injected via the extraVolumes hooks.
+func TestBuild_VaultCredentialDriver(t *testing.T) {
+	newVault := func() *VaultValues {
+		return &VaultValues{
+			Address:                 "https://openshell-gateway-vault.openshell-vault.svc:8200",
+			Mount:                   "secret",
+			KVVersion:               "2",
+			AuthMethod:              "kubernetes",
+			Role:                    "openshell-gateway",
+			KubernetesAuthMount:     "kubernetes",
+			ServiceAccountTokenPath: "/var/run/secrets/vault/token",
+			TokenAudience:           "vault",
+			TokenDir:                "/var/run/secrets/vault",
+			TokenExpirySeconds:      3600,
+			CAConfigMapName:         "openshell-gateway-vault-ca",
+			TimeoutSecs:             30,
+		}
+	}
+
+	for _, hasCA := range []bool{true, false} {
+		builder := ValuesBuilder{
+			Gateway: GatewayConfig{
+				Image:            "quay.io/test/gateway:latest",
+				CredentialDriver: &CredentialDriverConfig{Type: "vault", Vault: newVault()},
+			},
+			Namespace:  "test-ns",
+			HasVaultCA: hasCA,
+		}
+
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+
+		server, _ := values["server"].(map[string]interface{})
+		cd, _ := server["credentialDrivers"].(map[string]interface{})
+		vault, _ := cd["vault"].(map[string]interface{})
+		if vault == nil {
+			t.Fatalf("hasCA=%v: server.credentialDrivers.vault not set", hasCA)
+		}
+
+		want := map[string]interface{}{
+			"enabled":                 true,
+			"address":                 "https://openshell-gateway-vault.openshell-vault.svc:8200",
+			"mount":                   "secret",
+			"kvVersion":               "2",
+			"authMethod":              "kubernetes",
+			"role":                    "openshell-gateway",
+			"kubernetesAuthMount":     "kubernetes",
+			"serviceAccountTokenPath": "/var/run/secrets/vault/token",
+		}
+		for k, v := range want {
+			if vault[k] != v {
+				t.Errorf("hasCA=%v: vault[%q] = %v, want %v", hasCA, k, vault[k], v)
+			}
+		}
+
+		if hasCA {
+			if vault["caConfigMapName"] != "openshell-gateway-vault-ca" {
+				t.Errorf("hasCA=true: caConfigMapName = %v, want openshell-gateway-vault-ca", vault["caConfigMapName"])
+			}
+		} else if vault["caConfigMapName"] != nil {
+			t.Errorf("hasCA=false: caConfigMapName should be absent, got %v", vault["caConfigMapName"])
+		}
+
+		// Projected vault-audience token via extraVolumes.
+		extraVolumes, _ := server["extraVolumes"].([]interface{})
+		if len(extraVolumes) != 1 {
+			t.Fatalf("hasCA=%v: expected 1 extraVolume, got %d", hasCA, len(extraVolumes))
+		}
+		vol, _ := extraVolumes[0].(map[string]interface{})
+		if vol["name"] != "vault-sa-token" {
+			t.Errorf("extraVolume name = %v, want vault-sa-token", vol["name"])
+		}
+		projected, _ := vol["projected"].(map[string]interface{})
+		sources, _ := projected["sources"].([]interface{})
+		if len(sources) != 1 {
+			t.Fatalf("expected 1 projected source, got %d", len(sources))
+		}
+		src, _ := sources[0].(map[string]interface{})
+		sat, _ := src["serviceAccountToken"].(map[string]interface{})
+		if sat["audience"] != "vault" {
+			t.Errorf("projected token audience = %v, want vault", sat["audience"])
+		}
+		if sat["path"] != "token" {
+			t.Errorf("projected token path = %v, want token", sat["path"])
+		}
+
+		mounts, _ := server["extraVolumeMounts"].([]interface{})
+		if len(mounts) != 1 {
+			t.Fatalf("expected 1 extraVolumeMount, got %d", len(mounts))
+		}
+		mount, _ := mounts[0].(map[string]interface{})
+		if mount["mountPath"] != "/var/run/secrets/vault" || mount["name"] != "vault-sa-token" {
+			t.Errorf("extraVolumeMount = %v, want name=vault-sa-token mountPath=/var/run/secrets/vault", mount)
+		}
+	}
+}
+
+// TestBuild_KekDbCredentialDriver verifies the explicit kek-db driver leaves both
+// external drivers disabled (so the chart provisions the KEK store) and injects no
+// vault token volume.
+func TestBuild_KekDbCredentialDriver(t *testing.T) {
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			Image:            "quay.io/test/gateway:latest",
+			CredentialDriver: &CredentialDriverConfig{Type: "kek-db"},
+		},
+		Namespace: "test-ns",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	server, _ := values["server"].(map[string]interface{})
+	cd, _ := server["credentialDrivers"].(map[string]interface{})
+	vault, _ := cd["vault"].(map[string]interface{})
+	if vault != nil && vault["enabled"] == true {
+		t.Errorf("kek-db: vault should not be enabled")
+	}
+	ks, _ := cd["kubernetesSecrets"].(map[string]interface{})
+	if ks == nil || ks["enabled"] != false {
+		t.Errorf("kek-db: kubernetesSecrets.enabled should be false, got %v", ks)
+	}
+	if server["extraVolumes"] != nil {
+		t.Errorf("kek-db: no extraVolumes expected, got %v", server["extraVolumes"])
 	}
 }

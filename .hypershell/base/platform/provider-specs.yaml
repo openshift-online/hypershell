@@ -1,0 +1,32 @@
+# Reusable, gateway-agnostic provider capability definitions shared across the
+# agent workspaces. capability is a JSON-encoded, category-discriminated
+# document (see specs/platform/data-model.spec.md).
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderSpec
+metadata:
+  name: claude-inference
+  description: Claude LLM inference via the Anthropic API (URL + token provider)
+spec:
+  category: inference
+  capability: |
+    {
+      "refresh_strategy": "static-token",
+      "config": {"base_url": "https://api.anthropic.com", "auth_header": "x-api-key"}
+    }
+---
+apiVersion: hypershell.redhat.io/v1
+kind: ProviderSpec
+metadata:
+  name: github-source-control
+  description: GitHub REST/GraphQL access for the openshift-online organization
+spec:
+  category: source_control
+  capability: |
+    {
+      "host": "github.com",
+      "auth_method": "app-installation-token",
+      "allowed_operations": [
+        {"methods": ["GET", "POST", "PATCH", "DELETE"], "paths": ["/repos/*", "/issues/*", "/pulls/*"]}
+      ],
+      "binaries": ["gh", "git"]
+    }

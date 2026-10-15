@@ -650,44 +650,8 @@
       "kind": "collection",
       "schemaRef": "#/schemas/GatewayPlacementAvailability",
       "label": "GatewayPlacementAvailability",
-      "defaultSort": "aws_public",
+      "defaultSort": "local_kind",
       "columns": [
-        {
-          "property": "aws_public",
-          "label": "AWS PUBLIC",
-          "priority": 0,
-          "type": "boolean"
-        },
-        {
-          "property": "aws_reason",
-          "label": "AWS REASON",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "aws_vpn",
-          "label": "AWS VPN",
-          "priority": 0,
-          "type": "boolean"
-        },
-        {
-          "property": "ibm_public",
-          "label": "IBM PUBLIC",
-          "priority": 0,
-          "type": "boolean"
-        },
-        {
-          "property": "ibm_reason",
-          "label": "IBM REASON",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "ibm_vpn",
-          "label": "IBM VPN",
-          "priority": 0,
-          "type": "boolean"
-        },
         {
           "property": "local_kind",
           "label": "LOCAL KIND",
@@ -699,9 +663,8 @@
         "getGatewayPlacementAvailability"
       ],
       "capabilities": [
-        "get"
+        "create"
       ],
-      "getOperationId": "getGatewayPlacementAvailability",
       "source": {}
     },
     {
@@ -1147,6 +1110,12 @@
           "type": "string"
         },
         {
+          "property": "image_pinned",
+          "label": "IMAGE PINNED",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
           "property": "kind",
           "label": "KIND",
           "priority": 0,
@@ -1174,6 +1143,12 @@
         {
           "property": "phase",
           "label": "PHASE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "provisioning_version",
+          "label": "PROVISIONING VERSION",
           "priority": 0,
           "type": "string"
         },
@@ -2553,6 +2528,12 @@
           "type": "string"
         },
         {
+          "property": "image_pinned",
+          "label": "IMAGE PINNED",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
           "property": "kind",
           "label": "KIND",
           "priority": 0,
@@ -2580,6 +2561,12 @@
         {
           "property": "phase",
           "label": "PHASE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "provisioning_version",
+          "label": "PROVISIONING VERSION",
           "priority": 0,
           "type": "string"
         },
@@ -3067,7 +3054,8 @@
           {
             "name": "cluster_id",
             "type": "string",
-            "required": true
+            "required": false,
+            "description": "Optional. When omitted, the scheduling cluster is derived from the referenced Gateway's placement."
           },
           {
             "name": "concurrency_policy",
@@ -3240,7 +3228,7 @@
             "name": "placement",
             "type": "object",
             "required": true,
-            "description": "Exactly one of network/provider or mode must be supplied."
+            "description": "Exactly one of selector or mode must be supplied."
           },
           {
             "name": "route",
@@ -4927,12 +4915,23 @@
     },
     {
       "id": "getGatewayPlacementAvailability",
-      "method": "GET",
+      "method": "POST",
       "pathParts": [
         {
           "literal": "/api/hypershell/v1/gateways/placement-availability"
         }
       ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "selectors",
+            "type": "array",
+            "required": true
+          }
+        ]
+      },
       "response": {
         "contentType": "application/json"
       },
@@ -4958,9 +4957,9 @@
         ]
       },
       "capabilities": [
-        "get"
+        "create"
       ],
-      "summary": "Returns current provider placement eligibility",
+      "summary": "Returns current placement eligibility for a batch of selectors",
       "presentation": {}
     },
     {
@@ -6994,37 +6993,16 @@
         "contentType": "application/json",
         "fields": [
           {
-            "name": "description",
-            "type": "string",
+            "name": "capabilities",
+            "type": "array",
             "required": false,
-            "description": "Optional description of the spoke."
+            "description": "Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities."
           },
           {
             "name": "name",
             "type": "string",
             "required": true,
             "description": "Human-readable spoke name, unique per fleet (e.g. hyp0-mc1). Must match on every subsequent call."
-          },
-          {
-            "name": "provider",
-            "type": "string",
-            "required": false,
-            "description": "Cloud provider hosting this control plane.",
-            "enum": [
-              "aws",
-              "ibm",
-              "kind"
-            ]
-          },
-          {
-            "name": "visibility",
-            "type": "string",
-            "required": false,
-            "description": "Network visibility supported for gateways on this control plane.",
-            "enum": [
-              "public",
-              "vpn"
-            ]
           }
         ]
       },

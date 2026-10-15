@@ -63,3 +63,5 @@ ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 LABEL org.opencontainers.image.title="HyperShell Controller" \
       org.opencontainers.image.description="Control plane that reconciles HyperShell resources via gRPC watch streams" \
       org.opencontainers.image.version="0.0.1"
+
+# Release pipeline verification: force an on-push build to confirm bundle creation (no-op).

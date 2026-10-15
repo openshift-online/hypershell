@@ -73,9 +73,8 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 			return nil, status.Error(codes.FailedPrecondition, "gateway placement resolver is unavailable")
 		}
 		intent := openapi.GatewayPlacementIntent{}
-		if network := req.Placement.GetNetworkProvider(); network != nil {
-			intent.Network = &network.Network
-			intent.Provider = &network.Provider
+		if selector := req.Placement.GetCapabilitySelector(); selector != nil {
+			intent.Selector = selector.Selector
 		} else if req.Placement.GetLocalKind() != nil {
 			mode := "local-kind"
 			intent.Mode = &mode

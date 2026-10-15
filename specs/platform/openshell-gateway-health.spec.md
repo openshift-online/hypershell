@@ -196,6 +196,16 @@ back to `Running`.
   health-reconciliation interval
 - AND record the reason in `status`
 
+#### Scenario: Running Vault-backed gateway loses its credential backend
+
+- GIVEN a `Running` Vault-backed Gateway (the default credential driver)
+- WHEN its per-cluster provider Vault becomes unreachable
+- THEN the control plane SHALL set the `phase` to `Degraded` within one
+  health-reconciliation interval
+- AND record a reason in `status` that names Vault
+- AND the gateway SHALL return to `Running` once Vault is reachable again, without
+  recreation (see [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md))
+
 #### Scenario: Degraded gateway recovers
 
 - GIVEN a Gateway with `phase` `Degraded`

@@ -11,7 +11,7 @@
 
 Every control plane must determine its own `cluster_id` at runtime without requiring a human to pre-register it and distribute the resulting KSUID out-of-band. The `/registration` sub-resource within the `managedClusters` plugin enables a control plane to register itself using its OIDC `client_credentials` identity and receive a stable `cluster_id` in return. This applies to every control plane, including the one co-located with the hub API server: there is no unregistered mode (`control-plane.spec.md`, "Requirement: Mandatory Cluster Identity").
 
-The same endpoint serves as a health ping. The control plane calls it on a loop; registration calls after the first are no-ops that update `last_seen_at`, giving the hub passive fleet-health visibility with no additional infrastructure.
+The same endpoint serves as a health ping and capability reconciliation point. The control plane calls it on a loop; registration calls after the first atomically replace the self-declared capability set and update `last_seen_at`, giving the hub passive fleet-health and current placement data with no additional infrastructure.
 
 Because every control plane is identified, the API server can enforce cluster scoping on the gRPC watch streams instead of trusting the `cluster_id` a caller asks for. That binding is specified here too.
 
@@ -32,9 +32,31 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
 ```json
 {
   "name": "hyp0-mc1",
-  "description": "optional"
+  "capabilities": [
+    "provider/aws",
+    "network/vpn",
+    "region/us-east-1",
+    "runtime/kata",
+    "gateway-version/v0.1.2-rhaiv.7"
+  ]
 }
 ```
+
+`capabilities` is the placement-facing description of the cluster. The control
+plane SHALL source it from deployment configuration and SHALL send the complete
+set on initial registration and every heartbeat. A successful heartbeat SHALL
+replace the stored set atomically, so a GitOps configuration change converges
+without an API-server code change.
+
+The single-valued `gateway-version` namespace declares the gateway version this
+control plane provisions onto new gateways. The control plane does not parse it
+from a running image tag; the deploy-time overlay renders `gateway-version/<tag>`
+from the repository's `OPENSHELL_TAG`, the one value that names the version this
+checkout ships. It is the displayed provisioning version and never tracks a
+floating tag such as `latest`. See "Requirement: Self-Declared Capability
+Labels" for its relaxed value syntax and
+[`gateway-version-visibility.spec.md`](../web-console/gateway-version-visibility.spec.md)
+for how it is surfaced and used in placement.
 
 **Response (201 Created on first call, 200 OK on subsequent calls):**
 
@@ -50,12 +72,13 @@ Idempotent. Creates a `ManagedCluster` record on first call; returns the existin
 
 ## Data Model Impact
 
-`ManagedCluster` gains two fields to support self-registration and fleet health:
+`ManagedCluster` carries these registration and fleet-health fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `oidc_subject` | string | OIDC `sub` claim of the service account that registered this cluster. Set server-side; not writable via PATCH. Unique index with `name`. |
 | `last_seen_at` | timestamp | Updated on every `/registration` call. Null until first registration. |
+| `capabilities` | string set | Capability labels self-declared by the control plane and replaced on each registration call. Used by placement selectors. |
 
 `name` SHALL be unique across all `ManagedCluster` records, registered or not, so that discovery by name (seed scripts, e2e, operators) is unambiguous.
 
@@ -77,11 +100,11 @@ These thresholds are informational and may be tuned per deployment. The `status`
 
 ```
 startup:
-  cluster_id = POST /registration { name: HYPERSHELL_MANAGED_CLUSTER_NAME }
+  cluster_id = POST /registration { name: HYPERSHELL_MANAGED_CLUSTER_NAME, capabilities: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES }
   open WatchGateways(cluster_id=cluster_id)
 
 loop every 60s:
-  POST /registration { name: HYPERSHELL_MANAGED_CLUSTER_NAME }
+  POST /registration { name: HYPERSHELL_MANAGED_CLUSTER_NAME, capabilities: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES }
   # returns same cluster_id; API updates last_seen_at
 ```
 
@@ -90,6 +113,7 @@ Gitops configuration required for every control plane, the hub's co-located one 
 | Env var | Description |
 |---------|-------------|
 | `HYPERSHELL_MANAGED_CLUSTER_NAME` | Human-readable name, unique per control plane (e.g. `hyp0-mc1` for a remote spoke, `hyp0-hub` for the control plane co-located with hub `hyp0`; `local-kind` / `local-openshift` in the development overlays) |
+| `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` | Comma-separated capability labels supplied by GitOps, for example `provider/aws,network/vpn,region/us-east-1,runtime/kata,gateway-version/v0.1.2-rhaiv.7`. The `gateway-version/<tag>` label is rendered into the overlay from the repository's `OPENSHELL_TAG` at deploy time, so the advertised provisioning version matches the images the overlay deploys without any runtime image-tag parsing |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | One OIDC client per control plane, holding `managed-cluster-registrar`; no new secret types |
 | `HYPERSHELL_API_SERVER_URL` | REST endpoint used for `/registration` (e.g. `https://api.hyp0.infra.hypershell.app`; the in-cluster `http://hypershell-api-server:8000` only where TLS is off) |
 | `HYPERSHELL_GRPC_SERVER_ADDR` | gRPC endpoint the watch streams dial. On a production hub every control plane, co-located or remote, dials the hub's external passthrough Route (e.g. `grpc.hyp0.infra.hypershell.app:443`) with TLS, because the hub's gRPC listener is TLS-only (`hub-grpc-tls.spec.md`). In development environments with gRPC TLS off, an in-cluster address (e.g. `hypershell-api-server:9000`) dialed with plaintext. The control plane selects the transport from this address -- see `control-plane.spec.md` ("gRPC Transport Security"). |
@@ -233,6 +257,87 @@ Every successful call to `/registration` SHALL update `last_seen_at` on the matc
 - THEN `last_seen_at` on the `ManagedCluster` record is updated to the call time
 - AND the response returns the same `cluster_id` each time
 
+### Requirement: Self-Declared Capability Labels
+
+A registered `ManagedCluster` SHALL expose a deduplicated set of capability
+labels. Each label SHALL use the form `<namespace>/<value>`. The namespace
+segment SHALL always use lowercase DNS-label syntax. The API SHALL recognize the
+namespaces `provider`, `network`, `region`, `runtime`, `environment`, and
+`gateway-version`; adding a value inside a recognized namespace SHALL be
+configuration, not an API schema or server-code change. Unknown namespaces,
+malformed labels, duplicate labels, an empty set, and more than one label in the
+single-valued `provider`, `region`, `environment`, or `gateway-version`
+namespaces SHALL return 400.
+
+The value segment SHALL use lowercase DNS-label syntax in every namespace except
+`gateway-version`. Because a gateway version tag carries dots and a release
+suffix (for example `v0.1.2-rhaiv.7`), the `gateway-version` value segment SHALL
+instead accept a lowercase version string of alphanumerics, dots, and hyphens
+that both begins and ends with an alphanumeric (for example matching
+`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`). This relaxation SHALL apply only to the
+`gateway-version` value segment; every other namespace's value segment stays
+DNS-label strict, and the namespace segment stays DNS-label strict for all.
+
+The registering control plane SHALL be the only writer of `capabilities`.
+Generic ManagedCluster create and patch requests SHALL NOT assign or modify
+them. A heartbeat SHALL replace the prior set in one transaction and update
+`last_seen_at`; a rejected set SHALL change neither field.
+
+#### Scenario: GitOps changes a cluster capability
+
+- GIVEN a registered cluster has `provider/ibm` and `network/public`
+- AND GitOps changes its configured capabilities to add `runtime/kata`
+- WHEN its next registration heartbeat succeeds
+- THEN the ManagedCluster SHALL expose all three labels
+- AND selector-based placement SHALL use the replacement set
+
+#### Scenario: Gateway-version label accepts a dotted suffixed tag
+
+- GIVEN a control plane configured with `gateway-version/v0.1.2-rhaiv.7`
+- WHEN it registers
+- THEN the label SHALL be accepted and exposed unchanged
+- AND a second `gateway-version` label in the same request SHALL return 400
+
+#### Scenario: Capability input is rejected atomically
+
+- GIVEN a registered cluster has a valid capability set
+- WHEN it registers with an unknown namespace or malformed label
+- THEN the API SHALL return 400
+- AND its prior capabilities and `last_seen_at` SHALL remain unchanged
+
+### Requirement: Capability Deployment Convergence
+
+Every deployed control plane SHALL send its complete GitOps-configured capability
+set on registration and each heartbeat. The registration request SHALL NOT derive
+capabilities from the legacy `provider`, `visibility`, or `region` fields.
+
+For backward compatibility during a rolling upgrade, a capability-less heartbeat
+(omitted, `null`, or empty `capabilities`) from a control plane that predates the
+capability model SHALL be accepted rather than rejected, and SHALL be a no-op for
+the capability set: it SHALL update `last_seen_at` and SHALL preserve the stored
+capabilities instead of clearing them. This prevents a mixed-version upgrade from
+disconnecting the cluster or dropping its placement data. A malformed or
+unknown-namespace label is still rejected with 400 (see "Capability input is
+rejected atomically").
+
+Existing gateway records require no migration because they continue to persist
+the resolved `cluster_id`. A control plane restart SHALL upsert its configured
+capabilities without changing those gateway assignments.
+
+#### Scenario: Capability-less heartbeat preserves the stored set
+
+- GIVEN a registered cluster has `provider/aws` and `network/public`
+- WHEN a heartbeat arrives with omitted or empty `capabilities`
+- THEN the API SHALL accept it and update `last_seen_at`
+- AND the stored capabilities SHALL remain `provider/aws` and `network/public`
+
+#### Scenario: Restart publishes configured capabilities
+
+- GIVEN a registered cluster has existing gateway assignments
+- WHEN its control plane restarts with its GitOps-configured capabilities
+- THEN its registration SHALL replace the stored capability set
+- AND its existing gateway assignments SHALL remain unchanged
+
 ### Requirement: oidc_subject Is Server-Assigned and Immutable
 
 `oidc_subject` SHALL be set by the API server from the validated JWT `sub` claim. It SHALL NOT be accepted as an input field on any request. It SHALL NOT be modifiable via `PATCH /managed-clusters/{id}`.
@@ -257,11 +362,22 @@ Every successful call to `/registration` SHALL update `last_seen_at` on the matc
 
 ### Requirement: Watch Stream Caller Binding
 
-The five gRPC watch RPCs (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`, `WatchRoleBindings`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
+The six gRPC watch RPCs (`WatchGateways`, `WatchGatewayReleases`, `WatchManagedClusters`, `WatchGatewayNetworks`, `WatchRoleBindings`, `WatchAgentRuntimes`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
 
-For `WatchGateways`, `ListGateways`, `WatchRoleBindings`, and `ListRoleBindings`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the gRPC RBAC interceptor before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
+For `WatchGateways`, `ListGateways`, `WatchRoleBindings`, `ListRoleBindings`, `WatchAgentRuntimes`, and `ListAgentRuntimes`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the gRPC RBAC interceptor before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
 
 For `WatchRoleBindings` and `ListRoleBindings` the scoping key is the `cluster_id` of the binding's gateway: under a `cluster_id` filter the api-server SHALL deliver (in the watch replay, in live watch events, and in list results) only bindings whose gateway is assigned to that cluster, and SHALL NOT deliver global bindings (no `gateway_id`). A binding delete is attributed through its gateway even when that gateway is already soft-deleted, so the delete still reaches the owning cluster; a binding whose gateway cannot be found at all is not delivered to any filtered stream.
+
+For `WatchAgentRuntimes` and `ListAgentRuntimes` the scoping key is the `AgentRuntime`'s effective cluster: its own `cluster_id` when set, or, when `cluster_id` is omitted, the cluster derived from its referenced `Gateway`'s capability-label placement (`data-model.spec.md`, "AgentRuntime as a Top-Level Resource"). The api-server SHALL resolve this derived placement server-side and under a `cluster_id` filter SHALL deliver (in the watch replay, in live watch events, and in list results) only the `AgentRuntime` records whose effective cluster matches the filter. Resolving the derived placement server-side keeps this caller binding authoritative: a control plane never receives an `AgentRuntime` scheduled on another cluster. An `AgentRuntime` that omits `cluster_id` and whose referenced gateway cannot be found is not delivered to any filtered stream.
+
+#### Scenario: Registered control plane watches agent runtimes by derived placement
+
+- GIVEN a control plane registered as `cluster_id: X`
+- AND an `AgentRuntime` with explicit `cluster_id: X`, and an `AgentRuntime` with no `cluster_id` whose referenced gateway is placed on `Y`
+- WHEN it opens `WatchAgentRuntimes` with its bearer token and `cluster_id: X`
+- THEN the stream is accepted
+- AND only the `AgentRuntime` whose effective cluster is `X` is delivered, in the replay and as live events
+- AND the `AgentRuntime` whose effective cluster resolves to `Y` is not delivered
 
 #### Scenario: Registered control plane watches its own cluster
 
@@ -382,7 +498,8 @@ The e2e suite SHALL directly validate this spec's behavior as area 12 of
 `e2e-testing.spec.md` (ManagedCluster Registration Coverage and Multi-Cluster
 Fleet Coverage), rather than only consuming the registered cluster for gateway
 placement: the co-located control plane's self-registration (non-empty
-`oidc_subject`, fresh `last_seen_at`), idempotent `/registration`, the
+`oidc_subject`, fresh `last_seen_at`, and declared capabilities), idempotent
+`/registration`, capability replacement and validation, the
 `managed-cluster-registrar` 403 and name-collision 409 paths, and the gateway
 create 400 for an empty or unregistered `cluster_id`. Under `E2E_MULTICLUSTER=1`
 a second registered cluster SHALL be exercised for cross-cluster placement and
@@ -411,6 +528,10 @@ release promotion.
 | Re-registration restores a deleted record instead of creating one | The soft-deleted row keeps its `(oidc_subject, name)` index entry, so a fresh insert failed with a permanent 409; a new id instead would orphan every gateway on the cluster and let the namespace GC reap them. Restoring keeps gateways attached, makes an accidental delete self-healing, and leaves decommissioning to revoking the client. |
 | Record writes need `platform:admin`; a control plane may delete only its own | Records gate placement and registration for a whole cluster. `gateway:creator` is held by every signed-in user on the GitOps hubs, so it cannot authorize them; self-deregistration keeps the teardown path working without an admin token. |
 | Single `/registration` endpoint for both register and heartbeat | Eliminates a separate heartbeat endpoint. The idempotent registration call already has all the information needed to update `last_seen_at`. Fewer endpoints, simpler RBAC surface. |
+| Namespaced string capabilities with match-all selectors | Provider, network, runtime, and future dimensions remain independent and extensible without a provider-by-network schema matrix. |
+| Provisioning version is a single-valued `gateway-version` capability | A control plane provisions exactly one version at a time, so one value per spoke matches reality and rides the existing heartbeat, atomic replacement, and match-all placement with no new placement code. Its value segment is relaxed because a version tag is not a DNS label, while the namespace segment and every other namespace stay strict. |
+| `gateway-version` rendered from `OPENSHELL_TAG` at deploy time | `OPENSHELL_TAG` is the repository's single source of truth for the shipped version and already feeds the image env vars, so rendering the label from it keeps the advertised value identical to the deployed images with no runtime image-tag parsing and no coupling to a floating tag. |
+| Registration replaces the complete capability set | GitOps remains the source of truth, removed capabilities do not linger, and one heartbeat converges deployment configuration into placement state. |
 | Narrow response body (`{ "cluster_id" }` only, not full ManagedCluster) | The control plane needs exactly one thing from registration: its stable `cluster_id` to use as the `WatchGateways` filter. Returning the full ManagedCluster object would expose fields the control plane cannot and should not act on. The narrow shape is intentional and differs from the standard `GET /managed_clusters/{id}` response by design. |
 | 403 and 409 exit immediately; other failures retry with backoff | A 403 means the Keycloak role is absent and a 409 means an operator must remove a record; retrying either is pointless and delays operator awareness. Network or 5xx errors are transient; exponential backoff recovers automatically without operator intervention. |
 | `(oidc_subject, name)` upsert key | `oidc_subject` alone allows a control plane to change its human name between deployments. Requiring both prevents accidental name changes and makes conflicts explicit rather than silent. |

@@ -534,15 +534,16 @@ port). Keycloak embeds this URL as the `iss` claim in tokens, so the issuer
 passed to `openshell gateway add` must match exactly. This requires host port
 443 to be forwarded -- if it isn't, run `make kind-fix-ports` first.
 
-The OpenShift e2e driver (`tests/e2e/drivers/openshift.sh`) uses the same
-port-forward fallback when no passthrough route is available. The canonical
-pull-request OpenShift e2e path is the shared harness
-`tests/e2e/e2e-openshell.sh` run with `E2E_INFRA_DRIVER=openshift`, driven
-automatically by the ephemeral pull-request environment workflow (see
-[Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)).
-The legacy `components/pr-test/e2e-openshell.sh` script this superseded has
-been removed (HYPERSHELL-250); the IBM ROKS variant
-(`e2e-openshell-roks.sh`) is unaffected.
+The functional e2e suite is the Go `E2ESuite` (`tests/e2e/`, `make e2e`), which
+auto-detects the OpenShift driver (`tests/e2e/driver/openshift.go`) from the
+KUBECONFIG context. The canonical pull-request OpenShift e2e path runs it with
+`E2E_INFRA_DRIVER=openshift make e2e`, driven automatically by the ephemeral
+pull-request environment workflow (see
+[Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)). The
+legacy `components/pr-test/e2e-openshell.sh` script and the Bash functional suite
+it superseded have been removed (HYPERSHELL-250); the IBM ROKS variant
+(`e2e-openshell-roks.sh`) is unaffected. The Bash `tests/e2e/drivers/*.sh` remain
+only for the retained browser (`e2e-console.sh`) and smoke (`smoke.sh`) suites.
 
 ### OpenShift (automatic)
 

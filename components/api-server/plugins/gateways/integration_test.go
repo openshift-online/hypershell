@@ -105,7 +105,7 @@ func TestGatewayPostRejectsDirectClusterID(t *testing.T) {
 	resp, err := resty.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Authorization", fmt.Sprintf("Bearer %s", jwToken)).
-		SetBody(`{"name":"direct-cluster","placement":{"network":"public","provider":"aws"},"cluster_id":"legacy-cluster"}`).
+		SetBody(`{"name":"direct-cluster","placement":{"selector":["network/public","provider/aws"]},"cluster_id":"legacy-cluster"}`).
 		Post(h.RestURL("/gateways"))
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode()).To(Equal(http.StatusBadRequest))

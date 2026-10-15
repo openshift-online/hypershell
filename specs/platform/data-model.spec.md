@@ -11,7 +11,7 @@ Gateways, clusters, releases, and networks are **top-level resources**. An earli
 
 Current model:
 
-- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Also tracks provider, region, API server URL, and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
+- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement, including the single-valued `gateway-version` namespace that advertises the gateway version the control plane provisions onto new gateways. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
 - **Gateway** - an API gateway instance deployed onto a specific cluster within an API-assigned namespace. Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
@@ -31,8 +31,7 @@ erDiagram
         string ID PK
         string name
         string oidc_subject
-        string provider
-        string region
+        string[] capabilities
         string kubeconfig_secret
         string status
         string api_server_url
@@ -274,7 +273,7 @@ All fields in the table below SHALL be part of the REST and gRPC Gateway create 
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:e59fea2fc97144ed2f402af69be73c6dbbf9a76739f042e86c2237f65852284e`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/platform-resources/controller.yaml`) |
 | `sandbox_image` | string | Sandbox base image the gateway uses when launching sandboxes (default: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`). Control plane passes the resolved value as Helm `server.sandboxImage`. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
@@ -283,7 +282,7 @@ All fields in the table below SHALL be part of the REST and gRPC Gateway create 
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `observed_release_id` | string | Read-only (control-plane-owned) release currently rolled out and observed healthy; advanced only after a new revision passes its health gates. Distinct from the desired `release_id`. See [`gateway-release-rollout.spec.md`](./gateway-release-rollout.spec.md) |
-| `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
+| `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
@@ -439,7 +438,9 @@ A GatewayNetwork SHALL define how gateways communicate. The `topology` field ind
 
 ### Requirement: AgentRuntime as a Top-Level Resource
 
-`AgentRuntime` SHALL be a top-level HyperShell API resource. It references a `ManagedCluster` (where its scheduling resources run), a `Gateway` (which it connects to), and a `SandboxTemplate` (the worker execution environment). It MAY reference a `Repository` through a nullable `repository_id` foreign key. It owns exactly one `AgentWorkspace` and one or more `SecretSource` declarations. Schedule configuration (cron expression, coordinator image, concurrency policy, login refresh interval) is embedded directly on `AgentRuntime`.
+`AgentRuntime` SHALL be a top-level HyperShell API resource. It references a `Gateway` (which it connects to and whose placement determines where it runs) and a `SandboxTemplate` (the worker execution environment). It MAY reference a `Repository` through a nullable `repository_id` foreign key. It owns exactly one `AgentWorkspace` and one or more `SecretSource` declarations. Schedule configuration (cron expression, coordinator image, concurrency policy, login refresh interval) is embedded directly on `AgentRuntime`.
+
+`cluster_id` SHALL be optional on create. When omitted, the `AgentRuntime`'s scheduling cluster SHALL be derived from its referenced `Gateway`: the runtime's resources run on whichever `ManagedCluster` the Gateway's capability-label placement resolves to (see [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)). This keeps an agent fully declarable - a client declares a Gateway by placement type, references it by name, and never pins a concrete cluster.
 
 An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provider driver names or credential environment variable names. Those are translation concerns of the controller.
 
@@ -447,10 +448,11 @@ An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provid
 
 #### Scenario: Create AgentRuntime
 
-- GIVEN a valid `cluster_id`, `gateway_id`, and `sandbox_template_id`
+- GIVEN a valid `gateway_id` and `sandbox_template_id`, and no `cluster_id`
 - AND a valid `cron` expression and `coordinator_image`
 - WHEN a POST request is made to `/api/hypershell/ext/agent_runtimes`
 - THEN a new `AgentRuntime` is created with status `Pending`
+- AND its scheduling cluster is derived from the referenced Gateway's placement
 - AND the controller begins reconciliation: applies cluster resources and provisions the `AgentWorkspace` on the gateway
 
 #### Scenario: Parameters Map Is Bounded
@@ -555,6 +557,18 @@ process SHALL reconcile, not create-and-skip: a resource added to `.hypershell`
 is created, a changed resource is updated, and a resource removed from
 `.hypershell` is pruned. Re-running the import against unchanged repository state
 SHALL be idempotent.
+
+The import process SHALL be hosted by the **API server** as a background worker,
+not by the control plane. The import reads each `Repository`'s provider credential
+and writes API resources - the same create, update, and delete operations the REST
+layer already owns - and never applies anything to a Kubernetes cluster. The
+control plane, by contrast, holds per-cluster in-cluster credentials and only reads
+desired state over watch streams; it SHALL NOT write API resources. Hosting the
+import in the API server keeps it co-located with the Repository credentials and the
+ownership and pruning bookkeeping it maintains, and keeps the control plane a pure
+reader of desired state. The pruning of imported resources SHALL be scoped to the
+owning `Repository`, so one Repository's import SHALL NOT delete resources owned by
+another Repository or created directly through the REST API or `hsctl apply`.
 
 > **Replaces the script coordinator model.** This declarative import, together
 > with `AgentRuntime.selector`, supersedes the imperative `discover.sh` / `run.sh`
@@ -937,7 +951,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 |---|---|---|
 | `GET /api/hypershell/v1/managed_clusters` | `hsctl list managedClusters` | ✅ implemented |
 | `GET /api/hypershell/v1/managed_clusters/{id}` | `hsctl get managedCluster <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --provider <p> --region <r> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented (inert placeholder: no control plane serves a manually created record, and gateways may not reference it; see `managed-cluster-registration.spec.md`) |
+| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --api-server-url <url> --kubeconfig-secret <s>` | 🔄 legacy provider and region flags removed; remains an inert placeholder because no control plane serves a manually created record and gateways may not reference it (see `managed-cluster-registration.spec.md`) |
 | `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hsctl update managedCluster <id> [--status <s>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hsctl delete managedCluster <id>` | ✅ implemented |
 
@@ -1002,8 +1016,8 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 | `Gateway` | `name`, `cluster_id`, `release_id`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata` | ✅ implemented |
 | `GatewayNetwork` | `name`, `topology`, `tunnel_mode`, `hub_gateway_id` | [REMOVED] |
 | `GatewayRelease` | `name`, `image`, `rollout_strategy`, `canary_percent`, `canary_duration` | [REMOVED] |
-| `ManagedCluster` | `name`, `provider`, `region`, `kubeconfig_secret`, `api_server_url` | ✅ implemented |
-| `AgentRuntime` | `name`, `cluster_id`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` | 🔲 planned |
+| `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | 🔄 placement metadata moves to registration-owned capabilities and is not writable through `hsctl apply` |
+| `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | 🔲 planned |
 | `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
 | `ProviderSpec` | `name`, `category`, `capability`, `profile` | 🔲 planned |
 | `Repository` | `name`, `url`, `provider`, `secret_source_id`, `default_branch`, `import_path` | 🔲 planned |
@@ -1203,5 +1217,6 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0
 | Repository credential via SecretSource FK | Reuses the existing abstract secret backend model (Vault/AWS/Kubernetes) and `ExternalSecret` wiring, keeping provider secrets out of the database and consistent with every other credential in the platform. |
 | AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
 | Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
+| `.hypershell` import hosted by the api-server, not the control plane | The import reads Repository credentials and writes API resources (create/update/delete), the operations the REST layer already owns; it never applies to a cluster. The control plane holds per-cluster credentials and is a pure reader of desired state over watch streams. Hosting the import in the api-server co-locates it with the Repository credentials and the ownership/pruning bookkeeping, and keeps the control plane from ever writing API resources. |
 | Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
 | Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |

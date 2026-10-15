@@ -22,5 +22,6 @@ func managedClusterToProto(d *ManagedCluster) *pb.ManagedCluster {
 		KubeconfigSecret: d.KubeconfigSecret,
 		Status:           d.Status,
 		ApiServerUrl:     d.ApiServerUrl,
+		Capabilities:     d.Capabilities,
 	}
 }

@@ -50,6 +50,13 @@ func TestIsAuthorized_GatewayCreatorCanCreateGateways(t *testing.T) {
 	}
 }
 
+func TestIsAuthorized_GatewayCreatorCanCheckPlacementAvailability(t *testing.T) {
+	bindings := []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}
+	if !isAuthorized(http.MethodPost, "gateway_placement_availability", "", "", bindings, nil) {
+		t.Error("gateway:creator should be authorized for POST /gateways/placement-availability")
+	}
+}
+
 func TestIsAuthorized_GatewayCreatorCannotGetGatewayWithoutBinding(t *testing.T) {
 	bindings := []BindingSummary{
 		{RoleName: "gateway:creator", Scope: "global"},
@@ -550,6 +557,29 @@ func TestAuthorizeApiAllowsBoundUserFromJWTContext(t *testing.T) {
 	}
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+}
+
+func TestAuthorizeApiAllowsGatewayCreatorPlacementAvailability(t *testing.T) {
+	lookup := authorizationLookup{bindings: []BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}}
+	middleware := NewRBACAuthzMiddleware(lookup, AuthzConfig{EnforceRBAC: true}, nil, nil)
+
+	router := mux.NewRouter()
+	reached := false
+	router.Handle("/api/hypershell/v1/gateways/placement-availability", middleware.AuthorizeApi(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))).Methods(http.MethodPost)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/hypershell/v1/gateways/placement-availability", nil)
+	token := &jwt.Token{Claims: jwt.MapClaims{"preferred_username": "creator-user"}}
+	ctx := context.WithValue(request.Context(), auth.ContextAuthKey, token)
+	ctx = context.WithValue(ctx, ContextUserIDKey, "user-id")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request.WithContext(ctx))
+
+	if !reached || recorder.Code != http.StatusOK {
+		t.Fatalf("placement availability reached=%v status=%d, want true/200", reached, recorder.Code)
 	}
 }
 

@@ -286,6 +286,9 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 		// collection and directory sub-paths.
 		return "access", mux.Vars(r)["user_id"]
 	}
+	if strings.HasSuffix(pathTemplate, "/gateways/placement-availability") {
+		return "gateway_placement_availability", ""
+	}
 
 	parts := strings.Split(pathTemplate, "/")
 	for i := len(parts) - 1; i >= 0; i-- {
@@ -317,6 +320,9 @@ func extractResourceInfoFromPath(path string) (resource string, resourceID strin
 	}
 
 	parts := strings.Split(remainder, "/")
+	if remainder == "gateways/placement-availability" {
+		return "gateway_placement_availability", ""
+	}
 	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/service_accounts") {
 		for i, part := range parts {
 			if part == "service_accounts" && i+1 < len(parts) {
@@ -383,6 +389,10 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "users" {
 		return hasUsersInventoryAccess(bindings, jwtRoles)
+	}
+
+	if resource == "gateway_placement_availability" {
+		return method == http.MethodPost && hasGatewayCreator(bindings)
 	}
 
 	if resource == "managed_clusters" {

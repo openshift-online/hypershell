@@ -67,6 +67,11 @@ pnpm test:e2e:chromium
 
 The complete browser matrix is available through `pnpm test:e2e` after installing Chromium, Firefox, and WebKit.
 
+The deployed-cluster user journey runs with `make e2e-console`. Its shell
+launcher only discovers the Kind or OpenShift console route; all browser
+interactions and assertions are TypeScript Playwright tests using accessible
+roles, labels, and visible names.
+
 ## Production container
 
 Build from the repository root so the shared lockfile and SDK are available:

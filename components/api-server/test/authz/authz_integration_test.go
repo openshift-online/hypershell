@@ -90,7 +90,7 @@ func registerSpoke(t *testing.T, h *test.Helper, client *openapi.APIClient) spok
 func registerAs(t *testing.T, client *openapi.APIClient, s spoke) string {
 	t.Helper()
 	resp, httpResp, err := client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "register %s: HTTP %d %s", s.name, statusOf(httpResp), test.APIErrorReason(err))
 	return resp.ClusterId
 }
@@ -223,7 +223,7 @@ func TestReRegistrationAfterDeleteRestoresTheRecord(t *testing.T) {
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "a deregistered spoke wrote a gateway: %v", err)
 
 	resp, httpResp, err := client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "re-registration after delete: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
 	Expect(resp.ClusterId).To(Equal(s.clusterID), "the record must come back under its original id")
 
@@ -250,7 +250,7 @@ func TestReRegistrationAfterDeleteDoesNotReclaimATakenName(t *testing.T) {
 	other.clusterID = registerAs(t, client, other)
 
 	_, httpResp, err = client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
 	Expect(err).To(HaveOccurred(), "a deleted control plane took back a name another one registered")
 	Expect(statusOf(httpResp)).To(Equal(http.StatusConflict))
 }

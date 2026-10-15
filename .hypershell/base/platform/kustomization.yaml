@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Shared platform kinds referenced by name from the basic agent (../) and from
+# every agent instance under ../../agents. No cluster information: the control
+# plane assigns a ManagedCluster by capability-label matching.
+resources:
+  - repository.yaml
+  - gateway.yaml
+  - sandbox-template.yaml
+  - provider-specs.yaml
