@@ -262,7 +262,7 @@ vendor-openshell-chart:
 	  rm -rf charts/openshell && \
 	  cp -r /tmp/openshell-chart-vendor/deploy/helm/openshell charts/openshell && \
 	  rm -rf /tmp/openshell-chart-vendor && \
-	  grep -rl $$'\xe2\x80\x94' charts/openshell/ | xargs -r sed -i 's/\xe2\x80\x94/-/g' && \
+	  grep -rl $$'\xe2\x80\x94' charts/openshell/ | xargs -r perl -pi -e 's/\xe2\x80\x94/-/g' && \
 	  echo "Vendored charts/openshell/ at $$OPENSHELL_TAG"
 
 .PHONY: test-openshell-version-policy
