@@ -88,10 +88,34 @@ func run(logger *slog.Logger) error {
 	topologySrc := cache.NewSource("topology", cfg.RefreshTopology, topology.Topology, metrics.Observe)
 	instancesSrc := cache.NewSource("instances", cfg.RefreshInstances, prom.Instances, metrics.Observe)
 
+	// Agent SDLC funnel visibility (agent-sdlc-visibility-dashboard.spec). Funnel
+	// state comes from the PUBLIC product repo through the GitHub-label adapter
+	// behind the SdlcStateProvider port (a Jira adapter is a future drop-in). The
+	// release-by-hub-cluster matrix reuses the SAME cached promotion bundle truth
+	// (promotionSrc) plus one PR->closing-issue hop; it does not re-derive bundles.
+	var sdlcProvider sources.SdlcStateProvider
+	if gs := sources.NewGitHubSDLC(cfg); gs != nil {
+		sdlcProvider = gs
+		logger.Info("agent sdlc visibility enabled", "repo", cfg.UpstreamRepo, "refresh", cfg.RefreshSDLC)
+	}
+	var issueBundles sources.IssueBundleResolver
+	if ib := sources.NewGitHubIssueBundles(cfg); ib != nil {
+		issueBundles = ib
+	}
+	var sdlcSrc *cache.Source
+	if sdlcProvider != nil {
+		sdlc := sources.NewSDLC(cfg, sdlcProvider, promotionSrc, issueBundles)
+		sdlcSrc = cache.NewSource("sdlc", cfg.RefreshSDLC, sdlc.SDLC, metrics.Observe)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	for _, s := range []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc} {
+	srcs := []*cache.Source{fleetSrc, promotionSrc, topologySrc, instancesSrc}
+	if sdlcSrc != nil {
+		srcs = append(srcs, sdlcSrc)
+	}
+	for _, s := range srcs {
 		go s.Run(ctx)
 	}
 
@@ -100,6 +124,7 @@ func run(logger *slog.Logger) error {
 		Promotion: promotionSrc,
 		Topology:  topologySrc,
 		Instances: instancesSrc,
+		SDLC:      sdlcSrc,
 	}
 	authn := auth.New(cfg, kube.Clientset)
 

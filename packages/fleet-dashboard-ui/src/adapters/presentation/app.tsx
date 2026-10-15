@@ -1,7 +1,9 @@
-// Composition of the dashboard shell. The interactive promotion-topology map is
-// the single visible view; the promotion-path table is still rendered, but only
-// for assistive tech (visually hidden) so the graph's content stays available to
-// screen readers (data-architecture.spec §3.5 a11y). Holds no fleet knowledge.
+// Composition of the dashboard shell. Two peer tabs - the interactive
+// promotion-topology Fleet Map and the Agent SDLC funnel view - share the masthead
+// and a single release "freight" bar (SDLC-VIS-07). The freight bar's selected
+// bundle is lifted here so it drives both tabs in lockstep and survives a tab
+// switch. The promotion-path table is still rendered for assistive tech (visually
+// hidden). Holds no fleet knowledge: everything is derived from the payloads.
 
 import {
   Masthead,
@@ -12,14 +14,22 @@ import {
   Stack,
   StackItem,
   Content,
+  Tab,
+  TabTitleText,
+  Tabs,
 } from "@patternfly/react-core";
-import { FormattedMessage } from "react-intl";
+import { useMemo, useState } from "react";
+import { FormattedMessage, useIntl } from "react-intl";
 
-import { useFleet, usePromotion, useTopology } from "../query/hooks";
+import { useFleet, usePromotion, useSdlc, useTopology } from "../query/hooks";
 import { useSessionExpired } from "../auth/session-expiry";
+import { buildMapModel } from "../../domain/map/model";
 import type { FleetData } from "../../domain/fleet";
+import type { PromotionData } from "../../domain/promotion";
 import type { TopologyData } from "../../domain/topology";
 import { messages } from "../../messages";
+import { AgentSdlcView } from "./agent-sdlc/agent-sdlc-view";
+import { FreightBar } from "./map/freight-bar";
 import { TopologyMap } from "./map/topology-map";
 import { PlaneSection } from "./plane-section";
 import { PromotionTable } from "./promotion-table";
@@ -28,6 +38,15 @@ import styles from "./app.module.css";
 
 const EMPTY_FLEET: FleetData = { instances: [] };
 const EMPTY_TOPOLOGY: TopologyData = {};
+const EMPTY_PROMOTION: PromotionData = {
+  order: [],
+  environments: {},
+  releases: [],
+  releaseByDigest: {},
+  frontier: null,
+};
+
+type TabKey = "map" | "sdlc";
 
 /** Visually hidden, but present in the accessibility tree (sr-only pattern). */
 const srOnly: React.CSSProperties = {
@@ -43,17 +62,22 @@ const srOnly: React.CSSProperties = {
 };
 
 export function App(): React.ReactElement {
+  const intl = useIntl();
   const sessionExpired = useSessionExpired();
   const promotion = usePromotion();
   const fleet = useFleet();
   const topology = useTopology();
+  const sdlc = useSdlc();
 
-  // A stale session (any API 401, detected in the query cache) replaces the whole dashboard
-  // with a single sign-in prompt rather than a grid of generic error panels. Hooks above
-  // still run (rules of hooks); we just short-circuit the render.
-  if (sessionExpired) {
-    return <SessionExpired />;
-  }
+  const [activeTab, setActiveTab] = useState<TabKey>("map");
+  // The shared freight bar's selection, lifted so it drives both tabs and survives a
+  // tab switch (SDLC-VIS-07). Toggling the same bundle clears it.
+  const [selectedBundleSeed, setSelectedBundleSeed] = useState<string | null>(
+    null,
+  );
+  const onSelectBundle = (seed: string) => {
+    setSelectedBundleSeed((cur) => (cur === seed ? null : seed));
+  };
 
   // The map needs promotion + fleet together; it is driven by the promotion plane
   // (its backbone) and enriches with fleet metrics opportunistically, so a lagging
@@ -62,6 +86,23 @@ export function App(): React.ReactElement {
   // Topology enriches the map's per-spoke attribution; like fleet it degrades
   // gracefully (a lagging/failed plane leaves the attribution unresolved, not blank).
   const topologyData = topology.data?.data ?? EMPTY_TOPOLOGY;
+  // Promotion also backs the SHARED freight bar in the chrome (outside the map's
+  // own plane section), so read it here with a safe fallback.
+  const promotionData = promotion.data?.data ?? EMPTY_PROMOTION;
+
+  // Freight-bar deployment counts need the map model's nodes; computed here (above
+  // the session short-circuit) so the hook order stays stable.
+  const model = useMemo(
+    () => buildMapModel(promotionData, fleetData, topologyData),
+    [promotionData, fleetData, topologyData],
+  );
+
+  // A stale session (any API 401, detected in the query cache) replaces the whole dashboard
+  // with a single sign-in prompt rather than a grid of generic error panels. Hooks above
+  // still run (rules of hooks); we just short-circuit the render.
+  if (sessionExpired) {
+    return <SessionExpired />;
+  }
 
   const masthead = (
     <Masthead>
@@ -76,29 +117,71 @@ export function App(): React.ReactElement {
   );
 
   return (
-    // isContentFilled: without it PF 6.6.1 gives .pf-v6-c-page__main-container
-    // align-self:start, so the main area collapses to content height and a void
-    // opens below the panel. isContentFilled applies .pf-m-fill (align-self:stretch),
-    // stretching the grid's "main" row to the full viewport (top of the fill chain).
     <Page masthead={masthead} isContentFilled>
-      {/* hasBodyWrapper={false}: PF 6.6.1's PageSection wraps children in a
-          .pf-v6-c-page__main-body div that has no flex/grow rule, which severs the
-          fill chain (the filled section grows, but the inert body wrapper collapses
-          to content height, so Stack's flex:1 has no tall parent to resolve against).
-          Rendering the Stack as a direct child of the flex-column .pf-m-fill section
-          restores the fill chain down to the canvas. */}
       <PageSection isFilled hasBodyWrapper={false} className={styles.section}>
         <Stack hasGutter className={styles.stack}>
+          {/* The single shared freight bar, in the same location above both tabs. */}
+          <StackItem>
+            <FreightBar
+              releaseByDigest={promotionData.releaseByDigest}
+              nodes={model.nodes}
+              selectedSeed={selectedBundleSeed}
+              onSelectBundle={onSelectBundle}
+            />
+          </StackItem>
           <StackItem isFilled className={styles.mapItem}>
-            <PlaneSection titleMessage={messages.sectionMap} query={promotion}>
-              {(data) => (
-                <TopologyMap
-                  promotion={data}
-                  fleet={fleetData}
-                  topology={topologyData}
-                />
-              )}
-            </PlaneSection>
+            <Tabs
+              activeKey={activeTab}
+              onSelect={(_event, key) => {
+                setActiveTab(key as TabKey);
+              }}
+              aria-label={intl.formatMessage(messages.sdlcTabs)}
+            >
+              <Tab
+                eventKey="map"
+                title={
+                  <TabTitleText>
+                    <FormattedMessage {...messages.sdlcTabFleetMap} />
+                  </TabTitleText>
+                }
+              >
+                <PlaneSection
+                  titleMessage={messages.sectionMap}
+                  query={promotion}
+                >
+                  {(data) => (
+                    <TopologyMap
+                      promotion={data}
+                      fleet={fleetData}
+                      topology={topologyData}
+                      selectedBundleSeed={selectedBundleSeed}
+                      onSelectBundle={onSelectBundle}
+                    />
+                  )}
+                </PlaneSection>
+              </Tab>
+              <Tab
+                eventKey="sdlc"
+                title={
+                  <TabTitleText>
+                    <FormattedMessage {...messages.sdlcTabAgent} />
+                  </TabTitleText>
+                }
+              >
+                <PlaneSection titleMessage={messages.sdlcSection} query={sdlc}>
+                  {(data) => (
+                    <AgentSdlcView
+                      data={data}
+                      selectedBundleSeed={selectedBundleSeed}
+                      onSelectBundle={onSelectBundle}
+                      onJumpToMap={() => {
+                        setActiveTab("map");
+                      }}
+                    />
+                  )}
+                </PlaneSection>
+              </Tab>
+            </Tabs>
           </StackItem>
           <StackItem>
             <div style={srOnly}>

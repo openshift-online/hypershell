@@ -5,7 +5,13 @@ import {
   governingInstance,
   orderedEnvironments,
 } from "../../domain/promotion";
-import { mapFleet, mapInstances, mapPromotion, mapTopology } from "./wire";
+import {
+  mapFleet,
+  mapInstances,
+  mapPromotion,
+  mapSdlc,
+  mapTopology,
+} from "./wire";
 
 // Fixtures use deliberately fictional environment/instance names (alpha/beta/
 // gamma) and a fake release id. The fleet-dashboard source is public, so real
@@ -301,5 +307,98 @@ describe("mapTopology", () => {
   it("tolerates a null/non-record payload", () => {
     expect(mapTopology(null)).toEqual({});
     expect(mapTopology("nope")).toEqual({});
+  });
+});
+
+describe("mapSdlc", () => {
+  it("projects the full plane shape", () => {
+    const data = mapSdlc({
+      phases: [
+        { key: "spec", sleSeconds: 100 },
+        { key: "shipped", sleSeconds: 0 },
+      ],
+      cards: [
+        {
+          number: 10,
+          title: "A",
+          url: "https://x/10",
+          phase: "spec",
+          timeInPhaseSeconds: 50,
+          rework: { count: 2, threshold: 3 },
+          history: [
+            { label: "agent/reviewable-spec", action: "labeled", at: "t" },
+          ],
+        },
+      ],
+      lane: [
+        {
+          number: 20,
+          title: "B",
+          url: "https://x/20",
+          phase: "code",
+          timeInPhaseSeconds: 5,
+          escalation: "blocked",
+        },
+      ],
+      matrix: {
+        hubClusters: [
+          {
+            key: "env-a",
+            cluster: "cluster-a",
+            env: "prod",
+            currentVersion: "v2",
+          },
+        ],
+        rows: [
+          {
+            unreleased: true,
+            issues: [{ number: 99, title: "u", url: "https://x/99" }],
+          },
+          {
+            version: "v2",
+            digest: "d2",
+            date: "2026-09-01T00:00:00Z",
+            hubClusters: ["env-a"],
+            issues: [
+              {
+                number: 98,
+                title: "s",
+                url: "https://x/98",
+                mergedAt: "2026-08-01T00:00:00Z",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(data.phases).toHaveLength(2);
+    expect(data.cards[0]?.rework).toEqual({ count: 2, threshold: 3 });
+    expect(data.cards[0]?.history[0]?.label).toBe("agent/reviewable-spec");
+    expect(data.lane[0]?.escalation).toBe("blocked");
+    expect(data.matrix.hubClusters[0]?.currentVersion).toBe("v2");
+    expect(data.matrix.rows[0]?.unreleased).toBe(true);
+    expect(data.matrix.rows[1]?.hubClusters).toEqual(["env-a"]);
+    expect(data.matrix.rows[1]?.issues[0]?.mergedAt).toBe(
+      "2026-08-01T00:00:00Z",
+    );
+  });
+
+  it("degrades a partial/empty payload to an empty board, lane, and matrix", () => {
+    const data = mapSdlc({});
+    expect(data.phases).toEqual([]);
+    expect(data.cards).toEqual([]);
+    expect(data.lane).toEqual([]);
+    expect(data.matrix.hubClusters).toEqual([]);
+    expect(data.matrix.rows).toEqual([]);
+  });
+
+  it("defaults missing rework/escalation to null and history to []", () => {
+    const data = mapSdlc({
+      cards: [{ number: 1, title: "t", url: "u", phase: "workable" }],
+    });
+    expect(data.cards[0]?.rework).toBeNull();
+    expect(data.cards[0]?.escalation).toBeNull();
+    expect(data.cards[0]?.history).toEqual([]);
   });
 });

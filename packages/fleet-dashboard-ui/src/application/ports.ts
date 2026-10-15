@@ -2,6 +2,7 @@
 // implementations; the use cases below depend only on these interfaces so the
 // domain stays framework- and transport-free.
 
+import type { AgentSdlcData } from "../domain/agent-sdlc";
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
@@ -36,4 +37,5 @@ export interface FleetApi {
   getPromotion(signal?: AbortSignal): Promise<Plane<PromotionData>>;
   getTopology(signal?: AbortSignal): Promise<Plane<TopologyData>>;
   getInstances(signal?: AbortSignal): Promise<Plane<InstancesData>>;
+  getSdlc(signal?: AbortSignal): Promise<Plane<AgentSdlcData>>;
 }
