@@ -167,6 +167,8 @@ done
 
 vx()  { kube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true "$@"; }
 vxt() { kube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true VAULT_TOKEN="$1" "${@:2}"; }
+# Stdin variant (exec -i), for commands that read from stdin like `vault policy write - `.
+vxti() { kube -n "${VAULT_NS}" exec -i "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true VAULT_TOKEN="$1" "${@:2}"; }
 
 info "Waiting for the Vault API..."
 until vx vault status >/dev/null 2>&1 || [ "$?" -eq 2 ]; do sleep 3; done
@@ -208,7 +210,7 @@ printf '%s\n' \
   "}" \
   "path \"secret/metadata/openshell/{{identity.entity.aliases.${ACCESSOR}.metadata.service_account_namespace}}\" {" \
   "  capabilities = [\"list\"]" \
-  "}" | vxt "${ROOT_TOKEN}" vault policy write openshell-gateway-provider -
+  "}" | vxti "${ROOT_TOKEN}" vault policy write openshell-gateway-provider -
 
 vxt "${ROOT_TOKEN}" vault write "auth/kubernetes/role/${VAULT_ROLE}" \
   bound_service_account_names="openshell-gateway" \
