@@ -47,7 +47,7 @@ import {
 import { messages } from "../messages";
 import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
 import styles from "./gateway-create.module.css";
-import awsLogo from "../assets/aws-logo.svg";
+import awsLogoSvg from "../assets/aws-logo.svg?raw";
 import ibmCloudLogo from "../assets/ibm-cloud.svg";
 
 const placementReasonMessages = {
@@ -112,6 +112,10 @@ function placementResult(
       item.selector.every((label) => selector.includes(label)),
   );
 }
+const awsLogoThemedSvg = awsLogoSvg.replace(
+  "#252F3E",
+  "var(--aws-wordmark-color, #252F3E)",
+);
 
 function placementReasonKey(
   ...reasons: readonly (string | null | undefined)[]
@@ -149,6 +153,8 @@ function Choice({
   value,
   selected,
   icon,
+  iconDark,
+  iconSvg,
   iconPadding,
   isDisabled,
   name,
@@ -160,6 +166,8 @@ function Choice({
   value: string;
   selected?: boolean;
   icon?: string;
+  iconDark?: string;
+  iconSvg?: string;
   iconPadding?: string;
   isDisabled?: boolean;
   name: string;
@@ -208,14 +216,41 @@ function Choice({
           {descriptionLabel ? (
             <Label isCompact>{descriptionLabel}</Label>
           ) : null}
-          {icon ? (
+          {icon || iconSvg ? (
             <span className={styles.providerContent}>
-              <img
-                className={styles.providerLogo}
-                src={icon}
-                alt=""
-                style={iconPadding ? { padding: iconPadding } : undefined}
-              />
+              {icon ? (
+                <img
+                  className={[
+                    styles.providerLogo,
+                    value === "ibm" ? styles.providerLogoIbm : undefined,
+                    iconDark ? styles.providerLogoLight : undefined,
+                  ]
+                    .filter((className): className is string =>
+                      Boolean(className),
+                    )
+                    .join(" ")}
+                  src={icon}
+                  alt=""
+                  style={iconPadding ? { padding: iconPadding } : undefined}
+                />
+              ) : null}
+              {iconSvg ? (
+                <span
+                  className={[styles.providerLogo, styles.providerLogoSvg]
+                    .filter((className): className is string =>
+                      Boolean(className),
+                    )
+                    .join(" ")}
+                  dangerouslySetInnerHTML={{ __html: iconSvg }}
+                />
+              ) : iconDark ? (
+                <img
+                  className={styles.providerLogoDark}
+                  src={iconDark}
+                  alt=""
+                  style={iconPadding ? { padding: iconPadding } : undefined}
+                />
+              ) : null}
               <span>{description}</span>
             </span>
           ) : descriptionLabel ? (
@@ -491,6 +526,34 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
   });
   useEffect(() => {
     if (!availability.data || localKind) return;
+
+    const availableNetworks = [
+      awsPublic?.available || ibmPublic?.available ? "public" : null,
+      awsVpn?.available || ibmVpn?.available ? "vpn" : null,
+    ].filter((value): value is "public" | "vpn" => value !== null);
+    const defaultNetwork =
+      awsPublic?.available || ibmPublic?.available
+        ? "public"
+        : (availableNetworks[0] ?? null);
+
+    if (
+      defaultNetwork !== null &&
+      (network === null || !availableNetworks.includes(network))
+    ) {
+      setValue("network", defaultNetwork, { shouldValidate: true });
+    }
+  }, [
+    availability.data,
+    awsPublic?.available,
+    awsVpn?.available,
+    ibmPublic?.available,
+    ibmVpn?.available,
+    localKind,
+    network,
+    setValue,
+  ]);
+  useEffect(() => {
+    if (!availability.data || localKind) return;
     if (network === "vpn") {
       const availableProvider = ibmVpn?.available
         ? "ibm"
@@ -604,86 +667,91 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
               )}
             />
           ) : null}
-          <Controller
-            control={control}
-            name="network"
-            render={({ field, fieldState }) => (
-              <ChoiceGroup
-                id="network-access"
-                error={fieldState.error?.message}
-                label={intl.formatMessage(messages.networkAccess)}
-              >
-                <Choice
-                  name="placement"
-                  value="public"
-                  selected={!localKind && field.value === "public"}
-                  title={intl.formatMessage(messages.publicNetwork)}
-                  description={
-                    availability.data && !publicPlacementAvailable
-                      ? intl.formatMessage(messages.unavailableNetwork, {
-                          network: intl.formatMessage(messages.publicNetwork),
-                          reason: intl.formatMessage(
-                            placementReasonMessages[
-                              placementReasonKey(
-                                awsPublic?.reason,
-                                ibmPublic?.reason,
-                              )
-                            ],
-                          ),
-                        })
-                      : intl.formatMessage(messages.publicNetworkDescription)
-                  }
-                  isDisabled={!publicPlacementAvailable}
-                  onChoose={() => {
-                    setValue("localKind", false);
-                    field.onChange("public");
-                    setValue(
-                      "provider",
-                      ibmPublic?.available
-                        ? "ibm"
-                        : awsPublic?.available
-                          ? "aws"
-                          : null,
-                    );
-                  }}
-                />
-                <Choice
-                  name="placement"
-                  value="vpn"
-                  selected={!localKind && field.value === "vpn"}
-                  title={intl.formatMessage(messages.vpnNetwork)}
-                  descriptionLabel={intl.formatMessage(
-                    messages.vpnRequiresLabel,
-                  )}
-                  description={
-                    availability.data && !vpnPlacementAvailable
-                      ? intl.formatMessage(messages.unavailableNetwork, {
-                          network: intl.formatMessage(messages.vpnNetwork),
-                          reason: intl.formatMessage(
-                            placementReasonMessages[
-                              placementReasonKey(awsVpn?.reason, ibmVpn?.reason)
-                            ],
-                          ),
-                        })
-                      : intl.formatMessage(messages.vpnNetworkDescription)
-                  }
-                  isDisabled={!vpnPlacementAvailable}
-                  onChoose={() => {
-                    setValue("localKind", false);
-                    field.onChange("vpn");
-                    setValue(
-                      "provider",
-                      ibmVpn?.available
-                        ? "ibm"
-                        : awsVpn?.available
-                          ? "aws"
-                          : null,
-                    );
-                  }}
-                />
-              </ChoiceGroup>
-            )}
-          />
+          {!canUseLocalKind ? (
+            <Controller
+              control={control}
+              name="network"
+              render={({ field, fieldState }) => (
+                <ChoiceGroup
+                  id="network-access"
+                  error={fieldState.error?.message}
+                  label={intl.formatMessage(messages.networkAccess)}
+                >
+                  <Choice
+                    name="placement"
+                    value="public"
+                    selected={!localKind && field.value === "public"}
+                    title={intl.formatMessage(messages.publicNetwork)}
+                    description={
+                      availability.data && !publicPlacementAvailable
+                        ? intl.formatMessage(messages.unavailableNetwork, {
+                            network: intl.formatMessage(messages.publicNetwork),
+                            reason: intl.formatMessage(
+                              placementReasonMessages[
+                                placementReasonKey(
+                                  awsPublic?.reason,
+                                  ibmPublic?.reason,
+                                )
+                              ],
+                            ),
+                          })
+                        : intl.formatMessage(messages.publicNetworkDescription)
+                    }
+                    isDisabled={!publicPlacementAvailable}
+                    onChoose={() => {
+                      setValue("localKind", false);
+                      field.onChange("public");
+                      setValue(
+                        "provider",
+                        ibmPublic?.available
+                          ? "ibm"
+                          : awsPublic?.available
+                            ? "aws"
+                            : null,
+                      );
+                    }}
+                  />
+                  <Choice
+                    name="placement"
+                    value="vpn"
+                    selected={!localKind && field.value === "vpn"}
+                    title={intl.formatMessage(messages.vpnNetwork)}
+                    descriptionLabel={intl.formatMessage(
+                      messages.vpnRequiresLabel,
+                    )}
+                    description={
+                      availability.data && !vpnPlacementAvailable
+                        ? intl.formatMessage(messages.unavailableNetwork, {
+                            network: intl.formatMessage(messages.vpnNetwork),
+                            reason: intl.formatMessage(
+                              placementReasonMessages[
+                                placementReasonKey(
+                                  awsVpn?.reason,
+                                  ibmVpn?.reason,
+                                )
+                              ],
+                            ),
+                          })
+                        : intl.formatMessage(messages.vpnNetworkDescription)
+                    }
+                    isDisabled={!vpnPlacementAvailable}
+                    onChoose={() => {
+                      setValue("localKind", false);
+                      field.onChange("vpn");
+                      setValue(
+                        "provider",
+                        ibmVpn?.available
+                          ? "ibm"
+                          : awsVpn?.available
+                            ? "aws"
+                            : null,
+                      );
+                    }}
+                  />
+                </ChoiceGroup>
+              )}
+            />
+          ) : null}
           {network !== null ? (
             <Controller
               control={control}
@@ -718,7 +786,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                           })
                         : intl.formatMessage(messages.awsProviderDescription)
                     }
-                    icon={awsLogo}
+                    iconSvg={awsLogoThemedSvg}
                     iconPadding="0.5rem 0"
                     isDisabled={
                       availability.data

@@ -20,6 +20,8 @@
     "test:e2e": "playwright test",
     "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:live": "playwright test --config playwright.live.config.ts",
+    "test:e2e:console:live": "playwright test --config playwright.live.config.ts console.live.spec.ts",
+    "test:e2e:tracing:live": "playwright test --config playwright.live.config.ts tracing.live.spec.ts",
     "test:run": "vitest run --coverage",
     "typecheck": "react-router typegen && tsc --project tsconfig.app.json --noEmit && tsc --project tsconfig.test.json --noEmit && pnpm run typecheck:mockups",
     "typecheck:mockups": "tsc --project ../../specs/web-console/mockups/tsconfig.json --noEmit"

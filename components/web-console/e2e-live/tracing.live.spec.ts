@@ -8,6 +8,8 @@ import { expect, request as playwrightRequest, test } from "@playwright/test";
 
 const jaegerUrl =
   process.env.E2E_JAEGER_URL ?? "https://jaeger.hypershell.localhost";
+const consoleUrl =
+  process.env.E2E_CONSOLE_URL ?? "https://console.hypershell.localhost";
 const oidcUser = process.env.E2E_OIDC_USERNAME ?? "admin";
 const oidcPassword = process.env.E2E_OIDC_PASSWORD ?? "admin";
 
@@ -97,13 +99,15 @@ test("browser and BFF spans join one trace in Jaeger", async ({ page }) => {
   //    is a gateway "list" workflow, which drives an /api proxy call through the
   //    BFF and produces both a browser workflow span and a BFF server span.
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.fill("#username", oidcUser);
-  await page.fill("#password", oidcPassword);
+  await page.getByLabel(/username/iu).fill(oidcUser);
+  await page.getByLabel("Password", { exact: true }).fill(oidcPassword);
   await Promise.all([
-    page.waitForURL(/console\.hypershell\.localhost/u),
-    page.click("#kc-login, input[type=submit], button[type=submit]"),
+    page.waitForURL((url) => url.origin === new URL(consoleUrl).origin),
+    page.getByRole("button", { name: /sign in|log in/iu }).click(),
   ]);
-  await expect(page.locator("h1").first()).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "OpenShell Gateways" }),
+  ).toBeVisible();
 
   // 2. Exercise an explicit refresh to emit another list workflow, then let the
   //    batch span processor timer flush; closing the page fires the pagehide

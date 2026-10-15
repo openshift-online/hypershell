@@ -31,7 +31,7 @@ const (
 
 // step tags select which modes a step runs in.
 const (
-	tagShort = "short" // runs in short, long, and perf
+	tagShort = "short" // runs in short and long
 	tagLong  = "long"  // runs in long only
 )
 
@@ -72,6 +72,9 @@ type E2ESuite struct {
 	// primaryGatewayToken is the per-gateway admin token acquired in P1.3 for the
 	// CLI steps (P1.4/P1.5).
 	primaryGatewayToken driver.Token
+	// serviceAccounts is set only for E2E_GATEWAY_AUTH=service_account runs and is
+	// shared with per-step clones.
+	serviceAccounts *gatewayServiceAccountStore
 	// primaryLocalName is the CLI's local handle for the primary gateway.
 	primaryLocalName string
 	gateways         *gatewayTracker
@@ -128,7 +131,14 @@ func (s *E2ESuite) SetupSuite() {
 		s.runID = s.runID + "-" + s.nameSuffix
 	}
 
+	gatewayAuth, err := resolveGatewayAuth(os.Getenv(envGatewayAuth), s.mode)
+	s.Require().NoError(err, "invalid gateway authentication mode")
+
 	s.T().Logf("e2e mode=%s concurrency=%d driver=%s runID=%s", s.mode, s.concurrency, s.driver.Name(), s.runID)
+	if gatewayAuth == gatewayAuthServiceAccount {
+		s.serviceAccounts = newGatewayServiceAccountStore(gatewayOIDCIssuer(), s.runID)
+		s.T().Logf("gateway auth=%s: gateway service accounts; no token exchange, impersonation, platform:admin, or Keycloak admin credentials", gatewayAuth)
+	}
 
 	var apiHost string
 	var tok driver.Token
@@ -204,6 +214,15 @@ func (s *E2ESuite) TearDownSuite() {
 			}
 		}
 	}
+	// Gateway service accounts are credentials, not resources kept for inspection:
+	// they are revoked and deleted, and their local secrets removed, even with
+	// E2E_SKIP_CLEANUP=1. This runs before the gateways are deleted because the
+	// service-account API lives under the gateway.
+	var saClient gatewayServiceAccountClient
+	if cleanupAPI != nil {
+		saClient = cleanupAPI.OpenShellGatewayServiceAccounts()
+	}
+	s.cleanupGatewayServiceAccounts(ctx, saClient)
 	if cleanupAPI != nil && os.Getenv("E2E_SKIP_CLEANUP") != "1" {
 		g, ctx := errgroup.WithContext(ctx)
 		g.SetLimit(max(1, s.concurrency))
@@ -391,6 +410,7 @@ func (s *E2ESuite) cloneForStep(t *testing.T) *E2ESuite {
 		primary:             s.primary,
 		primaryGatewayToken: s.primaryGatewayToken,
 		primaryLocalName:    s.primaryLocalName,
+		serviceAccounts:     s.serviceAccounts,
 		gateways:            s.gateways,
 		cliCache:            s.cliCache,
 		orphan:              s.orphan,
@@ -426,6 +446,21 @@ func (s *E2ESuite) modeAllows(tag string) bool {
 	}
 	// long-tagged steps run only in long mode.
 	return s.mode == modeLong
+}
+
+// longOnly runs a long-only sub-check of a short-tagged step as a named subtest.
+// Outside long mode the subtest is skipped rather than silently passed, so the
+// report shows which deep checks a short run did not exercise. A failure inside
+// fn fails the subtest and its parent step.
+func (s *E2ESuite) longOnly(check string, fn func(t *testing.T)) {
+	s.Run(check, func() {
+		t := s.T()
+		if !s.modeAllows(tagLong) {
+			t.Skipf("%s is long-only; mode is %s", check, s.mode)
+			return
+		}
+		fn(t)
+	})
 }
 
 func validE2EMode(mode string) bool {

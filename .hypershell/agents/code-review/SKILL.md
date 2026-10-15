@@ -60,8 +60,21 @@ _Note: If a label does not exist, create it._
 
 Apply `$VERDICT` label to `$GITHUB_ISSUE_URL`.
 
+**Always post the review as a comment on `$GITHUB_ISSUE_URL`, for BOTH an
+approved and a rejected verdict.** An approved review MUST NOT be silent: the
+record of the review must be visible. Write the comment in
+[simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English).
+The comment MUST state:
+- The verdict (`$VERDICT`).
+- A substantive rationale: the strengths of the implementation, how it meets the
+  intent in `$ISSUE_CONTENTS`, and any non-blocking observations.
+- For a rejected verdict, the blocking reasons (`$REJECTION_RATIONALE`), with
+  inline code review comments where they apply.
+
 IF `$VERDICT` == `agent/review-code-approved`:
 - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
+- Post the review comment described above, stating the strengths and any
+  non-blocking observations.
 - The PR is ready to merge. A human must perform the merge.
 
 IF `$VERDICT` == `agent/review-code-rejected`:
@@ -78,5 +91,5 @@ IF `$VERDICT` == `agent/review-code-rejected`:
   - STOP.
 - Otherwise:
   - Remove label `agent/reviewable-code` from `$GITHUB_ISSUE_URL`.
-  - Add a comment to `$GITHUB_ISSUE_URL` communicating `$REJECTION_RATIONALE` that
-    adheres to the [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English) standard.
+  - Post the review comment described above, communicating `$REJECTION_RATIONALE`,
+    that adheres to the [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English) standard.

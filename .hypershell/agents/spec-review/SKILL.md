@@ -48,8 +48,21 @@ _Note: Create `$REVIEW_VERDICT` label if not exist._
 
 Place label `$REVIEW_VERDICT` on `$GITHUB_ISSUE_URL` and `$GITHUB_PR_URL`
 
+**Always post the review as a comment on `$GITHUB_PR_URL`, for BOTH an approved
+and a rejected verdict.** An approved review MUST NOT be silent: the record of
+the review must be visible on the pull request. Write the comment in
+[simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English).
+The comment MUST state:
+- The verdict (`$REVIEW_VERDICT`).
+- A substantive rationale: the strengths of the specification, how it meets the
+  intent in `$GITHUB_ISSUE_URL`, and any non-blocking observations.
+- For a rejected verdict, the blocking reasons, with inline code review comments
+  where they apply.
+
 IF `$REVIEW_VERDICT` == `agent/review-spec-approved`:
 - Remove label `agent/reviewable-spec` from `$GITHUB_ISSUE_URL`.
+- Post the review comment described above, stating the strengths and any
+  non-blocking observations.
 
 IF `$REVIEW_VERDICT` == `agent/review-spec-rejected`:
 - Count prior spec rejections: fetch the issue event timeline. Count how many times
@@ -65,4 +78,6 @@ IF `$REVIEW_VERDICT` == `agent/review-spec-rejected`:
   - STOP.
 - Otherwise:
   - Remove label `agent/reviewable-spec` from `$GITHUB_ISSUE_URL`.
-  - Write rejection rationale as a comment on the PR. Use [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English), and inline code review comments if applicable.
+  - Post the review comment described above with the rejection rationale. Use
+    [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English),
+    and inline code review comments if applicable.

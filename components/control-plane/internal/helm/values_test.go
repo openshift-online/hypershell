@@ -369,7 +369,7 @@ func TestBuild_SandboxRuntimeClassRendersInChart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helm template: %v\n%s", err, out)
 	}
-	want := `default_runtime_class_name   = "kata"`
+	want := `default_runtime_class_name = "kata"`
 	if !strings.Contains(string(out), want) {
 		t.Errorf("rendered chart does not contain %q", want)
 	}
@@ -416,7 +416,7 @@ func TestBuild_SandboxRuntimeImageRendersInChart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helm template: %v\n%s", err, out)
 	}
-	want := `sandbox_runtime_image        = "quay.io/test/sandbox:v1"`
+	want := `sandbox_runtime_image = "quay.io/test/sandbox:v1"`
 	if !strings.Contains(string(out), want) {
 		t.Errorf("rendered chart does not carry the sandbox runtime pin %q", want)
 	}

@@ -47,3 +47,23 @@ func TestUsesGatewayMatchedCLIImage(t *testing.T) {
 		})
 	}
 }
+
+func TestLongOnlyRunsOnlyInLongMode(t *testing.T) {
+	for _, tt := range []struct {
+		mode    string
+		wantRan bool
+	}{
+		{mode: modeShort, wantRan: false},
+		{mode: modeLong, wantRan: true},
+	} {
+		t.Run(tt.mode, func(t *testing.T) {
+			s := &E2ESuite{mode: tt.mode}
+			s.SetT(t)
+			ran := false
+			s.longOnly("deep-check", func(*testing.T) { ran = true })
+			if ran != tt.wantRan {
+				t.Errorf("longOnly ran = %t in %s mode, want %t", ran, tt.mode, tt.wantRan)
+			}
+		})
+	}
+}

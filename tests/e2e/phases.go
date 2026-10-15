@@ -65,8 +65,9 @@ func (s *E2ESuite) discoverSeedIDs(ctx context.Context) (clusterID string, err e
 // --- Phase P0: preflight gate ---
 
 // p0_1Authentication asserts the OIDC-authenticated API path: an unauthenticated
-// call is 401, the admin token is accepted, the BFF OIDC endpoints honor their
-// contract, and the control plane has no Unauthenticated gRPC errors.
+// call is 401 and the admin token is accepted. Long mode also checks that the BFF
+// OIDC endpoints honor their contract and the control plane has no
+// Unauthenticated gRPC errors.
 func (s *E2ESuite) p0_1Authentication(t *testing.T) {
 	// Unauthenticated API request is rejected with 401.
 	s.runner.Comment("curl -s -o /dev/null -w '%%{http_code}' %s/api/hypershell/v1/gateways  # expect 401", s.apiHost)
@@ -79,16 +80,19 @@ func (s *E2ESuite) p0_1Authentication(t *testing.T) {
 	_, err = s.admin.Gateways().List(t.Context(), nil)
 	s.Require().NoError(err, "authenticated API call must succeed")
 
-	// BFF OIDC endpoints.
-	consoleHost, err := s.driver.DiscoverConsoleHost(t.Context())
-	s.Require().NoError(err, "discover console host")
-	s.assertBFFSession(consoleHost)
-	s.assertBFFLogin(t, consoleHost)
+	s.longOnly("bff-oidc-contract", func(t *testing.T) {
+		consoleHost, err := s.driver.DiscoverConsoleHost(t.Context())
+		s.Require().NoError(err, "discover console host")
+		s.assertBFFSession(consoleHost)
+		s.assertBFFLogin(t, consoleHost)
+	})
 
-	// Control plane gRPC watch has no Unauthenticated errors.
-	if !s.skipKubeChecks {
+	s.longOnly("controller-grpc-auth", func(t *testing.T) {
+		if s.skipKubeChecks {
+			t.Skip("no per-cluster kube context; skipping controller log check")
+		}
 		s.assertNoUnauthenticatedControllerLogs(t)
-	}
+	})
 }
 
 func (s *E2ESuite) assertBFFSession(consoleHost string) {
@@ -128,9 +132,14 @@ func (s *E2ESuite) assertNoUnauthenticatedControllerLogs(t *testing.T) {
 	s.Assert().NotContains(logs, "Unauthenticated", "control plane gRPC watch must have no Unauthenticated errors since the run started")
 }
 
-// p0_2EnvironmentReadiness asserts the platform dependencies are healthy and the
-// seed ids resolved (done in SetupSuite).
+// p0_2EnvironmentReadiness asserts the seed ids resolved (done in SetupSuite).
+// Long mode also asserts the platform dependencies are healthy.
 func (s *E2ESuite) p0_2EnvironmentReadiness(t *testing.T) {
+	s.Assert().NotEmpty(s.clusterID, "seeded cluster id")
+	s.longOnly("platform-dependencies", s.assertPlatformDependencies)
+}
+
+func (s *E2ESuite) assertPlatformDependencies(t *testing.T) {
 	if s.skipKubeChecks {
 		t.Skip("no per-cluster kube context; skipping Kubernetes readiness checks")
 	}
@@ -158,8 +167,6 @@ func (s *E2ESuite) p0_2EnvironmentReadiness(t *testing.T) {
 		}
 		s.Assert().Equalf(desired, deployment.Status.AvailableReplicas, "platform Deployment %s is available", name)
 	}
-
-	s.Assert().NotEmpty(s.clusterID, "seeded cluster id")
 }
 
 // --- Phase P1: primary gateway up and reachable ---
@@ -203,20 +210,12 @@ func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	ns := s.primary.Namespace
 	s.Require().NotEmpty(ns, "primary gateway namespace")
 
-	// TLS is provisioned by cert-manager Certificates (openshell-gateway-server),
-	// not a certgen Job; the populated server-TLS secret is the Certificate's
-	// output and the evidence the issuance succeeded. (Divergence from the spec's
-	// "certgen job" wording, which predates the cert-manager implementation.)
 	var readyReplicas int32
 	var clusterIP string
-	var tlsCert, tlsKey []byte
-	var databaseSecret map[string][]byte
-	var managedNetworkPolicies int
-	var caReady, serverReady bool
-	g, ctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(s.concurrency)
 	g.Go(func() error {
-		dep, err := s.clients.Kube.AppsV1().Deployments(ns).Get(ctx, "openshell-gateway", metav1.GetOptions{})
+		dep, err := s.clients.Kube.AppsV1().Deployments(ns).Get(gctx, "openshell-gateway", metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("get gateway deployment: %w", err)
 		}
@@ -224,13 +223,35 @@ func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 		return nil
 	})
 	g.Go(func() error {
-		svc, err := s.clients.Kube.CoreV1().Services(ns).Get(ctx, "openshell-gateway", metav1.GetOptions{})
+		svc, err := s.clients.Kube.CoreV1().Services(ns).Get(gctx, "openshell-gateway", metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("get gateway service: %w", err)
 		}
 		clusterIP = svc.Spec.ClusterIP
 		return nil
 	})
+	s.Require().NoError(g.Wait(), "parallel gateway workload verification")
+	s.Assert().GreaterOrEqual(int(readyReplicas), 1, "gateway deployment ready replicas")
+	s.Assert().NotEmpty(clusterIP, "gateway service ClusterIP")
+
+	s.longOnly("tls-database-config", func(t *testing.T) {
+		s.assertGatewayInfraDetails(t, ns)
+	})
+}
+
+// assertGatewayInfraDetails checks the gateway's TLS, database credentials,
+// config, and NetworkPolicy posture.
+//
+// TLS is provisioned by cert-manager Certificates (openshell-gateway-server),
+// not a certgen Job; the populated server-TLS secret is the Certificate's
+// output and the evidence the issuance succeeded.
+func (s *E2ESuite) assertGatewayInfraDetails(t *testing.T, ns string) {
+	var tlsCert, tlsKey []byte
+	var databaseSecret map[string][]byte
+	var managedNetworkPolicies int
+	var caReady, serverReady bool
+	g, ctx := errgroup.WithContext(t.Context())
+	g.SetLimit(s.concurrency)
 	g.Go(func() error {
 		secret, err := s.clients.Kube.CoreV1().Secrets(ns).Get(ctx, "openshell-server-tls", metav1.GetOptions{})
 		if err != nil {
@@ -277,8 +298,6 @@ func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 		return nil
 	})
 	s.Require().NoError(g.Wait(), "parallel gateway infrastructure verification")
-	s.Assert().GreaterOrEqual(int(readyReplicas), 1, "gateway deployment ready replicas")
-	s.Assert().NotEmpty(clusterIP, "gateway service ClusterIP")
 	s.Assert().NotEmpty(tlsCert, "server TLS cert populated")
 	s.Assert().NotEmpty(tlsKey, "server TLS key populated")
 	s.Require().NoError(validateGatewayDatabaseSecret(databaseSecret), "gateway database TLS credentials")
@@ -332,14 +351,21 @@ func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
 	// The per-gateway Keycloak client is "<gw-name>-<gw-id>"; block until the
 	// admin role lands in a token for it (roles reconcile asynchronously).
 	clientID := fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID)
-	s.runner.Comment("acquire per-gateway token for client %s with role openshell-admin", clientID)
-	tok, err := s.driver.AcquireGatewayTokenWithRole(t.Context(), s.adminCreds(), clientID, "openshell-admin")
+	if s.usesGatewayServiceAccount() {
+		s.runner.Comment("create a gateway service account for client %s and mint its client_credentials token (no token exchange)", clientID)
+	} else {
+		s.runner.Comment("acquire per-gateway token for client %s with role openshell-admin", clientID)
+	}
+	tok, err := s.gatewayToken(t.Context(), s.primary)
 	s.Require().NoError(err, "acquire gateway token with openshell-admin role")
 	s.Require().NotEmpty(tok.AccessToken, "gateway token")
 	s.primaryGatewayToken = tok
-	if s.mode == modeLong && s.driver.Name() == "kind" {
+	s.longOnly("device-authorization", func(t *testing.T) {
+		if s.driver.Name() != "kind" {
+			t.Skipf("device authorization check runs on kind only; driver is %s", s.driver.Name())
+		}
 		s.Require().NoError(s.driver.ValidateGatewayDeviceAuthorization(t.Context(), clientID), "per-gateway OAuth device authorization with PKCE")
-	}
+	})
 	// CA trust is already installed process-wide for the SDK (no insecure bypass);
 	// the CLI consumes the same CA via SSL_CERT_FILE in P1.4/P1.5.
 }
@@ -387,8 +413,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	endpoint, err := s.driver.DiscoverGatewayEndpoint(ctx, ref)
 	s.Require().NoError(err, "discover sandbox gateway endpoint")
 
-	clientID := fmt.Sprintf("%s-%s", ref.Name, ref.ID)
-	tok, err := s.driver.AcquireGatewayTokenWithRole(ctx, s.adminCreds(), clientID, "openshell-admin")
+	tok, err := s.gatewayToken(ctx, ref)
 	s.Require().NoError(err, "sandbox gateway admin token")
 	local := s.registerGateway(t, ref, endpoint, tok.AccessToken)
 	s.cliStatusConnected(t, local, durationSecondsEnv("E2E_CONNECT_TIMEOUT", 90*time.Second))
@@ -398,7 +423,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	// the full run id (which carries a cluster suffix under the matrix runner).
 	name := fmt.Sprintf("sb-%06d", time.Now().UnixNano()%1000000)
 	names := []string{name}
-	if s.mode == modeLong {
+	if s.modeAllows(tagLong) {
 		names = append(names, fmt.Sprintf("sb-%06d", (time.Now().UnixNano()+1)%1000000))
 	}
 	// `sandbox create` streams while the sandbox image pulls and can return a stream
@@ -430,15 +455,15 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "uname", "-a")
 	s.Require().NoError(err, "sandbox exec uname -a")
 	s.Assert().NotEmpty(strings.TrimSpace(stripANSI(out)), "uname output")
-	if s.mode == modeLong {
-		out, err = s.cli(t, local, "sandbox", "exec", "-n", name, "--", "ls", "-la", "/workspace")
+	s.longOnly("workspace-listing", func(t *testing.T) {
+		out, err := s.cli(t, local, "sandbox", "exec", "-n", name, "--", "ls", "-la", "/workspace")
 		if err != nil && strings.Contains(out, "No such file or directory") {
 			t.Log("sandbox image has no /workspace directory; using its default working directory")
 		} else {
 			s.Require().NoError(err, "sandbox workspace listing")
 			s.Assert().NotEmpty(strings.TrimSpace(stripANSI(out)), "workspace listing")
 		}
-	}
+	})
 
 	// Long mode proves concurrent increments are not lost (0 -> 2) and concurrent
 	// decrements converge cleanly (2 -> 0). Short mode retains the single-sandbox
@@ -446,6 +471,10 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	s.pollActiveSandboxCount(t, gw.ID, int32(len(names)))
 	s.runSandboxCLIConcurrently(t, local, "delete", names)
 	s.pollActiveSandboxCount(t, gw.ID, 0)
+
+	// The CLI is done with this gateway: retire its service account (a no-op in
+	// identity mode).
+	s.retireGatewayServiceAccount(ref)
 }
 
 func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string, names []string) {
@@ -546,6 +575,10 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	}
 	ctx := t.Context()
 
+	// The primary gateway's CLI steps (P1.4/P1.5) are finished, so its service
+	// account is revoked, verified, and deleted here (a no-op in identity mode).
+	s.retireGatewayServiceAccount(s.primary)
+
 	// Delete-driven reap: create an own gateway, delete it, assert its namespace GCs.
 	gw := s.createGateway(t, "e2e-del-"+s.runID)
 	ns := s.waitGatewayNamespace(t, gw.ID)
@@ -578,20 +611,18 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 	}), "deleted gateway API record reaches 404")
 	s.Require().NoError(s.waitNamespaceGone(ctx, ns, durationSecondsEnv("E2E_GC_TIMEOUT", 180*time.Second)), "managed namespace garbage-collected after delete")
 
-	if s.mode != modeLong {
-		return
-	}
-
 	// Periodic-reaper path: P1.1 seeded the orphan and started this wait in the
 	// background, overlapping it with P1.2-P1.5 and the P2 fan-out.
-	s.Require().NotNil(s.orphan, "background orphan reaper was started")
-	select {
-	case err := <-s.orphan.done:
-		s.Require().NoError(err, "orphan namespace reaped by the periodic GC")
-	case <-ctx.Done():
-		s.Require().NoError(ctx.Err(), "wait for background orphan reaper")
-	}
-	s.assertGarbageCollectedEvent(t, s.orphan.name)
+	s.longOnly("orphan-reaper", func(t *testing.T) {
+		s.Require().NotNil(s.orphan, "background orphan reaper was started")
+		select {
+		case err := <-s.orphan.done:
+			s.Require().NoError(err, "orphan namespace reaped by the periodic GC")
+		case <-t.Context().Done():
+			s.Require().NoError(t.Context().Err(), "wait for background orphan reaper")
+		}
+		s.assertGarbageCollectedEvent(t, s.orphan.name)
+	})
 }
 
 // p2_4ManagedClusterLifecycle validates ManagedCluster registration and the
@@ -1091,7 +1122,7 @@ func (s *E2ESuite) seedOrphanNamespace(t *testing.T) string {
 // gateway gate passes and waits for its deletion in the background. P2.3 joins
 // the buffered result, so the periodic sweep interval is off the critical path.
 func (s *E2ESuite) startOrphanReaper(t *testing.T) {
-	if s.mode != modeLong || s.orphan != nil {
+	if !s.modeAllows(tagLong) || s.orphan != nil {
 		return
 	}
 	name := s.seedOrphanNamespace(t)

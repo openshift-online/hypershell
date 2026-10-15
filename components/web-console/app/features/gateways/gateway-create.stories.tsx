@@ -34,6 +34,30 @@ const localDevelopmentAvailability: GatewayPlacementAvailability = {
   })),
 } as const;
 
+const vpnUnavailableAvailability: GatewayPlacementAvailability = {
+  localKind: false,
+  placements: [
+    {
+      available: true,
+      selector: ["network/public", "provider/aws"],
+    },
+    {
+      available: false,
+      reason: "no-eligible-cluster",
+      selector: ["network/vpn", "provider/aws"],
+    },
+    {
+      available: true,
+      selector: ["network/public", "provider/ibm"],
+    },
+    {
+      available: false,
+      reason: "no-eligible-cluster",
+      selector: ["network/vpn", "provider/ibm"],
+    },
+  ],
+} as const;
+
 const previewGateway: GatewayRecord = {
   clusterId: "preview-cluster",
   id: "preview-gateway",
@@ -71,7 +95,7 @@ function GatewayCreatePreview({
 }
 
 const meta = {
-  title: "HyperShell/Gateways/Create gateway",
+  title: "Production/Gateways/Create gateway",
   component: GatewayCreatePage,
   parameters: {
     layout: "fullscreen",
@@ -82,7 +106,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const ManagedPlacementsAvailable: Story = {
+export const Default: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
@@ -122,5 +146,24 @@ export const LocalDevelopmentOnly: Story = {
       canvas.queryByRole("radio", { name: "Amazon Web Services" }),
     ).toBeNull();
     await expect(canvas.queryByRole("radio", { name: "IBM Cloud" })).toBeNull();
+  },
+};
+
+export const VpnUnavailable: Story = {
+  render: () => (
+    <GatewayCreatePreview availability={vpnUnavailableAvailability} />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const publicNetwork = canvas.getByRole("radio", { name: "Public" });
+    const vpnNetwork = canvas.getByRole("radio", { name: "VPN" });
+
+    await expect(publicNetwork).toBeEnabled();
+    await expect(vpnNetwork).toBeDisabled();
+    await expect(
+      canvas.getByText(
+        "VPN is unavailable: no eligible managed cluster is connected.",
+      ),
+    ).toBeVisible();
   },
 };

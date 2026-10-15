@@ -21,11 +21,32 @@ if [[ -z "${CONTAINER_ENGINE:-}" ]]; then
   fi
 fi
 
-# Kind's self-signed CA is not in the system trust store. Instruct the
-# openshell CLI to skip TLS verification for gateway connections. curl already
-# uses -sk (insecure) for all driver requests; this extends the same treatment
-# to the openshell binary.
-export OPENSHELL_GATEWAY_INSECURE=true
+# _kind_configure_tls - make the openshell CLI verify Kind's TLS certificates.
+# Kind's cert-manager CA (hypershell-ca-secret) is not in the system trust
+# store; it signs both *.gw.localhost (gateway) and *.hypershell.localhost
+# (Keycloak). SSL_CERT_FILE replaces the default trust store, so the bundle is
+# the system roots plus the Kind CA: public endpoints keep verifying too. The
+# container wrapper (scripts/kind/openshell-container.sh) mounts this file.
+# A caller-provided SSL_CERT_FILE is honored as is.
+_kind_configure_tls() {
+  [[ -n "${SSL_CERT_FILE:-}" ]] && return 0
+  local ca bundle system_ca
+  ca=$(kubectl get secret hypershell-ca-secret -n "${E2E_HS_NAMESPACE:-hypershell-system}" \
+    -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  if [[ "$ca" != *"BEGIN CERTIFICATE"* ]]; then
+    red "ERROR: could not read ca.crt from Secret ${E2E_HS_NAMESPACE:-hypershell-system}/hypershell-ca-secret (is the cluster up?)"
+    return 1
+  fi
+  bundle="$(mktemp "${TMPDIR:-/tmp}/hypershell-e2e-kind-ca.XXXXXX")"
+  for system_ca in /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+    if [[ -s "$system_ca" ]]; then
+      cat "$system_ca" >"$bundle"
+      break
+    fi
+  done
+  printf '%s\n' "$ca" >>"$bundle"
+  export SSL_CERT_FILE="$bundle"
+}
 
 # _kind_host_is_dual_stack - true when ::1 is a usable local address, i.e. the
 # host has IPv6 loopback and *.gw.localhost will resolve dual-stack. Binding to
@@ -82,6 +103,12 @@ if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]] \
   # gateway endpoint must target :443 rather than the host-published ephemeral
   # port that discover_gateway_endpoint would otherwise bake into metadata.json.
   : "${_KINDCCM_GW_PORT:=443}"
+fi
+
+# Guarded like the wrapper block: the OpenShift driver sources this file and
+# configures its own trust (E2E_OPENSHIFT_CA_SECRET).
+if [[ "${E2E_INFRA_DRIVER:-}" == "kind" ]]; then
+  _kind_configure_tls || exit 1
 fi
 
 # Force IPv4 and remap *.hypershell.localhost:443 to the cloud-provider-kind

@@ -128,7 +128,8 @@ cd components/cli && go test ./...             # CLI unit tests
 # All Components
 make ci-test                                   # Run all *_test.sh shell unit tests
 make unit-test-all                             # Run Go, frontend, and shell unit tests
-make e2e-console                               # Browser e2e of web console + OpenShell console (agent-browser; needs port 443 from make kind-up)
+make e2e-console                               # Playwright e2e of web console + OpenShell console (needs port 443 from make kind-up)
+pnpm test:e2e:all                              # Bring up Kind with Jaeger and run all three browser e2e suites
 make build-all                                 # Build all container images
 pnpm --filter @openshift-online/hypershell-gateway-management-ui check  # Verify reusable gateway UI
 pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check  # Verify operational dashboard UI
@@ -159,7 +160,7 @@ Cross-cutting rules that apply across ALL components.
 - **PatternFly 6 for web UI**: Reuse PatternFly and canonical shared components; do not create duplicate UI components
 - **Narrow hexagonal UI boundary**: Put application workflows and external effects behind application-owned ports; keep React, TanStack Query, Fastify, generated SDKs, and infrastructure outside
 - **Domain probes for UI observability**: Publish typed workflow and dependency facts through a fan-out port; no raw console or direct telemetry calls in production browser/BFF code
-- **No em dashes**: Use hyphens (`-`) instead of em dashes (`—` U+2014) in all text files; the pre-commit hook rejects them
+- **No em dashes**: Use ASCII hyphens (`-`) in all text files; the pre-commit hook rejects U+2014
 
 Component-specific conventions:
 - Control Plane: [conventions](specs/standards/control-plane/conventions.spec.md)

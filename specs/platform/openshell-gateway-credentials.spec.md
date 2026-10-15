@@ -647,7 +647,7 @@ is the only API-level input, and for the default Vault case it need not be set a
 kind: Gateway
 name: openshell-gateway
 project: tenant-a
-image: quay.io/opendatahub/odh-openshell-gateway:v0.1.2-rhaiv.7@sha256:3d1a91222f402567662178944640985dbb1ae4958c8c8c0096d3bbd2eb7c2c16
+image: quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:e59fea2fc97144ed2f402af69be73c6dbbf9a76739f042e86c2237f65852284e
 serverDnsNames:
   - openshell-gateway.tenant-a.svc.cluster.local
 # credential_driver omitted -> Vault, convention-addressed

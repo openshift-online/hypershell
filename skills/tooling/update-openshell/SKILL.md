@@ -142,6 +142,12 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `specs/platform/openshell-gateway-database.spec.md` | none since the 2026-09-16 rewrite (no gateway image refs remain) | Keep in the discovery grep; historically **was pinned to a git SHA, not a semver tag** |
 | `scripts/kind/lib.sh` | `GATEWAY_IMAGE` default | Local Kind |
 | `skills/deploy/ibm-cluster/SKILL.md` | mirror + `openshell gateway add` commands + `v1beta1` API-version note | ROKS mirror docs |
+| `skills/deploy/gcp-cluster/SKILL.md` | gateway image in the example REST calls | Pin, not a fixture |
+| `skills/deploy/deploy-cluster/SKILL.md` | gateway and supervisor image examples | Pin |
+| `deploy/{ibm,kind,openshift,gitops/platform}/kustomization.yaml` | `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` `gateway-version/<TAG>` label | Run `make sync-openshell-version` (the script stamps these and `controller.yaml`); do not hand-edit |
+| `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`openshell-gateway`, `openshell-supervisor`, `openshell-sandbox-runtime`) | Pin; grep after the bump |
+| `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
+| `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
 
 **Do NOT change** version strings that are illustrative fixtures or historical
 facts rather than the active pin:
@@ -151,6 +157,14 @@ facts rather than the active pin:
 - the sentence in `specs/platform/openshell-gateway-credentials.spec.md` that says
   "Upstream OpenShell **v0.0.101 introduced** pluggable credential storage
   drivers" - this records *which* release added a feature and must not be bumped.
+- `gateway-version/<TAG>` examples and version strings in
+  `specs/web-console/gateway-version-visibility.spec.md`,
+  `specs/web-console/gateway-provision-placement.spec.md`,
+  `specs/platform/managed-cluster-registration.spec.md`, and the
+  `packages/` and `components/web-console/` test fixtures - these are
+  illustrative values, not pins.
+- the arbitrary tag strings in `scripts/test_sync_openshell_version.py` and
+  the capability fixtures in `components/api-server/plugins/` tests.
 
 If unsure whether an occurrence is a pin or a fixture, treat it as a pin and note
 the ambiguity in the [Learnings log](#learnings-log).
@@ -418,6 +432,38 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.3-rhaiv.3 (2026-10-15, v0.1.2-rhaiv.7 -> v0.1.3-rhaiv.3, no-arg run = latest stable):**
+  Pins and chart bumped. Tests pass (`go build/vet/test`, `make check`). Live e2e NOT run.
+  - **Step 0:** no human version direction on any open `needs-decision` issue. Issue #366's
+    latest non-bot comment ("Reopening...") names no version, so it was skipped as malformed.
+  - **Makefile bug (fixed):** `vendor-openshell-chart` used `sed -i` without a suffix. BSD sed
+    (macOS) fails, so the em-dash strip step never ran and the echo was skipped. Now uses
+    `perl -pi`, which works on both macOS and Linux.
+  - **Digests:** `skopeo inspect` fails on macOS unless you pass `--override-os linux --override-arch amd64`.
+    Simpler: read the index digest from the Quay tag API
+    (`https://quay.io/api/v1/repository/opendatahub/odh-openshell-<name>/tag/?specificTag=<TAG>`,
+    field `manifest_digest`). Index digests match the footprint format.
+  - **Helm test drift:** the new chart renders TOML as `key = value` (one space, no alignment).
+    Two assertions in `components/control-plane/internal/helm/values_test.go` were updated.
+    The values paths (`server.defaultRuntimeClassName`, `sandboxRuntime.image.*`) still work.
+  - **RBAC:** the chart's new grants (namespaces, tokenreviews, nodes, runtimeclasses,
+    priorityclasses, pods, events, services, networkpolicies, secrets, serviceaccounts, PVCs)
+    are all already in `controller-rbac.yaml`. No RBAC change was needed.
+  - **Console image unchanged:** no `.proto` file changed upstream, so the console digest stays.
+  - **Sandbox API:** `agents.x-k8s.io/v1beta1` is still primary in the chart. `v1alpha1` is
+    only a preflight fallback. The `v1beta1` note in the specs still holds.
+  - **Footprint gap:** `make sync-openshell-version` covers `controller.yaml` and the
+    capability labels in four overlays. `tests/e2e/cli_test.go`, `gcp-cluster/SKILL.md`, and
+    the ROKS mirror lines were not in the old table. They were added.
+  - **Needs-decision (not adopted, verify live before deploy):**
+    1. Upstream separated sandbox identity from TLS (NVIDIA #3110). Check that sandbox
+       client TLS (`openshell-client-tls`, see `console.go`) still works on a live cluster.
+    2. Supervisor readiness probe moved from `exec` to `tcpSocket:5501` (NVIDIA #3700).
+       Check that the sandbox NetworkPolicy does not block kubelet on 5501.
+    3. New opt-in gateway OCSF JSONL output (`ocsfLog.enabled: false` by default). Not adopted.
+    4. `fix(cli)!` changes CLI upload behavior. This is client-side only, but the e2e must run.
+    5. Live validation is still needed (Kind or ROKS e2e). Unit tests cannot prove the sandbox path.
 
 - **v0.1.2-rhaiv.7 (2026-10-08, v0.1.2-rhaiv.0 -> v0.1.2-rhaiv.7, user-directed):**
   Clean mechanical bump. NVIDIA v0.1.2 release notes cover only docs, supervisor network fix,

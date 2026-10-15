@@ -230,6 +230,23 @@ func accessListContains(items []sdktypes.GatewayAccessListItem, username string)
 }
 
 func requestClientCredentialsToken(ctx context.Context, credential sdktypes.OpenShellGatewayServiceAccountCredential) (string, int, error) {
+	result, err := postClientCredentials(ctx, http.DefaultClient, credential)
+	return result.AccessToken, result.Status, err
+}
+
+// tokenEndpointResult is the outcome of one client-credentials request. A refusal
+// from the token endpoint is a result, not an error: Status and OAuthError (the
+// OAuth "error" code, never the request) say why. An error is returned only for
+// transport failures and unreadable successful responses.
+type tokenEndpointResult struct {
+	Status      int
+	AccessToken string
+	OAuthError  string
+}
+
+// postClientCredentials posts the gateway service-account client_credentials
+// grant to credential.TokenEndpoint using client.
+func postClientCredentials(ctx context.Context, client *http.Client, credential sdktypes.OpenShellGatewayServiceAccountCredential) (tokenEndpointResult, error) {
 	form := url.Values{
 		"grant_type":    {credential.GrantType},
 		"client_id":     {credential.ClientID},
@@ -237,31 +254,38 @@ func requestClientCredentialsToken(ctx context.Context, credential sdktypes.Open
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, credential.TokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", 0, fmt.Errorf("build gateway service-account token request: %w", err)
+		return tokenEndpointResult{}, fmt.Errorf("build gateway service-account token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("gateway service-account token request: %w", err)
+		return tokenEndpointResult{}, fmt.Errorf("gateway service-account token request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", resp.StatusCode, fmt.Errorf("read gateway service-account token response: %w", err)
+		return tokenEndpointResult{Status: resp.StatusCode}, fmt.Errorf("read gateway service-account token response: %w", err)
 	}
+	result := tokenEndpointResult{Status: resp.StatusCode}
 	if resp.StatusCode != http.StatusOK {
-		return "", resp.StatusCode, nil
+		var failure struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(body, &failure) // best effort: a refusal need not carry JSON
+		result.OAuthError = failure.Error
+		return result, nil
 	}
 	var response struct {
 		AccessToken string `json:"access_token"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return "", resp.StatusCode, fmt.Errorf("decode gateway service-account token response: %w", err)
+		return result, fmt.Errorf("decode gateway service-account token response: %w", err)
 	}
 	if response.AccessToken == "" {
-		return "", resp.StatusCode, fmt.Errorf("token response has no access_token")
+		return result, fmt.Errorf("token response has no access_token")
 	}
-	return response.AccessToken, resp.StatusCode, nil
+	result.AccessToken = response.AccessToken
+	return result, nil
 }
 
 func decodeJWTClaims(token string) (map[string]any, error) {
