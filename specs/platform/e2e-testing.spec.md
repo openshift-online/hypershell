@@ -548,7 +548,7 @@ The functional suite SHALL exploit the following parallelization levers, all bou
 
 5. **Intra-step fan-out.** Within a step, independent client-go/API checks SHALL use an `errgroup`: P1.2's resource gets (Deployment, Service, TLS Secret, certgen Job, NetworkPolicy) SHALL be fetched concurrently; P2.1's multiple sandboxes SHALL act on their independent targets concurrently.
 
-6. **Background orphan reaper.** The periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
+6. **Background orphan reaper.** In long mode, the periodic-reaper wait for P2.3 SHALL proceed in a background goroutine seeded right after P1.1 (bound to the suite context) while P2 runs, so the suite never blocks on the sweep interval; P2.3 SHALL join that goroutine to assert the reap.
 
 The performance harness and the matrix runner are the two widest fan-outs (see [Gateway Fleet Scale-Up](#requirement-gateway-fleet-scale-up) and [Managed-Cluster Matrix Runner](#requirement-managed-cluster-matrix-runner)): the harness creates, waits for, and tears down gateways concurrently within each batch, and the matrix runs one `E2ESuite` per cluster concurrently -- both bounded by `E2E_CONCURRENCY`, replacing the Bash suites' process-global counters and per-cluster child processes.
 
@@ -659,14 +659,14 @@ The ordering principle is: cheap preconditions that gate everything run first an
 
 - **P2.1 Sandbox lifecycle and interaction** -- create a sandbox as admin, wait for the pod `Running`, exec in it (`uname -a`, `ls /workspace`), stop then delete it (`sandbox stop` shuts the sandbox down in order; a bare delete waits out the pod termination grace period), and verify the gateway's `active_sandbox_count` tracks create/delete (see Active Sandbox Count Accounting). Owns its own gateway so the count assertion is isolated.
 - **P2.2 RBAC enforcement** -- the developer (`openshell-user`) tier MAY create a sandbox but MAY NOT create a gateway, and the platform-admin tier has the elevated permissions the developer is denied including gateway delete (see Developer RBAC Enforcement). Each identity owns its own gateway.
-- **P2.3 Gateway deletion + namespace GC** -- both GC paths from `openshell-gateway-namespace-gc.spec.md`: delete-driven reap of the gateway's managed namespace, and the periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event for a synthetic orphan namespace seeded right after P1.1 (its reaper runs in the background throughout P2; see Gateway Deletion and Namespace GC).
+- **P2.3 Gateway deletion + namespace GC** -- long-mode qualification of both GC paths from `openshell-gateway-namespace-gc.spec.md`: delete-driven reap of the gateway's managed namespace, and the periodic `NamespaceGCReconciler` reap + `GarbageCollected` Event for a synthetic orphan namespace seeded right after P1.1 (its reaper runs in the background throughout long-mode P2; see Gateway Deletion and Namespace GC).
 - **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an empty/unregistered `cluster_id`; under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus connect-time snapshot, disconnect/reconnect convergence, and rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane Reconnect and Identity Rejection Coverage).
 
 **Phase P3 -- Read-only verification** (parallel, non-gating, runs last):
 
 - **P3.1 Admin inventory + API validation** -- the admin-only `/v1/users` boundary (non-admin `403`, singleton Get an opaque `404`) and rejection of an unknown gateway phase write (see Admin Inventory and API Validation Coverage).
 
-Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, the sandbox step (P2.1) and the delete-driven half of P2.3 are `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.4 is long-only. P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
+Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth. In P2, only the sandbox step (P2.1) is `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.3 and P2.4 are long-only. P3 is long-only. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
 
 **Old area -> new phase step** (for traceability against the former 14-area numbering and the in-flight `e2e-feature-coverage.spec.md`):
 
@@ -833,7 +833,7 @@ the gateway prefix, annotate it with a
 backdated `hypershell.redhat.io/gc-eligible-since` timestamp so the next sweep can
 reap without waiting a full grace period. The P2 steps SHALL run while the periodic
 reaper may delete that namespace in the background, so the suite is not blocked
-waiting on the sweep interval. In P2.3 the suite SHALL validate delete-driven
+waiting on the sweep interval. In long-mode P2.3 the suite SHALL validate delete-driven
 gateway namespace GC first, then assert the orphan namespace was reaped and a
 `GarbageCollected` Event exists in the control-plane namespace
 (`E2E_HS_NAMESPACE`, default `hypershell-system`) with `involvedObject.name`
@@ -1923,7 +1923,7 @@ The e2e suite SHALL support three run depths: `long`, `short`, and `perf`. The u
 
 When `E2E_MODE` is unset or `long`, the suite SHALL run every step, so the CI e2e job and the final run of the performance harness are unchanged. At `short` depth (or the harness-set `perf` depth), the suite SHALL run only the `short`-tagged steps, in the suite's normal order, and SHALL `t.Skip` the long-only steps (a skip, never a silent pass; see [Three-Outcome Reporting](#requirement-three-outcome-reporting)). The suite SHALL fail fast (`t.Fatal`, non-zero `go test` exit) in `SetupSuite` if `E2E_MODE` is set to any value other than `short` or `long`. Depth tagging SHALL be expressed in Go (a step helper that takes the minimum depth and calls `t.Skip` when the active depth is lower), so all depths run the same assertion code; there SHALL be no second copy of any check.
 
-`short` is the canonical quick check. It owns the gateway it creates and SHALL tear it fully down at the end (the same delete-driven namespace-GC path a long run uses for its own gateway), leaving nothing behind. `short` is therefore a self-contained, non-destructive full-lifecycle check -- create, run, interact, delete -- safe to run repeatedly against a live or shared environment: a post-rollout promotion gate, synthetic monitoring, or a post-deploy sanity check.
+`short` is the canonical quick check. It owns the gateway it creates and its cleanup SHALL delete that gateway on every exit, leaving no API resource behind. It intentionally does not wait for or assert controller-driven namespace garbage collection: that timing-sensitive infrastructure qualification belongs to long mode. `short` therefore validates the API, gateway, and sandbox lifecycle without making a shared-environment promotion gate depend on namespace-GC timing.
 
 `short` additionally runs as a single identity: it SHALL NOT impersonate other users (token-exchange with `requested_subject`), so it SHALL skip the developer-RBAC check of P2.2, which mints a token for a second principal. This keeps the check minimal-privilege -- its OIDC client needs only `gateway:creator` and `hypershell-users`, not `platform:admin`, an impersonation policy, or Keycloak administrator access -- so it is safe as a live-environment promotion gate. By default (`E2E_GATEWAY_AUTH=identity`) the per-gateway token is a same-subject token exchange onto the per-gateway audience when `E2E_OIDC_GRANT=client_credentials`, which also requires the client to hold exchange rights. With `E2E_GATEWAY_AUTH=service_account` the per-gateway token comes from a short-lived gateway service account and no exchange happens, so exchange rights are not needed; this is the minimal-privilege path for unattended gates (see [Gateway Service-Account Authentication](#requirement-gateway-service-account-authentication)). The suite SHALL express this through a mode predicate (`E2ESuite.multiIdentity()`, the Go form of the former `e2e_multi_identity`), false for `short` and true for `perf` and `long`; any step that acts as a principal other than the run's own identity SHALL gate on it and `t.Skip` when it is false. The platform-admin check of P2.2 is long-only and so is already skipped in `short`.
 
@@ -1942,22 +1942,15 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 | P1.5 Connectivity | one route reachability check | n/a |
 | P2.1 Sandbox lifecycle + interaction | one sandbox create -> ready -> exec (`uname -a`) -> delete, `active_sandbox_count` 1 then 0; with `E2E_GATEWAY_AUTH=service_account`, also revoke, verify, and delete the sandbox gateway's service account | second concurrent sandbox to assert the count increments; remaining exec commands (`ls /workspace`) |
 | P2.2 RBAC enforcement | short: skipped (single-identity). perf: one boundary assertion (developer 403 on gateway create) | full developer membership + allowed-action matrix; full platform-admin matrix including gateway deletion |
-| P2.3 Deletion + namespace GC | short: delete-driven GC of the run's own gateway; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account. perf: delete-driven GC with a bounded wait, on a throwaway gateway (not the reused canary) | periodic-reaper orphan GC over the full timeout window; delete-driven GC of the run's own gateway |
+| P2.3 Deletion + namespace GC | skipped | delete-driven GC of the run's own gateway and periodic-reaper orphan GC over the full timeout window; with `E2E_GATEWAY_AUTH=service_account`, first revoke, verify, and delete the primary gateway's service account |
 | P2.4 ManagedCluster + control-plane lifecycle | skipped (mutates fleet records; acts as a second identity) | registration assertions; second-cluster placement + reconnect/identity under `E2E_MULTICLUSTER=1` |
 | P2.5 Gateway access management | skipped (acts as several secondary user identities) | owner/admin/viewer access grants and the gateway user directory, on the Kind password-grant environment |
 | P2.6 Gateway service accounts | skipped | create, use, revoke, and delete a gateway service account |
 | P3.1 Admin inventory + API validation | skipped | `/v1/users` admin-only boundary; unknown-phase rejection |
 
-`short` mode SHALL own the gateway it provisions: it SHALL delete that gateway at the end and assert its namespace is garbage collected (the same delete-driven GC path P2.3 runs for a long run's own gateway), and its cleanup path SHALL also delete the gateway on any exit, so a short run leaves nothing behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace (that periodic-reaper assertion is long-only) and SHALL NOT mutate shared controller state (namespace-GC timing is adjusted only for long runs). The platform-admin gateway-deletion check of P2.2 SHALL NOT run in short or perf mode; P2.3's own-gateway deletion, being the assertion itself, SHALL run in short and long but not perf.
+`short` mode SHALL own the gateway it provisions and its cleanup path SHALL delete that gateway on any exit, so a short run leaves no gateway behind. Short mode SHALL NOT seed or wait on the synthetic orphan namespace, wait for a managed namespace to be garbage collected, or mutate shared controller state (namespace-GC timing is adjusted only for long runs). The platform-admin gateway-deletion check of P2.2 and P2.3's namespace-GC qualification SHALL NOT run in short or perf mode.
 
-`perf` depth SHALL follow the reuse-or-create pattern the harness relies on: when the harness supplies an existing canary gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated perf-depth runs). This governs the two checks that would otherwise tear a gateway down: the platform-admin gateway-deletion check of P2.2 SHALL NOT run at short or perf depth, and P2.3 SHALL, at perf depth, exercise delete-driven GC against a throwaway gateway it creates, never against the supplied canary. Creating that throwaway gateway SHALL reuse the seeded `cluster_id`. The suite SHALL take the cluster id from the harness-supplied config when the performance harness provides it in-process, from the reused gateway's JSON when that gateway already exists, or by discovering it from the API when it is missing.
-
-#### Scenario: Perf Depth Throwaway Uses Seed Ids
-
-- GIVEN the performance harness runs `E2ESuite` at perf depth with a reused canary gateway
-- WHEN the suite creates the namespace-GC throwaway gateway
-- THEN it SHALL POST that gateway with the seeded cluster id
-- AND it SHALL NOT fail with an unknown seed id when the parent forwarded that id or the reused gateway JSON contains it
+`perf` depth SHALL follow the reuse-or-create pattern the harness relies on: when the harness supplies an existing canary gateway it SHALL reuse that gateway rather than provision a new one, and it SHALL NOT delete it at the end (so a reused canary survives repeated perf-depth runs). The platform-admin gateway-deletion check of P2.2 and the namespace-GC qualification of P2.3 SHALL NOT run at perf depth, so a performance checkpoint never deletes a canary or waits for namespace GC.
 
 #### Scenario: Long Mode by Default
 
@@ -1971,8 +1964,8 @@ Short mode SHALL stay fast enough to run after every scale-up batch. The table b
 - WHEN the e2e suite runs
 - THEN it SHALL run the `short`-tagged checks of every phase and skip the `long`-only checks (for example the second sandbox and the full RBAC matrix)
 - AND it SHALL skip the developer-RBAC check of P2.2, running as a single identity without impersonation
-- AND it SHALL delete the gateway it created and assert its namespace is garbage collected
-- AND it SHALL NOT seed the synthetic orphan namespace or mutate shared namespace-GC timing
+- AND its cleanup SHALL delete the gateway it created without waiting for namespace GC
+- AND it SHALL skip P2.3, not seed the synthetic orphan namespace, and not mutate shared namespace-GC timing
 - AND it SHALL leave no gateway behind on any exit
 
 #### Scenario: Perf Depth Runs the Short Slice Against a Reused Canary
@@ -2011,7 +2004,7 @@ The suite SHALL handle the credential as follows:
 - `TearDownSuite` SHALL retire every account still live, and SHALL remove the credential directory and the CLI token files on every path, including a failed step and `E2E_SKIP_CLEANUP=1`. `E2E_SKIP_CLEANUP=1` keeps gateways for inspection; it SHALL NOT keep credentials. Teardown SHALL run before the gateways are deleted, because the service-account API is addressed through the gateway.
 - A failed create SHALL NOT be retried automatically, because the request may have succeeded and a retry would orphan an account.
 
-Steps that need a second principal need no special handling in this mode, because they are already long-only and short mode runs none of them: P2.2 (developer and platform-admin RBAC), P2.4, P2.5, P2.6 (which exercises the same API as a long-mode feature check), P3.1, and the device-authorization sub-check of P1.3. The short steps (P0.1, P0.2, P1.1 to P1.5, P2.1, P2.3) act only as the management identity and the gateway service accounts.
+Steps that need a second principal need no special handling in this mode, because they are already long-only and short mode runs none of them: P2.2 (developer and platform-admin RBAC), P2.3, P2.4, P2.5, P2.6 (which exercises the same API as a long-mode feature check), P3.1, and the device-authorization sub-check of P1.3. The short steps (P0.1, P0.2, P1.1 to P1.5, P2.1) act only as the management identity and the gateway service accounts.
 
 The OIDC client that authenticates the management identity SHALL need only the realm roles `gateway:creator` and `hypershell-users`. It SHALL NOT need token-exchange rights (`standard.token.exchange.enabled` MAY be `false`), `platform:admin`, an impersonation policy, or access to the Keycloak admin API. Long mode, the Kind driver's behavior, the pull-request OpenShift path (`hypershell-e2e` with `client_credentials` and exchange), and the `identity` default SHALL be unchanged.
 
