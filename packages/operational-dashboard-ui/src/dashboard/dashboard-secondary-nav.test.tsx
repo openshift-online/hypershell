@@ -77,6 +77,17 @@ describe("DashboardSecondaryNav", () => {
     ).toBeNull();
   });
 
+  it("marks Usage as active and makes it available to non-admins", () => {
+    renderNav("usage", false);
+
+    const usage = screen.getByRole("link", { name: "Usage" });
+
+    expect(usage.getAttribute("href")).toBe("/dashboard/usage");
+    expect(usage.getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Overview" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Reliability" })).toBeNull();
+  });
+
   it("navigates through the host navigation port", () => {
     const { navigate } = renderNav("operational");
 
@@ -91,7 +102,7 @@ describe("DashboardSecondaryNav", () => {
     expect(screen.getByRole("link", { name: "Overview" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Adoption" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Reliability" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Usage" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Usage" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Cost" })).toBeNull();
   });
 });

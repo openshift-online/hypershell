@@ -10,6 +10,9 @@ import type {
   DashboardMetricSourceId,
   OperationalDashboardMetrics,
   OperationalMetric,
+  UsageDashboardMetrics,
+  UsageMetric,
+  UsageMetricSourceId,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
 import {
@@ -101,6 +104,36 @@ interface GatewaySandboxesResponse {
   idle_sandboxes?: number;
   daily_active_sandboxes?: { count: number; date: string }[];
   hourly_active_sandboxes?: { count: number; hour: string }[];
+}
+
+interface UsageGatewayMetricsResponse {
+  active_gateways?: number;
+  coverage_end?: string;
+  coverage_start?: string;
+  daily_request_error_rate_percent?: DailyTrendPoint[];
+  daily_request_volume?: DailyTrendPoint[];
+  request_error_rate_percent?: number;
+  request_volume?: number;
+  total_gateways?: number;
+  unused_gateways?: number;
+}
+
+interface UsageSandboxMetricsResponse {
+  active_sandboxes?: number;
+  coverage_end?: string;
+  coverage_start?: string;
+  daily_utilization_percent?: DailyTrendPoint[];
+  sandbox_utilization_percent?: number;
+  total_sandboxes?: number;
+}
+
+interface UsageSandboxLifetimeResponse {
+  coverage_end?: string;
+  coverage_start?: string;
+  daily_mean_seconds?: DailyTrendPoint[];
+  mean_seconds?: number;
+  p50_seconds?: number;
+  p95_seconds?: number;
 }
 
 interface RegisteredUsersDailyLogin {
@@ -758,6 +791,178 @@ async function fetchControlPlaneReconciliationMetrics(
   );
 }
 
+function usageNumber(
+  value: number | undefined,
+  source: UsageMetricSourceId,
+  field: string,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid ${source} response field: ${field}`);
+  }
+  return value;
+}
+
+function usageTrend(points: readonly DailyTrendPoint[] | undefined) {
+  if (points === undefined) {
+    return undefined;
+  }
+  return {
+    points: points.map((point) => ({
+      label: point.date,
+      value: point.value,
+    })),
+  };
+}
+
+function mapUsageGatewayMetricsResponse(body: unknown): UsageMetric[] {
+  const response = body as UsageGatewayMetricsResponse;
+  const metrics: UsageMetric[] = [];
+  const requestVolume = usageNumber(
+    response.request_volume,
+    "usage-gateways",
+    "request_volume",
+  );
+  if (requestVolume !== undefined) {
+    metrics.push({
+      id: "gateway-request-volume",
+      trend: usageTrend(response.daily_request_volume),
+      value: String(requestVolume),
+    });
+  }
+
+  const errorRate = usageNumber(
+    response.request_error_rate_percent,
+    "usage-gateways",
+    "request_error_rate_percent",
+  );
+  if (errorRate !== undefined) {
+    metrics.push({
+      id: "gateway-error-rate",
+      trend: usageTrend(response.daily_request_error_rate_percent),
+      value: String(errorRate),
+    });
+  }
+
+  const activeGateways = usageNumber(
+    response.active_gateways,
+    "usage-gateways",
+    "active_gateways",
+  );
+  if (activeGateways !== undefined) {
+    const metric: UsageMetric = {
+      id: "active-gateways",
+      value: String(activeGateways),
+    };
+    const totalGateways = usageNumber(
+      response.total_gateways,
+      "usage-gateways",
+      "total_gateways",
+    );
+    if (totalGateways !== undefined) {
+      metric.total = String(totalGateways);
+      if (totalGateways > 0) {
+        metric.activeSharePercent = String(
+          (activeGateways / totalGateways) * 100,
+        );
+      }
+    }
+    metrics.push(metric);
+  }
+
+  const unusedGateways = usageNumber(
+    response.unused_gateways,
+    "usage-gateways",
+    "unused_gateways",
+  );
+  if (unusedGateways !== undefined) {
+    metrics.push({ id: "unused-gateways", value: String(unusedGateways) });
+  }
+
+  return metrics;
+}
+
+function mapUsageSandboxMetricsResponse(body: unknown): UsageMetric[] {
+  const response = body as UsageSandboxMetricsResponse;
+  const utilization = usageNumber(
+    response.sandbox_utilization_percent,
+    "usage-sandboxes",
+    "sandbox_utilization_percent",
+  );
+  if (utilization === undefined) {
+    return [];
+  }
+
+  const metric: UsageMetric = {
+    id: "sandbox-utilization",
+    trend: usageTrend(response.daily_utilization_percent),
+    value: String(utilization),
+  };
+  const total = usageNumber(
+    response.total_sandboxes,
+    "usage-sandboxes",
+    "total_sandboxes",
+  );
+  if (total !== undefined) {
+    metric.total = String(total);
+  }
+  return [metric];
+}
+
+function mapUsageSandboxLifetimeResponse(body: unknown): UsageMetric[] {
+  const response = body as UsageSandboxLifetimeResponse;
+  const mean = usageNumber(
+    response.mean_seconds,
+    "usage-sandbox-lifetime",
+    "mean_seconds",
+  );
+  const p50 = usageNumber(
+    response.p50_seconds,
+    "usage-sandbox-lifetime",
+    "p50_seconds",
+  );
+  const p95 = usageNumber(
+    response.p95_seconds,
+    "usage-sandbox-lifetime",
+    "p95_seconds",
+  );
+  if (mean === undefined && p50 === undefined && p95 === undefined) {
+    return [];
+  }
+
+  return [
+    {
+      id: "sandbox-lifetime",
+      sandboxLifetime: {
+        ...(mean !== undefined ? { mean: String(mean) } : {}),
+        ...(p50 !== undefined ? { p50: String(p50) } : {}),
+        ...(p95 !== undefined ? { p95: String(p95) } : {}),
+      },
+      trend: usageTrend(response.daily_mean_seconds),
+      value: mean === undefined ? "NaN" : String(mean),
+    },
+  ];
+}
+
+async function fetchUsageMetricsSource(
+  context: DashboardInvocationContext,
+  path: string,
+  mapper: (body: unknown) => UsageMetric[],
+): Promise<UsageMetric[]> {
+  const response = await fetch(clusterMetricPath(path, context.timeRange), {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch usage metrics: ${String(response.status)}`,
+    );
+  }
+  return mapper(await response.json());
+}
+
 interface MetricSourceDefinition {
   fetch: (
     context: DashboardInvocationContext,
@@ -909,6 +1114,74 @@ export function createDashboardControlPlaneAdapter(
           metrics: [],
         };
       }
+    },
+
+    async getUsageMetrics(
+      context: DashboardInvocationContext,
+    ): Promise<UsageDashboardMetrics> {
+      context.signal?.throwIfAborted();
+
+      const sources = [
+        {
+          fetch: () =>
+            fetchUsageMetricsSource(
+              context,
+              "/api/metrics/usage/gateways",
+              mapUsageGatewayMetricsResponse,
+            ),
+          id: "usage-gateways",
+        },
+        {
+          fetch: () =>
+            fetchUsageMetricsSource(
+              context,
+              "/api/metrics/usage/sandboxes",
+              mapUsageSandboxMetricsResponse,
+            ),
+          id: "usage-sandboxes",
+        },
+        {
+          fetch: () =>
+            fetchUsageMetricsSource(
+              context,
+              "/api/metrics/usage/sandbox-lifetime",
+              mapUsageSandboxLifetimeResponse,
+            ),
+          id: "usage-sandbox-lifetime",
+        },
+      ] as const;
+
+      const settled = await Promise.allSettled(
+        sources.map((source) => source.fetch()),
+      );
+      const metrics: UsageMetric[] = [];
+      const failedSources: UsageMetricSourceId[] = [];
+
+      for (const [index, result] of settled.entries()) {
+        const source = sources[index];
+        if (source === undefined) {
+          continue;
+        }
+        if (result.status === "fulfilled") {
+          metrics.push(...result.value);
+          continue;
+        }
+        if (isAbortError(result.reason)) {
+          throw result.reason;
+        }
+        failedSources.push(source.id);
+      }
+
+      if (failedSources.length === sources.length) {
+        throw new Error("All usage dashboard metric sources failed");
+      }
+
+      return {
+        ...(failedSources.length > 0 ? { failedSources } : {}),
+        lastSuccessfulRefresh: new Date(),
+        metrics,
+        timeRange: context.timeRange ?? 7,
+      };
     },
   };
 }

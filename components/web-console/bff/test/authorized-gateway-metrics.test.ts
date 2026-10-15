@@ -39,9 +39,21 @@ describe("queryAuthorizedGatewayMetrics", () => {
       response.end(
         JSON.stringify({
           items: [
-            { active_sandbox_count: 2, phase: "Running" },
-            { active_sandbox_count: 1, phase: "Running" },
-            { active_sandbox_count: 0, phase: "Failed" },
+            {
+              active_sandbox_count: 2,
+              namespace: "openshell-gateway-1",
+              phase: "Running",
+            },
+            {
+              active_sandbox_count: 1,
+              namespace: "openshell-gateway-1",
+              phase: "Running",
+            },
+            {
+              active_sandbox_count: 0,
+              namespace: "openshell-gateway-2",
+              phase: "Failed",
+            },
           ],
           page: 1,
           total: 3,
@@ -61,6 +73,7 @@ describe("queryAuthorizedGatewayMetrics", () => {
           Provisioning: 0,
           Running: 2,
         },
+        namespaces: ["openshell-gateway-1", "openshell-gateway-2"],
         total: 3,
       });
     } finally {

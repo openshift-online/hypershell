@@ -9,6 +9,7 @@ const gatewayPhases = [
 
 interface AuthorizedGateway {
   active_sandbox_count: number;
+  namespace: string;
   phase: string;
 }
 
@@ -21,6 +22,13 @@ interface AuthorizedGatewayList {
 export interface AuthorizedGatewayMetrics {
   activeSandboxes: number;
   counts: Record<string, number>;
+  total: number;
+}
+
+export interface AuthorizedGatewayInventory {
+  activeSandboxes: number;
+  counts: Record<string, number>;
+  namespaces: string[];
   total: number;
 }
 
@@ -46,14 +54,14 @@ function validateListPage(
   }
 }
 
-export async function queryAuthorizedGatewayMetrics(
+export async function queryAuthorizedGatewayInventory(
   apiOrigin: string,
   accessToken: string | undefined,
   timeoutMs: number,
-): Promise<AuthorizedGatewayMetrics> {
+): Promise<AuthorizedGatewayInventory> {
   const counts = emptyGatewayCounts();
   let activeSandboxes = 0;
-  let listedGateways = 0;
+  const namespaces = new Set<string>();
   let total = 0;
   let page = 1;
 
@@ -79,16 +87,34 @@ export async function queryAuthorizedGatewayMetrics(
       const phase = gateway.phase || "other";
       counts[phase] = (counts[phase] ?? 0) + 1;
       activeSandboxes += gateway.active_sandbox_count;
-      listedGateways += 1;
+      namespaces.add(gateway.namespace);
     }
 
     total = body.total;
     page += 1;
   } while ((page - 1) * gatewayListPageSize < total);
 
-  if (listedGateways !== total) {
+  if (namespaces.size > total) {
     throw new Error("Authorized gateway list response was inconsistent");
   }
 
-  return { activeSandboxes, counts, total };
+  return {
+    activeSandboxes,
+    counts,
+    namespaces: [...namespaces].sort(),
+    total,
+  };
+}
+
+export async function queryAuthorizedGatewayMetrics(
+  apiOrigin: string,
+  accessToken: string | undefined,
+  timeoutMs: number,
+): Promise<AuthorizedGatewayMetrics> {
+  const inventory = await queryAuthorizedGatewayInventory(
+    apiOrigin,
+    accessToken,
+    timeoutMs,
+  );
+  return inventory;
 }

@@ -200,3 +200,27 @@ export function namespaceSelector(
   }
   return `{${label}=${JSON.stringify(namespace)}}`;
 }
+
+export function namespaceSetSelector(
+  namespaces?: readonly string[],
+  label = "namespace",
+): string {
+  if (namespaces === undefined) {
+    return "";
+  }
+
+  for (const namespace of namespaces) {
+    if (
+      !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/u.test(namespace) ||
+      namespace.length > 63
+    ) {
+      throw new Error("Invalid metrics namespace");
+    }
+  }
+
+  if (namespaces.length === 0) {
+    return `{${label}=""}`;
+  }
+
+  return `{${label}=~${JSON.stringify(namespaces.join("|"))}}`;
+}

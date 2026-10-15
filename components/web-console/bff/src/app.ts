@@ -19,6 +19,7 @@ import {
   persistTokenSet,
   registerAuth,
 } from "./auth.js";
+import { queryAuthorizedGatewayInventory } from "./authorized-gateway-metrics.js";
 import { hasDashboardAdminRole } from "./roles.js";
 import {
   browserRuntimeConfig,
@@ -36,6 +37,9 @@ import { queryClusterMemory } from "./metrics-cluster-memory.js";
 import { queryGatewayProvisionDuration } from "./metrics-gateway-provision-duration.js";
 import { queryGatewayProvisionOutcomes } from "./metrics-gateway-provision-outcomes.js";
 import { queryGatewaySandboxes } from "./metrics-gateway-sandboxes.js";
+import { queryUsageGatewayMetrics } from "./metrics-usage-gateways.js";
+import { queryUsageSandboxLifetime } from "./metrics-usage-sandbox-lifetime.js";
+import { queryUsageSandboxMetrics } from "./metrics-usage-sandboxes.js";
 import { queryPlatformInventory } from "./metrics-platform-inventory.js";
 import { queryRegisteredUsers } from "./metrics-registered-users.js";
 import { queryClusterPods } from "./metrics-cluster-pods.js";
@@ -83,6 +87,7 @@ function isApplicationRoute(pathname: string): boolean {
     pathname === "/dashboard/provisioning" ||
     pathname === "/dashboard/inventory" ||
     pathname === "/dashboard/reliability" ||
+    pathname === "/dashboard/usage" ||
     pathname === "/login" ||
     pathname === "/gateways/new" ||
     pathname === "/metrics" ||
@@ -614,6 +619,128 @@ export async function buildApp(
         );
       } catch (error) {
         request.log.warn({ err: error }, "gateway metrics query failed");
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  const nonAdminUsageScope = async (
+    request: FastifyRequest,
+  ): Promise<{
+    activeSandboxes: number;
+    namespaces: readonly string[];
+    totalGateways: number;
+  }> => {
+    const inventory = await queryAuthorizedGatewayInventory(
+      config.apiOrigin,
+      request.session.get("accessToken"),
+      config.apiTimeoutMs,
+    );
+    return {
+      activeSandboxes: inventory.activeSandboxes,
+      namespaces: inventory.namespaces,
+      totalGateways: inventory.total,
+    };
+  };
+
+  app.get(
+    "/api/metrics/usage/gateways",
+    { preHandler: requireOperationalMetricsAccess },
+    async (request, reply) => {
+      try {
+        const range = dashboardRange(request);
+        if (
+          config.oidcIssuer &&
+          !hasDashboardAdminRole(request.session.get("roles") ?? [])
+        ) {
+          const scope = await nonAdminUsageScope(request);
+          return await queryUsageGatewayMetrics(
+            config.prometheusUrl,
+            config.prometheusQueryTimeoutMs,
+            range,
+            {
+              currentGatewayCount: scope.totalGateways,
+              currentGatewayNamespaces: scope.namespaces,
+              namespaces: scope.namespaces,
+            },
+          );
+        }
+        return await queryUsageGatewayMetrics(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          range,
+        );
+      } catch (error) {
+        request.log.warn({ err: error }, "usage gateway metrics query failed");
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/usage/sandboxes",
+    { preHandler: requireOperationalMetricsAccess },
+    async (request, reply) => {
+      try {
+        const range = dashboardRange(request);
+        if (
+          config.oidcIssuer &&
+          !hasDashboardAdminRole(request.session.get("roles") ?? [])
+        ) {
+          const scope = await nonAdminUsageScope(request);
+          return await queryUsageSandboxMetrics(
+            config.prometheusUrl,
+            config.prometheusQueryTimeoutMs,
+            range,
+            {
+              activeSandboxes: scope.activeSandboxes,
+              namespaces: scope.namespaces,
+            },
+          );
+        }
+        return await queryUsageSandboxMetrics(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          range,
+        );
+      } catch (error) {
+        request.log.warn({ err: error }, "usage sandbox metrics query failed");
+        reply.code(502);
+        return { error: "Metrics unavailable", statusCode: 502 };
+      }
+    },
+  );
+
+  app.get(
+    "/api/metrics/usage/sandbox-lifetime",
+    { preHandler: requireOperationalMetricsAccess },
+    async (request, reply) => {
+      try {
+        const range = dashboardRange(request);
+        if (
+          config.oidcIssuer &&
+          !hasDashboardAdminRole(request.session.get("roles") ?? [])
+        ) {
+          const scope = await nonAdminUsageScope(request);
+          return await queryUsageSandboxLifetime(
+            config.prometheusUrl,
+            config.prometheusQueryTimeoutMs,
+            range,
+            scope.namespaces,
+          );
+        }
+        return await queryUsageSandboxLifetime(
+          config.prometheusUrl,
+          config.prometheusQueryTimeoutMs,
+          range,
+        );
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "usage sandbox lifetime metrics query failed",
+        );
         reply.code(502);
         return { error: "Metrics unavailable", statusCode: 502 };
       }

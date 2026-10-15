@@ -57,10 +57,20 @@ func FindSandboxForPod(pod *corev1.Pod, sandboxes SandboxLookup) *unstructured.U
 func ObservationFromPod(pod *corev1.Pod, sandbox *unstructured.Unstructured) SandboxObservation {
 	obs := SandboxObservation{
 		Namespace:    pod.Namespace,
+		Name:         pod.Name,
 		Active:       IsActiveSandboxPod(pod),
 		CreationTime: pod.CreationTimestamp.Time,
 	}
+	for _, ref := range pod.OwnerReferences {
+		if ref.Kind == "Sandbox" && ref.Name != "" {
+			obs.Name = ref.Name
+			break
+		}
+	}
 	if sandbox != nil {
+		if name := sandbox.GetName(); name != "" {
+			obs.Name = name
+		}
 		if created := sandbox.GetCreationTimestamp(); !created.IsZero() {
 			obs.CreationTime = created.Time
 		}
@@ -122,6 +132,64 @@ func BuildAttentionObservations(
 		out = append(out, ObservationFromPod(pod, sb))
 	}
 	return out
+}
+
+// ProvisionedSandboxCounts returns the number of Sandbox custom resources in
+// each eligible namespace, including namespaces with zero sandboxes.
+func ProvisionedSandboxCounts(
+	sandboxes []*unstructured.Unstructured,
+	eligibleNamespaces map[string]struct{},
+) map[string]int {
+	counts := make(map[string]int, len(eligibleNamespaces))
+	for namespace := range eligibleNamespaces {
+		counts[namespace] = 0
+	}
+	for _, sandbox := range sandboxes {
+		if sandbox == nil {
+			continue
+		}
+		namespace := sandbox.GetNamespace()
+		if _, eligible := eligibleNamespaces[namespace]; eligible {
+			counts[namespace]++
+		}
+	}
+	return counts
+}
+
+// ReconcileActiveSandboxes returns the current active sandbox set and the
+// sandboxes that left it since the previous observation. A nil previous set is
+// the initial baseline and produces no departures.
+func ReconcileActiveSandboxes(
+	previous map[string]SandboxObservation,
+	observations []SandboxObservation,
+) (map[string]SandboxObservation, []SandboxObservation) {
+	current := make(map[string]SandboxObservation, len(observations))
+	for _, obs := range observations {
+		if !obs.Active || obs.Name == "" {
+			continue
+		}
+		current[sandboxKey(obs.Namespace, obs.Name)] = obs
+	}
+	if previous == nil {
+		return current, nil
+	}
+
+	var departed []SandboxObservation
+	for key, obs := range previous {
+		if _, active := current[key]; !active {
+			departed = append(departed, obs)
+		}
+	}
+	return current, departed
+}
+
+// SandboxLifetime returns the observed lifetime of a sandbox. It reports false
+// when the creation time is missing or in the future.
+func SandboxLifetime(obs SandboxObservation, now time.Time) (time.Duration, bool) {
+	if obs.CreationTime.IsZero() || obs.CreationTime.After(now) {
+		return 0, false
+	}
+	return now.Sub(obs.CreationTime), true
 }
 
 // FormatAttentionCounts returns a compact log-friendly summary.

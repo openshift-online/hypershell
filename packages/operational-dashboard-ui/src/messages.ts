@@ -162,6 +162,16 @@ export const messages = defineMessages({
       "A compact landing page for the current state of the resources you are allowed to operate.",
     description: "Supporting text on the operational dashboard page.",
   },
+  durationDaysHours: {
+    id: "app.dashboard.duration.daysHours",
+    defaultMessage: "{days}d {hours}h",
+    description: "Compact days and hours duration.",
+  },
+  durationHoursMinutes: {
+    id: "app.dashboard.duration.hoursMinutes",
+    defaultMessage: "{hours}h {minutes}m",
+    description: "Compact hours and minutes duration.",
+  },
   durationMinutesSeconds: {
     id: "app.dashboard.duration.minutesSeconds",
     defaultMessage: "{minutes}m {seconds}s",
@@ -1165,10 +1175,161 @@ export const messages = defineMessages({
     description:
       "Relative timestamp shown when the dashboard was updated less than one minute ago.",
   },
+  usageActiveSandboxes: {
+    id: "app.dashboard.usage.sandboxUtilization.active",
+    defaultMessage: "Active sandboxes",
+    description: "Label for the active sandbox count.",
+  },
+  usageActiveShare: {
+    id: "app.dashboard.usage.activeGateways.activeShare",
+    defaultMessage: "Active share",
+    description: "Label for the active gateway share.",
+  },
+  usageDescription: {
+    id: "app.dashboard.usage.description",
+    defaultMessage:
+      "See how gateways and sandboxes are being used, not just how many have been provisioned.",
+    description: "Supporting text on the usage dashboard page.",
+  },
+  usageErrorRateSubtitle: {
+    id: "app.dashboard.usage.errorRate.subtitle",
+    defaultMessage: "Errors as a percentage of requests",
+    description: "Subtitle for the gateway request error-rate value.",
+  },
+  usageLoadErrorBody: {
+    id: "app.dashboard.usage.loadError.body",
+    defaultMessage:
+      "An unexpected error occurred while loading usage metrics. Try refreshing the dashboard.",
+    description:
+      "Recovery guidance when usage dashboard metrics cannot be loaded.",
+  },
+  usageLoadErrorTitle: {
+    id: "app.dashboard.usage.loadError.title",
+    defaultMessage: "Usage dashboard metrics are unavailable",
+    description: "Title shown when usage dashboard metrics cannot be loaded.",
+  },
+  usageLoading: {
+    id: "app.dashboard.usage.loading",
+    defaultMessage: "Loading usage dashboard metrics",
+    description: "Accessible status shown while usage metrics load.",
+  },
+  usageNavUsage: {
+    id: "app.dashboard.nav.usage",
+    defaultMessage: "Usage",
+    description: "Secondary navigation label for the usage dashboard route.",
+  },
+  usagePartialDataBody: {
+    id: "app.dashboard.usage.partialData.body",
+    defaultMessage:
+      "The dashboard shows the data that is currently available. Missing daily points are not treated as zero.",
+    description: "Guidance shown when usage trend data is incomplete.",
+  },
+  usagePartialDataLabel: {
+    id: "app.dashboard.usage.partialData.label",
+    defaultMessage: "Partial data",
+    description: "Label shown inside a widget with incomplete trend data.",
+  },
+  usagePartialDataTitle: {
+    id: "app.dashboard.usage.partialData.title",
+    defaultMessage: "Some usage data is incomplete",
+    description: "Title shown when usage data covers only part of the range.",
+  },
+  usageProvisionedGateways: {
+    id: "app.dashboard.usage.activeGateways.provisioned",
+    defaultMessage: "Provisioned gateways",
+    description: "Label for the authorized provisioned gateway count.",
+  },
+  usageProvisionedSandboxes: {
+    id: "app.dashboard.usage.sandboxUtilization.provisioned",
+    defaultMessage: "Provisioned sandboxes",
+    description: "Label for the provisioned sandbox count.",
+  },
+  usagePurpose: {
+    id: "app.dashboard.usage.purpose",
+    defaultMessage:
+      "Are my gateways receiving traffic? Which provisioned gateways are unused? How are my sandboxes being utilized, and how long do they live?",
+    description: "Purpose statement for the usage dashboard.",
+  },
+  usagePurposeAuthorizedScope: {
+    id: "app.dashboard.usage.purpose.authorizedScope",
+    defaultMessage: "Metrics are scoped to the resources you can access.",
+    description: "Resource scope note shown to non-administrators.",
+  },
+  usagePurposeHeading: {
+    id: "app.dashboard.usage.purposeHeading",
+    defaultMessage: "What this dashboard answers",
+    description: "Heading for the usage dashboard purpose statement.",
+  },
+  usagePurposeSystemScope: {
+    id: "app.dashboard.usage.purpose.systemScope",
+    defaultMessage: "Metrics cover the entire fleet.",
+    description: "Fleet scope note shown to platform administrators.",
+  },
+  usageRequestVolumeSubtitle: {
+    id: "app.dashboard.usage.requestVolume.subtitle",
+    defaultMessage: "Requests in the selected range",
+    description: "Subtitle for the gateway request volume value.",
+  },
+  usageSandboxLifetimeMean: {
+    id: "app.dashboard.usage.sandboxLifetime.mean",
+    defaultMessage: "Average sandbox lifetime",
+    description: "Label for the mean sandbox lifetime value.",
+  },
+  usageSandboxLifetimeP50: {
+    id: "app.dashboard.usage.sandboxLifetime.p50",
+    defaultMessage: "P50 lifetime",
+    description: "Label for the median sandbox lifetime value.",
+  },
+  usageSandboxLifetimeP95: {
+    id: "app.dashboard.usage.sandboxLifetime.p95",
+    defaultMessage: "P95 lifetime",
+    description: "Label for the 95th-percentile sandbox lifetime value.",
+  },
   usageSummaryWidget: {
     id: "app.dashboard.widget.usageSummary",
     defaultMessage: "Usage summary",
     description: "Title for the operational dashboard usage summary widget.",
+  },
+  usageTitle: {
+    id: "app.dashboard.usage.title",
+    defaultMessage: "Usage dashboard",
+    description: "Main heading on the usage dashboard page.",
+  },
+  usageUnusedGatewaysHelp: {
+    id: "app.dashboard.usage.unusedGateways.help",
+    defaultMessage:
+      "Gateways with no qualifying request activity in the selected period.",
+    description: "Guidance in the unused gateway usage widget.",
+  },
+  usageWidgetActiveGateways: {
+    id: "app.dashboard.usage.widget.activeGateways",
+    defaultMessage: "Active gateways",
+    description: "Title for the active gateway usage widget.",
+  },
+  usageWidgetGatewayErrorRate: {
+    id: "app.dashboard.usage.widget.gatewayErrorRate",
+    defaultMessage: "Gateway error rate",
+    description: "Title for the gateway request error-rate usage widget.",
+  },
+  usageWidgetGatewayRequestVolume: {
+    id: "app.dashboard.usage.widget.gatewayRequestVolume",
+    defaultMessage: "Gateway request volume",
+    description: "Title for the gateway request volume usage widget.",
+  },
+  usageWidgetSandboxLifetime: {
+    id: "app.dashboard.usage.widget.sandboxLifetime",
+    defaultMessage: "Sandbox lifetime",
+    description: "Title for the sandbox lifetime usage widget.",
+  },
+  usageWidgetSandboxUtilization: {
+    id: "app.dashboard.usage.widget.sandboxUtilization",
+    defaultMessage: "Sandbox utilization",
+    description: "Title for the sandbox utilization usage widget.",
+  },
+  usageWidgetUnusedGateways: {
+    id: "app.dashboard.usage.widget.unusedGateways",
+    defaultMessage: "Provisioned but unused",
+    description: "Title for the unused gateway usage widget.",
   },
   utilizationCapacity: {
     id: "app.dashboard.utilization.capacity",

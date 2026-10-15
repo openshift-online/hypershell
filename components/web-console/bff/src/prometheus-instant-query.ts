@@ -106,6 +106,42 @@ export async function queryPrometheusInstantScalar(
   return maxValue;
 }
 
+export async function queryPrometheusInstantNumber(
+  source: MetricsSource,
+  query: string,
+  timeoutMs: number,
+): Promise<number> {
+  const body = await queryPrometheus(source, query, timeoutMs);
+  const sample = body.data?.result[0]?.value[1];
+  if (sample === undefined) {
+    throw new Error("Prometheus query returned no samples");
+  }
+
+  const value = Number(sample);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error("Prometheus query returned invalid sample");
+  }
+
+  return value;
+}
+
+export async function queryPrometheusInstantLabels(
+  source: MetricsSource,
+  query: string,
+  timeoutMs: number,
+  label: string,
+): Promise<Set<string>> {
+  const body = await queryPrometheus(source, query, timeoutMs);
+  const labels = new Set<string>();
+  for (const sample of body.data?.result ?? []) {
+    const value = sample.metric[label];
+    if (typeof value === "string" && value.length > 0) {
+      labels.add(value);
+    }
+  }
+  return labels;
+}
+
 export async function queryPrometheusInstantVector(
   source: MetricsSource,
   query: string,
