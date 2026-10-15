@@ -70,6 +70,7 @@ selector: it is purely scheduled.
 | `code-review` | `agent/reviewable-code` | `agent/review-code-approved`, `agent/review-code-rejected` |
 | `review-response` | `agent/needs-review-response` | re-queues spec/code review |
 | `release-verification` | `agent/release-pending` | `agent/release-verified`, `agent/release-verification-failed` |
+| `jira-reconciliation` | `agent/release-verified` | `agent/jira-synced`, `agent/jira-sync-blocked` |
 | `update-openshell` | (scheduled, no selector) | opens an update PR (`agent/reviewable-code`) |
 
 ### Orchestration responsibilities
@@ -99,7 +100,7 @@ These realize `specs/standards/sdlc/jira-github-sync.spec.md`.
 
 ### Label state machine
 
-Shapes encode node type (see the Legend). For labels, color encodes outcome: green = approved or success, red = rejected and retried, amber = paused for a human. `reconcile` runs after `ingest` and after every phase transition to project the GitHub phase onto a Jira status category.
+Shapes encode node type (see the Legend). For labels, color encodes outcome: green = approved or success, red = rejected and retried, amber = paused for a human. `reconcile` runs after `ingest` and after every phase transition to project the GitHub phase onto a Jira status category. `jira-reconciliation` runs after release verification to reflect completed work into Jira retroactively.
 
 ```mermaid
 flowchart TD
@@ -168,11 +169,18 @@ flowchart TD
 
     RECON[["reconcile"]]:::agent
     RECON -. "after ingest + every transition" .-> JSYNC
+
+    JR[["jira-reconciliation"]]:::agent
+    RVOK --> JR
+    JR --> JSY(["agent/jira-synced"]):::good
+    JR --> JSB(["agent/jira-sync-blocked"]):::paused
+    JSB -.->|re-apply agent/release-verified to retry| JR
+    JR -. "retroactive capture + terminal projection" .-> JSYNC
     subgraph JSYNC[" Jira projection (status category) "]
         direction LR
         JTODO[("To Do<br/>New · Refinement<br/>← needs-input")]:::jira
         JPROG[("In Progress<br/>← all active phases")]:::jira
-        JDONE[("Done · Closed<br/>← merged · duplicate")]:::jira
+        JDONE[("Done · Closed<br/>← merged · release-verified · duplicate")]:::jira
     end
 
     subgraph LEGEND[" Legend "]
@@ -199,6 +207,22 @@ flowchart TD
     classDef human fill:#fce4ec,stroke:#ad1457,stroke-width:1px,color:#880e4f;
     classDef jira fill:#e0f2f1,stroke:#00897b,stroke-width:1px,color:#004d40;
 ```
+
+`jira-reconciliation` is the retroactive counterpart of `ingest`: intake links
+a work item to Jira at funnel entry, and this agent links completed work at
+delivery. It selects `agent/release-verified` issues and, for each completed
+work unit, either projects the canonically linked Jira item to `Done` or - when
+the work was never Jira-driven (a bugfix or task that just got done) - creates
+the Jira task or bug retroactively, with the canonical link, artifact remote
+links, and delivery evidence. Ambiguous units are staged as a GitHub comment
+for a human; roadmap-level concerns (rank, epics, summaries, duplicates) are
+deferred to the interactive `jira-roadmap-reconciliation` skill. On any
+terminal verdict it removes `agent/release-verified` so the coordinator does
+not re-run it; a human re-applies that label to retry a blocked sync. It is the
+only agent that binds the `jira-issue-tracker` ProviderSpec and runs on the
+`agent-runtime-slim-jira` SandboxTemplate (slim policy plus Jira REST egress
+for `acli`), both owned by its overlay. It realizes the Retroactive Jira
+Reflection requirement of `specs/standards/sdlc/jira-github-sync.spec.md`.
 
 ## Reference resolution
 

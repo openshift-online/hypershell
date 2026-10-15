@@ -17,4 +17,5 @@ resources:
   - agents/code-review/agent.yaml
   - agents/review-response/agent.yaml
   - agents/release-verification/agent.yaml
+  - agents/jira-reconciliation/agent.yaml
   - agents/update-openshell/agent.yaml
