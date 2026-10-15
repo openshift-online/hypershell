@@ -149,6 +149,7 @@ erDiagram
         string category
         jsonb capability
         jsonb profile
+        string repository_id FK
         string status
         time created_at
         time updated_at
@@ -162,6 +163,7 @@ erDiagram
         string secret_source_id FK
         string name
         jsonb refresh_strategy
+        string repository_id FK
         string status
         time created_at
         time updated_at
@@ -173,6 +175,7 @@ erDiagram
         string workspace_id FK
         string provider_binding_id FK
         string model
+        string repository_id FK
         time created_at
         time updated_at
     }
@@ -183,6 +186,7 @@ erDiagram
         string image
         string name_prefix
         jsonb policy
+        string repository_id FK
         string status
         time created_at
         time updated_at
@@ -197,6 +201,7 @@ erDiagram
         string backend
         string path
         jsonb key_mappings
+        string repository_id FK
         time created_at
         time updated_at
         time deleted_at
@@ -208,6 +213,11 @@ erDiagram
     Gateway ||--o{ AgentRuntime : "connects_to"
     SandboxTemplate ||--o{ AgentRuntime : "sandbox_for"
     Repository ||--o{ AgentRuntime : "scanned_by"
+    Repository ||--o{ SandboxTemplate : "owns_imported"
+    Repository ||--o{ ProviderSpec : "owns_imported"
+    Repository ||--o{ ProviderBinding : "owns_imported"
+    Repository ||--o{ InferenceRoute : "owns_imported"
+    Repository ||--o{ SecretSource : "owns_imported"
     SecretSource ||--o{ Repository : "authenticates"
     AgentRuntime ||--|| AgentWorkspace : "owns"
     AgentRuntime ||--o{ SecretSource : "declares"
@@ -561,9 +571,18 @@ system, NOT by the API server. For each `Repository` the control plane SHALL:
    AgentRuntime provisioning.
 2. Git-clone the `Repository` at its `default_branch` (or the branch otherwise
    specified) using that resolved credential.
-3. Render the Kustomize root at `import_path`.
-4. Reconcile (create / update / prune) the rendered ext resources into the API,
-   over the same create, update, and delete operations the REST layer owns.
+3. Render the `.hypershell` Kustomize root at `import_path` by invoking the
+   `hsctl` Kustomize capability (the `hsctl` binary / its exported rendering
+   capability), NOT an embedded Kustomize library. `hsctl` is the single
+   implementation of Kustomize rendering for HyperShell Kinds (see "Requirement:
+   `hsctl` Kustomize Support for All ext Kinds"); the control plane does not carry
+   its own Kustomize implementation.
+4. Reconcile (create / update / prune) the rendered ext resources into the API
+   over gRPC, using the generated per-Kind gRPC create / update / delete RPCs
+   (see "Requirement: gRPC Surface for All Kinds") - the same desired-state
+   operations the REST layer also exposes. The control plane SHALL mark each
+   created resource with its owning `Repository` through the `repository_id` owner
+   column (see "Requirement: Repository Ownership of Imported ext Resources").
 
 The control plane holds per-cluster in-cluster credentials and the cluster-side
 `SecretSource` resolution and git access the import requires; the API server holds
@@ -613,9 +632,9 @@ by another Repository or created directly through the REST API or `hsctl apply`.
 
 - GIVEN a registered `Repository` whose `.hypershell` directory declares a `SandboxTemplate` and an `AgentRuntime`
 - WHEN the control-plane import reconciler runs
-- THEN it SHALL resolve the `Repository`'s credential cluster-side, git-clone the repository, and build the kustomization
-- AND it SHALL upsert both resources into the API
-- AND the resources SHALL be owned by the `Repository`
+- THEN it SHALL resolve the `Repository`'s credential cluster-side, git-clone the repository, and render the Kustomize root via the `hsctl` capability
+- AND it SHALL upsert both resources into the API over the generated per-Kind gRPC create/update RPCs
+- AND the resources SHALL be owned by the `Repository` through their `repository_id` column
 
 #### Scenario: Removed Declaration Is Pruned
 
@@ -641,31 +660,179 @@ by another Repository or created directly through the REST API or `hsctl apply`.
 ### Requirement: Secret Submission and Storage
 
 The API server SHALL expose an endpoint that lets a user submit a secret for
-storage in the HyperShell backend. On submission the API server SHALL store the
-secret **value** in the configured secret manager and SHALL persist only a
-**reference** to that stored value as a `SecretSource` record in the database. The
-response SHALL identify the created `SecretSource`.
+storage in the HyperShell backend. The API server SHALL be configured with a
+secret-manager client (a secret store such as Vault or an equivalent backend) and
+SHALL hold a scoped secret-store write credential/configuration for this purpose.
+On submission the API server SHALL write the secret **value** directly to the
+secret store and SHALL persist only a **reference** to that stored value as a
+`SecretSource` record in the database. The response SHALL identify the created
+`SecretSource`.
 
-The API server SHALL NOT persist the raw secret value in the database, SHALL NOT
-resolve a stored secret value in-process, and SHALL NOT clone a git repository.
-Cluster-side resolution of a stored `SecretSource` into a usable credential is the
-control plane's responsibility (see "Requirement: Declarative `.hypershell`
-Import" and the control-plane `SecretSource` -> `ExternalSecret` wiring).
+The API server SHALL NOT persist the raw secret value in the database and SHALL
+NOT clone a git repository. The raw value lives only in the secret store; the
+database holds the reference (`backend`, `path`, `key_mappings`). Cluster-side
+resolution of a stored `SecretSource` into a usable credential at provisioning
+time remains the control plane's responsibility (see "Requirement: Declarative
+`.hypershell` Import" and the control-plane `SecretSource` -> `ExternalSecret`
+wiring); this requirement governs only the write-at-submission path.
+
+**Deterministic location and write ordering.** The API server SHALL write the
+secret value to a **deterministic** location in the store, derived from a stable
+identity for the submission (for example the `SecretSource` name, namespace, and
+key). On submission the API server SHALL, in order:
+
+1. Write the secret **value** to the store at the deterministic location.
+2. Create the `SecretSource` reference record in the database.
+
+Because the store location is deterministic, the store write SHALL be idempotent:
+re-writing the same identity overwrites the same location rather than creating a
+new entry. **Retry-safety invariant.** If step 1 succeeds but step 2 (the database
+write) fails, a re-POST of the same submission SHALL re-write the same store
+location (a no-op in value terms) and retry the record creation. This SHALL NOT
+produce an orphaned secret, a duplicated secret, or a second store location for
+the same identity. The submission is therefore retry-safe.
 
 #### Scenario: Submit a Secret
 
 - GIVEN a user POSTs a secret value to the secret-submission endpoint
 - WHEN the API server accepts the submission
-- THEN it SHALL write the secret value to the secret manager
-- AND it SHALL persist a `SecretSource` record referencing that stored value in the database
+- THEN it SHALL write the secret value to the deterministic store location first
+- AND it SHALL then persist a `SecretSource` record referencing that stored value in the database
 - AND the response SHALL identify the created `SecretSource`
 
 #### Scenario: Raw Secret Value Is Never Stored in the Database
 
 - GIVEN a submitted secret value
 - WHEN the API server persists the `SecretSource` record
-- THEN the database record SHALL contain only the reference to the secret manager entry
+- THEN the database record SHALL contain only the reference to the secret store entry
 - AND it SHALL NOT contain the raw secret value
+
+#### Scenario: Database Write Fails and the Submission Is Retried
+
+- GIVEN a submission whose store write (step 1) succeeded but whose database record write (step 2) failed
+- WHEN the same submission is re-POSTed
+- THEN the API server SHALL re-write the same deterministic store location with the same value
+- AND it SHALL retry creation of the `SecretSource` record
+- AND the retry SHALL NOT create a second store location, an orphaned secret, or a duplicated `SecretSource`
+
+---
+
+### Requirement: Repository Ownership of Imported ext Resources
+
+Every importable ext kind SHALL carry a nullable owner foreign key,
+`repository_id`, that references the `Repository` that imported it. This is the
+storage that backs the "imported resources are owned by the originating
+`Repository`" and "prune is scoped to the owning `Repository`" guarantees in
+"Requirement: Declarative `.hypershell` Import".
+
+`AgentRuntime` already carries `repository_id` (see "Requirement: AgentRuntime as
+a Top-Level Resource"; on an `AgentRuntime` the same column additionally drives
+the repository selector). The column SHALL be added to the five importable ext
+kinds that lack it: `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
+`InferenceRoute`, and `SecretSource`.
+
+- `repository_id` SHALL be nullable. A null value means the resource was created
+  directly (REST API or `hsctl apply`) and is not owned by any `Repository`; the
+  import reconciler SHALL NOT prune such a resource.
+- When set, `repository_id` SHALL reference an existing `Repository`. The import
+  reconciler SHALL set it to the importing `Repository` on every resource it
+  creates, and SHALL prune only resources whose `repository_id` equals the
+  `Repository` being reconciled.
+- The column SHALL be added to each of the five `*_templates` / `*_specs` /
+  `*_bindings` / `*_routes` / `*_sources` tables via a schema migration, exposed on
+  the generated OpenAPI schema for each ext kind, and surfaced through the Go and
+  TypeScript SDKs - the same way `AgentRuntime.repository_id` already is. It SHALL
+  be read-only or control-plane-owned in the client-facing contract where
+  appropriate, so a REST/`hsctl` caller does not forge `Repository` ownership.
+
+#### Scenario: Imported ext Resource Carries Its Owning Repository
+
+- GIVEN a `Repository` whose `.hypershell` directory declares a `SandboxTemplate`
+- WHEN the import reconciler creates the `SandboxTemplate`
+- THEN the `SandboxTemplate` record SHALL carry `repository_id` equal to that `Repository`
+
+#### Scenario: Directly Created ext Resource Has No Owner and Is Never Pruned
+
+- GIVEN a `ProviderSpec` created directly through the REST API with `repository_id` null
+- WHEN any `Repository`'s import reconciler runs its prune pass
+- THEN the import SHALL NOT delete that `ProviderSpec`
+
+---
+
+### Requirement: gRPC Surface for All Kinds
+
+Every HyperShell Kind - the standard `/api/hypershell/v1/` Kinds and the ext
+`/api/hypershell/ext/` Kinds (`AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Repository`) - SHALL have a
+generated gRPC surface comprising its message type(s), a `Watch` streaming RPC,
+and the `Create` / `Update` / `Delete` unary RPCs. This gives the control plane an
+API-write path (not only the existing read/watch path) for the bounded
+import-reconciler exception.
+
+The gRPC surface SHALL be produced by the project's code generation (the
+`rh-trex-ai` generators) from the same source of truth as the REST/OpenAPI
+contract, so the two contracts stay in lock-step; it SHALL NOT be a hand-authored,
+Kind-by-Kind proto. The control plane SHALL perform its import writes over these
+generated gRPC RPCs. No assumption that the control plane reaches the API server
+through the REST/OpenAPI SDK for writes SHALL hold: the control plane is a gRPC
+client of the API server (consistent with "Requirement: gRPC Watch Streams" in
+[`control-plane.spec.md`](./control-plane.spec.md)).
+
+#### Scenario: ext Kind Exposes Generated gRPC Create/Update/Delete
+
+- GIVEN the `SandboxTemplate` ext Kind
+- WHEN the gRPC stubs are generated by the project codegen
+- THEN there SHALL be generated `Create`, `Update`, `Delete`, and `Watch` RPCs for `SandboxTemplate`
+- AND the control plane SHALL be able to create a `SandboxTemplate` over gRPC
+
+---
+
+### Requirement: `hsctl` Kustomize Support for All ext Kinds
+
+`hsctl` SHALL be the single implementation of Kustomize rendering and declarative
+apply for HyperShell Kinds. ALL ext Kinds (`AgentRuntime`, `SandboxTemplate`,
+`ProviderSpec`, `ProviderBinding`, `InferenceRoute`, `SecretSource`, `Repository`)
+SHALL be supported by `hsctl apply` and by its Kustomize rendering path (`hsctl
+apply -k`), so that a `.hypershell` Kustomize root declaring any ext Kind renders
+and applies through `hsctl`.
+
+The control-plane import reconciler SHALL render the `.hypershell` Kustomize root
+by invoking this `hsctl` capability (the `hsctl` binary or its exported rendering
+capability), NOT an embedded Kustomize library in the control plane. There SHALL
+be exactly one Kustomize implementation for HyperShell Kinds - the one in `hsctl` -
+and the control plane SHALL depend on it rather than duplicate it.
+
+#### Scenario: `.hypershell` Root Declaring Any ext Kind Renders Through `hsctl`
+
+- GIVEN a `.hypershell` Kustomize root declaring a `SecretSource`, a `ProviderBinding`, and an `InferenceRoute`
+- WHEN the control-plane import reconciler renders it
+- THEN rendering SHALL be performed by the `hsctl` Kustomize capability
+- AND all three ext Kinds SHALL be rendered and available to apply
+
+---
+
+> **Non-normative - implementation waves.** The requirements above are normative
+> desired state. The code phase is large and SHOULD be sliced into waves; this
+> ordering is guidance, not a contract:
+>
+> - **W1 - gRPC for all Kinds.** Generate gRPC (messages, `Watch`,
+>   `Create`/`Update`/`Delete`) for every Kind via the `rh-trex-ai` generators,
+>   giving the control plane its API-write path.
+> - **W2 - ownership column.** Add the nullable `repository_id` owner FK to
+>   `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`, and
+>   `SecretSource` (schema migration + OpenAPI + Go/TS SDK).
+> - **W3 - api-server secret-write subsystem.** Configure the secret-manager
+>   client and scoped write credential, and implement the deterministic-location,
+>   write-ordering, retry-safe secret-submission endpoint.
+> - **W4 - `hsctl` CLI + Kustomize for all ext Kinds.** Implement every ext Kind
+>   in `hsctl apply` and its Kustomize path, and expose the rendering capability
+>   the control plane invokes.
+> - **W5 - control-plane import reconciler.** Tie it together: watch `Repository`,
+>   resolve its credential cluster-side, git-clone, render via `hsctl`, and
+>   reconcile Repository-owned ext resources over gRPC with Repository-scoped prune.
+>
+> **Out of scope / deferred.** Issue #526 (requirement #4 of the originating
+> epic) remains deferred and is NOT in scope for this spec change.
 
 ---
 
@@ -1096,7 +1263,16 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 | `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | 🔲 planned |
 | `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
 | `ProviderSpec` | `name`, `category`, `capability`, `profile` | 🔲 planned |
+| `ProviderBinding` | `name`, `workspace_id`, `provider_spec_id`, `secret_source_id`, `refresh_strategy` | 🔲 planned |
+| `InferenceRoute` | `workspace_id`, `provider_binding_id`, `model` | 🔲 planned |
+| `SecretSource` | `name`, `agent_runtime_id`, `purpose`, `backend`, `path`, `key_mappings` | 🔲 planned |
 | `Repository` | `name`, `url`, `provider`, `secret_source_id`, `default_branch`, `import_path` | 🔲 planned |
+
+All ext Kinds above SHALL be supported by `hsctl apply` and its Kustomize path
+(`hsctl apply -k`); see "Requirement: `hsctl` Kustomize Support for All ext Kinds".
+The `repository_id` owner column (see "Requirement: Repository Ownership of
+Imported ext Resources") is set by the import reconciler, not by a direct `hsctl
+apply` caller.
 
 #### `-f` - File or Directory
 
@@ -1294,5 +1470,9 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --release-id v1.0
 | AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
 | Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
 | `.hypershell` import hosted by the control plane, not the api-server | The import must resolve each `Repository`'s `secret_source_id` credential and git-clone the repository. The control plane already has cluster-side `SecretSource` -> `ExternalSecret` resolution and git/cluster access; the api-server has no in-process `SecretSource` resolver and no git access. Hosting the import in the control plane places it where credential resolution and repository access already live and removes the in-process-secret-resolution blocker. The import is the single bounded control-plane path that writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources. The api-server's only secret role is a POST endpoint that stores the submitted value in the secret manager and its reference (a `SecretSource`) in the database. |
+| api-server writes the submitted secret value to the store, DB holds only the reference | The api-server is configured with a scoped secret-store write credential and writes the value directly at a deterministic location derived from the `SecretSource` identity, then creates the DB reference. The deterministic location makes the store write idempotent, so a DB-write failure is retry-safe (re-POST rewrites the same location and retries the record) with no orphaned or duplicated secret. This reverses the earlier "api-server does not write secret values" stance (reconciled in `security.spec.md`); the raw value is still never persisted in the DB. |
+| Owner column `repository_id` on all importable ext kinds | Ownership-scoped prune needs storage. `AgentRuntime` already had `repository_id`; adding the same nullable owner FK to `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`, and `SecretSource` lets the import reconciler mark what it created and prune only its own resources, leaving directly-created (null-owner) resources untouched. |
+| gRPC generated for all Kinds (messages, Watch, Create/Update/Delete) | The control plane is a gRPC client with only a read/watch path today. The bounded import-reconciler write exception needs an API-write path; generating full gRPC for every Kind via the `rh-trex-ai` generators keeps REST and gRPC in lock-step and avoids first-time REST-SDK wiring into the control plane. |
+| Kustomize rendered by `hsctl`, not embedded in the control plane | `hsctl apply -k` already renders HyperShell Kinds via Kustomize. Making `hsctl` the single Kustomize implementation (extended to all ext Kinds) and having the control-plane import reconciler invoke it avoids a second, drifting Kustomize implementation and a heavy embedded Kustomize dependency in the control plane. |
 | Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
 | Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |

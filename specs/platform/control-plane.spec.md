@@ -26,7 +26,7 @@ Managed Cluster (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings, and AgentRuntimes). gRPC is generated for all Kinds (see [`data-model.spec.md`](./data-model.spec.md), "Requirement: gRPC Surface for All Kinds"), so the Watcher additionally watches `Repository` to drive the declarative `.hypershell` import reconciler, and the import reconciler uses the generated per-Kind gRPC `Create` / `Update` / `Delete` RPCs for the importable ext Kinds as its API-write path. On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below). `Repository` events are dispatched to the declarative import reconciler (see "Requirement: Declarative `.hypershell` Import Reconciliation" below).
 
 ### Reconciler
 
@@ -301,10 +301,24 @@ For each registered `Repository` the control plane SHALL:
    AgentRuntime provisioning.
 2. Git-clone the `Repository` at its `default_branch` (or the branch otherwise
    specified) using that resolved credential.
-3. Render the Kustomize root at `import_path` (default `.hypershell`).
-4. Reconcile the rendered ext resources into the API - create new declarations,
-   update changed declarations, and prune declarations removed from the
-   repository.
+3. Render the Kustomize root at `import_path` (default `.hypershell`) by invoking
+   the `hsctl` Kustomize capability (the `hsctl` binary / its exported rendering
+   capability), NOT an embedded Kustomize library. The control plane SHALL NOT
+   carry its own Kustomize implementation; `hsctl` is the single implementation of
+   Kustomize rendering for HyperShell Kinds and all ext Kinds are supported there
+   (see [`data-model.spec.md`](./data-model.spec.md), "Requirement: `hsctl`
+   Kustomize Support for All ext Kinds").
+4. Reconcile the rendered ext resources into the API over the generated per-Kind
+   gRPC `Create` / `Update` / `Delete` RPCs (see
+   [`data-model.spec.md`](./data-model.spec.md), "Requirement: gRPC Surface for All
+   Kinds") - create new declarations, update changed declarations, and prune
+   declarations removed from the repository. The control plane SHALL mark each
+   created resource with its owning `Repository` through the `repository_id` owner
+   column.
+
+The control plane reaches the API server over gRPC for these writes, the same
+transport it already uses for watch streams; it SHALL NOT be assumed to use the
+REST/OpenAPI SDK for writes.
 
 Reconciliation SHALL converge, not create-and-skip, and SHALL be idempotent
 against unchanged repository state: a re-run over an unchanged `Repository` SHALL
@@ -319,18 +333,18 @@ the control plane remains a reader of desired state: it writes back only derived
 resource `status` and provisions gateway-side objects through the gateway gRPC API.
 The import reconciler SHALL write ONLY ext resources owned by the originating
 `Repository`, SHALL perform only create / update / prune on those Repository-owned
-resources, and SHALL mark each written resource with its owning `Repository`. This
-resolves the apparent conflict with the "control plane is a reader of desired
-state" principle: the principle holds everywhere except this one named,
-ownership-scoped reconciler.
+resources (over the generated gRPC write RPCs), and SHALL mark each written
+resource with its owning `Repository`. This resolves the apparent conflict with the
+"control plane is a reader of desired state" principle: the principle holds
+everywhere except this one named, ownership-scoped reconciler.
 
 #### Scenario: Import reconciles declared resources through the API
 
 - GIVEN a registered `Repository` whose `.hypershell` directory declares a `SandboxTemplate` and an `AgentRuntime`
 - WHEN the control-plane import reconciler runs
 - THEN it SHALL resolve the `Repository`'s credential cluster-side and git-clone the repository
-- AND it SHALL render the Kustomize root and upsert both resources into the API
-- AND the resources SHALL be owned by the `Repository`
+- AND it SHALL render the Kustomize root via the `hsctl` capability and upsert both resources into the API over the generated gRPC create/update RPCs
+- AND the resources SHALL be owned by the `Repository` through their `repository_id` column
 
 #### Scenario: Removed declaration is pruned within the owning Repository
 
@@ -604,3 +618,4 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | TLS handshake failure retries like any other disconnect, rather than exiting | A control plane should tolerate a hub certificate renewal without operator intervention. Contrast with the `managed-cluster-registrar` 403 and the name-conflict 409, which are fail-closed because retrying truly cannot help. |
 | AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
 | AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must resolve each `Repository`'s credential and git-clone the repository, and the control plane already has cluster-side `SecretSource` -> `ExternalSecret` resolution and git/cluster access while the api-server has neither an in-process `SecretSource` resolver nor git access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). |
+| Import renders via `hsctl`, writes via generated gRPC | The control plane does not embed Kustomize: `hsctl` is the single Kustomize implementation for HyperShell Kinds and the import reconciler invokes it, avoiding a second drifting implementation and a heavy embedded dependency. The write path is the generated per-Kind gRPC `Create`/`Update`/`Delete` (gRPC is generated for all Kinds), the same transport the control plane already uses for watch streams, so no first-time REST/OpenAPI-SDK wiring into the control plane is needed. |
