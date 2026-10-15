@@ -35,17 +35,35 @@ import (
 // (Requirement: End-to-End Vault Coverage in CI).
 const (
 	vaultNamespace     = "openshell-vault"
-	vaultPodName       = "openshell-gateway-vault-0"
+	vaultPodLabel      = "app=openshell-gateway-vault"
 	vaultK8sRole       = "openshell-gateway"
 	vaultGatewaySAName = "openshell-gateway"
 	vaultTokenAudience = "vault"
 )
 
+// vaultPod resolves the stand-in Vault pod name by label (scripts/cluster/vault.sh runs it
+// as a Deployment, so the name is not a fixed StatefulSet ordinal).
+func (s *E2ESuite) vaultPod(ctx context.Context) (string, error) {
+	pods, err := s.clients.Kube.CoreV1().Pods(vaultNamespace).List(ctx, metav1.ListOptions{LabelSelector: vaultPodLabel})
+	if err != nil {
+		return "", err
+	}
+	for _, p := range pods.Items {
+		if p.Status.Phase == corev1.PodRunning {
+			return p.Name, nil
+		}
+	}
+	return "", fmt.Errorf("no Running pod with %q in namespace %s", vaultPodLabel, vaultNamespace)
+}
+
 // p2_7VaultCredentialCoverage exercises the three end-to-end Vault scenarios. It is a
 // single phase (one concern, like p2_2/p2_5) with three labeled, sequential blocks.
 func (s *E2ESuite) p2_7VaultCredentialCoverage(t *testing.T) {
-	if s.driver.Name() != "kind" {
-		t.Skip("vault credential coverage runs against the Kind stand-in Vault (scripts/kind/vault.sh)")
+	switch s.driver.Name() {
+	case "kind", "openshift":
+		// Both environments stand up the stand-in Vault (scripts/cluster/vault.sh).
+	default:
+		t.Skipf("vault credential coverage needs the stand-in Vault (driver=%s)", s.driver.Name())
 	}
 	if s.skipKubeChecks {
 		t.Skip("vault credential coverage needs kube exec/token access")
@@ -53,8 +71,8 @@ func (s *E2ESuite) p2_7VaultCredentialCoverage(t *testing.T) {
 	ctx := t.Context()
 
 	// Confirm the stand-in Vault is present before exercising it.
-	if _, err := s.clients.Kube.CoreV1().Pods(vaultNamespace).Get(ctx, vaultPodName, metav1.GetOptions{}); err != nil {
-		t.Skipf("stand-in Vault pod %s/%s not found: %v", vaultNamespace, vaultPodName, err)
+	if _, err := s.vaultPod(ctx); err != nil {
+		t.Skipf("stand-in Vault pod not found in %s: %v", vaultNamespace, err)
 	}
 
 	nsA := s.primary.Namespace
@@ -148,8 +166,12 @@ export VAULT_TOKEN="$CT"
 
 // vaultExec runs a command inside the Kind Vault pod, returning combined stdout+stderr.
 func (s *E2ESuite) vaultExec(ctx context.Context, stdin string, command ...string) (string, error) {
+	pod, err := s.vaultPod(ctx)
+	if err != nil {
+		return "", err
+	}
 	req := s.clients.Kube.CoreV1().RESTClient().Post().
-		Resource("pods").Name(vaultPodName).Namespace(vaultNamespace).SubResource("exec").
+		Resource("pods").Name(pod).Namespace(vaultNamespace).SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
 			Command: command,
 			Stdin:   stdin != "",

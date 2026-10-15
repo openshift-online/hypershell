@@ -1,18 +1,41 @@
 #!/usr/bin/env bash
-# vault.sh - stand up a stand-in HashiCorp Vault for the Kind dev/e2e environment,
-# configured to the HYPERSHELL-369 GitOps Contract (openshell-gateway-credentials.spec.md)
-# so vault-backed gateways - now the default - work end-to-end in CI/dev.
+# vault.sh - stand up a stand-in HashiCorp Vault for the dev/e2e environment (Kind or
+# OpenShift), configured to the HYPERSHELL-369 GitOps Contract
+# (openshell-gateway-credentials.spec.md) so vault-backed gateways - now the default -
+# work end-to-end in CI/dev.
 #
-# It mirrors what hypershell-gitops deploys per cluster (same HashiCorp Vault image,
-# KV v2 at `secret`, kubernetes auth, the `openshell-gateway` role and the
-# namespace-templated policy, a serving CA in Secret openshell-gateway-vault-tls),
-# MINUS the production unseal/storage plumbing (Secrets Manager / ESO / Postgres):
-# a throwaway Kind Vault uses file storage + a scripted init+unseal. Not for production.
+# It mirrors what hypershell-gitops deploys per cluster (same HashiCorp Vault image, KV v2
+# at `secret`, kubernetes auth, the `openshell-gateway` role and the namespace-templated
+# policy, a serving CA in Secret openshell-gateway-vault-tls), MINUS the production
+# unseal/storage plumbing (Secrets Manager / ESO / KMS / managed Postgres): a throwaway
+# Vault uses file storage + a scripted init+unseal. Not for production.
+#
+# Driver-agnostic and idempotent (mirrors the production init Job): the caller sets
+# VAULT_KUBECTL (the kube CLI incl. context) and CLUSTER_DRIVER (kind|openshift). Re-running
+# against an already-initialized Vault is a no-op, so it is safe on a shared cluster.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-source "${SCRIPT_DIR}/lib.sh"
+
+# Self-contained logging (no dependency on a driver-specific lib).
+if [[ -z "${NO_COLOR:-}" ]] && [[ -t 1 ]]; then
+  BOLD='\033[1m'; BLUE='\033[0;34m'; CYAN='\033[0;36m'; GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
+else
+  BOLD=''; BLUE=''; CYAN=''; GREEN=''; RED=''; NC=''
+fi
+header()  { printf "${BOLD}${BLUE}==> %s${NC}\n" "$*"; }
+info()    { printf "${CYAN}    %s${NC}\n" "$*"; }
+success() { printf "${GREEN}    %s${NC}\n" "$*"; }
+error()   { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; }
+
+# Kube CLI: the caller supplies the binary + context (kind passes
+# "kubectl --context kind-<name>"; openshift passes "oc"). Word-split on purpose.
+VAULT_KUBECTL="${VAULT_KUBECTL:-kubectl}"
+# shellcheck disable=SC2086
+vkube() { ${VAULT_KUBECTL} "$@"; }
+
+VDRIVER="${CLUSTER_DRIVER:-kind}"
 
 VAULT_NS="openshell-vault"
 VAULT_SVC="openshell-gateway-vault"
@@ -24,30 +47,39 @@ VAULT_UNSEAL_SECRET="openshell-gateway-vault-unseal"
 VAULT_IMAGE="${VAULT_IMAGE:-docker.io/hashicorp/vault:1.19.0}"
 VAULT_ROLE="openshell-gateway"
 
+# Pod security: Kind needs an explicit non-root UID + fsGroup so the file-storage emptyDir
+# is writable; OpenShift's restricted SCC assigns both from the namespace range and rejects
+# a hardcoded UID, so omit them there.
+if [ "${VDRIVER}" = "openshift" ]; then
+  EXTRA_POD_SEC=""
+else
+  EXTRA_POD_SEC=$'\n        runAsUser: 100\n        fsGroup: 1000'
+fi
+
 header "Stand-in HashiCorp Vault (gateway provider secrets)"
-kube create namespace "${VAULT_NS}" --dry-run=client -o yaml | kube apply -f -
+vkube create namespace "${VAULT_NS}" --dry-run=client -o yaml | vkube apply -f -
 
 # Serving TLS: a throwaway CA + server cert whose SAN matches the convention host.
 # The control plane reads this CA from the openshell-gateway-vault-tls Secret and
 # propagates it into each gateway namespace (gen-postgres-tls.sh mints generic TLS).
-if kube get secret "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" >/dev/null 2>&1; then
+if vkube get secret "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" >/dev/null 2>&1; then
   success "TLS Secret '${VAULT_TLS_SECRET}' already exists - reusing its CA"
 else
   info "Generating throwaway CA and server certificate for ${VAULT_HOST}..."
   _tls_dir="$(mktemp -d)"
   bash "${REPO_ROOT}/scripts/gen-postgres-tls.sh" "${_tls_dir}" \
     "${VAULT_HOST}" "${VAULT_HOST}.cluster.local" "vault"
-  kube create secret generic "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" \
+  vkube create secret generic "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" \
     --from-file=tls.crt="${_tls_dir}/tls.crt" \
     --from-file=tls.key="${_tls_dir}/tls.key" \
     --from-file=ca.crt="${_tls_dir}/ca.crt" \
-    --dry-run=client -o yaml | kube apply -f -
+    --dry-run=client -o yaml | vkube apply -f -
   rm -rf "${_tls_dir}"
   success "TLS Secret '${VAULT_TLS_SECRET}' created"
 fi
 
 info "Deploying Vault (file storage + TLS) in namespace '${VAULT_NS}'..."
-kube apply -f - <<EOF
+vkube apply -f - <<EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -104,8 +136,8 @@ spec:
       serviceAccountName: vault
       securityContext:
         runAsNonRoot: true
-        runAsUser: 100
-        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault${EXTRA_POD_SEC}
       containers:
         - name: vault
           image: ${VAULT_IMAGE}
@@ -159,22 +191,22 @@ EOF
 # and this script is what initializes+unseals it - mirror the gitops init Job).
 info "Waiting for the Vault pod to be Running..."
 for _ in $(seq 1 60); do
-  VPOD="$(kube -n "${VAULT_NS}" get pod -l app=${VAULT_SVC} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-  [ -n "${VPOD}" ] && [ "$(kube -n "${VAULT_NS}" get pod "${VPOD}" -o jsonpath='{.status.phase}' 2>/dev/null)" = "Running" ] && break
+  VPOD="$(vkube -n "${VAULT_NS}" get pod -l app=${VAULT_SVC} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  [ -n "${VPOD}" ] && [ "$(vkube -n "${VAULT_NS}" get pod "${VPOD}" -o jsonpath='{.status.phase}' 2>/dev/null)" = "Running" ] && break
   sleep 5
 done
 [ -n "${VPOD:-}" ] || { error "Vault pod did not start"; exit 1; }
 
-vx()  { kube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true "$@"; }
-vxt() { kube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true VAULT_TOKEN="$1" "${@:2}"; }
+vx()  { vkube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true "$@"; }
+vxt() { vkube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true VAULT_TOKEN="$1" "${@:2}"; }
 # Stdin variant (exec -i), for commands that read from stdin like `vault policy write - `.
-vxti() { kube -n "${VAULT_NS}" exec -i "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true VAULT_TOKEN="$1" "${@:2}"; }
+vxti() { vkube -n "${VAULT_NS}" exec -i "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true VAULT_TOKEN="$1" "${@:2}"; }
 
 info "Waiting for the Vault API..."
 until vx vault status >/dev/null 2>&1 || [ "$?" -eq 2 ]; do sleep 3; done
 
 if vx vault status 2>/dev/null | grep -q "Initialized.*true"; then
-  success "Vault already initialized - skipping init/config"
+  success "Vault already initialized - skipping init/config (idempotent)"
   exit 0
 fi
 
@@ -184,8 +216,8 @@ UNSEAL_KEY="$(printf '%s' "${INIT_JSON}" | python3 -c 'import sys,json;print(jso
 ROOT_TOKEN="$(printf '%s' "${INIT_JSON}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["root_token"])')"
 # Stash the unseal key so an unattended pod restart during a run can be re-unsealed
 # by hand if needed (dev/e2e convenience; not a production unseal mechanism).
-kube create secret generic "${VAULT_UNSEAL_SECRET}" -n "${VAULT_NS}" \
-  --from-literal=unseal-key="${UNSEAL_KEY}" --dry-run=client -o yaml | kube apply -f - >/dev/null
+vkube create secret generic "${VAULT_UNSEAL_SECRET}" -n "${VAULT_NS}" \
+  --from-literal=unseal-key="${UNSEAL_KEY}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
 vx vault operator unseal "${UNSEAL_KEY}" >/dev/null
 
 info "Configuring KV v2, kubernetes auth, role and templated policy..."

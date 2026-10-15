@@ -407,7 +407,7 @@ success "Stand-in PostgreSQL ready (ssl=on)"
 # runs, configured to the GitOps Contract (KV v2, kubernetes auth, the openshell-gateway
 # role + namespace-templated policy, serving CA in Secret openshell-gateway-vault-tls).
 # KIND_CLUSTER_NAME is exported by the Makefile, so the child shell resolves the context.
-bash "${SCRIPT_DIR}/vault.sh"
+VAULT_KUBECTL="kubectl --context $(kctx)" bash "${SCRIPT_DIR}/../cluster/vault.sh"
 
 # The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
 # mounted from its own namespace at /etc/hypershell/gateway-database
