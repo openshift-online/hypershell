@@ -1,6 +1,5 @@
 import {
   queryPrometheusInstantLabels,
-  queryPrometheusInstantNumber,
   queryPrometheusInstantNumberAllowAbsent,
 } from "./prometheus-instant-query.js";
 import {
@@ -98,19 +97,7 @@ function dailyQuery(query: string): string {
   return query.replace(`[${range?.[1] ?? "7"}d]`, "[1d]");
 }
 
-async function optionalInstantNumber(
-  source: MetricsSource,
-  query: string,
-  timeoutMs: number,
-): Promise<number | undefined> {
-  try {
-    return await queryPrometheusInstantNumber(source, query, timeoutMs);
-  } catch {
-    return undefined;
-  }
-}
-
-async function optionalInstantErrorNumber(
+async function optionalInstantCounterNumber(
   source: MetricsSource,
   query: string,
   timeoutMs: number,
@@ -128,12 +115,16 @@ async function optionalInstantErrorNumber(
   }
 }
 
+type DailySamplesResult =
+  | { status: "failed" }
+  | { status: "success"; samples: Map<string, number | null> };
+
 async function queryOptionalDailySamples(
   source: MetricsSource,
   query: string,
   rangeDays: UsageDashboardRange,
   timeoutMs: number,
-): Promise<Map<string, number | null> | undefined> {
+): Promise<DailySamplesResult> {
   const { end, start } = utcCalendarRange(rangeDays);
   try {
     const samples = await queryPrometheusRangeScalarSamples(
@@ -144,28 +135,31 @@ async function queryOptionalDailySamples(
       `${String(dailyRangeStepSeconds)}s`,
       timeoutMs,
     );
-    return new Map(
-      alignDailyNumericSeriesPreservingGaps(samples, rangeDays).map(
-        ({ date, value }) => [date, value],
+    return {
+      status: "success",
+      samples: new Map(
+        alignDailyNumericSeriesPreservingGaps(samples, rangeDays).map(
+          ({ date, value }) => [date, value],
+        ),
       ),
-    );
+    };
   } catch {
-    return undefined;
+    return { status: "failed" };
   }
 }
 
 function combineDailySeries(
-  left: Map<string, number | null> | undefined,
-  right: Map<string, number | null> | undefined,
+  left: DailySamplesResult,
+  right: DailySamplesResult,
 ): UsageDailyPoint[] | undefined {
-  if (left === undefined && right === undefined) {
+  if (left.status === "failed" || right.status === "failed") {
     return undefined;
   }
 
-  const dates = new Set([...(left?.keys() ?? []), ...(right?.keys() ?? [])]);
+  const dates = new Set([...left.samples.keys(), ...right.samples.keys()]);
   return [...dates].sort().map((date) => {
-    const leftValue = left?.get(date);
-    const rightValue = right?.get(date);
+    const leftValue = left.samples.get(date);
+    const rightValue = right.samples.get(date);
     if (leftValue === null && rightValue === null) {
       return { date, value: null };
     }
@@ -183,17 +177,17 @@ function combineDailySeries(
 }
 
 function combineDailyErrorSeries(
-  left: Map<string, number | null> | undefined,
-  right: Map<string, number | null> | undefined,
+  left: DailySamplesResult,
+  right: DailySamplesResult,
 ): UsageDailyPoint[] | undefined {
-  if (left === undefined || right === undefined) {
+  if (left.status === "failed" || right.status === "failed") {
     return undefined;
   }
 
-  const dates = new Set([...left.keys(), ...right.keys()]);
+  const dates = new Set([...left.samples.keys(), ...right.samples.keys()]);
   return [...dates].sort().map((date) => ({
     date,
-    value: (left.get(date) ?? 0) + (right.get(date) ?? 0),
+    value: (left.samples.get(date) ?? 0) + (right.samples.get(date) ?? 0),
   }));
 }
 
@@ -225,22 +219,22 @@ export async function queryUsageGatewayMetrics(
       : undefined);
 
   const [grpcVolume, httpVolume, grpcErrors, httpErrors] = await Promise.all([
-    optionalInstantNumber(
+    optionalInstantCounterNumber(
       source,
       grpcRequestVolumeQuery(rangeDays, options.namespaces),
       timeoutMs,
     ),
-    optionalInstantNumber(
+    optionalInstantCounterNumber(
       source,
       httpRequestVolumeQuery(rangeDays, options.namespaces),
       timeoutMs,
     ),
-    optionalInstantErrorNumber(
+    optionalInstantCounterNumber(
       source,
       grpcErrorVolumeQuery(rangeDays, options.namespaces),
       timeoutMs,
     ),
-    optionalInstantErrorNumber(
+    optionalInstantCounterNumber(
       source,
       httpErrorVolumeQuery(rangeDays, options.namespaces),
       timeoutMs,
@@ -248,12 +242,8 @@ export async function queryUsageGatewayMetrics(
   ]);
 
   const response: UsageGatewayMetricsResponse = {};
-  if (
-    grpcVolume !== undefined ||
-    httpVolume !== undefined ||
-    currentGatewayCount === 0
-  ) {
-    response.request_volume = (grpcVolume ?? 0) + (httpVolume ?? 0);
+  if (grpcVolume !== undefined && httpVolume !== undefined) {
+    response.request_volume = grpcVolume + httpVolume;
   }
   const totalRequests = response.request_volume;
   if (
@@ -290,7 +280,7 @@ export async function queryUsageGatewayMetrics(
     const successful = activeResults.flatMap((result) =>
       result.status === "fulfilled" ? [result.value] : [],
     );
-    if (successful.length > 0) {
+    if (successful.length === activeResults.length) {
       const activeNamespaces = new Set<string>();
       for (const labels of successful) {
         for (const namespace of labels) {

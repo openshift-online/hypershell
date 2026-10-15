@@ -142,6 +142,132 @@ describe("usage metrics queries", () => {
     }
   });
 
+  it("omits gateway usage values when the gRPC query fails", async () => {
+    const prometheus = await startPrometheusStub((request, response) => {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      const query = url.searchParams.get("query") ?? "";
+      response.setHeader("content-type", "application/json");
+
+      if (query.includes("openshell_server_grpc_requests_total")) {
+        response.statusCode = 503;
+        response.end("Prometheus unavailable");
+        return;
+      }
+
+      response.end(
+        url.pathname === "/api/v1/query_range"
+          ? rangePayload("10")
+          : query.includes("count by (namespace)")
+            ? instantPayload("1", "openshell-gateway-1")
+            : instantPayload("10"),
+      );
+    });
+
+    try {
+      const response = await queryUsageGatewayMetrics(
+        prometheus.origin,
+        5_000,
+        7,
+        {
+          currentGatewayCount: 1,
+          currentGatewayNamespaces: ["openshell-gateway-1"],
+        },
+      );
+
+      expect(response).toEqual({ total_gateways: 1 });
+    } finally {
+      prometheus.close();
+    }
+  });
+
+  it("omits gateway usage values when the HTTP query fails", async () => {
+    const prometheus = await startPrometheusStub((request, response) => {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      const query = url.searchParams.get("query") ?? "";
+      response.setHeader("content-type", "application/json");
+
+      if (query.includes("openshell_server_http_requests_total")) {
+        response.statusCode = 503;
+        response.end("Prometheus unavailable");
+        return;
+      }
+
+      response.end(
+        url.pathname === "/api/v1/query_range"
+          ? rangePayload("10")
+          : query.includes("count by (namespace)")
+            ? instantPayload("1", "openshell-gateway-1")
+            : instantPayload("10"),
+      );
+    });
+
+    try {
+      const response = await queryUsageGatewayMetrics(
+        prometheus.origin,
+        5_000,
+        7,
+        {
+          currentGatewayCount: 1,
+          currentGatewayNamespaces: ["openshell-gateway-1"],
+        },
+      );
+
+      expect(response).toEqual({ total_gateways: 1 });
+    } finally {
+      prometheus.close();
+    }
+  });
+
+  it("treats a successfully absent protocol series as zero", async () => {
+    const prometheus = await startPrometheusStub((request, response) => {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      const query = url.searchParams.get("query") ?? "";
+      response.setHeader("content-type", "application/json");
+
+      if (query.includes("openshell_server_grpc_requests_total")) {
+        response.end(
+          url.pathname === "/api/v1/query_range"
+            ? JSON.stringify({
+                status: "success",
+                data: { resultType: "matrix", result: [] },
+              })
+            : emptyInstantPayload(),
+        );
+        return;
+      }
+
+      response.end(
+        url.pathname === "/api/v1/query_range"
+          ? rangePayload("10")
+          : query.includes("count by (namespace)")
+            ? instantPayload("1", "openshell-gateway-1")
+            : instantPayload("10"),
+      );
+    });
+
+    try {
+      const response = await queryUsageGatewayMetrics(
+        prometheus.origin,
+        5_000,
+        7,
+        {
+          currentGatewayCount: 1,
+          currentGatewayNamespaces: ["openshell-gateway-1"],
+        },
+      );
+
+      expect(response).toMatchObject({
+        active_gateways: 1,
+        request_volume: 10,
+        total_gateways: 1,
+        unused_gateways: 0,
+      });
+      expect(response.daily_request_volume).toHaveLength(7);
+    } finally {
+      prometheus.close();
+    }
+  });
+
   it("calculates sandbox utilization from scoped active and total series", async () => {
     const queries: string[] = [];
     const prometheus = await startPrometheusStub((request, response) => {

@@ -341,8 +341,9 @@ Daily volume and error-rate series use the same PromQL with a one-day
 `increase()` window, UTC calendar-day boundaries, and one-day steps. Missing
 days remain `null`; they are never backfilled with zero. If an instant value is
 available but a daily range query fails, the route returns the instant value and
-omits the trend. If one protocol series is missing, the other protocol's value
-is still returned.
+omits the trend. A successful absent protocol series contributes zero. If
+either protocol query fails, request volume, daily request volume, active
+Gateways, and unused Gateways are omitted.
 
 ### Sandbox usage metrics
 
