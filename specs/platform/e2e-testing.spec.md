@@ -965,6 +965,52 @@ placement.
 - AND cleanup SHALL leave no fixture namespace, gateway namespace, or stale
   managed-cluster record behind
 
+### Requirement: Hub-and-Spoke Placement Validation
+
+The physical-spoke fixture above makes one candidate exclusively eligible to
+test deterministic routing of Kubernetes assertions. It does not validate the
+production placement case in which multiple physical spokes match one
+placement intent. When `E2E_HUB_SPOKE=1`, the suite SHALL instead validate a
+hub API with two separately reachable, physical OpenShift spokes that are both
+healthy and eligible for the same placement intent. This is an opt-in
+qualification profile because it requires two independently deployed and
+registered control planes; two registrations sharing one Kubernetes API server
+SHALL NOT satisfy it.
+
+The spoke names are supplied through `E2E_HUB_SPOKE_CLUSTER_1_NAME` and
+`E2E_HUB_SPOKE_CLUSTER_2_NAME`. Runner configuration SHALL map each registered
+managed-cluster name to an independently usable Kubernetes context. The current
+KUBECONFIG context MAY identify either spoke, but SHALL NOT be assumed to own a
+gateway created through placement intent.
+
+Every e2e path that creates a Gateway through placement intent SHALL read the
+persisted `cluster_id` in the response before making a Kubernetes-level
+assertion. It SHALL resolve that id to the configured spoke context and use that
+context for workload, route, sandbox, namespace cleanup, and diagnostic
+assertions. If the returned id has no mapped context, the test SHALL fail before
+resource polling, identify the gateway and managed-cluster ids plus the known
+context mappings, and SHALL NOT report a missing Deployment or Route timeout on
+the starting context.
+
+#### Scenario: Placement is verified on the randomly selected eligible spoke
+
+- GIVEN `E2E_HUB_SPOKE=1`, a hub API, and two separately reachable AWS/public spokes
+- AND both spokes are registered, connected, eligible for `{network: public, provider: aws}`, and have Kubernetes context mappings
+- WHEN the suite creates a gateway with that placement intent
+- THEN the returned Gateway `cluster_id` SHALL equal exactly one of the two spoke ids
+- AND the gateway SHALL reach `Running`
+- AND the suite SHALL find the Deployment, Service, Route, and sandbox resources only through the context mapped to that returned `cluster_id`
+- AND the other spoke SHALL not contain those resources in the gateway's managed namespace
+- AND teardown SHALL delete through the hub API and observe namespace cleanup on the selected spoke
+
+#### Scenario: Unreachable selected spoke fails fast
+
+- GIVEN a gateway created with placement intent resolves to a registered ManagedCluster without a configured Kubernetes context
+- WHEN the suite starts Kubernetes-level verification
+- THEN it SHALL fail before resource polling
+- AND the error SHALL identify the Gateway id, resolved `cluster_id`, and configured context mappings
+- AND failure collection SHALL retain hub diagnostics and diagnostics from every configured spoke
+
 ### Requirement: Control-Plane Reconnect and Identity Rejection Coverage
 
 The suite SHALL validate the controller lifecycle in HYPERSHELL-241 as part of
@@ -1669,6 +1715,9 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_MULTICLUSTER` | `0` | `1` enables the logical two-cluster fleet (P2.4 multi-cluster steps and P2.5 promotion); both control planes run on the same physical Kubernetes cluster and the second is named by `E2E_SEED_CLUSTER_NAME_2` |
 | `E2E_SEED_CLUSTER_NAME_2` | (unset) | Name of the second registered ManagedCluster when `E2E_MULTICLUSTER=1` |
 | `E2E_MANAGED_WORKFLOWS` | `0` | `1` enables the physical-spoke ManagedCluster lifecycle fixture. Secure runner configuration supplies its spoke kubecontext, isolated namespace, unique name, registrar identity, and an exclusive placement intent; it is not derived from a ManagedCluster record. |
+| `E2E_HUB_SPOKE` | `0` | `1` enables the opt-in hub-and-spoke placement qualification with a hub API and two separately reachable physical OpenShift spokes |
+| `E2E_HUB_SPOKE_CLUSTER_1_NAME` | (unset) | First eligible ManagedCluster name in the hub-and-spoke placement qualification; runner configuration supplies its Kubernetes context mapping |
+| `E2E_HUB_SPOKE_CLUSTER_2_NAME` | (unset) | Second eligible ManagedCluster name in the hub-and-spoke placement qualification; runner configuration supplies its Kubernetes context mapping |
 | `E2E_REGISTRAR_CLIENT_ID` | `hypershell-control-plane` | OIDC client (holding `managed-cluster-registrar`) the suite uses for the P2.4 `/registration` calls |
 | `E2E_REGISTRAR_CLIENT_SECRET` | (dev client secret) | Secret for `E2E_REGISTRAR_CLIENT_ID` |
 | `E2E_QUALIFY_DNS_TLS_RENEWAL` | `0` | `1` runs the trusted DNS/TLS renewal qualification (HYPERSHELL-245); opt-in, not in the Kind gate |
