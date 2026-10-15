@@ -182,6 +182,12 @@ The control plane SHALL connect to the API server via gRPC watch streams for eac
 - THEN the request SHALL carry `cluster_id: X` and the control plane's bearer token
 - AND events for gateways assigned to other clusters SHALL NOT be delivered
 
+#### Scenario: Startup seeds gateways created while the control plane was down
+- GIVEN gateways for cluster `X` that were created while its control plane was not running
+- WHEN the control plane starts and its `WatchGateways` subscription header arrives
+- THEN it SHALL list cluster `X`'s gateways and queue each one for reconciliation before, and independently of, any watch event
+- AND this is verified by `TestWatchGateways_StartupSeedsExistingGateways` (control-plane watcher) and `TestGRPCControlPlaneStartupListsExistingGateways` (api-server integration)
+
 ### Requirement: AgentRuntime Watch Stream
 
 The control plane SHALL watch `AgentRuntime` resources over a `WatchAgentRuntimes`

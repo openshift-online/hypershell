@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -393,6 +394,66 @@ func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
 	// subscribing. It returning without error proves the handshake fired.
 	_, err = stream.Header()
 	Expect(err).NotTo(HaveOccurred())
+}
+
+// TestGRPCControlPlaneStartupListsExistingGateways covers what a newly started
+// control plane relies on to pick up gateways created while it was down. The
+// watch stream never replays existing state, so the control plane opens the
+// watch, waits for its subscription header, and then lists its cluster's
+// gateways to seed its reconcile queue. Gateways created before any connection
+// must be returned by that list on every fresh connect, and another cluster's
+// gateway must not.
+func TestGRPCControlPlaneStartupListsExistingGateways(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	ownID, subject := registerTestClusterWithSubject(t)
+	foreignID := registerTestCluster(t)
+
+	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
+	service := gateways.Service(&environments.Environment().Services)
+	want := make(map[string]bool, 2)
+	for _, name := range []string{"startup-seed-a", "startup-seed-b"} {
+		gw, svcErr := service.Create(userCtx, &gateways.Gateway{Name: name, ClusterId: ownID})
+		Expect(svcErr).NotTo(HaveOccurred(), "create gateway %s", name)
+		want[gw.ID] = true
+	}
+	foreignGw, svcErr := service.Create(userCtx, &gateways.Gateway{Name: "startup-seed-foreign", ClusterId: foreignID})
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	cpAccount := h.NewAccount("service-account-cp-"+subject, "cp", "")
+	cpToken := h.CreateJWTStringWithClaims(cpAccount, test.ControlPlaneClaims(subject))
+
+	for attempt := 0; attempt < 2; attempt++ {
+		conn, err := grpc.NewClient(
+			h.GRPCAddress(),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithPerRPCCredentials(&bearerToken{token: cpToken}),
+		)
+		Expect(err).NotTo(HaveOccurred())
+		client := pb.NewGatewayServiceClient(conn)
+
+		watchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		stream, err := client.WatchGateways(watchCtx, &pb.WatchGatewaysRequest{ClusterId: &ownID})
+		Expect(err).NotTo(HaveOccurred())
+		_, err = stream.Header()
+		Expect(err).NotTo(HaveOccurred(), "connect %d: watch subscription header", attempt+1)
+
+		listResp, err := client.ListGateways(watchCtx, &pb.ListGatewaysRequest{Page: 1, Size: 100, ClusterId: &ownID})
+		Expect(err).NotTo(HaveOccurred(), "connect %d: list gateways", attempt+1)
+		got := make(map[string]bool, len(listResp.Items))
+		for _, item := range listResp.Items {
+			Expect(item.GetClusterId()).To(Equal(ownID), "connect %d: listed another cluster's gateway", attempt+1)
+			got[item.GetMetadata().GetId()] = true
+		}
+		for id := range want {
+			Expect(got).To(HaveKey(id), "connect %d: pre-existing gateway missing from startup list", attempt+1)
+		}
+		Expect(got).NotTo(HaveKey(foreignGw.ID), "connect %d: foreign gateway listed", attempt+1)
+
+		cancel()
+		Expect(conn.Close()).To(Succeed())
+	}
 }
 
 func TestGRPCGatewayErrorHandling(t *testing.T) {
