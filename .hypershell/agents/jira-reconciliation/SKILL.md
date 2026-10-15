@@ -29,6 +29,20 @@ that just got done without planning - and makes sure it is reflected in Jira.
 It realizes the Retroactive Jira Reflection requirement of
 `specs/standards/sdlc/jira-github-sync.spec.md`.
 
+## Unattended execution
+
+This workflow runs unattended in a cron loop. The coordinator supplies
+`$GITHUB_ISSUE_URL` from the selector match and `$JIRA_PROJECT` from the
+runtime parameters. No step SHALL wait for, prompt, or poll a human. The
+`blocked` verdict is the only human handoff: it records the question in a
+GitHub comment and ends the run. A run performs no waits and no polling; it
+is bounded by its read and write calls.
+
+Re-runs are safe. The workflow is idempotent (search-before-create, no-op
+projection), so a sandbox that dies mid-run leaves the
+`agent/release-verified` label in place and the next cron tick re-runs it
+without duplicating writes.
+
 ## Input
 
 ```text
@@ -118,8 +132,12 @@ each merged change linked to it. For each work unit:
 1. Resolve the canonical link per rule 3: the `agent/execution-record` marker
    plus the exact Jira key recorded in the GitHub issue body, or a Jira remote
    link pointing at the unit's GitHub issue or pull request.
-2. Search Jira for an existing item that remote-links to the unit's GitHub
-   artifacts (issue URL, pull request URL). This is the idempotency search.
+2. Search Jira for an existing item that references the unit's GitHub
+   artifacts: a remote link to the unit's GitHub issue or pull request URL,
+   or the artifact URL named in an item's description or comment (text
+   search). The GitHub-side canonical key is the primary idempotency check;
+   this Jira-side search is the fallback for items linked outside this
+   workflow.
 
 Classify each unit:
 - `linked`: a canonical counterpart resolves. Record the key, issue type,
@@ -189,6 +207,11 @@ a would-be projection, an exact old-value/new-value table:
 
 Include the evidence source and the specific question that needs a human
 decision.
+
+_Note: IF a write fails for one work unit, record the exact failure, continue
+with the remaining units, and collect every failure. The outcome verdict is
+`blocked` when any failure was collected. Never silently swallow a partial
+failure._
 
 ### Step 5: Communicate Outcome
 
