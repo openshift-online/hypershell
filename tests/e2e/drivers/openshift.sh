@@ -9,8 +9,8 @@
 # infrastructure operation and the TLS policy are overridden below.
 # shellcheck source=kind.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kind.sh"
-# The shared Kind helpers enable insecure CLI TLS for their local CA. OpenShift
-# uses trusted routes (or E2E_OPENSHIFT_CA_SECRET), so never inherit that bypass.
+# OpenShift uses trusted routes (or E2E_OPENSHIFT_CA_SECRET), so never inherit
+# an insecure CLI TLS bypass from the caller's environment.
 unset OPENSHELL_GATEWAY_INSECURE
 
 : "${E2E_OPENSHIFT_KEYCLOAK_ROUTE:=keycloak}"
@@ -153,9 +153,9 @@ discover_gateway_endpoint() {
   # control plane emits an OpenShift Route instead of Gateway API resources, so
   # fall back to the per-tenant Route's host. The Route is passthrough; the
   # gateway pod terminates TLS with its own CA, which no public trust store
-  # knows, so the openshell CLI must dial with InsecureSkipVerify -- the same
-  # policy the kind driver uses for its local CA. OPENSHELL_GATEWAY_INSECURE
-  # is what writes gateway_insecure into the CLI's gateway metadata.json, and
+  # knows, so the openshell CLI must dial with InsecureSkipVerify.
+  # OPENSHELL_GATEWAY_INSECURE is what writes gateway_insecure into the CLI's
+  # gateway metadata.json, and
   # this driver's top-level `unset` (kept for edge-mode trusted certificates)
   # must not apply here.
   local route_host
