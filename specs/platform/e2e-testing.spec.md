@@ -601,33 +601,35 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 ### Requirement: Active Sandbox Count Accounting
 
 The e2e test suite SHALL validate that a gateway's read-only `active_sandbox_count`
-field, reported by the HyperShell API, tracks sandbox creation and deletion. The
-suite SHALL create two to three sandboxes on a `Running` gateway, poll the API
-until `active_sandbox_count` reflects the created sandboxes, then delete one or
-more and poll until the count decrements accordingly. The suite SHALL reuse the
-existing sandbox create/delete steps and the API-polling helper. Because the
-count is an advisory recent value that may lag real time (see
-`openshell-gateway-sandbox-count.spec.md`), assertions SHALL poll up to
-`E2E_SANDBOX_TIMEOUT` seconds for the expected value rather than checking once.
+field, reported by the HyperShell API, tracks sandbox creation and deletion. This
+is part of P2.1, on the step's own newly created gateway, so no other step changes
+its count.
+
+The suite SHALL create N sandboxes at the same time. N SHALL be 1 in `short` and
+`perf` runs and 2 in `long` runs; the long run proves that concurrent increments
+are not lost. After every sandbox pod is `Running`, the suite SHALL poll the API
+until `active_sandbox_count` equals N. It SHALL then delete all N sandboxes at
+the same time and poll until the count is 0.
+
+The count is an advisory recent value that may lag real time (see
+`openshell-gateway-sandbox-count.spec.md`). Every count assertion SHALL therefore
+poll for up to `E2E_SANDBOX_TIMEOUT` seconds rather than check once. A timeout
+without the expected count SHALL fail the step.
 
 #### Scenario: Count increments as sandboxes are created
 
-- GIVEN a `Running` gateway with `active_sandbox_count` of 0
-- WHEN two to three sandboxes are created on that gateway and their pods reach
-  `Running` state
+- GIVEN P2.1's own newly created `Running` gateway
+- WHEN N sandboxes are created on it concurrently (N is 1 in short and perf, 2 in long)
+- AND every sandbox pod reaches `Running`
 - THEN polling `GET /api/hypershell/v1/gateways/<id>` SHALL report an
-  `active_sandbox_count` equal to the number of sandboxes created, within
+  `active_sandbox_count` of exactly N within `E2E_SANDBOX_TIMEOUT` seconds
+
+#### Scenario: Count returns to zero as sandboxes are deleted
+
+- GIVEN the gateway reports an `active_sandbox_count` of N
+- WHEN all N sandboxes are deleted concurrently
+- THEN polling the API SHALL report an `active_sandbox_count` of 0 within
   `E2E_SANDBOX_TIMEOUT` seconds
-- AND a timeout without the expected count SHALL be reported as a test failure
-
-#### Scenario: Count decrements as sandboxes are deleted
-
-- GIVEN a `Running` gateway whose `active_sandbox_count` reflects the created
-  sandboxes
-- WHEN one or more of those sandboxes are deleted and their pods terminate
-- THEN polling the API SHALL report an `active_sandbox_count` reduced by the
-  number of sandboxes deleted, within `E2E_SANDBOX_TIMEOUT` seconds
-- AND the suite SHALL delete any remaining sandboxes to leave a clean state
 
 ### Requirement: Developer RBAC Enforcement
 
@@ -1534,7 +1536,7 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | `E2E_NAMESPACE` | `openshell-e2e` | Namespace for e2e test resources (gateway deployment) |
 | `E2E_GATEWAY_NAME` | `e2e-gw` | Gateway name for the e2e test |
 | `E2E_MODE` | `long` | User-facing run depth: `long` runs every step; `short` runs the essential steps of each phase, owns and tears down its own gateway, and runs as a single identity (self-contained full-lifecycle check, safe against a live env). The `perf` depth is not a valid `E2E_MODE` value; it is set in-process by the performance harness only (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)) |
-| `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness |
+| `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness and for each `active_sandbox_count` assertion |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in P2.3) |

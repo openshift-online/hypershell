@@ -1151,12 +1151,13 @@ func (s *E2ESuite) waitPodRunning(ctx context.Context, ns, substr string, timeou
 // pollActiveSandboxCount polls the gateway's active_sandbox_count until it reaches
 // want. The count is advisory and may lag, so it is polled rather than read once.
 func (s *E2ESuite) pollActiveSandboxCount(t *testing.T, gatewayID string, want int32) {
-	err := harness.Poll(t.Context(), 5*time.Second, 90*time.Second, func(ctx context.Context) (bool, error) {
+	timeout := durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)
+	err := harness.Poll(t.Context(), 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
 		gw, err := s.admin.Gateways().Get(ctx, gatewayID)
 		if err != nil {
 			return false, nil
 		}
 		return gw.ActiveSandboxCount == want, nil
 	})
-	s.Require().NoErrorf(err, "gateway %s active_sandbox_count never reached %d", gatewayID, want)
+	s.Require().NoErrorf(err, "gateway %s active_sandbox_count never reached %d within %s", gatewayID, want, timeout)
 }
