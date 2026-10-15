@@ -262,7 +262,7 @@ export async function queryUsageGatewayMetrics(
     grpcErrors !== undefined &&
     httpErrors !== undefined
   ) {
-    const errors = (grpcErrors ?? 0) + (httpErrors ?? 0);
+    const errors = grpcErrors + httpErrors;
     response.request_error_rate_percent = (errors / totalRequests) * 100;
   }
 

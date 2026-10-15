@@ -73,7 +73,6 @@ describe("queryAuthorizedGatewayMetrics", () => {
           Provisioning: 0,
           Running: 2,
         },
-        namespaces: ["openshell-gateway-1", "openshell-gateway-2"],
         total: 3,
       });
     } finally {

@@ -709,7 +709,7 @@ export async function buildApp(
           config.oidcIssuer &&
           !hasDashboardAdminRole(request.session.get("roles") ?? [])
         ) {
-          const scope = await nonAdminUsageScope(request);
+          const scope = await usageScope(request);
           return await queryUsageSandboxLifetime(
             config.prometheusUrl,
             config.prometheusQueryTimeoutMs,
