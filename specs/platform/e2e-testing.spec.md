@@ -796,21 +796,35 @@ mistaken for full finalization. Long-only.
 
 ### Requirement: Gateway TLS Trust (No Insecure Bypass)
 
-The e2e test suite SHALL connect to the gateway over trusted TLS and SHALL NOT disable certificate verification. The `OPENSHELL_GATEWAY_INSECURE=true` bypass SHALL NOT be used. Instead, the suite SHALL trust the cluster's self-signed CA: it extracts the CA certificate issued by cert-manager (the same CA that signs the gateway's serving certificate and the `*.gw.localhost` wildcard listener cert) and points the openshell CLI at it via `SSL_CERT_FILE`. This ensures the e2e path exercises the same TLS trust chain a real client uses, rather than skipping validation.
+The e2e suite SHALL connect to gateways over trusted TLS, with certificate verification on. It SHALL NOT turn on the `OPENSHELL_GATEWAY_INSECURE` bypass itself, and CI SHALL NOT set it. How the CLI trusts the gateway depends on the driver:
+
+- **Kind:** the gateway certificate is signed by the cluster's self-signed cert-manager CA (the same CA that signs the `*.gw.localhost` wildcard listener certificate). The Go suite reads that CA from the `hypershell-ca-secret` Secret and points the openshell CLI at it with `SSL_CERT_FILE`. The Bash Kind driver (`tests/e2e/drivers/kind.sh`) exports `SSL_CERT_FILE` as a bundle of the system root certificates plus that CA, so public endpoints still verify, and fails fast when it cannot read the CA. When the CLI runs through `scripts/kind/openshell-container.sh`, the wrapper SHALL mount the caller's `SSL_CERT_FILE` into the container, set `SSL_CERT_FILE` there, and keep verification on. Without a caller-supplied CA, the wrapper falls back to skipping verification; that fallback serves interactive developer use, and no e2e path relies on it.
+- **OpenShift:** the Gateway API endpoint is publicly trusted, so the CLI uses the system trust store. One known exception: in route ingress mode (`GATEWAY_INGRESS_MODE=route`, for example IBM Cloud ROKS) the passthrough Route exposes the gateway's own CA, which no public trust store knows, and the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) turns the bypass on for that case. Trusting that CA instead is open work.
+
+This keeps the e2e path on the same TLS trust chain a real client uses. The same rules apply to the Bash smoke script (`tests/e2e/smoke.sh`).
+
+A person MAY set `OPENSHELL_GATEWAY_INSECURE=true` in their own environment as a local diagnostic override. The suite then writes `gateway_insecure: true` into the CLI gateway settings and passes the variable to the CLI, and it SHALL log a warning that gateway TLS verification is disabled.
 
 #### Scenario: CLI Trusts the Cluster CA
 
-- GIVEN the cluster CA certificate has been extracted from the cert-manager-issued secret
-- AND `SSL_CERT_FILE` points the openshell CLI at that CA
-- WHEN the CLI connects to the gateway gRPC endpoint over TLS
-- THEN the connection SHALL succeed with certificate verification enabled
-- AND `OPENSHELL_GATEWAY_INSECURE` SHALL NOT be set
+- GIVEN a Kind environment, and `OPENSHELL_GATEWAY_INSECURE` is not set
+- AND the suite has read the cluster CA from `hypershell-ca-secret` and set `SSL_CERT_FILE` to it
+- WHEN the CLI (native, or through the container wrapper) connects to the gateway gRPC endpoint over TLS
+- THEN the connection SHALL succeed with certificate verification on
+- AND a CLI given a different CA SHALL fail with an unknown-issuer certificate error
 
-#### Scenario: Insecure Bypass Removed
+#### Scenario: Suite Never Enables the Insecure Bypass
 
-- GIVEN the e2e test script (`tests/e2e/e2e-openshell.sh`)
-- WHEN they establish a gateway connection
-- THEN they SHALL NOT set `OPENSHELL_GATEWAY_INSECURE=true`
+- GIVEN the Go e2e suite (`tests/e2e`) or the smoke script, and `OPENSHELL_GATEWAY_INSECURE` is not set in the caller's environment
+- WHEN it registers or runs the openshell CLI against a gateway
+- THEN it SHALL NOT set `OPENSHELL_GATEWAY_INSECURE`, and SHALL write `gateway_insecure: false` into the CLI gateway settings
+- AND, given a caller-supplied `SSL_CERT_FILE`, the container wrapper SHALL pass `OPENSHELL_GATEWAY_INSECURE=false` to the CLI
+
+#### Scenario: Diagnostic Override Is Visible
+
+- GIVEN `OPENSHELL_GATEWAY_INSECURE=true` in the caller's environment
+- WHEN the Go suite starts
+- THEN it SHALL log a warning that gateway TLS verification is disabled
 
 ### Requirement: ManagedCluster Registration Coverage
 
