@@ -91,10 +91,15 @@ metadata:
   namespace: ${VAULT_NS}
 spec:
   replicas: 1
-  strategy: { type: Recreate }
-  selector: { matchLabels: { app: ${VAULT_SVC} } }
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ${VAULT_SVC}
   template:
-    metadata: { labels: { app: ${VAULT_SVC} } }
+    metadata:
+      labels:
+        app: ${VAULT_SVC}
     spec:
       serviceAccountName: vault
       securityContext:
@@ -107,20 +112,34 @@ spec:
           command: ["vault", "server", "-config=/vault/config/vault.hcl"]
           securityContext:
             allowPrivilegeEscalation: false
-            capabilities: { drop: ["ALL"] }
+            capabilities:
+              drop: ["ALL"]
           ports:
-            - { containerPort: 8200, name: https }
+            - containerPort: 8200
+              name: https
           volumeMounts:
-            - { name: config, mountPath: /vault/config }
-            - { name: tls, mountPath: /vault/tls, readOnly: true }
-            - { name: data, mountPath: /vault/data }
+            - name: config
+              mountPath: /vault/config
+            - name: tls
+              mountPath: /vault/tls
+              readOnly: true
+            - name: data
+              mountPath: /vault/data
           readinessProbe:
-            httpGet: { path: /v1/sys/health?standbyok=true, port: 8200, scheme: HTTPS }
+            httpGet:
+              path: "/v1/sys/health?standbyok=true"
+              port: 8200
+              scheme: HTTPS
             periodSeconds: 5
       volumes:
-        - { name: config, configMap: { name: vault-config } }
-        - { name: tls, secret: { secretName: ${VAULT_TLS_SECRET} } }
-        - { name: data, emptyDir: {} }
+        - name: config
+          configMap:
+            name: vault-config
+        - name: tls
+          secret:
+            secretName: ${VAULT_TLS_SECRET}
+        - name: data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -128,9 +147,12 @@ metadata:
   name: ${VAULT_SVC}
   namespace: ${VAULT_NS}
 spec:
-  selector: { app: ${VAULT_SVC} }
+  selector:
+    app: ${VAULT_SVC}
   ports:
-    - { name: https, port: 8200, targetPort: 8200 }
+    - name: https
+      port: 8200
+      targetPort: 8200
 EOF
 
 # Wait for the pod to be Running (a sealed/uninitialized Vault never reports Ready,

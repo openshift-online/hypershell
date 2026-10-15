@@ -148,7 +148,7 @@ func (c *vaultClient) do(ctx context.Context, method, url, token string, payload
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return resp.StatusCode, body, nil
 }
