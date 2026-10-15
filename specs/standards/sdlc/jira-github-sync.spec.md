@@ -99,6 +99,7 @@ projection uses this mapping:
 | `agent/review-code-approved` | `In Progress` |
 | `agent/blocked` | `In Progress` |
 | Pull request merged to `main` | `Done` |
+| GitHub execution record Closed (no detectable merged pull request) | `Done` |
 | `agent/duplicate` (issue closed as duplicate) | `Done` |
 
 The reconciler SHALL resolve the concrete Jira status for a mapped category by
@@ -109,6 +110,16 @@ workflow, the reconciler SHALL report an error and SHALL NOT hand-set an
 arbitrary status. A phase whose mapped category already matches the Jira item's
 current status category SHALL produce no transition (no-op). This never silently
 skips an unreachable category.
+
+The `Done` category has two independent triggers. The first is a linked pull
+request merged to `main` (which also closes the execution record - see Terminal
+Execution Record Closure). The second is the GitHub execution record being
+Closed: because GitHub is authoritative for the record's open/closed state, a
+Closed record is itself an authoritative terminal signal, so the reconciler SHALL
+project the Jira item to the `Done` category even when no merged pull request is
+detectable. Either trigger alone SHALL be sufficient. This closes the gap where a
+record closed by hand, or whose merge landed under a pull request that references
+a different issue, would otherwise strand its Jira item in `In Progress`.
 
 ---
 
@@ -329,7 +340,9 @@ selecting an available transition whose target status has the mapped category.
 Jira status SHALL be derived from the GitHub phase and SHALL NEVER be hand-set by
 an agent. A phase whose mapped category matches the Jira item's current status
 category SHALL produce no transition. An unreachable category SHALL be reported as
-an error, never a hand-set arbitrary status.
+an error, never a hand-set arbitrary status. A Closed execution record projects
+to the `Done` category independently of merge detection (see Closed Execution
+Record Projects Done).
 
 #### Scenario: Spec phase moves Jira to In Progress
 
@@ -348,6 +361,52 @@ an error, never a hand-set arbitrary status.
 - GIVEN a linked work item already in the status its phase maps to
 - WHEN status projection runs
 - THEN no transition is attempted
+
+### Requirement: Closed Execution Record Projects Done
+
+GitHub is authoritative for an execution record's open/closed state, so a Closed
+record is an authoritative terminal signal in its own right. When the GitHub
+execution record is Closed, the reconciler SHALL project the linked Jira item to
+the `Done` category, regardless of whether a merged pull request is detectable.
+The concrete status SHALL be resolved from the category via an available
+transition, exactly as for every other projection; the reconciler SHALL NEVER
+hand-set an arbitrary status.
+
+This is a second, independent path to `Done` that complements the merge-based
+behavior; it SHALL NOT replace it. A merged linked pull request SHALL still close
+an open execution record and project `Done` (see Terminal Execution Record
+Closure), and the Closed-record path SHALL additionally cover a record that is
+Closed without a detectable merged pull request - for example a record closed by
+hand, or one whose merge landed under a pull request that references a different
+issue.
+
+Projection from the Closed state SHALL be idempotent and drift-correcting: a
+Closed record whose Jira item is already in the `Done` category SHALL produce no
+transition, and a re-run SHALL make no change. It SHALL be dry-run aware, and it
+SHALL honor per-field authority - it projects status only and SHALL NOT write
+assignee, priority, or intent. An open execution record with no merged pull
+request SHALL remain projected to `In Progress` and SHALL NOT be forced to `Done`.
+
+#### Scenario: Closed record with no merged pull request projects Done
+
+- GIVEN a linked execution record that is Closed
+- AND no merged pull request is detectable for it
+- WHEN reconciliation runs
+- THEN the Jira item's status is in the `Done` category
+
+#### Scenario: Open record without a merged pull request stays In Progress
+
+- GIVEN a linked execution record that is Open
+- AND has no merged pull request
+- WHEN reconciliation runs
+- THEN the Jira item's status stays in the `In Progress` category
+
+#### Scenario: Closed-record Done projection is idempotent
+
+- GIVEN a Closed execution record whose Jira item is already in the `Done`
+  category
+- WHEN reconciliation runs again
+- THEN no transition is attempted and no field is written
 
 ### Requirement: Terminal Execution Record Closure
 
@@ -565,6 +624,14 @@ request is merged - close `#537`. This is a self-healing consequence of the
 bidirectional intake and both-origins scope reconciliation defined above; no
 manual closure is required.
 
+After the Closed Execution Record Projects Done requirement ships, a scope run
+SHALL also converge `#524`, the Closed execution record whose Wave B work merged
+under pull request `#528` (which references `#521`, not `#524`), so no merged
+pull request is detectable for `#524`. Because `#524` is Closed, the reconciler
+SHALL project its linked epic `HYPERSHELL-392` to the `Done` category without
+requiring a detectable merged pull request. This is a self-healing consequence of
+the Closed-record Done path; no manual Jira edit is required.
+
 ---
 
 ## Acceptance Criteria
@@ -595,6 +662,10 @@ manual closure is required.
   canonically, projects status, and closes `#537` because pull request `#538` is
   merged. Re-running changes nothing, creating no duplicate epics, records, or
   links.
+- A scope run projects the Jira item of a Closed execution record to the `Done`
+  category even when no merged pull request is detectable; `HYPERSHELL-392` (the
+  epic for the Closed record `#524`) reaches `Done`. An open record with no merged
+  pull request stays `In Progress`. Re-running changes nothing.
 
 #### Scenario: GitHub-first item converges on merge
 
@@ -654,3 +725,4 @@ manual closure is required.
 | Intake is bidirectional, not Jira-source-driven only | A Jira-source-only intake strands GitHub-origin records: their per-record reconcile never runs, so they get no status projection or terminal closure. Creating a Jira counterpart for a GitHub-first item and reconciling every in-scope record of either origin makes the funnel origin-symmetric. |
 | Resolution by canonical link only, never by a descriptive key mention | A GitHub issue may mention another ticket's key to describe related work. Resolving from that mention would reconcile against the wrong Jira item. Requiring the `agent/execution-record` marker plus the exact linked key makes resolution unambiguous and safe. |
 | The GitHub issue always drives execution, whichever side initiates | The label state machine, branches, and pull requests live on GitHub. Keeping GitHub as the execution substrate regardless of origin means the triage, spec, code, and review phases stay origin-blind. |
+| A Closed execution record projects Done independently of merge detection | GitHub is authoritative for the record's open/closed state. Keying Done only on a detectable merged pull request stranded records that were closed by hand or whose merge referenced a different issue. Treating the Closed state as a second, independent terminal trigger removes that gap while leaving the merge-based close-and-project behavior unchanged. |
