@@ -26,7 +26,24 @@ responses MUST omit it.
 
 **2. Secret References, Not Inline Secrets**
 
-All sensitive values (kubeconfig, database credentials) SHALL be stored as Kubernetes Secret references, not inline in the database. The model stores the secret name/path, not the secret value.
+All sensitive values (kubeconfig, database credentials) SHALL be stored as secret-store references, not inline in the database. The model stores the secret name/path, not the secret value.
+
+**2a. The API server MAY write a submitted secret value to the configured secret store**
+
+The API server MAY be configured with a secret-manager client and a scoped
+secret-store write credential, and MAY write a user-submitted secret **value**
+directly to the configured secret store at a deterministic location. It SHALL
+persist only a **reference** to that value (a `SecretSource` record: backend, path,
+key mappings) in the database, never the raw value. This supersedes the earlier
+reading that the API server never holds a secret-store write credential and that
+all value-writing is delegated to the control plane: the API server owns the
+secret-**submission** write path, while the control plane remains responsible for
+cluster-side **resolution** of a stored `SecretSource` into a usable credential at
+provisioning time. The invariant that the raw secret value is never persisted in
+the database, never logged, and absent from routine responses is unchanged. See
+[`../../platform/data-model.spec.md`](../../platform/data-model.spec.md),
+"Requirement: Secret Submission and Storage", for the deterministic-location,
+write-ordering, and retry-safety contract.
 
 ### Input Validation
 
