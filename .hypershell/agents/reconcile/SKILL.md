@@ -13,8 +13,9 @@ Keeps a work item's Jira item and its GitHub execution record converged. It is
 invoked by `execute-sdlc` after each phase transition and after merge, so a
 manager sees progress in Jira without ever editing it by hand.
 
-Realizes the `Status Projection`, `Terminal Execution Record Closure`,
-`Artifact Remote Links`, `Narrative Comments`, `Bidirectional Reconciliation`,
+Realizes the `Status Projection`, `Closed Execution Record Projects Done`,
+`Terminal Execution Record Closure`, `Artifact Remote Links`,
+`Narrative Comments`, `Bidirectional Reconciliation`,
 `Canonical-Link-Only Resolution`, `Scope Reconciliation Covers Both Origins`,
 `Safety and Approval Gates`, and `Credit Preservation` requirements of
 `specs/standards/sdlc/jira-github-sync.spec.md`.
@@ -97,8 +98,9 @@ Do NOT write any of these fields back toward Jira: Jira is the authority.
 
 ### Step 3: Project Jira status from the GitHub phase, and close on terminal merge
 
-Read the current GitHub phase (the record's `agent/*` label state) and merge
-state. Derive the target Jira status **category** per this mapping. The mapping
+Read the current GitHub phase (the record's `agent/*` label state), the record's
+open/closed state, and the linked pull request merge state. Derive the target
+Jira status **category** per this mapping. The mapping
 targets a category, NOT a hardcoded status name: every Jira project has exactly
 three categories - `To Do` (key `new`), `In Progress` (key `indeterminate`), and
 `Done` (key `done`) - while the concrete status names (eg. `New`, `Refinement`,
@@ -117,7 +119,31 @@ convention).
 | `agent/review-code-approved` | `In Progress` |
 | `agent/blocked` | `In Progress` |
 | Pull request merged to `main` | `Done` |
+| GitHub execution record Closed (no detectable merged pull request) | `Done` |
 | `agent/duplicate` (issue closed as duplicate) | `Done` |
+
+The `Done` category has two independent triggers; EITHER alone is sufficient, and
+they never conflict because both target the same category:
+
+1. **Merge-based.** The linked pull request is merged to `main`. This path ALSO
+   closes the open execution record (see "Terminal execution record closure"
+   below).
+2. **Closed-record.** The GitHub execution record is itself Closed. Because GitHub
+   is authoritative for the record's open/closed state, a Closed record is an
+   authoritative terminal signal in its own right, so the mapped category is `Done`
+   REGARDLESS of whether a merged pull request is detectable. This covers a record
+   closed by hand, or one whose merge landed under a pull request that references a
+   different issue, which the merge-based trigger alone would strand in
+   `In Progress`.
+
+Therefore, when deriving the mapped category: if the linked pull request is merged
+to `main` OR the execution record is Closed, the mapped category is `Done`. An OPEN
+record with no merged pull request is NOT forced to `Done`; its category comes from
+the phase-label rows above (an open `agent/*` phase stays `In Progress`).
+
+Both Done triggers resolve the concrete status identically through the category
+resolution below - neither hand-sets a status - so a record that is both merged and
+Closed resolves `Done` once, with no double transition.
 
 Resolve the concrete Jira status for the mapped category by category, not by
 name:
@@ -145,8 +171,10 @@ stack in this single run: in addition to the Done status projection above and th
 merge-commit remote link (Step 5), CLOSE the GitHub execution record issue.
 
 Closure is DERIVED from the merge state and scoped to the merged case ONLY. The
-`agent/duplicate` Done path does not close the record here (a duplicate is already
-closed as part of triage), so do NOT close the record for the duplicate path:
+other Done paths do not close the record here: the `agent/duplicate` path (a
+duplicate is already closed as part of triage) and the Closed-record path (the
+record is already Closed, so there is nothing to close). Do NOT close the record
+for either of those paths:
 
 1. Read the execution record's open/closed state and its linked pull request's
    merge state.
