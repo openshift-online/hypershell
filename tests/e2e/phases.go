@@ -526,6 +526,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 		}
 	} else {
 		s.Assert().Equalf(http.StatusForbidden, st, "without gateway:creator default, developer create must be 403 (body: %s)", string(body))
+		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 	}
 
 	// Platform-admin holds elevated permissions, including gateway delete.
@@ -546,6 +547,7 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 		}
 	} else {
 		s.Assert().Equalf(http.StatusForbidden, st, "platform-admin without gateway:creator cannot create gateways (body: %s)", string(body))
+		s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 	}
 
 	victim := s.createGateway(t, "e2e-padmin-del-"+s.runID)
@@ -1062,6 +1064,22 @@ func (s *E2ESuite) rbacDefaultIncludesCreator(t *testing.T) bool {
 		}
 	}
 	return true // unset -> Kind default includes gateway:creator
+}
+
+// deleteUnexpectedlyCreatedGateway removes a gateway that a create call made
+// even though RBAC should have denied it. The caller has already recorded the
+// failure; this only leaves a clean state. A non-2xx status is a no-op.
+func (s *E2ESuite) deleteUnexpectedlyCreatedGateway(ctx context.Context, status int, body []byte) {
+	if status < 200 || status > 299 {
+		return
+	}
+	var created sdktypes.Gateway
+	if err := json.Unmarshal(body, &created); err != nil || created.ID == "" {
+		s.T().Logf("WARN gateway was created despite RBAC denial but its id could not be read: %v", err)
+		return
+	}
+	s.trackGateway(created.ID)
+	s.Assert().NoErrorf(s.admin.Gateways().Delete(ctx, created.ID), "delete gateway %s created despite RBAC denial", created.ID)
 }
 
 // waitNamespaceGone polls until the namespace no longer exists.
