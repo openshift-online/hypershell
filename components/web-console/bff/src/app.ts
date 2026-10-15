@@ -625,7 +625,7 @@ export async function buildApp(
     },
   );
 
-  const nonAdminUsageScope = async (
+  const usageScope = async (
     request: FastifyRequest,
   ): Promise<{
     activeSandboxes: number;
@@ -634,7 +634,7 @@ export async function buildApp(
   }> => {
     const inventory = await queryAuthorizedGatewayInventory(
       config.apiOrigin,
-      request.session.get("accessToken"),
+      config.oidcIssuer ? request.session.get("accessToken") : undefined,
       config.apiTimeoutMs,
     );
     return {
@@ -650,26 +650,19 @@ export async function buildApp(
     async (request, reply) => {
       try {
         const range = dashboardRange(request);
-        if (
-          config.oidcIssuer &&
-          !hasDashboardAdminRole(request.session.get("roles") ?? [])
-        ) {
-          const scope = await nonAdminUsageScope(request);
-          return await queryUsageGatewayMetrics(
-            config.prometheusUrl,
-            config.prometheusQueryTimeoutMs,
-            range,
-            {
-              currentGatewayCount: scope.totalGateways,
-              currentGatewayNamespaces: scope.namespaces,
-              namespaces: scope.namespaces,
-            },
-          );
-        }
+        const isAdmin =
+          !config.oidcIssuer ||
+          hasDashboardAdminRole(request.session.get("roles") ?? []);
+        const scope = await usageScope(request);
         return await queryUsageGatewayMetrics(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
           range,
+          {
+            currentGatewayCount: scope.totalGateways,
+            currentGatewayNamespaces: scope.namespaces,
+            namespaces: isAdmin ? undefined : scope.namespaces,
+          },
         );
       } catch (error) {
         request.log.warn({ err: error }, "usage gateway metrics query failed");
@@ -685,25 +678,18 @@ export async function buildApp(
     async (request, reply) => {
       try {
         const range = dashboardRange(request);
-        if (
-          config.oidcIssuer &&
-          !hasDashboardAdminRole(request.session.get("roles") ?? [])
-        ) {
-          const scope = await nonAdminUsageScope(request);
-          return await queryUsageSandboxMetrics(
-            config.prometheusUrl,
-            config.prometheusQueryTimeoutMs,
-            range,
-            {
-              activeSandboxes: scope.activeSandboxes,
-              namespaces: scope.namespaces,
-            },
-          );
-        }
+        const isAdmin =
+          !config.oidcIssuer ||
+          hasDashboardAdminRole(request.session.get("roles") ?? []);
+        const scope = await usageScope(request);
         return await queryUsageSandboxMetrics(
           config.prometheusUrl,
           config.prometheusQueryTimeoutMs,
           range,
+          {
+            activeSandboxes: scope.activeSandboxes,
+            namespaces: isAdmin ? undefined : scope.namespaces,
+          },
         );
       } catch (error) {
         request.log.warn({ err: error }, "usage sandbox metrics query failed");

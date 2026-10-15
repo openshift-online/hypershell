@@ -50,7 +50,7 @@ export function sandboxLifetimeQuantileQuery(
 }
 
 function dailyQuery(query: string): string {
-  return query.replace(/\[(?:7|30)d\]/u, "[1d]");
+  return query.replace(/\[(?:7|30)d\]/gu, "[1d]");
 }
 
 async function optionalInstantNumber(

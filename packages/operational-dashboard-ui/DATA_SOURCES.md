@@ -306,15 +306,15 @@ receive only aggregates calculated from their authorized Gateway inventory.
 ### Authorization scope
 
 When OIDC is enabled, every usage route requires an authenticated session.
-Administrators omit the namespace selector and aggregate the whole fleet.
-Non-administrator requests first list authorized Gateways with the caller's
-access token, build the set of authorized `openshell-<id>` namespaces, and add
-that namespace selector to every usage PromQL query before aggregation. The
-active sandbox instant value is also taken from the authorized Gateway list,
-so the browser never receives a fleet aggregate for local filtering. Intentional
-no-auth development, where OIDC is unconfigured, treats the caller as an
-administrator; partial OIDC configuration fails validation rather than falling
-back to no-auth.
+Both administrators and non-administrators resolve the current Gateway inventory
+from the authorized Gateway list. Administrators receive the fleet inventory and
+omit the usage namespace selector. Non-administrator requests build the set of
+authorized `openshell-<id>` namespaces and add that selector to every usage
+PromQL query before aggregation. The active sandbox instant value is also taken
+from the authorized Gateway list, so the browser never receives a fleet aggregate
+for local filtering. Intentional no-auth development, where OIDC is unconfigured,
+treats the caller as an administrator; partial OIDC configuration fails
+validation rather than falling back to no-auth.
 
 ### Gateway usage metrics
 
@@ -322,19 +322,20 @@ Gateway request metrics reuse the gateway-native Prometheus counters
 `openshell_server_grpc_requests_total{method,code}` and
 `openshell_server_http_requests_total{path,status}`. No additional
 `ServiceMonitor` or `PodMonitor` is introduced by this dashboard.
+`PROMETHEUS_URL` MUST point to an application metrics endpoint that already
+exposes these series for the managed clusters in the fleet.
 
-| Metric ID                | Prometheus type  | Calculation                                                                                                         |
-| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `gateway-request-volume` | Counters         | Sum of 7- or 30-day `increase()` for gRPC and HTTP requests; gRPC excludes internal `Peer*` methods                 |
-| `gateway-error-rate`     | Counters         | 100 * (gRPC `code!="OK"` + HTTP `status=~"5.."`) / total qualifying requests; omitted when total is missing or zero |
-| `active-gateways`        | Gauge + counters | Count of authorized current Gateway namespaces with positive qualifying request volume in the selected range        |
-| `unused-gateways`        | Gauge + counters | Authorized current Gateway count minus active Gateway count                                                         |
+| Metric ID                | Prometheus type  | Calculation                                                                                                                                                               |
+| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gateway-request-volume` | Counters         | Sum of 7- or 30-day `increase()` for gRPC and HTTP requests; gRPC excludes internal `Peer*` methods                                                                       |
+| `gateway-error-rate`     | Counters         | 100 * (gRPC `code!="OK"` + HTTP `status=~"5.."`) / total qualifying requests; zero when traffic exists and error series are absent, omitted when total is missing or zero |
+| `active-gateways`        | Gauge + counters | Count of authorized current Gateway namespaces with positive qualifying request volume in the selected range                                                              |
+| `unused-gateways`        | Gauge + counters | Authorized current Gateway count minus active Gateway count                                                                                                               |
 
-For administrators, current Gateway namespaces come from
-`hypershell_gateways_total` grouped by `namespace`. Non-administrators receive
-the current inventory count from the authorized Gateway list. Historical traffic
-from a deleted namespace is never counted because active namespaces are
-intersected with the current inventory before the totals are calculated.
+Current Gateway namespaces come from the authorized Gateway list for both
+administrators and non-administrators. Historical traffic from a deleted
+namespace is never counted because active namespaces are intersected with the
+current inventory before the totals are calculated.
 
 Daily volume and error-rate series use the same PromQL with a one-day
 `increase()` window, UTC calendar-day boundaries, and one-day steps. Missing
@@ -352,17 +353,19 @@ is still returned.
 
 Active sandboxes use
 `hypershell_gateways_active_sandboxes_total`, deduplicated by
-`managed_cluster` and `namespace`. Provisioned sandboxes use the control-plane
+`managed_cluster` and `gateway_namespace`. Provisioned sandboxes use the control-plane
 gauge `gateway_sandbox_total`, deduplicated by `hypershell_cluster_id` and
 `namespace`. The control-plane OTel instruments are `gateway.sandbox.total`
 and `gateway.sandbox.lifetime`; OTel scope attributes are exported as PromQL
-labels `namespace` and `hypershell_cluster_id`. The lifetime gauge records an
+labels `namespace` and `hypershell_cluster_id`, and the OTel collector scrape
+honors exported labels. The lifetime gauge records an
 observation when a sandbox leaves the active set, using the Sandbox CR creation
 timestamp with pod creation as the fallback. It never uses the optional
 `spec.lifecycle.shutdownTime` as an observed end time.
 
 Daily sandbox utilization and daily mean lifetime use one-day windows with UTC
-boundaries. Missing days remain `null`. A zero denominator produces an explicit
+boundaries. Lifetime daily mean applies the one-day window to both the histogram
+sum and count. Missing days remain `null`. A zero denominator produces an explicit
 `0%` utilization; a missing active or total series omits the metric so the
 widget shows the localized unavailable state. The lifetime source emits mean,
 P50, and P95 independently, so the UI shows whichever values remain.

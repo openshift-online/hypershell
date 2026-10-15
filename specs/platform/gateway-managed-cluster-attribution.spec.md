@@ -20,11 +20,11 @@ counts can be grouped per spoke end to end.
 HyperShell topology involves three separate identities that this spec must not
 conflate:
 
-| Identity | Example | Where it appears |
-| --- | --- | --- |
-| Physical OCP cluster | `hypc-ibm-00` | GitOps directory / `topology.json` |
-| Hub instance | `hyp0` | Prometheus `namespace` label; the scrape target |
-| Managed cluster (spoke) | `hyp0-spoke0` | ManagedCluster registry `Name` |
+| Identity                | Example       | Where it appears                                |
+| ----------------------- | ------------- | ----------------------------------------------- |
+| Physical OCP cluster    | `hypc-ibm-00` | GitOps directory / `topology.json`              |
+| Hub instance            | `hyp0`        | Prometheus `namespace` label; the scrape target |
+| Managed cluster (spoke) | `hyp0-spoke0` | ManagedCluster registry `Name`                  |
 
 The `cluster`, `provider`, and `region` labels already present on hub metrics are
 **scrape-injected hub identity** (always the hub, e.g. `hyp0` → `hypc-ibm-00`),
@@ -36,12 +36,12 @@ topology.
 
 ### Relationship to other specifications
 
-| Concern | This spec | Related spec |
-| --- | --- | --- |
-| Gateway phase counts (fleet-wide) | Adds the per-spoke dimension | `platform/gateway-metrics-dashboard.spec.md` (DASH-01, DASH-05) |
-| Active sandbox counts (fleet-wide) | Adds the per-spoke dimension | `platform/gateway-sandbox-active-trends.spec.md` |
-| Managed cluster inventory (registry totals) | Out of scope | `platform/platform-inventory.spec.md` |
-| Map rendering of spokes (nest co-located / link remote) | Out of scope; this spec delivers the data only | `web-console/operational-dashboard.spec.md` |
+| Concern                                                 | This spec                                      | Related spec                                                    |
+| ------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------- |
+| Gateway phase counts (fleet-wide)                       | Adds the per-spoke dimension                   | `platform/gateway-metrics-dashboard.spec.md` (DASH-01, DASH-05) |
+| Active sandbox counts (fleet-wide)                      | Adds the per-spoke dimension                   | `platform/gateway-sandbox-active-trends.spec.md`                |
+| Managed cluster inventory (registry totals)             | Out of scope                                   | `platform/platform-inventory.spec.md`                           |
+| Map rendering of spokes (nest co-located / link remote) | Out of scope; this spec delivers the data only | `web-console/operational-dashboard.spec.md`                     |
 
 This spec is additive: it does not rename either metric, remove any existing
 label, or change fleet-wide totals. Rendering per-spoke counts on the map -
@@ -100,11 +100,11 @@ behavior of `platform/gateway-metrics-dashboard.spec.md` DASH-01.
 
 ### Requirement: GMCA-02 -- Managed-Cluster Label on the Active-Sandbox Gauge
 
-The API server active-sandbox collector SHALL add a `managed_cluster` label to
-`hypershell_gateways_active_sandboxes_total`. The collector SHALL query the
-database once per scrape and emit, for each managed cluster, the sum of
-`active_sandbox_count` across that managed cluster's live gateways, treating a
-NULL count as zero.
+The API server active-sandbox collector SHALL add `managed_cluster` and
+`gateway_namespace` labels to `hypershell_gateways_active_sandboxes_total`. The
+collector SHALL query the database once per scrape and emit, for each managed
+cluster and Gateway namespace, the sum of `active_sandbox_count` across that
+group's live gateways, treating a NULL count as zero.
 
 A gateway whose `cluster_id` does not resolve to a registered ManagedCluster
 SHALL contribute to `managed_cluster="unknown"`. When the database query fails,
@@ -117,6 +117,7 @@ the collector SHALL emit `prometheus.NewInvalidMetric`.
 - THEN `hypershell_gateways_active_sandboxes_total{managed_cluster="hyp0-spoke0"}` SHALL be `4`
 - AND `hypershell_gateways_active_sandboxes_total{managed_cluster="hyp0-spoke1"}` SHALL be `1`
 - AND the sum across all `managed_cluster` values SHALL equal the prior fleet-wide total
+- AND each sample SHALL retain the Gateway namespace in `gateway_namespace`
 
 ---
 

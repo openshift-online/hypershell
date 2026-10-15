@@ -248,7 +248,11 @@ describe("usage metrics routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(apiRequests).toHaveLength(0);
+    expect(apiRequests).toHaveLength(1);
+    expect(apiRequests[0]).toMatchObject({
+      authorization: "Bearer test-access-token",
+      url: "/api/hypershell/v1/gateways?page=1&size=100",
+    });
     expect(prometheusQueries.some((query) => query.includes("[30d]"))).toBe(
       true,
     );
@@ -275,7 +279,32 @@ describe("usage metrics routes", () => {
     ).toHaveLength(7);
     expect(prometheusQueries.length).toBeGreaterThan(0);
     for (const query of prometheusQueries) {
-      expect(query).toContain('{namespace=""}');
+      if (query.includes("hypershell_gateways_active_sandboxes_total")) {
+        expect(query).toContain('{gateway_namespace=""}');
+      } else {
+        expect(query).toContain('{namespace=""}');
+      }
+    }
+  });
+
+  it("treats intentional no-auth mode as an administrator", async () => {
+    app = await buildTestApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/metrics/usage/gateways",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(apiRequests).toHaveLength(1);
+    expect(apiRequests[0]).toMatchObject({
+      authorization: undefined,
+      url: "/api/hypershell/v1/gateways?page=1&size=100",
+    });
+    expect(prometheusQueries.length).toBeGreaterThan(0);
+    for (const query of prometheusQueries) {
+      if (query.includes("openshell_server_")) {
+        expect(query).not.toContain("namespace=~");
+      }
     }
   });
 });

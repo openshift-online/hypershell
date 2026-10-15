@@ -32,7 +32,7 @@ const totalSandboxesMetric = "gateway_sandbox_total";
 export function activeSandboxesUsageQuery(
   namespaces?: readonly string[],
 ): string {
-  return `sum(max by (managed_cluster, namespace) (${activeSandboxesMetric}${namespaceSetSelector(namespaces)}))`;
+  return `sum(max by (managed_cluster, gateway_namespace) (${activeSandboxesMetric}${namespaceSetSelector(namespaces, "gateway_namespace")}))`;
 }
 
 export function totalSandboxesUsageQuery(

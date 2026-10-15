@@ -178,17 +178,74 @@ describe("usage metrics queries", () => {
         ),
       ).toHaveLength(6);
       for (const query of queries) {
-        expect(query).toContain('namespace=~"openshell-gateway-1"');
+        if (query.includes("hypershell_gateways_active_sandboxes_total")) {
+          expect(query).toContain('gateway_namespace=~"openshell-gateway-1"');
+        } else {
+          expect(query).toContain('namespace=~"openshell-gateway-1"');
+        }
       }
     } finally {
       prometheus.close();
     }
   });
 
-  it("calculates sandbox lifetime mean and quantiles", async () => {
+  it("reports a zero error rate when traffic exists and error series are absent", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
       const query = url.searchParams.get("query") ?? "";
+      response.setHeader("content-type", "application/json");
+
+      if (query.includes('code!="OK"') || query.includes('status=~"5.."')) {
+        response.end(
+          url.pathname === "/api/v1/query_range"
+            ? JSON.stringify({
+                status: "success",
+                data: { resultType: "matrix", result: [] },
+              })
+            : emptyInstantPayload(),
+        );
+        return;
+      }
+
+      response.end(
+        url.pathname === "/api/v1/query_range"
+          ? rangePayload("10")
+          : instantPayload("10"),
+      );
+    });
+
+    try {
+      const response = await queryUsageGatewayMetrics(
+        prometheus.origin,
+        5_000,
+        7,
+        {
+          currentGatewayCount: 1,
+          currentGatewayNamespaces: ["openshell-gateway-1"],
+        },
+      );
+
+      expect(response).toMatchObject({
+        request_error_rate_percent: 0,
+        request_volume: 20,
+      });
+      expect(response.daily_request_error_rate_percent).toHaveLength(7);
+      expect(
+        response.daily_request_error_rate_percent?.filter(
+          (point) => point.value === 0,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      prometheus.close();
+    }
+  });
+
+  it("calculates sandbox lifetime mean and quantiles", async () => {
+    const queries: string[] = [];
+    const prometheus = await startPrometheusStub((request, response) => {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      const query = url.searchParams.get("query") ?? "";
+      queries.push(query);
       response.setHeader("content-type", "application/json");
       const value = query.includes("0.95")
         ? "300"
@@ -219,6 +276,10 @@ describe("usage metrics queries", () => {
       expect(
         response.daily_mean_seconds?.filter((point) => point.value === null),
       ).toHaveLength(6);
+      const dailyMeanQuery = queries.find((query) => query.includes("[1d]"));
+      expect(dailyMeanQuery).toContain("[1d]");
+      expect(dailyMeanQuery?.match(/\[1d\]/gu)).toHaveLength(2);
+      expect(dailyMeanQuery).not.toContain("[7d]");
     } finally {
       prometheus.close();
     }

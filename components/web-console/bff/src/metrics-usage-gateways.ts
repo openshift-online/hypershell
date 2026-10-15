@@ -1,6 +1,7 @@
 import {
   queryPrometheusInstantLabels,
   queryPrometheusInstantNumber,
+  queryPrometheusInstantNumberAllowAbsent,
 } from "./prometheus-instant-query.js";
 import {
   alignDailyNumericSeriesPreservingGaps,
@@ -37,7 +38,6 @@ export interface UsageGatewayMetricsOptions {
 
 const grpcMetric = "openshell_server_grpc_requests_total";
 const httpMetric = "openshell_server_http_requests_total";
-const gatewayInventoryMetric = "hypershell_gateways_total";
 
 function rangeSelector(rangeDays: UsageDashboardRange): string {
   return `[${String(rangeDays)}d]`;
@@ -81,12 +81,6 @@ export function httpErrorVolumeQuery(
   return `sum(increase(${requestSelector(httpMetric, namespaces, ['status=~"5.."'])}${rangeSelector(rangeDays)}))`;
 }
 
-export function gatewayCurrentNamespacesQuery(
-  namespaces?: readonly string[],
-): string {
-  return `sum by (namespace) (max by (namespace, managed_cluster) (${gatewayInventoryMetric}${namespaceSetSelector(namespaces)}))`;
-}
-
 export function activeGatewayNamespacesQuery(
   metric: "grpc" | "http",
   rangeDays: UsageDashboardRange,
@@ -111,6 +105,24 @@ async function optionalInstantNumber(
 ): Promise<number | undefined> {
   try {
     return await queryPrometheusInstantNumber(source, query, timeoutMs);
+  } catch {
+    return undefined;
+  }
+}
+
+async function optionalInstantErrorNumber(
+  source: MetricsSource,
+  query: string,
+  timeoutMs: number,
+): Promise<number | undefined> {
+  try {
+    return (
+      (await queryPrometheusInstantNumberAllowAbsent(
+        source,
+        query,
+        timeoutMs,
+      )) ?? 0
+    );
   } catch {
     return undefined;
   }
@@ -170,6 +182,21 @@ function combineDailySeries(
   });
 }
 
+function combineDailyErrorSeries(
+  left: Map<string, number | null> | undefined,
+  right: Map<string, number | null> | undefined,
+): UsageDailyPoint[] | undefined {
+  if (left === undefined || right === undefined) {
+    return undefined;
+  }
+
+  const dates = new Set([...left.keys(), ...right.keys()]);
+  return [...dates].sort().map((date) => ({
+    date,
+    value: (left.get(date) ?? 0) + (right.get(date) ?? 0),
+  }));
+}
+
 function coverage(points: readonly UsageDailyPoint[]): {
   coverage_end?: string;
   coverage_start?: string;
@@ -208,12 +235,12 @@ export async function queryUsageGatewayMetrics(
       httpRequestVolumeQuery(rangeDays, options.namespaces),
       timeoutMs,
     ),
-    optionalInstantNumber(
+    optionalInstantErrorNumber(
       source,
       grpcErrorVolumeQuery(rangeDays, options.namespaces),
       timeoutMs,
     ),
-    optionalInstantNumber(
+    optionalInstantErrorNumber(
       source,
       httpErrorVolumeQuery(rangeDays, options.namespaces),
       timeoutMs,
@@ -232,7 +259,8 @@ export async function queryUsageGatewayMetrics(
   if (
     totalRequests !== undefined &&
     totalRequests > 0 &&
-    (grpcErrors !== undefined || httpErrors !== undefined)
+    grpcErrors !== undefined &&
+    httpErrors !== undefined
   ) {
     const errors = (grpcErrors ?? 0) + (httpErrors ?? 0);
     response.request_error_rate_percent = (errors / totalRequests) * 100;
@@ -242,24 +270,7 @@ export async function queryUsageGatewayMetrics(
     response.total_gateways = currentGatewayCount;
   }
 
-  let currentNamespaces = options.currentGatewayNamespaces;
-  if (currentNamespaces === undefined && options.namespaces === undefined) {
-    try {
-      currentNamespaces = [
-        ...(
-          await queryPrometheusInstantLabels(
-            source,
-            gatewayCurrentNamespacesQuery(),
-            timeoutMs,
-            "namespace",
-          )
-        ).values(),
-      ].sort();
-      response.total_gateways = currentNamespaces.length;
-    } catch {
-      currentNamespaces = undefined;
-    }
-  }
+  const currentNamespaces = options.currentGatewayNamespaces;
 
   if (currentNamespaces !== undefined) {
     const activeResults = await Promise.allSettled([
@@ -329,7 +340,7 @@ export async function queryUsageGatewayMetrics(
     Object.assign(response, coverage(dailyVolume));
   }
 
-  const dailyErrors = combineDailySeries(dailyGrpcErrors, dailyHttpErrors);
+  const dailyErrors = combineDailyErrorSeries(dailyGrpcErrors, dailyHttpErrors);
   if (dailyVolume !== undefined && dailyErrors !== undefined) {
     const totalByDate = new Map(
       dailyVolume.map(({ date, value }) => [date, value]),

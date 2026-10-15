@@ -116,5 +116,9 @@ export async function queryAuthorizedGatewayMetrics(
     accessToken,
     timeoutMs,
   );
-  return inventory;
+  return {
+    activeSandboxes: inventory.activeSandboxes,
+    counts: inventory.counts,
+    total: inventory.total,
+  };
 }

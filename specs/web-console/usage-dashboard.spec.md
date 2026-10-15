@@ -253,6 +253,8 @@ Gateway request metrics SHALL use the gateway-native Prometheus series:
 
 The implementation SHALL reuse the existing gateway-native series where they are already available. It SHALL add or change scrape wiring only if an existing collector path cannot make those series available. It SHALL NOT assume that a new `ServiceMonitor` or `PodMonitor` is required.
 
+The deployment SHALL configure `PROMETHEUS_URL` to an application metrics endpoint that already exposes the gateway-native series for every managed cluster in the fleet. The dashboard does not own Gateway telemetry collection and does not add a `ServiceMonitor` or `PodMonitor`.
+
 The BFF SHALL NOT substitute API-server `api_inbound_request_duration_*`; those series measure the HyperShell API server, not gateway workload traffic.
 
 Calculations:
@@ -261,6 +263,7 @@ Calculations:
 - Daily volume: `sum(increase(request_counter[1d]))` evaluated at UTC daily boundaries.
 - Errors: gRPC requests where `code != "OK"` and HTTP requests where `status =~ "5.."`.
 - Error rate: `errors / total requests * 100`; unavailable when total requests is zero.
+- An absent error series with qualifying traffic represents zero observed errors. A failed error-series query makes the error rate unavailable.
 
 #### Scenario: Peer traffic is excluded
 
@@ -291,6 +294,8 @@ The BFF SHALL:
 4. Count active gateways from that intersection.
 5. Count unused gateways as authorized current gateways minus active gateways.
 
+The BFF SHALL resolve the current authorized Gateway inventory from the Gateway API for both platform administrators and non-administrators. Administrators receive the fleet-wide inventory and omit the namespace selector; non-administrators receive only their authorized inventory.
+
 Deleted gateways SHALL NOT inflate active or unused counts.
 
 #### Scenario: Deleted namespace has historical traffic
@@ -309,6 +314,10 @@ The control plane SHALL export:
 - OTel instrument `gateway.sandbox.lifetime`, exported to Prometheus as `gateway_sandbox_lifetime`
 
 Both metrics SHALL use the OTel scope attributes `namespace` and `hypershell.cluster_id`. Prometheus SHALL export those attributes as the labels `namespace` and `hypershell_cluster_id`.
+
+The OTel collector Prometheus scrape SHALL honor exported labels so `namespace` remains the Gateway namespace rather than being renamed to `exported_namespace` by the scrape-target namespace.
+
+The API-server active-sandbox gauge SHALL retain `managed_cluster` and SHALL additionally expose the Gateway namespace as `gateway_namespace`. Authorized non-administrator sandbox queries SHALL filter by `gateway_namespace`, never by the API-server scrape-target namespace.
 
 `gateway.sandbox.total` SHALL count provisioned Sandbox custom resources, including sandboxes that are not currently active.
 

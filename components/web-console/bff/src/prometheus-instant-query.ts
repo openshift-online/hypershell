@@ -125,6 +125,25 @@ export async function queryPrometheusInstantNumber(
   return value;
 }
 
+export async function queryPrometheusInstantNumberAllowAbsent(
+  source: MetricsSource,
+  query: string,
+  timeoutMs: number,
+): Promise<number | undefined> {
+  const body = await queryPrometheus(source, query, timeoutMs);
+  const rawValue = body.data?.result[0]?.value[1];
+  if (rawValue === undefined) {
+    return undefined;
+  }
+
+  const value = Number(rawValue);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error("Prometheus query returned invalid sample");
+  }
+
+  return value;
+}
+
 export async function queryPrometheusInstantLabels(
   source: MetricsSource,
   query: string,
