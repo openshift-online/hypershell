@@ -265,7 +265,8 @@ func vanishingClientsKeycloak(t *testing.T, clientIDs []string, goneOnFirstGet, 
 			if r.Method == http.MethodGet {
 				gets[id]++
 			}
-			if goneOnFirstGet[id] || (goneAfterFirstGet[id] && !(r.Method == http.MethodGet && gets[id] == 1)) {
+			firstGet := r.Method == http.MethodGet && gets[id] == 1
+			if goneOnFirstGet[id] || (goneAfterFirstGet[id] && !firstGet) {
 				*events = append(*events, "404:"+r.Method+":"+id)
 				http.NotFound(w, r)
 				return
