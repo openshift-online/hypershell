@@ -64,6 +64,18 @@ describe("mapPromotion", () => {
     ]);
   });
 
+  it("maps syncRetries, preserving a genuine 0 and null for absent data", () => {
+    const data = mapPromotion({
+      order: ["zero", "none"],
+      environments: {
+        zero: { active: { version: "v1" }, syncRetries: 0 },
+        none: { active: { version: "v1" } },
+      },
+    });
+    expect(data.environments.zero?.syncRetries).toBe(0);
+    expect(data.environments.none?.syncRetries).toBeNull();
+  });
+
   it("tolerates missing/empty fields", () => {
     const data = mapPromotion({});
     expect(data.order).toEqual([]);

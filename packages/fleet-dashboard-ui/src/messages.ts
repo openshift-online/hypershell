@@ -174,6 +174,12 @@ export const messages = defineMessages({
     defaultMessage: "Sync status",
     description: "Detail label for an instance's Argo CD sync status.",
   },
+  detailSyncAttempts: {
+    id: "fleet.map.detail.syncAttempts",
+    defaultMessage: "Sync attempts",
+    description:
+      "Detail label for the Argo CD sync-operation retry count of a gate's source environment.",
+  },
   drawerClose: {
     id: "fleet.map.drawer.close",
     defaultMessage: "Close details",
@@ -297,6 +303,13 @@ export const messages = defineMessages({
     defaultMessage:
       "Argo CD sync state of this instance's Application. Synced = the live cluster matches the desired Git manifests; OutOfSync = it has drifted or a change is pending.",
     description: "Help tooltip for the Sync field in the detail panel.",
+  },
+  infoSyncAttempts: {
+    id: "fleet.map.info.syncAttempts",
+    defaultMessage:
+      "How many times Argo CD has retried syncing this environment for the current promotion. A number that keeps climbing usually means the release-analysis gate is stuck - a newer commit superseded the one being checked - not that the tests are still running.",
+    description:
+      "Tooltip explaining the Sync attempts count and that a climbing value signals a wedged release-analysis gate rather than tests still running.",
   },
   infoUsers: {
     id: "fleet.map.info.users",

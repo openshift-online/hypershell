@@ -72,6 +72,9 @@ interface WirePromotionEnvironment {
   readonly cluster?: string;
   readonly argoHealth?: string;
   readonly argoSync?: string;
+  // Argo CD sync-operation retry count. Omitted by the BFF when no operation
+  // state exists (unknown), kept distinct from a genuine 0 (synced first try).
+  readonly syncRetries?: number;
   readonly consoleUrl?: string;
   readonly grafanaUrl?: string;
   readonly argoUrl?: string;
@@ -129,6 +132,8 @@ function mapEnvironment(
     cluster: nullableString(env.cluster),
     argoHealth: nullableString(env.argoHealth),
     argoSync: nullableString(env.argoSync),
+    // Preserve the 0-vs-unknown distinction: omitted -> null, a real 0 stays 0.
+    syncRetries: env.syncRetries ?? null,
     consoleUrl: nullableString(env.consoleUrl),
     grafanaUrl: nullableString(env.grafanaUrl),
     argoUrl: nullableString(env.argoUrl),
