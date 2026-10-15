@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -512,7 +513,8 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	s.Assert().Equalf(http.StatusOK, st, "developer must list gateways (body: %s)", string(body))
 
 	// Developer gateway-create: environment-dependent on the RBAC default.
-	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	createBody, err := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	s.Require().NoError(err, "build developer gateway create request")
 	st, body, err = devAPI.RawJSON(ctx, http.MethodPost, "/gateways", createBody)
 	s.Require().NoError(err, "developer POST /gateways")
 	if s.rbacDefaultIncludesCreator(t) {
@@ -531,7 +533,8 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	st, body, err = padminAPI.RawJSON(ctx, http.MethodGet, "/gateways", nil)
 	s.Require().NoError(err, "platform-admin GET /gateways")
 	s.Assert().Equalf(http.StatusOK, st, "platform-admin must list gateways (body: %s)", string(body))
-	platformCreate := gatewayCreateRequestForDriver("e2e-padmin-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	platformCreate, err := gatewayCreateRequestForDriver("e2e-padmin-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	s.Require().NoError(err, "build platform-admin gateway create request")
 	st, body, err = padminAPI.RawJSON(ctx, http.MethodPost, "/gateways", platformCreate)
 	s.Require().NoError(err, "platform-admin POST /gateways")
 	if s.rbacDefaultIncludesCreator(t) {
@@ -673,7 +676,8 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 
 	// 12e: placement, rather than a caller-supplied cluster id, selects the
 	// registered control plane. Unsupported placement requests are rejected.
-	invalidPlacement := gatewayCreateRequestForDriver("e2e-invalid-placement-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	invalidPlacement, err := gatewayCreateRequestForDriver("e2e-invalid-placement-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())
+	s.Require().NoError(err, "build invalid-placement gateway create request")
 	invalidPlacement.Placement = gatewayPlacementIntent{Mode: "invalid"}
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", invalidPlacement)
 	s.Require().NoError(err, "gateway create with invalid placement")
@@ -832,20 +836,40 @@ type gatewayCreateRequest struct {
 	OIDC      string                 `json:"oidc,omitempty"`
 }
 
+const e2ePlacementProviderEnv = "E2E_PLACEMENT_PROVIDER"
+
+var placementProviderName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
 // gatewayCreateRequestForDriver builds the infra-specific create payload used by
 // functional and performance e2e tests. Kind resolves the local development
-// control plane; OpenShift resolves an available public AWS control plane.
-func gatewayCreateRequestForDriver(name, driverName, oidc string) gatewayCreateRequest {
-	placement := gatewayPlacementIntent{Selector: []string{"network/public", "provider/aws"}}
-	if driverName == "kind" {
-		placement = gatewayPlacementIntent{Mode: "local-kind"}
+// control plane; OpenShift resolves a public control plane for the configured
+// provider (AWS by default).
+func gatewayCreateRequestForDriver(name, driverName, oidc string) (gatewayCreateRequest, error) {
+	placement := gatewayPlacementIntent{Mode: "local-kind"}
+	if driverName != "kind" {
+		provider, err := e2ePlacementProvider()
+		if err != nil {
+			return gatewayCreateRequest{}, err
+		}
+		placement = gatewayPlacementIntent{Selector: []string{"network/public", "provider/" + provider}}
 	}
 	return gatewayCreateRequest{
 		Name:      name,
 		Placement: placement,
 		Route:     `{"enabled":true}`,
 		OIDC:      oidc,
+	}, nil
+}
+
+// e2ePlacementProvider returns the provider-capability fragment used in
+// OpenShift placement. The environment exposes deployment-specific placement
+// without requiring the release runner to modify the fetched test source.
+func e2ePlacementProvider() (string, error) {
+	provider := envOrDefault(e2ePlacementProviderEnv, "aws")
+	if !placementProviderName.MatchString(provider) {
+		return "", fmt.Errorf("invalid %s %q: expected a lowercase Kubernetes label fragment such as aws or ibm", e2ePlacementProviderEnv, provider)
 	}
+	return provider, nil
 }
 
 func validateProvisioningConditions(conditions []map[string]any) error {
@@ -884,7 +908,8 @@ func validateProvisioningConditions(conditions []map[string]any) error {
 // rather than the SDK's Create, which also serializes server-managed fields (for
 // example the readOnly namespace) that the strict create endpoint rejects.
 func (s *E2ESuite) createGateway(t *testing.T, name string) *sdktypes.Gateway {
-	body := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
+	body, err := gatewayCreateRequestForDriver(name, s.driver.Name(), s.gatewayOIDCConfig())
+	s.Require().NoError(err, "build gateway create request")
 	s.runner.Show("POST %s/api/hypershell/v1/gateways  # name=%s placement=%+v", s.apiHost, name, body.Placement)
 	status, resp, err := s.admin.RawJSON(t.Context(), http.MethodPost, "/gateways", body)
 	s.Require().NoError(err, "create gateway request")

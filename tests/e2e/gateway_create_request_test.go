@@ -15,6 +15,7 @@ func TestGatewayCreateRequestForDriver(t *testing.T) {
 	tests := []struct {
 		name       string
 		driverName string
+		provider   string
 		placement  map[string]any
 	}{
 		{
@@ -23,15 +24,25 @@ func TestGatewayCreateRequestForDriver(t *testing.T) {
 			placement:  map[string]any{"mode": "local-kind"},
 		},
 		{
-			name:       "OpenShift uses managed AWS public placement",
+			name:       "OpenShift defaults to managed AWS public placement",
 			driverName: "openshift",
 			placement:  map[string]any{"selector": []any{"network/public", "provider/aws"}},
+		},
+		{
+			name:       "OpenShift uses the configured managed public provider",
+			driverName: "openshift",
+			provider:   "ibm",
+			placement:  map[string]any{"selector": []any{"network/public", "provider/ibm"}},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			payload := gatewayCreateRequestForDriver(name, tt.driverName, oidc)
+			t.Setenv("E2E_PLACEMENT_PROVIDER", tt.provider)
+			payload, err := gatewayCreateRequestForDriver(name, tt.driverName, oidc)
+			if err != nil {
+				t.Fatalf("build gateway create payload: %v", err)
+			}
 			encoded, err := json.Marshal(payload)
 			if err != nil {
 				t.Fatalf("marshal gateway create payload: %v", err)
@@ -51,5 +62,13 @@ func TestGatewayCreateRequestForDriver(t *testing.T) {
 				t.Errorf("gateway create payload = %#v, want %#v", got, want)
 			}
 		})
+	}
+}
+
+func TestGatewayCreateRequestRejectsInvalidConfiguredProvider(t *testing.T) {
+	t.Setenv("E2E_PLACEMENT_PROVIDER", "IBM")
+	_, err := gatewayCreateRequestForDriver("e2e-gateway", "openshift", "")
+	if err == nil {
+		t.Fatal("gateway create request unexpectedly accepted an invalid provider")
 	}
 }

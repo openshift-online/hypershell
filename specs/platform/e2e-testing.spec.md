@@ -1565,6 +1565,7 @@ The Bash functional and performance suites (`tests/e2e/e2e-openshell.sh`, `tests
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `E2E_INFRA_DRIVER` | (auto-detected from KUBECONFIG context) | Infra driver override: `kind` or `openshift` |
+| `E2E_PLACEMENT_PROVIDER` | `aws` | Provider capability fragment for OpenShift gateway placement, for example `ibm` selects `provider/ibm` together with `network/public`. It must be a lowercase Kubernetes label fragment. Ignored by the Kind driver, which uses `local-kind`. |
 | `OPENSHIFT_NAMESPACE` | current `oc project` | Platform namespace the OpenShift driver and `make openshift-up` target; Keycloak is `${OPENSHIFT_NAMESPACE}-keycloak` |
 | `E2E_NAMESPACE` | `openshell-e2e` | Namespace for e2e test resources (gateway deployment) |
 | `E2E_GATEWAY_NAME` | `e2e-gw` | Gateway name for the e2e test |
