@@ -313,11 +313,20 @@ func (s *E2ESuite) assertGatewayInfraDetails(t *testing.T, ns string) {
 	// specs/platform/openshell-gateway-credentials.spec.md (End-to-End Vault Coverage).
 	cfg, err := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(ctx, "openshell-gateway-config", metav1.GetOptions{})
 	s.Require().NoError(err, "get gateway config ConfigMap")
-	s.Assert().Contains(cfg.Data["gateway.toml"], "[openshell.credential_drivers.vault]", "gateway.toml selects the vault credential driver")
-	_, caErr := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(ctx, "openshell-gateway-vault-ca", metav1.GetOptions{})
-	s.Assert().NoError(caErr, "vault serving CA mirrored into the tenant namespace")
-	_, kekErr := s.clients.Kube.CoreV1().Secrets(ns).Get(ctx, "openshell-gateway-credential-kek", metav1.GetOptions{})
-	s.Assert().True(apierrors.IsNotFound(kekErr), "no KEK secret is provisioned for a vault-backed gateway")
+	if s.driver.Name() == "kind" {
+		// Kind stands up a stand-in Vault (scripts/kind/vault.sh) and the gateway resolves to
+		// the flat vault default; assert the wiring explicitly.
+		s.Assert().Contains(cfg.Data["gateway.toml"], "[openshell.credential_drivers.vault]", "gateway.toml selects the vault credential driver")
+		_, caErr := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(ctx, "openshell-gateway-vault-ca", metav1.GetOptions{})
+		s.Assert().NoError(caErr, "vault serving CA mirrored into the tenant namespace")
+		_, kekErr := s.clients.Kube.CoreV1().Secrets(ns).Get(ctx, "openshell-gateway-credential-kek", metav1.GetOptions{})
+		s.Assert().True(apierrors.IsNotFound(kekErr), "no KEK secret is provisioned for a vault-backed gateway")
+	} else {
+		// Non-Kind e2e environments are not in the per-cluster Vault rollout; the gateway is
+		// pinned to the kek-db opt-out (gatewayCreateRequestForDriver), so it must not be
+		// vault-backed here.
+		s.Assert().NotContains(cfg.Data["gateway.toml"], "[openshell.credential_drivers.vault]", "non-Kind gateway uses the kek-db opt-out, not vault")
+	}
 }
 
 func validateGatewayDatabaseSecret(data map[string][]byte) error {
@@ -856,14 +865,22 @@ type gatewayCreateRequest struct {
 // control plane; OpenShift resolves an available public AWS control plane.
 func gatewayCreateRequestForDriver(name, driverName, oidc string) gatewayCreateRequest {
 	placement := gatewayPlacementIntent{Selector: []string{"network/public", "provider/aws"}}
+	// HYPERSHELL-369: vault is the flat default, and the Kind suite stands up a stand-in
+	// Vault (scripts/kind/vault.sh) so the default resolves. Non-Kind e2e environments are
+	// not in the per-cluster Vault rollout, so a vault-default gateway would fail closed
+	// there; pin them to the explicit kek-db opt-out (their pre-flip behavior).
+	credentialDriver := ""
 	if driverName == "kind" {
 		placement = gatewayPlacementIntent{Mode: "local-kind"}
+	} else {
+		credentialDriver = `{"type":"kek-db"}`
 	}
 	return gatewayCreateRequest{
-		Name:      name,
-		Placement: placement,
-		Route:     `{"enabled":true}`,
-		OIDC:      oidc,
+		Name:             name,
+		Placement:        placement,
+		Route:            `{"enabled":true}`,
+		OIDC:             oidc,
+		CredentialDriver: credentialDriver,
 	}
 }
 
