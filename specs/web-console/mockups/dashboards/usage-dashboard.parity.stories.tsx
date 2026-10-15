@@ -6,4 +6,6 @@ const meta = {
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof UsageDashboardPageSurface>;
 export default meta;
-export const Default: StoryObj<typeof meta> = {};
+export const Administrator: StoryObj<typeof meta> = {
+  render: () => <UsageDashboardPageSurface isAdmin />,
+};
