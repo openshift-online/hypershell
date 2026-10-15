@@ -59,4 +59,5 @@ func init() {
 	presenters.RegisterKind(&ProviderBinding{}, "ProviderBinding")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddRepositoryOwnership())
 }

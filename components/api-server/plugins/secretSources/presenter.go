@@ -40,5 +40,6 @@ func PresentSecretSource(ss *SecretSource) openapi.SecretSource {
 		Backend:        ss.Backend,
 		Path:           ss.Path,
 		KeyMappings:    ss.KeyMappings,
+		RepositoryId:   ss.RepositoryId,
 	}
 }

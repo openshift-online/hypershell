@@ -91,4 +91,5 @@ func init() {
 	presenters.RegisterKind(&SecretSource{}, "SecretSource")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddRepositoryOwnership())
 }

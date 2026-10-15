@@ -13,6 +13,7 @@ Name | Type | Description | Notes
 **Category** | **string** |  | 
 **Capability** | Pointer to **string** | JSON-encoded capability definition (gateway-agnostic, category-discriminated) | [optional] 
 **Profile** | Pointer to **string** | JSON-encoded opaque profile passed through to the gateway provider registration step | [optional] 
+**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
 **Status** | Pointer to **string** |  | [optional] [readonly] 
 
 ## Methods
@@ -248,6 +249,31 @@ SetProfile sets Profile field to given value.
 `func (o *ProviderSpec) HasProfile() bool`
 
 HasProfile returns a boolean if a field has been set.
+
+### GetRepositoryId
+
+`func (o *ProviderSpec) GetRepositoryId() string`
+
+GetRepositoryId returns the RepositoryId field if non-nil, zero value otherwise.
+
+### GetRepositoryIdOk
+
+`func (o *ProviderSpec) GetRepositoryIdOk() (*string, bool)`
+
+GetRepositoryIdOk returns a tuple with the RepositoryId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRepositoryId
+
+`func (o *ProviderSpec) SetRepositoryId(v string)`
+
+SetRepositoryId sets RepositoryId field to given value.
+
+### HasRepositoryId
+
+`func (o *ProviderSpec) HasRepositoryId() bool`
+
+HasRepositoryId returns a boolean if a field has been set.
 
 ### GetStatus
 

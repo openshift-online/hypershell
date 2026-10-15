@@ -25,3 +25,28 @@ func migration() *gormigrate.Migration {
 		},
 	}
 }
+
+// migrationAddRepositoryOwnership adds the nullable repository_id ownership mark.
+// It is NULL for resources created directly through the REST API or hsctl apply,
+// and is set by the control-plane declarative-import reconciler for resources it
+// imports from a Repository's .hypershell directory, scoping prune to the owning
+// Repository. Raw ALTER TABLE is used instead of AutoMigrate because AutoMigrate's
+// add-column path is unreliable under the test session's lib/pq driver with
+// PreferSimpleProtocol.
+func migrationAddRepositoryOwnership() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026101500000004",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE inference_routes
+					ADD COLUMN IF NOT EXISTS repository_id TEXT
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE inference_routes
+					DROP COLUMN IF EXISTS repository_id
+			`).Error
+		},
+	}
+}

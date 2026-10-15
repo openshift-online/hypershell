@@ -59,4 +59,5 @@ func init() {
 	presenters.RegisterKind(&SandboxTemplate{}, "SandboxTemplate")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddRepositoryOwnership())
 }
