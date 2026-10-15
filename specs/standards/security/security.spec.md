@@ -66,7 +66,7 @@ chart has no mechanism to mount a CA bundle into the gateway pod for this connec
 
 ### Gateway Access Isolation
 
-Gateways are scoped by per-gateway RBAC RoleBindings (`gateway:owner`, `gateway:viewer`). All gateway queries MUST filter by the caller's RoleBindings so users can only see and operate on gateways where they have a binding. See [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md) for the scope-aware RBAC model and [`platform/openshell-gateway-keycloak.spec.md`](../../platform/openshell-gateway-keycloak.spec.md) for the Keycloak OIDC role bridge.
+Gateways are scoped by per-gateway RBAC RoleBindings (`gateway:owner`, `gateway:admin`, `gateway:viewer`). All gateway queries MUST filter by the caller's RoleBindings so users can only see and operate on gateways where they have a binding. See [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md) for the scope-aware RBAC model and [`platform/openshell-gateway-keycloak.spec.md`](../../platform/openshell-gateway-keycloak.spec.md) for the Keycloak OIDC role bridge.
 
 #### Scenario: Cross-User Gateway Access Prevention
 - GIVEN user A querying gateways

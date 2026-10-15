@@ -46,8 +46,8 @@ recent **24 hours** with a **3600-second** step.
 
 The BFF SHALL calculate:
 
-- failure counts from `increase(hypershell_reconciliation_failures_total[24h])` for current values and `increase(hypershell_reconciliation_failures_total[1h])` for hourly samples;
-- retry counts from `increase(hypershell_reconciliation_retries_total[24h])` for current values and `increase(hypershell_reconciliation_retries_total[1h])` for hourly samples;
+- failure counts from `increase(hypershell_reconciliation_failures_total[24h])` for current values and `increase(hypershell_reconciliation_failures_total[5m])` for hourly samples;
+- retry counts from `increase(hypershell_reconciliation_retries_total[24h])` for current values and `increase(hypershell_reconciliation_retries_total[5m])` for hourly samples;
 - median lag from `histogram_quantile(0.50, ...)` over the histogram buckets when
   a valid sample exists; and
 - stale resource status count from the gauge value.
@@ -137,7 +137,7 @@ for each observation SHALL be:
 
 | Attribute | Values | Source |
 | --- | --- | --- |
-| `resource.kind` | `Gateway`, `GatewayRelease`, `GatewayNetwork`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` | Reconciler kind |
+| `resource.kind` | `Gateway`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` | Reconciler kind |
 | `event.type` | `reconcile`, `delete` | Watch event type |
 | `outcome` | `noop`, `success`, `retryable`, `failed` | CRM-006 |
 
@@ -160,7 +160,7 @@ The counter SHALL carry the following bounded attributes:
 
 | Attribute | Values |
 | --- | --- |
-| `resource.kind` | `Gateway`, `GatewayRelease`, `GatewayNetwork`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` |
+| `resource.kind` | `Gateway`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` |
 | `outcome` | `noop`, `success`, `retryable`, `failed` |
 
 This counter complements `reconcile.errors` (CP-OBS-07) by tracking all
@@ -177,7 +177,7 @@ retryable reason codes in CRM-007. The counter SHALL continue to carry the
 
 | Attribute | Values |
 | --- | --- |
-| `resource.kind` | `Gateway`, `GatewayRelease`, `GatewayNetwork`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` |
+| `resource.kind` | `Gateway`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` |
 | `reason` | Retryable codes from CRM-007, or `unknown` |
 
 ### Requirement: CRM-011 -- Failed Outcome Counter
@@ -193,7 +193,7 @@ The counter SHALL carry the following bounded attributes:
 
 | Attribute | Values |
 | --- | --- |
-| `resource.kind` | `Gateway`, `GatewayRelease`, `GatewayNetwork`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` |
+| `resource.kind` | `Gateway`, `ManagedCluster`, `RoleBinding`, `AgentRuntime` |
 | `reason` | Failed codes from CRM-007, or `unknown` |
 
 When exported to Prometheus, the counter SHALL appear as
@@ -208,10 +208,10 @@ perspective.
 The total label-value cardinality for any single metric SHALL NOT exceed the
 product of its bounded attribute domains. Specifically:
 
-- `reconcile.duration`: at most `|resource.kind| x |event.type| x |outcome|` = 6 x 2 x 4 = 48 series.
-- `reconcile.outcomes`: at most `|resource.kind| x |outcome|` = 6 x 4 = 24 series.
-- `reconcile.failed`: at most `|resource.kind| x |reason|` = 6 x 4 = 24 series (3 failed codes + `unknown`).
-- `hypershell.reconciliation.retries`: at most `|resource.kind| x |reason|` = 6 x 6 = 36 series (5 retryable codes + `unknown`).
+- `reconcile.duration`: at most `|resource.kind| x |event.type| x |outcome|` = 4 x 2 x 4 = 32 series.
+- `reconcile.outcomes`: at most `|resource.kind| x |outcome|` = 4 x 4 = 16 series.
+- `reconcile.failed`: at most `|resource.kind| x |reason|` = 4 x 4 = 16 series (3 failed codes + `unknown`).
+- `hypershell.reconciliation.retries`: at most `|resource.kind| x |reason|` = 4 x 6 = 24 series (5 retryable codes + `unknown`).
 
 The retryable codes are: `grpc_unavailable`, `k8s_conflict`, `k8s_unavailable`, `dependency_not_ready`, `keycloak_transient`.
 

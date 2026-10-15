@@ -689,7 +689,7 @@ view SHALL NOT show a database identifier.
 
 #### Scenario: Create a gateway
 
-- GIVEN a valid gateway create request with `name`, `cluster_id` and `release_id`
+- GIVEN a valid gateway create request with `name` and `cluster_id`
 - WHEN the API server processes it
 - THEN it SHALL create the Gateway without consulting any database registry
 - AND the response SHALL contain no database field

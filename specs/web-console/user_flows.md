@@ -45,7 +45,7 @@ The landing page is a friendly entry point for every authenticated user; the gat
 | Needs attention | Failed or degraded gateways and platform incidents | Failed gateways, incomplete setup, and expiring service accounts | Gateways that are unavailable or still provisioning |
 | Quick actions | Open dashboards, investigate, or delete a gateway | Create gateway, copy CLI command, or manage service accounts | Open console, request access, or contact the owner |
 | Recent activity | Recent failures and gateway creation | Recently used gateways and automation identities | Recently opened gateways |
-| Technical details | Owner, cluster, namespace, release, endpoint, and IDs | Endpoint, placement, release, and CLI commands | Hidden by default, with an option to show them |
+| Technical details | Owner, cluster, namespace, endpoint, and IDs | Endpoint, placement, and CLI commands | Hidden by default, with an option to show them |
 
 The landing page should also provide these shared controls:
 
@@ -265,7 +265,7 @@ flowchart LR
 | Details tab | Active sandbox count | All users with gateway access | Shows current gateway use |
 | Details tab | Cluster or placement | Developers and Admin | Useful for support and troubleshooting |
 | Details tab | Endpoint | Developers and Admin | Raw value used by clients and support workflows |
-| Details tab | Namespace and gateway release | Developers and Admin | Operational detail that most non-developers don't need |
+| Details tab | Namespace | Developers and Admin | Operational detail that most non-developers don't need |
 | Details tab | Gateway ID | Developers and Admin | Useful when working with the API or support |
 | Details tab | Creation date | All users with gateway access | Gives lifecycle context |
 | Details tab | Failure reason and recovery guidance | Gateway owners and Admin | Shown when the gateway is degraded or failed |
@@ -564,7 +564,6 @@ flowchart LR
 | Platform adoption | Registered users | Admin | System-wide total with recent activity or trend when available |
 | Platform adoption | Gateway count and status | Admin | System-wide healthy, provisioning, degraded, and failed counts |
 | Platform adoption | Active sandboxes | Admin | System-wide current count with 24-hour and 7-day trends when available |
-| Platform adoption | Gateway releases | Admin | System-wide gateway counts grouped by release |
 | Hub cluster | CPU use | Admin | Current use, capacity, and 7-day trend for the selected hub cluster |
 | Hub cluster | Memory use | Admin | Current use, capacity, and 7-day trend for the selected hub cluster |
 | Hub cluster | Node status | Admin | Ready and not-ready nodes for the selected hub cluster |
