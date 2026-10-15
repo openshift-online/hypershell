@@ -3,10 +3,13 @@
 > **Staleness notice (pending full re-anchor via `/reconcile`).** Parts of this
 > checkpoint are stale and have not been re-verified against `main`.
 > The GatewayRelease/GatewayNetwork kind removal (PR #452) is COMPLETE in code,
-> and the 5 removed-kind specs (gateway-release-reconciliation,
+> and the 4 removed-kind specs (gateway-release-reconciliation,
 > gateway-release-rollout, gateway-version-selection,
-> gateway-network-reconciliation, gateway-release-distribution) have been deleted.
-> The corpus is now 84 content specs. Trust the code over any claim below until a
+> gateway-network-reconciliation) have been deleted. The
+> `gateway-release-distribution.spec.md` is NOT deleted: it describes a live
+> operational-dashboard widget that now groups gateways by their observed
+> `gateway_version`, so it stays and is registered in `index.spec.md`.
+> The corpus is now 85 content specs. Trust the code over any claim below until a
 > full re-anchor runs.
 
 This file is the **entrypoint** for autonomous spec-to-code reconciliation.
@@ -204,7 +207,7 @@ Stacks on the capability placement work above. Spec changes reconciled:
 
 **Backend verification:** api-server/control-plane/cli `go build`+`go vet` clean; `managedClusters` and `gateways` integration test packages green (testcontainers); new `capabilities_test.go`, `presenter_test.go`, and `test_sync_openshell_version.py` pass; `make check-forbidden-terms`, `check-openshell-version`, `generate-tui-check`, and SDK regeneration all reproduce in-tree. FE wave verified via the gateway-management-ui + web-console checks (see PR).
 
-**Done:** the stale `gateway-release-*` / `gateway-version-selection` spec cleanup (tracked with the GatewayRelease removal, RM-* items) is complete; those specs were deleted (PR #452 removal; see the staleness banner at the top).
+**Done:** the stale removed-kind spec cleanup (tracked with the GatewayRelease removal, RM-* items) is complete; the four removed-kind specs were deleted -- `gateway-release-reconciliation`, `gateway-release-rollout`, `gateway-version-selection`, and `gateway-network-reconciliation` (PR #452 removal; see the staleness banner at the top). `gateway-release-distribution.spec.md` is NOT part of this cleanup: it backs a live dashboard widget (now grouping by observed `gateway_version`) and stays.
 
 ### gateway-access-management.spec.md + web-console/gateway-access-management.spec.md (user_management PR)
 

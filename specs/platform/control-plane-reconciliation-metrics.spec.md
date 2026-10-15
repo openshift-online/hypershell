@@ -46,8 +46,8 @@ recent **24 hours** with a **3600-second** step.
 
 The BFF SHALL calculate:
 
-- failure counts from `increase(hypershell_reconciliation_failures_total[24h])` for current values and `increase(hypershell_reconciliation_failures_total[5m])` for hourly samples;
-- retry counts from `increase(hypershell_reconciliation_retries_total[24h])` for current values and `increase(hypershell_reconciliation_retries_total[5m])` for hourly samples;
+- failure counts from `increase(hypershell_reconciliation_failures_total[24h])` for current values and `increase(hypershell_reconciliation_failures_total[1h])` for hourly samples;
+- retry counts from `increase(hypershell_reconciliation_retries_total[24h])` for current values and `increase(hypershell_reconciliation_retries_total[1h])` for hourly samples;
 - median lag from `histogram_quantile(0.50, ...)` over the histogram buckets when
   a valid sample exists; and
 - stale resource status count from the gauge value.
