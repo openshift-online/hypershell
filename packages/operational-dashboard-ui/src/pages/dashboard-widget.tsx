@@ -42,7 +42,6 @@ import {
 } from "../dashboard/operational-metric-display";
 import { TrendSparklineChart } from "../dashboard/trend-sparkline-chart";
 import { getGatewayExceptionStatusCounts } from "../dashboard/gateway-exception-status-counts";
-import { GatewayReleasesChart } from "../dashboard/gateway-releases-chart";
 import { GatewayStatusChart } from "../dashboard/gateway-status-chart";
 import { SandboxStatusChart } from "../dashboard/sandbox-status-chart";
 import {
@@ -512,18 +511,6 @@ export function ProvisionTimeCard({
     <WidgetContent>
       <Content className="hypershell-dashboard-provision-time-card">
         <ProvisionTimeChart metric={metric} />
-      </Content>
-    </WidgetContent>
-  );
-}
-
-export function GatewayReleasesCard({
-  metric,
-}: Readonly<{ metric: OperationalMetric }>) {
-  return (
-    <WidgetContent>
-      <Content className="hypershell-dashboard-provision-time-card">
-        <GatewayReleasesChart metric={metric} />
       </Content>
     </WidgetContent>
   );

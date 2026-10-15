@@ -52,7 +52,6 @@ export interface OperationalMetric {
   provisionDuration?: OperationalMetricProvisionDuration;
   provisionOutcomes?: OperationalMetricProvisionOutcomes;
   reasonBreakdown?: Record<string, number>;
-  releaseDistribution?: Record<string, number>;
   status?: OperationalMetricStatus;
   hourlyTrend?: OperationalMetricTrend;
   successRateTrend?: OperationalMetricTrend;
@@ -75,7 +74,6 @@ export type DashboardMetricSourceId =
   | "cluster-nodes"
   | "cluster-pods"
   | "gateway-metrics"
-  | "gateway-release-distribution"
   | "platform-inventory"
   | "registered-users";
 

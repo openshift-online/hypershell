@@ -39,10 +39,6 @@
     "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     "description": "Supporting text on the operational dashboard page."
   },
-  "app.dashboard.gatewayReleases.summaryAriaLabel": {
-    "defaultMessage": "Gateways by release",
-    "description": "Accessible label for the gateway releases stat panel in the dashboard."
-  },
   "app.dashboard.gatewayStatus.ariaDesc": {
     "defaultMessage": "Gateway count by status",
     "description": "Accessible description for the gateway status donut chart."
@@ -154,10 +150,6 @@
   "app.dashboard.metricCouldNotBeDetermined": {
     "defaultMessage": "Metric could not be determined",
     "description": "Fallback when a dashboard metric value is non-finite or cannot be shown as a number."
-  },
-  "app.dashboard.metricSource.gatewayReleaseDistribution": {
-    "defaultMessage": "Gateway releases",
-    "description": "Label for the gateway release distribution metric source in partial-load warnings."
   },
   "app.dashboard.metricUnavailable.body": {
     "defaultMessage": "This information is not currently available.",
@@ -618,10 +610,6 @@
   "app.dashboard.widget.cpu": {
     "defaultMessage": "CPU",
     "description": "Title for the CPU utilization dashboard widget."
-  },
-  "app.dashboard.widget.gatewayReleases": {
-    "defaultMessage": "Gateway releases",
-    "description": "Title for the gateway releases dashboard widget."
   },
   "app.dashboard.widget.gatewayStatus": {
     "defaultMessage": "Gateways",

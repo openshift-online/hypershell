@@ -19,7 +19,6 @@ import {
 import {
   CheckCircleIcon,
   ClusterIcon,
-  CodeBranchIcon,
   ContainerNodeIcon,
   CubesIcon,
   DatabaseIcon,
@@ -45,7 +44,6 @@ import type { OperationalDashboardMetrics } from "../application/dashboard-types
 import type { DashboardProbe } from "../application/dashboard-probes";
 import { noopDashboardProbePublisher } from "../application/dashboard-probes";
 import {
-  ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
   ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
   ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
   defaultDashboardLayoutTemplate,
@@ -76,7 +74,6 @@ import { DashboardSecondaryNav } from "../dashboard/dashboard-secondary-nav";
 import { dashboardResizeWidgetConfig } from "./dashboard-resize-handle";
 import "./dashboard-widget.css";
 import {
-  GatewayReleasesCard,
   GatewayStatusCard,
   SandboxStatusCard,
   InventorySummaryCard,
@@ -198,7 +195,6 @@ function createWidgetMapping(
       | "users"
       | "gateway-status"
       | "sandbox-status"
-      | "gateway-releases"
       | "node-status"
       | "pod-capacity"
       | "provision-time"
@@ -239,10 +235,6 @@ function createWidgetMapping(
 
     if (metricType === "sandbox-status") {
       return <SandboxStatusCard metric={metric} />;
-    }
-
-    if (metricType === "gateway-releases") {
-      return <GatewayReleasesCard metric={metric} />;
     }
 
     if (metricType === "node-status") {
@@ -382,25 +374,6 @@ function createWidgetMapping(
           "",
           messages.sandboxStatusWidget,
           "sandbox-status",
-        ),
-    },
-    "gateway-releases": {
-      defaults: {
-        h: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
-        maxH: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT + 2,
-        minH: METRIC_WIDGET_DEFAULTS.minH,
-        w: 1,
-      },
-      config: {
-        icon: <CodeBranchIcon />,
-        title: intl.formatMessage(messages.gatewayReleasesWidget),
-      },
-      renderWidget: () =>
-        renderMetric(
-          "gateway-releases",
-          "",
-          messages.gatewayReleasesWidget,
-          "gateway-releases",
         ),
     },
     "provision-time": {

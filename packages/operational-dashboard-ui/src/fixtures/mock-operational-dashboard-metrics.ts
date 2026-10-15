@@ -108,15 +108,6 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
         value: "214",
       }),
       Object.freeze({
-        id: "gateway-releases",
-        releaseDistribution: Object.freeze({
-          "OpenShell 2.0": 62,
-          "OpenShell 2.1-canary": 12,
-          unknown: 3,
-        }),
-        value: "77",
-      }),
-      Object.freeze({
         createdLast7Days: "12",
         createdLast30Days: "48",
         id: "registered-users",

@@ -354,10 +354,9 @@ func main() {
 		gatewayReconciler = reconciler.NewStubGatewayReconciler()
 	}
 
-	// The gateway reconcile queue is shared: the gateway watch stream drives it,
-	// and the GatewayRelease reconciler enqueues referencing gateways into it when
-	// a release image changes. It is created after registration so the reconciler
-	// and all queued work use the registered cluster identity.
+	// The gateway reconcile queue is driven by the gateway watch stream. It is
+	// created after registration so the reconciler and all queued work use the
+	// registered cluster identity.
 	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
 	defer gatewayQueue.Stop()
 

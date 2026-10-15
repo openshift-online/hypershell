@@ -20,8 +20,6 @@ export const POD_CAPACITY_WIDGET_HEIGHT = UTILIZATION_WIDGET_HEIGHT;
 export const USAGE_SUMMARY_WIDGET_HEIGHT = 6;
 /** Gateway status matches usage summary height in the platform adoption section. */
 export const GATEWAY_STATUS_WIDGET_HEIGHT = USAGE_SUMMARY_WIDGET_HEIGHT;
-/** Gateway releases stat panel height in the platform adoption right column. */
-export const GATEWAY_RELEASES_WIDGET_HEIGHT = GATEWAY_STATUS_WIDGET_HEIGHT;
 /** Shared height for Users and Gateways on platform adoption row 1. */
 export const ADOPTION_TOP_ROW_WIDGET_HEIGHT = 7;
 /** Users adoption card (stat grid and sparkline) on platform adoption row 1. */
@@ -31,11 +29,8 @@ export const ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT =
   ADOPTION_TOP_ROW_WIDGET_HEIGHT;
 /** Sandbox status with attention labels plus hourly and daily sparklines. */
 export const ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT = 9;
-/** Gateway releases beside sandbox on row 2 (column 3); match sandbox height. */
-export const ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT =
-  ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT;
 const ADOPTION_SECTION_START_Y = TITLE_WIDGET_HEIGHT;
-/** Grid row where sandbox status and gateway releases begin (below Users). */
+/** Grid row where sandbox status begins (below Users). */
 export const ADOPTION_ROW_2_Y =
   ADOPTION_SECTION_START_Y + ADOPTION_TOP_ROW_WIDGET_HEIGHT;
 const ADOPTION_SECTION_HEIGHT =
@@ -87,7 +82,6 @@ const WIDGET_TITLE_MESSAGES = {
   "managed-cluster-regions": messages.widgetManagedClusterRegions,
   "gateway-status": messages.gatewayStatusWidget,
   "sandbox-status": messages.sandboxStatusWidget,
-  "gateway-releases": messages.gatewayReleasesWidget,
   memory: messages.widgetMemory,
   nodes: messages.nodes,
   "provision-reliability": messages.provisionReliabilityWidget,
@@ -143,15 +137,6 @@ const fourColumnLayout = [
     w: 2,
     widgetType: "sandbox-status",
     x: 1,
-    y: ADOPTION_ROW_2_Y,
-  },
-  {
-    h: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
-    i: "gateway-releases#1",
-    title: "Gateway releases",
-    w: 1,
-    widgetType: "gateway-releases",
-    x: 3,
     y: ADOPTION_ROW_2_Y,
   },
   {
@@ -309,15 +294,6 @@ const mobileLayout = [
     widgetType: "sandbox-status",
     x: 0,
     y: 20,
-  },
-  {
-    h: 5,
-    i: "gateway-releases#1",
-    title: "Gateway releases",
-    w: 1,
-    widgetType: "gateway-releases",
-    x: 0,
-    y: 27,
   },
   {
     h: TITLE_WIDGET_HEIGHT,

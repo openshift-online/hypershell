@@ -88,17 +88,6 @@ export const messages = defineMessages({
       "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
     description: "Supporting text on the operational dashboard page.",
   },
-  gatewayReleasesSummaryAriaLabel: {
-    id: "app.dashboard.gatewayReleases.summaryAriaLabel",
-    defaultMessage: "Gateways by release",
-    description:
-      "Accessible label for the gateway releases stat panel in the dashboard.",
-  },
-  gatewayReleasesWidget: {
-    id: "app.dashboard.widget.gatewayReleases",
-    defaultMessage: "Gateway releases",
-    description: "Title for the gateway releases dashboard widget.",
-  },
   gateways: {
     id: "app.dashboard.summary.gateways",
     defaultMessage: "Gateways",
@@ -240,12 +229,6 @@ export const messages = defineMessages({
     defaultMessage: "Metric could not be determined",
     description:
       "Fallback when a dashboard metric value is non-finite or cannot be shown as a number.",
-  },
-  metricSourceGatewayReleaseDistribution: {
-    id: "app.dashboard.metricSource.gatewayReleaseDistribution",
-    defaultMessage: "Gateway releases",
-    description:
-      "Label for the gateway release distribution metric source in partial-load warnings.",
   },
   metricUnavailableBody: {
     id: "app.dashboard.metricUnavailable.body",
