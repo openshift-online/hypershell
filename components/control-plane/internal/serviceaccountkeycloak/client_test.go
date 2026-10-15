@@ -242,6 +242,115 @@ func TestDeleteGatewayServiceAccountsDisablesEveryClientBeforeDeletion(t *testin
 	}
 }
 
+// vanishingClientsKeycloak lists every client in clientIDs. Clients in
+// goneOnFirstGet return 404 on every per-client request, simulating a delete
+// between the list and the get. Clients in goneAfterFirstGet answer the first
+// GET and then return 404 on every later GET, PUT and DELETE, simulating a
+// delete between listing and cleanup.
+func vanishingClientsKeycloak(t *testing.T, clientIDs []string, goneOnFirstGet, goneAfterFirstGet map[string]bool, events *[]string) *httptest.Server {
+	t.Helper()
+	gets := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/realms/realm/protocol/openid-connect/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "admin-token", "expires_in": 300})
+		case r.URL.Path == "/admin/realms/realm/clients" && r.Method == http.MethodGet:
+			page := make([]kcClient, 0, len(clientIDs))
+			for _, id := range clientIDs {
+				page = append(page, kcClient{ID: id, ClientID: id})
+			}
+			_ = json.NewEncoder(w).Encode(page)
+		case strings.HasPrefix(r.URL.Path, "/admin/realms/realm/clients/"):
+			id := strings.TrimPrefix(r.URL.Path, "/admin/realms/realm/clients/")
+			if r.Method == http.MethodGet {
+				gets[id]++
+			}
+			if goneOnFirstGet[id] || (goneAfterFirstGet[id] && !(r.Method == http.MethodGet && gets[id] == 1)) {
+				*events = append(*events, "404:"+r.Method+":"+id)
+				http.NotFound(w, r)
+				return
+			}
+			switch r.Method {
+			case http.MethodGet:
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id": id, "clientId": id, "enabled": true,
+					"attributes": map[string]string{
+						managedAttribute: "true", gatewayIDAttribute: "gateway-id",
+						serviceAccountIDAttribute: "resource-" + id,
+					},
+				})
+			case http.MethodPut:
+				*events = append(*events, "disable:"+id)
+				w.WriteHeader(http.StatusNoContent)
+			case http.MethodDelete:
+				*events = append(*events, "delete:"+id)
+				w.WriteHeader(http.StatusNoContent)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestListManagedClientsSkipsClientsDeletedAfterListing(t *testing.T) {
+	var events []string
+	server := vanishingClientsKeycloak(t, []string{"gone", "live"}, map[string]bool{"gone": true}, nil, &events)
+
+	clients, err := NewClient(server.URL, "realm", "provisioner", "admin-secret").ListManagedClients(t.Context(), "gateway-id")
+	if err != nil {
+		t.Fatalf("ListManagedClients() error = %v", err)
+	}
+	if len(clients) != 1 || clients[0].UUID != "live" {
+		t.Fatalf("ListManagedClients() = %+v, want only the live client", clients)
+	}
+}
+
+func TestDeleteGatewayServiceAccountsToleratesConcurrentlyDeletedClients(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		goneOnFirstGet    map[string]bool
+		goneAfterFirstGet map[string]bool
+		want              []string
+	}{
+		{
+			name:           "deleted between list and get",
+			goneOnFirstGet: map[string]bool{"gone": true},
+			want:           []string{"404:GET:gone", "disable:live", "delete:live"},
+		},
+		{
+			name:              "deleted between list and cleanup",
+			goneAfterFirstGet: map[string]bool{"gone": true},
+			want:              []string{"404:GET:gone", "disable:live", "404:DELETE:gone", "delete:live"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var events []string
+			server := vanishingClientsKeycloak(t, []string{"gone", "live"}, tc.goneOnFirstGet, tc.goneAfterFirstGet, &events)
+
+			if err := NewClient(server.URL, "realm", "provisioner", "admin-secret").DeleteGatewayServiceAccounts(t.Context(), "gateway-id"); err != nil {
+				t.Fatalf("DeleteGatewayServiceAccounts() error = %v", err)
+			}
+			if !reflect.DeepEqual(events, tc.want) {
+				t.Fatalf("events = %v, want %v", events, tc.want)
+			}
+		})
+	}
+}
+
+func TestDeleteServiceAccountToleratesClientDeletedAfterOwnershipCheck(t *testing.T) {
+	var events []string
+	server := vanishingClientsKeycloak(t, []string{"gone"}, nil, map[string]bool{"gone": true}, &events)
+
+	if err := NewClient(server.URL, "realm", "provisioner", "admin-secret").DeleteServiceAccount(t.Context(), "gone", "gateway-id", "resource-gone"); err != nil {
+		t.Fatalf("DeleteServiceAccount() error = %v", err)
+	}
+	if want := []string{"404:GET:gone"}; !reflect.DeepEqual(events, want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
 func TestDestructiveOperationsRejectNonManagedClients(t *testing.T) {
 	// A client without the HyperShell managed marker (the gateway client, the
 	// console client, or any unrelated realm client) must never be disabled or
