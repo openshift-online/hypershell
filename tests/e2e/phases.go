@@ -813,6 +813,11 @@ type gatewayCreateRequest struct {
 	Placement gatewayPlacementIntent `json:"placement"`
 	Route     string                 `json:"route"`
 	OIDC      string                 `json:"oidc,omitempty"`
+	// CredentialDriver is the JSON-encoded provider-credential driver selection
+	// (GatewayCreateRequest.credential_driver). Omitted resolves to the flat vault
+	// default; the vault-coverage phase sets it to point a gateway at an unreachable
+	// Vault to exercise fail-closed provisioning (HYPERSHELL-369).
+	CredentialDriver string `json:"credential_driver,omitempty"`
 }
 
 // gatewayCreateRequestForDriver builds the infra-specific create payload used by

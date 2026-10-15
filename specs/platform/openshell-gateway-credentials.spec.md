@@ -575,6 +575,12 @@ authenticate and store secrets exactly as on a real cluster. See
 - THEN the value SHALL round-trip, and it SHALL be stored under
   `secret/data/openshell/<tenant-namespace>/*` in Vault
 
+  The suite MAY drive this as the gateway's own Vault identity (a `vault`-audience
+  ServiceAccount token under the `openshell-gateway` role and templated policy) rather than
+  through the product's provider-credential API, since that is the exact mechanism the
+  gateway uses to reach its namespace path; the assertion is the round-trip under the
+  tenant path, and that listing the tenant path (the purge enumeration) succeeds.
+
 #### Scenario: Namespace isolation holds between two gateways
 
 - GIVEN two Vault-backed gateways in different tenant namespaces
