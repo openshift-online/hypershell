@@ -175,6 +175,7 @@ Common attributes for both cookies:
 - Encryption: `@fastify/secure-session` named sessions with sodium-based secretbox (NaCl)
 - Login SHALL rotate both cookies (new encrypted values after authentication)
 - Each cookie SHALL remain under the 4KB browser limit after encryption and Base64 encoding. The BFF SHALL store only the claims needed to render the console plus the access token it must forward; it SHALL NOT copy the full ID-token or userinfo payload into the identity cookie.
+- The access token's size is not bounded by the BFF: it grows with the user's roles (for example one Keycloak client role per gateway). A browser silently drops a cookie whose name and value exceed 4096 bytes, so the login callback would loop back to `/auth/login`. When an encrypted value exceeds the per-cookie budget (3800 URL-encoded bytes), the BFF SHALL split it across continuation cookies named `<name>.1`, `<name>.2`, and so on, with the same attributes. The BFF SHALL join the chunks before decrypting, and SHALL expire continuation cookies left over from a longer previous value when it rewrites or clears the session.
 
 ### Token Refresh
 
@@ -572,6 +573,13 @@ Session state SHALL be split so that no single cookie exceeds the browser per-co
 - THEN identity and access-token state SHALL be written to the `session` cookie
 - AND the refresh and ID tokens SHALL be written to the `session_tok` cookie
 - AND each cookie SHALL remain under the 4KB browser limit after encryption
+
+#### Scenario: Oversized Access Token
+- GIVEN an access token large enough that the encrypted `session` value exceeds the per-cookie budget
+- WHEN the BFF completes the login callback
+- THEN it SHALL write the value across `session` and `session.1` (and further continuation cookies as needed), each under the 4KB browser limit
+- AND the next request carrying those cookies SHALL be authenticated rather than redirected to `/auth/login`
+- AND logout SHALL expire every continuation cookie
 
 #### Scenario: Tokens Never Reach the Browser
 - GIVEN a valid session

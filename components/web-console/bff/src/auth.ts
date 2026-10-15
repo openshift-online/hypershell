@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import * as oidc from "openid-client";
 
 import type { ServerConfig } from "./config.js";
+import { registerCookieChunking } from "./cookie-chunks.js";
 import { evaluateGithubOrgGate } from "./github-org-gate.js";
 import {
   createRefresher,
@@ -264,6 +265,11 @@ export async function registerAuth(
   );
 
   // --- Encrypted cookie sessions (chunked to stay under the browser limit) ---
+
+  // The access token alone can exceed the browser per-cookie limit, so each
+  // session cookie is also split across `<name>.N` continuation cookies. The
+  // chunk hook must be added before the session plugin parses cookies.
+  registerCookieChunking(app, ["session", "session_tok"]);
 
   const cookie = {
     httpOnly: true,

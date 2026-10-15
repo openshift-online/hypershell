@@ -43,6 +43,26 @@ function sessionCookie(response: { headers: Record<string, unknown> }): string {
   return "";
 }
 
+// Returns every cookie a response sets, as a Cookie request header, the way a
+// browser would send them back. Expired (cleared) cookies are left out.
+function responseCookies(response: { headers: Record<string, unknown> }): {
+  header: string;
+  names: string[];
+  setCookies: string[];
+} {
+  const raw = response.headers["set-cookie"];
+  const entries = (Array.isArray(raw) ? raw : [raw]).filter(
+    (entry): entry is string => typeof entry === "string",
+  );
+  const live = entries.filter((entry) => !/Max-Age=0/iu.test(entry));
+  const pairs = live.map((entry) => entry.split(";")[0] ?? "");
+  return {
+    header: pairs.join("; "),
+    names: pairs.map((pair) => pair.slice(0, pair.indexOf("="))),
+    setCookies: entries,
+  };
+}
+
 const testSessionSecret =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -51,6 +71,7 @@ const testSessionSecret =
 // ---------------------------------------------------------------------------
 
 interface OidcContext {
+  accessToken: string;
   brokerStatus: number;
   githubLinked: boolean;
   githubOrgs: string[];
@@ -127,7 +148,7 @@ function createOidcServer(ctx: OidcContext): Server {
           JSON.stringify({
             access_token: isRefresh
               ? "refreshed-access-token"
-              : "test-access-token",
+              : ctx.accessToken,
             expires_in: 3600,
             id_token: idToken,
             refresh_token: isRefresh
@@ -259,6 +280,7 @@ describe("web-console BFF with OIDC enabled", () => {
     url: string | undefined;
   }[];
   const oidcCtx: OidcContext = {
+    accessToken: "test-access-token",
     brokerStatus: 200,
     githubLinked: false,
     githubOrgs: ["openshift-online"],
@@ -268,6 +290,7 @@ describe("web-console BFF with OIDC enabled", () => {
 
   beforeEach(async () => {
     apiRequests = [];
+    oidcCtx.accessToken = "test-access-token";
     oidcCtx.brokerStatus = 200;
     oidcCtx.githubLinked = false;
     oidcCtx.githubOrgs = ["openshift-online"];
@@ -503,6 +526,72 @@ describe("web-console BFF with OIDC enabled", () => {
     expect(user.name).toBe("Test User");
     expect(body.roles).toEqual(["admin", "viewer"]);
     expect(body.expires_at).toEqual(expect.any(Number));
+  });
+
+  it("chunks an oversized session cookie so the browser keeps it", async () => {
+    // Keycloak access tokens grow with the user's roles (one client role per
+    // gateway). A single cookie past the 4096-byte browser limit is dropped
+    // silently, which sends every callback back to /auth/login in a loop.
+    oidcCtx.accessToken = `large.${"r".repeat(6000)}.token`;
+
+    const login = await app.inject({ method: "GET", url: "/auth/login" });
+    if (typeof login.headers.location !== "string") {
+      throw new Error("Expected location header");
+    }
+    const redirectUrl = new URL(login.headers.location);
+    const state = redirectUrl.searchParams.get("state");
+    const nonce = redirectUrl.searchParams.get("nonce");
+    if (!state || !nonce) {
+      throw new Error("Expected state and nonce in redirect URL");
+    }
+    oidcCtx.nonce = nonce;
+
+    const callback = await app.inject({
+      headers: { cookie: responseCookies(login).header },
+      method: "GET",
+      url: `/auth/callback?code=test-code&state=${state}`,
+    });
+    expect(callback.statusCode).toBe(302);
+
+    const cookies = responseCookies(callback);
+    expect(cookies.names).toEqual(
+      expect.arrayContaining(["session", "session.1"]),
+    );
+    for (const setCookie of cookies.setCookies) {
+      const pair = setCookie.split(";")[0] ?? "";
+      expect(pair.length).toBeLessThanOrEqual(4096);
+    }
+
+    // The browser sends every chunk back; the BFF joins them and serves the
+    // application instead of redirecting to /auth/login again.
+    const home = await app.inject({
+      headers: { cookie: cookies.header },
+      method: "GET",
+      url: "/",
+    });
+    expect(home.statusCode).toBe(200);
+
+    await app.inject({
+      headers: { cookie: cookies.header },
+      method: "GET",
+      url: "/api/hypershell/v1/gateways",
+    });
+    expect(apiRequests.at(-1)?.headers.authorization).toBe(
+      `Bearer ${oidcCtx.accessToken}`,
+    );
+
+    // A later, smaller session expires the continuation chunks it replaces.
+    const logout = await app.inject({
+      headers: { cookie: cookies.header },
+      method: "GET",
+      url: "/auth/logout",
+    });
+    const cleared = responseCookies(logout).setCookies.filter((entry) =>
+      /Max-Age=0/iu.test(entry),
+    );
+    expect(cleared.map((entry) => entry.slice(0, entry.indexOf("=")))).toEqual(
+      expect.arrayContaining(["session", "session.1"]),
+    );
   });
 
   it("returns 400 on /auth/callback without a prior login session", async () => {

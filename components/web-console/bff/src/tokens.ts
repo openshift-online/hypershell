@@ -4,8 +4,9 @@ import * as oidc from "openid-client";
  * A normalized OAuth token set held server-side by the BFF.
  *
  * The access token and its expiry live in the hot-path identity cookie; the
- * refresh and ID tokens live in the separate `session_tok` cookie so that no
- * single cookie approaches the browser per-cookie size limit.
+ * refresh and ID tokens live in the separate `session_tok` cookie. Either
+ * cookie is split into `<name>.N` continuation cookies when it would exceed
+ * the browser per-cookie size limit (see cookie-chunks.ts).
  */
 export interface TokenSet {
   accessToken: string;
