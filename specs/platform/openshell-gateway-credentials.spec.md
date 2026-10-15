@@ -621,8 +621,11 @@ GitOps repo implements against.
 Who owns what: `hypershell-gitops` pre-provisions the Vault, the KV engine, the
 Kubernetes auth mount, the shared role and the templated policy, once, up front. The
 control plane creates no Vault object at runtime and holds no Vault admin credentials; it
-only authenticates as a gateway identity for the reachability probe and the deletion
-purge.
+only authenticates as a gateway identity for the authenticated probe and the deletion
+purge. To do so it mints a `vault`-audience token for the gateway's ServiceAccount via the
+TokenRequest API, so the controller's RBAC MUST allow `create` on the
+`serviceaccounts/token` subresource in gateway namespaces (a distinct subresource from
+`serviceaccounts`).
 
 ---
 
