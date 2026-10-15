@@ -510,6 +510,9 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	st, body, err := devAPI.RawJSON(ctx, http.MethodGet, "/gateways", nil)
 	s.Require().NoError(err, "developer GET /gateways")
 	s.Assert().Equalf(http.StatusOK, st, "developer must list gateways (body: %s)", string(body))
+	var devList sdktypes.GatewayList
+	s.Require().NoErrorf(json.Unmarshal(body, &devList), "decode developer gateway list (body: %s)", string(body))
+	s.Assert().Equal("GatewayList", devList.Kind, "developer gateway list kind")
 
 	// Developer gateway-create: environment-dependent on the RBAC default.
 	createBody := gatewayCreateRequestForDriver("e2e-dev-create-"+s.runID, s.driver.Name(), s.gatewayOIDCConfig())

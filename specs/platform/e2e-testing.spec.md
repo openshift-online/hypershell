@@ -633,17 +633,18 @@ without the expected count SHALL fail the step.
 
 ### Requirement: Developer RBAC Enforcement
 
-The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`. This tier is a legitimate _user_ of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow the API server's `RBAC_DEFAULT_ROLES`: empty (OpenShift/production) MUST return `403 Forbidden`; unset Kind default `gateway:creator` MUST return 2xx. The suite SHALL read that env from the `hypershell-api-server` Deployment rather than branching on `E2E_INFRA_DRIVER`. The sandbox half SHALL succeed in both postures.
+The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier by exercising both an operation it is allowed to perform and one it is not. The `developer` user (credentials `E2E_DEV_USERNAME` / `E2E_DEV_PASSWORD`) maps to `gateway:viewer` -> `openshell-user` per `specs/security/rbac-enforcement.spec.md`; a gateway `user` access grant writes that `gateway:viewer` RoleBinding (`data-model.spec.md`). This tier is a legitimate _user_ of a gateway it can reach: it MAY create sandboxes on that gateway (the `openshell-user` role is authorized for sandbox create/list/exec per `specs/platform/openshell-gateway-oidc.spec.md`), but it is NOT a `gateway:creator` in Keycloak. Whether `POST /gateways` is allowed SHALL follow the API server's `RBAC_DEFAULT_ROLES`: empty (OpenShift/production) MUST return `403 Forbidden`; unset Kind default `gateway:creator` MUST return 2xx. The suite SHALL read that env from the `hypershell-api-server` Deployment rather than branching on `E2E_INFRA_DRIVER`. The gateway-create and gateway-list checks run in P2.2. The sandbox check runs in P2.5 (see P2.5 in [E2E Test Suite Coverage](#requirement-e2e-test-suite-coverage)), because it needs the owner's access grant first; P2.5 runs only on Kind with the password grant, so the sandbox check is not exercised on OpenShift.
 
-#### Scenario: Openshell User May Create a Sandbox
+#### Scenario: Developer Can Create a Sandbox on a Gateway Shared With It
 
-- GIVEN a valid OIDC token has been acquired for the `developer` user
-- AND the openshell CLI is registered against the gateway with that token
-- WHEN `sandbox create` is invoked
-- THEN a sandbox pod matching `default--<name>` SHALL be created within `E2E_SANDBOX_TIMEOUT` seconds
-- AND the test SHALL record a pass and delete the sandbox to leave a clean state
+- GIVEN the gateway owner has granted the `developer` user the gateway `user` role
+- AND the admin has added the developer to the gateway's `default` workspace
+- AND a per-gateway token carrying `openshell-user` has been acquired for the developer, and the openshell CLI is registered with it
+- WHEN the developer runs `sandbox create`
+- THEN the pod `default--<name>` SHALL reach `Running` within `E2E_SANDBOX_TIMEOUT` seconds
+- AND the suite SHALL delete the sandbox and poll until the gateway's `active_sandbox_count` returns to 0
 
-#### Scenario: Openshell User May Not Create a Gateway
+#### Scenario: Developer Cannot Create a Gateway Without `gateway:creator`
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
 - AND the API server's `RBAC_DEFAULT_ROLES` does not include `gateway:creator` (OpenShift sets the env to empty; production isolation)
@@ -651,14 +652,12 @@ The e2e test suite SHALL verify the RBAC boundary of the `openshell-user` tier b
 - THEN the API SHALL return `403 Forbidden` (the developer lacks the platform-scoped `gateway:creator` role)
 - AND the test SHALL record a pass for the denial
 
-#### Scenario: Openshell User May List Gateways
+#### Scenario: Developer Can List Gateways
 
 - GIVEN a valid OIDC token has been acquired for the `developer` user
-- AND the API server's `RBAC_DEFAULT_ROLES` does not include `gateway:creator`
-- AND the developer has no per-gateway RoleBinding
+- AND either `RBAC_DEFAULT_ROLES` posture
 - WHEN the developer calls `GET /api/hypershell/v1/gateways`
-- THEN the API SHALL return 200 with a `GatewayList` body
-- AND the console SHALL NOT show "Gateways could not be loaded"
+- THEN the API SHALL return 200 with a body whose `kind` is `GatewayList`
 
 #### Scenario: Default Creator Binding Allows Gateway Create
 
