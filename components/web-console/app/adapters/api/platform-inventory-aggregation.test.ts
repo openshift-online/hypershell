@@ -26,18 +26,43 @@ describe("platform inventory aggregation helpers", () => {
     );
   });
 
-  it("counts items created within the 30-day lookback window", () => {
+  it("counts items created within a caller-selected lookback window", () => {
     const evaluationTime = new Date("2026-09-01T12:00:00.000Z");
 
     expect(
-      countCreatedWithinLookback("2026-08-15T10:00:00.000Z", evaluationTime),
+      countCreatedWithinLookback(
+        "2026-08-15T10:00:00.000Z",
+        evaluationTime,
+        30 * 24 * 60 * 60 * 1000,
+      ),
     ).toBe(true);
     expect(
-      countCreatedWithinLookback("2026-07-01T10:00:00.000Z", evaluationTime),
+      countCreatedWithinLookback(
+        "2026-07-01T10:00:00.000Z",
+        evaluationTime,
+        30 * 24 * 60 * 60 * 1000,
+      ),
     ).toBe(false);
-    expect(countCreatedWithinLookback(undefined, evaluationTime)).toBe(false);
-    expect(countCreatedWithinLookback("not-a-date", evaluationTime)).toBe(
-      false,
-    );
+    expect(
+      countCreatedWithinLookback(
+        "2026-08-15T10:00:00.000Z",
+        evaluationTime,
+        7 * 24 * 60 * 60 * 1000,
+      ),
+    ).toBe(false);
+    expect(
+      countCreatedWithinLookback(
+        undefined,
+        evaluationTime,
+        30 * 24 * 60 * 60 * 1000,
+      ),
+    ).toBe(false);
+    expect(
+      countCreatedWithinLookback(
+        "not-a-date",
+        evaluationTime,
+        30 * 24 * 60 * 60 * 1000,
+      ),
+    ).toBe(false);
   });
 });

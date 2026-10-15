@@ -11,7 +11,8 @@ import type { StatusDonutDatum } from "./status-donut-data";
 
 export function NodeStatusChart({
   metric,
-}: Readonly<{ metric: OperationalMetric }>) {
+  title,
+}: Readonly<{ metric: OperationalMetric; title?: string }>) {
   const intl = useIntl();
 
   const { colorScale, data, legendData } = useMemo(() => {
@@ -42,7 +43,7 @@ export function NodeStatusChart({
       }
       legendData={legendData}
       size="compact"
-      title={formatOperationalMetricDisplayValue(metric.value, intl)}
+      title={title ?? formatOperationalMetricDisplayValue(metric.value, intl)}
     />
   );
 }

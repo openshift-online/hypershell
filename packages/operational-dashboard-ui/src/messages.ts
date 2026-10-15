@@ -3,10 +3,20 @@ import { defineMessages, type MessageDescriptor } from "react-intl";
 import type { ReliabilityMetricId } from "./application/dashboard-types";
 
 export const messages = defineMessages({
+  activeSandboxesWidget: {
+    id: "app.dashboard.widget.activeSandboxes",
+    defaultMessage: "Active sandboxes",
+    description: "Title for the active sandboxes dashboard widget.",
+  },
   addWidgets: {
     id: "app.dashboard.addWidgets",
     defaultMessage: "Add widgets",
     description: "Label for the button that opens the widget drawer.",
+  },
+  adminBadge: {
+    id: "app.dashboard.badge.admin",
+    defaultMessage: "Admin",
+    description: "Badge indicating an administrator resource scope.",
   },
   apiErrorRateWidget: {
     id: "app.dashboard.widget.apiErrorRate",
@@ -28,6 +38,11 @@ export const messages = defineMessages({
     id: "app.dashboard.widget.apiRequestRate",
     defaultMessage: "API request rate",
     description: "Title for the API request rate reliability widget.",
+  },
+  attentionRequiredWidget: {
+    id: "app.dashboard.widget.attentionRequired",
+    defaultMessage: "Attention required",
+    description: "Title for the operational dashboard attention widget.",
   },
   cpus: {
     id: "app.dashboard.summary.cpus",
@@ -82,11 +97,91 @@ export const messages = defineMessages({
       "The current Users value is the total number of registered users in HyperShell. It isn't a count of users who are online right now.<br></br>The trend shows the number of distinct registered users who used the API on each UTC calendar day during the last 30 days. A user is counted once per day even if they made multiple API requests.",
     description: "Help text for the Users widget.",
   },
+  dashboardInventoryDescription: {
+    id: "app.dashboard.inventory.description",
+    defaultMessage:
+      "Review the managed clusters available across the HyperShell platform.",
+    description: "Supporting text on the platform inventory dashboard page.",
+  },
+  dashboardInventoryPurpose: {
+    id: "app.dashboard.inventory.purpose",
+    defaultMessage:
+      "How large is the managed cluster fleet, and where is it distributed? Use this system-wide view to understand provider and regional coverage.",
+    description: "Purpose statement for the platform inventory dashboard.",
+  },
+  dashboardInventoryPurposeHeading: {
+    id: "app.dashboard.inventory.purposeHeading",
+    defaultMessage: "What this dashboard answers",
+    description: "Heading for the platform inventory purpose statement.",
+  },
+  dashboardInventoryTitle: {
+    id: "app.dashboard.inventory.title",
+    defaultMessage: "Platform inventory",
+    description: "Main heading on the platform inventory dashboard page.",
+  },
+  dashboardNavInventory: {
+    id: "app.dashboard.nav.inventory",
+    defaultMessage: "Inventory",
+    description: "Dashboard navigation label for inventory.",
+  },
+  dashboardNavOverview: {
+    id: "app.dashboard.nav.overview",
+    defaultMessage: "Overview",
+    description: "Dashboard navigation label for the operational overview.",
+  },
+  dashboardNavProvisioning: {
+    id: "app.dashboard.nav.provisioning",
+    defaultMessage: "Provisioning",
+    description: "Dashboard navigation label for provisioning.",
+  },
+  dashboardProvisioningDescription: {
+    id: "app.dashboard.provisioning.description",
+    defaultMessage:
+      "Monitor hub-cluster capacity and platform-wide gateway provisioning.",
+    description: "Supporting text on the provisioning dashboard page.",
+  },
+  dashboardProvisioningPurpose: {
+    id: "app.dashboard.provisioning.purpose",
+    defaultMessage:
+      "Is the hub cluster healthy enough to host HyperShell services and provision gateways? Review current utilization, node and pod health, and provisioning reliability.",
+    description: "Purpose statement for the provisioning dashboard.",
+  },
+  dashboardProvisioningPurposeHeading: {
+    id: "app.dashboard.provisioning.purposeHeading",
+    defaultMessage: "What this dashboard answers",
+    description: "Heading for the provisioning dashboard purpose statement.",
+  },
+  dashboardProvisioningTitle: {
+    id: "app.dashboard.provisioning.title",
+    defaultMessage: "Provisioning dashboard",
+    description: "Main heading on the provisioning dashboard page.",
+  },
   description: {
     id: "app.dashboard.description",
     defaultMessage:
-      "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
+      "A compact landing page for the current state of the resources you are allowed to operate.",
     description: "Supporting text on the operational dashboard page.",
+  },
+  durationMinutesSeconds: {
+    id: "app.dashboard.duration.minutesSeconds",
+    defaultMessage: "{minutes}m {seconds}s",
+    description: "Compact minutes and seconds duration.",
+  },
+  gatewayReleasesHelp: {
+    id: "app.dashboard.gatewayReleases.help",
+    defaultMessage: "Gateway counts grouped by the resolved release version.",
+    description: "Supporting text for the gateway releases widget.",
+  },
+  gatewayReleasesSummaryAriaLabel: {
+    id: "app.dashboard.gatewayReleases.summaryAriaLabel",
+    defaultMessage: "Gateways by release",
+    description:
+      "Accessible label for the gateway releases stat panel in the dashboard.",
+  },
+  gatewayReleasesWidget: {
+    id: "app.dashboard.widget.gatewayReleases",
+    defaultMessage: "Gateway releases",
+    description: "Title for the gateway releases dashboard widget.",
   },
   gateways: {
     id: "app.dashboard.summary.gateways",
@@ -114,10 +209,20 @@ export const messages = defineMessages({
     defaultMessage: "Degraded",
     description: "Legend label for degraded gateways.",
   },
+  gatewayStatusDegradedGateways: {
+    id: "app.dashboard.gatewayStatus.degradedGateways",
+    defaultMessage: "Degraded gateways",
+    description: "Attention widget label for degraded gateways.",
+  },
   gatewayStatusFailed: {
     id: "app.dashboard.gatewayStatus.failed",
     defaultMessage: "Failed",
     description: "Legend label for failed gateways.",
+  },
+  gatewayStatusFailedGateways: {
+    id: "app.dashboard.gatewayStatus.failedGateways",
+    defaultMessage: "Failed gateways",
+    description: "Attention widget label for failed gateways.",
   },
   gatewayStatusHealthy: {
     id: "app.dashboard.gatewayStatus.healthy",
@@ -136,7 +241,7 @@ export const messages = defineMessages({
   },
   gatewayStatusWidget: {
     id: "app.dashboard.widget.gatewayStatus",
-    defaultMessage: "Gateways",
+    defaultMessage: "Gateway status",
     description: "Title for the gateways dashboard widget.",
   },
   inventoryStatusUnknown: {
@@ -165,6 +270,11 @@ export const messages = defineMessages({
     defaultMessage: "Last refreshed: {timestamp}",
     description:
       "Timestamp shown when operational dashboard metrics were last loaded successfully.",
+  },
+  lastSuccessfulRefreshShort: {
+    id: "app.dashboard.lastSuccessfulRefreshShort",
+    defaultMessage: "Last successful refresh",
+    description: "Compact refresh timestamp label inside a dashboard widget.",
   },
   loadErrorBody: {
     id: "app.dashboard.loadError.body",
@@ -230,6 +340,12 @@ export const messages = defineMessages({
     description:
       "Fallback when a dashboard metric value is non-finite or cannot be shown as a number.",
   },
+  metricSourceGatewayReleaseDistribution: {
+    id: "app.dashboard.metricSource.gatewayReleaseDistribution",
+    defaultMessage: "Gateway releases",
+    description:
+      "Label for the gateway release distribution metric source in partial-load warnings.",
+  },
   metricUnavailableBody: {
     id: "app.dashboard.metricUnavailable.body",
     defaultMessage: "This information is not currently available.",
@@ -257,6 +373,11 @@ export const messages = defineMessages({
     defaultMessage: "Node count by readiness",
     description: "Accessible description for the node status donut chart.",
   },
+  nodeStatusCardTitle: {
+    id: "app.dashboard.nodeStatus.cardTitle",
+    defaultMessage: "{ready} / {total}",
+    description: "Ready and total node count in the node status widget.",
+  },
   nodeStatusChartTitle: {
     id: "app.dashboard.nodeStatus.chartTitle",
     defaultMessage: "Node status chart",
@@ -271,6 +392,11 @@ export const messages = defineMessages({
     id: "app.dashboard.nodeStatus.ready",
     defaultMessage: "Ready",
     description: "Legend label for ready nodes.",
+  },
+  noResourcesNeedAttention: {
+    id: "app.dashboard.attention.none",
+    defaultMessage: "No resources need attention",
+    description: "Empty state for the attention-required widget.",
   },
   partialLoadWarningBody: {
     id: "app.dashboard.partialLoadWarning.body",
@@ -290,6 +416,47 @@ export const messages = defineMessages({
     defaultMessage: "Some dashboard metrics are unavailable",
     description:
       "Title shown when one or more operational dashboard metric sources fail.",
+  },
+  percentChangeDecrease: {
+    id: "app.dashboard.percentChange.decrease",
+    defaultMessage: "-{percent}%",
+    description: "Formatted percentage decrease.",
+  },
+  percentChangeIncrease: {
+    id: "app.dashboard.percentChange.increase",
+    defaultMessage: "+{percent}%",
+    description: "Formatted percentage increase.",
+  },
+  platformInventoryClustersNeedingAttention: {
+    id: "app.dashboard.inventory.clustersNeedingAttention",
+    defaultMessage: "Clusters needing attention",
+    description: "Managed cluster count not currently reporting Ready.",
+  },
+  platformInventoryCompleteNote: {
+    id: "app.dashboard.inventory.completeNote",
+    defaultMessage: "Counts represent the complete platform inventory.",
+    description: "Scope note under the platform inventory summary.",
+  },
+  platformInventoryExceptions: {
+    id: "app.dashboard.inventory.exceptions",
+    defaultMessage: "Inventory exceptions",
+    description:
+      "Managed cluster count in a failed, degraded, or pending state.",
+  },
+  platformInventoryHealthyClusters: {
+    id: "app.dashboard.inventory.healthyClusters",
+    defaultMessage: "Healthy clusters",
+    description: "Managed cluster count currently reporting Ready.",
+  },
+  platformInventoryManagedClusters: {
+    id: "app.dashboard.inventory.managedClusters",
+    defaultMessage: "Managed clusters",
+    description: "Total managed clusters in the platform inventory.",
+  },
+  platformInventoryRecentlyAdded: {
+    id: "app.dashboard.inventory.recentlyAdded",
+    defaultMessage: "Recently added ({days}d)",
+    description: "Managed clusters created within the selected time range.",
   },
   pods: {
     id: "app.dashboard.summary.pods",
@@ -341,6 +508,74 @@ export const messages = defineMessages({
     defaultMessage: "Provisioned gateways",
     description: "Title for the provisioned gateways dashboard widget.",
   },
+  provisioningCpuUsed: {
+    id: "app.dashboard.provisioning.cpuUsed",
+    defaultMessage: "CPU used",
+    description: "Summary label for hub-cluster CPU utilization.",
+  },
+  provisioningInProgress: {
+    id: "app.dashboard.provisioning.inProgress",
+    defaultMessage: "In progress",
+    description: "Label for gateways currently provisioning.",
+  },
+  provisioningManagedClusters: {
+    id: "app.dashboard.provisioning.managedClusters",
+    defaultMessage: "Managed clusters",
+    description: "Summary label for the managed-cluster inventory total.",
+  },
+  provisioningMedianTime: {
+    id: "app.dashboard.provisioning.medianTime",
+    defaultMessage: "Median time to ready",
+    description: "Label for median gateway provisioning duration.",
+  },
+  provisioningMemoryUsed: {
+    id: "app.dashboard.provisioning.memoryUsed",
+    defaultMessage: "Memory used",
+    description: "Summary label for hub-cluster memory utilization.",
+  },
+  provisioningProvisionReliabilityWidget: {
+    id: "app.dashboard.widget.provisioningProvisionReliability",
+    defaultMessage: "Provision reliability",
+    description: "Title for the provisioning dashboard reliability widget.",
+  },
+  provisioningProvisionTimeWidget: {
+    id: "app.dashboard.widget.provisioningProvisionTime",
+    defaultMessage: "Provision time",
+    description: "Title for the provisioning dashboard duration widget.",
+  },
+  provisioningScopeNote: {
+    id: "app.dashboard.provisioning.scopeNote",
+    defaultMessage:
+      "Hub-cluster capacity and platform provisioning totals are visible to platform administrators.",
+    description: "Scope note under the provisioning system summary widget.",
+  },
+  provisioningSnapshotHelp: {
+    id: "app.dashboard.provisioning.snapshotHelp",
+    defaultMessage:
+      "Open Provisioning for failure reasons and time-to-ready trends.",
+    description: "Guidance displayed in the provisioning snapshot widget.",
+  },
+  provisioningSnapshotWidget: {
+    id: "app.dashboard.widget.provisioningSnapshot",
+    defaultMessage: "Provisioning snapshot",
+    description: "Title for the operational provisioning snapshot widget.",
+  },
+  provisioningSuccessful: {
+    id: "app.dashboard.provisioning.successful",
+    defaultMessage: "Successful",
+    description: "Label for successful gateway provisions.",
+  },
+  provisioningSuccessRateChange: {
+    id: "app.dashboard.provisioning.successRateChange",
+    defaultMessage: "Success rate change",
+    description: "Label for the change in gateway provision success rate.",
+  },
+  provisioningSuccessRateWidgetAriaLabel: {
+    id: "app.dashboard.provisioning.successRateAriaLabel",
+    defaultMessage: "Provision reliability",
+    description:
+      "Accessible label for the provisioning reliability summary list.",
+  },
   provisionReliabilityAriaDesc: {
     id: "app.dashboard.provisionReliability.ariaDesc",
     defaultMessage: "Gateway provision success and failure counts",
@@ -351,6 +586,12 @@ export const messages = defineMessages({
     id: "app.dashboard.provisionReliability.chartTitle",
     defaultMessage: "Gateway provision reliability chart",
     description: "Accessible title for the provision reliability donut chart.",
+  },
+  provisionReliabilityDailySuccessRateCaption: {
+    id: "app.dashboard.provisionReliability.dailySuccessRateCaption",
+    defaultMessage: "Last {days} days - daily success rate",
+    description:
+      "Caption for the daily provision success-rate sparkline in the selected range.",
   },
   provisionReliabilityFailures: {
     id: "app.dashboard.provisionReliability.failures",
@@ -385,6 +626,11 @@ export const messages = defineMessages({
     id: "app.dashboard.provisionReliability.successes",
     defaultMessage: "Successes",
     description: "Legend label for successful gateway provisions.",
+  },
+  provisionReliabilitySuccessRate: {
+    id: "app.dashboard.provisionReliability.successRate",
+    defaultMessage: "Success rate",
+    description: "Title for the provision success-rate sparkline.",
   },
   provisionReliabilityWidget: {
     id: "app.dashboard.widget.provisionReliability",
@@ -423,6 +669,11 @@ export const messages = defineMessages({
     id: "app.dashboard.summary.provisionTimeP50",
     defaultMessage: "Provision time (P50)",
     description: "Deprecated summary label retained for locale extraction.",
+  },
+  provisionTimeP50Label: {
+    id: "app.dashboard.provisionTime.p50",
+    defaultMessage: "P50",
+    description: "Label for the 50th percentile gateway provision duration.",
   },
   provisionTimeP95: {
     id: "app.dashboard.summary.provisionTimeP95",
@@ -487,6 +738,12 @@ export const messages = defineMessages({
     defaultMessage: "(last 24 hours)",
     description:
       "Lookback period shown with the current reconciliation failure count.",
+  },
+  reconciliationLagCurrent: {
+    id: "app.dashboard.reconciliationLag.current",
+    defaultMessage: "Current P50 lag",
+    description:
+      "Value label shown with the current reconciliation lag metric.",
   },
   refresh: {
     id: "app.dashboard.refresh",
@@ -595,6 +852,17 @@ export const messages = defineMessages({
     description:
       "Secondary navigation label for the reliability dashboard route.",
   },
+  reliabilityPurpose: {
+    id: "app.dashboard.reliability.purpose",
+    defaultMessage:
+      "Is the platform serving requests reliably? Are reconciliations failing, retrying, or falling behind? Are there incidents or alerts requiring investigation? These platform-wide operational signals are for system admins; production views should scope them to permitted fleets where supported.",
+    description: "Question summary explaining the reliability dashboard.",
+  },
+  reliabilityPurposeHeading: {
+    id: "app.dashboard.reliability.purposeHeading",
+    defaultMessage: "What this dashboard answers",
+    description: "Heading for the reliability dashboard purpose.",
+  },
   reliabilitySummaryAriaLabel: {
     id: "app.dashboard.reliability.summaryAriaLabel",
     defaultMessage: "API reliability summary",
@@ -652,9 +920,19 @@ export const messages = defineMessages({
   },
   resetToDefault: {
     id: "app.dashboard.resetToDefault",
-    defaultMessage: "Reset to default",
+    defaultMessage: "Reset to default layout",
     description:
       "Label for restoring the operational dashboard default layout.",
+  },
+  resourceSummaryHelp: {
+    id: "app.dashboard.resourceSummary.help",
+    defaultMessage: "Counts respect your fleet and environment access.",
+    description: "Scope guidance in the resource summary widget.",
+  },
+  resourceSummaryWidget: {
+    id: "app.dashboard.widget.resourceSummary",
+    defaultMessage: "Resource summary",
+    description: "Title for the authorized resource summary widget.",
   },
   sandboxActiveSandboxesPerDay: {
     id: "app.dashboard.sandboxStatus.activeSandboxesPerDay",
@@ -666,6 +944,11 @@ export const messages = defineMessages({
     defaultMessage: "Active sandboxes per hour",
     description: "Title above the hourly active-sandboxes sparkline.",
   },
+  sandboxAttentionExpiringSandboxes: {
+    id: "app.dashboard.sandboxAttention.expiringSandboxes",
+    defaultMessage: "Expiring sandboxes",
+    description: "Summary label for sandboxes expiring within 24 hours.",
+  },
   sandboxAttentionExpiringSoon: {
     id: "app.dashboard.sandboxStatus.expiringSoon",
     defaultMessage: "{count} Expiring soon",
@@ -675,6 +958,11 @@ export const messages = defineMessages({
     id: "app.dashboard.sandboxStatus.idle",
     defaultMessage: "{count} Idle",
     description: "Attention label for idle sandboxes with a live Gateway.",
+  },
+  sandboxAttentionIdleOrOrphaned: {
+    id: "app.dashboard.sandboxAttention.idleOrOrphaned",
+    defaultMessage: "Idle or orphaned sandboxes",
+    description: "Combined attention label for idle and orphaned sandboxes.",
   },
   sandboxAttentionOrphaned: {
     id: "app.dashboard.sandboxStatus.orphaned",
@@ -735,6 +1023,12 @@ export const messages = defineMessages({
     defaultMessage: "Platform inventory",
     description: "Section title above platform inventory widgets.",
   },
+  staleResourceStatusCurrent: {
+    id: "app.dashboard.staleResourceStatus.current",
+    defaultMessage: "Current stale-resource count",
+    description:
+      "Value label shown with the current stale resource status metric.",
+  },
   statusDonutDataLabel: {
     id: "app.dashboard.statusDonut.dataLabel",
     defaultMessage: "{status}: {count}",
@@ -749,6 +1043,16 @@ export const messages = defineMessages({
     id: "app.dashboard.widget.summary",
     defaultMessage: "Summary",
     description: "Title for the operational dashboard summary widget.",
+  },
+  summaryHealthyResources: {
+    id: "app.dashboard.summary.healthyResources",
+    defaultMessage: "Healthy resources",
+    description: "Summary row for healthy authorized gateways and sandboxes.",
+  },
+  summaryResourcesNeedingAttention: {
+    id: "app.dashboard.summary.resourcesNeedingAttention",
+    defaultMessage: "Resources needing attention",
+    description: "Summary row for authorized resources needing attention.",
   },
   summarySystem: {
     id: "app.dashboard.summary.system",
@@ -785,21 +1089,35 @@ export const messages = defineMessages({
     description:
       "Accessible label for the usage metrics list in the summary widget.",
   },
+  systemScopeLabel: {
+    id: "app.dashboard.systemScopeLabel",
+    defaultMessage: "System",
+    description: "Badge identifying a system-wide dashboard widget.",
+  },
   systemSummaryWidget: {
     id: "app.dashboard.widget.systemSummary",
     defaultMessage: "System summary",
     description: "Title for the operational dashboard system summary widget.",
   },
+  timeRange: {
+    id: "app.dashboard.timeRange.label",
+    defaultMessage: "Time range",
+    description: "Accessible label for the operational dashboard time range.",
+  },
+  timeRangeLast7Days: {
+    id: "app.dashboard.timeRange.last7Days",
+    defaultMessage: "Last 7 days",
+    description: "Seven-day operational dashboard range option.",
+  },
+  timeRangeLast30Days: {
+    id: "app.dashboard.timeRange.last30Days",
+    defaultMessage: "Last 30 days",
+    description: "Thirty-day operational dashboard range option.",
+  },
   title: {
     id: "app.dashboard.title",
-    defaultMessage: "Operational",
+    defaultMessage: "Operational overview",
     description: "Main heading on the operational dashboard page.",
-  },
-  trendLast2Hours: {
-    id: "app.dashboard.trend.last2Hours",
-    defaultMessage: "Last 2 hours",
-    description:
-      "Caption below a two-hour trend sparkline on the operational dashboard.",
   },
   trendLast7Days: {
     id: "app.dashboard.trend.last7Days",
@@ -822,6 +1140,30 @@ export const messages = defineMessages({
     id: "app.dashboard.trend.tooltip",
     defaultMessage: "{date}: {value} {metric}",
     description: "Tooltip for a dashboard metric trend sparkline point.",
+  },
+  trendTooltipNoValue: {
+    id: "app.dashboard.trend.tooltip.noValue",
+    defaultMessage: "{date}: no sample for {metric}",
+    description:
+      "Tooltip for a calendar day without a dashboard metric trend sample.",
+  },
+  updatedMinuteAgo: {
+    id: "app.dashboard.updatedMinuteAgo",
+    defaultMessage: "Updated 1 minute ago",
+    description:
+      "Relative timestamp shown when the dashboard was updated one minute ago.",
+  },
+  updatedMinutesAgo: {
+    id: "app.dashboard.updatedMinutesAgo",
+    defaultMessage: "Updated {minutes} minutes ago",
+    description:
+      "Relative timestamp shown beside the dashboard refresh action.",
+  },
+  updatedUnderMinuteAgo: {
+    id: "app.dashboard.updatedUnderMinuteAgo",
+    defaultMessage: "Updated under 1 minute ago",
+    description:
+      "Relative timestamp shown when the dashboard was updated less than one minute ago.",
   },
   usageSummaryWidget: {
     id: "app.dashboard.widget.usageSummary",

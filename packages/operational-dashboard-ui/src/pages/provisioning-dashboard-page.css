@@ -1,0 +1,69 @@
+.hypershell-provisioning-grid {
+  display: grid;
+  gap: var(--pf-t--global--spacer--sm);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: 260px 280px;
+}
+
+.hypershell-provisioning-card-title {
+  align-items: center;
+  display: flex;
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-dashboard-sparkline-chart {
+  min-width: 0;
+  width: 100%;
+}
+
+.hypershell-provisioning-widget .pf-v6-widget-grid-tile__title::after {
+  background: #f4c145;
+  border-radius: var(--pf-t--global--border--radius--pill);
+  color: var(--pf-t--global--color--text--regular);
+  content: "System";
+  font-size: var(--pf-t--global--font--size--body--sm);
+  font-weight: var(--pf-t--global--font--weight--body--regular);
+  margin-inline-start: var(--pf-t--global--spacer--sm);
+  padding: var(--pf-t--global--spacer--xs) var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-provisioning-widget .pf-v6-widget-grid-tile__title {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+}
+
+.hypershell-provisioning-widget .pf-v6-c-description-list__group {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.hypershell-provisioning-trend-widget {
+  display: grid;
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.hypershell-provisioning-trend-widget
+  > div:not(.hypershell-dashboard-sparkline-chart) {
+  display: flex;
+  justify-content: space-between;
+}
+
+.hypershell-provisioning-positive {
+  color: var(--pf-t--global--color--status--success--default);
+}
+
+.hypershell-provisioning-negative {
+  color: var(--pf-t--global--color--status--danger--default);
+}
+
+.hypershell-provisioning-positive svg,
+.hypershell-provisioning-negative svg {
+  margin-inline-end: var(--pf-t--global--spacer--xs);
+}
+
+@media (max-width: 768px) {
+  .hypershell-provisioning-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+  }
+}

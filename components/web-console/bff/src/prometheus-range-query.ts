@@ -53,6 +53,10 @@ export function formatHourLabel(unixSeconds: number): string {
 }
 
 export function sevenDayUtcCalendarRange(): { end: number; start: number } {
+  return utcCalendarRange(7);
+}
+
+export function utcCalendarRange(days: 7 | 30): { end: number; start: number } {
   const now = Date.now();
   const today = new Date(now);
   const utcTodayStart = Date.UTC(
@@ -64,8 +68,7 @@ export function sevenDayUtcCalendarRange(): { end: number; start: number } {
   return {
     end: Math.floor(now / 1000),
     start: Math.floor(
-      (utcTodayStart - (dailyRangeLookbackDays - 1) * 24 * 60 * 60 * 1000) /
-        1000,
+      (utcTodayStart - (days - 1) * 24 * 60 * 60 * 1000) / 1000,
     ),
   };
 }
@@ -165,6 +168,25 @@ export function alignDailyIntegerSeries(
   return utcCalendarDatesInclusive(days).map((date) => ({
     date,
     value: valuesByDate.get(date) ?? 0,
+  }));
+}
+
+export function alignDailySeriesPreservingGaps(
+  samples: Map<number, number>,
+  days = dailyRangeLookbackDays,
+): { date: string; value: number | null }[] {
+  const valuesByDate = new Map<string, number>();
+
+  for (const [timestamp, rawValue] of samples) {
+    valuesByDate.set(
+      formatUtcCalendarDate(timestamp),
+      Math.max(0, Math.round(rawValue)),
+    );
+  }
+
+  return utcCalendarDatesInclusive(days).map((date) => ({
+    date,
+    value: valuesByDate.get(date) ?? null,
   }));
 }
 

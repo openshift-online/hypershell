@@ -1,8 +1,12 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, formatjs/no-literal-string-in-jsx */
 import {
   Alert,
   AlertActionLink,
   Bullseye,
-  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
   Content,
   EmptyState,
   EmptyStateBody,
@@ -10,18 +14,18 @@ import {
   PageSection,
   PageSectionTypes,
   Spinner,
-  Flex,
-  FlexItem,
-  Timestamp,
-  TimestampFormat,
+  Grid,
+  GridItem,
   Title,
 } from "@patternfly/react-core";
 import {
   CheckCircleIcon,
   ClusterIcon,
+  CodeBranchIcon,
   ContainerNodeIcon,
   CubesIcon,
   DatabaseIcon,
+  ExclamationCircleIcon,
   HourglassHalfIcon,
   UsersIcon,
   MicrochipIcon,
@@ -29,7 +33,6 @@ import {
   ServerIcon,
 } from "@patternfly/react-icons";
 import {
-  AddWidgetsButton,
   GridLayout,
   WidgetDrawer,
   type ExtendedTemplateConfig,
@@ -37,15 +40,26 @@ import {
   type WidgetMapping,
 } from "@patternfly/widgetized-dashboard";
 import "@patternfly/widgetized-dashboard/dist/esm/styles.css";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { FormattedMessage, useIntl, type IntlShape } from "react-intl";
 
-import type { OperationalDashboardMetrics } from "../application/dashboard-types";
+import type {
+  DashboardTimeRange,
+  OperationalDashboardMetrics,
+} from "../application/dashboard-types";
 import type { DashboardProbe } from "../application/dashboard-probes";
 import { noopDashboardProbePublisher } from "../application/dashboard-probes";
 import {
-  ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
+  ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
   ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
+  GATEWAY_STATUS_WIDGET_HEIGHT,
   defaultDashboardLayoutTemplate,
   DASHBOARD_COLUMN_COUNT,
   INVENTORY_SUMMARY_WIDGET_HEIGHT,
@@ -67,14 +81,20 @@ import {
   sanitizeDashboardTemplate,
   stripRemovedWidgetTypes,
 } from "../dashboard/dashboard-layout-persistence";
+import {
+  DashboardFilterToolbar,
+  DashboardNavigation,
+} from "../dashboard/dashboard-toolbar";
 import { useDashboardUi } from "../dashboard-ui-provider";
 import { messages } from "../messages";
-import { ResourceRefreshButton } from "../shared/resource-refresh-button";
-import { DashboardSecondaryNav } from "../dashboard/dashboard-secondary-nav";
 import { dashboardResizeWidgetConfig } from "./dashboard-resize-handle";
+import { DashboardPurpose } from "./dashboard-purpose";
 import "./dashboard-widget.css";
 import {
+  GatewayReleasesCard,
   GatewayStatusCard,
+  AttentionRequiredCard,
+  ActiveSandboxesCard,
   SandboxStatusCard,
   InventorySummaryCard,
   ManagedClusterProvidersCard,
@@ -83,6 +103,7 @@ import {
   NodeStatusCard,
   PodCapacityCard,
   ProvisionReliabilityCard,
+  ProvisioningSnapshotCard,
   ProvisionTimeCard,
   SystemSummaryCard,
   SectionTitleCard,
@@ -94,13 +115,32 @@ import { useGetMetricsData } from "./get-metrics-data";
 
 const baseTemplate = defaultDashboardLayoutTemplate;
 
-const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v44";
+const LAYOUT_STORAGE_KEY = "hypershell.operational-dashboard.layout.v47";
 const CUSTOM_COLUMNS: Record<Variants, number> = {
   xl: 4,
   lg: 4,
   md: 4,
   sm: 1,
 };
+
+function OverviewCard({
+  title,
+  children,
+  span = 1,
+}: Readonly<{
+  title: string;
+  children: ReactNode;
+  span?: number;
+}>) {
+  return (
+    <Card isFullHeight style={{ gridColumn: `span ${String(span)}` }}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardBody>{children}</CardBody>
+    </Card>
+  );
+}
 
 function getAddedWidgetTypes(
   currentTemplate: ExtendedTemplateConfig,
@@ -193,8 +233,10 @@ function createWidgetMapping(
     metricType:
       | "metric"
       | "users"
+      | "active-sandboxes"
       | "gateway-status"
       | "sandbox-status"
+      | "gateway-releases"
       | "node-status"
       | "pod-capacity"
       | "provision-time"
@@ -225,6 +267,10 @@ function createWidgetMapping(
       return <UsersCard metric={metric} />;
     }
 
+    if (metricType === "active-sandboxes") {
+      return <MetricCard metric={metric} subtitle="" title={title} />;
+    }
+
     if (metricType === "metric") {
       return <MetricCard metric={metric} subtitle={subtitle} title={title} />;
     }
@@ -235,6 +281,10 @@ function createWidgetMapping(
 
     if (metricType === "sandbox-status") {
       return <SandboxStatusCard metric={metric} />;
+    }
+
+    if (metricType === "gateway-releases") {
+      return <GatewayReleasesCard metric={metric} />;
     }
 
     if (metricType === "node-status") {
@@ -264,7 +314,7 @@ function createWidgetMapping(
     return <UtilizationCard metric={metric} />;
   };
 
-  return {
+  const mapping: WidgetMapping = {
     [SECTION_TITLE_WIDGET_TYPE]: {
       defaults: {
         h: TITLE_WIDGET_HEIGHT,
@@ -293,7 +343,7 @@ function createWidgetMapping(
         );
       },
     },
-    "usage-summary": {
+    "resource-summary": {
       defaults: {
         h: USAGE_SUMMARY_WIDGET_HEIGHT,
         maxH: USAGE_SUMMARY_WIDGET_HEIGHT + 2,
@@ -301,10 +351,23 @@ function createWidgetMapping(
         w: 1,
       },
       config: {
-        icon: <UsersIcon />,
-        title: intl.formatMessage(messages.usageSummaryWidget),
+        icon: <ClusterIcon />,
+        title: intl.formatMessage(messages.resourceSummaryWidget),
       },
       renderWidget: () => <UsageSummaryCard metrics={metrics.metrics} />,
+    },
+    "attention-required": {
+      defaults: {
+        h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
+        maxH: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <ExclamationCircleIcon />,
+        title: intl.formatMessage(messages.attentionRequiredWidget),
+      },
+      renderWidget: () => <AttentionRequiredCard metrics={metrics.metrics} />,
     },
     "system-summary": {
       defaults: {
@@ -340,13 +403,13 @@ function createWidgetMapping(
     },
     "gateway-status": {
       defaults: {
-        h: ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT,
+        h: GATEWAY_STATUS_WIDGET_HEIGHT,
         maxH: REGISTERED_USERS_WIDGET_HEIGHT,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 1,
       },
       config: {
-        icon: <ClusterIcon />,
+        icon: <ContainerNodeIcon />,
         title: intl.formatMessage(messages.gatewayStatusWidget),
       },
       renderWidget: () =>
@@ -359,13 +422,13 @@ function createWidgetMapping(
     },
     "sandbox-status": {
       defaults: {
-        h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
+        h: GATEWAY_STATUS_WIDGET_HEIGHT,
         maxH: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT + 2,
         minH: METRIC_WIDGET_DEFAULTS.minH,
         w: 2,
       },
       config: {
-        icon: <ContainerNodeIcon />,
+        icon: <CubesIcon />,
         title: intl.formatMessage(messages.sandboxStatusWidget),
       },
       renderWidget: () =>
@@ -374,6 +437,50 @@ function createWidgetMapping(
           "",
           messages.sandboxStatusWidget,
           "sandbox-status",
+        ),
+    },
+    "active-sandboxes": {
+      defaults: {
+        h: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT,
+        maxH: ADOPTION_SANDBOX_STATUS_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 2,
+      },
+      config: {
+        icon: <CubesIcon />,
+        title: intl.formatMessage(messages.activeSandboxesWidget),
+      },
+      renderWidget: () => {
+        const metric = metricById.get("provisioned-sandboxes");
+        return metric ? (
+          <ActiveSandboxesCard metric={metric} />
+        ) : (
+          renderMetric(
+            "provisioned-sandboxes",
+            "",
+            messages.activeSandboxesWidget,
+            "active-sandboxes",
+          )
+        );
+      },
+    },
+    "gateway-releases": {
+      defaults: {
+        h: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT,
+        maxH: ADOPTION_GATEWAY_RELEASES_WIDGET_HEIGHT + 2,
+        minH: METRIC_WIDGET_DEFAULTS.minH,
+        w: 1,
+      },
+      config: {
+        icon: <CodeBranchIcon />,
+        title: intl.formatMessage(messages.gatewayReleasesWidget),
+      },
+      renderWidget: () =>
+        renderMetric(
+          "gateway-releases",
+          "",
+          messages.gatewayReleasesWidget,
+          "gateway-releases",
         ),
     },
     "provision-time": {
@@ -395,7 +502,7 @@ function createWidgetMapping(
           "provision-time",
         ),
     },
-    "provision-reliability": {
+    "provisioning-snapshot": {
       defaults: {
         h: PROVISION_RELIABILITY_WIDGET_HEIGHT,
         maxH: PROVISION_RELIABILITY_WIDGET_HEIGHT + 2,
@@ -404,15 +511,11 @@ function createWidgetMapping(
       },
       config: {
         icon: <CheckCircleIcon />,
-        title: intl.formatMessage(messages.provisionReliabilityWidget),
+        title: intl.formatMessage(messages.provisioningSnapshotWidget),
       },
-      renderWidget: () =>
-        renderMetric(
-          "provision-reliability",
-          "",
-          messages.provisionReliabilityWidget,
-          "provision-reliability",
-        ),
+      renderWidget: () => (
+        <ProvisioningSnapshotCard metrics={metrics.metrics} />
+      ),
     },
     cpu: {
       defaults: {
@@ -522,6 +625,20 @@ function createWidgetMapping(
         ),
     },
   };
+
+  const overviewWidgetTypes = [
+    "resource-summary",
+    "gateway-status",
+    "sandbox-status",
+    "active-sandboxes",
+    "provisioning-snapshot",
+    "gateway-releases",
+    "attention-required",
+  ];
+
+  return Object.fromEntries(
+    overviewWidgetTypes.map((widgetType) => [widgetType, mapping[widgetType]]),
+  ) as WidgetMapping;
 }
 
 export interface OperationalDashboardPageProps {
@@ -536,10 +653,33 @@ export function OperationalDashboardPage({
   const intl = useIntl();
   const { probes = noopDashboardProbePublisher } = useDashboardUi();
   const pageTitle = title ?? intl.formatMessage(messages.title);
+  const [timeRange, setTimeRange] = useState<DashboardTimeRange>(7);
+  const [currentTime, setCurrentTime] = useState(0);
+  useEffect(() => {
+    const updateCurrentTime = () => {
+      setCurrentTime(Date.now());
+    };
+    const timeoutId = window.setTimeout(updateCurrentTime, 0);
+    const intervalId = window.setInterval(updateCurrentTime, 60000);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, []);
   const metricsQuery = useGetMetricsData({
     enabled: metrics === undefined,
+    timeRange,
   });
   const dashboardMetrics = metrics ?? metricsQuery.data;
+  const updatedMinutesAgo = dashboardMetrics?.lastSuccessfulRefresh
+    ? Math.max(
+        0,
+        Math.floor(
+          (currentTime - dashboardMetrics.lastSuccessfulRefresh.getTime()) /
+            60000,
+        ),
+      )
+    : undefined;
   const showTotalInitialLoadError =
     metrics === undefined && metricsQuery.isError && !metricsQuery.data;
   const showPartialLoadWarning =
@@ -691,92 +831,61 @@ export function OperationalDashboardPage({
     }
   };
 
+  const metric = (id: string) =>
+    dashboardMetrics?.metrics.find((item) => item.id === id);
+  const requiredMetric = (id: string) => {
+    const item = metric(id);
+    if (!item) {
+      throw new Error(`Missing dashboard metric: ${id}`);
+    }
+    return item;
+  };
+  const overviewMetric = (id: string, fallback: ReactNode) => {
+    const item = metric(id);
+    return item ? (
+      <MetricCard metric={item} title={id} subtitle="" />
+    ) : (
+      fallback
+    );
+  };
+
   return (
     <Fragment>
-      <PageSection type={PageSectionTypes.subNav}>
-        <DashboardSecondaryNav active="operational" />
+      <PageSection
+        data-page-region="header"
+        hasBodyWrapper={false}
+        variant="default"
+      >
+        <Content>
+          <Title headingLevel="h1">{pageTitle}</Title>
+          <p>
+            <FormattedMessage {...messages.description} />
+          </p>
+        </Content>
       </PageSection>
-      <PageSection isFilled padding={{ default: "padding" }}>
-        <Flex
-          alignItems={{ default: "alignItemsFlexStart" }}
-          justifyContent={{ default: "justifyContentSpaceBetween" }}
-        >
-          <FlexItem>
-            <Content>
-              <Title headingLevel="h1">{pageTitle}</Title>
-              <p>
-                <FormattedMessage {...messages.description} />
-              </p>
-            </Content>
-          </FlexItem>
-          {metrics === undefined || widgetMapping ? (
-            <FlexItem className="hypershell-dashboard-header-actions">
-              <Flex
-                alignItems={{ default: "alignItemsCenter" }}
-                direction={{ default: "column" }}
-                spaceItems={{ default: "spaceItemsSm" }}
-              >
-                {metrics === undefined ? (
-                  <Flex
-                    alignItems={{ default: "alignItemsCenter" }}
-                    spaceItems={{ default: "spaceItemsSm" }}
-                  >
-                    {dashboardMetrics?.lastSuccessfulRefresh ? (
-                      <FlexItem>
-                        <span className="hypershell-dashboard-last-refreshed">
-                          <FormattedMessage
-                            {...messages.lastRefreshed}
-                            values={{
-                              timestamp: (
-                                <Timestamp
-                                  date={dashboardMetrics.lastSuccessfulRefresh}
-                                  dateFormat={TimestampFormat.medium}
-                                  timeFormat={TimestampFormat.medium}
-                                />
-                              ),
-                            }}
-                          />
-                        </span>
-                      </FlexItem>
-                    ) : null}
-                    <FlexItem>
-                      <ResourceRefreshButton
-                        ariaLabel={intl.formatMessage(messages.refresh)}
-                        isRefreshing={metricsQuery.isFetching}
-                        onRefresh={() => {
-                          void metricsQuery.refetch();
-                        }}
-                      />
-                    </FlexItem>
-                  </Flex>
-                ) : null}
-                {widgetMapping ? (
-                  <Flex
-                    alignItems={{ default: "alignItemsCenter" }}
-                    spaceItems={{ default: "spaceItemsSm" }}
-                  >
-                    <FlexItem>
-                      <Button variant="link" onClick={handleResetToDefault}>
-                        {intl.formatMessage(messages.resetToDefault)}
-                      </Button>
-                    </FlexItem>
-                    {hasWidgetsToAdd ? (
-                      <FlexItem>
-                        <AddWidgetsButton
-                          onClick={() => {
-                            setDrawerOpen(!drawerOpen);
-                          }}
-                        >
-                          {intl.formatMessage(messages.addWidgets)}
-                        </AddWidgetsButton>
-                      </FlexItem>
-                    ) : null}
-                  </Flex>
-                ) : null}
-              </Flex>
-            </FlexItem>
-          ) : null}
-        </Flex>
+      <PageSection data-page-region="body" isFilled variant="secondary">
+        <DashboardNavigation
+          active="operational"
+          isRefreshing={metrics === undefined && metricsQuery.isFetching}
+          onRefresh={() => {
+            if (metrics === undefined) {
+              void metricsQuery.refetch();
+            }
+          }}
+          updatedMinutesAgo={updatedMinutesAgo}
+        />
+        <DashboardPurpose heading="What this dashboard answers">
+          What needs attention right now? Are my gateways and sandboxes healthy?
+          Did provisioning or capacity change enough to investigate?
+        </DashboardPurpose>
+        <DashboardFilterToolbar
+          onAddWidgets={() => {
+            setDrawerOpen(!drawerOpen);
+          }}
+          onResetToDefault={handleResetToDefault}
+          onTimeRangeChange={setTimeRange}
+          timeRange={timeRange}
+        />
         {metricsQuery.isPending && metrics === undefined ? (
           <Bullseye>
             <Spinner aria-label={intl.formatMessage(messages.loading)} />
@@ -784,6 +893,7 @@ export function OperationalDashboardPage({
         ) : null}
         {showTotalInitialLoadError ? (
           <Alert
+            className="hypershell-dashboard-data-alert"
             title={intl.formatMessage(messages.loadErrorTitle)}
             variant="danger"
           >
@@ -792,16 +902,7 @@ export function OperationalDashboardPage({
         ) : null}
         {showPartialLoadWarning ? (
           <Alert
-            actionLinks={
-              <AlertActionLink
-                isDisabled={metricsQuery.isFetching}
-                onClick={() => {
-                  void metricsQuery.refetch();
-                }}
-              >
-                {intl.formatMessage(messages.partialLoadWarningRefreshAction)}
-              </AlertActionLink>
-            }
+            className="hypershell-dashboard-data-alert"
             title={intl.formatMessage(messages.partialLoadWarningTitle)}
             variant="warning"
           >
@@ -810,6 +911,7 @@ export function OperationalDashboardPage({
         ) : null}
         {showRefreshError ? (
           <Alert
+            className="hypershell-dashboard-data-alert"
             title={intl.formatMessage(messages.refreshErrorTitle)}
             variant="warning"
           >
@@ -827,16 +929,18 @@ export function OperationalDashboardPage({
             onWidgetDragStart={setDroppingWidgetType}
             widgetMapping={widgetMapping}
           >
-            <GridLayout
-              key={gridLayoutKey}
-              columns={CUSTOM_COLUMNS}
-              droppingWidgetType={droppingWidgetType}
-              onDrawerExpandChange={setDrawerOpen}
-              onTemplateChange={handleTemplateChange}
-              resizeWidgetConfig={dashboardResizeWidgetConfig}
-              template={displayTemplate}
-              widgetMapping={widgetMapping}
-            />
+            <div className="hypershell-dashboard-widget-layout">
+              <GridLayout
+                key={gridLayoutKey}
+                columns={CUSTOM_COLUMNS}
+                droppingWidgetType={droppingWidgetType}
+                onDrawerExpandChange={setDrawerOpen}
+                onTemplateChange={handleTemplateChange}
+                resizeWidgetConfig={dashboardResizeWidgetConfig}
+                template={displayTemplate}
+                widgetMapping={widgetMapping}
+              />
+            </div>
           </WidgetDrawer>
         ) : null}
       </PageSection>

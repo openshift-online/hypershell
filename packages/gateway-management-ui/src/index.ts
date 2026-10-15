@@ -120,5 +120,6 @@ export {
   gatewayPhases,
   emptyGatewayPhaseCounts,
   type GatewayPhaseCounts,
+  type GatewayMetrics,
 } from "./metrics/gateway-metrics-data";
 export { GatewayMetricsDashboard } from "./metrics/gateway-metrics-dashboard";

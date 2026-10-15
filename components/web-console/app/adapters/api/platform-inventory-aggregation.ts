@@ -5,7 +5,8 @@ import type {
 } from "@openshift-online/hypershell-sdk";
 
 const inventoryListPageSize = 100;
-const lookbackMilliseconds = 30 * 24 * 60 * 60 * 1000;
+const lookback7DaysMilliseconds = 7 * 24 * 60 * 60 * 1000;
+const lookback30DaysMilliseconds = 30 * 24 * 60 * 60 * 1000;
 const unknownBucketKey = "unknown";
 
 export function bucketInventoryField(value: string | null | undefined): string {
@@ -38,6 +39,7 @@ function bucketsToRecord(buckets: Map<string, number>): Record<string, number> {
 export function countCreatedWithinLookback(
   createdAt: string | null | undefined,
   evaluationTime: Date,
+  lookbackMilliseconds: number,
 ): boolean {
   if (createdAt === null || createdAt === undefined) {
     return false;
@@ -72,6 +74,7 @@ function validateListPageConsistency(
 }
 
 export interface ManagedClusterInventoryAggregate {
+  createdLast7Days: number;
   createdLast30Days: number;
   placementBuckets: Map<string, number>;
   providerBuckets: Map<string, number>;
@@ -88,6 +91,7 @@ export async function aggregateManagedClusterList(
   const statusBuckets = new Map<string, number>();
   const providerBuckets = new Map<string, number>();
   const placementBuckets = new Map<string, number>();
+  let createdLast7Days = 0;
   let createdLast30Days = 0;
   const evaluationTime = new Date();
 
@@ -112,7 +116,22 @@ export async function aggregateManagedClusterList(
         formatInventoryPlacementLabel(cluster.region, cluster.provider),
       );
 
-      if (countCreatedWithinLookback(cluster.created_at, evaluationTime)) {
+      if (
+        countCreatedWithinLookback(
+          cluster.created_at,
+          evaluationTime,
+          lookback7DaysMilliseconds,
+        )
+      ) {
+        createdLast7Days += 1;
+      }
+      if (
+        countCreatedWithinLookback(
+          cluster.created_at,
+          evaluationTime,
+          lookback30DaysMilliseconds,
+        )
+      ) {
         createdLast30Days += 1;
       }
     }
@@ -130,6 +149,7 @@ export async function aggregateManagedClusterList(
   }
 
   return {
+    createdLast7Days,
     createdLast30Days,
     placementBuckets,
     providerBuckets,
@@ -142,6 +162,7 @@ export function buildManagedClustersMetric(
   aggregate: ManagedClusterInventoryAggregate,
 ): OperationalMetric {
   return {
+    createdLast7Days: String(aggregate.createdLast7Days),
     createdLast30Days: String(aggregate.createdLast30Days),
     id: "managed-clusters",
     inventoryProviders: bucketsToRecord(aggregate.providerBuckets),
@@ -156,6 +177,7 @@ export interface PlatformInventoryMetricsResponse {
     by_provider: Record<string, number>;
     by_region: Record<string, number>;
     by_status: Record<string, number>;
+    created_last_7_days: number;
     created_last_30_days: number;
     total: number;
   };
@@ -166,6 +188,7 @@ export function platformInventoryMetricsResponseToMetrics(
 ): OperationalMetric[] {
   return [
     {
+      createdLast7Days: String(response.managed_clusters.created_last_7_days),
       createdLast30Days: String(response.managed_clusters.created_last_30_days),
       id: "managed-clusters",
       inventoryProviders: response.managed_clusters.by_provider,

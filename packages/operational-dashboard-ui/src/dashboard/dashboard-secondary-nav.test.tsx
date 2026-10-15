@@ -17,7 +17,7 @@ const messageCatalog = Object.fromEntries(
   ]),
 );
 
-function renderNav(active: DashboardSecondaryNavActive) {
+function renderNav(active: DashboardSecondaryNavActive, isAdmin = true) {
   const navigate = vi.fn();
   const dashboard = createDashboardOperations({
     controlPlane: {
@@ -38,6 +38,7 @@ function renderNav(active: DashboardSecondaryNavActive) {
     <IntlProvider locale="en" messages={messageCatalog}>
       <DashboardUiProvider
         dashboard={dashboard}
+        isAdmin={isAdmin}
         navigation={{ collectionHref: "/", navigate }}
       >
         <DashboardSecondaryNav active={active} />
@@ -49,10 +50,10 @@ function renderNav(active: DashboardSecondaryNavActive) {
 }
 
 describe("DashboardSecondaryNav", () => {
-  it("marks Operational as active and targets both dashboard routes", () => {
+  it("marks Overview as active and targets dashboard routes", () => {
     renderNav("operational");
 
-    const operational = screen.getByRole("link", { name: "Operational" });
+    const operational = screen.getByRole("link", { name: "Overview" });
     const reliability = screen.getByRole("link", { name: "Reliability" });
 
     expect(operational.getAttribute("href")).toBe("/dashboard");
@@ -71,7 +72,7 @@ describe("DashboardSecondaryNav", () => {
     ).toBe("page");
     expect(
       screen
-        .getByRole("link", { name: "Operational" })
+        .getByRole("link", { name: "Overview" })
         .getAttribute("aria-current"),
     ).toBeNull();
   });
@@ -82,5 +83,15 @@ describe("DashboardSecondaryNav", () => {
     fireEvent.click(screen.getByRole("link", { name: "Reliability" }));
 
     expect(navigate).toHaveBeenCalledWith("/dashboard/reliability");
+  });
+
+  it("limits non-admin users to Overview", () => {
+    renderNav("operational", false);
+
+    expect(screen.getByRole("link", { name: "Overview" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Adoption" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Reliability" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Usage" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Cost" })).toBeNull();
   });
 });

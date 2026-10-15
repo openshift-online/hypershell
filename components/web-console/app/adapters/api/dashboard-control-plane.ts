@@ -1,9 +1,8 @@
 import {
-  emptyGatewayPhaseCounts,
+  fetchGatewayMetrics,
   gatewayPhaseCountsToDisplayStatusCounts,
-  gatewayPhases,
   type GatewayDisplayStatusCounts,
-  type GatewayPhaseCounts,
+  type GatewayMetrics,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import type {
   DashboardControlPlane,
@@ -12,16 +11,31 @@ import type {
   OperationalDashboardMetrics,
   OperationalMetric,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
+import type { SDKClient } from "@openshift-online/hypershell-sdk";
+import {
+  aggregateGatewayReleaseDistribution,
+  buildGatewayReleasesMetric,
+} from "./gateway-release-distribution-aggregation";
 import {
   platformInventoryMetricsResponseToMetrics,
   type PlatformInventoryMetricsResponse,
 } from "./platform-inventory-aggregation";
 
+type DashboardApiFactory = (correlationId: string) => SDKClient;
+
 const gibibyteDivisor = 1024 ** 3;
+
+function rangePath(path: string, timeRange: 7 | 30 | undefined): string {
+  return timeRange === 30 ? `${path}?range=30` : path;
+}
+
+function clusterMetricPath(path: string, timeRange: 7 | 30 | undefined) {
+  return `${path}?range=${String(timeRange ?? 7)}`;
+}
 
 interface DailyTrendPoint {
   date: string;
-  value: number;
+  value: number | null;
 }
 
 interface ClusterMemoryResponse {
@@ -61,6 +75,8 @@ interface GatewayProvisionDurationResponse {
   observation_count: number;
   p50_seconds: number;
   p95_seconds: number;
+  daily_p50?: { date: string; p50_seconds: number }[];
+  daily_p95?: { date: string; p95_seconds: number }[];
 }
 
 interface GatewayProvisionHourlySuccessRate {
@@ -75,6 +91,7 @@ interface GatewayProvisionOutcomesResponse {
   hourly_success_rate: GatewayProvisionHourlySuccessRate[];
   success_count_24h: number;
   success_rate_percent: number | null;
+  daily_success_rate?: { date: string; success_rate_percent: number }[];
 }
 
 interface GatewaySandboxesResponse {
@@ -84,11 +101,6 @@ interface GatewaySandboxesResponse {
   idle_sandboxes?: number;
   daily_active_sandboxes?: { count: number; date: string }[];
   hourly_active_sandboxes?: { count: number; hour: string }[];
-}
-
-interface GatewayMetricsResponse {
-  counts: Record<string, number>;
-  daily_fleet_totals?: { date: string; total: number }[];
 }
 
 interface RegisteredUsersDailyLogin {
@@ -138,7 +150,7 @@ function registeredUsersResponseToMetric(
 }
 
 function mapDailyTrend(
-  dailySeries: readonly { date: string; value: number }[] | undefined,
+  dailySeries: readonly { date: string; value: number | null }[] | undefined,
 ) {
   if (dailySeries === undefined) {
     return undefined;
@@ -152,31 +164,6 @@ function mapDailyTrend(
   };
 }
 
-function mapFleetTotalTrend(
-  dailyFleetTotals: GatewayMetricsResponse["daily_fleet_totals"],
-) {
-  if (dailyFleetTotals === undefined) {
-    return undefined;
-  }
-
-  return {
-    points: dailyFleetTotals.map((point) => ({
-      label: point.date,
-      value: point.total,
-    })),
-  };
-}
-
-function parseGatewayPhaseCounts(
-  counts: Record<string, number>,
-): GatewayPhaseCounts {
-  const phaseCounts = emptyGatewayPhaseCounts();
-  for (const phase of gatewayPhases) {
-    phaseCounts[phase] = counts[phase] ?? 0;
-  }
-  return phaseCounts;
-}
-
 function bytesToRoundedGib(bytes: number): string {
   return String(Math.round(bytes / gibibyteDivisor));
 }
@@ -186,12 +173,15 @@ function coresToRoundedString(cores: number): string {
 }
 
 async function fetchClusterMemoryMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric> {
-  const response = await fetch("/api/metrics/cluster-memory", {
-    credentials: "same-origin",
-    signal,
-  });
+  const response = await fetch(
+    clusterMetricPath("/api/metrics/cluster-memory", context.timeRange),
+    {
+      credentials: "same-origin",
+      signal: context.signal,
+    },
+  );
   if (!response.ok) {
     throw new Error(
       `Failed to fetch cluster memory metrics: ${String(response.status)}`,
@@ -212,12 +202,15 @@ async function fetchClusterMemoryMetric(
 }
 
 async function fetchClusterCpuMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric> {
-  const response = await fetch("/api/metrics/cluster-cpu", {
-    credentials: "same-origin",
-    signal,
-  });
+  const response = await fetch(
+    clusterMetricPath("/api/metrics/cluster-cpu", context.timeRange),
+    {
+      credentials: "same-origin",
+      signal: context.signal,
+    },
+  );
   if (!response.ok) {
     throw new Error(
       `Failed to fetch cluster CPU metrics: ${String(response.status)}`,
@@ -304,13 +297,16 @@ function formatSuccessRatePercent(value: number): string {
 }
 
 async function fetchGatewayProvisionOutcomesMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric | undefined> {
   try {
-    const response = await fetch("/api/metrics/gateway-provision-outcomes", {
-      credentials: "same-origin",
-      signal,
-    });
+    const response = await fetch(
+      rangePath("/api/metrics/gateway-provision-outcomes", context.timeRange),
+      {
+        credentials: "same-origin",
+        signal: context.signal,
+      },
+    );
     if (!response.ok) {
       return undefined;
     }
@@ -323,8 +319,8 @@ async function fetchGatewayProvisionOutcomesMetric(
     const successRatePercent = formatSuccessRatePercent(
       body.success_rate_percent,
     );
-    const hourlyPoints = body.hourly_success_rate.map((point) => ({
-      label: point.hour,
+    const dailyPoints = (body.daily_success_rate ?? []).map((point) => ({
+      label: point.date,
       value: point.success_rate_percent,
     }));
 
@@ -334,11 +330,14 @@ async function fetchGatewayProvisionOutcomesMetric(
         failureCount24h: String(body.failure_count_24h),
         successCount24h: String(body.success_count_24h),
         successRatePercent,
+        ...(dailyPoints.length >= 2
+          ? { successRateTrend: { points: dailyPoints } }
+          : {}),
       },
-      ...(hourlyPoints.length >= 2
+      ...(dailyPoints.length >= 2
         ? {
             successRateTrend: {
-              points: hourlyPoints,
+              points: dailyPoints,
             },
           }
         : {}),
@@ -350,13 +349,16 @@ async function fetchGatewayProvisionOutcomesMetric(
 }
 
 async function fetchGatewayProvisionDurationMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric | undefined> {
   try {
-    const response = await fetch("/api/metrics/gateway-provision-duration", {
-      credentials: "same-origin",
-      signal,
-    });
+    const response = await fetch(
+      rangePath("/api/metrics/gateway-provision-duration", context.timeRange),
+      {
+        credentials: "same-origin",
+        signal: context.signal,
+      },
+    );
     if (!response.ok) {
       return undefined;
     }
@@ -365,6 +367,14 @@ async function fetchGatewayProvisionDurationMetric(
     const mean = formatProvisionSeconds(body.mean_seconds);
     const p50 = formatProvisionSeconds(body.p50_seconds);
     const p95 = formatProvisionSeconds(body.p95_seconds);
+    const p50Trend = (body.daily_p50 ?? []).map((point) => ({
+      label: point.date,
+      value: point.p50_seconds,
+    }));
+    const p95Trend = (body.daily_p95 ?? []).map((point) => ({
+      label: point.date,
+      value: point.p95_seconds,
+    }));
 
     return {
       id: "provision-time",
@@ -372,6 +382,8 @@ async function fetchGatewayProvisionDurationMetric(
         mean,
         p50,
         p95,
+        ...(p50Trend.length >= 2 ? { p50Trend: { points: p50Trend } } : {}),
+        ...(p95Trend.length >= 2 ? { p95Trend: { points: p95Trend } } : {}),
       },
       unit: "sec",
       value: mean,
@@ -384,7 +396,7 @@ async function fetchGatewayProvisionDurationMetric(
 function gatewayDisplayCountsToMetric(
   total: number,
   counts: GatewayDisplayStatusCounts,
-  trend?: ReturnType<typeof mapFleetTotalTrend>,
+  trend?: { points: { label: string; value: number }[] },
 ): OperationalMetric {
   return {
     id: "provisioned-gateways",
@@ -400,12 +412,15 @@ function gatewayDisplayCountsToMetric(
 }
 
 async function fetchGatewaySandboxesMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric> {
-  const response = await fetch("/api/metrics/gateway-sandboxes", {
-    credentials: "same-origin",
-    signal,
-  });
+  const response = await fetch(
+    rangePath("/api/metrics/gateway-sandboxes", context.timeRange),
+    {
+      credentials: "same-origin",
+      signal: context.signal,
+    },
+  );
   if (!response.ok) {
     throw new Error(
       `Failed to fetch gateway sandbox metrics: ${String(response.status)}`,
@@ -459,27 +474,28 @@ function isAbortError(error: unknown): boolean {
 }
 
 async function fetchGatewayPrometheusMetric(
-  signal?: AbortSignal,
+  context: DashboardInvocationContext,
 ): Promise<OperationalMetric> {
-  const response = await fetch("/api/metrics/gateways", {
-    credentials: "same-origin",
-    signal,
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch gateway metrics: ${String(response.status)}`,
-    );
-  }
-
-  const body = (await response.json()) as GatewayMetricsResponse;
-  const phaseCounts = parseGatewayPhaseCounts(body.counts);
-  const displayStatusCounts =
-    gatewayPhaseCountsToDisplayStatusCounts(phaseCounts);
-  const total = Object.values(phaseCounts).reduce(
-    (sum, count) => sum + count,
-    0,
+  const body: GatewayMetrics = await fetchGatewayMetrics(
+    context.signal,
+    context.timeRange ?? 7,
   );
-  const trend = mapFleetTotalTrend(body.daily_fleet_totals);
+  const displayStatusCounts: GatewayDisplayStatusCounts =
+    gatewayPhaseCountsToDisplayStatusCounts(body);
+  const total =
+    displayStatusCounts.healthy +
+    displayStatusCounts.provisioning +
+    displayStatusCounts.degraded +
+    displayStatusCounts.failed;
+  const trend =
+    body.dailyFleetTotals === undefined
+      ? undefined
+      : {
+          points: body.dailyFleetTotals.map((point) => ({
+            label: point.date,
+            value: point.total,
+          })),
+        };
 
   return gatewayDisplayCountsToMetric(total, displayStatusCounts, trend);
 }
@@ -488,15 +504,19 @@ async function fetchGatewayPrometheusMetrics(
   context: DashboardInvocationContext,
 ): Promise<OperationalMetric[]> {
   const [gatewayMetric, sandboxMetric] = await Promise.all([
-    fetchGatewayPrometheusMetric(context.signal),
-    fetchGatewaySandboxesMetric(context.signal),
+    fetchGatewayPrometheusMetric(context),
+    fetchGatewaySandboxesMetric(context),
   ]);
 
   const metrics: OperationalMetric[] = [gatewayMetric, sandboxMetric];
 
+  if (context.isAdmin === false) {
+    return metrics;
+  }
+
   const [provisionTimeMetric, provisionReliabilityMetric] = await Promise.all([
-    fetchGatewayProvisionDurationMetric(context.signal),
-    fetchGatewayProvisionOutcomesMetric(context.signal),
+    fetchGatewayProvisionDurationMetric(context),
+    fetchGatewayProvisionOutcomesMetric(context),
   ]);
   if (provisionTimeMetric !== undefined) {
     metrics.push(provisionTimeMetric);
@@ -739,7 +759,10 @@ async function fetchControlPlaneReconciliationMetrics(
 }
 
 interface MetricSourceDefinition {
-  fetch: (context: DashboardInvocationContext) => Promise<OperationalMetric[]>;
+  fetch: (
+    context: DashboardInvocationContext,
+    apiFactory: DashboardApiFactory,
+  ) => Promise<OperationalMetric[]>;
   id: DashboardMetricSourceId;
 }
 
@@ -753,16 +776,27 @@ const metricSources: readonly MetricSourceDefinition[] = [
     fetch: async (context) => fetchRegisteredUsersMetric(context),
   },
   {
+    id: "gateway-release-distribution",
+    fetch: async (context, apiFactory) => {
+      const client = apiFactory(context.correlationId);
+      const aggregate = await aggregateGatewayReleaseDistribution(
+        client,
+        context.signal,
+      );
+      return [buildGatewayReleasesMetric(aggregate)];
+    },
+  },
+  {
     id: "platform-inventory",
     fetch: async (context) => fetchPlatformInventoryMetrics(context),
   },
   {
     id: "cluster-memory",
-    fetch: async (context) => [await fetchClusterMemoryMetric(context.signal)],
+    fetch: async (context) => [await fetchClusterMemoryMetric(context)],
   },
   {
     id: "cluster-cpu",
-    fetch: async (context) => [await fetchClusterCpuMetric(context.signal)],
+    fetch: async (context) => [await fetchClusterCpuMetric(context)],
   },
   {
     id: "cluster-pods",
@@ -774,16 +808,26 @@ const metricSources: readonly MetricSourceDefinition[] = [
   },
 ];
 
-export function createDashboardControlPlaneAdapter(): DashboardControlPlane {
+export function createDashboardControlPlaneAdapter(
+  apiFactory: DashboardApiFactory,
+): DashboardControlPlane {
   return {
     async getOperationalMetrics(
       context: DashboardInvocationContext,
     ): Promise<OperationalDashboardMetrics> {
       context.signal?.throwIfAborted();
 
+      const activeSources =
+        context.isAdmin === false
+          ? metricSources.filter((source) =>
+              ["gateway-metrics", "gateway-release-distribution"].includes(
+                source.id,
+              ),
+            )
+          : metricSources;
       const settled = await Promise.allSettled(
-        metricSources.map((source) =>
-          source.fetch(context).then((metrics) => ({
+        activeSources.map((source) =>
+          source.fetch(context, apiFactory).then((metrics) => ({
             id: source.id,
             metrics,
           })),
@@ -794,7 +838,7 @@ export function createDashboardControlPlaneAdapter(): DashboardControlPlane {
       const failedSources: DashboardMetricSourceId[] = [];
 
       for (const [index, result] of settled.entries()) {
-        const source = metricSources[index];
+        const source = activeSources[index];
         if (source === undefined) {
           continue;
         }
@@ -819,6 +863,7 @@ export function createDashboardControlPlaneAdapter(): DashboardControlPlane {
         ...(failedSources.length > 0 ? { failedSources } : {}),
         lastSuccessfulRefresh: new Date(),
         metrics,
+        timeRange: context.timeRange ?? 7,
       };
     },
 

@@ -15,6 +15,7 @@ export const DASHBOARD_METRIC_SOURCE_METRIC_IDS: Readonly<
     "provision-time",
     "provision-reliability",
   ],
+  "gateway-release-distribution": ["gateway-releases"],
   "registered-users": ["registered-users"],
   "platform-inventory": ["managed-clusters"],
   "cluster-memory": ["memory"],

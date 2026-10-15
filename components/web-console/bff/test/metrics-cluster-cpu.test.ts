@@ -164,6 +164,52 @@ describe("queryClusterCpu", () => {
     }
   });
 
+  it("uses the selected 30-day range and preserves missing samples", async () => {
+    const prometheus = await startPrometheusStub((request, response) => {
+      const url = parsePrometheusUrl(request);
+      if (isPrometheusRangeRequest(url)) {
+        expect(url.searchParams.get("start")).toBe(
+          String(utcDayStartUnixSeconds(29)),
+        );
+        response.end(
+          prometheusRangeSampleBody([
+            [String(utcDayStartUnixSeconds(29)), "48.6"],
+          ]),
+        );
+        return;
+      }
+      const query = url.searchParams.get("query");
+      if (query === clusterCpuCapacityPromql) {
+        response.end(prometheusInstantSampleBody("60"));
+        return;
+      }
+      if (query === clusterCpuUsedPromql) {
+        response.end(prometheusInstantSampleBody("48"));
+        return;
+      }
+      response.statusCode = 400;
+      response.end();
+    });
+
+    try {
+      const cpu = await queryClusterCpu(
+        `http://127.0.0.1:${String(prometheus.port)}`,
+        5_000,
+        30,
+      );
+
+      expect(cpu.daily_used).toHaveLength(30);
+      const firstDailyUsed = cpu.daily_used?.[0];
+      const secondDailyUsed = cpu.daily_used?.[1];
+      expect(firstDailyUsed?.date).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
+      expect(firstDailyUsed?.value).toBe(49);
+      expect(secondDailyUsed?.date).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
+      expect(secondDailyUsed?.value).toBeNull();
+    } finally {
+      prometheus.close();
+    }
+  });
+
   it("returns instant fields without daily_used when the range query fails", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = parsePrometheusUrl(request);

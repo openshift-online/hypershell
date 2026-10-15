@@ -35,9 +35,29 @@
     "defaultMessage": "(last 5 minutes)",
     "description": "Lookback period shown with the current API reliability metric value."
   },
+  "app.dashboard.attention.none": {
+    "defaultMessage": "No resources need attention",
+    "description": "Empty state for the attention-required widget."
+  },
+  "app.dashboard.badge.admin": {
+    "defaultMessage": "Admin",
+    "description": "Badge indicating an administrator resource scope."
+  },
   "app.dashboard.description": {
-    "defaultMessage": "Live view of gateway fleet health, hub cluster capacity, and platform adoption. Metrics refresh every 15 minutes.",
+    "defaultMessage": "A compact landing page for the current state of the resources you are allowed to operate.",
     "description": "Supporting text on the operational dashboard page."
+  },
+  "app.dashboard.duration.minutesSeconds": {
+    "defaultMessage": "{minutes}m {seconds}s",
+    "description": "Compact minutes and seconds duration."
+  },
+  "app.dashboard.gatewayReleases.help": {
+    "defaultMessage": "Gateway counts grouped by the resolved release version.",
+    "description": "Supporting text for the gateway releases widget."
+  },
+  "app.dashboard.gatewayReleases.summaryAriaLabel": {
+    "defaultMessage": "Gateways by release",
+    "description": "Accessible label for the gateway releases stat panel in the dashboard."
   },
   "app.dashboard.gatewayStatus.ariaDesc": {
     "defaultMessage": "Gateway count by status",
@@ -55,9 +75,17 @@
     "defaultMessage": "Degraded",
     "description": "Legend label for degraded gateways."
   },
+  "app.dashboard.gatewayStatus.degradedGateways": {
+    "defaultMessage": "Degraded gateways",
+    "description": "Attention widget label for degraded gateways."
+  },
   "app.dashboard.gatewayStatus.failed": {
     "defaultMessage": "Failed",
     "description": "Legend label for failed gateways."
+  },
+  "app.dashboard.gatewayStatus.failedGateways": {
+    "defaultMessage": "Failed gateways",
+    "description": "Attention widget label for failed gateways."
   },
   "app.dashboard.gatewayStatus.healthy": {
     "defaultMessage": "Healthy",
@@ -103,6 +131,46 @@
     "defaultMessage": "The current Users value is the total number of registered users in HyperShell. It isn't a count of users who are online right now.<br></br>The trend shows the number of distinct registered users who used the API on each UTC calendar day during the last 30 days. A user is counted once per day even if they made multiple API requests.",
     "description": "Help text for the Users widget."
   },
+  "app.dashboard.inventory.clustersNeedingAttention": {
+    "defaultMessage": "Clusters needing attention",
+    "description": "Managed cluster count not currently reporting Ready."
+  },
+  "app.dashboard.inventory.completeNote": {
+    "defaultMessage": "Counts represent the complete platform inventory.",
+    "description": "Scope note under the platform inventory summary."
+  },
+  "app.dashboard.inventory.description": {
+    "defaultMessage": "Review the managed clusters available across the HyperShell platform.",
+    "description": "Supporting text on the platform inventory dashboard page."
+  },
+  "app.dashboard.inventory.exceptions": {
+    "defaultMessage": "Inventory exceptions",
+    "description": "Managed cluster count in a failed, degraded, or pending state."
+  },
+  "app.dashboard.inventory.healthyClusters": {
+    "defaultMessage": "Healthy clusters",
+    "description": "Managed cluster count currently reporting Ready."
+  },
+  "app.dashboard.inventory.managedClusters": {
+    "defaultMessage": "Managed clusters",
+    "description": "Total managed clusters in the platform inventory."
+  },
+  "app.dashboard.inventory.purpose": {
+    "defaultMessage": "How large is the managed cluster fleet, and where is it distributed? Use this system-wide view to understand provider and regional coverage.",
+    "description": "Purpose statement for the platform inventory dashboard."
+  },
+  "app.dashboard.inventory.purposeHeading": {
+    "defaultMessage": "What this dashboard answers",
+    "description": "Heading for the platform inventory purpose statement."
+  },
+  "app.dashboard.inventory.recentlyAdded": {
+    "defaultMessage": "Recently added ({days}d)",
+    "description": "Managed clusters created within the selected time range."
+  },
+  "app.dashboard.inventory.title": {
+    "defaultMessage": "Platform inventory",
+    "description": "Main heading on the platform inventory dashboard page."
+  },
   "app.dashboard.inventoryStatus.unknown": {
     "defaultMessage": "Unknown",
     "description": "Display label for inventory status bucket key unknown."
@@ -114,6 +182,10 @@
   "app.dashboard.lastRefreshed": {
     "defaultMessage": "Last refreshed: {timestamp}",
     "description": "Timestamp shown when operational dashboard metrics were last loaded successfully."
+  },
+  "app.dashboard.lastSuccessfulRefreshShort": {
+    "defaultMessage": "Last successful refresh",
+    "description": "Compact refresh timestamp label inside a dashboard widget."
   },
   "app.dashboard.loadError.body": {
     "defaultMessage": "An unexpected error occurred while loading dashboard metrics.",
@@ -151,6 +223,10 @@
     "defaultMessage": "Metric could not be determined",
     "description": "Fallback when a dashboard metric value is non-finite or cannot be shown as a number."
   },
+  "app.dashboard.metricSource.gatewayReleaseDistribution": {
+    "defaultMessage": "Gateway releases",
+    "description": "Label for the gateway release distribution metric source in partial-load warnings."
+  },
   "app.dashboard.metricUnavailable.body": {
     "defaultMessage": "This information is not currently available.",
     "description": "Recovery guidance when an individual dashboard metric is missing."
@@ -163,9 +239,21 @@
     "defaultMessage": "Dashboard views",
     "description": "Accessible name for the secondary navigation between operational and reliability dashboards."
   },
+  "app.dashboard.nav.inventory": {
+    "defaultMessage": "Inventory",
+    "description": "Dashboard navigation label for inventory."
+  },
   "app.dashboard.nav.operational": {
     "defaultMessage": "Operational",
     "description": "Secondary navigation label for the operational dashboard route."
+  },
+  "app.dashboard.nav.overview": {
+    "defaultMessage": "Overview",
+    "description": "Dashboard navigation label for the operational overview."
+  },
+  "app.dashboard.nav.provisioning": {
+    "defaultMessage": "Provisioning",
+    "description": "Dashboard navigation label for provisioning."
   },
   "app.dashboard.nav.reliability": {
     "defaultMessage": "Reliability",
@@ -174,6 +262,10 @@
   "app.dashboard.nodeStatus.ariaDesc": {
     "defaultMessage": "Node count by readiness",
     "description": "Accessible description for the node status donut chart."
+  },
+  "app.dashboard.nodeStatus.cardTitle": {
+    "defaultMessage": "{ready} / {total}",
+    "description": "Ready and total node count in the node status widget."
   },
   "app.dashboard.nodeStatus.chartTitle": {
     "defaultMessage": "Node status chart",
@@ -198,6 +290,14 @@
   "app.dashboard.partialLoadWarning.title": {
     "defaultMessage": "Some dashboard metrics are unavailable",
     "description": "Title shown when one or more operational dashboard metric sources fail."
+  },
+  "app.dashboard.percentChange.decrease": {
+    "defaultMessage": "-{percent}%",
+    "description": "Formatted percentage decrease."
+  },
+  "app.dashboard.percentChange.increase": {
+    "defaultMessage": "+{percent}%",
+    "description": "Formatted percentage increase."
   },
   "app.dashboard.podStatus.ariaDesc": {
     "defaultMessage": "Pod capacity by phase and unused slots",
@@ -239,6 +339,10 @@
     "defaultMessage": "Gateway provision reliability chart",
     "description": "Accessible title for the provision reliability donut chart."
   },
+  "app.dashboard.provisionReliability.dailySuccessRateCaption": {
+    "defaultMessage": "Last {days} days - daily success rate",
+    "description": "Caption for the daily provision success-rate sparkline in the selected range."
+  },
   "app.dashboard.provisionReliability.failures": {
     "defaultMessage": "Failures",
     "description": "Legend label for failed gateway provisions."
@@ -259,6 +363,10 @@
     "defaultMessage": "{rate}%",
     "description": "Center title for the provision reliability donut showing the 24-hour success rate."
   },
+  "app.dashboard.provisionReliability.successRate": {
+    "defaultMessage": "Success rate",
+    "description": "Title for the provision success-rate sparkline."
+  },
   "app.dashboard.provisionReliability.successes": {
     "defaultMessage": "Successes",
     "description": "Legend label for successful gateway provisions."
@@ -271,6 +379,10 @@
     "defaultMessage": "Median (P50)",
     "description": "Label for median gateway provision duration."
   },
+  "app.dashboard.provisionTime.p50": {
+    "defaultMessage": "P50",
+    "description": "Label for the 50th percentile gateway provision duration."
+  },
   "app.dashboard.provisionTime.p95": {
     "defaultMessage": "P95",
     "description": "Label for the 95th percentile gateway provision duration."
@@ -282,6 +394,62 @@
   "app.dashboard.provisionTime.statsAriaLabel": {
     "defaultMessage": "Gateway provision duration statistics",
     "description": "Accessible label for the provision time statistics description list."
+  },
+  "app.dashboard.provisioning.cpuUsed": {
+    "defaultMessage": "CPU used",
+    "description": "Summary label for hub-cluster CPU utilization."
+  },
+  "app.dashboard.provisioning.description": {
+    "defaultMessage": "Monitor hub-cluster capacity and platform-wide gateway provisioning.",
+    "description": "Supporting text on the provisioning dashboard page."
+  },
+  "app.dashboard.provisioning.inProgress": {
+    "defaultMessage": "In progress",
+    "description": "Label for gateways currently provisioning."
+  },
+  "app.dashboard.provisioning.managedClusters": {
+    "defaultMessage": "Managed clusters",
+    "description": "Summary label for the managed-cluster inventory total."
+  },
+  "app.dashboard.provisioning.medianTime": {
+    "defaultMessage": "Median time to ready",
+    "description": "Label for median gateway provisioning duration."
+  },
+  "app.dashboard.provisioning.memoryUsed": {
+    "defaultMessage": "Memory used",
+    "description": "Summary label for hub-cluster memory utilization."
+  },
+  "app.dashboard.provisioning.purpose": {
+    "defaultMessage": "Is the hub cluster healthy enough to host HyperShell services and provision gateways? Review current utilization, node and pod health, and provisioning reliability.",
+    "description": "Purpose statement for the provisioning dashboard."
+  },
+  "app.dashboard.provisioning.purposeHeading": {
+    "defaultMessage": "What this dashboard answers",
+    "description": "Heading for the provisioning dashboard purpose statement."
+  },
+  "app.dashboard.provisioning.scopeNote": {
+    "defaultMessage": "Hub-cluster capacity and platform provisioning totals are visible to platform administrators.",
+    "description": "Scope note under the provisioning system summary widget."
+  },
+  "app.dashboard.provisioning.snapshotHelp": {
+    "defaultMessage": "Open Provisioning for failure reasons and time-to-ready trends.",
+    "description": "Guidance displayed in the provisioning snapshot widget."
+  },
+  "app.dashboard.provisioning.successRateAriaLabel": {
+    "defaultMessage": "Provision reliability",
+    "description": "Accessible label for the provisioning reliability summary list."
+  },
+  "app.dashboard.provisioning.successRateChange": {
+    "defaultMessage": "Success rate change",
+    "description": "Label for the change in gateway provision success rate."
+  },
+  "app.dashboard.provisioning.successful": {
+    "defaultMessage": "Successful",
+    "description": "Label for successful gateway provisions."
+  },
+  "app.dashboard.provisioning.title": {
+    "defaultMessage": "Provisioning dashboard",
+    "description": "Main heading on the provisioning dashboard page."
   },
   "app.dashboard.reconciliationChart.accumulating": {
     "defaultMessage": "Trend data is accumulating - check back in a few minutes",
@@ -306,6 +474,10 @@
   "app.dashboard.reconciliationFailures.last24Hours": {
     "defaultMessage": "(last 24 hours)",
     "description": "Lookback period shown with the current reconciliation failure count."
+  },
+  "app.dashboard.reconciliationLag.current": {
+    "defaultMessage": "Current P50 lag",
+    "description": "Value label shown with the current reconciliation lag metric."
   },
   "app.dashboard.refresh": {
     "defaultMessage": "Refresh dashboard metrics",
@@ -363,6 +535,14 @@
     "defaultMessage": "Loading reliability dashboard metrics",
     "description": "Accessible status shown while reliability dashboard metrics load."
   },
+  "app.dashboard.reliability.purpose": {
+    "defaultMessage": "Is the platform serving requests reliably? Are reconciliations failing, retrying, or falling behind? Are there incidents or alerts requiring investigation? These platform-wide operational signals are for system admins; production views should scope them to permitted fleets where supported.",
+    "description": "Question summary explaining the reliability dashboard."
+  },
+  "app.dashboard.reliability.purposeHeading": {
+    "defaultMessage": "What this dashboard answers",
+    "description": "Heading for the reliability dashboard purpose."
+  },
   "app.dashboard.reliability.summary.errorRate": {
     "defaultMessage": "Error rate",
     "description": "Summary row label for API 5xx error rate."
@@ -404,8 +584,20 @@
     "description": "Main heading on the reliability dashboard page."
   },
   "app.dashboard.resetToDefault": {
-    "defaultMessage": "Reset to default",
+    "defaultMessage": "Reset to default layout",
     "description": "Label for restoring the operational dashboard default layout."
+  },
+  "app.dashboard.resourceSummary.help": {
+    "defaultMessage": "Counts respect your fleet and environment access.",
+    "description": "Scope guidance in the resource summary widget."
+  },
+  "app.dashboard.sandboxAttention.expiringSandboxes": {
+    "defaultMessage": "Expiring sandboxes",
+    "description": "Summary label for sandboxes expiring within 24 hours."
+  },
+  "app.dashboard.sandboxAttention.idleOrOrphaned": {
+    "defaultMessage": "Idle or orphaned sandboxes",
+    "description": "Combined attention label for idle and orphaned sandboxes."
   },
   "app.dashboard.sandboxStatus.active": {
     "defaultMessage": "Active",
@@ -459,6 +651,10 @@
     "defaultMessage": "Platform inventory",
     "description": "Section title above platform inventory widgets."
   },
+  "app.dashboard.staleResourceStatus.current": {
+    "defaultMessage": "Current stale-resource count",
+    "description": "Value label shown with the current stale resource status metric."
+  },
   "app.dashboard.statusDonut.dataLabel": {
     "defaultMessage": "{status}: {count}",
     "description": "Data label for a status donut chart segment."
@@ -474,6 +670,10 @@
   "app.dashboard.summary.gateways": {
     "defaultMessage": "Gateways",
     "description": "Summary label for provisioned gateways."
+  },
+  "app.dashboard.summary.healthyResources": {
+    "defaultMessage": "Healthy resources",
+    "description": "Summary row for healthy authorized gateways and sandboxes."
   },
   "app.dashboard.summary.inventoryAriaLabel": {
     "defaultMessage": "Platform inventory metrics",
@@ -519,6 +719,10 @@
     "defaultMessage": "Users",
     "description": "Summary label for registered users."
   },
+  "app.dashboard.summary.resourcesNeedingAttention": {
+    "defaultMessage": "Resources needing attention",
+    "description": "Summary row for authorized resources needing attention."
+  },
   "app.dashboard.summary.sandboxes": {
     "defaultMessage": "Sandboxes",
     "description": "Label for provisioned sandboxes on the operational dashboard."
@@ -547,17 +751,29 @@
     "defaultMessage": "Usage metrics",
     "description": "Accessible label for the usage metrics list in the summary widget."
   },
+  "app.dashboard.systemScopeLabel": {
+    "defaultMessage": "System",
+    "description": "Badge identifying a system-wide dashboard widget."
+  },
+  "app.dashboard.timeRange.label": {
+    "defaultMessage": "Time range",
+    "description": "Accessible label for the operational dashboard time range."
+  },
+  "app.dashboard.timeRange.last30Days": {
+    "defaultMessage": "Last 30 days",
+    "description": "Thirty-day operational dashboard range option."
+  },
+  "app.dashboard.timeRange.last7Days": {
+    "defaultMessage": "Last 7 days",
+    "description": "Seven-day operational dashboard range option."
+  },
   "app.dashboard.title": {
-    "defaultMessage": "Operational",
+    "defaultMessage": "Operational overview",
     "description": "Main heading on the operational dashboard page."
   },
   "app.dashboard.trend.last24Hours": {
     "defaultMessage": "Last 24 hours",
     "description": "Caption below a twenty-four-hour trend sparkline on the operational dashboard."
-  },
-  "app.dashboard.trend.last2Hours": {
-    "defaultMessage": "Last 2 hours",
-    "description": "Caption below a two-hour trend sparkline on the operational dashboard."
   },
   "app.dashboard.trend.last7Days": {
     "defaultMessage": "Last 7 days",
@@ -570,6 +786,22 @@
   "app.dashboard.trend.tooltip": {
     "defaultMessage": "{date}: {value} {metric}",
     "description": "Tooltip for a dashboard metric trend sparkline point."
+  },
+  "app.dashboard.trend.tooltip.noValue": {
+    "defaultMessage": "{date}: no sample for {metric}",
+    "description": "Tooltip for a calendar day without a dashboard metric trend sample."
+  },
+  "app.dashboard.updatedMinuteAgo": {
+    "defaultMessage": "Updated 1 minute ago",
+    "description": "Relative timestamp shown when the dashboard was updated one minute ago."
+  },
+  "app.dashboard.updatedMinutesAgo": {
+    "defaultMessage": "Updated {minutes} minutes ago",
+    "description": "Relative timestamp shown beside the dashboard refresh action."
+  },
+  "app.dashboard.updatedUnderMinuteAgo": {
+    "defaultMessage": "Updated under 1 minute ago",
+    "description": "Relative timestamp shown when the dashboard was updated less than one minute ago."
   },
   "app.dashboard.utilization.capacity": {
     "defaultMessage": "{unit} capacity",
@@ -595,6 +827,10 @@
     "defaultMessage": "{percent}% capacity{separator}{value} of {total} {unit}",
     "description": "Tooltip for utilization status in the system summary widget."
   },
+  "app.dashboard.widget.activeSandboxes": {
+    "defaultMessage": "Active sandboxes",
+    "description": "Title for the active sandboxes dashboard widget."
+  },
   "app.dashboard.widget.apiErrorRate": {
     "defaultMessage": "API error rate",
     "description": "Title for the API 5xx error rate reliability widget."
@@ -607,12 +843,20 @@
     "defaultMessage": "API request rate",
     "description": "Title for the API request rate reliability widget."
   },
+  "app.dashboard.widget.attentionRequired": {
+    "defaultMessage": "Attention required",
+    "description": "Title for the operational dashboard attention widget."
+  },
   "app.dashboard.widget.cpu": {
     "defaultMessage": "CPU",
     "description": "Title for the CPU utilization dashboard widget."
   },
+  "app.dashboard.widget.gatewayReleases": {
+    "defaultMessage": "Gateway releases",
+    "description": "Title for the gateway releases dashboard widget."
+  },
   "app.dashboard.widget.gatewayStatus": {
-    "defaultMessage": "Gateways",
+    "defaultMessage": "Gateway status",
     "description": "Title for the gateways dashboard widget."
   },
   "app.dashboard.widget.inventorySummary": {
@@ -651,6 +895,18 @@
     "defaultMessage": "Provisioned gateways",
     "description": "Title for the provisioned gateways dashboard widget."
   },
+  "app.dashboard.widget.provisioningProvisionReliability": {
+    "defaultMessage": "Provision reliability",
+    "description": "Title for the provisioning dashboard reliability widget."
+  },
+  "app.dashboard.widget.provisioningProvisionTime": {
+    "defaultMessage": "Provision time",
+    "description": "Title for the provisioning dashboard duration widget."
+  },
+  "app.dashboard.widget.provisioningSnapshot": {
+    "defaultMessage": "Provisioning snapshot",
+    "description": "Title for the operational provisioning snapshot widget."
+  },
   "app.dashboard.widget.reconciliationFailures": {
     "defaultMessage": "Reconciliation failures",
     "description": "Title for the reconciliation failures dashboard widget."
@@ -678,6 +934,10 @@
   "app.dashboard.widget.reliabilitySummary": {
     "defaultMessage": "Reliability summary",
     "description": "Title for the reliability summary dashboard widget."
+  },
+  "app.dashboard.widget.resourceSummary": {
+    "defaultMessage": "Resource summary",
+    "description": "Title for the authorized resource summary widget."
   },
   "app.dashboard.widget.sandboxStatus": {
     "defaultMessage": "Sandbox status",
