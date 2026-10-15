@@ -348,7 +348,7 @@ func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
 	canonical := []parallelSubtest{
 		s.parallelStep("P2.1", "sandbox-lifecycle", tagShort, (*E2ESuite).p2_1SandboxLifecycle),
 		s.parallelStep("P2.2", "rbac-enforcement", tagLong, (*E2ESuite).p2_2RBACEnforcement),
-		s.parallelStep("P2.3", "deletion-namespace-gc", tagShort, (*E2ESuite).p2_3DeletionAndGC),
+		s.parallelStep("P2.3", "deletion-namespace-gc", tagLong, (*E2ESuite).p2_3DeletionAndGC),
 		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
 		s.parallelStep("P2.5", "gateway-access-management", tagLong, (*E2ESuite).p2_5GatewayAccessManagement),
 		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
@@ -422,6 +422,7 @@ func (s *E2ESuite) step(id, slug, tag string, fn func(t *testing.T)) {
 func (s *E2ESuite) parallelStep(id, slug, tag string, fn func(*E2ESuite, *testing.T)) parallelSubtest {
 	return parallelSubtest{
 		name: id + "-" + slug,
+		tag:  tag,
 		run: func(t *testing.T) {
 			started := time.Now()
 			s.reporter.StepStarted(id, slug)

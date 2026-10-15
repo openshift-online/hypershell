@@ -49,6 +49,7 @@ func (b *completionBarrier) Wait(ctx context.Context) error {
 // the Go test scheduler first.
 type parallelSubtest struct {
 	name string
+	tag  string
 	run  func(t *testing.T)
 }
 
