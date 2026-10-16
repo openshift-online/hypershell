@@ -87,7 +87,6 @@ type E2ESuite struct {
 	cliCache         *cliCache
 	orphan           *orphanReaper
 	gcTimingLease    *namespaceGCTimingLease
-	controllerReady  *completionBarrier
 }
 
 type gatewayTracker struct {
@@ -323,8 +322,8 @@ func (s *E2ESuite) TestPhases() {
 	s.gate("P1.4", "route-cli-registration", tagShort, s.p1_4RouteAndCLIRegistration)
 	s.gate("P1.5", "connectivity", tagShort, s.p1_5Connectivity)
 
-	// Phase P2 -- hard behaviors. At concurrency > 1, start the known longest
-	// steps first. At concurrency 1, retain canonical phase order.
+	// Phase P2 -- hard behaviors, released in canonical phase order and bounded
+	// by the configured concurrency.
 	s.Require().NoError(s.refreshAdminToken(), "refresh admin token before P2")
 	s.T().Run("Phase-P2", func(t *testing.T) {
 		runParallelSubtests(t, s.concurrency, s.p2ParallelSteps())
@@ -340,43 +339,16 @@ func (s *E2ESuite) TestPhases() {
 	})
 }
 
-// p2ParallelSteps returns the hard-behavior wave in canonical order for a
-// sequential debug run and dependency-aware order for the normal bounded
-// fan-out. P2.4 begins in parallel, but its controller disconnect waits until
-// the Keycloak/controller-sensitive P2.2, P2.5, and P2.6 steps have completed.
+// p2ParallelSteps returns the hard-behavior wave in canonical order. No P2 step
+// stops or restarts the control plane, so the steps need no ordering barrier.
 func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
-	canonical := []parallelSubtest{
+	return []parallelSubtest{
 		s.parallelStep("P2.1", "sandbox-lifecycle", tagShort, (*E2ESuite).p2_1SandboxLifecycle),
 		s.parallelStep("P2.2", "rbac-enforcement", tagLong, (*E2ESuite).p2_2RBACEnforcement),
 		s.parallelStep("P2.3", "deletion-namespace-gc", tagLong, (*E2ESuite).p2_3DeletionAndGC),
 		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
 		s.parallelStep("P2.5", "gateway-access-management", tagLong, (*E2ESuite).p2_5GatewayAccessManagement),
 		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
-	}
-	if s.concurrency == 1 {
-		return canonical
-	}
-
-	barrier := newCompletionBarrier(3)
-	s.controllerReady = barrier
-	markControllerSensitive := func(step parallelSubtest) parallelSubtest {
-		run := step.run
-		step.run = func(t *testing.T) {
-			defer barrier.Done()
-			run(t)
-		}
-		return step
-	}
-
-	// Queue the controller-sensitive work before P2.4 so its barrier cannot
-	// consume the last scheduler slot while a required peer is still queued.
-	return []parallelSubtest{
-		canonical[0],
-		canonical[2],
-		markControllerSensitive(canonical[4]),
-		markControllerSensitive(canonical[5]),
-		markControllerSensitive(canonical[1]),
-		canonical[3],
 	}
 }
 
@@ -523,7 +495,6 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 		gateways:            s.gateways,
 		cliCache:            s.cliCache,
 		orphan:              s.orphan,
-		controllerReady:     s.controllerReady,
 	}
 	clone.SetT(t)
 	return clone

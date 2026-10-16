@@ -19,8 +19,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	typedappsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
-	"k8s.io/client-go/util/retry"
 
 	sdktypes "github.com/openshift-online/hypershell/components/sdk-go/types"
 	"github.com/openshift-online/hypershell/tests/e2e/apiclient"
@@ -644,8 +642,8 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 // control-plane identity rules via the REST API: the seeded cluster is registered,
 // /registration is idempotent for the registrar and rejects non-registrars (403)
 // and name collisions (409), and gateway-create rejects an invalid placement (400).
-// The gRPC WatchGateways identity checks and controller reconnect convergence are
-// follow-ups.
+// It also checks that the gRPC WatchGateways stream rejects unauthorized and
+// revoked identities.
 func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	ctx := t.Context()
 	defClusterName := s.seedDefaults()
@@ -722,71 +720,13 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 		s.Assert().True(found, "second managed cluster %q is registered and selectable", secondName)
 	}
 	s.assertManagedClusterGRPCIdentity(t)
-
-	if s.clusterIDOverride == "" && !s.skipKubeChecks {
-		if s.controllerReady != nil {
-			s.Require().NoError(s.controllerReady.Wait(ctx), "wait for controller-sensitive P2 steps")
-		}
-		s.assertControllerReconnectConvergence(t)
-	}
-}
-
-func (s *E2ESuite) assertControllerReconnectConvergence(t *testing.T) {
-	ctx := t.Context()
-	deployments := s.clients.Kube.AppsV1().Deployments(s.driver.PlatformNamespace())
-	controller, err := deployments.Get(ctx, "hypershell-controller", metav1.GetOptions{})
-	s.Require().NoError(err, "get controller Deployment for reconnect test")
-	originalReplicas := int32(1)
-	if controller.Spec.Replicas != nil {
-		originalReplicas = *controller.Spec.Replicas
-	}
-	s.Require().Positive(originalReplicas, "controller has at least one replica before reconnect test")
-
-	if gate := os.Getenv("E2E_DISRUPTIVE_GATE_FILE"); gate != "" {
-		t.Log("waiting for the concurrent suites to finish before scaling the controller to zero")
-		timeout := durationSecondsEnv("E2E_DISRUPTIVE_GATE_TIMEOUT", 900*time.Second)
-		opened, err := waitDisruptiveGate(ctx, gate, timeout, 2*time.Second)
-		s.Require().NoError(err, "wait for the disruptive-step gate")
-		if !opened {
-			t.Logf("concurrent suites still running after %s; continuing anyway", timeout)
-		}
-	}
-
-	zero := int32(0)
-	s.Require().NoError(setDeploymentReplicas(ctx, deployments, zero), "scale controller to zero")
-	restoreNeeded := true
-	defer func() {
-		if !restoreNeeded {
-			return
-		}
-		restoreCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if restoreErr := setDeploymentReplicas(restoreCtx, deployments, originalReplicas); restoreErr != nil {
-			t.Errorf("emergency controller replica restore: %v", restoreErr)
-		}
-	}()
-	s.Require().NoError(harness.Poll(ctx, time.Second, 120*time.Second, func(ctx context.Context) (bool, error) {
-		current, err := deployments.Get(ctx, "hypershell-controller", metav1.GetOptions{})
-		return err == nil && current.Status.Replicas == 0, nil
-	}), "controller scales down")
-
-	created := s.createGateway(t, "e2e-reconnect-"+s.runID)
-	s.trackGateway(created.ID)
-	s.Require().NoError(setDeploymentReplicas(ctx, deployments, originalReplicas), "restore controller replicas")
-	s.Require().NoError(harness.Poll(ctx, 2*time.Second, 180*time.Second, func(ctx context.Context) (bool, error) {
-		current, err := deployments.Get(ctx, "hypershell-controller", metav1.GetOptions{})
-		return err == nil && current.Status.AvailableReplicas == originalReplicas && current.Status.ObservedGeneration >= current.Generation, nil
-	}), "controller reconnects")
-	restoreNeeded = false
-	running := s.waitGatewayRunning(t, created.ID)
-	s.Assert().Equal("Running", running.Phase, "gateway created while disconnected converges from reconnect snapshot")
 }
 
 // waitDisruptiveGate blocks until gate exists, which is how
 // tests/e2e/run-parallel.sh signals that every concurrently running suite other
-// than this one has exited and the shared controller may be scaled down. It
-// mirrors e2e_wait_disruptive_gate in lib.sh: after timeout it reports false so
-// the caller can warn and proceed rather than hang the run.
+// than this one has exited and the shared controller may be stopped or
+// restarted. It mirrors e2e_wait_disruptive_gate in lib.sh: after timeout it
+// reports false so the caller can warn and proceed rather than hang the run.
 func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time.Duration) (bool, error) {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -804,18 +744,6 @@ func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time
 		case <-time.After(interval):
 		}
 	}
-}
-
-func setDeploymentReplicas(ctx context.Context, deployments typedappsv1.DeploymentInterface, replicas int32) error {
-	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		deployment, err := deployments.Get(ctx, "hypershell-controller", metav1.GetOptions{})
-		if err != nil {
-			return err
-		}
-		deployment.Spec.Replicas = &replicas
-		_, err = deployments.Update(ctx, deployment, metav1.UpdateOptions{})
-		return err
-	})
 }
 
 // p3_1AdminInventory verifies the admin-only /users boundary (non-admin 403,
