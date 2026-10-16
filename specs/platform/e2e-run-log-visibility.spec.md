@@ -24,7 +24,10 @@ reporting the dashboard consumes -- is specified in `e2e-testing.spec.md`
 ([Opt-In Structured Run Reporting](e2e-testing.spec.md#requirement-opt-in-structured-run-reporting)).
 The log pipeline (the Loki receiver, retention, and the ClusterLogForwarder that
 copies the suite's Pod logs) is owned by `openshift-online/hypershell-gitops`; this
-spec consumes that pipeline and SHALL NOT restate or own it.
+spec consumes that pipeline and SHALL NOT restate or own it. Making this view's
+selected run, step, log scope, and bundle/target context reconstructible from the
+URL is specified separately in
+[`glass-url-addressable-navigation.spec.md`](glass-url-addressable-navigation.spec.md).
 
 ### Relationship to the existing fleet dashboard
 

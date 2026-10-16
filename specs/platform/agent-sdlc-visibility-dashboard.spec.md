@@ -23,7 +23,9 @@ a rework meter toward each in-review item's block threshold, an escalation lane
 for blocked/paused/past-SLE work, and a release-by-hub-cluster matrix that closes
 the loop from a merged issue to the bundle it shipped in and the cluster that bundle
 runs on. The tab shares the dashboard chrome and the single release freight bar with
-the Fleet Map.
+the Fleet Map. Making this tab's scope, search, selected card, escalations drawer,
+and shipped selection reconstructible from the URL is specified separately in
+[`glass-url-addressable-navigation.spec.md`](glass-url-addressable-navigation.spec.md).
 
 The dashboard adds **no new data store**. SDLC state is read directly from GitHub
 (Issues plus the Issue Events / Timeline API) behind an application-owned port, and
