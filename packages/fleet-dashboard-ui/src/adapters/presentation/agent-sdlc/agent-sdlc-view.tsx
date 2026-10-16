@@ -97,6 +97,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 import {
   agingRatio,
   boardPhases,
+  bundleRowExpandKey,
   bundleRowSeed,
   cardsInPhase,
   ESCALATION_BLOCKED,
@@ -1117,10 +1118,11 @@ function ShippedMatrix({
             {rows.map((row, rowIndex) => {
               const seed = bundleRowSeed(row);
               const selected = seed !== null && seed === selectedBundleSeed;
-              // Address the expanded row by its bundle seed (version fallback), not
-              // its index, so a background refresh reorder keeps it expanded.
-              const expandKey = seed ?? row.version ?? "";
-              const isExpanded = expandKey !== "" && expandedSeed === expandKey;
+              // Address the expanded row by a stable key, not its index, so a
+              // background refresh reorder keeps it expanded. The Unreleased row has
+              // no seed, so it uses a reserved synthetic token and stays expandable.
+              const expandKey = bundleRowExpandKey(row);
+              const isExpanded = expandedSeed === expandKey;
               return (
                 <Tbody
                   key={
@@ -1136,9 +1138,7 @@ function ShippedMatrix({
                         rowIndex,
                         isExpanded,
                         onToggle: () => {
-                          if (expandKey !== "") {
-                            onToggleRow(expandKey);
-                          }
+                          onToggleRow(expandKey);
                         },
                       }}
                     />

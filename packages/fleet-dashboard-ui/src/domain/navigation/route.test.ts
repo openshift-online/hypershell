@@ -86,15 +86,19 @@ describe("parseRoute / serializeRoute", () => {
 });
 
 describe("stable identity and SDLC state", () => {
-  it("addresses the shared bundle, card, and shipped by identity (GLASS-NAV-02)", () => {
-    const href =
-      "/sdlc?bundle=sha256%3Aabc&scope=a&scope=b&q=511&card=511&shipped=490&shippedVer=v2026&escalations=1";
+  it("addresses the shared bundle, scopes, and board card by identity (GLASS-NAV-02)", () => {
+    const href = "/sdlc?bundle=sha256%3Aabc&scope=a&scope=b&q=511&card=511";
     const state = parseHref(href);
     expect(state.bundle).toBe("sha256:abc");
+    expect(state.sdlc.scopes).toEqual(["a", "b"]);
     expect(state.sdlc.card).toBe(511);
+  });
+
+  it("addresses a shipped issue with its bundle version by identity (GLASS-NAV-02)", () => {
+    const state = parseHref("/sdlc?shipped=490&shippedVer=v2026");
     expect(state.sdlc.shipped).toBe(490);
     expect(state.sdlc.shippedVersion).toBe("v2026");
-    expect(state.sdlc.escalations).toBe(true);
+    expect(state.sdlc.card).toBeNull();
   });
 
   it("orders scopes deterministically and deduplicates (GLASS-NAV-13)", () => {
@@ -154,6 +158,31 @@ describe("mutually exclusive and incompatible selections (GLASS-NAV-14)", () => 
     expect(state.e2e.exec.tab).toBe("progress");
     expect(state.e2e.exec.step).toBeNull();
     expect(routeToHref(state)).toBe("/e2e?run=t%2Fn%2Fr&rund=0");
+  });
+
+  it("prefers the board card over a shipped issue when both are present", () => {
+    const state = parseHref("/sdlc?card=5&shipped=6&shippedVer=v2026");
+    expect(state.sdlc.card).toBe(5);
+    expect(state.sdlc.shipped).toBeNull();
+    expect(state.sdlc.shippedVersion).toBeNull();
+    // The canonical URL carries only the winning selection, so the impossible
+    // combination does not round-trip (GLASS-NAV-14).
+    expect(routeToHref(state)).toBe("/sdlc?card=5");
+  });
+
+  it("drops the escalations list when a shipped issue is selected", () => {
+    const state = parseHref("/sdlc?shipped=6&escalations=1");
+    expect(state.sdlc.shipped).toBe(6);
+    expect(state.sdlc.escalations).toBe(false);
+    expect(routeToHref(state)).toBe("/sdlc?shipped=6");
+  });
+
+  it("keeps an escalation detail card open over the escalations list", () => {
+    // A board card reached through the escalations list is a valid combination and
+    // must survive canonicalization (GLASS-NAV-13).
+    const state = parseHref("/sdlc?card=5&escalations=1");
+    expect(state.sdlc.card).toBe(5);
+    expect(state.sdlc.escalations).toBe(true);
   });
 });
 

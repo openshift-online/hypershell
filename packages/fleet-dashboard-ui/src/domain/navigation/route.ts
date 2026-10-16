@@ -415,12 +415,22 @@ export function normalizeRoute(state: RouteState): RouteState {
     exec: gate !== null ? state.map.exec : DEFAULT_EXEC,
   };
 
+  // SDLC selections are mutually exclusive the way the reducers enforce them, so a
+  // crafted or stale link that sets more than one must canonicalize to a single
+  // winner rather than round-tripping an impossible combination (GLASS-NAV-14). A
+  // board card wins over a shipped-issue selection; a shipped-issue selection cannot
+  // coexist with the escalations list.
+  const card = state.sdlc.card;
+  const shipped = card !== null ? null : state.sdlc.shipped;
+  const escalations = shipped !== null ? false : state.sdlc.escalations;
   const sdlc: SdlcState = {
     ...state.sdlc,
     scopes: canonicalScopes(state.sdlc.scopes),
+    card,
+    shipped,
     // A version context only applies when a shipped issue is selected.
-    shippedVersion:
-      state.sdlc.shipped !== null ? state.sdlc.shippedVersion : null,
+    shippedVersion: shipped !== null ? state.sdlc.shippedVersion : null,
+    escalations,
   };
 
   // Execution detail only applies when a run is selected and the drawer is open.

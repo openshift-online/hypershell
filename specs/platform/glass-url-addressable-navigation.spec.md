@@ -420,6 +420,16 @@ selection being dropped.
 - THEN the drawer SHALL remain accessible and the mismatch SHALL be explained
 - AND the selection SHALL NOT be silently dropped
 
+#### Scenario: Incompatible selections canonicalize to a single winner
+
+- GIVEN a crafted or stale URL that sets two mutually exclusive selections at once
+  (for example an Agent SDLC board card and a shipped issue, or a shipped issue and
+  the escalations list)
+- WHEN Glass parses it
+- THEN it SHALL keep exactly one selection and clear the others
+- AND it SHALL serialize back to a canonical URL carrying only the retained selection
+  rather than round-tripping the impossible combination
+
 ### Requirement: GLASS-NAV-15 -- Accessibility, Focus, and Responsive Layout
 
 Deep links and Back/Forward navigation SHALL preserve PatternFly keyboard

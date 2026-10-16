@@ -155,13 +155,19 @@ export function TopologyMap({
 
   // Esc closes the details drawer. PatternFly's inline Drawer does not trap focus
   // or handle Escape itself, so we listen at the document level, but only while a
-  // selection is open, leaving Esc untouched when the panel is closed.
+  // selection is open, leaving Esc untouched when the panel is closed. A nested
+  // dialog (the expanded log Modal in the gate drawer) must handle Escape first, so
+  // we ignore the key when it targets an open dialog and leave the gate drawer open
+  // (mirrors the E2E run view guard).
   useEffect(() => {
     if (selection === null) {
       return;
     }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      const target = e.target;
+      const inDialog =
+        target instanceof Element && target.closest('[role="dialog"]') !== null;
+      if (e.key === "Escape" && !e.defaultPrevented && !inDialog) {
         navigate({ type: "mapClose" });
       }
     };
@@ -198,8 +204,8 @@ export function TopologyMap({
 
   // Selecting a node/gate is a discrete navigation step (GLASS-NAV-09). The pan guard
   // keeps a drag from registering as a click; the reducer handles toggle-off and the
-  // node/gate mutual exclusion, and clears the shared bundle so the drawer shows one
-  // thing at a time.
+  // node/gate mutual exclusion. The shared bundle stays selected but a node/gate wins
+  // the drawer (see the `selection` derivation above), so one thing shows at a time.
   const selectNode = (id: string) => {
     if (didPan()) {
       return;
@@ -277,7 +283,8 @@ export function TopologyMap({
                       onSelectBundle={selectBundle}
                       onSelectNode={(id) => {
                         // From a "Deployed on" chip: jump to that node (not a map
-                        // click, so no pan guard). The reducer clears the bundle/gate.
+                        // click, so no pan guard). The reducer clears any gate; the
+                        // node then wins the drawer over the shared bundle.
                         navigate({ type: "mapSelectNode", id });
                       }}
                     />

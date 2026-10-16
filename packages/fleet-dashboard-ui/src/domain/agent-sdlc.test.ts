@@ -4,11 +4,13 @@ import {
   agingRatio,
   agingScaleSeconds,
   boardPhases,
+  bundleRowExpandKey,
   bundleRowSeed,
   cardsInPhase,
   PHASE_SHIPPED,
   reworkRatio,
   reworkSeverity,
+  UNRELEASED_ROW_KEY,
   type AgentSdlcCard,
   type AgentSdlcPhase,
 } from "./agent-sdlc";
@@ -112,5 +114,35 @@ describe("bundleRowSeed", () => {
         issues: [],
       }),
     ).toBeNull();
+  });
+});
+
+describe("bundleRowExpandKey", () => {
+  it("uses the bundle seed for a released row", () => {
+    expect(
+      bundleRowExpandKey({
+        version: "v1",
+        digest: "d1",
+        date: null,
+        unreleased: false,
+        hubClusters: [],
+        issues: [],
+      }),
+    ).toBe("d1");
+  });
+
+  it("falls back to a reserved key for the seedless Unreleased row so it stays expandable", () => {
+    // Both digest and version are null for the Unreleased row; without a synthetic
+    // key its expand toggle would be inert.
+    expect(
+      bundleRowExpandKey({
+        version: null,
+        digest: null,
+        date: null,
+        unreleased: true,
+        hubClusters: [],
+        issues: [],
+      }),
+    ).toBe(UNRELEASED_ROW_KEY);
   });
 });

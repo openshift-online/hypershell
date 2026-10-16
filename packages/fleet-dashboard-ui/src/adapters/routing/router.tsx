@@ -97,10 +97,18 @@ export function RouterProvider({
   );
 
   // hrefFor runs during render (links compute their href), so it reduces from the
-  // route state directly rather than the ref.
+  // route state directly rather than the ref. The final `<a href>` goes through the
+  // history adapter so it carries any reverse-proxy base path, keeping copy-link,
+  // open-in-new-tab, and Cmd/Ctrl-click on the correct URL (GLASS-NAV-08/19).
   const hrefFor = useCallback(
-    (action: NavAction) => routeToHref(reduceRoute(route, action)),
-    [route],
+    (action: NavAction) => {
+      const nextHref = routeToHref(reduceRoute(route, action));
+      return hist.href({
+        path: href2path(nextHref),
+        search: href2search(nextHref),
+      });
+    },
+    [route, hist],
   );
 
   const value = useMemo<RouterValue>(

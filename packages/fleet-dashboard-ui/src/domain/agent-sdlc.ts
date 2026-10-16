@@ -180,3 +180,19 @@ export function reworkSeverity(rework: AgentSdlcRework): ReworkSeverity {
 export function bundleRowSeed(row: AgentSdlcBundleRow): string | null {
   return row.digest ?? row.version;
 }
+
+/**
+ * A reserved stable expand key for the single Unreleased matrix row, which has no
+ * digest or version to address it by. The sentinel wrapping keeps it from colliding
+ * with a real bundle seed (a sha256 digest or a release version).
+ */
+export const UNRELEASED_ROW_KEY = "__unreleased__";
+
+/**
+ * The stable expand/collapse key for a matrix row. Released rows use their bundle
+ * seed (digest, version fallback); the Unreleased row has neither, so it falls back
+ * to a reserved synthetic token and stays expandable across refresh reorders.
+ */
+export function bundleRowExpandKey(row: AgentSdlcBundleRow): string {
+  return bundleRowSeed(row) ?? UNRELEASED_ROW_KEY;
+}

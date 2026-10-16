@@ -6,7 +6,10 @@ import type { HistoryPort } from "./history-port";
 import { RouterProvider, useNavLink, useRouter } from "./router";
 
 /** An in-memory HistoryPort that records pushes and replaces and can emit popstate. */
-function fakeHistory(initial: RouteLocation): {
+function fakeHistory(
+  initial: RouteLocation,
+  basePath = "",
+): {
   port: HistoryPort;
   pushes: string[];
   replaces: string[];
@@ -16,7 +19,7 @@ function fakeHistory(initial: RouteLocation): {
   let listener: (() => void) | null = null;
   const pushes: string[] = [];
   const replaces: string[] = [];
-  const href = (l: RouteLocation) => `${l.path}${l.search}`;
+  const toHref = (l: RouteLocation) => `${l.path}${l.search}`;
   return {
     pushes,
     replaces,
@@ -26,13 +29,15 @@ function fakeHistory(initial: RouteLocation): {
     },
     port: {
       read: () => current,
+      // Link hrefs carry the base path, matching the production adapter (GLASS-NAV-19).
+      href: (loc) => basePath + toHref(loc),
       push: (loc) => {
         current = loc;
-        pushes.push(href(loc));
+        pushes.push(toHref(loc));
       },
       replace: (loc) => {
         current = loc;
-        replaces.push(href(loc));
+        replaces.push(toHref(loc));
       },
       subscribe: (cb) => {
         listener = cb;
@@ -84,8 +89,8 @@ function Probe(): React.ReactElement {
   );
 }
 
-function renderWithHistory(initial: RouteLocation) {
-  const h = fakeHistory(initial);
+function renderWithHistory(initial: RouteLocation, basePath = "") {
+  const h = fakeHistory(initial, basePath);
   render(
     <RouterProvider history={h.port}>
       <Probe />
@@ -144,6 +149,16 @@ describe("RouterProvider", () => {
     fireEvent.click(link, { button: 0 });
     expect(screen.getByTestId("tab").textContent).toBe("e2e");
     expect(h.pushes).toEqual(["/e2e"]);
+  });
+
+  it("includes the reverse-proxy base path in link hrefs (GLASS-NAV-08/19)", () => {
+    // Under a base-path deployment, copy-link/open-in-new-tab/Cmd-click use the shown
+    // `<a href>`, so it must carry the base path, not the codec's root-relative path.
+    renderWithHistory({ path: "/", search: "" }, "/glass");
+    expect(screen.getByTestId("link").getAttribute("href")).toBe("/glass/e2e");
+    expect(screen.getByTestId("href").textContent).toBe(
+      "/glass/?run=t%2Fn%2Fr2",
+    );
   });
 
   it("lets the browser handle modified clicks (open-in-new-tab)", () => {

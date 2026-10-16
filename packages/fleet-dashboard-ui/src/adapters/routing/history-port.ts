@@ -8,6 +8,13 @@ import type { RouteLocation } from "../../domain/navigation/route";
 export interface HistoryPort {
   /** Read the current location (path + search). */
   read(): RouteLocation;
+  /**
+   * Build the browser-facing URL for a location, including any reverse-proxy base
+   * path (GLASS-NAV-19). Link `<a href>` values must go through this so copy-link,
+   * open-in-new-tab, and Ctrl/Cmd-click reach the correct base-path URL, matching
+   * what `push`/`replace` navigate to (GLASS-NAV-08).
+   */
+  href(location: RouteLocation): string;
   /** Push a new history entry (meaningful navigation). */
   push(location: RouteLocation): void;
   /** Replace the current history entry (coalesced/text changes). */
@@ -36,6 +43,8 @@ export function createMemoryHistory(
   let listener: (() => void) | null = null;
   return {
     read: () => stack[index] ?? initial,
+    // The memory host has no base path, so the link URL is the bare location.
+    href: (location) => hrefOf(location),
     push: (location) => {
       stack.splice(index + 1);
       stack.push(location);
@@ -106,6 +115,8 @@ export function createBrowserHistory(): HistoryPort {
       path: stripBasePath(window.location.pathname, basePath),
       search: window.location.search,
     }),
+    // Re-apply the base path so shown link URLs match what push/replace navigate to.
+    href: (location) => basePath + hrefOf(location),
     push: (location) => {
       window.history.pushState(null, "", basePath + hrefOf(location));
     },
