@@ -9,8 +9,11 @@
 > `gateway-release-distribution.spec.md` is NOT deleted: it describes a live
 > operational-dashboard widget that now groups gateways by their observed
 > `gateway_version`, so it stays and is registered in `index.spec.md`.
-> The corpus is now 85 content specs. Trust the code over any claim below until a
-> full re-anchor runs.
+> The corpus is now 87 content specs (88 spec files including the index), all
+> registered in `index.spec.md` with no gaps or phantom rows. (The index lists 86
+> distinct spec basenames because two specs share the `gateway-access-management`
+> basename across `platform/` and `web-console/`; by full path the count is 87.)
+> Trust the code over any claim below until a full re-anchor runs.
 
 This file is the **entrypoint** for autonomous spec-to-code reconciliation.
 It describes the skill directory, holds the current gap state, and is the
@@ -101,7 +104,7 @@ OpenShift drivers, matrix and performance coverage, and CI cutover. The legacy
 Bash functional and performance suites were removed; browser-console support
 continues to use its retained Bash drivers. Gateway creation now uses placement
 intents, and generated SDKs correctly model array and object response fields.
-**Spec corpus**: 84 spec files; the coverage table tracks 48 analyzed feature/spec groups (pending re-anchor) after adding Ephemeral CI Secrets, Ephemeral Test Credentials, Console Browser Testing, Gateway Provision Outcomes, Gateway Release Distribution, Gateway Fleet Total Trend, Gateway Sandbox Active Trends, Hub Cluster Utilization Trends, and OpenShell Branch Build (9 new specs from commits `85927b3c`/`be0bf2ea`/`630a5ed1`/`2bdeece6`; full per-requirement analysis pending for the last 6)
+**Spec corpus (as of 2026-10-08)**: 84 spec files; the coverage table tracks 48 analyzed feature/spec groups (pending re-anchor) after adding Ephemeral CI Secrets, Ephemeral Test Credentials, Console Browser Testing, Gateway Provision Outcomes, Gateway Release Distribution, Gateway Fleet Total Trend, Gateway Sandbox Active Trends, Hub Cluster Utilization Trends, and OpenShell Branch Build (9 new specs from commits `85927b3c`/`be0bf2ea`/`630a5ed1`/`2bdeece6`; full per-requirement analysis pending for the last 6)
 **Codebase commit**: working tree (HYPERSHELL-334 standing CI secrets + test-tier credentials, rebased onto `b152182c`; prior `5e14f29b` feat: remove ManagedDatabase API), then e2e-console-browser-testing CON-W1 (`2bdeece6`), then #342 Keycloak admin-console impersonation (`d7f33594`)
 
 ### Coverage Summary
