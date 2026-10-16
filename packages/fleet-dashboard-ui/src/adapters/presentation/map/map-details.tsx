@@ -61,6 +61,7 @@ import {
 } from "../../../domain/spoke-attribution";
 import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
+import { useRoute, useRouter } from "../../routing/router";
 import { StatusLabel } from "../status-label";
 import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
@@ -876,7 +877,11 @@ function NodeDetails({
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   onSelectBundle: (seed: string) => void;
 }): React.ReactElement {
-  const [activeKey, setActiveKey] = useState<string | number>("details");
+  // The node drawer sub-tab is URL-represented (GLASS-NAV-09); the temporal cursor
+  // below stays transient.
+  const route = useRoute();
+  const { navigate } = useRouter();
+  const activeKey = route.map.nodeTab;
   // The shared temporal cursor's sample index, lifted here so the gateways donut and
   // the population tiles read the same moment. Null = cursor idle (live snapshot).
   const [active, setActive] = useState<number | null>(null);
@@ -893,7 +898,11 @@ function NodeDetails({
     <Tabs
       activeKey={activeKey}
       onSelect={(_event, key) => {
-        setActiveKey(key);
+        navigate({
+          type: "mapNodeTab",
+          tab:
+            key === "bundle" ? "bundle" : key === "links" ? "links" : "details",
+        });
       }}
     >
       <Tab

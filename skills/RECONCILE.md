@@ -49,6 +49,33 @@ skills/
 
 ## Reconciliation State
 
+### HYPERSHELL-404 -- Glass URL-addressable navigation (done, PR #584 branch)
+
+Scoped reconciliation of `specs/platform/glass-url-addressable-navigation.spec.md`
+(GLASS-NAV-01..21) against `packages/fleet-dashboard-ui` + the fleet-dashboard BFF.
+All requirements Present.
+
+| ID | Requirement | Status | Evidence |
+|----|-------------|--------|----------|
+| GLASS-NAV-01/17 | Route/state matrix + documented route contract | Present | `packages/fleet-dashboard-ui/docs/route-contract.md` |
+| GLASS-NAV-02/03/14 | One typed contract, safe identifier encoding, safe degradation | Present | `src/domain/navigation/route.ts` + `route.test.ts` |
+| GLASS-NAV-04 | Framework-free codec in domain, History in one adapter | Present | `src/domain/navigation/{route,actions}.ts`, `src/adapters/routing/{history-port,router}.tsx` |
+| GLASS-NAV-05/06/07 | Hydrate before data, push/replace policy, popstate without loops | Present | `router.tsx` + `router.test.tsx`, `app.test.tsx` (hydration + Back/Forward) |
+| GLASS-NAV-08 | Cross-tab links + real-link affordances (copy/open-new-tab/Ctrl-click) | Present | `useNavLink`/`NavLinkButton` on SDLC bundle+issue links, E2E run links, gate history link; SVG map nodes/gates + animated board cards navigate in place but their destinations stay URL-addressable |
+| GLASS-NAV-09/10 | Map node/gate/sub-tab addressable; explicit live vs pinned gate attempt (`gattempt=live`) | Present | `topology-map.tsx`, `map-details.tsx`, `gate-execution.tsx`; `GATE_LIVE_ATTEMPT` |
+| GLASS-NAV-11/12 | Shared execution-detail contract; e2e run/drawer/sort addressable | Present | `e2e-run-view.tsx` (ExecControls), `e2e-run-view.test.tsx` |
+| GLASS-NAV-13 | Agent SDLC scope/search/card/shipped/escalations/expanded row | Present | `agent-sdlc-view.tsx` |
+| GLASS-NAV-16 | URL identifies data only; strings rendered as text | Present | React escaping; BFF SAR unchanged |
+| GLASS-NAV-18 | One stream per run under URL-driven navigation | Present | `SelectedRunPane key={runId}`, exec via props |
+| GLASS-NAV-19 | Deployed deep-link SPA fallback + reverse-proxy base-path round-trip | Present | `server.go` + `server_test.go`; `createBrowserHistory` captures/re-applies the base path (`history-port.test.ts`) |
+| GLASS-NAV-20 | Codec/integration/subscription tests | Present | 336 vitest + Go server test; `pnpm --filter fleet-dashboard-ui check` green |
+| GLASS-NAV-21 | No approved mockup: parity checks skipped, non-parity run | Present | PatternFly 6 reused, hexagonal boundary, a11y/i18n, tests all pass |
+
+No new BFF data planes, no new message IDs, no spec edits (spec cross-refs already
+landed in PR #584). Browser-level coverage is provided by jsdom integration tests
+(reload/hydration/Back-Forward/drawer-close) plus the Go SPA-fallback test; the
+package has no Playwright harness, so no new browser E2E suite was added.
+
 ### HYPERSHELL-369 -- Gateway provider credentials to Vault (in progress)
 
 Scoped reconciliation of `specs/platform/openshell-gateway-credentials.spec.md`

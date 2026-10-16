@@ -12,6 +12,8 @@ import {
 import type { E2eStreamHandlers, FleetApi } from "../../../application/ports";
 import type { Plane } from "../../../domain/plane";
 import { FleetApiProvider } from "../../query/api-context";
+import { createMemoryHistory } from "../../routing/history-port";
+import { RouterProvider } from "../../routing/router";
 import { GateExecution } from "./gate-execution";
 import { E2eRunView } from "./e2e-run-view";
 
@@ -120,7 +122,26 @@ function renderView(api: FleetApi, data: E2eRunsData): void {
   render(
     <IntlProvider locale="en" defaultLocale="en">
       <FleetApiProvider value={api}>
-        <E2eRunView data={data} nowMs={NOW} />
+        <RouterProvider
+          history={createMemoryHistory({ path: "/e2e", search: "" })}
+        >
+          <E2eRunView data={data} nowMs={NOW} />
+        </RouterProvider>
+      </FleetApiProvider>
+    </IntlProvider>,
+  );
+}
+
+/** Render a gate execution drawer with a gate selected so route.map.exec applies. */
+function renderGate(api: FleetApi, ui: React.ReactElement): void {
+  render(
+    <IntlProvider locale="en">
+      <FleetApiProvider value={api}>
+        <RouterProvider
+          history={createMemoryHistory({ path: "/", search: "?gate=g1" })}
+        >
+          {ui}
+        </RouterProvider>
       </FleetApiProvider>
     </IntlProvider>,
   );
@@ -166,7 +187,7 @@ describe("E2eRunView", () => {
     renderView(api, enabled([older, newer]));
 
     // The run selection links render in DOM order; newest-first puts new222 first.
-    const buttons = screen.getAllByRole("button", { name: /Open run/ });
+    const buttons = screen.getAllByRole("link", { name: /Open run/ });
     const firstLabel = buttons[0]?.getAttribute("aria-label") ?? "";
     const secondLabel = buttons[1]?.getAttribute("aria-label") ?? "";
     expect(firstLabel).toContain("new222");
@@ -223,13 +244,13 @@ describe("E2eRunView", () => {
     );
     await user.click(screen.getByRole("button", { name: column }));
     const first = screen
-      .getAllByRole("button", { name: /Open run/ })[0]
+      .getAllByRole("link", { name: /Open run/ })[0]
       ?.getAttribute("aria-label");
     expect(first).toContain("aaa");
     await user.click(screen.getByRole("button", { name: column }));
     expect(
       screen
-        .getAllByRole("button", { name: /Open run/ })[0]
+        .getAllByRole("link", { name: /Open run/ })[0]
         ?.getAttribute("aria-label"),
     ).toContain("zzz");
   });
@@ -244,7 +265,7 @@ describe("E2eRunView", () => {
       }),
       "abc",
     );
-    const trigger = screen.getByRole("button", { name: /Open run/ });
+    const trigger = screen.getByRole("link", { name: /Open run/ });
     await user.click(trigger);
     await screen.findByRole("button", { name: "Build" });
     await user.click(screen.getByRole("button", { name: "Close details" }));
@@ -264,7 +285,7 @@ describe("E2eRunView", () => {
       const user = userEvent.setup();
       const { api } = makeApi(detail());
       renderView(api, enabled([summary()]));
-      await user.click(screen.getByRole("button", { name: /Open run/ }));
+      await user.click(screen.getByRole("link", { name: /Open run/ }));
       await screen.findByRole("button", { name: "Build" });
       const table = screen.getByRole("grid", { name: "Run steps" });
       await user.click(within(table).getByRole("button", { name: column }));
@@ -323,7 +344,7 @@ describe("E2eRunView", () => {
     const { api } = makeApi(d);
     renderView(api, enabled([summary()]));
 
-    await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
 
     // Deployed revision and application source revision are shown separately.
     expect(await screen.findByText("Source", { exact: false })).toBeDefined();
@@ -363,7 +384,7 @@ describe("E2eRunView", () => {
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
 
-    await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     // Wait for the snapshot detail to resolve.
     await screen.findByRole("tab", { name: "Progress" });
 
@@ -427,7 +448,7 @@ describe("E2eRunView", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     await screen.findByRole("tab", { name: "Progress" });
 
     // Stream far more log lines than the buffer window in a single batched update:
@@ -464,7 +485,7 @@ describe("E2eRunView", () => {
     const user = userEvent.setup();
     const { api, handlers } = makeApi(detail());
     renderView(api, enabled([summary()]));
-    await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     await screen.findByRole("tab", { name: "Progress" });
 
     act(() => {
@@ -487,7 +508,7 @@ describe("E2eRunView", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     expect(
       await screen.findByText(
         "Reporting incomplete - no final result was recorded.",
@@ -501,7 +522,7 @@ describe("E2eRunView", () => {
       getE2eRun: vi.fn().mockRejectedValue(new Error("loki down")),
     });
     renderView(api, enabled([summary()]));
-    await user.click(screen.getByRole("button", { name: /Open run abc1234/ }));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     expect(
       await screen.findByText("Run details are unavailable right now."),
     ).toBeDefined();
@@ -520,19 +541,16 @@ describe("gate execution", () => {
   it("opens step logs and preserves filters while changing tabs without a second stream", async () => {
     const user = userEvent.setup();
     const { api } = makeApi(detail());
-    render(
-      <IntlProvider locale="en">
-        <FleetApiProvider value={api}>
-          <GateExecution
-            target={{
-              revision: "abc1234",
-              cluster: "tenant-1",
-              namespace: "ns",
-            }}
-            data={enabled([summary()])}
-          />
-        </FleetApiProvider>
-      </IntlProvider>,
+    renderGate(
+      api,
+      <GateExecution
+        target={{
+          revision: "abc1234",
+          cluster: "tenant-1",
+          namespace: "ns",
+        }}
+        data={enabled([summary()])}
+      />,
     );
     await user.click(await screen.findByRole("button", { name: "Build" }));
     expect(
@@ -557,17 +575,20 @@ describe("gate execution", () => {
   });
   it("keeps the inspected attempt pinned when a newer retry arrives", async () => {
     const { api } = makeApi(detail());
+    const history = createMemoryHistory({ path: "/", search: "?gate=g1" });
     const view = (runs: readonly E2eRunSummary[]) => (
       <IntlProvider locale="en">
         <FleetApiProvider value={api}>
-          <GateExecution
-            target={{
-              revision: "abc1234",
-              cluster: "tenant-1",
-              namespace: "ns",
-            }}
-            data={enabled(runs)}
-          />
+          <RouterProvider history={history}>
+            <GateExecution
+              target={{
+                revision: "abc1234",
+                cluster: "tenant-1",
+                namespace: "ns",
+              }}
+              data={enabled(runs)}
+            />
+          </RouterProvider>
         </FleetApiProvider>
       </IntlProvider>
     );
@@ -589,17 +610,56 @@ describe("gate execution", () => {
     /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
     expect(api.streamE2eRun).toHaveBeenCalledTimes(1);
   });
-  it("does not open a different revision's latest run", () => {
+  it("follows the current attempt in explicit live mode (GLASS-NAV-10)", async () => {
     const { api } = makeApi(detail());
-    render(
+    const history = createMemoryHistory({
+      path: "/",
+      search: "?gate=g1&gattempt=live",
+    });
+    const view = (runs: readonly E2eRunSummary[]) => (
       <IntlProvider locale="en">
         <FleetApiProvider value={api}>
-          <GateExecution
-            target={{ revision: "other", cluster: "tenant-1", namespace: "ns" }}
-            data={enabled([summary()])}
-          />
+          <RouterProvider history={history}>
+            <GateExecution
+              target={{
+                revision: "abc1234",
+                cluster: "tenant-1",
+                namespace: "ns",
+              }}
+              data={enabled(runs)}
+            />
+          </RouterProvider>
         </FleetApiProvider>
-      </IntlProvider>,
+      </IntlProvider>
+    );
+    const rendered = render(view([summary()]));
+    await screen.findByRole("button", { name: "Build" });
+    // A newer retry arrives; live mode follows it (a second stream for the new run).
+    rendered.rerender(
+      view([
+        summary({
+          id: "tenant-1/ns/run-2",
+          runId: "run-2",
+          startedAt: "2026-01-01T00:40:00Z",
+        }),
+        summary(),
+      ]),
+    );
+    // The URL still addresses the live/latest mode, distinct from a pinned attempt.
+    expect(
+      screen.getByRole("combobox", { name: "Test attempt" }),
+    ).toHaveProperty("value", "live");
+    /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+    expect(api.streamE2eRun).toHaveBeenCalledTimes(2);
+  });
+  it("does not open a different revision's latest run", () => {
+    const { api } = makeApi(detail());
+    renderGate(
+      api,
+      <GateExecution
+        target={{ revision: "other", cluster: "tenant-1", namespace: "ns" }}
+        data={enabled([summary()])}
+      />,
     );
     expect(
       screen.getByText("Waiting for a test run for this revision."),

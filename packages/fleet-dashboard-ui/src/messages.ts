@@ -198,6 +198,12 @@ export const messages = defineMessages({
     description:
       "Relative time since an end-to-end run started (minutes, hours, days, or just now).",
   },
+  e2eAttemptLatest: {
+    id: "fleet.e2eAttemptLatest",
+    defaultMessage: "Latest (live)",
+    description:
+      "Attempt selector option in the gate execution panel that follows the current (live) run instead of a pinned historical attempt.",
+  },
   e2eAttemptOption: {
     id: "fleet.e2eAttemptOption",
     defaultMessage: "{id} · {started}",

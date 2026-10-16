@@ -106,7 +106,6 @@ import {
   globalAgingScaleSeconds,
   reworkRatio,
   reworkSeverity,
-  type AgentSdlcBundleRow,
   type AgentSdlcCard,
   type AgentSdlcData,
   type AgentSdlcLabelEvent,
@@ -115,6 +114,8 @@ import {
   type AgentSdlcShippedIssue,
 } from "../../../domain/agent-sdlc";
 import { messages } from "../../../messages";
+import { useRoute, useRouter } from "../../routing/router";
+import { NavLinkButton } from "../nav-link-button";
 import { TONE_COLOR } from "../map/colors";
 import { Identicon } from "../map/identicon";
 import { ReleaseTime } from "../map/release-time";
@@ -123,10 +124,8 @@ import styles from "./agent-sdlc-view.module.css";
 
 export interface AgentSdlcViewProps {
   readonly data: AgentSdlcData;
+  /** The shared freight-bar bundle seed, used for the matrix current-row highlight. */
   readonly selectedBundleSeed: string | null;
-  readonly onSelectBundle: (seed: string) => void;
-  /** Switch to the Fleet Map tab (the shipped/bundle cross-link, SDLC-VIS-12). */
-  readonly onJumpToMap: () => void;
   /** Reference instant for relative timestamps; injectable for deterministic tests. */
   readonly nowMs?: number;
 }
@@ -1029,12 +1028,13 @@ function NotificationsPanel({
 
 function MatrixIssues({
   issues,
+  version,
   mergedLine,
-  onSelect,
 }: {
   issues: readonly AgentSdlcShippedIssue[];
+  /** The bundle version context for the shipped selection the link addresses. */
+  version: string | null;
   mergedLine: (issue: AgentSdlcShippedIssue) => string | null;
-  onSelect: (issue: AgentSdlcShippedIssue) => void;
 }): React.ReactElement {
   if (issues.length === 0) {
     return (
@@ -1050,15 +1050,14 @@ function MatrixIssues({
         const issueLabel = `#${String(issue.number)} ${issue.title}`;
         return (
           <StackItem key={issue.number} className={styles.shipEnter}>
-            <Button
-              variant="link"
-              isInline
-              onClick={() => {
-                onSelect(issue);
+            <NavLinkButton
+              action={{
+                type: "sdlcShipped",
+                shipped: { issue: issue.number, version },
               }}
             >
               {issueLabel}
-            </Button>
+            </NavLinkButton>
             {ago ? <Content component="small"> {ago}</Content> : null}
           </StackItem>
         );
@@ -1070,28 +1069,19 @@ function MatrixIssues({
 function ShippedMatrix({
   data,
   selectedBundleSeed,
-  onSelectBundle,
-  onJumpToMap,
   nowMs,
-  onSelectShipped,
+  expandedSeed,
+  onToggleRow,
 }: AgentSdlcViewProps & {
-  onSelectShipped: (selection: ShippedSelection) => void;
+  /** Expanded row addressed by bundle seed (GLASS-NAV-13). */
+  expandedSeed: string | null;
+  onToggleRow: (seed: string) => void;
 }): React.ReactElement {
   const intl = useIntl();
   const mergedLine = (issue: AgentSdlcShippedIssue): string | null =>
     formatMergedLine(intl, issue, nowMs);
-  const [expanded, setExpanded] = useState<number | null>(null);
   const { hubClusters, rows } = data.matrix;
   const columnCount = 2 + hubClusters.length + 1;
-
-  const openBundle = (row: AgentSdlcBundleRow) => {
-    const seed = bundleRowSeed(row);
-    if (seed === null) {
-      return;
-    }
-    onSelectBundle(seed);
-    onJumpToMap();
-  };
 
   return (
     <Stack hasGutter>
@@ -1127,7 +1117,10 @@ function ShippedMatrix({
             {rows.map((row, rowIndex) => {
               const seed = bundleRowSeed(row);
               const selected = seed !== null && seed === selectedBundleSeed;
-              const isExpanded = expanded === rowIndex;
+              // Address the expanded row by its bundle seed (version fallback), not
+              // its index, so a background refresh reorder keeps it expanded.
+              const expandKey = seed ?? row.version ?? "";
+              const isExpanded = expandKey !== "" && expandedSeed === expandKey;
               return (
                 <Tbody
                   key={
@@ -1143,7 +1136,9 @@ function ShippedMatrix({
                         rowIndex,
                         isExpanded,
                         onToggle: () => {
-                          setExpanded(isExpanded ? null : rowIndex);
+                          if (expandKey !== "") {
+                            onToggleRow(expandKey);
+                          }
                         },
                       }}
                     />
@@ -1151,19 +1146,15 @@ function ShippedMatrix({
                       {row.unreleased ? (
                         <FormattedMessage {...messages.sdlcUnreleased} />
                       ) : seed !== null ? (
-                        <Button
-                          variant="link"
-                          isInline
+                        <NavLinkButton
+                          action={{ type: "openBundleOnMap", seed }}
                           icon={<BundleIdenticon seed={seed} />}
-                          onClick={() => {
-                            openBundle(row);
-                          }}
                         >
                           <Inline>
                             {identiName(seed)}
                             <ArrowRightIcon aria-hidden />
                           </Inline>
-                        </Button>
+                        </NavLinkButton>
                       ) : (
                         <Inline>
                           <BundleIdenticon seed={row.version ?? "?"} />
@@ -1212,10 +1203,8 @@ function ShippedMatrix({
                       <ExpandableRowContent>
                         <MatrixIssues
                           issues={row.issues}
+                          version={row.version}
                           mergedLine={mergedLine}
-                          onSelect={(issue) => {
-                            onSelectShipped({ issue, version: row.version });
-                          }}
                         />
                       </ExpandableRowContent>
                     </Td>
@@ -1355,6 +1344,43 @@ function CardDetailPanel({
 interface ShippedSelection {
   readonly issue: AgentSdlcShippedIssue;
   readonly version: string | null;
+}
+
+/**
+ * Resolve a board/escalation card from its issue number (GLASS-NAV-13): a stable
+ * identity that survives a background board reorder. Returns null when the addressed
+ * issue is no longer present (GLASS-NAV-14).
+ */
+function resolveCard(
+  data: AgentSdlcData,
+  number: number | null,
+): AgentSdlcCard | null {
+  if (number === null) {
+    return null;
+  }
+  return [...data.cards, ...data.lane].find((c) => c.number === number) ?? null;
+}
+
+/** Resolve a shipped selection from its issue number and version context. */
+function resolveShipped(
+  data: AgentSdlcData,
+  number: number | null,
+  version: string | null,
+): ShippedSelection | null {
+  if (number === null) {
+    return null;
+  }
+  let fallback: ShippedSelection | null = null;
+  for (const row of data.matrix.rows) {
+    const issue = row.issues.find((i) => i.number === number);
+    if (issue) {
+      if (version === null || row.version === version) {
+        return { issue, version: row.version };
+      }
+      fallback ??= { issue, version: row.version };
+    }
+  }
+  return fallback;
 }
 
 /** Compact details panel for a shipped issue (lighter than a board card: no live
@@ -1640,12 +1666,20 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   const intl = useIntl();
   const boardRef = useRef<HTMLDivElement>(null);
   const matrixRef = useRef<HTMLDivElement>(null);
-  const [selected, setSelected] = useState<AgentSdlcCard | null>(null);
-  const [selectedShipped, setSelectedShipped] =
-    useState<ShippedSelection | null>(null);
-  const [showNotifications, setShowNotifications] = useState<boolean>(false);
-  const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
-  const [query, setQuery] = useState<string>("");
+  // Navigation, selection, and filter state come from the URL (GLASS-NAV-05,
+  // GLASS-NAV-13); selections are addressed by issue number and resolved back to the
+  // live record so they survive a background board reorder (GLASS-NAV-14).
+  const route = useRoute();
+  const { navigate } = useRouter();
+  const showNotifications = route.sdlc.escalations;
+  const selectedScopes = route.sdlc.scopes;
+  const query = route.sdlc.query;
+  const selected = resolveCard(data, route.sdlc.card);
+  const selectedShipped = resolveShipped(
+    data,
+    route.sdlc.shipped,
+    route.sdlc.shippedVersion,
+  );
   useHorizontalWheel(boardRef);
   useShipFlight(data, boardRef, matrixRef);
 
@@ -1667,15 +1701,13 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
       ) {
         return;
       }
-      setSelected(null);
-      setSelectedShipped(null);
-      setShowNotifications(false);
+      navigate({ type: "sdlcClosePanel" });
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [panelOpen]);
+  }, [panelOpen, navigate]);
 
   const phases = boardPhases(data.phases);
   // The vertical time axis is derived from the snapshot ages so it stays stable
@@ -1751,13 +1783,13 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
       <CardDetailPanel
         card={selected}
         onClose={() => {
-          setSelected(null);
-          setShowNotifications(false);
+          navigate({ type: "sdlcClosePanel" });
         }}
         onBack={
           showNotifications
             ? () => {
-                setSelected(null);
+                // Return to the still-open escalation list (GLASS-NAV-13).
+                navigate({ type: "sdlcCard", card: null });
               }
             : undefined
         }
@@ -1767,18 +1799,19 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
         selection={selectedShipped}
         nowMs={props.nowMs}
         onClose={() => {
-          setSelectedShipped(null);
+          navigate({ type: "sdlcShipped", shipped: null });
         }}
       />
     ) : showNotifications ? (
       <NotificationsPanel
         lane={agedLane}
         onClose={() => {
-          setShowNotifications(false);
+          navigate({ type: "sdlcClosePanel" });
         }}
         onSelect={(card) => {
-          // keep showNotifications set so the detail's Back returns to the list
-          setSelected(card);
+          // Keep the list open so browser Back and the detail's Back-to-list both
+          // return to it (GLASS-NAV-13).
+          navigate({ type: "sdlcOpenEscalationCard", card: card.number });
         }}
       />
     ) : null;
@@ -1797,8 +1830,8 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
               inset={{ default: "insetNone" }}
               collapseListedFiltersBreakpoint="md"
               clearAllFilters={() => {
-                setSelectedScopes([]);
-                setQuery("");
+                navigate({ type: "sdlcScopes", scopes: [] });
+                navigate({ type: "sdlcQuery", value: "" });
               }}
             >
               <ToolbarContent>
@@ -1813,12 +1846,13 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
                         deleteLabel={(_category, label) => {
                           const key =
                             typeof label === "string" ? label : label.key;
-                          setSelectedScopes((prev) =>
-                            prev.filter((x) => x !== key),
-                          );
+                          navigate({
+                            type: "sdlcScopes",
+                            scopes: selectedScopes.filter((x) => x !== key),
+                          });
                         }}
                         deleteLabelGroup={() => {
-                          setSelectedScopes([]);
+                          navigate({ type: "sdlcScopes", scopes: [] });
                         }}
                         categoryName={intl.formatMessage(
                           messages.sdlcFilterScope,
@@ -1827,7 +1861,9 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
                         <ScopeFilter
                           scopes={scopes}
                           selected={selectedScopes}
-                          onChange={setSelectedScopes}
+                          onChange={(scopes) => {
+                            navigate({ type: "sdlcScopes", scopes });
+                          }}
                         />
                       </ToolbarFilter>
                     ) : null}
@@ -1838,10 +1874,10 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
                         )}
                         value={query}
                         onChange={(_event, value) => {
-                          setQuery(value);
+                          navigate({ type: "sdlcQuery", value });
                         }}
                         onClear={() => {
-                          setQuery("");
+                          navigate({ type: "sdlcQuery", value: "" });
                         }}
                       />
                     </ToolbarItem>
@@ -1856,8 +1892,7 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
                       messages.sdlcNotificationsTitle,
                     )}
                     onClick={() => {
-                      setSelected(null);
-                      setShowNotifications((v) => !v);
+                      navigate({ type: "sdlcToggleEscalations" });
                     }}
                   />
                 </ToolbarItem>
@@ -1872,7 +1907,9 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
                     phase={phase}
                     cards={cardsInPhase(cards, phase.key)}
                     scale={scale}
-                    onSelect={setSelected}
+                    onSelect={(card) => {
+                      navigate({ type: "sdlcCard", card: card.number });
+                    }}
                   />
                 ))}
               </div>
@@ -1881,10 +1918,9 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
               <div ref={matrixRef}>
                 <ShippedMatrix
                   {...props}
-                  onSelectShipped={(sel) => {
-                    setSelected(null);
-                    setShowNotifications(false);
-                    setSelectedShipped(sel);
+                  expandedSeed={route.sdlc.shippedRow}
+                  onToggleRow={(seed) => {
+                    navigate({ type: "sdlcShippedRow", seed });
                   }}
                 />
               </div>

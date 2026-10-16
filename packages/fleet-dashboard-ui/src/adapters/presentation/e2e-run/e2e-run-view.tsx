@@ -89,11 +89,30 @@ import {
   e2eStreamFact,
   type ObservabilityPort,
 } from "../../../application/observability";
+import type { ExecState, SortState } from "../../../domain/navigation/route";
 import { messages } from "../../../messages";
 import { useFleetApi } from "../../query/api-context";
 import { useObservability } from "../../observability/observability-context";
+import { useRoute, useRouter } from "../../routing/router";
+import { NavLinkButton } from "../nav-link-button";
 import { TONE_COLOR } from "../map/colors";
 import styles from "./e2e-run-view.module.css";
+
+/**
+ * The shared execution-detail controls (GLASS-NAV-11): one bundle of route-derived
+ * state plus typed dispatchers, wired by the E2E run container to route.e2e.exec and
+ * by the Fleet Map gate drawer to route.map.exec. The presentational pane and its
+ * tables stay router-agnostic and fully controlled, so a single stream per run is
+ * preserved across sub-tab, step, sort, and log-search changes (GLASS-NAV-18).
+ */
+export interface ExecControls {
+  readonly exec: ExecState;
+  readonly onTab: (tab: ExecState["tab"]) => void;
+  readonly onStep: (step: string | null) => void;
+  readonly onStepSort: (sort: SortState | null) => void;
+  readonly onLogExpanded: (value: boolean) => void;
+  readonly onLogQuery: (value: string) => void;
+}
 
 /** How many log lines the pane renders, so an unbounded log cannot blow up the DOM. */
 const MAX_RENDERED_LOG_LINES = 500;
@@ -161,7 +180,6 @@ export interface E2eRunViewProps {
   readonly data: E2eRunsData;
   /** Reference instant for relative timestamps; injectable for deterministic tests. */
   readonly nowMs?: number;
-  readonly initialRunId?: string;
 }
 
 type IconComp = ComponentType<SVGIconProps>;
@@ -334,34 +352,37 @@ function useLiveRunDetail(
 }
 
 // Sort source values, never localized display strings. Null durations sort last.
+// Controlled by route state: the current sort and its dispatcher come from the
+// caller so sort selection round-trips through the URL (GLASS-NAV-12, GLASS-NAV-11).
 function useTableSort<T>(
   rows: readonly T[],
   values: (row: T) => readonly (string | number | null)[],
+  sort: SortState | null,
+  onSort: (sort: SortState | null) => void,
   initialIndex?: number,
 ) {
-  const [sortBy, setSortBy] = useState<{
-    index?: number;
-    direction: "asc" | "desc";
-  }>({ index: initialIndex, direction: "desc" });
+  const index = sort?.col ?? initialIndex;
+  const direction = sort?.dir ?? "desc";
+  const sortBy = { index, direction };
   const sorted =
-    sortBy.index === undefined
+    index === undefined
       ? rows
       : [...rows].sort((a, b) => {
-          const av = values(a)[sortBy.index ?? 0] ?? null;
-          const bv = values(b)[sortBy.index ?? 0] ?? null;
+          const av = values(a)[index] ?? null;
+          const bv = values(b)[index] ?? null;
           if (av === null) return bv === null ? 0 : 1;
           if (bv === null) return -1;
           const comparison =
             typeof av === "number" && typeof bv === "number"
               ? av - bv
               : String(av).localeCompare(String(bv));
-          return sortBy.direction === "asc" ? comparison : -comparison;
+          return direction === "asc" ? comparison : -comparison;
         });
-  const column = (index: number): ThProps["sort"] => ({
+  const column = (columnIndex: number): ThProps["sort"] => ({
     sortBy,
-    columnIndex: index,
-    onSort: (_, index, direction) => {
-      setSortBy({ index, direction });
+    columnIndex,
+    onSort: (_, ci, dir) => {
+      onSort({ col: ci, dir });
     },
   });
   return { sorted, column };
@@ -393,13 +414,18 @@ function RunsTable({
   runs,
   promotion,
   selectedId,
-  onSelect,
+  onActivate,
+  sort,
+  onSort,
   nowMs,
 }: {
   promotion?: PromotionData;
   runs: readonly E2eRunSummary[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  /** Records the trigger element for focus restoration; navigation is the link's. */
+  onActivate: (event: React.MouseEvent) => void;
+  sort: SortState | null;
+  onSort: (sort: SortState | null) => void;
   nowMs: number;
 }): React.ReactElement {
   const intl = useIntl();
@@ -414,6 +440,8 @@ function RunsTable({
       runBundle(run, promotion)?.version ?? null,
       runTargetInstance(run, promotion) ?? run.cluster,
     ],
+    sort,
+    onSort,
     2,
   );
   return (
@@ -471,12 +499,9 @@ function RunsTable({
                 </small>
               </Td>
               <Td dataLabel={intl.formatMessage(messages.e2eColumnRevision)}>
-                <Button
-                  variant="link"
-                  isInline
-                  onClick={() => {
-                    onSelect(run.id);
-                  }}
+                <NavLinkButton
+                  action={{ type: "e2eSelectRun", run: run.id }}
+                  onActivate={onActivate}
                   aria-label={intl.formatMessage(messages.e2eRunSelect, {
                     revision: run.revision,
                     attempt: run.runId,
@@ -485,7 +510,7 @@ function RunsTable({
                   {run.revision !== ""
                     ? run.revision.slice(0, 8)
                     : intl.formatMessage(messages.valueNone)}
-                </Button>
+                </NavLinkButton>
               </Td>
               <Td dataLabel={intl.formatMessage(messages.e2eColumnAttempt)}>
                 <span title={run.runId}>{run.runId.slice(0, 8)}</span>
@@ -518,22 +543,31 @@ function StepsTable({
   detail,
   selectedStepId,
   onSelectStep,
+  sort,
+  onSort,
   nowMs,
 }: {
   detail: E2eRunDetail;
   selectedStepId: string | null;
   onSelectStep: (stepId: string) => void;
+  sort: SortState | null;
+  onSort: (sort: SortState | null) => void;
   nowMs: number;
 }): React.ReactElement {
   const intl = useIntl();
-  const { sorted, column } = useTableSort(detail.steps, (step) => [
-    step.name || step.stepId,
-    step.state,
-    step.durationMs ??
-      (step.state === "running" && step.startedAt
-        ? nowMs - Date.parse(step.startedAt)
-        : null),
-  ]);
+  const { sorted, column } = useTableSort(
+    detail.steps,
+    (step) => [
+      step.name || step.stepId,
+      step.state,
+      step.durationMs ??
+        (step.state === "running" && step.startedAt
+          ? nowMs - Date.parse(step.startedAt)
+          : null),
+    ],
+    sort,
+    onSort,
+  );
   return (
     <Table
       gridBreakPoint=""
@@ -615,16 +649,26 @@ function LogPane({
   detail,
   selectedStepId,
   onSelectScope,
+  search,
+  onSearch,
+  expanded,
+  onExpanded,
 }: {
   detail: E2eRunDetail;
   selectedStepId: string | null;
   onSelectScope: (stepId: string | null) => void;
+  /** Log search text (URL-coalesced, GLASS-NAV-11). */
+  search: string;
+  onSearch: (value: string) => void;
+  /** Expanded log viewer (URL-represented, GLASS-NAV-11). */
+  expanded: boolean;
+  onExpanded: (value: boolean) => void;
 }): React.ReactElement {
   const intl = useIntl();
+  // follow/pause and the timestamp toggle are transient view toggles, not
+  // URL-represented (GLASS-NAV-11).
   const [following, setFollowing] = useState(true);
-  const [search, setSearch] = useState("");
   const [timestamps, setTimestamps] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
 
   const lines = useMemo(
@@ -675,10 +719,10 @@ function LogPane({
             aria-label={intl.formatMessage(messages.e2eSearchLogs)}
             placeholder={intl.formatMessage(messages.e2eSearchLogs)}
             onChange={(_, value) => {
-              setSearch(value);
+              onSearch(value);
             }}
             onClear={() => {
-              setSearch("");
+              onSearch("");
             }}
           />
           <Button
@@ -707,7 +751,7 @@ function LogPane({
             variant="link"
             isInline
             onClick={() => {
-              setExpanded(!expanded);
+              onExpanded(!expanded);
             }}
           >
             <FormattedMessage
@@ -767,7 +811,7 @@ function LogPane({
       isOpen
       variant={ModalVariant.large}
       onClose={() => {
-        setExpanded(false);
+        onExpanded(false);
       }}
       aria-label={intl.formatMessage(messages.e2eLogPaneTitle)}
     >
@@ -789,10 +833,13 @@ export function SelectedRunPane({
   runId,
   nowMs: suppliedNowMs,
   promotion,
+  controls,
 }: {
   runId: string;
   nowMs?: number;
   promotion?: PromotionData;
+  /** Shared execution-detail controls, wired to the owning route slice. */
+  controls: ExecControls;
 }): React.ReactElement {
   const intl = useIntl();
   const [clock, setClock] = useState(() => Date.now());
@@ -809,8 +856,10 @@ export function SelectedRunPane({
   const observability = useObservability();
   const [snapshot, setSnapshot] = useState<E2eRunDetail | null>(null);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
-  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<string | number>("progress");
+  // The log scope and sub-tab are URL-represented via the shared controls, so they
+  // survive reload and Back/Forward without restarting the live stream (GLASS-NAV-18).
+  const selectedStepId = controls.exec.step;
+  const activeTab: string | number = controls.exec.tab;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -953,7 +1002,7 @@ export function SelectedRunPane({
       <Tabs
         activeKey={activeTab}
         onSelect={(_, key) => {
-          setActiveTab(key);
+          controls.onTab(key === "logs" ? "logs" : "progress");
         }}
         aria-label={intl.formatMessage(messages.e2eExecutionTabs)}
       >
@@ -982,9 +1031,10 @@ export function SelectedRunPane({
                 detail={detail}
                 selectedStepId={selectedStepId}
                 onSelectStep={(id) => {
-                  setSelectedStepId(id);
-                  setActiveTab("logs");
+                  controls.onStep(id);
                 }}
+                sort={controls.exec.stepSort}
+                onSort={controls.onStepSort}
                 nowMs={nowMs}
               />
             )}
@@ -1002,7 +1052,11 @@ export function SelectedRunPane({
             <LogPane
               detail={detail}
               selectedStepId={selectedStepId}
-              onSelectScope={setSelectedStepId}
+              onSelectScope={controls.onStep}
+              search={controls.exec.logQuery}
+              onSearch={controls.onLogQuery}
+              expanded={controls.exec.logExpanded}
+              onExpanded={controls.onLogExpanded}
             />
           </div>
         </Tab>
@@ -1011,14 +1065,45 @@ export function SelectedRunPane({
   );
 }
 
+/** Build the e2e run execution controls from the route (GLASS-NAV-11). */
+function useE2eExecControls(exec: ExecState): ExecControls {
+  const { navigate } = useRouter();
+  return useMemo(
+    () => ({
+      exec,
+      onTab: (tab) => {
+        navigate({ type: "e2eExecTab", tab });
+      },
+      onStep: (step) => {
+        navigate({ type: "e2eStep", step });
+      },
+      onStepSort: (sort) => {
+        navigate({ type: "e2eStepSort", sort });
+      },
+      onLogExpanded: (value) => {
+        navigate({ type: "e2eLogExpanded", value });
+      },
+      onLogQuery: (value) => {
+        navigate({ type: "e2eLogQuery", value });
+      },
+    }),
+    [exec, navigate],
+  );
+}
+
 export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
   const { data } = props;
   const intl = useIntl();
   const nowMs = resolveNowMs(props.nowMs);
-  const [selectedId, setSelectedId] = useState<string | null>(
-    props.initialRunId ?? null,
-  );
-  const [isExpanded, setExpanded] = useState(props.initialRunId !== undefined);
+  // The URL is authoritative for selection, drawer, search, sort, and the shared
+  // execution detail (GLASS-NAV-05, GLASS-NAV-12).
+  const route = useRoute();
+  const { navigate } = useRouter();
+  const selectedId = route.e2e.run;
+  const isExpanded = route.e2e.drawer;
+  const search = route.e2e.query;
+  const execControls = useE2eExecControls(route.e2e.exec);
+
   const [inline, setInline] = useState(
     () =>
       typeof window.matchMedia === "function" &&
@@ -1038,9 +1123,10 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
     };
   }, []);
   const close = useCallback(() => {
-    setExpanded(false);
+    // Closing preserves the selected run (GLASS-NAV-12); only the drawer closes.
+    navigate({ type: "e2eDrawer", open: false });
     triggerRef.current?.focus();
-  }, []);
+  }, [navigate]);
   useEffect(() => {
     if (!isExpanded) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1056,7 +1142,6 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [isExpanded, close]);
-  const [search, setSearch] = useState("");
 
   const runs = useMemo(
     () =>
@@ -1094,10 +1179,10 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
         aria-label={intl.formatMessage(messages.e2eSearchRuns)}
         placeholder={intl.formatMessage(messages.e2eSearchRuns)}
         onChange={(_, value) => {
-          setSearch(value);
+          navigate({ type: "e2eQuery", value });
         }}
         onClear={() => {
-          setSearch("");
+          navigate({ type: "e2eQuery", value: "" });
         }}
       />
       <div className={styles.historyStage}>
@@ -1145,6 +1230,7 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
                       runId={selectedId}
                       promotion={props.promotion}
                       nowMs={nowMs}
+                      controls={execControls}
                     />
                   ) : null}
                 </DrawerPanelBody>
@@ -1161,10 +1247,14 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
                   promotion={props.promotion}
                   runs={runs}
                   selectedId={selectedId}
-                  onSelect={(id) => {
-                    triggerRef.current = document.activeElement as HTMLElement;
-                    setSelectedId(id);
-                    setExpanded(true);
+                  onActivate={(event) => {
+                    // Record the trigger for focus restoration on close; the link
+                    // itself performs the navigation (GLASS-NAV-08, GLASS-NAV-15).
+                    triggerRef.current = event.currentTarget as HTMLElement;
+                  }}
+                  sort={route.e2e.runSort}
+                  onSort={(sort) => {
+                    navigate({ type: "e2eRunSort", sort });
                   }}
                   nowMs={nowMs}
                 />

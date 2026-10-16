@@ -37,6 +37,7 @@ import {
   TEXT_SUBTLE,
   TONE_COLOR,
 } from "./colors";
+import { useRoute, useRouter } from "../../routing/router";
 import { MapEdges } from "./edges";
 import { MapFlights } from "./flights";
 import { MapDetails, type MapSelection } from "./map-details";
@@ -127,32 +128,29 @@ export function TopologyMap({
     recenter,
     didPan,
   } = useMapViewport(layout.width, layout.height, containerAspect);
-  // Local node/gate selection. The bundle selection is owned by the SHARED freight
-  // bar (SDLC-VIS-07) and arrives as a prop; it is NOT stored here.
-  const [localSelection, setLocalSelection] = useState<MapSelection | null>(
-    null,
-  );
-
-  // The drawer's selection, derived rather than synced: a local node/gate takes the
-  // drawer, otherwise the shared bundle fills it. Deriving (not mirroring the prop
-  // into state) keeps one source of truth per concern and avoids a setState feedback
-  // loop. selectNode/selectGate/selectBundle keep the two mutually exclusive.
-  const selection: MapSelection | null = useMemo(
-    () =>
-      localSelection ??
-      (selectedBundleSeed !== null
-        ? { kind: "bundle", id: selectedBundleSeed }
-        : null),
-    [localSelection, selectedBundleSeed],
-  );
-
-  // Close the drawer, clearing whichever selection is showing: a local node/gate
-  // directly, a shared bundle through onSelectBundle (which toggles the seed off).
-  const closeSelection = () => {
-    setLocalSelection(null);
-    if (selectedBundleSeed !== null) {
-      onSelectBundle(selectedBundleSeed);
+  // The node/gate selection lives in the URL (GLASS-NAV-09); the shared bundle
+  // selection arrives as a prop (route.bundle). The drawer's selection is derived:
+  // a node/gate takes the drawer, otherwise the shared bundle fills it. One source of
+  // truth per concern (the URL), no mirrored local state (GLASS-NAV-05).
+  const route = useRoute();
+  const { navigate } = useRouter();
+  const selection: MapSelection | null = useMemo(() => {
+    if (route.map.node !== null) {
+      return { kind: "node", id: route.map.node };
     }
+    if (route.map.gate !== null) {
+      return { kind: "gate", id: route.map.gate };
+    }
+    if (selectedBundleSeed !== null) {
+      return { kind: "bundle", id: selectedBundleSeed };
+    }
+    return null;
+  }, [route.map.node, route.map.gate, selectedBundleSeed]);
+
+  // Close the drawer, clearing the node/gate selection and the shared bundle that
+  // otherwise fills it (GLASS-NAV-09).
+  const closeSelection = () => {
+    navigate({ type: "mapClose" });
   };
 
   // Esc closes the details drawer. PatternFly's inline Drawer does not trap focus
@@ -164,17 +162,14 @@ export function TopologyMap({
     }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setLocalSelection(null);
-        if (selectedBundleSeed !== null) {
-          onSelectBundle(selectedBundleSeed);
-        }
+        navigate({ type: "mapClose" });
       }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [selection, selectedBundleSeed, onSelectBundle]);
+  }, [selection, navigate]);
 
   // Promotion fly-ins: identicons arc from the promoting-FROM node to the node they
   // land on, and each landing jolts the whole canvas (screen shake). Both collapse to
@@ -201,35 +196,26 @@ export function TopologyMap({
     return new Set(deployedFor(bundle, model.nodes).map((n) => n.id));
   }, [promotion.releaseByDigest, model.nodes, selectedBundleSeed]);
 
-  // Selecting a node/gate clears any shared bundle selection so the drawer shows one
-  // thing at a time (the derived `selection` then resolves to the local pick).
-  const clearSharedBundle = () => {
-    if (selectedBundleSeed !== null) {
-      onSelectBundle(selectedBundleSeed);
-    }
-  };
+  // Selecting a node/gate is a discrete navigation step (GLASS-NAV-09). The pan guard
+  // keeps a drag from registering as a click; the reducer handles toggle-off and the
+  // node/gate mutual exclusion, and clears the shared bundle so the drawer shows one
+  // thing at a time.
   const selectNode = (id: string) => {
     if (didPan()) {
       return;
     }
-    clearSharedBundle();
-    setLocalSelection((cur) =>
-      cur?.kind === "node" && cur.id === id ? null : { kind: "node", id },
-    );
+    navigate({ type: "mapSelectNode", id });
   };
   const selectGate = (id: string) => {
     if (didPan()) {
       return;
     }
-    clearSharedBundle();
-    setLocalSelection((cur) =>
-      cur?.kind === "gate" && cur.id === id ? null : { kind: "gate", id },
-    );
+    navigate({ type: "mapSelectGate", id });
   };
-  // Bundle selection lives in the shared freight bar; selecting one drops any local
-  // node/gate selection so the bundle takes the drawer.
+  // Bundle selection lives in the shared freight bar; its shell-provided handler
+  // toggles the seed and the reducer drops any node/gate selection so the bundle
+  // takes the drawer.
   const selectBundle = (seed: string) => {
-    setLocalSelection(null);
     onSelectBundle(seed);
   };
   // From a node-card identicon: suppress when the press was actually a pan.
@@ -290,10 +276,9 @@ export function TopologyMap({
                       onClose={closeSelection}
                       onSelectBundle={selectBundle}
                       onSelectNode={(id) => {
-                        // From a "Deployed on" chip: always jump to that node (not a
-                        // map click, so skip the pan guard and the toggle-off).
-                        clearSharedBundle();
-                        setLocalSelection({ kind: "node", id });
+                        // From a "Deployed on" chip: jump to that node (not a map
+                        // click, so no pan guard). The reducer clears the bundle/gate.
+                        navigate({ type: "mapSelectNode", id });
                       }}
                     />
                   ) : null}

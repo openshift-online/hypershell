@@ -1,9 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { AgentSdlcData } from "../../../domain/agent-sdlc";
 import { identiName } from "../../../domain/map/identiname";
+import { parseRoute } from "../../../domain/navigation/route";
+import { createMemoryHistory } from "../../routing/history-port";
+import { RouterProvider } from "../../routing/router";
 import { AgentSdlcView, type AgentSdlcViewProps } from "./agent-sdlc-view";
 
 const EMPTY: AgentSdlcData = {
@@ -14,23 +17,17 @@ const EMPTY: AgentSdlcData = {
 };
 
 function renderView(overrides: Partial<AgentSdlcViewProps>): {
-  onSelectBundle: ReturnType<typeof vi.fn>;
-  onJumpToMap: ReturnType<typeof vi.fn>;
+  history: ReturnType<typeof createMemoryHistory>;
 } {
-  const onSelectBundle = vi.fn();
-  const onJumpToMap = vi.fn();
+  const history = createMemoryHistory({ path: "/sdlc", search: "" });
   render(
     <IntlProvider locale="en" defaultLocale="en">
-      <AgentSdlcView
-        data={EMPTY}
-        selectedBundleSeed={null}
-        onSelectBundle={onSelectBundle}
-        onJumpToMap={onJumpToMap}
-        {...overrides}
-      />
+      <RouterProvider history={history}>
+        <AgentSdlcView data={EMPTY} selectedBundleSeed={null} {...overrides} />
+      </RouterProvider>
     </IntlProvider>,
   );
-  return { onSelectBundle, onJumpToMap };
+  return { history };
 }
 
 describe("AgentSdlcView board", () => {
@@ -174,17 +171,19 @@ describe("AgentSdlcView matrix", () => {
         ],
       },
     };
-    const { onSelectBundle, onJumpToMap } = renderView({ data });
+    const { history } = renderView({ data });
 
     expect(screen.getByText("Unreleased")).toBeDefined();
     // The current-bundle marker reads with a non-color cue ("current" text).
     expect(screen.getAllByText("current").length).toBeGreaterThan(0);
 
-    // Activating the bundle opens it on the map (shared freight bar + tab jump). The
-    // bundle reads by its identiname (the stable two-word alias), not the raw version.
-    fireEvent.click(screen.getByRole("button", { name: identiName("d2") }));
-    expect(onSelectBundle).toHaveBeenCalledWith("d2");
-    expect(onJumpToMap).toHaveBeenCalled();
+    // Activating the bundle opens it on the map (shared freight bar + tab jump)
+    // as a single addressable navigation (GLASS-NAV-08). The bundle reads by its
+    // identiname (the stable two-word alias), not the raw version.
+    fireEvent.click(screen.getByRole("link", { name: identiName("d2") }));
+    const route = parseRoute(history.read());
+    expect(route.tab).toBe("map");
+    expect(route.bundle).toBe("d2");
   });
 
   it("renders a localized 'merged Nd ago' timestamp using the injected clock", () => {

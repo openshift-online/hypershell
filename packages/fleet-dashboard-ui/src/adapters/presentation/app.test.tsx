@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
@@ -13,6 +13,8 @@ import type {
   InstancesData,
   TopologyData,
 } from "../../application/ports";
+import { createMemoryHistory } from "../routing/history-port";
+import { RouterProvider } from "../routing/router";
 import { FleetApiProvider } from "../query/api-context";
 import { App } from "./app";
 
@@ -85,19 +87,26 @@ const envExtras = {
   upToDate: false,
 } as const;
 
-function renderApp(api: FleetApi): void {
+function renderApp(
+  api: FleetApi,
+  initial?: { path: string; search: string },
+): ReturnType<typeof createMemoryHistory> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  const history = createMemoryHistory(initial);
   render(
     <IntlProvider locale="en" defaultLocale="en">
       <QueryClientProvider client={queryClient}>
         <FleetApiProvider value={api}>
-          <App />
+          <RouterProvider history={history}>
+            <App />
+          </RouterProvider>
         </FleetApiProvider>
       </QueryClientProvider>
     </IntlProvider>,
   );
+  return history;
 }
 
 describe("App", () => {
@@ -278,5 +287,89 @@ describe("App", () => {
     expect(
       await screen.findByText("End-to-end run reporting is not enabled."),
     ).toBeDefined();
+  });
+
+  // A minimal all-planes API for the URL-navigation integration tests.
+  const baseApi = (): FleetApi =>
+    ({
+      getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
+      getPromotion: () =>
+        Promise.resolve(
+          plane<PromotionData>({
+            order: [],
+            environments: {},
+            releases: [],
+            releaseByDigest: {},
+            frontier: null,
+          }),
+        ),
+      getTopology: () => Promise.resolve(plane<TopologyData>({})),
+      getInstances: () =>
+        Promise.resolve(plane<InstancesData>({ instances: [] })),
+      getSdlc: () =>
+        Promise.resolve(
+          plane<AgentSdlcData>({
+            phases: [],
+            cards: [],
+            lane: [],
+            matrix: { hubClusters: [], rows: [] },
+          }),
+        ),
+      ...e2eApi,
+    }) satisfies FleetApi;
+
+  it("hydrates a deep link to the E2E tab from the URL before data resolves (GLASS-NAV-05)", async () => {
+    const history = renderApp(baseApi(), {
+      path: "/e2e",
+      search: "?run=tenant-1%2Fns%2Frun-1",
+    });
+    // The addressed tab is selected synchronously from the URL, before any payload.
+    expect(
+      (await screen.findByRole("tab", { name: "E2E Runs" })).getAttribute(
+        "aria-selected",
+      ),
+    ).toBe("true");
+    // The URL remains the authoritative, addressed destination.
+    const parsed = history.read();
+    expect(parsed.path).toBe("/e2e");
+    expect(parsed.search).toContain("run=tenant-1");
+  });
+
+  it("retraces a cross-tab investigation with Back and Forward (GLASS-NAV-07)", async () => {
+    const history = renderApp(baseApi());
+    fireEvent.click(await screen.findByRole("tab", { name: "Agent SDLC" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "E2E Runs" }));
+    expect(
+      screen
+        .getByRole("tab", { name: "E2E Runs" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+
+    act(() => {
+      history.back();
+    });
+    expect(
+      screen
+        .getByRole("tab", { name: "Agent SDLC" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+
+    act(() => {
+      history.back();
+    });
+    expect(
+      screen
+        .getByRole("tab", { name: "Fleet Map" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+
+    act(() => {
+      history.forward();
+    });
+    expect(
+      screen
+        .getByRole("tab", { name: "Agent SDLC" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
   });
 });

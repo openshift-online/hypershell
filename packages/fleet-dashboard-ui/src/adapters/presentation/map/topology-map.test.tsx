@@ -13,6 +13,8 @@ import type {
   TopologyData,
 } from "../../../application/ports";
 import { FleetApiProvider } from "../../query/api-context";
+import { createMemoryHistory } from "../../routing/history-port";
+import { RouterProvider } from "../../routing/router";
 import { App } from "../app";
 
 function plane<T>(data: T): Plane<T> {
@@ -122,7 +124,9 @@ function renderApp(): void {
     <IntlProvider locale="en" defaultLocale="en">
       <QueryClientProvider client={queryClient}>
         <FleetApiProvider value={api}>
-          <App />
+          <RouterProvider history={createMemoryHistory()}>
+            <App />
+          </RouterProvider>
         </FleetApiProvider>
       </QueryClientProvider>
     </IntlProvider>,

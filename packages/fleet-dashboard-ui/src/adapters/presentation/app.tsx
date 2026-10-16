@@ -18,7 +18,7 @@ import {
   TabTitleText,
   Tabs,
 } from "@patternfly/react-core";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import {
@@ -28,6 +28,7 @@ import {
   useSdlc,
   useTopology,
 } from "../query/hooks";
+import { useRouter } from "../routing/router";
 import { useSessionExpired } from "../auth/session-expiry";
 import { buildMapModel } from "../../domain/map/model";
 import type { FleetData } from "../../domain/fleet";
@@ -53,8 +54,6 @@ const EMPTY_PROMOTION: PromotionData = {
   frontier: null,
 };
 
-type TabKey = "map" | "sdlc" | "e2e";
-
 /** Visually hidden, but present in the accessibility tree (sr-only pattern). */
 const srOnly: React.CSSProperties = {
   position: "absolute",
@@ -77,15 +76,16 @@ export function App(): React.ReactElement {
   const sdlc = useSdlc();
   const e2e = useE2eRuns();
 
-  const [historyRunId, setHistoryRunId] = useState<string | undefined>();
-  const [activeTab, setActiveTab] = useState<TabKey>("map");
-  // The shared freight bar's selection, lifted so it drives both tabs and survives a
-  // tab switch (SDLC-VIS-07). Toggling the same bundle clears it.
-  const [selectedBundleSeed, setSelectedBundleSeed] = useState<string | null>(
-    null,
-  );
+  // The URL is the single source of truth for navigation state (GLASS-NAV-05):
+  // the active tab and the shared freight-bar bundle both come from the route and
+  // all transitions go through typed navigation actions (GLASS-NAV-04).
+  const { route, navigate } = useRouter();
+  const activeTab = route.tab;
+  // The shared freight bar's selection drives both tabs and survives a tab switch
+  // (SDLC-VIS-07); toggling the same bundle clears it.
+  const selectedBundleSeed = route.bundle;
   const onSelectBundle = (seed: string) => {
-    setSelectedBundleSeed((cur) => (cur === seed ? null : seed));
+    navigate({ type: "toggleBundle", seed });
   };
 
   // The map needs promotion + fleet together; it is driven by the promotion plane
@@ -142,7 +142,7 @@ export function App(): React.ReactElement {
             <Tabs
               activeKey={activeTab}
               onSelect={(_event, key) => {
-                setActiveTab(key as TabKey);
+                navigate({ type: "tab", tab: key as typeof activeTab });
               }}
               aria-label={intl.formatMessage(messages.sdlcTabs)}
             >
@@ -164,10 +164,7 @@ export function App(): React.ReactElement {
                         promotion: promotionData,
                         data: e2e.data?.data,
                         unavailable: e2e.isError || e2e.data?.stale,
-                        onOpenHistory: (id) => {
-                          setHistoryRunId(id);
-                          setActiveTab("e2e");
-                        },
+                        showHistoryLink: true,
                       }}
                       promotion={data}
                       fleet={fleetData}
@@ -191,10 +188,6 @@ export function App(): React.ReactElement {
                     <AgentSdlcView
                       data={data}
                       selectedBundleSeed={selectedBundleSeed}
-                      onSelectBundle={onSelectBundle}
-                      onJumpToMap={() => {
-                        setActiveTab("map");
-                      }}
                     />
                   )}
                 </PlaneSection>
@@ -213,12 +206,7 @@ export function App(): React.ReactElement {
                   hideTitle
                 >
                   {(data) => (
-                    <E2eRunView
-                      key={historyRunId ?? "history"}
-                      data={data}
-                      initialRunId={historyRunId}
-                      promotion={promotionData}
-                    />
+                    <E2eRunView data={data} promotion={promotionData} />
                   )}
                 </PlaneSection>
               </Tab>
