@@ -872,11 +872,35 @@ export const messages = defineMessages({
     defaultMessage: "No work in progress.",
     description: "Shown when the Agent SDLC aging board has no cards.",
   },
+  sdlcBundleIssueCount: {
+    id: "fleet.sdlc.bundle.issueCount",
+    defaultMessage: "{issues, plural, one {# issue} other {# issues}}",
+    description:
+      "Tracked-issue count part of a release bundle row's compact summary.",
+  },
+  sdlcBundleNoContents: {
+    id: "fleet.sdlc.bundle.noContents",
+    defaultMessage: "No pull requests in this bundle.",
+    description:
+      "Shown when an expanded release bundle has no pull requests at all (neither tracked issues nor one-off PRs), e.g. the oldest bundle with no prior build to diff against.",
+  },
   sdlcBundleNoIssues: {
     id: "fleet.sdlc.bundle.noIssues",
     defaultMessage: "No tracked issues in this bundle.",
     description:
-      "Shown when an expanded release bundle (or the Unreleased row) has no agent-funnel issues. The board tracks issues, not every PR or commit, so a bundle can ship work with no linked issue.",
+      "Shown when the Unreleased row has no in-flight tracked issues. The board tracks execution-record issues, so this reads empty when nothing shipped is awaiting a bundle.",
+  },
+  sdlcBundlePrCount: {
+    id: "fleet.sdlc.bundle.prCount",
+    defaultMessage: "{prs, plural, one {# PR} other {# PRs}}",
+    description:
+      "Pull-request count part of a release bundle row's compact summary.",
+  },
+  sdlcBundleSummary: {
+    id: "fleet.sdlc.bundle.summary",
+    defaultMessage: "{issues}, {prs}",
+    description:
+      "Compact summary in a release bundle row joining its tracked-issue count and its total pull-request count.",
   },
   sdlcCardOpen: {
     id: "fleet.sdlc.card.open",
@@ -1017,6 +1041,12 @@ export const messages = defineMessages({
     description:
       "Title of the escalations notification drawer and its bell trigger.",
   },
+  sdlcOtherPRs: {
+    id: "fleet.sdlc.matrix.otherPRs",
+    defaultMessage: "Other pull requests",
+    description:
+      "Heading for the group of one-off pull requests in an expanded bundle row: PRs with no tracked execution-record issue.",
+  },
   sdlcPhaseCode: {
     id: "fleet.sdlc.phase.code",
     defaultMessage: "Code",
@@ -1147,6 +1177,12 @@ export const messages = defineMessages({
     id: "fleet.sdlc.timeInPhase",
     defaultMessage: "In phase {duration}",
     description: "Accessible label for a card's time-in-phase.",
+  },
+  sdlcTrackedIssues: {
+    id: "fleet.sdlc.matrix.trackedIssues",
+    defaultMessage: "Tracked issues",
+    description:
+      "Heading for the group of tracked execution-record issues in an expanded bundle row: the bundle's PRs grouped under the issue they resolve to.",
   },
   sdlcUnreleased: {
     id: "fleet.sdlc.matrix.unreleased",

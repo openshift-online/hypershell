@@ -131,13 +131,17 @@ func TestSDLCEscalationLane(t *testing.T) {
 }
 
 // TestSDLCMatrix confirms the Shipped matrix reuses the promotion bundle/cluster
-// truth, maps shipped work items to bundles via the work-item -> PRs hop, places
-// bundle-less merged work in the single Unreleased row, and marks the current
-// bundle per hub cluster (SDLC-VIS-03/11).
+// truth, drives each bundle row's contents from the bundle's own PRs (grouped into
+// tracked issues and one-off PRs), reduces Unreleased to shipped work absent from
+// every bundle, and marks the current bundle per hub cluster (SDLC-VIS-03/11).
 func TestSDLCMatrix(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	rel1 := &Release{Version: "v20260901", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101}}}
-	rel2 := &Release{Version: "v20260915", Digest: "d2", Date: "2026-09-15T00:00:00Z", PRs: []PR{{Number: 102}}}
+	rel1 := &Release{Version: "v20260901", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101, Title: "pr 101"}}}
+	// rel2 ships PR 102 (tracked by #502) plus a one-off PR 999 (no issue).
+	rel2 := &Release{Version: "v20260915", Digest: "d2", Date: "2026-09-15T00:00:00Z", PRs: []PR{
+		{Number: 102, Title: "pr 102", MergedAt: "2026-09-14T00:00:00Z"},
+		{Number: 999, Title: "bump deps", Author: "dependabot", MergedAt: "2026-09-13T00:00:00Z"},
+	}}
 	promo := PromotionPayload{
 		Order: []string{"env-a", "env-b"},
 		Environments: map[string]Environment{
@@ -151,9 +155,9 @@ func TestSDLCMatrix(t *testing.T) {
 		{Number: 502, Title: "in v2", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-09-10T00:00:00Z"},
 		{Number: 503, Title: "merged, no bundle", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-10-01T00:00:00Z"},
 	}
-	// Work item -> associated PRs: #501 shipped in PR 101 (bundle d1), #502 in PR 102
-	// (bundle d2), #503 has no bundle PR (-> Unreleased).
-	issues := fakeIssues{m: map[int][]int{501: {101}, 502: {102}}}
+	// Work item -> associated PRs: #501 delivered by PR 101 (in bundle d1), #502 by PR
+	// 102 (in bundle d2), #503 by PR 888 (in no bundle -> Unreleased).
+	issues := fakeIssues{m: map[int][]int{501: {101}, 502: {102}, 503: {888}}}
 	s := newSDLCAt(fakeProvider{records: shipped}, fakePromo{payload: promo, hasData: true}, issues, now)
 	p := fetch(t, s)
 
@@ -176,60 +180,120 @@ func TestSDLCMatrix(t *testing.T) {
 		t.Fatalf("want 3 rows (Unreleased + 2 bundles), got %d", len(rows))
 	}
 	if !rows[0].Unreleased || len(rows[0].Issues) != 1 || rows[0].Issues[0].Number != 503 {
-		t.Errorf("Unreleased row should hold #503 only, got %+v", rows[0])
+		t.Errorf("Unreleased row should hold in-flight #503 only, got %+v", rows[0])
+	}
+	if len(rows[0].OtherPRs) != 0 {
+		t.Errorf("Unreleased row must carry no one-off PRs, got %+v", rows[0].OtherPRs)
 	}
 	if rows[0].Version != "" || len(rows[0].HubClusters) != 0 {
 		t.Errorf("Unreleased row must carry no version and no hub markers, got %+v", rows[0])
 	}
+
+	// Newest bundle v2: tracked issue #502 (grouped under PR 102) and one-off PR 999.
 	if rows[1].Version != "v20260915" || len(rows[1].Issues) != 1 || rows[1].Issues[0].Number != 502 {
-		t.Errorf("newest bundle row wrong: %+v", rows[1])
+		t.Errorf("newest bundle tracked issue wrong: %+v", rows[1])
+	}
+	if len(rows[1].Issues[0].PRs) != 1 || rows[1].Issues[0].PRs[0].Number != 102 {
+		t.Errorf("tracked #502 should group PR 102, got %+v", rows[1].Issues[0].PRs)
+	}
+	if len(rows[1].OtherPRs) != 1 || rows[1].OtherPRs[0].Number != 999 || rows[1].OtherPRs[0].Author != "dependabot" {
+		t.Errorf("v2 one-off PR 999 wrong: %+v", rows[1].OtherPRs)
 	}
 	if len(rows[1].HubClusters) != 1 || rows[1].HubClusters[0] != "env-a" {
 		t.Errorf("v2 should be marked current on env-a, got %+v", rows[1].HubClusters)
 	}
-	if rows[2].Version != "v20260901" || rows[2].Issues[0].Number != 501 {
-		t.Errorf("oldest bundle row wrong: %+v", rows[2])
-	}
 	if rows[1].Issues[0].MergedAt != "2026-09-10T00:00:00Z" {
-		t.Errorf("shipped issue should carry its merged timestamp, got %q", rows[1].Issues[0].MergedAt)
+		t.Errorf("tracked issue should carry its merged timestamp, got %q", rows[1].Issues[0].MergedAt)
+	}
+
+	// Oldest bundle v1: tracked issue #501 (grouped under PR 101), no one-off PRs.
+	if rows[2].Version != "v20260901" || len(rows[2].Issues) != 1 || rows[2].Issues[0].Number != 501 {
+		t.Errorf("oldest bundle tracked issue wrong: %+v", rows[2])
+	}
+	if len(rows[2].OtherPRs) != 0 {
+		t.Errorf("v1 should have no one-off PRs, got %+v", rows[2].OtherPRs)
 	}
 }
 
-// TestSDLCMatrixWorkItemMultiplePRs confirms a work item delivered by several PRs
-// across bundles is attributed to the NEWEST bundle any of its PRs landed in (the
-// release by which it was fully delivered), not the oldest (SDLC-VIS-03).
-func TestSDLCMatrixWorkItemMultiplePRs(t *testing.T) {
+// TestSDLCMatrixTrackedIssueMultiplePRs confirms a tracked issue delivered by several
+// pull requests in ONE bundle appears once under that bundle's tracked issues with all
+// of its pull requests grouped beneath it (SDLC-VIS-03).
+func TestSDLCMatrixTrackedIssueMultiplePRs(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	rel1 := &Release{Version: "v1", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101}}}
-	rel2 := &Release{Version: "v2", Digest: "d2", Date: "2026-09-15T00:00:00Z", PRs: []PR{{Number: 102}}}
+	rel := &Release{Version: "v1", Digest: "d1", Date: "2026-09-15T00:00:00Z", PRs: []PR{
+		{Number: 101, Title: "part one", MergedAt: "2026-09-10T00:00:00Z"},
+		{Number: 102, Title: "part two", MergedAt: "2026-09-12T00:00:00Z"},
+	}}
 	promo := PromotionPayload{
 		Order:        []string{"env-a"},
-		Environments: map[string]Environment{"env-a": {Active: rel2, Cluster: "c", Env: "prod"}},
-		Releases:     map[string]*Release{"d1": rel1, "d2": rel2},
+		Environments: map[string]Environment{"env-a": {Active: rel, Cluster: "c", Env: "prod"}},
+		Releases:     map[string]*Release{"d1": rel},
 	}
 	shipped := []SdlcRecord{
-		{Number: 700, Title: "split across two bundles", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-09-16T00:00:00Z"},
+		{Number: 700, Title: "delivered by two PRs", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-09-13T00:00:00Z"},
 	}
-	// #700 links PRs in both d1 (older) and d2 (newer); it should land in d2.
+	// #700 is delivered by both PR 101 and PR 102, both in bundle d1.
 	issues := fakeIssues{m: map[int][]int{700: {101, 102}}}
 	s := newSDLCAt(fakeProvider{records: shipped}, fakePromo{payload: promo, hasData: true}, issues, now)
 	p := fetch(t, s)
 
-	byVersion := map[string][]SDLCShippedIssue{}
-	for _, row := range p.Matrix.Rows {
+	var bundle *SDLCBundleRow
+	for i := range p.Matrix.Rows {
+		row := &p.Matrix.Rows[i]
 		if row.Unreleased {
 			if len(row.Issues) != 0 {
 				t.Errorf("Unreleased should be empty, got %+v", row.Issues)
 			}
 			continue
 		}
-		byVersion[row.Version] = row.Issues
+		bundle = row
 	}
-	if len(byVersion["v2"]) != 1 || byVersion["v2"][0].Number != 700 {
-		t.Errorf("#700 should attribute to newest bundle v2, got v2=%+v", byVersion["v2"])
+	if bundle == nil {
+		t.Fatal("expected a released bundle row")
 	}
-	if len(byVersion["v1"]) != 0 {
-		t.Errorf("#700 must not also appear in older bundle v1, got v1=%+v", byVersion["v1"])
+	if len(bundle.Issues) != 1 || bundle.Issues[0].Number != 700 {
+		t.Fatalf("#700 should appear once under tracked issues, got %+v", bundle.Issues)
+	}
+	if len(bundle.Issues[0].PRs) != 2 {
+		t.Errorf("#700 should group both PRs beneath it, got %+v", bundle.Issues[0].PRs)
+	}
+	// PRs grouped newest-merged first.
+	if bundle.Issues[0].PRs[0].Number != 102 || bundle.Issues[0].PRs[1].Number != 101 {
+		t.Errorf("grouped PRs should be newest-merged first, got %+v", bundle.Issues[0].PRs)
+	}
+	if len(bundle.OtherPRs) != 0 {
+		t.Errorf("no one-off PRs expected, got %+v", bundle.OtherPRs)
+	}
+}
+
+// TestSDLCMatrixOneOffPRNotUnreleased confirms a pull request that shipped in a bundle
+// but resolves to no execution-record issue appears under that bundle's one-off PRs,
+// never in the Unreleased row (SDLC-VIS-11).
+func TestSDLCMatrixOneOffPRNotUnreleased(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	rel := &Release{Version: "v1", Digest: "d1", Date: "2026-09-15T00:00:00Z", PRs: []PR{{Number: 540, Title: "fix typo"}}}
+	promo := PromotionPayload{
+		Order:        []string{"env-a"},
+		Environments: map[string]Environment{"env-a": {Active: rel, Cluster: "c", Env: "prod"}},
+		Releases:     map[string]*Release{"d1": rel},
+	}
+	// No shipped execution records at all; the bundle still shows its real PR contents.
+	s := newSDLCAt(fakeProvider{records: nil}, fakePromo{payload: promo, hasData: true}, fakeIssues{m: map[int][]int{}}, now)
+	p := fetch(t, s)
+
+	for _, row := range p.Matrix.Rows {
+		if row.Unreleased {
+			if len(row.Issues) != 0 || len(row.OtherPRs) != 0 {
+				t.Errorf("Unreleased must be empty, got issues=%+v otherPRs=%+v", row.Issues, row.OtherPRs)
+			}
+			continue
+		}
+		if len(row.OtherPRs) != 1 || row.OtherPRs[0].Number != 540 {
+			t.Errorf("one-off PR 540 should sit under the bundle's one-off PRs, got %+v", row.OtherPRs)
+		}
+		if len(row.Issues) != 0 {
+			t.Errorf("bundle with no tracked work should have no tracked issues, got %+v", row.Issues)
+		}
 	}
 }
 

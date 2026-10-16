@@ -97,6 +97,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 import {
   agingRatio,
   boardPhases,
+  bundlePRCount,
   bundleRowExpandKey,
   bundleRowSeed,
   cardsInPhase,
@@ -107,10 +108,12 @@ import {
   globalAgingScaleSeconds,
   reworkRatio,
   reworkSeverity,
+  type AgentSdlcBundleRow,
   type AgentSdlcCard,
   type AgentSdlcData,
   type AgentSdlcLabelEvent,
   type AgentSdlcPhase,
+  type AgentSdlcPullRequest,
   type AgentSdlcRework,
   type AgentSdlcShippedIssue,
 } from "../../../domain/agent-sdlc";
@@ -1027,7 +1030,9 @@ function NotificationsPanel({
   );
 }
 
-function MatrixIssues({
+/** The tracked-issue list of a bundle (or the Unreleased row): each execution record
+ *  links to its shipped-issue side panel (SDLC-VIS-10/11). */
+function MatrixIssueList({
   issues,
   version,
   mergedLine,
@@ -1037,13 +1042,6 @@ function MatrixIssues({
   version: string | null;
   mergedLine: (issue: AgentSdlcShippedIssue) => string | null;
 }): React.ReactElement {
-  if (issues.length === 0) {
-    return (
-      <Content component="small">
-        <FormattedMessage {...messages.sdlcBundleNoIssues} />
-      </Content>
-    );
-  }
   return (
     <Stack>
       {issues.map((issue) => {
@@ -1063,6 +1061,109 @@ function MatrixIssues({
           </StackItem>
         );
       })}
+    </Stack>
+  );
+}
+
+/** The one-off pull-request list of a bundle: PRs with no tracked execution record,
+ *  each a direct link to GitHub (SDLC-VIS-11). */
+function MatrixPRList({
+  prs,
+  nowMs,
+}: {
+  prs: readonly AgentSdlcPullRequest[];
+  nowMs?: number;
+}): React.ReactElement {
+  const intl = useIntl();
+  return (
+    <Stack>
+      {prs.map((pr) => {
+        const ago = formatMergedAgo(intl, pr.mergedAt, nowMs);
+        const prLabel = `#${String(pr.number)} ${pr.title}`;
+        const line =
+          ago && pr.author
+            ? intl.formatMessage(messages.sdlcMergedBy, {
+                ago,
+                user: pr.author,
+              })
+            : ago;
+        return (
+          <StackItem key={pr.number}>
+            <Button
+              component="a"
+              variant="link"
+              isInline
+              href={pr.url}
+              target="_blank"
+              rel="noreferrer"
+              icon={<ExternalLinkAltIcon />}
+              iconPosition="end"
+            >
+              {prLabel}
+            </Button>
+            {line ? <Content component="small"> {line}</Content> : null}
+          </StackItem>
+        );
+      })}
+    </Stack>
+  );
+}
+
+/** A bundle row's expanded contents (SDLC-VIS-11): the Unreleased row lists only its
+ *  in-flight tracked issues; a released bundle splits its PR-driven contents into a
+ *  "Tracked issues" group and an "Other pull requests" group. */
+function MatrixBundleContents({
+  row,
+  mergedLine,
+  nowMs,
+}: {
+  row: AgentSdlcBundleRow;
+  mergedLine: (issue: AgentSdlcShippedIssue) => string | null;
+  nowMs?: number;
+}): React.ReactElement {
+  if (row.issues.length === 0 && row.otherPRs.length === 0) {
+    return (
+      <Content component="small">
+        <FormattedMessage
+          {...(row.unreleased
+            ? messages.sdlcBundleNoIssues
+            : messages.sdlcBundleNoContents)}
+        />
+      </Content>
+    );
+  }
+  // The Unreleased row holds only in-flight tracked work, so it needs no group headers.
+  if (row.unreleased) {
+    return (
+      <MatrixIssueList
+        issues={row.issues}
+        version={null}
+        mergedLine={mergedLine}
+      />
+    );
+  }
+  return (
+    <Stack hasGutter>
+      {row.issues.length > 0 ? (
+        <StackItem>
+          <Title headingLevel="h4" size="md">
+            <FormattedMessage {...messages.sdlcTrackedIssues} />
+          </Title>
+          <MatrixIssueList
+            issues={row.issues}
+            version={row.version}
+            mergedLine={mergedLine}
+          />
+        </StackItem>
+      ) : null}
+      {row.otherPRs.length > 0 ? (
+        <StackItem>
+          <Title headingLevel="h4" size="md">
+            <FormattedMessage {...messages.sdlcOtherPRs} />
+          </Title>
+          <MatrixPRList prs={row.otherPRs} nowMs={nowMs} />
+        </StackItem>
+      ) : null}
     </Stack>
   );
 }
@@ -1194,17 +1295,32 @@ function ShippedMatrix({
                       );
                     })}
                     <Td>
-                      <Label isCompact>{row.issues.length}</Label>
+                      {row.unreleased ? (
+                        <Label isCompact>{row.issues.length}</Label>
+                      ) : (
+                        <Label isCompact>
+                          {intl.formatMessage(messages.sdlcBundleSummary, {
+                            issues: intl.formatMessage(
+                              messages.sdlcBundleIssueCount,
+                              { issues: row.issues.length },
+                            ),
+                            prs: intl.formatMessage(
+                              messages.sdlcBundlePrCount,
+                              { prs: bundlePRCount(row) },
+                            ),
+                          })}
+                        </Label>
+                      )}
                     </Td>
                   </Tr>
                   <Tr isExpanded={isExpanded}>
                     <Td />
                     <Td colSpan={columnCount - 1}>
                       <ExpandableRowContent>
-                        <MatrixIssues
-                          issues={row.issues}
-                          version={row.version}
+                        <MatrixBundleContents
+                          row={row}
                           mergedLine={mergedLine}
+                          nowMs={nowMs}
                         />
                       </ExpandableRowContent>
                     </Td>

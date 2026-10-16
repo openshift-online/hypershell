@@ -159,6 +159,7 @@ describe("AgentSdlcView matrix", () => {
             unreleased: true,
             hubClusters: [],
             issues: [],
+            otherPRs: [],
           },
           {
             version: "v2",
@@ -167,6 +168,7 @@ describe("AgentSdlcView matrix", () => {
             unreleased: false,
             hubClusters: ["env-a"],
             issues: [],
+            otherPRs: [],
           },
         ],
       },
@@ -207,8 +209,18 @@ describe("AgentSdlcView matrix", () => {
                 url: "u",
                 mergedAt,
                 mergedBy: "octo-dev",
+                prs: [
+                  {
+                    number: 701,
+                    title: "deliver it",
+                    url: "pr-u",
+                    author: "octo-dev",
+                    mergedAt,
+                  },
+                ],
               },
             ],
+            otherPRs: [],
           },
         ],
       },
@@ -218,5 +230,70 @@ describe("AgentSdlcView matrix", () => {
     // Expand the single bundle row to reveal its issues.
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
     expect(screen.getByText("merged 3 days ago by octo-dev")).toBeDefined();
+  });
+
+  it("splits an expanded bundle into tracked issues and other PRs with a count summary", () => {
+    const data: AgentSdlcData = {
+      ...EMPTY,
+      matrix: {
+        hubClusters: [],
+        rows: [
+          {
+            version: "v9",
+            digest: "d9",
+            date: null,
+            unreleased: false,
+            hubClusters: [],
+            issues: [
+              {
+                number: 525,
+                title: "declarative import",
+                url: "i-525",
+                mergedAt: null,
+                mergedBy: null,
+                prs: [
+                  {
+                    number: 526,
+                    title: "import part one",
+                    url: "pr-526",
+                    author: null,
+                    mergedAt: null,
+                  },
+                ],
+              },
+            ],
+            otherPRs: [
+              {
+                number: 540,
+                title: "bump deps",
+                url: "pr-540",
+                author: "dependabot",
+                mergedAt: null,
+              },
+              {
+                number: 533,
+                title: "fix typo",
+                url: "pr-533",
+                author: null,
+                mergedAt: null,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    renderView({ data });
+
+    // Row summary shows both counts: 1 tracked issue and 3 total PRs (1 grouped + 2 one-off).
+    expect(screen.getByText("1 issue, 3 PRs")).toBeDefined();
+
+    // Expand to reveal both groups.
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByText("Tracked issues")).toBeDefined();
+    expect(screen.getByText("Other pull requests")).toBeDefined();
+    // The tracked issue links to its side panel; the one-off PRs link out to GitHub.
+    expect(screen.getByText("#525 declarative import")).toBeDefined();
+    const typoLink = screen.getByRole("link", { name: /#533 fix typo/ });
+    expect(typoLink.getAttribute("href")).toBe("pr-533");
   });
 });

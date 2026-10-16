@@ -110,15 +110,17 @@ type SdlcStateProvider interface {
 	Records(ctx context.Context) ([]SdlcRecord, error)
 }
 
-// WorkItemPRResolver supplies the membership hop SDLC-VIS-03 adds on top of the
+// WorkItemPRResolver supplies the grouping hop SDLC-VIS-03 uses on top of the
 // shared bundle->PR enrichment: a unit of work (today a GitHub issue; tomorrow a
 // Jira item, per jira-github-sync.spec) to the pull requests associated with it.
 // It is deliberately shaped work-item -> PRs, not PR -> issue: a single work item
 // can be delivered by several PRs, and the authoritative association lives on the
 // work item (GitHub's linked pull requests / closing references), not scattered
-// across PR bodies. The matrix then maps those PRs onto bundles. nil disables matrix
-// issue mapping; the board and lane still render, and shipped records collect in the
-// Unreleased row.
+// across PR bodies. The matrix INVERTS these results into a PR -> work-item map and
+// uses it only to GROUP each bundle's own pull requests under the tracked issue they
+// resolve to; it does NOT attribute issues to bundles (bundle contents are driven by
+// the bundle's PR set). nil disables grouping; every bundle PR then lists as a
+// one-off pull request, and shipped records with no bundle PR collect in Unreleased.
 //
 // This is the Jira seam: a Jira-backed adapter satisfies the same interface by
 // returning the PRs linked to a Jira item, with no domain or matrix change.
@@ -186,19 +188,40 @@ type SDLCHubCluster struct {
 	CurrentDigest  string `json:"currentDigest,omitempty"`
 }
 
-// SDLCShippedIssue is one execution record that shipped in a bundle (or is awaiting
-// a bundle, in the Unreleased row).
-type SDLCShippedIssue struct {
+// SDLCPullRequest is one pull request shipped in a bundle. Bundle contents are
+// PR-driven (SDLC-VIS-03): these mirror the shared bundles.PR the Fleet Map freight
+// bar shows, so a pull request is never hidden because its issue link is
+// unrecoverable.
+type SDLCPullRequest struct {
 	Number   int    `json:"number"`
 	Title    string `json:"title"`
 	URL      string `json:"url"`
+	Author   string `json:"author,omitempty"`
 	MergedAt string `json:"mergedAt,omitempty"`
-	MergedBy string `json:"mergedBy,omitempty"`
+}
+
+// SDLCShippedIssue is one tracked execution record: an issue that shipped in a bundle
+// (with the bundle's pull requests that resolve to it grouped beneath, PRs), or a
+// shipped issue awaiting a bundle in the Unreleased row (PRs empty). A single issue
+// MAY be delivered by several pull requests in one bundle; it appears once with those
+// pull requests grouped under it (SDLC-VIS-03).
+type SDLCShippedIssue struct {
+	Number   int               `json:"number"`
+	Title    string            `json:"title"`
+	URL      string            `json:"url"`
+	MergedAt string            `json:"mergedAt,omitempty"`
+	MergedBy string            `json:"mergedBy,omitempty"`
+	PRs      []SDLCPullRequest `json:"prs,omitempty"`
 }
 
 // SDLCBundleRow is one matrix row: a release bundle (newest first) or the single
 // top Unreleased row, which carries no version and no hub-cluster markers
 // (SDLC-VIS-11). HubClusters lists the instance keys currently running this bundle.
+// A bundle row's contents are PR-driven and split into two groups: Issues holds the
+// bundle's pull requests grouped under the tracked execution record they resolve to,
+// and OtherPRs holds the one-off pull requests with no tracked issue. The Unreleased
+// row carries only tracked issues (shipped records whose pull requests are absent
+// from every bundle) and no OtherPRs.
 type SDLCBundleRow struct {
 	Version     string             `json:"version,omitempty"`
 	Digest      string             `json:"digest,omitempty"`
@@ -206,6 +229,7 @@ type SDLCBundleRow struct {
 	Unreleased  bool               `json:"unreleased"`
 	HubClusters []string           `json:"hubClusters,omitempty"`
 	Issues      []SDLCShippedIssue `json:"issues"`
+	OtherPRs    []SDLCPullRequest  `json:"otherPRs"`
 }
 
 // SDLCMatrix is the release-by-hub-cluster matrix (the Shipped column).
@@ -327,9 +351,14 @@ func (s *SDLC) card(rec SdlcRecord, now time.Time, esc string) SDLCCard {
 }
 
 // matrix builds the release-by-hub-cluster matrix from the cached promotion
-// snapshot (SDLC-VIS-03) joined with shipped records via the work-item -> PRs hop.
-// Merged records not attributed to any released bundle collect in the single top
-// Unreleased row (SDLC-VIS-11).
+// snapshot (SDLC-VIS-03). Each bundle row's contents are PR-driven: they come from
+// that bundle's own merged pull requests (the shared bundle->PR enrichment), split
+// into tracked issues (pull requests grouped under the execution record they resolve
+// to) and one-off pull requests (no tracked issue). The work-item -> PRs resolver is
+// inverted into a PR -> issue map and used only to group, never to attribute issues
+// to bundles. Shipped records whose pull requests are absent from every bundle collect
+// in the single top Unreleased row, which holds only genuinely in-flight tracked work
+// (SDLC-VIS-11).
 func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 	m := SDLCMatrix{HubClusters: []SDLCHubCluster{}, Rows: []SDLCBundleRow{}}
 
@@ -353,49 +382,20 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		m.HubClusters = append(m.HubClusters, hc)
 	}
 
-	// PR -> bundle key, from the shared bundle->PR truth. This REUSES the existing
-	// enrichment; it does not re-resolve bundles.
-	bundleByPR := map[int]string{}
-	for key, rel := range promo.Releases {
-		if rel == nil {
+	// Invert the work-item -> PRs resolver into a PR -> tracked-issue map, over the
+	// in-scope shipped records only. This REUSES the resolver solely to GROUP a
+	// bundle's own pull requests under the issue they resolve to; it does not attribute
+	// issues to bundles (bundle contents are the bundle's PR set, below) and adds no
+	// GitHub calls beyond the resolver's own cached lookups.
+	recByNumber := map[int]SdlcRecord{}
+	issueByPR := map[int]int{} // PR number -> tracked execution-record issue number
+	for _, rec := range shipped {
+		recByNumber[rec.Number] = rec
+		if s.issues == nil {
 			continue
 		}
-		for _, pr := range rel.PRs {
-			bundleByPR[pr.Number] = key
-		}
-	}
-	releaseDate := func(key string) string {
-		if r := promo.Releases[key]; r != nil {
-			return r.Date
-		}
-		return ""
-	}
-
-	// Place each shipped record into a bundle row, or Unreleased. The work item is
-	// attributed to a bundle via its associated PRs (SDLC-VIS-03): a record ships in
-	// the NEWEST bundle any of its PRs landed in, so a work item split across several
-	// PRs attributes to the release by which it was fully delivered. A record with no
-	// PR in any bundle (link missing, or still in flight) collects in Unreleased.
-	issuesByKey := map[string][]SDLCShippedIssue{}
-	var unreleased []SDLCShippedIssue
-	for _, rec := range shipped {
-		si := SDLCShippedIssue{Number: rec.Number, Title: rec.Title, URL: rec.URL, MergedAt: rec.ClosedAt, MergedBy: rec.ClosedBy}
-		bundleKey, bundleDate := "", ""
-		if s.issues != nil {
-			for _, pr := range s.issues.AssociatedPRs(ctx, rec) {
-				key, ok := bundleByPR[pr]
-				if !ok {
-					continue
-				}
-				if d := releaseDate(key); bundleKey == "" || d > bundleDate {
-					bundleKey, bundleDate = key, d
-				}
-			}
-		}
-		if bundleKey != "" {
-			issuesByKey[bundleKey] = append(issuesByKey[bundleKey], si)
-		} else {
-			unreleased = append(unreleased, si)
+		for _, pr := range s.issues.AssociatedPRs(ctx, rec) {
+			issueByPR[pr] = rec.Number
 		}
 	}
 
@@ -426,17 +426,63 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		return ordered[i].key < ordered[j].key
 	})
 
-	// Unreleased always sits at the top (no version, no hub-cluster markers).
-	m.Rows = append(m.Rows, SDLCBundleRow{Unreleased: true, Issues: sortedShipped(unreleased)})
+	// Build each bundle row from its own pull requests, grouping tracked issues and
+	// collecting one-off PRs. placed records which tracked issues landed in at least
+	// one bundle so the Unreleased row can exclude them.
+	placed := map[int]bool{}
+	relRows := make([]SDLCBundleRow, 0, len(ordered))
 	for _, rr := range ordered {
-		m.Rows = append(m.Rows, SDLCBundleRow{
+		grouped := map[int][]SDLCPullRequest{}
+		var issueOrder []int
+		var others []SDLCPullRequest
+		for _, pr := range rr.rel.PRs {
+			sp := SDLCPullRequest(pr)
+			if issNum, ok := issueByPR[pr.Number]; ok {
+				if _, seen := grouped[issNum]; !seen {
+					issueOrder = append(issueOrder, issNum)
+				}
+				grouped[issNum] = append(grouped[issNum], sp)
+				placed[issNum] = true
+			} else {
+				others = append(others, sp)
+			}
+		}
+		tracked := make([]SDLCShippedIssue, 0, len(issueOrder))
+		for _, issNum := range issueOrder {
+			rec := recByNumber[issNum]
+			tracked = append(tracked, SDLCShippedIssue{
+				Number:   rec.Number,
+				Title:    rec.Title,
+				URL:      rec.URL,
+				MergedAt: rec.ClosedAt,
+				MergedBy: rec.ClosedBy,
+				PRs:      sortedPRs(grouped[issNum]),
+			})
+		}
+		relRows = append(relRows, SDLCBundleRow{
 			Version:     rr.rel.Version,
 			Digest:      rr.rel.Digest,
 			Date:        rr.rel.Date,
 			HubClusters: hubsByKey[rr.key],
-			Issues:      sortedShipped(issuesByKey[rr.key]),
+			Issues:      sortedShipped(tracked),
+			OtherPRs:    sortedPRs(others),
 		})
 	}
+
+	// Unreleased holds only genuinely in-flight tracked work: shipped records whose
+	// pull requests are absent from every bundle's PR set. One-off PRs never collect
+	// here (they appear only under the bundle that shipped them).
+	var unreleased []SDLCShippedIssue
+	for _, rec := range shipped {
+		if placed[rec.Number] {
+			continue
+		}
+		unreleased = append(unreleased, SDLCShippedIssue{Number: rec.Number, Title: rec.Title, URL: rec.URL, MergedAt: rec.ClosedAt, MergedBy: rec.ClosedBy})
+	}
+
+	// Unreleased always sits at the top (no version, no hub-cluster markers, no PRs).
+	m.Rows = append(m.Rows, SDLCBundleRow{Unreleased: true, Issues: sortedShipped(unreleased), OtherPRs: []SDLCPullRequest{}})
+	m.Rows = append(m.Rows, relRows...)
 	return m
 }
 
@@ -507,6 +553,23 @@ func sortedShipped(in []SDLCShippedIssue) []SDLCShippedIssue {
 	out := in
 	if out == nil {
 		out = []SDLCShippedIssue{}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].MergedAt != out[j].MergedAt {
+			return out[i].MergedAt > out[j].MergedAt
+		}
+		return out[i].Number > out[j].Number
+	})
+	return out
+}
+
+// sortedPRs returns the pull requests newest-merged first (stable), never nil. The
+// order mirrors the shared bundle enrichment (MergedAt desc, then number desc), so a
+// bundle's one-off PRs and a tracked issue's grouped PRs read most-recent-first.
+func sortedPRs(in []SDLCPullRequest) []SDLCPullRequest {
+	out := in
+	if out == nil {
+		out = []SDLCPullRequest{}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].MergedAt != out[j].MergedAt {

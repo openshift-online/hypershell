@@ -369,6 +369,23 @@ describe("mapSdlc", () => {
                 title: "s",
                 url: "https://x/98",
                 mergedAt: "2026-08-01T00:00:00Z",
+                prs: [
+                  {
+                    number: 97,
+                    title: "deliver s",
+                    url: "https://x/pull/97",
+                    author: "octo-dev",
+                    mergedAt: "2026-08-01T00:00:00Z",
+                  },
+                ],
+              },
+            ],
+            otherPRs: [
+              {
+                number: 540,
+                title: "bump deps",
+                url: "https://x/pull/540",
+                author: "dependabot",
               },
             ],
           },
@@ -383,10 +400,18 @@ describe("mapSdlc", () => {
     expect(data.lane[0]?.escalation).toBe("blocked");
     expect(data.matrix.hubClusters[0]?.currentVersion).toBe("v2");
     expect(data.matrix.rows[0]?.unreleased).toBe(true);
+    // The Unreleased row decodes with no PRs groups.
+    expect(data.matrix.rows[0]?.issues[0]?.prs).toEqual([]);
+    expect(data.matrix.rows[0]?.otherPRs).toEqual([]);
     expect(data.matrix.rows[1]?.hubClusters).toEqual(["env-a"]);
     expect(data.matrix.rows[1]?.issues[0]?.mergedAt).toBe(
       "2026-08-01T00:00:00Z",
     );
+    // A tracked issue carries its grouped PRs; one-off PRs decode into otherPRs.
+    expect(data.matrix.rows[1]?.issues[0]?.prs[0]?.number).toBe(97);
+    expect(data.matrix.rows[1]?.otherPRs[0]?.number).toBe(540);
+    expect(data.matrix.rows[1]?.otherPRs[0]?.author).toBe("dependabot");
+    expect(data.matrix.rows[1]?.otherPRs[0]?.mergedAt).toBeNull();
   });
 
   it("degrades a partial/empty payload to an empty board, lane, and matrix", () => {
