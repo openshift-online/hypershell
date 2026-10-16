@@ -504,7 +504,10 @@ func (c *Client) DeleteServiceAccount(ctx context.Context, clientUUID, gatewayID
 	} else if err != nil {
 		return err
 	}
-	if err := c.setEnabled(ctx, clientUUID, false); err != nil {
+	if err := c.setEnabled(ctx, clientUUID, false); errors.Is(err, ErrNotFound) {
+		// Deleted concurrently after the ownership check: nothing left to do.
+		return nil
+	} else if err != nil {
 		return err
 	}
 	return c.deleteClient(ctx, clientUUID)
@@ -555,18 +558,21 @@ func (c *Client) DeleteManagedServiceAccount(ctx context.Context, gatewayID, ser
 
 // DeleteGatewayServiceAccounts disables all managed clients for a gateway
 // before deleting any of them. It also catches clients orphaned from the API
-// database because selection uses immutable Keycloak attributes.
+// database because selection uses immutable Keycloak attributes. A client that
+// disappears between listing and cleanup was removed concurrently (for example
+// by a parallel service-account delete) and counts as already cleaned up.
 func (c *Client) DeleteGatewayServiceAccounts(ctx context.Context, gatewayID string) error {
 	clients, err := c.ListManagedClients(ctx, gatewayID)
 	if err != nil {
 		return err
 	}
 	for _, client := range clients {
-		if err := c.setEnabled(ctx, client.UUID, false); err != nil {
+		if err := c.setEnabled(ctx, client.UUID, false); err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
 	}
 	for _, client := range clients {
+		// deleteClient already treats 404 as success.
 		if err := c.deleteClient(ctx, client.UUID); err != nil {
 			return err
 		}
@@ -598,6 +604,11 @@ func (c *Client) ListManagedClients(ctx context.Context, gatewayID string) ([]Ma
 	out := make([]ManagedClient, 0)
 	for _, listed := range clients {
 		client, getErr := c.getClient(ctx, listed.ID)
+		if errors.Is(getErr, ErrNotFound) {
+			// Deleted between the list and the get; a client that no longer
+			// exists is not a managed client to report or clean up.
+			continue
+		}
 		if getErr != nil {
 			return nil, getErr
 		}

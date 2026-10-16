@@ -67,9 +67,9 @@ metadata:
   name: gateway-1
 ---
 apiVersion: hypershell.redhat.io/v1
-kind: GatewayRelease
+kind: SandboxTemplate
 metadata:
-  name: release-1`,
+  name: template-1`,
 			expected: 2,
 			wantErr:  false,
 		},
@@ -184,7 +184,6 @@ metadata:
   name: test-gateway
 spec:
   cluster_id: cluster-1
-  release_id: release-1
 `
 	if err := os.WriteFile(filepath.Join(baseDir, "gateway.yaml"), []byte(baseGateway), 0644); err != nil {
 		t.Fatal(err)
@@ -232,9 +231,9 @@ spec:
   cluster_id: cluster-1
 ---
 apiVersion: hypershell.redhat.io/v1
-kind: GatewayRelease
+kind: SandboxTemplate
 metadata:
-  name: release-1
+  name: template-1
 spec:
   image: example.com/gateway:v1
 ---
@@ -263,7 +262,7 @@ spec:
 	for _, r := range resources {
 		kinds[r.Kind]++
 	}
-	if kinds["Gateway"] != 1 || kinds["GatewayRelease"] != 1 || kinds["ManagedCluster"] != 1 {
+	if kinds["Gateway"] != 1 || kinds["SandboxTemplate"] != 1 || kinds["ManagedCluster"] != 1 {
 		t.Errorf("loadFromKustomize() got kinds %v, want 1 of each", kinds)
 	}
 }

@@ -71,8 +71,7 @@ YAML. Those are follow-up implementation work.
 ### Reserved Terms
 
 This spec adds no new domain kinds. It refers to the existing kinds (Gateway,
-GatewayNetwork, GatewayRelease, ManagedCluster) only where a scenario
-provisions one.
+ManagedCluster) only where a scenario provisions one.
 
 ## Architecture
 
@@ -201,17 +200,14 @@ component's entry in the per-namespace swap state, so the state cannot keep clai
 the working-tree image is active.
 
 Like `make kind-up`, `make openshift-up` SHALL seed the domain resources a
-developer needs for a working gateway -- a GatewayRelease and a Gateway -- with the
+developer needs for a working gateway -- a Gateway -- with the
 OpenShift Route and OIDC values for the environment, so that one command produces a
 working gateway and the OpenShift workflow matches the Kind workflow. The
 ManagedCluster is NOT seeded: the overlay runs the control plane with
 `HYPERSHELL_MANAGED_CLUSTER_NAME=local-openshift` and the control plane registers
 that record itself (`managed-cluster-registration.spec.md`). Seeding SHALL wait for
 the `local-openshift` ManagedCluster to appear in `GET /managed_clusters` and use its
-id for the Gateway; it SHALL NOT `POST /managed_clusters`. Seeding SHALL be
-reuse-or-create for the named seed resource `dev-release`: when a resource with that
-name already exists, the command SHALL reuse its id and SHALL NOT POST a second
-copy. Gateway names are not unique in the API, so a second
+id for the Gateway; it SHALL NOT `POST /managed_clusters`. Gateway names are not unique in the API, so a second
 `make openshift-up` or `make openshift-seed` against a namespace that already has a
 `dev-gateway` SHALL leave a single Gateway with that name -- but for `dev-gateway`
 specifically, "leave a single Gateway with that name" SHALL mean deleting the
@@ -310,7 +306,7 @@ those from the developer machine.
 - WHEN the developer runs `make openshift-up`
 - THEN the scripts render and apply the API server, the control plane, the web
   console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
-- AND the scripts seed a ManagedCluster, a GatewayRelease, and a Gateway
+- AND the scripts seed a ManagedCluster and a Gateway
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 
@@ -356,9 +352,9 @@ get-modify-replace of the live Deployment races status updates and fails with
 #### Scenario: Seeding reuses existing named resources
 
 - GIVEN the environment's control plane has registered the ManagedCluster named
-  `local-openshift` and a GatewayRelease named `dev-release` already exists
+  `local-openshift`
 - WHEN the developer runs `make openshift-up` or `make openshift-seed`
-- THEN the command reuses those existing resources and does not POST a ManagedCluster
+- THEN the command reuses the existing ManagedCluster and does not POST a ManagedCluster
 
 #### Scenario: Seeding always recreates dev-gateway
 
@@ -412,7 +408,7 @@ after a partial `make openshift-up` or refresh seed data against a running stack
 The command SHALL be a subset of `make openshift-up`: it SHALL require a reachable
 cluster, resolve and validate the namespace group, derive the environment's Route
 and OIDC values, and then seed the same domain resources `make openshift-up` seeds
--- a GatewayRelease and a Gateway, against the `local-openshift` ManagedCluster the
+-- a Gateway, against the `local-openshift` ManagedCluster the
 control plane registered. The command SHALL NOT create the projects, apply
 cluster-scoped RBAC, apply the overlay, or `POST /managed_clusters`.
 
@@ -429,7 +425,7 @@ otherwise a failure SHALL warn and print manual-remediation guidance.
 
 - GIVEN `make openshift-up` deployed the stack but seeding was skipped or failed
 - WHEN the developer runs `make openshift-seed`
-- THEN the command seeds a GatewayRelease and a Gateway using the environment's
+- THEN the command seeds a Gateway using the environment's
   Routes and OIDC values and the control plane's registered `local-openshift` id
 - AND the command does not re-apply the overlay or re-create the namespace group
 - AND resources that already exist are left unchanged

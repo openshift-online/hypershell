@@ -37,6 +37,8 @@ type SecretSource struct {
 	Path string `json:"path"`
 	// JSON-encoded mapping of backend secret keys to environment variable names
 	KeyMappings *string `json:"key_mappings,omitempty"`
+	// Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
+	RepositoryId *string `json:"repository_id,omitempty"`
 }
 
 type _SecretSource SecretSource
@@ -375,6 +377,38 @@ func (o *SecretSource) SetKeyMappings(v string) {
 	o.KeyMappings = &v
 }
 
+// GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
+func (o *SecretSource) GetRepositoryId() string {
+	if o == nil || IsNil(o.RepositoryId) {
+		var ret string
+		return ret
+	}
+	return *o.RepositoryId
+}
+
+// GetRepositoryIdOk returns a tuple with the RepositoryId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *SecretSource) GetRepositoryIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RepositoryId) {
+		return nil, false
+	}
+	return o.RepositoryId, true
+}
+
+// HasRepositoryId returns a boolean if a field has been set.
+func (o *SecretSource) HasRepositoryId() bool {
+	if o != nil && !IsNil(o.RepositoryId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepositoryId gets a reference to the given string and assigns it to the RepositoryId field.
+func (o *SecretSource) SetRepositoryId(v string) {
+	o.RepositoryId = &v
+}
+
 func (o SecretSource) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -407,6 +441,9 @@ func (o SecretSource) ToMap() (map[string]interface{}, error) {
 	toSerialize["path"] = o.Path
 	if !IsNil(o.KeyMappings) {
 		toSerialize["key_mappings"] = o.KeyMappings
+	}
+	if !IsNil(o.RepositoryId) {
+		toSerialize["repository_id"] = o.RepositoryId
 	}
 	return toSerialize, nil
 }

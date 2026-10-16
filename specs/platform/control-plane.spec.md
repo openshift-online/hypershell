@@ -26,7 +26,7 @@ Managed Cluster (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, ManagedClusters, RoleBindings, and AgentRuntimes). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below).
 
 ### Reconciler
 
@@ -37,8 +37,6 @@ The Reconciler receives resource events from the Watcher and converges the Kuber
 - Configure TLS certificates via cert-manager
 - Create GRPCRoute and BackendTLSPolicy for external gateway exposure
 - Inject OIDC authentication configuration into gateway deployments
-- Configure network meshes between gateways
-- Manage release rollouts (including canary strategies)
 - Provision and reconcile OpenShellGatewayServiceAccount identities in Keycloak through an internal in-cluster gRPC service
 - Reconcile AgentRuntime resources into cluster scheduling resources and gateway-side workspace objects (see "AgentRuntime Reconciliation" below)
 - Run the declarative `.hypershell` import reconciler: for each registered `Repository`, resolve its credential cluster-side, git-clone it, render the `.hypershell` Kustomize root, and reconcile (create/update/prune) the rendered `Repository`-owned ext resources into the API (see "Declarative `.hypershell` Import Reconciliation" below)
@@ -56,10 +54,6 @@ Gateway reconciliation is defined in detail across dedicated sub-specs:
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), NetworkPolicy |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
 | [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) | Phase lifecycle, workload-readiness gating, continuous health reconciliation |
-| [`gateway-version-selection.spec.md`](./gateway-version-selection.spec.md) | Database-backed version selection: resolving `release_id` to a GatewayRelease image and its precedence over a direct image |
-| [`gateway-release-reconciliation.spec.md`](./gateway-release-reconciliation.spec.md) | GatewayRelease reconciliation: image validation, deterministic release status, change propagation to referencing gateways |
-| [`gateway-release-rollout.spec.md`](./gateway-release-rollout.spec.md) | Safe release rollout: last-good workload preserved until the new revision passes health gates, revision-aware readiness, observed-release and rollout-state reporting, timeout/failure handling |
-| [`gateway-network-reconciliation.spec.md`](./gateway-network-reconciliation.spec.md) | GatewayNetwork reconciliation: topology vocabulary, topology/hub coherence and hub-reference validation, deterministic network status write-back |
 
 ### Config
 
@@ -91,8 +85,7 @@ restarts. The control plane SHALL use this `cluster_id` as the cluster filter fo
 every gateway-scoped operation for the lifetime of the process: the `WatchGateways`
 stream, the initial `ListGateways` seed, the health reconciler, the sandbox-count
 reconciler, the instance-label backfill, the orphaned-namespace garbage collector
-(`openshell-gateway-namespace-gc.spec.md`), the GatewayRelease change fan-out
-(`gateway-release-reconciliation.spec.md`), and the RoleBinding-to-Keycloak role sync.
+(`openshell-gateway-namespace-gc.spec.md`), and the RoleBinding-to-Keycloak role sync.
 None of these SHALL ever run without the filter. The control plane SHALL open the
 `WatchRoleBindings` stream, and SHALL call `ListRoleBindings`, with its `cluster_id`;
 the api-server delivers only bindings whose gateway is assigned to that cluster, and
@@ -549,7 +542,7 @@ The control plane SHALL read the gateway database server's administrative connec
 - GIVEN the admin Secret is mounted with `host`, `port`, `user`, `password` and a PEM `sslrootcert`
 - WHEN the control plane starts
 - THEN it SHALL validate the files without connecting to the server
-- AND it SHALL serve watch streams for Gateways, GatewayReleases, ManagedClusters, GatewayNetworks, RoleBindings and AgentRuntimes
+- AND it SHALL serve watch streams for Gateways, ManagedClusters, RoleBindings and AgentRuntimes
 
 #### Scenario: Controller refuses to start on invalid admin credential files
 - GIVEN a required admin credential file is missing, or `sslmode` is present with a value other than `verify-full`

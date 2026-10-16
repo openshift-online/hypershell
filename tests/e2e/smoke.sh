@@ -96,12 +96,16 @@ fi
 
 # 5. Create a sandbox, exec in it, delete it.
 SANDBOX_NAME="sb-$(date +%s | tail -c6)"
-show_cmd "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox create --name ${SANDBOX_NAME}"
-"${OPENSHELL_BIN:-openshell}" -g "${GW_LOCAL_NAME}" sandbox create --name "${SANDBOX_NAME}" || true
+show_cmd "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox create --from ${OPENSHELL_SANDBOX_IMAGE} --name ${SANDBOX_NAME}"
+"${OPENSHELL_BIN:-openshell}" -g "${GW_LOCAL_NAME}" sandbox create --from "${OPENSHELL_SANDBOX_IMAGE}" --name "${SANDBOX_NAME}" || true
 if retry_until "${E2E_SANDBOX_TIMEOUT:-300}" 5 "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox exec -n ${SANDBOX_NAME} -- true 2>/dev/null"; then
   show_cmd "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox exec -n ${SANDBOX_NAME} -- uname -a"
   "${OPENSHELL_BIN:-openshell}" -g "${GW_LOCAL_NAME}" sandbox exec -n "${SANDBOX_NAME}" -- uname -a || true
   pass "sandbox ${SANDBOX_NAME} created and reachable"
+  # Stop first: it shuts the sandbox down in order. A bare delete waits out the
+  # 30s pod grace period because the sandbox processes ignore SIGTERM.
+  show_cmd "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox stop ${SANDBOX_NAME}"
+  "${OPENSHELL_BIN:-openshell}" -g "${GW_LOCAL_NAME}" sandbox stop "${SANDBOX_NAME}" || true
   show_cmd "${OPENSHELL_BIN:-openshell} -g ${GW_LOCAL_NAME} sandbox delete ${SANDBOX_NAME}"
   "${OPENSHELL_BIN:-openshell}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME}" || true
 else

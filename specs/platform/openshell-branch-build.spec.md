@@ -16,11 +16,9 @@ standard `dev-gateway` created by `make kind-up`.
 This feature is a local-development and testing capability. It reuses the
 existing Kind environment ([`local-development.spec.md`](./local-development.spec.md))
 and gateway provisioning flow ([`openshell-gateway.spec.md`](./openshell-gateway.spec.md)).
-It also adds three optional Gateway schema fields (`sandbox_image`, `dev_build`,
-`dev_build_metadata`) and makes `release_id` optional so a Gateway can be created
-from a direct `image`/`supervisor_image` reference. Those schema changes apply
-to every environment; they do not change the production provisioning path for
-Gateways that continue to use a GatewayRelease.
+It also adds two optional Gateway schema fields (`dev_build`,
+`dev_build_metadata`). A Gateway is created from a direct `image`/`supervisor_image`
+reference. Those schema changes apply to every environment.
 
 ## Requirements
 
@@ -145,7 +143,6 @@ either be pre-pulled into Kind or pulled on first sandbox launch.
 The image references written into the seeded Gateway resource SHALL be:
 - `image`: `gateway:dev-<commit-sha>`
 - `supervisor_image`: `supervisor:dev-<commit-sha>`
-- `sandbox_image`: `ghcr.io/nvidia/openshell-community/sandboxes/base:latest`
 
 #### Scenario: Gateway and supervisor images are built and loaded
 
@@ -155,22 +152,19 @@ The image references written into the seeded Gateway resource SHALL be:
 - AND SHALL tag each as `gateway:dev-<sha>` and `supervisor:dev-<sha>`
 - AND SHALL load both into the Kind cluster so no registry pull is required
 
-#### Scenario: Sandbox base uses published community image
+#### Scenario: Sandbox workload uses the shared development image
 
 - GIVEN a branch-built gateway
-- WHEN the gateway is provisioned
-- THEN its `sandbox_image` field SHALL reference the published community base image
-- AND sandboxes launched by the gateway SHALL use that published image
+- WHEN a development test creates a sandbox through that gateway
+- THEN it SHALL pass `--from` with `OPENSHELL_SANDBOX_IMAGE` from `OPENSHELL_VERSION`
+- AND the sandbox workload SHALL use that image
 
 ### Requirement: Branch-Built Images Wired Into Provisioning
 
 The seeded dev gateway SHALL be provisioned with the branch-built images rather
 than the pinned defaults. The branch-built gateway and supervisor images SHALL
-be set via the Gateway's `image` and `supervisor_image` fields directly. The
-Gateway MUST NOT have a `release_id` set, because per `data-model.spec.md`,
-when both `release_id` and `image` are present, `release_id` takes precedence
-and the direct image references would be ignored. The `sandbox_image` field
-SHALL reference the published community base image.
+be set via the Gateway's `image` and `supervisor_image` fields directly. Sandbox
+workloads are selected per sandbox, separately from the Gateway resource.
 
 The seed SHALL reuse the Kind environment's existing placement and exposure
 fields so the branch-built gateway is reachable the same way `dev-gateway` is:
@@ -178,8 +172,7 @@ the `cluster_id` and `database_id` of the ManagedCluster and ManagedDatabase
 that `make kind-up` (or the full-stack path of `kind-openshell-up`) seeded, the
 same Kind Keycloak OIDC config `dev-gateway` uses, and `route: {enabled: true}`.
 The control plane SHALL reconcile the gateway workload so that the running
-gateway container and supervisor sidecar use the branch-built images, and launched
-sandboxes use the community base image. Image and `sandbox_image` changes SHALL
+gateway container and supervisor sidecar use the branch-built images. Image changes SHALL
 be applied by Helm upgrade (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)),
 not by patching a static ConfigMap or SSA placeholder.
 
@@ -190,20 +183,21 @@ not by patching a static ConfigMap or SSA placeholder.
 - AND the Kind environment already has a seeded ManagedCluster, ManagedDatabase,
   and Keycloak OIDC issuer
 - WHEN the dev gateway is seeded and reconciled
-- THEN the Gateway resource SHALL have no `release_id` field set
+- THEN the Gateway resource SHALL use the direct branch-built `image` and
+  `supervisor_image` references
 - AND SHALL reuse that environment's `cluster_id` and `database_id`
 - AND SHALL set `route: {enabled: true}` and the Kind Keycloak OIDC config
 - AND the gateway container SHALL run `gateway:dev-<sha>`
 - AND the supervisor sidecar SHALL run `supervisor:dev-<sha>`
-- AND sandboxes launched by the gateway SHALL use the published community base
-  image
+- AND development tests SHALL select the shared workload image explicitly
 
 ### Requirement: Sandbox Image Configuration
 
-The Gateway's `sandbox_image` field (defined in [`openshell-gateway.spec.md`](./openshell-gateway.spec.md))
-SHALL be set to the published community base image for branch-built gateways,
-since the sandbox base is maintained in a separate repository and cannot be built
-from the OpenShell checkout.
+Development tests SHALL select the workload image through OpenShell's
+`sandbox create --from` interface using `OPENSHELL_SANDBOX_IMAGE` from
+`OPENSHELL_VERSION`. Kind preload SHALL cache the same image. This workload
+image is separate from the trusted runtime binaries built from the OpenShell
+checkout and is not a Gateway schema field.
 
 ### Requirement: Dev Gateway Identity
 

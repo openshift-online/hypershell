@@ -3,8 +3,10 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"strings"
@@ -475,12 +477,22 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 	for i, sandboxName := range names {
 		i, sandboxName := i, sandboxName
 		g.Go(func() error {
-			args := []string{"sandbox", action}
-			if action == "create" {
-				args = append(args, "--name")
+			steps := sandboxCLISteps(action, sandboxName, s.sandboxImage)
+			outputs := make([]string, 0, len(steps))
+			for j, args := range steps {
+				out, err := s.cli(t, local, args...)
+				outputs = append(outputs, out)
+				// Only the final command decides the result; an earlier step (the
+				// stop before a delete) is best-effort, so its error is only logged.
+				if j < len(steps)-1 {
+					if err != nil {
+						t.Logf("sandbox %s %s: %q returned an error (continuing): %v", action, sandboxName, args, err)
+					}
+					continue
+				}
+				results[i].err = err
 			}
-			args = append(args, sandboxName)
-			results[i].output, results[i].err = s.cli(t, local, args...)
+			results[i].output = strings.Join(outputs, "\n")
 			return nil
 		})
 	}
@@ -489,6 +501,23 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 		if results[i].err != nil {
 			t.Logf("sandbox %s %s returned an error (state will be verified): %v\n%s", action, sandboxName, results[i].err, results[i].output)
 		}
+	}
+}
+
+// sandboxCLISteps returns the openshell CLI invocations that perform action on
+// one sandbox. A delete stops the sandbox first: `sandbox stop` shuts the
+// sandbox and supervisor processes down in order, while a bare `sandbox delete`
+// leaves the pods to Kubernetes, whose SIGTERM those processes ignore, so every
+// delete waits out the 30s termination grace period and the gateway route
+// answers it with "upstream request timeout" after 15s.
+func sandboxCLISteps(action, name, image string) [][]string {
+	switch action {
+	case "create":
+		return [][]string{{"sandbox", "create", "--from", image, "--name", name}}
+	case "delete":
+		return [][]string{{"sandbox", "stop", name}, {"sandbox", "delete", name}}
+	default:
+		return [][]string{{"sandbox", action, name}}
 	}
 }
 
@@ -713,6 +742,16 @@ func (s *E2ESuite) assertControllerReconnectConvergence(t *testing.T) {
 	}
 	s.Require().Positive(originalReplicas, "controller has at least one replica before reconnect test")
 
+	if gate := os.Getenv("E2E_DISRUPTIVE_GATE_FILE"); gate != "" {
+		t.Log("waiting for the concurrent suites to finish before scaling the controller to zero")
+		timeout := durationSecondsEnv("E2E_DISRUPTIVE_GATE_TIMEOUT", 900*time.Second)
+		opened, err := waitDisruptiveGate(ctx, gate, timeout, 2*time.Second)
+		s.Require().NoError(err, "wait for the disruptive-step gate")
+		if !opened {
+			t.Logf("concurrent suites still running after %s; continuing anyway", timeout)
+		}
+	}
+
 	zero := int32(0)
 	s.Require().NoError(setDeploymentReplicas(ctx, deployments, zero), "scale controller to zero")
 	restoreNeeded := true
@@ -741,6 +780,30 @@ func (s *E2ESuite) assertControllerReconnectConvergence(t *testing.T) {
 	restoreNeeded = false
 	running := s.waitGatewayRunning(t, created.ID)
 	s.Assert().Equal("Running", running.Phase, "gateway created while disconnected converges from reconnect snapshot")
+}
+
+// waitDisruptiveGate blocks until gate exists, which is how
+// tests/e2e/run-parallel.sh signals that every concurrently running suite other
+// than this one has exited and the shared controller may be scaled down. It
+// mirrors e2e_wait_disruptive_gate in lib.sh: after timeout it reports false so
+// the caller can warn and proceed rather than hang the run.
+func waitDisruptiveGate(ctx context.Context, gate string, timeout, interval time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(gate); err == nil {
+			return true, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return false, fmt.Errorf("check disruptive gate %s: %w", gate, err)
+		}
+		if !time.Now().Before(deadline) {
+			return false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(interval):
+		}
+	}
 }
 
 func setDeploymentReplicas(ctx context.Context, deployments typedappsv1.DeploymentInterface, replicas int32) error {
@@ -1132,20 +1195,29 @@ func (s *E2ESuite) assertGarbageCollectedEvent(t *testing.T, orphan string) {
 	s.Assert().NoError(err, "GarbageCollected Event for orphan namespace %s", orphan)
 }
 
-// waitPodRunning polls until a pod whose name contains substr is Running in ns.
+// waitPodRunning waits for the requested workload image, not just a supervisor
+// pod that happens to share the sandbox name.
 func (s *E2ESuite) waitPodRunning(ctx context.Context, ns, substr string, timeout time.Duration) error {
-	return harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
+	err := harness.Poll(ctx, 5*time.Second, timeout, func(ctx context.Context) (bool, error) {
 		pods, err := s.clients.Kube.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			return false, nil
 		}
 		for _, p := range pods.Items {
 			if strings.Contains(p.Name, substr) && p.Status.Phase == corev1.PodRunning {
-				return true, nil
+				for _, container := range p.Spec.Containers {
+					if container.Image == s.sandboxImage {
+						return true, nil
+					}
+				}
 			}
 		}
 		return false, nil
 	})
+	if err != nil {
+		return fmt.Errorf("wait for sandbox pod %q with workload image %q: %w", substr, s.sandboxImage, err)
+	}
+	return nil
 }
 
 // pollActiveSandboxCount polls the gateway's active_sandbox_count until it reaches

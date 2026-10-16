@@ -153,8 +153,8 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Image values. The v0.1.2 chart uses gateway.image.{registry,repository,tag}
 	// and prepends global.image.registry (ghcr.io/nvidia) when the per-image
 	// registry is unset. We always pass fully-qualified image references from the
-	// GatewayRelease, so we split registry out and set it explicitly per-image to
-	// prevent the global prefix from being applied.
+	// gateway's resolved image, so we split registry out and set it explicitly
+	// per-image to prevent the global prefix from being applied.
 	if b.Gateway.Image != "" {
 		reg, repo, tag := splitImageRefFull(b.Gateway.Image)
 		setNestedValue(values, reg, "gateway", "image", "registry")

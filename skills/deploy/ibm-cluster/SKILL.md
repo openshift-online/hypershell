@@ -3,7 +3,7 @@ name: ibm-cluster
 description: >
   Provision (and later retire) an IBM Cloud ROKS OpenShift cluster on VPC Gen2 to
   serve as a HyperShell Cloud Hub. Ensures a version with the built-in, CIO-managed
-  Gateway API (OCP >= 4.19) so tenant-gateway manifests match the AWS reference.
+  Gateway API (OCP 4.19 or later) so tenant-gateway manifests match the AWS reference.
   Use when: "create IBM cluster", "new ROKS cluster", "provision cloud hub on IBM",
   "upgrade IBM OpenShift", "hysh-ibm".
 ---
@@ -564,14 +564,11 @@ restart each already-running tenant gateway once for its compute driver to pick 
 oc -n "$NS" rollout restart deploy/openshell-gateway   # then: 0 "no supported Agent Sandbox" logs; "Compute driver connected"
 ```
 
-**Sandbox base image must be node-reachable too.** The gateway's `default_image`
-(the base image every sandbox pod runs) was previously hardcoded to the ghcr path
-with no override; it is now `SANDBOX_IMAGE_PLACEHOLDER`, resolved from
-`GATEWAY_SANDBOX_IMAGE` (control-plane env, set in the `deploy/ibm` overlay to the
-mirror). Rebuild + redeploy the controller (5.2/5.3) and force one re-reconcile
-(`PATCH /gateways/<id> {"phase":""}`) so the tenant configmap re-renders with the
-mirrored `default_image`, then restart the gateway. Without this a CLI-created
-sandbox is admitted but its pod `ImagePullBackOff`s on the ghcr base image.
+**Sandbox workload image must be node-reachable too.** Select the mirrored
+workload image explicitly with `openshell sandbox create --from <mirror-image>`.
+The control plane does not expose a workload-image override. Omitting `--from`
+uses the vendored chart's `sandbox.image` default, which the worker nodes may
+not be able to pull. Mirroring an image alone does not change that default.
 
 Verify (headless, no CLI auth needed - the sandbox RPC requires an authenticated
 caller since `allow_unauthenticated_users=false`, so `openshell sandbox list` over

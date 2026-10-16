@@ -31,6 +31,8 @@ type InferenceRoute struct {
 	ProviderBindingId string     `json:"provider_binding_id"`
 	// Model alias for LLM inference within the agent workspace
 	Model string `json:"model"`
+	// Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
+	RepositoryId *string `json:"repository_id,omitempty"`
 }
 
 type _InferenceRoute InferenceRoute
@@ -287,6 +289,38 @@ func (o *InferenceRoute) SetModel(v string) {
 	o.Model = v
 }
 
+// GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
+func (o *InferenceRoute) GetRepositoryId() string {
+	if o == nil || IsNil(o.RepositoryId) {
+		var ret string
+		return ret
+	}
+	return *o.RepositoryId
+}
+
+// GetRepositoryIdOk returns a tuple with the RepositoryId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InferenceRoute) GetRepositoryIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RepositoryId) {
+		return nil, false
+	}
+	return o.RepositoryId, true
+}
+
+// HasRepositoryId returns a boolean if a field has been set.
+func (o *InferenceRoute) HasRepositoryId() bool {
+	if o != nil && !IsNil(o.RepositoryId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepositoryId gets a reference to the given string and assigns it to the RepositoryId field.
+func (o *InferenceRoute) SetRepositoryId(v string) {
+	o.RepositoryId = &v
+}
+
 func (o InferenceRoute) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -315,6 +349,9 @@ func (o InferenceRoute) ToMap() (map[string]interface{}, error) {
 	toSerialize["workspace_id"] = o.WorkspaceId
 	toSerialize["provider_binding_id"] = o.ProviderBindingId
 	toSerialize["model"] = o.Model
+	if !IsNil(o.RepositoryId) {
+		toSerialize["repository_id"] = o.RepositoryId
+	}
 	return toSerialize, nil
 }
 

@@ -34,7 +34,9 @@ type SandboxTemplate struct {
 	NamePrefix *string `json:"name_prefix,omitempty"`
 	// JSON-encoded filesystem, network, and process policy for sandboxes
 	Policy *string `json:"policy,omitempty"`
-	Status *string `json:"status,omitempty"`
+	// Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
+	RepositoryId *string `json:"repository_id,omitempty"`
+	Status       *string `json:"status,omitempty"`
 }
 
 type _SandboxTemplate SandboxTemplate
@@ -330,6 +332,38 @@ func (o *SandboxTemplate) SetPolicy(v string) {
 	o.Policy = &v
 }
 
+// GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
+func (o *SandboxTemplate) GetRepositoryId() string {
+	if o == nil || IsNil(o.RepositoryId) {
+		var ret string
+		return ret
+	}
+	return *o.RepositoryId
+}
+
+// GetRepositoryIdOk returns a tuple with the RepositoryId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *SandboxTemplate) GetRepositoryIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RepositoryId) {
+		return nil, false
+	}
+	return o.RepositoryId, true
+}
+
+// HasRepositoryId returns a boolean if a field has been set.
+func (o *SandboxTemplate) HasRepositoryId() bool {
+	if o != nil && !IsNil(o.RepositoryId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepositoryId gets a reference to the given string and assigns it to the RepositoryId field.
+func (o *SandboxTemplate) SetRepositoryId(v string) {
+	o.RepositoryId = &v
+}
+
 // GetStatus returns the Status field value if set, zero value otherwise.
 func (o *SandboxTemplate) GetStatus() string {
 	if o == nil || IsNil(o.Status) {
@@ -394,6 +428,9 @@ func (o SandboxTemplate) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Policy) {
 		toSerialize["policy"] = o.Policy
+	}
+	if !IsNil(o.RepositoryId) {
+		toSerialize["repository_id"] = o.RepositoryId
 	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status

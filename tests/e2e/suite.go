@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -59,9 +60,10 @@ type E2ESuite struct {
 	// check) to activity during this run, ignoring stale pre-run log noise.
 	startedAt time.Time
 
-	apiHost   string
-	admin     *apiclient.Client
-	clusterID string
+	apiHost      string
+	admin        *apiclient.Client
+	clusterID    string
+	sandboxImage string
 
 	// clusterIDOverride, when set (by the matrix runner), pins the suite to a
 	// specific cluster id instead of discovering the seeded one. nameSuffix is
@@ -145,6 +147,11 @@ func (s *E2ESuite) SetupSuite() {
 	if s.nameSuffix != "" {
 		s.runID = s.runID + "-" + s.nameSuffix
 	}
+
+	sandboxImage, err := readSandboxImage(filepath.Join(repoRoot(), "OPENSHELL_VERSION"))
+	s.Require().NoError(err, "resolve shared e2e and Kind-preload workload image")
+	s.sandboxImage = sandboxImage
+	s.T().Logf("sandbox workload image=%s", sandboxImage)
 
 	gatewayAuth, err := resolveGatewayAuth(os.Getenv(envGatewayAuth), s.mode)
 	s.Require().NoError(err, "invalid gateway authentication mode")
@@ -505,6 +512,7 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 		apiHost:             s.apiHost,
 		admin:               api,
 		clusterID:           s.clusterID,
+		sandboxImage:        s.sandboxImage,
 		clusterIDOverride:   s.clusterIDOverride,
 		nameSuffix:          s.nameSuffix,
 		primary:             s.primary,

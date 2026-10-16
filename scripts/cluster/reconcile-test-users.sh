@@ -243,7 +243,7 @@ keycloak_reconcile_test_users() {
 # They are NOT test-tier principals and are NOT seeded on CI-owned environments.
 # Idempotent.
 keycloak_reconcile_extra_users() {
-  local token username
+  local token username first_name
   if [[ -z "${KEYCLOAK_BASE_URL:-}" ]]; then
     echo "KEYCLOAK_BASE_URL is required" >&2
     return 1
@@ -257,8 +257,10 @@ keycloak_reconcile_extra_users() {
     return 1
   fi
   for username in "$@"; do
+    # macOS ships Bash 3.2, which does not support ${username^}.
+    first_name="$(printf '%s' "${username:0:1}" | tr '[:lower:]' '[:upper:]')${username:1}"
     _create_or_reset_user "${token}" "${username}" "${username}" \
-      "${username^}" "User" "${username}@hypershell.local" hypershell-users || return 1
+      "${first_name}" "User" "${username}@hypershell.local" hypershell-users || return 1
   done
 }
 

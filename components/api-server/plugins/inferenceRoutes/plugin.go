@@ -58,4 +58,5 @@ func init() {
 	presenters.RegisterKind(&InferenceRoute{}, "InferenceRoute")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddRepositoryOwnership())
 }

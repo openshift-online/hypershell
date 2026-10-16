@@ -896,20 +896,17 @@ serve the API version the gateway requires (`v1beta1` for gateway 0.1.2-rhaiv.0;
 
 #### Requirement: Sandbox Base Image Supports an In-Cluster Registry
 
-The base image tenant sandbox pods launch from (the gateway `default_image`) SHALL
-be overridable via `GATEWAY_SANDBOX_IMAGE` (control-plane env), so that on clusters
-whose nodes cannot reach `ghcr.io` (e.g. ROKS) it can be pointed at a mirror in the
-cluster-internal registry. This cluster-wide override SHALL apply only when the Gateway
-resource does not set its own `sandbox_image` field; a per-Gateway `sandbox_image`
-(see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)) SHALL take
-precedence over `GATEWAY_SANDBOX_IMAGE`. The control plane SHALL pass the resolved
-image to the OpenShell Helm chart as `server.sandboxImage`.
+Sandbox creation SHALL support selecting a node-reachable workload image through
+OpenShell's `sandbox create --from <image>` interface. On clusters without public
+registry access (e.g. ROKS), callers SHALL select a mirrored image in the
+cluster-internal registry. When no image is selected, the vendored chart supplies
+the gateway's default workload image through `sandbox.image`.
 
 ##### Scenario: Sandbox launch on a cluster without public egress
 
 - GIVEN a cluster whose worker nodes cannot pull from `ghcr.io` or `registry.k8s.io`
 - AND the Agent Sandbox CRD + controller and the sandbox base image have been mirrored into the internal registry
-- WHEN `GATEWAY_SANDBOX_IMAGE` points the gateway `default_image` at the mirrored base image
+- WHEN the caller creates a sandbox with `--from <internal-registry-image>`
 - THEN a created Sandbox's pod SHALL pull the base image from the internal registry and reach Running
 - AND the gateway compute driver SHALL watch `agents.x-k8s.io` without `Unimplemented` errors
 

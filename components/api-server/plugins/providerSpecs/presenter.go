@@ -27,15 +27,16 @@ func ConvertProviderSpec(ps openapi.ProviderSpec) *ProviderSpec {
 func PresentProviderSpec(ps *ProviderSpec) openapi.ProviderSpec {
 	reference := presenters.PresentReference(ps.ID, ps)
 	return openapi.ProviderSpec{
-		Id:         reference.Id,
-		Kind:       reference.Kind,
-		Href:       reference.Href,
-		CreatedAt:  openapi.PtrTime(ps.CreatedAt),
-		UpdatedAt:  openapi.PtrTime(ps.UpdatedAt),
-		Name:       ps.Name,
-		Category:   ps.Category,
-		Capability: ps.Capability,
-		Profile:    ps.Profile,
-		Status:     ps.Status,
+		Id:           reference.Id,
+		Kind:         reference.Kind,
+		Href:         reference.Href,
+		CreatedAt:    openapi.PtrTime(ps.CreatedAt),
+		UpdatedAt:    openapi.PtrTime(ps.UpdatedAt),
+		Name:         ps.Name,
+		Category:     ps.Category,
+		Capability:   ps.Capability,
+		Profile:      ps.Profile,
+		RepositoryId: ps.RepositoryId,
+		Status:       ps.Status,
 	}
 }

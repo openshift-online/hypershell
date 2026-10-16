@@ -264,6 +264,7 @@ vendor-openshell-chart:
 	  rm -rf /tmp/openshell-chart-vendor && \
 	  grep -rl $$'\xe2\x80\x94' charts/openshell/ | xargs -r perl -pi -e 's/\xe2\x80\x94/-/g' && \
 	  echo "Vendored charts/openshell/ at $$OPENSHELL_TAG"
+	$(MAKE) sync-openshell-version
 
 .PHONY: test-openshell-version-policy
 test-openshell-version-policy:
