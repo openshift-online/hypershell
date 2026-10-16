@@ -314,7 +314,9 @@ column SHALL draw a dashed **service-level-expectation (SLE) line** at that phas
 expected time-in-phase. Time-in-phase SHALL NOT be conveyed by color alone.
 
 Clicking a card SHALL open that issue's full **label-event history** (its state over
-time), reconstructed per SDLC-VIS-14.
+time), reconstructed per SDLC-VIS-14. When a card changes phase between snapshots, the
+whole card SHALL fly between its columns per SDLC-VIS-12a rather than vanish and
+reappear.
 
 #### Scenario: Card position reflects time-in-phase
 
@@ -466,13 +468,10 @@ bundle's row. The matrix SHALL NOT present a named "building" bundle.
 - WHEN a bundle is released whose PR set contains that issue's pull requests
 - THEN that issue SHALL appear in that bundle's row instead of Unreleased
 
-### Requirement: SDLC-VIS-12 -- Fleet Map Cross-Link and Ship Animation
+### Requirement: SDLC-VIS-12 -- Fleet Map Cross-Link
 
 Activating a shipped item, or a bundle in the freight bar, SHALL jump to the Fleet
 Map with that bundle opened (consistent with the shared freight bar, SDLC-VIS-07).
-When an issue newly reaches the Shipped state, its card SHALL animate out of the
-Code approved column into the matrix. Any such animation SHALL respect the user's
-reduced-motion preference (`specs/standards/ui/accessibility.spec.md`).
 
 #### Scenario: Shipped item jumps to the map
 
@@ -480,11 +479,115 @@ reduced-motion preference (`specs/standards/ui/accessibility.spec.md`).
 - WHEN the operator activates it
 - THEN the Fleet Map SHALL open with that issue's bundle selected
 
-#### Scenario: Reduced motion suppresses the ship animation
+### Requirement: SDLC-VIS-12a -- Card Phase-Transition Flights
+
+When an execution-record card changes phase between two SDLC snapshots, the whole
+card SHALL fly from its old slot to its new slot rather than disappear from one
+column and reappear in the next on the following refetch. The flying object SHALL be
+a full-size clone of the card itself (its real size and content), not a shrunken
+identicon or a glyph. The flight SHALL travel along an arc and land with an impact
+("dust") burst, mirroring the Fleet Map promotion flights so the two surfaces read as
+one motion language. A mid-flight scale swell MAY be used but SHALL stay subtle for a
+full-size card. The flight SHALL respect the user's reduced-motion preference
+(`specs/standards/ui/accessibility.spec.md`): when reduced motion is preferred, no
+flight SHALL play and cards SHALL snap to their new slots.
+
+This behavior SHALL reuse the Fleet Map's flight motion rather than fork it: the arc
+path, the impact burst, and the shared flight duration (`FLIGHT_MS`) SHALL be a
+single shared presentation primitive used by both the Fleet Map (SVG, flying an
+identicon) and the Agent SDLC board (DOM, flying a full card). The board SHALL NOT
+duplicate the arc, dust, or timing.
+
+Flights SHALL cover every phase change, not forward moves alone:
+
+- A forward move (for example Spec -> Spec approved) SHALL fly forward.
+- A backward move (a reject loop, for example Spec approved -> Spec) SHALL fly
+  backward.
+- A card entering the board at intake SHALL fly in (the board analogue of the Fleet
+  Map's release-tray special case).
+- The last phase -> Shipped hop SHALL fly as a card into the release matrix, and this
+  flight SHALL replace the previous separate corner-to-corner ship glyph animation.
+  The board SHALL retain no separate ship-glyph animation.
+
+Each simultaneous phase change in one refetch SHALL get its own flight.
+
+#### Scenario: Forward phase change flies the whole card
+
+- GIVEN a card whose phase advances between two snapshots
+- WHEN the board renders the new snapshot
+- THEN a full-size clone of the card SHALL fly along an arc from its old column slot
+  to its new column slot
+- AND it SHALL land with the same impact burst as a Fleet Map promotion flight
+
+#### Scenario: Reject loop flies backward
+
+- GIVEN a card whose phase moves to an earlier phase (a reject loop)
+- WHEN the board renders the new snapshot
+- THEN the card SHALL fly from its old slot back to the earlier phase's slot
+
+#### Scenario: Shipped hop uses the same flight
+
+- GIVEN a card whose phase reaches Shipped
+- WHEN the board renders the new snapshot
+- THEN the card SHALL fly into the release matrix using the shared flight primitive
+- AND no separate ship-glyph animation SHALL play
+
+#### Scenario: Reduced motion suppresses flights
 
 - GIVEN the user prefers reduced motion
-- WHEN an issue reaches Shipped
-- THEN the transition SHALL respect the reduced-motion preference
+- WHEN any card changes phase
+- THEN no flight SHALL play
+- AND the card SHALL snap to its new slot
+
+### Requirement: SDLC-VIS-12b -- Flight Detection and Stability
+
+Phase-transition flights SHALL be derived purely by diffing the already-fetched SDLC
+snapshot across polls (the board analogue of the Fleet Map's `computeFlights` pure
+diff). A flight SHALL be emitted when a card's server **phase** changes between the
+previous snapshot and the current one. Detection SHALL key off the server phase, NOT
+the continuously aged copy, so the board's one-second continuous-aging re-render does
+not spuriously emit or restart flights. No phase-transition flight SHALL cause a new
+network call.
+
+Active flights SHALL be registered with stable keys and self-expiring timers held in
+a ref, with no effect-cleanup cancellation, mirroring the Fleet Map's flight registry
+(`useFlights`). An unrelated poll or the one-second aging re-render landing mid-flight
+SHALL NOT restart, cancel, or strand an in-flight flight.
+
+While a flight is in the air, the destination SHALL NOT also show the resting card
+(no double render): the destination slot SHALL be held (reserved placeholder or
+skipped) until the flying copy lands, the board analogue of the Fleet Map's
+`holdSeedById`. The source slot SHALL clear as the card departs so the card appears
+to physically leave. When the flight lands, the hold SHALL release to the card's
+current (aged) slot, not a stale one. The landing MAY occur at the computed
+destination rect even when the destination column is scrolled such that the slot is
+off-screen; the board SHALL NOT auto-scroll to it.
+
+#### Scenario: Flight is derived from the snapshot diff, not aging
+
+- GIVEN the one-second continuous-aging re-render runs with no phase change
+- WHEN the board re-renders
+- THEN no flight SHALL be emitted
+- AND no new network call SHALL be made
+
+#### Scenario: Aging re-render does not restart an in-flight flight
+
+- GIVEN a card is mid-flight between columns
+- WHEN the one-second aging re-render or an unrelated poll lands
+- THEN the flight SHALL NOT restart, cancel, or strand
+
+#### Scenario: Destination holds until the card lands
+
+- GIVEN a card is flying to its new column
+- WHEN the board renders during the flight
+- THEN the destination SHALL NOT show the resting card until the flight lands
+- AND the source slot SHALL clear as the card departs
+
+#### Scenario: Simultaneous transitions each fly
+
+- GIVEN two cards change phase in the same refetch
+- WHEN the board renders the new snapshot
+- THEN each card SHALL fly on its own flight
 
 ### Requirement: SDLC-VIS-13 -- SLE Values Are Configuration
 
@@ -612,9 +715,12 @@ bundle grouped once, the Unreleased row reduced to shipped issues absent from ev
 bundle's PR set, rework-from-timeline counting) and for the `SdlcStateProvider` port
 with its GitHub adapter; UI tests for the wire mapper, the tab shell and shared
 freight-bar coupling, the aging-board position and SLE line, the rework meter encoding,
-the escalation lane ordering, and the matrix including both bundle groups and the
-Unreleased row; and Storybook stories for default, loading, stale, and empty-lane
-states using a mock SDLC port.
+the escalation lane ordering, the phase-transition flight detection (a flight is emitted
+on a server-phase change, forward and backward, and not on the one-second aging
+re-render), the flight registry stability (an aging re-render or unrelated poll does not
+restart or strand an in-flight flight) and reduced-motion suppression, and the matrix
+including both bundle groups and the Unreleased row; and Storybook stories for default,
+loading, stale, empty-lane, and mid-flight states using a mock SDLC port.
 
 #### Scenario: Storybook shows the board and matrix from a mock port
 
