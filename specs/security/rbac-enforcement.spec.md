@@ -461,11 +461,13 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   Deregistration").
 - `RoleBindingService`: denied. Its list and watch are not filtered by user or gateway;
   users manage bindings over HTTP.
-- Import ext kinds (`RepositoryService`, `SandboxTemplateService`, `ProviderSpecService`,
+- Fleet-wide ext kinds (`RepositoryService`, `SandboxTemplateService`, `ProviderSpecService`,
   `ProviderBindingService`, `InferenceRouteService`, `SecretSourceService`): list, watch,
-  and get for `platform:admin`; all writes (create/update/delete) denied. These kinds are
-  fleet-wide, so a user caller never writes them over gRPC; declarative-import writes are
-  authorized only for the control-plane identity (see below).
+  and get for `platform:admin`; all writes (create/update/delete) denied for user callers.
+  These kinds are fleet-wide, so a user caller never writes them over gRPC. For the
+  import-write kinds among them (all except `RepositoryService`), declarative-import writes
+  are authorized only for the control-plane identity (see below); `RepositoryService` is NOT
+  on the import-write path because the import never upserts `Repository` resources.
 - Under `RBAC_ENFORCE=true` an unauthenticated call reaches no `hypershell.v1` method.
 
 Control-plane identities are exempt from role bindings but not from scoping. A caller
@@ -480,9 +482,15 @@ declarative `.hypershell` import reconciler (see
 [`platform/control-plane.spec.md`](../platform/control-plane.spec.md), "Declarative
 `.hypershell` Import Reconciliation") is the single bounded path by which the control
 plane writes HyperShell API desired state. The gRPC `Create`, `Update`, and `Delete`
-methods for the import ext kinds (`Repository`, `SandboxTemplate`, `ProviderSpec`,
+methods for the import-write kinds (`SandboxTemplate`, `ProviderSpec`,
 `ProviderBinding`, `InferenceRoute`, `SecretSource`) SHALL be authorized for the
-control-plane identity and SHALL remain denied for every other caller. These writes
+control-plane identity and SHALL remain denied for every other caller. `Repository`
+is NOT an import-write kind: the import reconciler reconciles the `Repository` Kind but
+SHALL NEVER upsert `Repository` resources discovered in an import (it is excluded from
+the canonical importable set in
+[`platform/data-model.spec.md`](../platform/data-model.spec.md) to prevent recursive
+import), so the import write path SHALL NOT create, update, or delete `Repository`
+resources. These writes
 are `Repository`-scoped through the `repository_id` ownership mark, not an open
 bootstrap bypass:
 

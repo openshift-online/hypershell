@@ -534,14 +534,18 @@ Kustomize root: the `RepositoryReconciler` SHALL build the kustomization and
 reconcile the rendered resources into the API.
 
 The Kinds the `RepositoryReconciler` imports are defined here canonically as the
-**importable Kinds**: `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Repository`, and `Gateway`.
+**importable Kinds**, exactly seven: `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, and `Gateway`.
 These are the declarable HyperShell Kinds a `.hypershell` root MAY contain. They are
 a SUBSET of the Kinds `hsctl apply` accepts: `hsctl apply` also accepts
 platform-admin Kinds (for example `ManagedCluster`, `Role`, and `RoleBinding`) that
-are NOT importable through a `Repository`. This canonical list is referenced - not
-re-enumerated - by [`control-plane.spec.md`](./control-plane.spec.md) ("Declarative
-`.hypershell` Import Reconciliation") and
+are NOT importable through a `Repository`. `Repository` itself is also explicitly
+EXCLUDED from the importable set: the `RepositoryReconciler` reconciles the
+`Repository` Kind but SHALL NEVER upsert `Repository` resources discovered in an
+import, so that importing one repository cannot register further repositories and
+trigger recursive or transitive imports (infinite recursion). This canonical list is
+referenced - not re-enumerated - by [`control-plane.spec.md`](./control-plane.spec.md)
+("Declarative `.hypershell` Import Reconciliation") and
 [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) ("Relationship to the
 RepositoryReconciler") so the importable set never drifts across specs.
 

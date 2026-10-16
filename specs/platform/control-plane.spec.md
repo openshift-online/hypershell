@@ -371,8 +371,8 @@ resolves the apparent conflict with the "control plane is a reader of desired
 state" principle: the principle holds everywhere except this one named,
 ownership-scoped reconciler.
 
-**gRPC write authorization for the import.** The fleet-wide importable Kinds
-(`Repository`, `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
+**gRPC write authorization for the import.** The import-write Kinds
+(`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
 `InferenceRoute`, `SecretSource`) had their gRPC Create / Update / Delete methods
 held at default-deny when their gRPC surface was introduced. They SHALL now be
 authorized for the control-plane identity, bounded to the `RepositoryReconciler`'s
@@ -383,6 +383,16 @@ outside the import). The remaining importable Kinds, `Gateway` and `AgentRuntime
 the control-plane identity already writes them through its per-Kind reconciler
 authorization, and the `RepositoryReconciler` upserts them under the same
 `Repository`-scoped ownership mark.
+`Repository` is NOT on the import-write path. The `RepositoryReconciler` reconciles
+the `Repository` Kind but SHALL NEVER upsert `Repository` resources discovered in an
+import, so `Repository` is excluded from the canonical importable set in
+[`data-model.spec.md`](./data-model.spec.md) to prevent recursive or transitive
+import (infinite recursion). Whether `Repository`'s own gRPC Create / Update / Delete
+methods are authorized for any identity is a separate gRPC-authorization (RBAC)
+concern governed by
+[`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md); it
+does NOT make `Repository` importable, and the import SHALL NOT write the `Repository`
+Kind.
 The authorization contract is specified in
 [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md),
 "Requirement: gRPC Authorization". In particular:
