@@ -133,12 +133,20 @@ type PromotionPayload struct {
 	Frontier     *Release               `json:"frontier"`
 }
 
+// VerificationTarget correlates logs using exact deployed revision and workload identity.
+type VerificationTarget struct {
+	Revision  string `json:"revision"`
+	Cluster   string `json:"cluster"`
+	Namespace string `json:"namespace"`
+}
+
 // Environment is one promotion environment.
 type Environment struct {
-	Branch         string   `json:"branch"`
-	Active         *Release `json:"active"`
-	Proposed       *Release `json:"proposed"`
-	ActiveHydrated string   `json:"activeHydrated"`
+	Verification   *VerificationTarget `json:"verification,omitempty"`
+	Branch         string              `json:"branch"`
+	Active         *Release            `json:"active"`
+	Proposed       *Release            `json:"proposed"`
+	ActiveHydrated string              `json:"activeHydrated"`
 	// AnalysisURL links to the hypershell-analysis GitHub check-run for the
 	// active hydrated commit (nullable -- spec §5). Empty/omitted when GitHub
 	// enrichment is disabled or the run is absent/unreachable.
@@ -253,6 +261,9 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			env.Provider = a.provider
 			env.Env = a.env
 			env.Cluster = a.cluster
+			if activeHydrated != "" && a.cluster != "" && a.workloadNamespace != "" {
+				env.Verification = &VerificationTarget{Revision: activeHydrated, Cluster: a.cluster, Namespace: a.workloadNamespace}
+			}
 			env.ConsoleURL = a.consoleURL
 			env.GrafanaURL = a.grafanaURL
 		}
@@ -423,6 +434,7 @@ func (p *Promotion) argoAppURL(ns, app string) string {
 }
 
 type argoInfo struct {
+	workloadNamespace                                                           string
 	app, ns, health, sync, role, provider, env, cluster, consoleURL, grafanaURL string
 	// syncRetries is status.operationState.retryCount, nil when no operation state
 	// is recorded (unknown) so it stays distinct from a genuine 0.
@@ -474,18 +486,20 @@ func (p *Promotion) argoByInstance(ctx context.Context) map[string]argoInfo {
 		if rc, ok := nestedInt(obj, "status", "operationState", "retryCount"); ok {
 			syncRetries = &rc
 		}
+		workloadNamespace, _ := nestedString(obj, "spec", "destination", "namespace")
 		out[key] = argoInfo{
-			app:         name,
-			ns:          ns,
-			health:      health,
-			sync:        sync,
-			syncRetries: syncRetries,
-			role:        labels[deliveryLabelPrefix+"role"],
-			provider:    labels[deliveryLabelPrefix+"provider"],
-			env:         labels[deliveryLabelPrefix+"env"],
-			cluster:     labels[deliveryLabelPrefix+"cluster"],
-			consoleURL:  ann["link.argocd.argoproj.io/external-link"],
-			grafanaURL:  ann["link.argocd.argoproj.io/grafana"],
+			workloadNamespace: workloadNamespace,
+			app:               name,
+			ns:                ns,
+			health:            health,
+			sync:              sync,
+			syncRetries:       syncRetries,
+			role:              labels[deliveryLabelPrefix+"role"],
+			provider:          labels[deliveryLabelPrefix+"provider"],
+			env:               labels[deliveryLabelPrefix+"env"],
+			cluster:           labels[deliveryLabelPrefix+"cluster"],
+			consoleURL:        ann["link.argocd.argoproj.io/external-link"],
+			grafanaURL:        ann["link.argocd.argoproj.io/grafana"],
 		}
 	}
 	return out

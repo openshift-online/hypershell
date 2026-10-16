@@ -114,29 +114,34 @@ func (e *E2E) Stream(w http.ResponseWriter, r *http.Request) {
 		send(streamFrame{Kind: "event", Event: toStreamEvent(ev)})
 	}
 
-	// Backfill: replay the run's recent events from history before going live, so
-	// the bridge has no gap between the snapshot and the tail.
-	end := time.Now()
-	start := end.Add(-e.window)
-	if entries, _, err := e.loki.QueryRange(ctx, tenant, e.selector, start, end, lokiQueryLimit); err == nil {
-		events := parseAndFilter(entries, runID, namespace)
-		for _, ev := range events {
-			forward(ev)
-		}
-	} else {
-		e.logger.WarnContext(ctx, "e2e stream backfill query failed", "tenant", tenant, "err", err)
-	}
-	send(streamFrame{Kind: "status", Status: &E2EStreamStatus{State: streamStateLive}})
-	if writeErr != nil {
-		return
-	}
-
 	sub, unsub, err := e.broker.Subscribe(tenant)
 	if err != nil {
 		send(streamFrame{Kind: "status", Status: &E2EStreamStatus{State: streamStateDisconnected}})
 		return
 	}
 	defer unsub()
+
+	initialState := streamStateLive
+	// Backfill: replay the run's recent events from history before going live, so
+	// the bridge has no gap between the snapshot and the tail.
+	end := time.Now()
+	start := end.Add(-e.window)
+	if entries, truncated, err := e.runEntries(ctx, tenant, runID, start, end); err == nil {
+		if truncated {
+			initialState = streamStateGap
+		}
+		events := parseAndFilter(entries, runID, namespace)
+		for _, ev := range events {
+			forward(ev)
+		}
+	} else {
+		e.logger.WarnContext(ctx, "e2e stream backfill query failed", "tenant", tenant, "err", err)
+		initialState = streamStateGap
+	}
+	send(streamFrame{Kind: "status", Status: &E2EStreamStatus{State: initialState}})
+	if writeErr != nil {
+		return
+	}
 
 	ticker := time.NewTicker(streamHeartbeat)
 	defer ticker.Stop()

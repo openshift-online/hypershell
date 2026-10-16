@@ -1,3 +1,8 @@
+import type {
+  PromotionData,
+  ReleaseBundle,
+  VerificationTarget,
+} from "./promotion";
 // E2E run plane: the release end-to-end test runs made observable in the glass
 // dashboard (e2e-run-log-visibility.spec, HYPERSHELL-402). The BFF reads the
 // opt-in structured run reporting (schema hypershell.e2e.v1) from a central Loki
@@ -60,6 +65,7 @@ export interface E2ePlannedStep {
 
 /** One recent run in the list (E2E-LOG-12). */
 export interface E2eRunSummary {
+  readonly bundle?: ReleaseBundle | null;
   /** Collision-free address "tenant/namespace/runId" (E2E-LOG-01). */
   readonly id: string;
   readonly runId: string;
@@ -167,6 +173,7 @@ function emptyDetail(): E2eRunDetail {
 
 /** A mutable working copy of a detail, used only inside the fold. */
 interface Mutable {
+  bundle?: ReleaseBundle | null;
   id: string;
   runId: string;
   tenant: string;
@@ -426,6 +433,7 @@ function fold(
 
 function toMutable(base: E2eRunDetail): Mutable {
   return {
+    bundle: base.bundle,
     id: base.id,
     runId: base.runId,
     tenant: base.tenant,
@@ -537,4 +545,51 @@ export function logsForStep(
   stepId: string,
 ): readonly E2eLogLine[] {
   return logs.filter((l) => l.stepId === stepId);
+}
+
+/** Never substitute a different revision or cluster's "latest" run for a gate.
+ * Attempts are newest first, and selection stays pinned while live data updates. */
+export function runsForVerification(
+  runs: readonly E2eRunSummary[],
+  target: VerificationTarget | null | undefined,
+): readonly E2eRunSummary[] {
+  if (!target?.revision || !target.cluster || !target.namespace) return [];
+  return runsNewestFirst(
+    runs.filter(
+      (run) =>
+        run.revision === target.revision &&
+        run.cluster === target.cluster &&
+        run.namespace === target.namespace,
+    ),
+  );
+}
+
+/** Exact target identity only; do not infer instance names from namespace strings. */
+export function runTargetInstance(
+  run: E2eRunSummary,
+  promotion?: PromotionData,
+): string | null {
+  const matches = Object.values(promotion?.environments ?? {}).filter(
+    (env) =>
+      env.verification?.cluster === run.cluster &&
+      env.verification.namespace === run.namespace,
+  );
+  return matches.length === 1 ? (matches[0]?.name ?? null) : null;
+}
+
+/** A historical server resolution wins. Current promotion is an exact-revision fallback. */
+export function runBundle(
+  run: E2eRunSummary,
+  promotion?: PromotionData,
+): ReleaseBundle | null {
+  if (run.bundle?.digest) return run.bundle;
+  const matches = Object.values(promotion?.environments ?? {}).filter(
+    (env) =>
+      env.verification?.cluster === run.cluster &&
+      env.verification.namespace === run.namespace &&
+      env.verification.revision === run.revision,
+  );
+  if (matches.length !== 1) return null;
+  const digest = matches[0]?.activeDigest;
+  return digest ? (promotion?.releaseByDigest[digest] ?? null) : null;
 }

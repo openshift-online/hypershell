@@ -327,6 +327,7 @@ describe("mapSdlc", () => {
           url: "https://x/10",
           phase: "spec",
           timeInPhaseSeconds: 50,
+          scope: "agent/scope/int",
           rework: { count: 2, threshold: 3 },
           history: [
             { label: "agent/reviewable-spec", action: "labeled", at: "t" },
@@ -377,6 +378,7 @@ describe("mapSdlc", () => {
 
     expect(data.phases).toHaveLength(2);
     expect(data.cards[0]?.rework).toEqual({ count: 2, threshold: 3 });
+    expect(data.cards[0]?.scope).toBe("agent/scope/int");
     expect(data.cards[0]?.history[0]?.label).toBe("agent/reviewable-spec");
     expect(data.lane[0]?.escalation).toBe("blocked");
     expect(data.matrix.hubClusters[0]?.currentVersion).toBe("v2");

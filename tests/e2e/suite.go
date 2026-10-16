@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/sync/errgroup"
 
@@ -42,6 +44,7 @@ const (
 // timing and deletes the suite's gateways. Go's native test output is the result
 // report.
 type E2ESuite struct {
+	logger *harness.Logger
 	suite.Suite
 
 	driver  driver.E2EInfraDriver
@@ -127,7 +130,9 @@ func (s *E2ESuite) SetupSuite() {
 	s.startedAt = time.Now()
 	s.reporter = harness.NewReporterFromEnv(os.Stdout)
 	s.runner = harness.NewCommandRunner(s.T().Logf)
-	s.runner.SetReporter(s.reporter, "")
+	s.logger = harness.NewLogger(s.T().Logf, harness.ReporterSink(s.reporter)).WithStep("setup", nil)
+	s.runner.SetLogger(s.logger)
+	defer func() { s.logger = s.logger.WithStep("", s.T().Logf); s.runner.SetLogger(s.logger) }()
 	// Report the run and its setup as soon as reporting is enabled, so even a
 	// SetupSuite failure is visible as a started run with no terminal record
 	// (interpreted as incomplete, never as passed).
@@ -151,18 +156,18 @@ func (s *E2ESuite) SetupSuite() {
 	sandboxImage, err := readSandboxImage(filepath.Join(repoRoot(), "OPENSHELL_VERSION"))
 	s.Require().NoError(err, "resolve shared e2e and Kind-preload workload image")
 	s.sandboxImage = sandboxImage
-	s.T().Logf("sandbox workload image=%s", sandboxImage)
+	s.Logf("sandbox workload image=%s", sandboxImage)
 
 	gatewayAuth, err := resolveGatewayAuth(os.Getenv(envGatewayAuth), s.mode)
 	s.Require().NoError(err, "invalid gateway authentication mode")
 
-	s.T().Logf("e2e mode=%s concurrency=%d driver=%s runID=%s", s.mode, s.concurrency, s.driver.Name(), s.runID)
+	s.Logf("e2e mode=%s concurrency=%d driver=%s runID=%s", s.mode, s.concurrency, s.driver.Name(), s.runID)
 	if gatewayTLSInsecure(s.driver.Name()) {
-		s.T().Logf("WARNING: OPENSHELL_GATEWAY_INSECURE=true - gateway TLS verification is disabled; use only as a local diagnostic override")
+		s.Logf("WARNING: OPENSHELL_GATEWAY_INSECURE=true - gateway TLS verification is disabled; use only as a local diagnostic override")
 	}
 	if gatewayAuth == gatewayAuthServiceAccount {
 		s.serviceAccounts = newGatewayServiceAccountStore(gatewayOIDCIssuer(), s.runID)
-		s.T().Logf("gateway auth=%s: gateway service accounts; no token exchange, impersonation, platform:admin, or Keycloak admin credentials", gatewayAuth)
+		s.Logf("gateway auth=%s: gateway service accounts; no token exchange, impersonation, platform:admin, or Keycloak admin credentials", gatewayAuth)
 	}
 
 	var apiHost string
@@ -218,7 +223,7 @@ func (s *E2ESuite) SetupSuite() {
 	clusterID, err := s.discoverSeedIDs(s.ctx)
 	s.Require().NoError(err, "discover seeded cluster id")
 	s.clusterID = clusterID
-	s.T().Logf("seed ids: cluster=%s", clusterID)
+	s.Logf("seed ids: cluster=%s", clusterID)
 
 }
 
@@ -232,6 +237,8 @@ func (s *E2ESuite) TearDownSuite() {
 	// defer guarantees it is the last structured record even if teardown exits
 	// early. cleanupStartedAt and failedBeforeCleanup isolate a cleanup-introduced
 	// failure from an earlier phase failure for the cleanup step's own outcome.
+	s.logger = s.logger.WithStep("cleanup", s.T().Logf)
+	s.runner.SetLogger(s.logger)
 	cleanupStartedAt := time.Now()
 	failedBeforeCleanup := s.T().Failed()
 	s.reporter.StepStarted("cleanup", "suite-teardown")
@@ -292,19 +299,19 @@ func (s *E2ESuite) TearDownSuite() {
 			})
 		}
 		if err := g.Wait(); err != nil {
-			s.T().Errorf("gateway cleanup: %v", err)
+			reportingTest{T: s.T(), logger: s.logger}.Errorf("gateway cleanup: %v", err)
 		}
 	}
 
 	if s.gcTimingLease != nil && !(s.T().Failed() && s.driver.Name() == "openshift") {
 		if err := s.gcTimingLease.Release(ctx); err != nil {
-			s.T().Errorf("restore namespace GC timing: %v", err)
+			reportingTest{T: s.T(), logger: s.logger}.Errorf("restore namespace GC timing: %v", err)
 		}
 	}
 
 	if s.driver != nil {
 		if err := s.driver.DeSeedTestUsers(ctx); err != nil {
-			s.T().Errorf("de-seed test users: %v", err)
+			reportingTest{T: s.T(), logger: s.logger}.Errorf("de-seed test users: %v", err)
 		}
 	}
 
@@ -407,17 +414,21 @@ func (s *E2ESuite) step(id, slug, tag string, fn func(t *testing.T)) {
 		// is re-raised so the suite's crash behavior and verdict are unchanged.
 		defer func() {
 			if r := recover(); r != nil {
+				s.logger.WithStep(id, t.Logf).Additionalf("Step panicked: %v", r)
 				s.reporter.StepFinished(id, slug, harness.OutcomeFailed, time.Since(started))
 				panic(r)
 			}
 			s.reporter.StepFinished(id, slug, outcomeFor(t), time.Since(started))
 		}()
 		if !s.modeAllows(tag) {
+			s.logger.WithStep(id, t.Logf).Additionalf("step %s is %s-only; mode is %s", id, tag, s.mode)
 			t.Skipf("step %s is %s-only; mode is %s", id, tag, s.mode)
 			return
 		}
-		s.runner.SetStep(id)
-		defer s.runner.SetStep("")
+		previous := s.logger
+		s.logger = previous.WithStep(id, t.Logf)
+		s.runner.SetLogger(s.logger)
+		defer func() { s.logger = previous; s.runner.SetLogger(previous) }()
 		fn(t)
 	})
 }
@@ -431,12 +442,14 @@ func (s *E2ESuite) parallelStep(id, slug, tag string, fn func(*E2ESuite, *testin
 			s.reporter.StepStarted(id, slug)
 			defer func() {
 				if r := recover(); r != nil {
+					s.logger.WithStep(id, t.Logf).Additionalf("Step panicked: %v", r)
 					s.reporter.StepFinished(id, slug, harness.OutcomeFailed, time.Since(started))
 					panic(r)
 				}
 				s.reporter.StepFinished(id, slug, outcomeFor(t), time.Since(started))
 			}()
 			if !s.modeAllows(tag) {
+				s.logger.WithStep(id, t.Logf).Additionalf("step %s is %s-only; mode is %s", id, tag, s.mode)
 				t.Skipf("step %s is %s-only; mode is %s", id, tag, s.mode)
 				return
 			}
@@ -491,19 +504,23 @@ func plannedReportSteps() []harness.PlannedStep {
 // shared through explicitly synchronized pointers.
 func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 	t.Helper()
+	logger := s.logger.WithStep(stepID, t.Logf)
 	tok, err := s.driver.AcquireOIDCToken(t.Context(), s.adminCreds())
 	if err != nil {
+		logger.Additionalf("acquire step admin OIDC token: %v", err)
 		t.Fatalf("acquire step admin OIDC token: %v", err)
 	}
 	api, err := s.driver.APIClient(t.Context(), tok)
 	if err != nil {
+		logger.Additionalf("build step admin API client: %v", err)
 		t.Fatalf("build step admin API client: %v", err)
 	}
 	runner := harness.NewCommandRunner(t.Logf)
 	// Each parallel step's runner carries its own step id, so concurrent command
 	// output is attributed to the correct step rather than guessed.
-	runner.SetReporter(s.reporter, stepID)
+	runner.SetLogger(logger)
 	clone := &E2ESuite{
+		logger:              logger,
 		driver:              s.driver,
 		clients:             s.clients,
 		runner:              runner,
@@ -665,3 +682,29 @@ func (s *E2ESuite) seedDefaults() (clusterName string) {
 	}
 	return clusterName
 }
+
+// Logf is the single suite diagnostic entry point. The human sink remains the
+// owning subtest; the optional reporter receives the same step-scoped message.
+func (s *E2ESuite) Logf(format string, args ...any) {
+	if s.logger == nil {
+		s.T().Logf(format, args...)
+		return
+	}
+	s.logger.Logf(format, args...)
+}
+func (s *E2ESuite) Log(args ...any) { s.Logf("%s", fmt.Sprintln(args...)) }
+
+// Testify diagnostics must retain their failure semantics and also reach the
+// structured sink. FailNow/Helper delegate to the original testing.T unchanged.
+type reportingTest struct {
+	*testing.T
+	logger *harness.Logger
+}
+
+func (t reportingTest) Errorf(format string, args ...any) {
+	t.Helper()
+	t.logger.Additionalf(format, args...)
+	t.T.Errorf(format, args...)
+}
+func (s *E2ESuite) Assert() *assert.Assertions   { return assert.New(reportingTest{s.T(), s.logger}) }
+func (s *E2ESuite) Require() *require.Assertions { return require.New(reportingTest{s.T(), s.logger}) }

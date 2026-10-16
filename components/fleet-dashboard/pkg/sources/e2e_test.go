@@ -394,3 +394,71 @@ func mustRuns(t *testing.T, e *E2E) E2ERunsPayload {
 	}
 	return payload
 }
+
+// Model a chatty command whose log window no longer contains the start/finish.
+type windowedLoki struct {
+	fakeLoki
+	structural, logs []LokiEntry
+	queries          []string
+}
+
+func (f *windowedLoki) QueryRange(_ context.Context, _ string, query string, _, _ time.Time, _ int) ([]LokiEntry, bool, error) {
+	f.queries = append(f.queries, query)
+	if strings.Contains(query, "run_started|") {
+		return f.structural, false, nil
+	}
+	return f.logs, true, nil
+}
+func TestRunDetailPreservesLifecycleOutsideLogWindow(t *testing.T) {
+	f := &windowedLoki{structural: []LokiEntry{
+		{Line: viaQLine(t, ev("run_started", 1, map[string]any{"plannedSteps": []any{map[string]any{"stepId": "a", "name": "API checks"}}}))},
+		{Line: viaQLine(t, ev("step_finished", 2, map[string]any{"stepId": "a", "outcome": "passed"}))},
+		{Line: viaQLine(t, ev("run_finished", 9001, map[string]any{"outcome": "passed"}))},
+	}, logs: []LokiEntry{{Line: viaQLine(t, ev("log", 9000, map[string]any{"message": "latest diagnostic", "stepId": "a"}))}}}
+	e := testE2E(f)
+	detail, err := e.RunDetail(context.Background(), "hub-00/hypershell/run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Verdict != "passed" || !detail.ReportingComplete || len(detail.Steps) != 1 || !detail.LogsTruncated {
+		t.Fatalf("lost lifecycle: %+v", detail)
+	}
+	for _, q := range f.queries {
+		if !strings.Contains(q, `|= "run-1"`) {
+			t.Fatalf("unscoped run query: %s", q)
+		}
+	}
+}
+
+type fakeHydratedResolver struct{ calls []string }
+
+func (f *fakeHydratedResolver) ResolveHydrated(_ context.Context, revision string) *Release {
+	f.calls = append(f.calls, revision)
+	return &Release{Version: "v1", Digest: "sha256:tested"}
+}
+
+func TestE2EBundleEnrichment(t *testing.T) {
+	loki := &fakeLoki{history: map[string][]LokiEntry{"hub-00": {
+		{Line: viaQLine(t, ev("run_started", 1, nil))},
+	}}}
+	source := testE2E(loki)
+	resolver := &fakeHydratedResolver{}
+	source.versioner = resolver
+	value, err := source.Runs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := value.(E2ERunsPayload).Runs
+	if len(runs) != 1 || runs[0].Bundle == nil || runs[0].Bundle.Digest != "sha256:tested" {
+		t.Fatalf("bundle missing: %#v", runs)
+	}
+	detail, err := source.RunDetail(context.Background(), runs[0].ID)
+	if err != nil || detail.Bundle == nil || detail.Bundle.Digest != "sha256:tested" {
+		t.Fatalf("detail bundle missing: %#v %v", detail, err)
+	}
+	for _, revision := range resolver.calls {
+		if revision != "hydrated-sha" {
+			t.Fatalf("resolved wrong revision: %s", revision)
+		}
+	}
+}

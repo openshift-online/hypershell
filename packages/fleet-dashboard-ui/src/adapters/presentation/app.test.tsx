@@ -188,10 +188,12 @@ describe("App", () => {
     const sdlcTab = await screen.findByRole("tab", { name: "Agent SDLC" });
     expect(mapTab.getAttribute("aria-selected")).toBe("true");
 
-    // Activating the Agent SDLC tab renders its view (the empty-lane cleared state)
-    // in the shared chrome.
+    // Activating the Agent SDLC tab renders its view (the escalations bell lives in
+    // the shared toolbar chrome) and opening it shows the empty-lane cleared state.
     fireEvent.click(sdlcTab);
     expect(sdlcTab.getAttribute("aria-selected")).toBe("true");
+    const bell = await screen.findByRole("button", { name: "Escalations" });
+    fireEvent.click(bell);
     expect(
       await screen.findByText(
         "Escalation lane clear - nothing blocked or stalled.",

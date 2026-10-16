@@ -47,6 +47,7 @@ describe("AgentSdlcView board", () => {
           url: "u",
           phase: "spec",
           timeInPhaseSeconds: 50,
+          scope: null,
           escalation: null,
           rework: { count: 2, threshold: 3 },
           history: [],
@@ -61,22 +62,24 @@ describe("AgentSdlcView board", () => {
     const meter = screen.getByRole("meter", { name: "2 of 3 rejections" });
     expect(meter.getAttribute("aria-valuenow")).toBe("2");
     expect(meter.getAttribute("aria-valuemax")).toBe("3");
-    // At 2 of 3 the near-threshold escalation message shows (non-color cue).
+    // At 2 of 3 the remaining-until-block countdown shows (non-color cue).
     expect(
-      screen.getByText(/One more rejection blocks this item\./),
+      screen.getByText(/1 more rejection blocks this item\./),
     ).toBeDefined();
   });
 });
 
-describe("AgentSdlcView escalation lane", () => {
-  it("shows the cleared state when the lane is empty", () => {
+describe("AgentSdlcView escalations notification drawer", () => {
+  it("shows the cleared state when the drawer is opened with an empty lane", () => {
     renderView({ data: EMPTY });
+    // The escalations live behind the bell now; open the notification drawer.
+    fireEvent.click(screen.getByRole("button", { name: "Escalations" }));
     expect(
       screen.getByText("Escalation lane clear - nothing blocked or stalled."),
     ).toBeDefined();
   });
 
-  it("renders lane cards in the order supplied, with their bucket labels", () => {
+  it("groups escalations by bucket when the drawer is opened", () => {
     const data: AgentSdlcData = {
       ...EMPTY,
       lane: [
@@ -86,6 +89,7 @@ describe("AgentSdlcView escalation lane", () => {
           url: "u",
           phase: "code",
           timeInPhaseSeconds: 10,
+          scope: null,
           escalation: "blocked",
           rework: null,
           history: [],
@@ -96,6 +100,7 @@ describe("AgentSdlcView escalation lane", () => {
           url: "u",
           phase: "spec",
           timeInPhaseSeconds: 999,
+          scope: null,
           escalation: "past-sle",
           rework: null,
           history: [],
@@ -103,6 +108,7 @@ describe("AgentSdlcView escalation lane", () => {
       ],
     };
     renderView({ data });
+    fireEvent.click(screen.getByRole("button", { name: "Escalations" }));
     expect(screen.getByText("Blocked")).toBeDefined();
     expect(screen.getByText("Past SLE")).toBeDefined();
   });
@@ -169,7 +175,13 @@ describe("AgentSdlcView matrix", () => {
             unreleased: false,
             hubClusters: [],
             issues: [
-              { number: 700, title: "shipped thing", url: "u", mergedAt },
+              {
+                number: 700,
+                title: "shipped thing",
+                url: "u",
+                mergedAt,
+                mergedBy: "octo-dev",
+              },
             ],
           },
         ],
@@ -179,6 +191,6 @@ describe("AgentSdlcView matrix", () => {
 
     // Expand the single bundle row to reveal its issues.
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    expect(screen.getByText("merged 3 days ago")).toBeDefined();
+    expect(screen.getByText("merged 3 days ago by octo-dev")).toBeDefined();
   });
 });

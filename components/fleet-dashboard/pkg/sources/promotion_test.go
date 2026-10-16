@@ -30,7 +30,7 @@ func TestPromotionDerivation(t *testing.T) {
 			"environments": []any{
 				map[string]any{
 					"branch":   "env/alpha",
-					"active":   map[string]any{"dry": map[string]any{"sha": "aaaaaaaaaaaa"}, "hydrated": map[string]any{"sha": "h1"}},
+					"active":   map[string]any{"dry": map[string]any{"sha": "aaaaaaaaaaaa"}, "hydrated": map[string]any{"sha": "hydrated-full-revision-123456789"}},
 					"proposed": map[string]any{"dry": map[string]any{"sha": "aaaaaaaaaaaa"}},
 				},
 				map[string]any{
@@ -59,8 +59,10 @@ func TestPromotionDerivation(t *testing.T) {
 			"labels": map[string]any{
 				deliveryLabelPrefix + "role":     "hub",
 				deliveryLabelPrefix + "provider": "aws",
+				deliveryLabelPrefix + "cluster":  "cluster-a",
 			},
 		},
+		"spec": map[string]any{"destination": map[string]any{"namespace": "workload-a"}},
 		"status": map[string]any{
 			"health":         map[string]any{"status": "Healthy"},
 			"sync":           map[string]any{"status": "Synced"},
@@ -97,6 +99,9 @@ func TestPromotionDerivation(t *testing.T) {
 	}
 
 	alpha := payload.Environments["alpha"]
+	if alpha.Verification == nil || alpha.Verification.Revision != "hydrated-full-revision-123456789" || alpha.Verification.Cluster != "cluster-a" || alpha.Verification.Namespace != "workload-a" {
+		t.Fatalf("wrong verification target: %+v", alpha.Verification)
+	}
 	if !alpha.UpToDate {
 		t.Errorf("alpha should be up to date (active dry == proposed dry)")
 	}
