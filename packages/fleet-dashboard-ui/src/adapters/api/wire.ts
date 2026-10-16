@@ -9,6 +9,21 @@
 
 import type { InstancesData } from "../../application/ports";
 import type {
+  E2eEventName,
+  E2eLogLine,
+  E2eOutcome,
+  E2ePlannedStep,
+  E2eRunDetail,
+  E2eRunEvent,
+  E2eRunsData,
+  E2eRunSummary,
+  E2eStep,
+  E2eStepState,
+  E2eStreamState,
+  E2eStreamStatus,
+  E2eVerdict,
+} from "../../domain/e2e-run";
+import type {
   AgentSdlcBundleRow,
   AgentSdlcCard,
   AgentSdlcData,
@@ -613,5 +628,233 @@ export function mapSdlc(raw: unknown): AgentSdlcData {
     cards: (wire.cards ?? []).map(mapSdlcCard),
     lane: (wire.lane ?? []).map(mapSdlcCard),
     matrix: mapSdlcMatrix(wire.matrix),
+  };
+}
+
+// --- E2E run plane (/api/e2e/*) -----------------------------------------------
+// e2e-run-log-visibility.spec. The BFF serialises each plane's `data` in the shapes
+// defined by components/fleet-dashboard/pkg/sources/e2e.go (+ e2e_stream.go). This
+// mapper is the ONE place those wire shapes are known; it coerces each field
+// defensively so a partial/malformed payload degrades to an empty run list or detail
+// rather than throwing, and defaults missing arrays to [].
+
+interface WireE2ePlanned {
+  readonly stepId?: string;
+  readonly name?: string;
+}
+
+interface WireE2eSummary {
+  readonly id?: string;
+  readonly runId?: string;
+  readonly tenant?: string;
+  readonly cluster?: string;
+  readonly bodyCluster?: string;
+  readonly namespace?: string;
+  readonly revision?: string;
+  readonly sourceRevision?: string;
+  readonly startedAt?: string;
+  readonly endedAt?: string;
+  readonly durationMs?: number;
+  readonly verdict?: string;
+  readonly reportingComplete?: boolean;
+  readonly hasStructuredSteps?: boolean;
+  readonly stepCount?: number;
+}
+
+interface WireE2eStep {
+  readonly stepId?: string;
+  readonly name?: string;
+  readonly state?: string;
+  readonly startedAt?: string;
+  readonly endedAt?: string;
+  readonly durationMs?: number;
+}
+
+interface WireE2eLogLine {
+  readonly sequence?: number;
+  readonly timestamp?: string;
+  readonly stepId?: string;
+  readonly message?: string;
+  readonly truncated?: boolean;
+}
+
+interface WireE2eDetail extends WireE2eSummary {
+  readonly plannedSteps?: readonly WireE2ePlanned[] | null;
+  readonly steps?: readonly WireE2eStep[] | null;
+  readonly logs?: readonly WireE2eLogLine[] | null;
+  readonly logsTruncated?: boolean;
+}
+
+interface WireE2eRuns {
+  readonly enabled?: boolean;
+  readonly runs?: readonly WireE2eSummary[] | null;
+  readonly truncated?: boolean;
+  readonly windowSeconds?: number;
+  readonly limit?: number;
+}
+
+interface WireE2eStreamEvent {
+  readonly event?: string;
+  readonly runId?: string;
+  readonly sequence?: number;
+  readonly timestamp?: string;
+  readonly stepId?: string;
+  readonly name?: string;
+  readonly outcome?: string;
+  readonly durationMs?: number;
+  readonly message?: string;
+  readonly truncated?: boolean;
+  readonly plannedSteps?: readonly WireE2ePlanned[] | null;
+}
+
+interface WireE2eStreamStatus {
+  readonly state?: string;
+  readonly droppedEntries?: number;
+}
+
+/** Coerce an optional number to a nullable number, keeping a genuine 0. */
+function nullableNum(v: number | undefined): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function mapVerdict(v: string | undefined): E2eVerdict {
+  return v === "passed" || v === "failed" ? v : "unknown";
+}
+
+function mapStepState(v: string | undefined): E2eStepState {
+  switch (v) {
+    case "passed":
+    case "failed":
+    case "skipped":
+    case "running":
+    case "not-run":
+      return v;
+    default:
+      return "not-run";
+  }
+}
+
+function mapStreamState(v: string | undefined): E2eStreamState {
+  return v === "live" || v === "gap" ? v : "disconnected";
+}
+
+function mapEventName(v: string | undefined): E2eEventName | null {
+  switch (v) {
+    case "run_started":
+    case "step_started":
+    case "step_finished":
+    case "log":
+    case "run_finished":
+      return v;
+    default:
+      return null;
+  }
+}
+
+function mapOutcome(v: string | undefined): E2eOutcome | null {
+  return v === "passed" || v === "failed" || v === "skipped" ? v : null;
+}
+
+function mapPlanned(p: WireE2ePlanned): E2ePlannedStep {
+  return { stepId: p.stepId ?? "", name: p.name ?? "" };
+}
+
+function mapE2eSummary(raw: WireE2eSummary): E2eRunSummary {
+  return {
+    id: raw.id ?? "",
+    runId: raw.runId ?? "",
+    tenant: raw.tenant ?? "",
+    cluster: raw.cluster ?? "",
+    bodyCluster: nullableString(raw.bodyCluster),
+    namespace: raw.namespace ?? "",
+    revision: raw.revision ?? "",
+    sourceRevision: nullableString(raw.sourceRevision),
+    startedAt: raw.startedAt ?? "",
+    endedAt: nullableString(raw.endedAt),
+    durationMs: nullableNum(raw.durationMs),
+    verdict: mapVerdict(raw.verdict),
+    reportingComplete: raw.reportingComplete === true,
+    hasStructuredSteps: raw.hasStructuredSteps === true,
+    stepCount: num(raw.stepCount),
+  };
+}
+
+function mapE2eStep(raw: WireE2eStep): E2eStep {
+  return {
+    stepId: raw.stepId ?? "",
+    name: raw.name ?? "",
+    state: mapStepState(raw.state),
+    startedAt: nullableString(raw.startedAt),
+    endedAt: nullableString(raw.endedAt),
+    durationMs: nullableNum(raw.durationMs),
+  };
+}
+
+function mapE2eLogLine(raw: WireE2eLogLine): E2eLogLine {
+  return {
+    sequence: num(raw.sequence),
+    timestamp: raw.timestamp ?? "",
+    stepId: nullableString(raw.stepId),
+    message: raw.message ?? "",
+    truncated: raw.truncated === true,
+  };
+}
+
+/** Map the /api/e2e/runs plane data. A disabled feature arrives as `{enabled:false}`. */
+export function mapE2eRuns(raw: unknown): E2eRunsData {
+  const wire = (raw ?? {}) as WireE2eRuns;
+  return {
+    enabled: wire.enabled === true,
+    runs: (wire.runs ?? []).map(mapE2eSummary),
+    truncated: wire.truncated === true,
+    windowSeconds: num(wire.windowSeconds),
+    limit: num(wire.limit),
+  };
+}
+
+/** Map the /api/e2e/runs/{id} plane data: a summary plus steps and bounded logs. */
+export function mapE2eRunDetail(raw: unknown): E2eRunDetail {
+  const wire = (raw ?? {}) as WireE2eDetail;
+  return {
+    ...mapE2eSummary(wire),
+    plannedSteps: (wire.plannedSteps ?? []).map(mapPlanned),
+    steps: (wire.steps ?? []).map(mapE2eStep),
+    logs: (wire.logs ?? []).map(mapE2eLogLine),
+    logsTruncated: wire.logsTruncated === true,
+  };
+}
+
+/**
+ * Map one forwarded stream event. Returns null for an unknown event name so the
+ * adapter skips a malformed frame without dropping the rest of the stream
+ * (E2E-LOG-07).
+ */
+export function mapE2eStreamEvent(raw: unknown): E2eRunEvent | null {
+  const wire = (raw ?? {}) as WireE2eStreamEvent;
+  const event = mapEventName(wire.event);
+  if (event === null) {
+    return null;
+  }
+  return {
+    event,
+    runId: wire.runId ?? "",
+    sequence: num(wire.sequence),
+    timestamp: wire.timestamp ?? "",
+    stepId: nullableString(wire.stepId),
+    name: nullableString(wire.name),
+    outcome: mapOutcome(wire.outcome),
+    durationMs: nullableNum(wire.durationMs),
+    message: nullableString(wire.message),
+    truncated: wire.truncated === true,
+    plannedSteps: (wire.plannedSteps ?? []).map(mapPlanned),
+  };
+}
+
+/** Map one stream status frame. */
+export function mapE2eStreamStatus(raw: unknown): E2eStreamStatus {
+  const wire = (raw ?? {}) as WireE2eStreamStatus;
+  return {
+    state: mapStreamState(wire.state),
+    droppedEntries: num(wire.droppedEntries),
   };
 }
