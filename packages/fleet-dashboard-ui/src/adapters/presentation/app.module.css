@@ -32,6 +32,23 @@
    CardBody become a flex column so the stage's flex:1 resolves to the leftover height. */
 .mapItem {
   min-height: 0;
+  /* The tab shell now lives inside this filled item; make it a flex column so the
+     fill chain continues through the Tabs nav + active tab content down to the
+     card, otherwise both tabs collapse to content height (the map stops filling). */
+  display: flex;
+  flex-direction: column;
+}
+/* PF Tabs renders a fixed-height nav plus sibling tab-content panels. The nav stays
+   its natural height; the visible panel fills and becomes a flex column so the
+   card/view inside it resolves height:100%. */
+.mapItem :global(.pf-v6-c-tabs) {
+  flex: 0 0 auto;
+}
+.mapItem :global(.pf-v6-c-tab-content:not([hidden])) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .mapItem :global(.pf-v6-c-card) {
   display: flex;

@@ -89,10 +89,12 @@ type SdlcRecord struct {
 	URL         string
 	Closed      bool
 	ClosedAt    string // RFC3339 when Closed (used as the "merged" timestamp)
+	ClosedBy    string // GitHub login that closed/merged the record, if known
 	Phase       string // current funnel phase key
 	Paused      string // "" or blocked/needs-input/duplicate (label-derived pause)
 	PhaseSince  string // RFC3339 of the latest labeled event for the current phase
 	ReworkCount int    // count of labeled events for the current review phase's reject label
+	Scope       string // the agent/scope/* selector label, if any (for filtering)
 	History     []SdlcLabelEvent
 }
 
@@ -159,6 +161,7 @@ type SDLCCard struct {
 	URL                string           `json:"url"`
 	Phase              string           `json:"phase"`
 	TimeInPhaseSeconds int              `json:"timeInPhaseSeconds"`
+	Scope              string           `json:"scope,omitempty"`
 	Escalation         string           `json:"escalation,omitempty"`
 	Rework             *SDLCRework      `json:"rework,omitempty"`
 	History            []SdlcLabelEvent `json:"history"`
@@ -181,6 +184,7 @@ type SDLCShippedIssue struct {
 	Title    string `json:"title"`
 	URL      string `json:"url"`
 	MergedAt string `json:"mergedAt,omitempty"`
+	MergedBy string `json:"mergedBy,omitempty"`
 }
 
 // SDLCBundleRow is one matrix row: a release bundle (newest first) or the single
@@ -300,6 +304,7 @@ func (s *SDLC) card(rec SdlcRecord, now time.Time, esc string) SDLCCard {
 		URL:                rec.URL,
 		Phase:              rec.Phase,
 		TimeInPhaseSeconds: int(timeInPhase(rec, now).Seconds()),
+		Scope:              rec.Scope,
 		Escalation:         esc,
 		History:            rec.History,
 	}
@@ -359,7 +364,7 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 	issuesByKey := map[string][]SDLCShippedIssue{}
 	var unreleased []SDLCShippedIssue
 	for _, rec := range shipped {
-		si := SDLCShippedIssue{Number: rec.Number, Title: rec.Title, URL: rec.URL, MergedAt: rec.ClosedAt}
+		si := SDLCShippedIssue{Number: rec.Number, Title: rec.Title, URL: rec.URL, MergedAt: rec.ClosedAt, MergedBy: rec.ClosedBy}
 		if key, ok := bundleByIssue[rec.Number]; ok {
 			issuesByKey[key] = append(issuesByKey[key], si)
 		} else {

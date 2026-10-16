@@ -477,6 +477,22 @@ export const messages = defineMessages({
     defaultMessage: "{days}d {hours}h",
     description: "Compact time-in-phase duration on an Agent SDLC card.",
   },
+  sdlcAxisNow: {
+    id: "fleet.sdlc.axis.now",
+    defaultMessage: "now",
+    description: "Top label of the board's vertical time-in-phase axis.",
+  },
+  sdlcAxisTitle: {
+    id: "fleet.sdlc.axis.title",
+    defaultMessage: "Time in phase",
+    description: "Caption for the board's vertical time-in-phase axis.",
+  },
+  sdlcBackToEscalations: {
+    id: "fleet.sdlc.back.escalations",
+    defaultMessage: "Back to escalations",
+    description:
+      "Link in the card details panel that returns to the escalations drawer.",
+  },
   sdlcBoardEmpty: {
     id: "fleet.sdlc.board.empty",
     defaultMessage: "No work in progress.",
@@ -486,6 +502,18 @@ export const messages = defineMessages({
     id: "fleet.sdlc.card.open",
     defaultMessage: "Open issue #{number}: {title}",
     description: "Accessible name for an Agent SDLC card link to its issue.",
+  },
+  sdlcClusterChip: {
+    id: "fleet.sdlc.cluster.chip",
+    defaultMessage: "+{count} more ({from}-{to})",
+    description:
+      "Label for a collapsed cluster of near-same-age cards in a board column.",
+  },
+  sdlcClusterTitle: {
+    id: "fleet.sdlc.cluster.title",
+    defaultMessage:
+      "{count, plural, one {# item at a similar age} other {# items at a similar age}}",
+    description: "Header of the popover listing a collapsed cluster's cards.",
   },
   sdlcColumnAria: {
     id: "fleet.sdlc.column.aria",
@@ -498,6 +526,28 @@ export const messages = defineMessages({
     defaultMessage: "current",
     description:
       "Non-color text marker in the matrix for the bundle a hub cluster currently runs.",
+  },
+  sdlcDetailBundle: {
+    id: "fleet.sdlc.detail.bundle",
+    defaultMessage: "Bundle",
+    description:
+      "Term label for the bundle row in the shipped-issue details panel.",
+  },
+  sdlcDetailMerged: {
+    id: "fleet.sdlc.detail.merged",
+    defaultMessage: "Merged",
+    description:
+      "Term label for the merged row in the shipped-issue details panel.",
+  },
+  sdlcDetailPhase: {
+    id: "fleet.sdlc.detail.phase",
+    defaultMessage: "Phase",
+    description: "Term label for the phase row in the card details panel.",
+  },
+  sdlcDetailRework: {
+    id: "fleet.sdlc.detail.rework",
+    defaultMessage: "Rework",
+    description: "Term label for the rework row in the card details panel.",
   },
   sdlcEscalationBlocked: {
     id: "fleet.sdlc.escalation.blocked",
@@ -520,6 +570,11 @@ export const messages = defineMessages({
     description:
       "Escalation-lane bucket label for work past its service-level expectation.",
   },
+  sdlcFilterScope: {
+    id: "fleet.sdlc.filter.scope",
+    defaultMessage: "Scope",
+    description: "Accessible label for the scope filter toggle group.",
+  },
   sdlcHistoryEmpty: {
     id: "fleet.sdlc.history.empty",
     defaultMessage: "No label history.",
@@ -529,6 +584,11 @@ export const messages = defineMessages({
     id: "fleet.sdlc.history.title",
     defaultMessage: "Label history",
     description: "Heading for a card's reconstructed label-event history.",
+  },
+  sdlcIssueLabel: {
+    id: "fleet.sdlc.issue.label",
+    defaultMessage: "#{number} {title}",
+    description: "Issue reference combining its number and title.",
   },
   sdlcLaneCleared: {
     id: "fleet.sdlc.lane.cleared",
@@ -561,10 +621,21 @@ export const messages = defineMessages({
     defaultMessage: "merged {days, plural, one {# day} other {# days}} ago",
     description: "Relative merge timestamp for a shipped issue.",
   },
+  sdlcMergedBy: {
+    id: "fleet.sdlc.merged.by",
+    defaultMessage: "{ago} by {user}",
+    description: "Merge timestamp with the user who merged the closing PR.",
+  },
   sdlcMergedToday: {
     id: "fleet.sdlc.merged.today",
     defaultMessage: "merged today",
     description: "Relative merge timestamp for an issue merged today.",
+  },
+  sdlcNotificationsTitle: {
+    id: "fleet.sdlc.notifications.title",
+    defaultMessage: "Escalations",
+    description:
+      "Title of the escalations notification drawer and its bell trigger.",
   },
   sdlcPhaseCode: {
     id: "fleet.sdlc.phase.code",
@@ -601,21 +672,58 @@ export const messages = defineMessages({
     defaultMessage: "Workable",
     description: "Agent SDLC phase column: ready to start.",
   },
-  sdlcReworkCritical: {
-    id: "fleet.sdlc.rework.critical",
-    defaultMessage: "One more rejection blocks this item.",
+  sdlcReworkBlocked: {
+    id: "fleet.sdlc.rework.blocked",
+    defaultMessage: "This item is blocked.",
     description:
-      "Non-color cue when a rework meter is one strike from blocking.",
+      "Non-color cue when an item has hit its rejection threshold and is blocked.",
+  },
+  sdlcReworkCount: {
+    id: "fleet.sdlc.rework.count",
+    defaultMessage: "x{count}",
+    description:
+      "Compact repeat-count badge on a collapsed reject loop in a card's label history.",
   },
   sdlcReworkLabel: {
     id: "fleet.sdlc.rework.label",
     defaultMessage: "{count} of {threshold} rejections",
     description: "Accessible label for the rework meter.",
   },
-  sdlcReworkWarning: {
-    id: "fleet.sdlc.rework.warning",
-    defaultMessage: "Approaching the block threshold.",
-    description: "Non-color cue when a rework meter nears its threshold.",
+  sdlcReworkRemaining: {
+    id: "fleet.sdlc.rework.remaining",
+    defaultMessage:
+      "{remaining, plural, one {# more rejection blocks this item.} other {# more rejections block this item.}}",
+    description:
+      "Non-color cue: how many more rejections until the item auto-blocks.",
+  },
+  sdlcReworkTooltip: {
+    id: "fleet.sdlc.rework.tooltip",
+    defaultMessage:
+      "Rework: {count} of {threshold} review rejections in this phase. The item is auto-blocked at {threshold}.",
+    description: "Tooltip explaining the rework meter and block threshold.",
+  },
+  sdlcScopeNoResults: {
+    id: "fleet.sdlc.scope.noResults",
+    defaultMessage: "No matching scopes",
+    description:
+      "Shown in the scope filter when the typeahead matches nothing.",
+  },
+  sdlcScopePlaceholder: {
+    id: "fleet.sdlc.scope.placeholder",
+    defaultMessage: "Filter by scope",
+    description: "Placeholder for the scope typeahead multi-select.",
+  },
+  sdlcScopeSelected: {
+    id: "fleet.sdlc.scope.selected",
+    defaultMessage:
+      "{count, plural, one {# scope selected} other {# scopes selected}}",
+    description:
+      "Scope typeahead placeholder summarising how many scopes are selected.",
+  },
+  sdlcSearchPlaceholder: {
+    id: "fleet.sdlc.search.placeholder",
+    defaultMessage: "Filter by number or title",
+    description: "Placeholder for the Agent SDLC issue search field.",
   },
   sdlcSection: {
     id: "fleet.sdlc.section",
@@ -626,6 +734,19 @@ export const messages = defineMessages({
     id: "fleet.sdlc.sle.line",
     defaultMessage: "Service-level expectation",
     description: "Accessible label for a column's dashed SLE line.",
+  },
+  sdlcSleShort: {
+    id: "fleet.sdlc.sle.short",
+    defaultMessage: "SLE",
+    description:
+      "Short pill label for the dashed service-level-expectation line.",
+  },
+  sdlcSleTooltip: {
+    id: "fleet.sdlc.sle.tooltip",
+    defaultMessage:
+      "Service-level expectation: {duration}. The target time an item spends in this phase; items below the line are past SLE and escalate.",
+    description:
+      "Tooltip explaining the SLE line, including the target duration.",
   },
   sdlcTabAgent: {
     id: "fleet.sdlc.tab.agent",

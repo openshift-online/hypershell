@@ -59,11 +59,14 @@ func NewGitHubSDLC(c *config.Config) *GitHubSDLC {
 // ghIssue is the subset of a GitHub issue we read. The issues endpoint also returns
 // pull requests; a non-nil PullRequest marks those so we can skip them.
 type ghIssue struct {
-	Number      int     `json:"number"`
-	Title       string  `json:"title"`
-	HTMLURL     string  `json:"html_url"`
-	State       string  `json:"state"`
-	ClosedAt    *string `json:"closed_at"`
+	Number   int     `json:"number"`
+	Title    string  `json:"title"`
+	HTMLURL  string  `json:"html_url"`
+	State    string  `json:"state"`
+	ClosedAt *string `json:"closed_at"`
+	ClosedBy *struct {
+		Login string `json:"login"`
+	} `json:"closed_by"`
 	PullRequest *struct {
 		URL string `json:"url"`
 	} `json:"pull_request"`
@@ -122,11 +125,28 @@ func (g *GitHubSDLC) record(ctx context.Context, iss ghIssue) SdlcRecord {
 	if closed && iss.ClosedAt != nil {
 		rec.ClosedAt = *iss.ClosedAt
 	}
+	if closed && iss.ClosedBy != nil {
+		rec.ClosedBy = iss.ClosedBy.Login
+	}
 	rec.Phase = derivePhase(labels, closed)
 	rec.Paused = derivePaused(labels, closed)
 	rec.PhaseSince = phaseSince(history, rec.Phase)
 	rec.ReworkCount = reworkCount(history, rec.Phase)
+	rec.Scope = scopeLabel(iss)
 	return rec
+}
+
+// scopeLabel returns the issue's agent/scope/* selector label (full label text), or
+// "" when none is present. It is a data value, not compiled-in: the funnel's scope
+// vocabulary lives on the issues, so we only match the shared prefix.
+func scopeLabel(iss ghIssue) string {
+	const prefix = "agent/scope/"
+	for _, l := range iss.Labels {
+		if strings.HasPrefix(l.Name, prefix) {
+			return l.Name
+		}
+	}
+	return ""
 }
 
 // issueURL prefers the issue's html_url; it falls back to a constructed URL so a

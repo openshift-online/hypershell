@@ -20,6 +20,7 @@ function card(partial: Partial<AgentSdlcCard>): AgentSdlcCard {
     url: "u",
     phase: "spec",
     timeInPhaseSeconds: 0,
+    scope: null,
     escalation: null,
     rework: null,
     history: [],

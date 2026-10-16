@@ -498,6 +498,7 @@ interface WireSdlcCard {
   readonly url?: string;
   readonly phase?: string;
   readonly timeInPhaseSeconds?: number;
+  readonly scope?: string;
   readonly escalation?: string;
   readonly rework?: WireSdlcRework | null;
   readonly history?: readonly WireSdlcLabelEvent[] | null;
@@ -516,6 +517,7 @@ interface WireSdlcShippedIssue {
   readonly title?: string;
   readonly url?: string;
   readonly mergedAt?: string;
+  readonly mergedBy?: string;
 }
 
 interface WireSdlcBundleRow {
@@ -559,6 +561,7 @@ function mapSdlcCard(c: WireSdlcCard): AgentSdlcCard {
     url: c.url ?? "",
     phase: c.phase ?? "",
     timeInPhaseSeconds: num(c.timeInPhaseSeconds),
+    scope: nullableString(c.scope),
     escalation: nullableString(c.escalation),
     rework: mapSdlcRework(c.rework),
     history: (c.history ?? []).map(mapSdlcLabelEvent),
@@ -581,6 +584,7 @@ function mapSdlcShippedIssue(i: WireSdlcShippedIssue): AgentSdlcShippedIssue {
     title: i.title ?? "",
     url: i.url ?? "",
     mergedAt: nullableString(i.mergedAt),
+    mergedBy: nullableString(i.mergedBy),
   };
 }
 
