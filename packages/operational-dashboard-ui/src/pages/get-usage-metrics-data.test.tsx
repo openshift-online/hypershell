@@ -31,6 +31,7 @@ describe("useGetUsageMetricsData", () => {
       controlPlane: {
         getOperationalMetrics: () => Promise.resolve(metrics),
         getReliabilityMetrics: () => Promise.resolve(metrics),
+        getAdoptionMetrics: () => Promise.resolve(metrics),
         getUsageMetrics,
       },
     });
@@ -95,6 +96,7 @@ describe("useGetUsageMetricsData", () => {
       controlPlane: {
         getOperationalMetrics: () => Promise.resolve(metrics),
         getReliabilityMetrics: () => Promise.resolve(metrics),
+        getAdoptionMetrics: () => Promise.resolve(metrics),
         getUsageMetrics: () => Promise.resolve(emptyMetrics),
       },
     });

@@ -18,6 +18,130 @@ export const messages = defineMessages({
     defaultMessage: "Admin",
     description: "Badge indicating an administrator resource scope.",
   },
+  adoptionDailyActiveUsers: {
+    id: "app.dashboard.adoption.dailyActiveUsers",
+    defaultMessage: "Daily active users",
+    description: "Adoption summary label for daily active users.",
+  },
+  adoptionDescription: {
+    id: "app.dashboard.adoption.description",
+    defaultMessage:
+      "Understand who is using HyperShell, how adoption is changing, and where users drop off.",
+    description: "Description for the adoption dashboard page.",
+  },
+  adoptionFirstGatewayConversion: {
+    id: "app.dashboard.adoption.firstGatewayConversion",
+    defaultMessage: "First gateway conversion",
+    description: "Conversion label for users who have owned a gateway.",
+  },
+  adoptionFirstSandboxConversion: {
+    id: "app.dashboard.adoption.firstSandboxConversion",
+    defaultMessage: "First sandbox conversion",
+    description: "Unavailable conversion label for first sandbox use.",
+  },
+  adoptionInactiveUsers: {
+    id: "app.dashboard.adoption.inactiveUsers",
+    defaultMessage: "Inactive users (30+ days)",
+    description: "Adoption summary label for inactive users.",
+  },
+  adoptionLoadErrorBody: {
+    id: "app.dashboard.adoption.loadError.body",
+    defaultMessage:
+      "An unexpected error occurred while loading adoption metrics.",
+    description: "Recovery guidance when adoption metrics cannot be loaded.",
+  },
+  adoptionLoadErrorTitle: {
+    id: "app.dashboard.adoption.loadError.title",
+    defaultMessage: "Adoption dashboard metrics are unavailable",
+    description: "Title shown when adoption metrics cannot be loaded.",
+  },
+  adoptionLoading: {
+    id: "app.dashboard.adoption.loading",
+    defaultMessage: "Loading adoption dashboard metrics",
+    description: "Accessible status shown while adoption metrics load.",
+  },
+  adoptionMedianTimeToFirstResource: {
+    id: "app.dashboard.adoption.medianTimeToFirstResource",
+    defaultMessage: "Median time to first resource",
+    description: "Unavailable conversion label for time to first resource.",
+  },
+  adoptionMonthlyActiveUsers: {
+    id: "app.dashboard.adoption.monthlyActiveUsers",
+    defaultMessage: "Monthly active users",
+    description: "Adoption summary label for monthly active users.",
+  },
+  adoptionNewRegistrations: {
+    id: "app.dashboard.adoption.newRegistrations",
+    defaultMessage: "New registrations (selected period)",
+    description:
+      "Adoption summary label for registrations in the selected range.",
+  },
+  adoptionOrganizations: {
+    id: "app.dashboard.adoption.organizations",
+    defaultMessage: "Organizations",
+    description: "Unavailable organizations label.",
+  },
+  adoptionPurpose: {
+    id: "app.dashboard.adoption.purpose",
+    defaultMessage:
+      "Are people adopting HyperShell? Are registrations, active use, conversion, and retention moving in the right direction? These are aggregate measures; no user-level data is displayed.",
+    description: "Purpose statement for the adoption dashboard.",
+  },
+  adoptionPurposeHeading: {
+    id: "app.dashboard.adoption.purposeHeading",
+    defaultMessage: "What this dashboard answers",
+    description: "Heading for the adoption dashboard purpose statement.",
+  },
+  adoptionRegisteredUsers: {
+    id: "app.dashboard.adoption.registeredUsers",
+    defaultMessage: "{value} registered users",
+    description: "Adoption summary heading for total registered users.",
+  },
+  adoptionRegistrationTrend: {
+    id: "app.dashboard.adoption.registrationTrend",
+    defaultMessage: "Registrations and active users over time",
+    description: "Title for the adoption trend chart.",
+  },
+  adoptionRetention: {
+    id: "app.dashboard.adoption.retention",
+    defaultMessage: "7-day retention",
+    description: "Adoption trend label for 7-day retention.",
+  },
+  adoptionRetention30Days: {
+    id: "app.dashboard.adoption.retention30Days",
+    defaultMessage: "30-day retention",
+    description: "Adoption trend label for unavailable 30-day retention.",
+  },
+  adoptionTrendCaption: {
+    id: "app.dashboard.adoption.trendCaption",
+    defaultMessage: "Last 30 days - daily bucket - UTC",
+    description: "Caption for adoption trend charts.",
+  },
+  adoptionTrendsWidget: {
+    id: "app.dashboard.widget.adoptionTrends",
+    defaultMessage: "Adoption trends",
+    description: "Title for the adoption trends dashboard widget.",
+  },
+  adoptionWeeklyActiveUsers: {
+    id: "app.dashboard.adoption.weeklyActiveUsers",
+    defaultMessage: "Weekly active users",
+    description: "Adoption summary label for weekly active users.",
+  },
+  adoptionWidgetConversion: {
+    id: "app.dashboard.widget.adoptionConversion",
+    defaultMessage: "Registration to first resource",
+    description: "Title for the adoption conversion dashboard widget.",
+  },
+  adoptionWidgetOrganizations: {
+    id: "app.dashboard.widget.adoptionOrganizations",
+    defaultMessage: "Organizations and fleets",
+    description: "Title for the unavailable organizations dashboard widget.",
+  },
+  adoptionWidgetSummary: {
+    id: "app.dashboard.widget.adoptionSummary",
+    defaultMessage: "Adoption summary",
+    description: "Title for the adoption summary dashboard widget.",
+  },
   apiErrorRateWidget: {
     id: "app.dashboard.widget.apiErrorRate",
     defaultMessage: "API error rate",
@@ -118,6 +242,11 @@ export const messages = defineMessages({
     id: "app.dashboard.inventory.title",
     defaultMessage: "Platform inventory",
     description: "Main heading on the platform inventory dashboard page.",
+  },
+  dashboardNavAdoption: {
+    id: "app.dashboard.nav.adoption",
+    defaultMessage: "Adoption",
+    description: "Dashboard secondary navigation label for Adoption.",
   },
   dashboardNavInventory: {
     id: "app.dashboard.nav.inventory",

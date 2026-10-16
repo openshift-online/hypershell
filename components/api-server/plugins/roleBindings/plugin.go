@@ -29,10 +29,13 @@ type ServiceLocator func() RoleBindingService
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	defaultRoles := defaultRolesFromEnv()
+	roleBindingDao := NewRoleBindingDao(&env.Database.SessionFactory)
+	RegisterRoleBindingMetrics(roleBindingDao)
+
 	return func() RoleBindingService {
 		return NewRoleBindingService(
 			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
-			NewRoleBindingDao(&env.Database.SessionFactory),
+			roleBindingDao,
 			roles.NewRoleDao(&env.Database.SessionFactory),
 			events.Service(&env.Services),
 			defaultRoles,

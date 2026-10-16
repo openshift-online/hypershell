@@ -76,7 +76,7 @@ Presentation code SHALL NOT call `fetch`, the SDK, or a BFF route directly. The 
 
 The BFF SHALL expose an admin-only, same-origin `GET /api/metrics/adoption` route that returns snake_case JSON and supports the `range` query parameter with values `7` and `30`. The route SHALL accept only aggregate data sources and SHALL NOT return user-level records, usernames, identifiers, or personally identifiable information.
 
-`registered_users` SHALL be required. Every other field SHALL be optional. An omitted optional field SHALL mean that the metric is unavailable. The route SHALL preserve successfully computed fields if another aggregate subquery fails, and it SHALL report the failed source to the dashboard adapter so the page can render a localized unavailable state for that field without blanking the rest of the page.
+`registered_users` SHALL be required. Every other field SHALL be optional. An omitted optional field SHALL mean that the metric is unavailable. The route SHALL preserve successfully computed fields if another aggregate subquery fails, so the page can render a localized unavailable state for that field without blanking the rest of the page.
 
 The response SHALL use this contract:
 
@@ -90,12 +90,8 @@ The response SHALL use this contract:
   "inactive_users_last_30_days": 52,
   "users_with_gateway": 306,
   "gateway_conversion_percent": 68.0,
-  "daily_created_users": [
-    { "date": "2026-10-01", "count": 18 }
-  ],
-  "daily_unique_logins": [
-    { "date": "2026-10-01", "count": 42 }
-  ],
+  "daily_created_users": [{ "date": "2026-10-01", "count": 18 }],
+  "daily_unique_logins": [{ "date": "2026-10-01", "count": 42 }],
   "retention_7_days_percent": 78.0
 }
 ```
@@ -223,4 +219,3 @@ Tests SHALL cover:
 - GIVEN the Adoption dashboard is set to 30 days
 - WHEN the host adapter loads metrics
 - THEN it SHALL request `/api/metrics/adoption?range=30`
-

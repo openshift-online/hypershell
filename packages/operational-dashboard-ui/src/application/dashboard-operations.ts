@@ -174,5 +174,15 @@ export function createDashboardOperations({
         timeRange,
         options,
       ),
+    getAdoptionMetrics: (signal, timeRange = 7, options = {}) =>
+      loadMetricsWithProbes(
+        "get-adoption-metrics",
+        (context) => controlPlane.getAdoptionMetrics(context),
+        probes,
+        runtime,
+        signal,
+        timeRange,
+        options,
+      ),
   };
 }

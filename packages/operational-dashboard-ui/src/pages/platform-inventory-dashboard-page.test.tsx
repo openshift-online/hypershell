@@ -48,6 +48,8 @@ function renderPage(
       getOperationalMetrics: () => Promise.resolve(metrics),
       getReliabilityMetrics: () =>
         Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
+      getAdoptionMetrics: () =>
+        Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
     },
   });
 
@@ -174,6 +176,8 @@ describe("PlatformInventoryDashboardPage", () => {
             metrics: [],
           }),
         getReliabilityMetrics: () =>
+          Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
+        getAdoptionMetrics: () =>
           Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
       },
     });

@@ -385,6 +385,63 @@ After a successful load, a later failed refresh preserves the stale metrics for
 that source. If all sources fail on the first load, the query fails and the
 page shows the total load-failure state.
 
+## Adoption dashboard
+
+The Adoption dashboard uses a separate application workflow:
+
+```
+useGetAdoptionMetricsData
+  → dashboard.getAdoptionMetrics(signal, timeRange, { isAdmin })
+  → GET /api/metrics/adoption?range=7|30
+```
+
+The route is admin-only when OIDC is enabled. It returns aggregate values
+only; it never returns user identifiers or user-level rows. `registered_users`
+is required. Every other field is optional, and omission means unavailable.
+The BFF preserves successfully computed fields when an optional Prometheus
+subquery fails.
+
+All activity windows use UTC calendar days, and today may be partial.
+Qualifying activity is one or more authenticated HyperShell API requests by a
+non-deleted registered user on a UTC calendar day, as recorded in
+`user_daily_activities`.
+
+| UI field                 | Response field                                  | Source                                                        |
+| ------------------------ | ----------------------------------------------- | ------------------------------------------------------------- |
+| Registered users         | `registered_users`                              | `hypershell_users_registered_total`                           |
+| New registrations        | `created_last_7_days` or `created_last_30_days` | `hypershell_users_created_last_*_days_total`                  |
+| Daily active users       | last `daily_unique_logins` point                | `hypershell_users_unique_logins_daily_total`                  |
+| Weekly active users      | `unique_logins_last_7_days`                     | `hypershell_users_unique_logins_last_7_days_total`            |
+| Monthly active users     | `unique_logins_last_30_days`                    | `hypershell_users_unique_logins_last_30_days_total`           |
+| Inactive users           | `inactive_users_last_30_days`                   | `hypershell_users_inactive_last_30_days_total`                |
+| First-gateway users      | `users_with_gateway`                            | `hypershell_role_bindings_gateway_owner_users_total`          |
+| First-gateway conversion | `gateway_conversion_percent`                    | BFF calculation from gateway-owner users and registered users |
+| Registrations trend      | `daily_created_users`                           | `hypershell_users_created_daily_total`                        |
+| Active-users trend       | `daily_unique_logins`                           | `hypershell_users_unique_logins_daily_total`                  |
+| 7-day retention          | `retention_7_days_percent`                      | `hypershell_users_retention_7_days_percent`                   |
+
+The selected 7- or 30-day range changes the New registrations summary value.
+Both trend arrays always contain one point per UTC calendar day for the
+trailing 30 days.
+
+Inactive users are non-deleted users created more than 30 UTC days ago with no
+`user_daily_activities` row in the trailing 30 UTC calendar days inclusive of
+today. First-gateway conversion counts each distinct non-deleted user once if
+that user has ever held a `gateway-owner` role binding, including deleted
+bindings. Seven-day retention compares the current and immediately preceding
+7 UTC calendar-day active sets.
+
+Unavailable by design:
+
+- First-sandbox conversion: no durable, user-attributed first-sandbox event.
+- Median time to first resource: no combined gateway-or-sandbox first-resource event.
+- Organizations and fleets: HyperShell has no Organization or Fleet resources.
+- 30-day retention: the activity store retains only 30 days, but a true
+  comparison needs 60 days.
+
+These fields render the localized metric-unavailable state. They are not
+replaced with zero or hidden.
+
 ## Adding a new source
 
 1. Expose a same-origin BFF route (or reuse an existing API route) for browser access.

@@ -97,6 +97,11 @@ function renderProvisioningDashboard() {
           lastSuccessfulRefresh: new Date(),
           metrics: [],
         }),
+      getAdoptionMetrics: () =>
+        Promise.resolve({
+          lastSuccessfulRefresh: new Date(),
+          metrics: [],
+        }),
     },
   });
 

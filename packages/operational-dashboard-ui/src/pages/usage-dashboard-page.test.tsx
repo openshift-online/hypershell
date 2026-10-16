@@ -53,6 +53,7 @@ function renderPage({
     controlPlane: {
       getOperationalMetrics: () => Promise.resolve(metrics),
       getReliabilityMetrics: () => Promise.resolve(metrics),
+      getAdoptionMetrics: () => Promise.resolve(metrics),
       getUsageMetrics: () => Promise.resolve(metrics),
     },
   });
@@ -168,6 +169,7 @@ describe("UsageDashboardPage", () => {
       controlPlane: {
         getOperationalMetrics: () => Promise.resolve(metrics),
         getReliabilityMetrics: () => Promise.resolve(metrics),
+        getAdoptionMetrics: () => Promise.resolve(metrics),
         getUsageMetrics: () => Promise.resolve(metrics),
       },
     });

@@ -35,6 +35,10 @@ const stubUsageControlPlane: DashboardControlPlane = {
     context.signal?.throwIfAborted();
     return Promise.resolve(unusedDashboardMetrics);
   },
+  getAdoptionMetrics: (context) => {
+    context.signal?.throwIfAborted();
+    return Promise.resolve(unusedDashboardMetrics);
+  },
   getUsageMetrics: (context) => {
     context.signal?.throwIfAborted();
     return Promise.resolve({

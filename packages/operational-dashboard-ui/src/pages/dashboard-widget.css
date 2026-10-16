@@ -525,3 +525,45 @@
     --pf-t--global--icon--color--status--danger--default
   );
 }
+
+.hypershell-adoption-dashboard__summary {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.hypershell-adoption-dashboard__summary > div {
+  align-items: start;
+  display: grid;
+  font-size: 12px;
+  gap: 8px;
+  grid-template-columns: minmax(120px, 40%) 1fr;
+  justify-content: space-between;
+}
+
+.hypershell-adoption-dashboard__summary dd {
+  font-weight: 600;
+  margin: 0;
+  text-align: right;
+}
+
+.hypershell-adoption-dashboard__unavailable {
+  color: var(--pf-t--global--text--color--subtle);
+  display: grid;
+  font-weight: 400;
+  gap: 2px;
+  justify-items: end;
+  text-align: right;
+}
+
+.hypershell-adoption-dashboard__trends {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 700px) {
+  .hypershell-adoption-dashboard__trends {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

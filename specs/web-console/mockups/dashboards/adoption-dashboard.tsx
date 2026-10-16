@@ -10,7 +10,6 @@ import {
   DashboardSparkline,
   DashboardWidget,
 } from "../common/dashboard-widget";
-import { MockupShell } from "../shell/mockup-template";
 
 const Row = ({ label, value }: { label: string; value: string }) => (
   <div
@@ -24,7 +23,11 @@ const Row = ({ label, value }: { label: string; value: string }) => (
 export function AdoptionDashboardPageSurface() {
   return (
     <>
-      <PageSection data-page-region="header" hasBodyWrapper={false}>
+      <PageSection
+        data-page-region="header"
+        hasBodyWrapper={false}
+        variant="default"
+      >
         <Content>
           <Title headingLevel="h1" size="2xl">
             Adoption dashboard
@@ -135,13 +138,5 @@ export function AdoptionDashboardPageSurface() {
         </div>
       </PageSection>
     </>
-  );
-}
-
-export function AdoptionDashboardMockup() {
-  return (
-    <MockupShell>
-      <AdoptionDashboardPageSurface />
-    </MockupShell>
   );
 }

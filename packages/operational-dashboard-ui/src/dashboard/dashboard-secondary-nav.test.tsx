@@ -31,6 +31,11 @@ function renderNav(active: DashboardSecondaryNavActive, isAdmin = true) {
           lastSuccessfulRefresh: new Date(),
           metrics: [],
         }),
+      getAdoptionMetrics: () =>
+        Promise.resolve({
+          lastSuccessfulRefresh: new Date(),
+          metrics: [],
+        }),
     },
   });
 
@@ -86,6 +91,19 @@ describe("DashboardSecondaryNav", () => {
     expect(usage.getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Overview" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Reliability" })).toBeNull();
+  });
+
+  it("marks Adoption as active and navigates to the adoption route", () => {
+    const { navigate } = renderNav("adoption");
+
+    const adoption = screen.getByRole("link", { name: "Adoption" });
+
+    expect(adoption.getAttribute("href")).toBe("/dashboard/adoption");
+    expect(adoption.getAttribute("aria-current")).toBe("page");
+
+    fireEvent.click(adoption);
+
+    expect(navigate).toHaveBeenCalledWith("/dashboard/adoption");
   });
 
   it("navigates through the host navigation port", () => {

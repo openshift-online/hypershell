@@ -1,6 +1,7 @@
 {
   "dashboard": "dashboard",
   "dashboardInventory": "dashboard/inventory",
+  "dashboardAdoption": "dashboard/adoption",
   "dashboardProvisioning": "dashboard/provisioning",
   "dashboardReliability": "dashboard/reliability",
   "dashboardUsage": "dashboard/usage",
@@ -15,6 +16,7 @@
     "/dashboard/inventory",
     "/dashboard/reliability",
     "/dashboard/usage",
+    "/dashboard/adoption",
     "/login",
     "/gateways/new",
     "/gateways/gateway-1",

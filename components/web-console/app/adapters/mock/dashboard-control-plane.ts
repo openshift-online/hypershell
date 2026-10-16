@@ -3,6 +3,7 @@ import type {
   DashboardInvocationContext,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
 import {
+  mockAdoptionDashboardMetrics,
   mockOperationalDashboardMetrics,
   mockReliabilityDashboardMetrics,
   mockUsageDashboardMetrics,
@@ -39,6 +40,17 @@ export function createMockDashboardControlPlane(): DashboardControlPlane {
 
       return {
         ...mockUsageDashboardMetrics,
+        lastSuccessfulRefresh: new Date(),
+      };
+    },
+
+    async getAdoptionMetrics(context: DashboardInvocationContext) {
+      context.signal?.throwIfAborted();
+
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // This is just for demos for now
+
+      return {
+        ...mockAdoptionDashboardMetrics,
         lastSuccessfulRefresh: new Date(),
       };
     },
