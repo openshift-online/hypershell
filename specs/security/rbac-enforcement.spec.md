@@ -461,6 +461,11 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   Deregistration").
 - `RoleBindingService`: denied. Its list and watch are not filtered by user or gateway;
   users manage bindings over HTTP.
+- Import ext kinds (`RepositoryService`, `SandboxTemplateService`, `ProviderSpecService`,
+  `ProviderBindingService`, `InferenceRouteService`, `SecretSourceService`): list, watch,
+  and get for `platform:admin`; all writes (create/update/delete) denied. These kinds are
+  fleet-wide, so a user caller never writes them over gRPC; declarative-import writes are
+  authorized only for the control-plane identity (see below).
 - Under `RBAC_ENFORCE=true` an unauthenticated call reaches no `hypershell.v1` method.
 
 Control-plane identities are exempt from role bindings but not from scoping. A caller
@@ -469,6 +474,30 @@ whose JWT `sub` is the `oidc_subject` of a registered ManagedCluster is authoriz
 cluster's gateways, fleet-wide reads, and deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
 registered keeps the bootstrap exemption, except for ManagedCluster record writes; an
 allowlisted account that is registered is scoped as a control plane.
+
+**Declarative-import writes (control-plane identity only).** The control-plane
+declarative `.hypershell` import reconciler (see
+[`platform/control-plane.spec.md`](../platform/control-plane.spec.md), "Declarative
+`.hypershell` Import Reconciliation") is the single bounded path by which the control
+plane writes HyperShell API desired state. The gRPC `Create`, `Update`, and `Delete`
+methods for the import ext kinds (`Repository`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`) SHALL be authorized for the
+control-plane identity and SHALL remain denied for every other caller. These writes
+are `Repository`-scoped through the `repository_id` ownership mark, not an open
+bootstrap bypass:
+
+- On create the server SHALL set `repository_id` from the `Repository` the reconciler
+  is reconciling and SHALL ignore any client-supplied `repository_id`, so a caller
+  cannot forge ownership of an imported resource.
+- A create, update, or delete SHALL act only on resources owned by the reconciled
+  `Repository`; a write that would affect a resource owned by a different
+  `Repository`, or a resource created directly through the REST API or `hsctl apply`
+  (no ownership mark), SHALL be refused.
+- The bootstrap-service-account allowlist exemption remains a distinct, pre-existing
+  mechanism for fully-trusted internal identities; the import write authority derives
+  from the control-plane identity and `Repository` ownership, not from that allowlist.
+  A bootstrap service account that is not a registered control plane SHALL NOT be
+  treated as an import reconciler.
 
 The hub's gRPC API is reachable from outside the cluster (`platform/hub-grpc-tls.spec.md`),
 so these rules are the only boundary between tenants, and between clusters, on that API.
@@ -501,6 +530,26 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - GIVEN any user without a control-plane identity
 - WHEN they call `ListRoleBindings` or `WatchRoleBindings`
 - THEN the request returns PermissionDenied
+
+#### Scenario: User cannot write an import ext kind over gRPC
+
+- GIVEN a caller that is not a control-plane identity
+- WHEN they call `CreateSandboxTemplate`, `UpdateProviderSpec`, or `DeleteSecretSource` over gRPC
+- THEN the request returns PermissionDenied
+- AND `platform:admin` MAY still list, watch, and get those kinds
+
+#### Scenario: Import reconciler writes an owned ext resource and ownership cannot be forged
+
+- GIVEN the control-plane import reconciler reconciling `Repository` R1
+- WHEN it calls `CreateSandboxTemplate` with a client-supplied `repository_id` of R2
+- THEN the server SHALL set `repository_id` to R1 from the reconciled `Repository`
+- AND it SHALL ignore the client-supplied R2 value
+
+#### Scenario: Import write is refused outside the owning Repository
+
+- GIVEN a `SandboxTemplate` owned by `Repository` R2 or created directly with no ownership mark
+- WHEN the import reconciler for `Repository` R1 attempts to update or delete it
+- THEN the write SHALL be refused
 
 ### Requirement: Error Response Opacity
 

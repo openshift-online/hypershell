@@ -231,29 +231,37 @@ in place.
 On reconcile the control plane SHALL, using its in-cluster credentials, create or
 update on the target cluster the `AgentRuntime`'s `Namespace`, `ServiceAccount`
 (with `automountServiceAccountToken: false`), default-deny-ingress `NetworkPolicy`,
-one `ExternalSecret` per `SecretSource` (with the purpose-to-env-var wiring from the
-data-model "SecretSource" table), and the coordinator `CronJob`. It SHALL then
-provision the gateway-side `AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`,
-and `InferenceRoute` objects through the gateway gRPC API, the same idempotent
-mechanism it uses for gateway database provisioning.
+one Kubernetes `Secret` per `SecretSource` (with the purpose-to-env-var wiring from
+the data-model "SecretSource" table), and the coordinator `CronJob`. For each
+`SecretSource` the control plane SHALL read the secret value from the configured
+secret store through its read-only `pkg/secretstore` client and SHALL place that
+value directly into the Kubernetes `Secret` it creates; it SHALL NOT create an
+`ExternalSecret` and SHALL NOT rely on External Secrets Operator. Secret placement
+SHALL be one-shot at provision time: the control plane reads the store and writes the
+`Secret` once when it provisions the `AgentRuntime` and SHALL NOT run any ESO-style
+periodic resync or rotation of the placed value. It SHALL then provision the
+gateway-side `AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`, and
+`InferenceRoute` objects through the gateway gRPC API, the same idempotent mechanism
+it uses for gateway database provisioning.
 
 The control plane SHALL drive `AgentRuntime.status` through
 `Pending -> Provisioning -> Running -> Degraded -> Terminating` as the data-model
 status lifecycle defines, and SHALL write the status back to the API server. When a
-`SecretSource` `ExternalSecret` enters a sync error, or gateway-side provisioning
-fails, the control plane SHALL set `status` to `Degraded` and SHALL surface the
-failing `SecretSource` name or the gateway-side error in the status message.
+`SecretSource` value cannot be read from the store or placed into its Kubernetes
+`Secret`, or gateway-side provisioning fails, the control plane SHALL set `status`
+to `Degraded` and SHALL surface the failing `SecretSource` name or the gateway-side
+error in the status message.
 
 On `AgentRuntime` deletion the control plane SHALL delete the cluster resources it
-created (`Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources,
-and the `CronJob`) and SHALL delete the gateway-side `AgentWorkspace` and its
-sub-resources through the gateway gRPC API.
+created (`Namespace`, `ServiceAccount`, `NetworkPolicy`, the placed `Secret`
+resources, and the `CronJob`) and SHALL delete the gateway-side `AgentWorkspace` and
+its sub-resources through the gateway gRPC API.
 
 #### Scenario: New AgentRuntime is provisioned end to end
 
 - GIVEN a new `AgentRuntime` with status `Pending` whose effective cluster is this control plane's `cluster_id`
 - WHEN the control plane reconciles it
-- THEN it SHALL create the `Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources, and `CronJob` on this cluster
+- THEN it SHALL read each `SecretSource` value from the store and create the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the placed `Secret` resources, and `CronJob` on this cluster
 - AND it SHALL transition the `AgentRuntime` status to `Provisioning`
 - AND after it has provisioned the gateway-side `AgentWorkspace` and providers, it SHALL transition the status to `Running`
 
@@ -264,10 +272,10 @@ sub-resources through the gateway gRPC API.
 - THEN the control plane SHALL update the coordinator `CronJob` on the target cluster
 - AND reconciliation SHALL remain idempotent for the unchanged resources
 
-#### Scenario: SecretSource sync failure degrades the AgentRuntime
+#### Scenario: SecretSource read or placement failure degrades the AgentRuntime
 
 - GIVEN an `AgentRuntime` with status `Running`
-- WHEN one of its `SecretSource` `ExternalSecret` resources enters a sync error
+- WHEN one of its `SecretSource` values cannot be read from the store or placed into its Kubernetes `Secret`
 - THEN the control plane SHALL set the `AgentRuntime` status to `Degraded`
 - AND the status message SHALL identify the failing `SecretSource` by name
 
@@ -275,7 +283,7 @@ sub-resources through the gateway gRPC API.
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN a delete event arrives on the watch stream
-- THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources, and `CronJob` from the cluster
+- THEN the control plane SHALL delete the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the placed `Secret` resources, and `CronJob` from the cluster
 - AND it SHALL delete the gateway-side `AgentWorkspace` and its sub-resources through the gateway gRPC API
 
 ### Requirement: Declarative `.hypershell` Import Reconciliation
@@ -283,21 +291,26 @@ sub-resources through the gateway gRPC API.
 The control plane SHALL host the declarative `.hypershell` import process defined
 in [`data-model.spec.md`](./data-model.spec.md) ("Declarative `.hypershell`
 Import"). The import SHALL NOT be hosted by the API server: the API server has no
-in-process `SecretSource` resolver and no git access, whereas the control plane
-already holds cluster-side `SecretSource` -> `ExternalSecret` -> External Secrets
-Operator -> Kubernetes `Secret` resolution and git/cluster access.
+read access to the secret store and no git access, whereas the control plane holds
+read-only access to the secret store (through its `pkg/secretstore` client) and
+git/cluster access.
 
 For each registered `Repository` the control plane SHALL:
 
-1. Resolve the `Repository`'s `secret_source_id` credential cluster-side, through
-   the same `SecretSource` -> `ExternalSecret` resolution path it uses for
-   AgentRuntime provisioning.
+1. Read the `Repository`'s `secret_source_id` value from the secret store through
+   its read-only `pkg/secretstore` client, when a credential is needed for git
+   access. This is the same read-only store access the control plane uses to place
+   `AgentRuntime` secrets; it does not create an `ExternalSecret` and does not
+   depend on External Secrets Operator.
 2. Git-clone the `Repository` at its `default_branch` (or the branch otherwise
-   specified) using that resolved credential.
-3. Render the Kustomize root at `import_path` (default `.hypershell`).
-4. Reconcile the rendered ext resources into the API - create new declarations,
-   update changed declarations, and prune declarations removed from the
-   repository.
+   specified) using that read credential.
+3. Render the Kustomize root at `import_path` (default `.hypershell`) by invoking
+   `hsctl` (the CLI's Kustomize apply/render path), NOT an embedded Kustomize
+   library.
+4. Reconcile the rendered ext resources into the API over the generated gRPC write
+   path - create new declarations, update changed declarations, and prune
+   declarations removed from the repository. Each written resource SHALL be
+   ownership-marked with its originating `Repository` (`repository_id`).
 
 Reconciliation SHALL converge, not create-and-skip, and SHALL be idempotent
 against unchanged repository state: a re-run over an unchanged `Repository` SHALL
@@ -316,6 +329,26 @@ resources, and SHALL mark each written resource with its owning `Repository`. Th
 resolves the apparent conflict with the "control plane is a reader of desired
 state" principle: the principle holds everywhere except this one named,
 ownership-scoped reconciler.
+
+**gRPC write authorization for the import.** The gRPC Create / Update / Delete
+methods for the import ext kinds (`Repository`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`) were held at default-deny when
+their gRPC surface was introduced. They SHALL now be authorized for the
+control-plane identity, bounded to the import reconciler's `Repository` scope, and
+remain denied for every other caller (users, spokes acting outside the import).
+The authorization contract is specified in
+[`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md),
+"Requirement: gRPC Authorization". In particular:
+
+- On create, the server SHALL set `repository_id` from the `Repository` the
+  reconciler is reconciling and SHALL ignore (not trust) any client-supplied
+  `repository_id` on the request, so a caller cannot forge ownership.
+- These writes SHALL be authorized as the control-plane identity, `Repository`-scoped
+  through the ownership mark, and SHALL NOT be an open bootstrap-service-account
+  bypass. The bootstrap-SA interceptor exemption (which allows a fully-trusted
+  internal identity to reach gRPC write handlers) is distinct from this import
+  authorization: the import write path derives its authority from the reconciled
+  `Repository` ownership, not from the bootstrap allowlist.
 
 #### Scenario: Import reconciles declared resources through the API
 
@@ -337,6 +370,27 @@ ownership-scoped reconciler.
 - GIVEN a `Repository` whose `.hypershell` contents are unchanged since the last import
 - WHEN the control-plane import reconciler runs again
 - THEN it SHALL make no create, update, or prune write to the API
+
+#### Scenario: Import reads the credential from the store, not via ExternalSecret
+
+- GIVEN a `Repository` whose `secret_source_id` references a stored git credential
+- WHEN the control-plane import reconciler needs to clone the repository
+- THEN it SHALL read the credential value through its read-only `pkg/secretstore` client
+- AND it SHALL NOT create an `ExternalSecret` or rely on External Secrets Operator
+
+#### Scenario: Import renders through hsctl, not an embedded library
+
+- GIVEN a cloned `Repository` with a Kustomize root at `import_path`
+- WHEN the control-plane import reconciler renders the declared resources
+- THEN it SHALL invoke `hsctl` to build and render the Kustomize root
+- AND it SHALL NOT embed a Kustomize library in the control plane
+
+#### Scenario: Server sets ownership on import create and ignores a client-supplied value
+
+- GIVEN the import reconciler creates an imported ext resource whose request carries a client-supplied `repository_id`
+- WHEN the gRPC create is authorized for the control-plane identity
+- THEN the server SHALL set `repository_id` from the reconciled `Repository`
+- AND it SHALL ignore the client-supplied `repository_id`
 
 ### Requirement: Watch Stream Liveness
 
@@ -596,4 +650,4 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | Transport security inferred from the dial address, not a separate `HYPERSHELL_GRPC_TLS` flag | The address already tells you whether the hop leaves the cluster. A second flag could drift from the address (TLS off against an external host, or on against an in-cluster one) with no compile-time or admission check to catch it. |
 | TLS handshake failure retries like any other disconnect, rather than exiting | A control plane should tolerate a hub certificate renewal without operator intervention. Contrast with the `managed-cluster-registrar` 403 and the name-conflict 409, which are fail-closed because retrying truly cannot help. |
 | AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
-| AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must resolve each `Repository`'s credential and git-clone the repository, and the control plane already has cluster-side `SecretSource` -> `ExternalSecret` resolution and git/cluster access while the api-server has neither an in-process `SecretSource` resolver nor git access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). |
+| AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must read each `Repository`'s credential from the secret store and git-clone the repository, and the control plane has read-only secret-store access (`pkg/secretstore`) and git/cluster access while the api-server has neither store read access nor git access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). |

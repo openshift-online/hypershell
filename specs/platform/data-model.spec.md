@@ -531,22 +531,25 @@ supports (`AgentRuntime`, `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
 The import process SHALL be hosted by the **control plane**, the reconciler of the
 system, NOT by the API server. For each `Repository` the control plane SHALL:
 
-1. Resolve the `Repository`'s `secret_source_id` credential cluster-side, through
-   the same `SecretSource` -> `ExternalSecret` -> External Secrets Operator ->
-   Kubernetes `Secret` resolution path the control plane already uses for
-   AgentRuntime provisioning.
+1. Read the `Repository`'s `secret_source_id` value from the configured secret
+   store through its read-only secret-store client (`pkg/secretstore`), when a
+   credential is needed for git access. This is the same read-only store access the
+   control plane uses to place `AgentRuntime` secrets; it does NOT create an
+   `ExternalSecret` and does NOT depend on External Secrets Operator.
 2. Git-clone the `Repository` at its `default_branch` (or the branch otherwise
-   specified) using that resolved credential.
-3. Render the Kustomize root at `import_path`.
-4. Reconcile (create / update / prune) the rendered ext resources into the API,
-   over the same create, update, and delete operations the REST layer owns.
+   specified) using that read credential.
+3. Render the Kustomize root at `import_path` by invoking `hsctl` (the CLI's
+   Kustomize render/apply path), NOT an embedded Kustomize library.
+4. Reconcile (create / update / prune) the rendered ext resources into the API
+   over the generated gRPC write path, marking each written resource with its
+   owning `Repository` (`repository_id`).
 
-The control plane holds per-cluster in-cluster credentials and the cluster-side
-`SecretSource` resolution and git access the import requires; the API server holds
-no in-process `SecretSource` resolver and no git access. Hosting the import in the
-control plane therefore places it where the credential resolution and repository
-access already exist, and removes the in-process-secret-resolution blocker that
-would otherwise fall on the API server.
+The control plane holds per-cluster in-cluster credentials, read-only secret-store
+access, and the git access the import requires; the API server holds no read access
+to the secret store and no git access. Hosting the import in the control plane
+therefore places it where the credential read and repository access already exist,
+and removes the in-process-secret-resolution blocker that would otherwise fall on
+the API server.
 
 The API server's only secret role in this flow is the secret-submission endpoint
 defined in "Requirement: Secret Submission and Storage" below: it stores a
@@ -561,13 +564,19 @@ gRPC API. The declarative-import reconciler is the SINGLE, clearly-bounded
 control-plane path that writes HyperShell API desired-state resources. That
 exception is scoped precisely: the import reconciler SHALL write ONLY ext
 resources that are owned by the originating `Repository`, SHALL perform only
-create / update / prune on those Repository-owned resources, SHALL mark each
-written resource with its owning `Repository` so ownership is explicit, and SHALL
-be idempotent against unchanged repository state. Outside this bounded path the
-control plane SHALL NOT write API desired-state resources. This resolves what
-would otherwise contradict the "control plane is a reader of desired state"
-principle: the principle holds everywhere except this one named, ownership-scoped
-reconciler.
+create / update / prune on those Repository-owned resources over the generated gRPC
+write path, SHALL mark each written resource with its owning `Repository` so
+ownership is explicit, and SHALL be idempotent against unchanged repository state.
+On create the server SHALL set `repository_id` from the reconciled `Repository` and
+SHALL ignore any client-supplied `repository_id`, so ownership cannot be forged.
+These gRPC writes SHALL be authorized as the control-plane identity and
+`Repository`-scoped (see
+[`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md),
+"Requirement: gRPC Authorization"); they are not an open bootstrap-service-account
+bypass. Outside this bounded path the control plane SHALL NOT write API
+desired-state resources. This resolves what would otherwise contradict the "control
+plane is a reader of desired state" principle: the principle holds everywhere except
+this one named, ownership-scoped reconciler.
 
 Imported resources SHALL be owned by the originating `Repository`. The import
 process SHALL reconcile, not create-and-skip: a resource added to `.hypershell`
@@ -589,9 +598,9 @@ by another Repository or created directly through the REST API or `hsctl apply`.
 
 - GIVEN a registered `Repository` whose `.hypershell` directory declares a `SandboxTemplate` and an `AgentRuntime`
 - WHEN the control-plane import reconciler runs
-- THEN it SHALL resolve the `Repository`'s credential cluster-side, git-clone the repository, and build the kustomization
-- AND it SHALL upsert both resources into the API
-- AND the resources SHALL be owned by the `Repository`
+- THEN it SHALL read the `Repository`'s credential from the store, git-clone the repository, and render the kustomization via `hsctl`
+- AND it SHALL upsert both resources into the API over the gRPC write path
+- AND the resources SHALL be owned by the `Repository` (`repository_id` set server-side)
 
 #### Scenario: Removed Declaration Is Pruned
 
@@ -624,9 +633,10 @@ response SHALL identify the created `SecretSource`.
 
 The API server SHALL NOT persist the raw secret value in the database, SHALL NOT
 resolve a stored secret value in-process, and SHALL NOT clone a git repository.
-Cluster-side resolution of a stored `SecretSource` into a usable credential is the
-control plane's responsibility (see "Requirement: Declarative `.hypershell`
-Import" and the control-plane `SecretSource` -> `ExternalSecret` wiring).
+Reading a stored `SecretSource` value and placing it as a usable credential is the
+control plane's responsibility, through its read-only `pkg/secretstore` client (see
+"Requirement: Declarative `.hypershell` Import" and "Requirement: SecretSource").
+The API server is write-only to the store; the control plane is read-only from it.
 
 #### Scenario: Submit a Secret
 
@@ -652,14 +662,14 @@ The controller SHALL apply the agent's scheduling resources directly to the targ
 1. `Namespace` - the agent's Kubernetes namespace
 2. `ServiceAccount` - with `automountServiceAccountToken: false`
 3. `NetworkPolicy` - default-deny all ingress
-4. `ExternalSecret` resources - one per `SecretSource`
+4. Kubernetes `Secret` resources - one per `SecretSource`, whose value the controller reads from the configured secret store (read-only `pkg/secretstore` client) and places directly; the controller SHALL NOT create an `ExternalSecret` and SHALL NOT depend on External Secrets Operator. Placement is one-shot at provision time (no periodic resync or rotation of the placed value).
 5. `CronJob` - the coordinator (schedule from `AgentRuntime`, image from `coordinator_image`)
 
 #### Scenario: Cluster Resources Created on AgentRuntime Reconcile
 
 - GIVEN a new `AgentRuntime` with status `Pending`
 - WHEN the controller runs its reconcile loop
-- THEN a `Namespace`, `ServiceAccount`, `NetworkPolicy`, `ExternalSecret` resources, and `CronJob` SHALL be created or updated directly on the target cluster
+- THEN a `Namespace`, `ServiceAccount`, `NetworkPolicy`, one Kubernetes `Secret` per `SecretSource` (value read from the store and placed directly), and `CronJob` SHALL be created or updated directly on the target cluster
 - AND the `AgentRuntime` status SHALL transition to `Provisioning`
 
 #### Scenario: Cluster Resources Updated on AgentRuntime Change
@@ -672,7 +682,7 @@ The controller SHALL apply the agent's scheduling resources directly to the targ
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN the `AgentRuntime` is deleted
-- THEN the controller SHALL delete all cluster resources (Namespace, ServiceAccount, NetworkPolicy, ExternalSecrets, CronJob)
+- THEN the controller SHALL delete all cluster resources (Namespace, ServiceAccount, NetworkPolicy, the placed `Secret` resources, CronJob)
 - AND the controller SHALL invoke the gateway API to delete the `AgentWorkspace` and its sub-resources
 - AND the `AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`, and `InferenceRoute` records SHALL be deleted from the database
 
@@ -780,8 +790,8 @@ The controller translates `refresh_strategy` to the gateway backend's refresh co
 - GIVEN a `ProviderSpec` with `category = inference`
 - AND a `SecretSource` with `purpose = service-account-key`
 - WHEN a `ProviderBinding` is created referencing both
-- THEN the controller generates an `ExternalSecret` from the `SecretSource`
-- AND provisions the provider on the gateway using the resolved secret as the credential
+- THEN the controller reads the `SecretSource` value from the store and places it as a Kubernetes `Secret`
+- AND provisions the provider on the gateway using that secret as the credential
 - AND registers the `refresh_strategy` on the gateway for automatic token rotation
 
 ---
@@ -852,9 +862,9 @@ The sandbox network policy and the `ProviderBinding.capability.allowed_operation
 
 ### Requirement: SecretSource
 
-A `SecretSource` is an abstract reference to a secret in an external secret backend (Vault, AWS Secrets Manager, or a Kubernetes Secret). The controller generates an `ExternalSecret` or direct `SecretReference` from it when producing the agent's scheduling resources.
+A `SecretSource` is an abstract reference to a secret stored in the configured secret store (Vault, AWS Secrets Manager, or a Kubernetes Secret). When producing the agent's scheduling resources the control plane reads the referenced value from the store through its read-only `pkg/secretstore` client and places it directly into a Kubernetes `Secret`; it does not create an `ExternalSecret`.
 
-`SecretSource.purpose` is a semantic enum that drives both the generated `ExternalSecret` field mapping and the environment variable wiring in the CronJob. Supported values:
+`SecretSource.purpose` is a semantic enum that drives both the placed `Secret` field mapping and the environment variable wiring in the CronJob. Supported values:
 
 | Purpose | Description | Controller-generated env vars |
 |---|---|---|
@@ -876,11 +886,10 @@ A `SecretSource` is an abstract reference to a secret in an external secret back
 
 #### Scenario: Unknown Backend Path Fails at Provisioning, Not at Persist Time
 
-- GIVEN a `SecretSource` with a valid `path` that does not exist in the backend
-- WHEN the controller generates an `ExternalSecret`
-- THEN the `ExternalSecret` SHALL be created on the cluster
-- AND the `ExternalSecret` SHALL enter status `SecretSyncedError`
-- AND the `AgentRuntime` status SHALL reflect the sync failure
+- GIVEN a `SecretSource` with a valid `path` that does not exist in the store
+- WHEN the control plane reads the `SecretSource` value to place its Kubernetes `Secret`
+- THEN the read SHALL fail at provisioning time
+- AND the `AgentRuntime` status SHALL reflect the placement failure
 - AND the `SecretSource` record itself SHALL remain in the database
 
 ---
@@ -902,7 +911,7 @@ A `Degraded` `AgentRuntime` SHALL surface the failing `SecretSource` name and th
 #### Scenario: SecretSource Sync Failure Degrades AgentRuntime
 
 - GIVEN an `AgentRuntime` with status `Running`
-- WHEN a `SecretSource` backend path becomes unreachable and its `ExternalSecret` enters `SecretSyncedError`
+- WHEN a `SecretSource` store path becomes unreachable and the control plane cannot read its value to place the Kubernetes `Secret`
 - THEN the `AgentRuntime` status SHALL transition to `Degraded`
 - AND the status message SHALL identify the failing `SecretSource` by name
 - AND the `CronJob` SHALL continue to run but its scheduled executions SHALL fail at gateway login
@@ -1236,9 +1245,9 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opend
 | No ManifestWork: controller applies cluster resources directly | The controller has direct cluster API access via in-cluster credentials, the same mechanism used for gateway infrastructure. ManifestWork would add an OCM dependency without architectural benefit. |
 | No bootstrap Job: controller provisions gateway-side objects via gRPC | Gateway-side workspace, members, and provider objects are provisioned by the controller through the gateway gRPC API in its normal reconcile loop, co-located with existing gateway database provisioning logic. An idempotent imperative Job on the cluster would tie provisioning to a specific OpenShell CLI version. |
 | Repository as a reusable top-level ext resource | A registered repo plus its provider credential is referenced by many agent runtimes and read by the declarative import. Centralizing it keeps credential rotation and `.hypershell` discovery a single registration, not per-runtime config. |
-| Repository credential via SecretSource FK | Reuses the existing abstract secret backend model (Vault/AWS/Kubernetes) and `ExternalSecret` wiring, keeping provider secrets out of the database and consistent with every other credential in the platform. |
+| Repository credential via SecretSource FK | Reuses the existing abstract secret store model (Vault/AWS/Kubernetes) and the control plane's read-only store placement, keeping provider secrets out of the database and consistent with every other credential in the platform. |
 | AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
 | Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
-| `.hypershell` import hosted by the control plane, not the api-server | The import must resolve each `Repository`'s `secret_source_id` credential and git-clone the repository. The control plane already has cluster-side `SecretSource` -> `ExternalSecret` resolution and git/cluster access; the api-server has no in-process `SecretSource` resolver and no git access. Hosting the import in the control plane places it where credential resolution and repository access already live and removes the in-process-secret-resolution blocker. The import is the single bounded control-plane path that writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources. The api-server's only secret role is a POST endpoint that stores the submitted value in the secret manager and its reference (a `SecretSource`) in the database. |
+| `.hypershell` import hosted by the control plane, not the api-server | The import must read each `Repository`'s `secret_source_id` credential and git-clone the repository. The control plane has read-only secret-store access (`pkg/secretstore`) and git/cluster access; the api-server has no store read access and no git access. Hosting the import in the control plane places it where the credential read and repository access already live and removes the in-process-secret-resolution blocker. The import is the single bounded control-plane path that writes API desired state (over the gRPC write path, `Repository`-scoped), scoped to create/update/prune of `Repository`-owned ext resources. The api-server's only secret role is a write-only POST endpoint that stores the submitted value in the secret store and its reference (a `SecretSource`) in the database. |
 | Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
 | Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |

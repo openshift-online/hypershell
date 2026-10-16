@@ -28,6 +28,36 @@ responses MUST omit it.
 
 All sensitive values (kubeconfig, database credentials) SHALL be stored as Kubernetes Secret references, not inline in the database. The model stores the secret name/path, not the secret value.
 
+**3. Secret Store Access Is Single-Directional per Component**
+
+Access to the configured secret store SHALL be split by component and direction. The
+API server SHALL be write-only to the store: it writes a submitted secret value to
+the store (through its `pkg/secretstore` client) and persists only the reference (a
+`SecretSource` record), and it SHALL NOT read a stored secret value back. The control
+plane SHALL be read-only from the store: it reads a referenced value (through its
+read-only `pkg/secretstore` client) and places it directly into a Kubernetes `Secret`
+on the target cluster, and it SHALL NOT write values to the store. HyperShell SHALL
+NOT resolve stored secrets through `ExternalSecret` objects or External Secrets
+Operator; the control plane places secrets directly.
+
+A raw stored secret value SHALL NOT be returned by any API read endpoint, SHALL NOT
+be carried on any gRPC message (the `SecretSource` gRPC message has no value field),
+SHALL NOT be persisted in the database, and SHALL NOT appear in logs, events, or the
+query cache.
+
+Control-plane secret placement SHALL be one-shot at provision time: the control plane
+reads the store and writes the Kubernetes `Secret` once when it provisions the owning
+resource, and SHALL NOT run an ESO-style periodic resync or rotation of the placed
+value.
+
+#### Scenario: Store access respects component direction
+
+- GIVEN a user submits a secret value to the API server
+- WHEN the API server stores it
+- THEN the API server SHALL write the value to the store and persist only a `SecretSource` reference
+- AND the API server SHALL NOT read the value back from the store
+- AND when the control plane provisions a resource that references the `SecretSource`, it SHALL read the value through its read-only store client and place it directly into a Kubernetes `Secret`, once, without an `ExternalSecret`
+
 ### Input Validation
 
 **1. Validate All User Input**
@@ -81,6 +111,7 @@ Gateways are scoped by per-gateway RBAC RoleBindings (`gateway:owner`, `gateway:
 - [ ] Secrets stored as K8s Secret references
 - [ ] Secret values absent from routine API responses
 - [ ] One-time credential responses use `no-store`, redact telemetry, and never persist plaintext
+- [ ] Secret store access is single-directional: API server write-only, control plane read-only; no `ExternalSecret`/ESO resolution; placement is one-shot
 
 **Input:**
 - [ ] All user input validated
