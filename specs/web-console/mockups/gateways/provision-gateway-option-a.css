@@ -1,0 +1,38 @@
+/* patternfly-gap: specs/web-console/gateway-provision-placement.spec.md - the approved placement-card reference requires provider wordmarks positioned within the card, which PatternFly Card does not provide as a composition prop */
+.card-provider-icon {
+  display: "block";
+  position:absolute;
+
+  right:25px;
+}
+
+.card-provider-icon-aws {
+  width: 50px;
+  top: 40px;
+}
+
+.card-provider-icon-ibm {
+  width: 45px;
+  top: 35px;
+}
+.gateway-set-recommended-row {
+  margin-bottom: var(--pf-t--global--spacer--lg);
+}
+
+.gateway-set-card--recommended {
+  min-height: 220px;
+}
+
+
+.gateway-set-card-title{
+    margin-right: 10px;
+}
+
+.gateway-set-card-version{
+    margin-top: 10px;
+    font-weight: bold;
+}
+
+.gateway-set-card-description{
+    margin-top: 10px;
+}

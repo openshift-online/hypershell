@@ -121,7 +121,7 @@ export function MockupShell({
 }
 
 export function MockupParityFrame({ children }: { children: React.ReactNode }) {
-  return <Page isContentFilled>{children}</Page>;
+  return <>{children}</>;
 }
 
 export function MockupTemplate({

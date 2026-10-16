@@ -27,7 +27,7 @@ export function ProvisionGatewayPageSurface({
         data-page-region="body"
         hasBodyWrapper={false}
         isFilled
-        variant="secondary"
+        variant="default"
       >
         <ProvisionGatewayForm showValidationErrors={showValidationErrors} />
       </PageSection>
