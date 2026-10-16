@@ -7,7 +7,10 @@ import (
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
+	"github.com/golang/glog"
+
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
@@ -76,7 +79,16 @@ func init() {
 
 	pkgserver.RegisterPrefixedRoutes("secretSources", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices))
+		// The secret-submission endpoint writes a submitted value to the configured
+		// secret manager before persisting the reference. A misconfigured store does
+		// not block the server from starting or reference-only creates from working;
+		// it fails any value submission loudly (errorStore).
+		store, storeErr := secretstore.NewFromEnv()
+		if storeErr != nil {
+			glog.Warningf("secret store configuration error; secret submissions will be rejected: %v", storeErr)
+			store = secretstore.NewErrorStore(storeErr)
+		}
+		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices), store)
 
 		router := extRouter.PathPrefix("/secret_sources").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)

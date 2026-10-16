@@ -5225,6 +5225,16 @@ components:
             description: JSON-encoded mapping of backend secret keys to environment
               variable names
             type: string
+          value:
+            description: "Secret value to submit for storage. Write-only (one-way)\
+              \ - when present on create, the API server writes it to the configured\
+              \ secret manager at a deterministic location derived from the submission\
+              \ identity and then persists only this SecretSource reference; path\
+              \ is set server-side to that location. The value is never persisted\
+              \ in the database, never logged, and never returned on create, get,\
+              \ or list."
+            type: string
+            writeOnly: true
           repository_id:
             description: Repository that owns this resource through the control-plane
               .hypershell import. Null for resources created directly through the
@@ -5239,17 +5249,18 @@ components:
         - purpose
         type: object
       example:
-        path: path
-        updated_at: 2000-01-23T04:56:07.000+00:00
         purpose: purpose
         kind: kind
-        name: name
         key_mappings: key_mappings
         created_at: 2000-01-23T04:56:07.000+00:00
+        path: path
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
         backend: backend
         repository_id: repository_id
         id: id
         href: href
+        value: value
         agent_runtime_id: agent_runtime_id
     SecretSourceList:
       allOf:
@@ -5270,29 +5281,31 @@ components:
         id: id
         href: href
         items:
-        - path: path
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          purpose: purpose
+        - purpose: purpose
           kind: kind
-          name: name
           key_mappings: key_mappings
           created_at: 2000-01-23T04:56:07.000+00:00
+          path: path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           backend: backend
           repository_id: repository_id
           id: id
           href: href
+          value: value
           agent_runtime_id: agent_runtime_id
-        - path: path
-          updated_at: 2000-01-23T04:56:07.000+00:00
-          purpose: purpose
+        - purpose: purpose
           kind: kind
-          name: name
           key_mappings: key_mappings
           created_at: 2000-01-23T04:56:07.000+00:00
+          path: path
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           backend: backend
           repository_id: repository_id
           id: id
           href: href
+          value: value
           agent_runtime_id: agent_runtime_id
     SecretSourcePatchRequest:
       example:

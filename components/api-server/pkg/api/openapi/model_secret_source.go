@@ -37,6 +37,8 @@ type SecretSource struct {
 	Path string `json:"path"`
 	// JSON-encoded mapping of backend secret keys to environment variable names
 	KeyMappings *string `json:"key_mappings,omitempty"`
+	// Secret value to submit for storage. Write-only (one-way) - when present on create, the API server writes it to the configured secret manager at a deterministic location derived from the submission identity and then persists only this SecretSource reference; path is set server-side to that location. The value is never persisted in the database, never logged, and never returned on create, get, or list.
+	Value *string `json:"value,omitempty"`
 	// Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
 	RepositoryId *string `json:"repository_id,omitempty"`
 }
@@ -377,6 +379,38 @@ func (o *SecretSource) SetKeyMappings(v string) {
 	o.KeyMappings = &v
 }
 
+// GetValue returns the Value field value if set, zero value otherwise.
+func (o *SecretSource) GetValue() string {
+	if o == nil || IsNil(o.Value) {
+		var ret string
+		return ret
+	}
+	return *o.Value
+}
+
+// GetValueOk returns a tuple with the Value field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *SecretSource) GetValueOk() (*string, bool) {
+	if o == nil || IsNil(o.Value) {
+		return nil, false
+	}
+	return o.Value, true
+}
+
+// HasValue returns a boolean if a field has been set.
+func (o *SecretSource) HasValue() bool {
+	if o != nil && !IsNil(o.Value) {
+		return true
+	}
+
+	return false
+}
+
+// SetValue gets a reference to the given string and assigns it to the Value field.
+func (o *SecretSource) SetValue(v string) {
+	o.Value = &v
+}
+
 // GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
 func (o *SecretSource) GetRepositoryId() string {
 	if o == nil || IsNil(o.RepositoryId) {
@@ -441,6 +475,9 @@ func (o SecretSource) ToMap() (map[string]interface{}, error) {
 	toSerialize["path"] = o.Path
 	if !IsNil(o.KeyMappings) {
 		toSerialize["key_mappings"] = o.KeyMappings
+	}
+	if !IsNil(o.Value) {
+		toSerialize["value"] = o.Value
 	}
 	if !IsNil(o.RepositoryId) {
 		toSerialize["repository_id"] = o.RepositoryId

@@ -4202,6 +4202,13 @@
             "type": "string",
             "format": "date-time",
             "required": false
+          },
+          {
+            "name": "value",
+            "type": "string",
+            "required": false,
+            "writeOnly": true,
+            "description": "Secret value to submit for storage. Write-only (one-way) - when present on create, the API server writes it to the configured secret manager at a deterministic location derived from the submission identity and then persists only this SecretSource reference; path is set server-side to that location. The value is never persisted in the database, never logged, and never returned on create, get, or list."
           }
         ]
       },
