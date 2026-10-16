@@ -62,9 +62,9 @@ Kubernetes (Deployment, Service, RBAC, certgen Job)
 
 The API server assigns the Gateway namespace as `openshell-<id-hex-8>` before persistence and event publication, where the suffix is the lowercase hexadecimal encoding of 8 bytes from the Gateway KSUID's random payload. This produces a 26-character namespace (e.g., `openshell-a1b2c3d4e5f67890`) that fits comfortably within Kubernetes DNS label limits even when used as a component in longer derived names. Clients do not select or update it. The GatewayReconciler creates that namespace if it is absent and then uses the persisted value for all resources. Gateway renames do not change namespace.
 
-### Relationship to PlatformReconciler
+### Relationship to the RepositoryReconciler
 
-The PlatformReconciler performs GitOps continuous sync from git repositories. It uses the shared kustomize library to render manifests, which may include `kind: Gateway` documents. The sync engine applies Gateway resources to the API server just like any other kind. The GatewayReconciler then reconciles them into Kubernetes.
+The `RepositoryReconciler` reconciles the `Repository` Kind: it reads the declared `.hypershell` subtree of a registered repository over the GitHub API and renders it in memory through the shared `pkg/kustomize` library, then upserts the ext resources it finds into the API server over the gRPC write path. Those resources may include `kind: Gateway` documents. The `RepositoryReconciler` applies Gateway resources to the API server just like any other kind; it does NOT deploy them to a cluster. The `GatewayReconciler` then reconciles each Gateway resource into Kubernetes, rendering the gateway workload through Helm. There is exactly ONE git-to-API sync component, the `RepositoryReconciler`; it is the same component described as the declarative `.hypershell` import reconciler in [`control-plane.spec.md`](./control-plane.spec.md) and [`data-model.spec.md`](./data-model.spec.md), not a second, separate sync engine.
 
 ### Route Exposure Data Flow
 
@@ -219,7 +219,7 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
 
 ### Requirement: Shared Kustomize Library
 
-The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into a single shared library package, `pkg/kustomize` in `components/cli`, exposing an exported `Build`. This library SHALL be the ONLY kustomize implementation in the stack and SHALL be consumed by the CLI (`hsctl apply`), the PlatformReconciler, and the declarative `.hypershell` import reconciler. It SHALL render in-process through an in-memory filesystem and SHALL NOT shell out to an external `kustomize` binary.
+The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into a single shared library package, `pkg/kustomize` in `components/cli`, exposing an exported `Build`. This package does not exist yet; it is desired state to be built. Once built it SHALL be the ONLY kustomize implementation in the stack and SHALL be consumed by exactly two callers: `hsctl` (`hsctl apply`) and the `RepositoryReconciler` (the declarative `.hypershell` import reconciler in the control plane). The `GatewayReconciler` is NOT a consumer: it renders the gateway workload through Helm, not kustomize. The library SHALL render in-process through an in-memory filesystem and SHALL NOT shell out to an external `kustomize` binary.
 
 #### Scenario: Library extraction
 
@@ -228,8 +228,7 @@ The kustomize rendering engine SHALL be extracted from `hsctl apply/cmd.go` into
 - THEN it SHALL be placed in `components/cli` as the `pkg/kustomize` package, accessible to both the CLI and the control plane (the control-plane module imports the cli module)
 - AND it SHALL expose an exported `Build` with functions for: loading a kustomization root (including from an in-memory filesystem), resolving bases, merging resources, applying strategic-merge patches, and producing a flat manifest stream
 - AND the existing `hsctl apply -k` command SHALL be refactored to use the shared library, removing its current external-`kustomize`-binary shell-out
-- AND the PlatformReconciler SHALL be updated to use the shared library for rendering
-- AND the declarative `.hypershell` import reconciler SHALL use the same shared library, so no second kustomize implementation exists
+- AND the `RepositoryReconciler` (the declarative `.hypershell` import reconciler) SHALL use the same shared library for rendering, so no second kustomize implementation exists
 
 #### Scenario: Supported kinds
 
