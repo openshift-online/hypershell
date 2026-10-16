@@ -82,6 +82,7 @@ function gateway(overrides: Partial<Gateway> = {}): Gateway {
     phase: "",
     provisioning_conditions: [],
     provisioning_version: "",
+    repository_id: "",
     route: "",
     route_address: "",
     server_dns_names: [],
