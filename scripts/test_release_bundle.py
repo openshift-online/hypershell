@@ -78,13 +78,28 @@ class ReleaseBundleTests(unittest.TestCase):
                 "name": name, "shasum": digest, "urls": [bundle.RELEASE_PREFIX + name + ":latest"]})
         self.assertEqual(expected, bundle.make_bundle(release, snapshot))
 
+    def test_excluded_only_release_publishes_from_the_snapshot(self):
+        # A merge that changes only an excluded component (the fleet dashboard)
+        # leaves the managed artifact list holding just that component. After
+        # exclusion the list is empty, but the bundle is still assembled from the
+        # complete Snapshot digests and publication proceeds unchanged (HSR-06).
+        release, snapshot = fixtures()
+        expected = bundle.make_bundle(release, snapshot)
+        name = bundle.EXCLUDED_COMPONENTS[0]
+        digest = "sha256:" + "f" * 64
+        snapshot["spec"]["components"].append({
+            "name": name, "containerImage": bundle.BUILD_PREFIX + name + "@" + digest,
+            "source": {"git": {"url": bundle.SOURCE_URL, "revision": "f" * 40}}})
+        release["status"]["artifacts"]["images"] = [{
+            "name": name, "shasum": digest, "urls": [bundle.RELEASE_PREFIX + name + ":latest"]}]
+        self.assertEqual(expected, bundle.make_bundle(release, snapshot))
+
     def test_incomplete_snapshot_and_invalid_artifact_lists_fail(self):
         mutations = (
             lambda r, s: s["spec"]["components"].pop(),
             lambda r, s: s["spec"]["components"].append(copy.deepcopy(s["spec"]["components"][0])),
             lambda r, s: r["status"]["artifacts"]["images"].append(copy.deepcopy(r["status"]["artifacts"]["images"][0])),
             lambda r, s: r["status"]["artifacts"]["images"][0].update(name="unexpected-component"),
-            lambda r, s: r["status"]["artifacts"]["images"].clear(),
         )
         for mutate in mutations:
             release, snapshot = fixtures()
@@ -250,7 +265,7 @@ class PipelineBootstrapTests(unittest.TestCase):
         pipeline = renderer.PIPELINE.read_text()
         self.assertEqual(pipeline, renderer.render(pipeline, renderer.PUBLISHER.read_text()))
 
-    def run_bootstrap(self, git_status=0, partial_release=False, unavailable_image="", missing_manifest=False, repeat=False, conflict=False):
+    def run_bootstrap(self, git_status=0, partial_release=False, empty_release=False, unavailable_image="", missing_manifest=False, repeat=False, conflict=False):
         script = textwrap.dedent(renderer.PIPELINE.read_text().split(renderer.SCRIPT_MARKER, 1)[1])
         # Exercise the embedded publisher with a fake GitHub transport, while
         # retaining real asset validation and draft publication logic.
@@ -295,6 +310,8 @@ def github(method, path, data=None, *, binary=False):
             release, snapshot = fixtures()
             if partial_release:
                 release["status"]["artifacts"]["images"] = release["status"]["artifacts"]["images"][:1]
+            if empty_release:
+                release["status"]["artifacts"]["images"] = []
             (root / "release.json").write_text(json.dumps(release))
             (root / "snapshot.json").write_text(json.dumps(snapshot))
             stubs = {
@@ -374,6 +391,25 @@ def github(method, path, data=None, *, binary=False):
     def test_unavailable_omitted_image_stops_publication(self):
         image = bundle.RELEASE_PREFIX + bundle.COMPONENTS[1] + "@sha256:" + "2" * 64
         result, commands, reference = self.run_bootstrap(partial_release=True, unavailable_image=image)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(reference)
+        self.assertIn("oras resolve " + image, commands)
+        self.assertNotIn("oras push", commands)
+        self.assertNotIn("select-oci-auth", commands)
+
+    def test_empty_release_checks_all_required_released_images(self):
+        # A merge that changes only an excluded component mirrors no bundle images,
+        # so status.artifacts.images is empty. Publication still resolves every
+        # required Snapshot digest in the release registry before publishing.
+        result, commands, reference = self.run_bootstrap(empty_release=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(reference.startswith(bundle.BUNDLE_REPOSITORY + "@sha256:"))
+        for index, name in enumerate(bundle.COMPONENTS):
+            self.assertIn("oras resolve " + bundle.RELEASE_PREFIX + name + "@sha256:" + str(index + 1) * 64, commands)
+
+    def test_empty_release_still_halts_on_an_unavailable_image(self):
+        image = bundle.RELEASE_PREFIX + bundle.COMPONENTS[1] + "@sha256:" + "2" * 64
+        result, commands, reference = self.run_bootstrap(empty_release=True, unavailable_image=image)
         self.assertNotEqual(result.returncode, 0)
         self.assertIsNone(reference)
         self.assertIn("oras resolve " + image, commands)
