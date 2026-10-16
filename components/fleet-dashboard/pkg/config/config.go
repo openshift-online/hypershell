@@ -127,10 +127,14 @@ type Config struct {
 	RefreshTopology  time.Duration
 	RefreshInstances time.Duration
 	// RefreshSDLC is the Agent SDLC plane's own refresh cadence. The SDLC source
-	// reconstructs label-event history from the GitHub timeline, so its default is
-	// conservative: the whole fleet is served from one cached snapshot and the
-	// GitHub request rate is bounded by this loop alone, never by viewer count
-	// (agent-sdlc-visibility-dashboard.spec SDLC-VIS-04/14).
+	// reconstructs label-event history from the GitHub timeline, so the whole fleet is
+	// served from one cached snapshot and the GitHub request rate is bounded by this
+	// loop alone, never by viewer count (agent-sdlc-visibility-dashboard.spec
+	// SDLC-VIS-04/14). The default is 60s: per cycle the loop makes one issue listing
+	// plus one timeline read per in-scope record and the (cached) work-item -> PRs
+	// lookups, all bounded by the active funnel size, which stays well within an
+	// authenticated token budget. Raise FD_REFRESH_SDLC for an unauthenticated
+	// deployment with a large funnel to stay under GitHub's unauthenticated limit.
 	RefreshSDLC time.Duration
 	// RefreshE2E is the e2e-run history source's refresh cadence (the bounded Loki
 	// query_range sweep of recent runs). Live updates do not use this interval;
@@ -238,7 +242,7 @@ func Load() (*Config, error) {
 		RefreshPromotion:    envDuration("FD_REFRESH_PROMOTION", 30*time.Second),
 		RefreshTopology:     envDuration("FD_REFRESH_TOPOLOGY", 30*time.Second),
 		RefreshInstances:    envDuration("FD_REFRESH_INSTANCES", 60*time.Second),
-		RefreshSDLC:         envDuration("FD_REFRESH_SDLC", 120*time.Second),
+		RefreshSDLC:         envDuration("FD_REFRESH_SDLC", 60*time.Second),
 		SDLCPhaseSLE:        loadSDLCPhaseSLE(),
 
 		E2ELokiURL:        strings.TrimRight(env("FD_E2E_LOKI_URL", ""), "/"),

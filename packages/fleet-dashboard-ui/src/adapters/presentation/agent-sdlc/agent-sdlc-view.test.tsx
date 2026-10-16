@@ -3,6 +3,7 @@ import { IntlProvider } from "react-intl";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentSdlcData } from "../../../domain/agent-sdlc";
+import { identiName } from "../../../domain/map/identiname";
 import { AgentSdlcView, type AgentSdlcViewProps } from "./agent-sdlc-view";
 
 const EMPTY: AgentSdlcData = {
@@ -66,6 +67,31 @@ describe("AgentSdlcView board", () => {
     expect(
       screen.getByText(/1 more rejection blocks this item\./),
     ).toBeDefined();
+  });
+
+  it("shows time-in-phase to minute resolution for a young card", () => {
+    const data: AgentSdlcData = {
+      ...EMPTY,
+      phases: [{ key: "spec", sleSeconds: 100_000 }],
+      cards: [
+        {
+          number: 11,
+          title: "eleven minutes in",
+          url: "u",
+          phase: "spec",
+          timeInPhaseSeconds: 11 * 60,
+          scope: null,
+          escalation: null,
+          rework: null,
+          history: [],
+        },
+      ],
+    };
+    // Freeze the clock so the live-aging delta is zero and the snapshot age renders.
+    renderView({ data, nowMs: Date.UTC(2026, 9, 15, 12, 0, 0) });
+
+    // A card 11 minutes old reads "11m", not a misleading "0d 0h".
+    expect(screen.getByText("11m")).toBeDefined();
   });
 });
 
@@ -154,8 +180,9 @@ describe("AgentSdlcView matrix", () => {
     // The current-bundle marker reads with a non-color cue ("current" text).
     expect(screen.getAllByText("current").length).toBeGreaterThan(0);
 
-    // Activating the bundle opens it on the map (shared freight bar + tab jump).
-    fireEvent.click(screen.getByRole("button", { name: /v2/ }));
+    // Activating the bundle opens it on the map (shared freight bar + tab jump). The
+    // bundle reads by its identiname (the stable two-word alias), not the raw version.
+    fireEvent.click(screen.getByRole("button", { name: identiName("d2") }));
     expect(onSelectBundle).toHaveBeenCalledWith("d2");
     expect(onJumpToMap).toHaveBeenCalled();
   });

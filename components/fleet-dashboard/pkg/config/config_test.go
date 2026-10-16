@@ -50,8 +50,8 @@ func TestLoadSDLCDefaultsAndOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.RefreshSDLC != 120*time.Second {
-		t.Errorf("default RefreshSDLC = %v, want 120s", c.RefreshSDLC)
+	if c.RefreshSDLC != 60*time.Second {
+		t.Errorf("default RefreshSDLC = %v, want 60s", c.RefreshSDLC)
 	}
 	if got := c.SDLCPhaseSLE["spec"]; got != 10*time.Hour {
 		t.Errorf("FD_SLE_SPEC override = %v, want 10h", got)

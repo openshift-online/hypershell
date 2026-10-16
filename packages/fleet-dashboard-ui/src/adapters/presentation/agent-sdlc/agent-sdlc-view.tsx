@@ -90,7 +90,7 @@ import RobotIcon from "@patternfly/react-icons/dist/esm/icons/robot-icon";
 import ShippingFastIcon from "@patternfly/react-icons/dist/esm/icons/shipping-fast-icon";
 import type { SVGIconProps } from "@patternfly/react-icons/dist/esm/createIcon";
 import type { ComponentType } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { IntlShape, MessageDescriptor } from "react-intl";
 import { FormattedMessage, useIntl } from "react-intl";
 
@@ -118,6 +118,7 @@ import { messages } from "../../../messages";
 import { TONE_COLOR } from "../map/colors";
 import { Identicon } from "../map/identicon";
 import { ReleaseTime } from "../map/release-time";
+import { identiName } from "../../../domain/map/identiname";
 import styles from "./agent-sdlc-view.module.css";
 
 export interface AgentSdlcViewProps {
@@ -262,10 +263,19 @@ function BundleIdenticon({
 }
 
 function formatAge(intl: IntlShape, seconds: number): string {
-  const totalHours = Math.floor(Math.max(seconds, 0) / 3600);
-  const days = Math.floor(totalHours / 24);
-  const hours = totalHours % 24;
-  return intl.formatMessage(messages.sdlcAge, { days, hours });
+  const total = Math.max(seconds, 0);
+  const days = Math.floor(total / 86_400);
+  const hours = Math.floor((total % 86_400) / 3_600);
+  const minutes = Math.floor((total % 3_600) / 60);
+  // Show at most two adjacent units, down to minutes, so a young card reads "11m"
+  // or "3h 20m" rather than a misleading "0d 0h".
+  if (days > 0) {
+    return intl.formatMessage(messages.sdlcAge, { days, hours });
+  }
+  if (hours > 0) {
+    return intl.formatMessage(messages.sdlcAgeHm, { hours, minutes });
+  }
+  return intl.formatMessage(messages.sdlcAgeM, { minutes });
 }
 
 function formatMergedAgo(
@@ -1150,7 +1160,7 @@ function ShippedMatrix({
                           }}
                         >
                           <Inline>
-                            {row.version ?? seed}
+                            {identiName(seed)}
                             <ArrowRightIcon aria-hidden />
                           </Inline>
                         </Button>
@@ -1605,6 +1615,26 @@ function ScopeFilter({
   );
 }
 
+// useLiveNow returns a wall-clock timestamp that ticks every second so cards age
+// continuously between the plane's refetches, not just in a jump when new data lands.
+// An explicit override (tests, the dev harness) freezes it for deterministic output
+// and never starts a timer.
+function useLiveNow(override?: number): number {
+  const [now, setNow] = useState<number>(() => override ?? Date.now());
+  useEffect(() => {
+    if (override !== undefined) {
+      return;
+    }
+    const id = setInterval(() => {
+      setNow(Date.now());
+    }, 1_000);
+    return () => {
+      clearInterval(id);
+    };
+  }, [override]);
+  return override ?? now;
+}
+
 export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   const { data } = props;
   const intl = useIntl();
@@ -1648,7 +1678,47 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
   }, [panelOpen]);
 
   const phases = boardPhases(data.phases);
+  // The vertical time axis is derived from the snapshot ages so it stays stable
+  // between refetches; cards then slide continuously within it as the clock advances.
   const scale = globalAgingScaleSeconds(phases, data.cards);
+
+  // Continuous aging: advance each record's time-in-phase by the seconds elapsed since
+  // this snapshot arrived, so cards slide smoothly and minutes tick up live. The
+  // baseline recomputes whenever new data lands (resetting the delta to zero), and an
+  // explicit nowMs override (tests/harness) pins the delta to zero for determinism.
+  const liveNowMs = useLiveNow(props.nowMs);
+  // Baseline = the clock value when this snapshot arrived, taken from the ticking
+  // state (not an impure Date.now in render). Reset it in render when new data lands
+  // (the sanctioned "adjust state on prop change" pattern), so the delta returns to
+  // zero and cards re-anchor to the fresh snapshot.
+  const [baseline, setBaseline] = useState<{
+    data: AgentSdlcData;
+    ms: number;
+  }>(() => ({ data, ms: liveNowMs }));
+  if (baseline.data !== data) {
+    setBaseline({ data, ms: liveNowMs });
+  }
+  const deltaSeconds = Math.max(0, (liveNowMs - baseline.ms) / 1000);
+  const agedCards = useMemo(
+    () =>
+      deltaSeconds <= 0
+        ? data.cards
+        : data.cards.map((c) => ({
+            ...c,
+            timeInPhaseSeconds: c.timeInPhaseSeconds + deltaSeconds,
+          })),
+    [data.cards, deltaSeconds],
+  );
+  const agedLane = useMemo(
+    () =>
+      deltaSeconds <= 0
+        ? data.lane
+        : data.lane.map((c) => ({
+            ...c,
+            timeInPhaseSeconds: c.timeInPhaseSeconds + deltaSeconds,
+          })),
+    [data.lane, deltaSeconds],
+  );
 
   // Scope options are data, derived from the records in scope (no compiled-in list).
   const scopes = [
@@ -1674,7 +1744,7 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
     }
     return true;
   };
-  const cards = data.cards.filter(matches);
+  const cards = agedCards.filter(matches);
 
   const livePanel: React.ReactNode =
     selected !== null ? (
@@ -1702,7 +1772,7 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
       />
     ) : showNotifications ? (
       <NotificationsPanel
-        lane={data.lane}
+        lane={agedLane}
         onClose={() => {
           setShowNotifications(false);
         }}
