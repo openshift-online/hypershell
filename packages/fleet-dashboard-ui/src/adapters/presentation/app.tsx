@@ -77,6 +77,7 @@ export function App(): React.ReactElement {
   const sdlc = useSdlc();
   const e2e = useE2eRuns();
 
+  const [historyRunId, setHistoryRunId] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState<TabKey>("map");
   // The shared freight bar's selection, lifted so it drives both tabs and survives a
   // tab switch (SDLC-VIS-07). Toggling the same bundle clears it.
@@ -159,6 +160,15 @@ export function App(): React.ReactElement {
                 >
                   {(data) => (
                     <TopologyMap
+                      e2e={{
+                        promotion: promotionData,
+                        data: e2e.data?.data,
+                        unavailable: e2e.isError || e2e.data?.stale,
+                        onOpenHistory: (id) => {
+                          setHistoryRunId(id);
+                          setActiveTab("e2e");
+                        },
+                      }}
                       promotion={data}
                       fleet={fleetData}
                       topology={topologyData}
@@ -198,7 +208,14 @@ export function App(): React.ReactElement {
                 }
               >
                 <PlaneSection titleMessage={messages.e2eSection} query={e2e}>
-                  {(data) => <E2eRunView data={data} />}
+                  {(data) => (
+                    <E2eRunView
+                      key={historyRunId ?? "history"}
+                      data={data}
+                      initialRunId={historyRunId}
+                      promotion={promotionData}
+                    />
+                  )}
                 </PlaneSection>
               </Tab>
             </Tabs>

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,6 +101,7 @@ type E2ERunsPayload struct {
 
 // E2ERunSummary is one recent run in the list.
 type E2ERunSummary struct {
+	Bundle *Release `json:"bundle,omitempty"`
 	// ID addresses the run including its tenant and namespace so ids cannot
 	// collide across clusters (E2E-LOG-01). Form: "<tenant>/<namespace>/<runId>".
 	ID     string `json:"id"`
@@ -164,13 +166,18 @@ type E2ELogLine struct {
 // LokiClient port (E2E-LOG-03); the Loki adapter is the only implementation
 // shipped here. It is nil-safe-constructed: NewE2E returns nil when the feature
 // is unconfigured, so the caller mounts the endpoints in a feature-off state.
+type HydratedVersionResolver interface {
+	ResolveHydrated(context.Context, string) *Release
+}
+
 type E2E struct {
-	loki     LokiClient
-	tenants  []string
-	selector string
-	window   time.Duration
-	limit    int
-	logger   *slog.Logger
+	versioner HydratedVersionResolver
+	loki      LokiClient
+	tenants   []string
+	selector  string
+	window    time.Duration
+	limit     int
+	logger    *slog.Logger
 
 	// broker shares bounded upstream tails across subscribed browsers within this
 	// replica (E2E-LOG-05); created lazily by the stream handler.
@@ -179,12 +186,14 @@ type E2E struct {
 
 // NewE2E builds the e2e-run source from config, or returns nil when the feature
 // is disabled (FD_E2E_LOKI_URL empty, E2E-LOG-02).
-func NewE2E(c *config.Config) *E2E {
+func NewE2E(c *config.Config, versioner HydratedVersionResolver) *E2E {
 	if c.E2ELokiURL == "" {
 		return nil
 	}
 	loki := newLokiAdapter(c)
-	return newE2EWithClient(c, loki)
+	e := newE2EWithClient(c, loki)
+	e.versioner = versioner
+	return e
 }
 
 // newE2EWithClient is the test seam: it builds the source around an injected
@@ -216,7 +225,7 @@ func (e *E2E) Runs(ctx context.Context) (any, error) {
 		// The per-tenant line cap bounds the query; a tenant that returns exactly
 		// the cap may have more history, which we report as truncated rather than
 		// present as complete (E2E-LOG-04).
-		entries, hitLimit, err := e.loki.QueryRange(ctx, tenant, e.selector, start, end, lokiQueryLimit)
+		entries, hitLimit, err := e.loki.QueryRange(ctx, tenant, lifecycleQuery(e.selector), start, end, lokiQueryLimit)
 		if err != nil {
 			// Degrade, do not fail the whole sweep: one bad tenant must not blank the
 			// others. Remember the first error so a fully-failed sweep surfaces it.
@@ -259,6 +268,17 @@ func (e *E2E) Runs(ctx context.Context) (any, error) {
 		all = all[:e.limit]
 		truncated = true
 	}
+	resolved := map[string]*Release{}
+	for i := range all {
+		if e.versioner != nil {
+			release, found := resolved[all[i].Revision]
+			if !found {
+				release = e.versioner.ResolveHydrated(ctx, all[i].Revision)
+				resolved[all[i].Revision] = release
+			}
+			all[i].Bundle = release
+		}
+	}
 	return E2ERunsPayload{
 		Enabled:       true,
 		Runs:          all,
@@ -284,7 +304,7 @@ func (e *E2E) RunDetail(ctx context.Context, id string) (*E2ERunDetail, error) {
 	}
 	end := time.Now()
 	start := end.Add(-e.window)
-	entries, _, err := e.loki.QueryRange(ctx, tenant, e.selector, start, end, lokiQueryLimit)
+	entries, truncated, err := e.runEntries(ctx, tenant, runID, start, end)
 	if err != nil {
 		// Log the detailed error (it carries the internal Loki identity) server-side
 		// and return the generic sentinel so the browser never sees the service DNS,
@@ -294,6 +314,10 @@ func (e *E2E) RunDetail(ctx context.Context, id string) (*E2ERunDetail, error) {
 	}
 	for _, run := range reduceRunsForTenant(tenant, entries) {
 		if run.RunID == runID && run.Namespace == namespace {
+			run.LogsTruncated = run.LogsTruncated || truncated
+			if e.versioner != nil {
+				run.Bundle = e.versioner.ResolveHydrated(ctx, run.Revision)
+			}
 			return run, nil
 		}
 	}
@@ -534,4 +558,22 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// Lifecycle events have their own bounded query so chatty logs cannot evict a
+// run's start, plan, or verdict from the recent history or detail baseline.
+func lifecycleQuery(selector string) string {
+	return selector + ` |~ "run_started|step_started|step_finished|run_finished"`
+}
+func (e *E2E) runEntries(ctx context.Context, tenant, runID string, start, end time.Time) ([]LokiEntry, bool, error) {
+	selector := e.selector + " |= " + strconv.Quote(runID)
+	lifecycle, structuralLimit, err := e.loki.QueryRange(ctx, tenant, lifecycleQuery(selector), start, end, lokiQueryLimit)
+	if err != nil {
+		return nil, false, err
+	}
+	logs, logLimit, err := e.loki.QueryRange(ctx, tenant, selector, start, end, lokiQueryLimit)
+	if err != nil {
+		return nil, false, err
+	}
+	return append(lifecycle, logs...), structuralLimit || logLimit, nil
 }

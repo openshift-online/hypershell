@@ -410,6 +410,17 @@ When enabled, the suite SHALL emit one NDJSON object per line directly to stdout
 
 Enabling structured reporting SHALL NOT change which steps run, their order, their concurrency, their verdicts, or the process exit code. A run with `E2E_REPORT_JSON=1` and a run without it SHALL reach the same pass/fail/skip outcome for every step and the same `go test` exit status.
 
+The suite SHALL use a central, step-scoped logger with fanout to the existing
+human-readable test logger and an optional structured-report sink. Command display,
+comments, Go diagnostics, assertion failures, and subprocess output SHALL share
+this path. Parallel steps SHALL have independent immutable logging scopes; setup
+and cleanup SHALL be distinguishable from test steps. Subprocess output SHALL
+stream to structured reporting while retaining its existing human output exactly
+once. Structured records SHALL redact credentials and private keys, including
+sensitive command-line arguments. Logging SHALL preserve assertion failure and
+FailNow semantics. No synthetic output is required for a step that has nothing to
+log.
+
 #### Scenario: Reporting absent by default
 
 - GIVEN `E2E_REPORT_JSON` is unset or `0`

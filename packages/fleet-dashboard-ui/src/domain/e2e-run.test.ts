@@ -1,7 +1,10 @@
+import type { PromotionData, PromotionEnvironment } from "./promotion";
 import { describe, expect, it } from "vitest";
 
 import {
   applyEvents,
+  runBundle,
+  runTargetInstance,
   elapsedSeconds,
   isRunning,
   logsForStep,
@@ -10,6 +13,7 @@ import {
   reduceRun,
   runDurationMs,
   runsNewestFirst,
+  runsForVerification,
   type E2eRunEvent,
   type E2eRunSummary,
 } from "./e2e-run";
@@ -337,5 +341,106 @@ describe("derivations", () => {
 
   it("builds a collision-free run id", () => {
     expect(makeRunId("tenant-1", "ns", "run-1")).toBe("tenant-1/ns/run-1");
+  });
+});
+
+describe("runsForVerification", () => {
+  it("requires an exact revision, trusted cluster, and namespace", () => {
+    const target = {
+      revision: "abc123456789",
+      cluster: "cluster-a",
+      namespace: "workload",
+    };
+    const run = {
+      ...reduceRun([]),
+      ...target,
+      id: "attempt",
+      runId: "attempt",
+    };
+    const wrong = [
+      { ...run, revision: "abc1234" },
+      { ...run, cluster: "cluster-b" },
+      { ...run, namespace: "other" },
+    ];
+    expect(runsForVerification([...wrong, run], target)).toEqual([run]);
+    expect(runsForVerification([run], null)).toEqual([]);
+  });
+});
+
+describe("run release and target attribution", () => {
+  const bundle = {
+    version: "v1",
+    digest: "sha256:one",
+    tag: null,
+    date: null,
+    prs: [],
+  };
+  const run = {
+    ...reduceRun([]),
+    revision: "full-revision",
+    cluster: "cluster-a",
+    namespace: "workload",
+  };
+  const env: PromotionEnvironment = {
+    name: "instance-a",
+    verification: {
+      revision: run.revision,
+      cluster: run.cluster,
+      namespace: run.namespace,
+    },
+    activeDigest: bundle.digest,
+    activeRelease: bundle.version,
+    proposedRelease: null,
+    proposedDigest: null,
+    gates: [],
+    role: null,
+    provider: null,
+    envLabel: null,
+    cluster: run.cluster,
+    argoHealth: null,
+    argoSync: null,
+    syncRetries: null,
+    consoleUrl: null,
+    grafanaUrl: null,
+    argoUrl: null,
+    prState: null,
+    prUrl: null,
+    analysisUrl: null,
+    upToDate: true,
+  };
+  const promotion: PromotionData = {
+    order: [env.name],
+    environments: { [env.name]: env },
+    releases: [bundle.version],
+    releaseByDigest: { [bundle.digest]: bundle },
+    frontier: bundle,
+  };
+  it("maps a unique trusted target and exact deployed revision", () => {
+    expect(runTargetInstance(run, promotion)).toBe("instance-a");
+    expect(runBundle(run, promotion)).toEqual(bundle);
+    expect(
+      runBundle({ ...run, revision: "older-revision" }, promotion),
+    ).toBeNull();
+    expect(
+      runTargetInstance({ ...run, cluster: "other" }, promotion),
+    ).toBeNull();
+    expect(runBundle(run)).toBeNull();
+  });
+  it("rejects ambiguous targets", () => {
+    const ambiguous = {
+      ...promotion,
+      environments: { a: env, b: { ...env, name: "instance-b" } },
+    };
+    expect(runTargetInstance(run, ambiguous)).toBeNull();
+    expect(runBundle(run, ambiguous)).toBeNull();
+  });
+  it("preserves the resolved historical bundle across live updates", () => {
+    const historical = { ...bundle, digest: "sha256:historical" };
+    const detail = { ...run, bundle: historical };
+    expect(runBundle(detail, promotion)).toEqual(historical);
+    expect(
+      applyEvents(detail, [ev({ event: "log", sequence: 10, message: "live" })])
+        .bundle,
+    ).toEqual(historical);
   });
 });

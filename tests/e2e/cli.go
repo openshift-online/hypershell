@@ -340,7 +340,7 @@ func (s *E2ESuite) gatewayCLIImage(t *testing.T, ns string) string {
 	}
 	cliImage := strings.Replace(gwImage, "odh-openshell-gateway", "odh-openshell-cli", 1)
 	s.cliCache.openshiftCLIImage = cliImage
-	t.Logf("openshift CLI image: %s", cliImage)
+	s.Logf("openshift CLI image: %s", cliImage)
 	return cliImage
 }
 

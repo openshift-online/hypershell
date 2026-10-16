@@ -1,3 +1,4 @@
+import type { GateExecutionProps } from "../e2e-run/gate-execution";
 // The interactive promotion-topology map: the spec's centrepiece visual. It
 // composes the pure model/layout (buildMapModel + computeLayout) with the viewport
 // controller (pan/zoom/momentum) and the SVG layers (lane bands, promotion rails +
@@ -47,6 +48,7 @@ import { useFlights } from "./use-flights";
 import { useMapViewport } from "./use-map-viewport";
 
 export interface TopologyMapProps {
+  readonly e2e?: Omit<GateExecutionProps, "target">;
   readonly promotion: PromotionData;
   readonly fleet: FleetData;
   /** Per-hub spoke layout, used to attribute gateways/sandboxes to their spoke. */
@@ -65,6 +67,7 @@ function hBezier(x1: number, y1: number, x2: number, y2: number): string {
 }
 
 export function TopologyMap({
+  e2e,
   promotion,
   fleet,
   topology,
@@ -274,12 +277,13 @@ export function TopologyMap({
             panelContent={
               <DrawerPanelContent
                 isResizable
-                defaultSize="420px"
+                defaultSize={selection?.kind === "gate" ? "560px" : "420px"}
                 minSize="320px"
               >
                 <DrawerPanelBody className={styles.panelBody}>
                   {selection ? (
                     <MapDetails
+                      e2e={e2e}
                       model={model}
                       releaseByDigest={promotion.releaseByDigest}
                       selection={selection}

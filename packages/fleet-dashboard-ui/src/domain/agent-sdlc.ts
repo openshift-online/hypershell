@@ -35,6 +35,8 @@ export interface AgentSdlcCard {
   readonly url: string;
   readonly phase: string;
   readonly timeInPhaseSeconds: number;
+  /** The agent/scope/* selector label this record carries, if any (for filtering). */
+  readonly scope: string | null;
   /** Escalation bucket when in the lane: blocked/needs-input/duplicate/past-sle. */
   readonly escalation: string | null;
   readonly rework: AgentSdlcRework | null;
@@ -56,6 +58,8 @@ export interface AgentSdlcShippedIssue {
   readonly title: string;
   readonly url: string;
   readonly mergedAt: string | null;
+  /** GitHub login of whoever merged the closing PR, if known. */
+  readonly mergedBy: string | null;
 }
 
 /** One matrix row: a release bundle (newest first) or the single Unreleased row. */
@@ -123,6 +127,21 @@ export function agingScaleSeconds(
   const sleHeadroom = phase.sleSeconds > 0 ? phase.sleSeconds * 1.5 : 0;
   const stalest = cards.reduce((m, c) => Math.max(m, c.timeInPhaseSeconds), 0);
   return Math.max(sleHeadroom, stalest, 1);
+}
+
+/**
+ * A single scale (seconds) shared by every board column so one vertical time axis
+ * reads across all of them: the larger of a comfortable multiple of the biggest
+ * phase SLE and the stalest board card, floored at an hour. Per-column SLE lines
+ * then sit at their own heights against this common axis.
+ */
+export function globalAgingScaleSeconds(
+  phases: readonly AgentSdlcPhase[],
+  cards: readonly AgentSdlcCard[],
+): number {
+  const sleMax = phases.reduce((m, p) => Math.max(m, p.sleSeconds), 0);
+  const ageMax = cards.reduce((m, c) => Math.max(m, c.timeInPhaseSeconds), 0);
+  return Math.max(sleMax * 1.3, ageMax * 1.1, 3600);
 }
 
 /** Fraction (0..1) of a column's track a value sits at: fresh at top, stale low. */

@@ -57,7 +57,14 @@ export interface ReleaseBundle {
  * derives columns from `envLabel` and lanes from `provider`; both degrade to the
  * key when the server omits them.
  */
+export interface VerificationTarget {
+  readonly revision: string;
+  readonly cluster: string;
+  readonly namespace: string;
+}
+
 export interface PromotionEnvironment {
+  readonly verification?: VerificationTarget | null;
   readonly name: string;
   /** Release currently active in this environment (opaque version string). */
   readonly activeRelease: string | null;

@@ -158,7 +158,7 @@ func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 
 	name := fmt.Sprintf("dev-%06d", time.Now().UnixNano()%1000000)
 	if out, err = s.cli(t, developerLocal, "sandbox", "create", "--from", s.sandboxImage, "--name", name); err != nil {
-		t.Logf("developer sandbox create returned an error (continuing to poll): %v\n%s", err, out)
+		s.Logf("developer sandbox create returned an error (continuing to poll): %v\n%s", err, out)
 	}
 	s.Require().NoError(s.waitPodRunning(ctx, s.primary.Namespace, "default--"+name,
 		durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)), "developer may create sandbox as workspace user")

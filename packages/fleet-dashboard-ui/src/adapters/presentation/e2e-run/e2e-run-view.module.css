@@ -4,22 +4,11 @@
  * colour is never the sole channel (E2E-LOG-14). */
 
 .view {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--pf-t--global--spacer--md, 16px);
-}
-
-.split {
-  display: grid;
-  grid-template-columns: minmax(18rem, 2fr) minmax(0, 3fr);
-  gap: var(--pf-t--global--spacer--md, 16px);
-  align-items: start;
-}
-
-@media (max-width: 1100px) {
-  .split {
-    grid-template-columns: 1fr;
-  }
 }
 
 .selectedRow {
@@ -69,4 +58,101 @@
   align-items: center;
   gap: var(--pf-t--global--spacer--sm, 8px);
   flex-wrap: wrap;
+}
+
+.runHeader {
+  display: flex;
+  gap: var(--pf-t--global--spacer--sm);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tabBody {
+  overflow-x: auto;
+  padding-block: var(--pf-t--global--spacer--md);
+}
+.instance {
+  display: block;
+  color: var(--pf-t--global--text--color--subtle);
+}
+.logStep {
+  color: var(--pf-t--global--color--brand--default);
+  margin-inline-end: var(--pf-t--global--spacer--sm);
+}
+
+.failureOutput {
+  display: block;
+  max-width: 24rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--pf-t--global--text--color--status--danger--default);
+}
+
+.attemptControls {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--md);
+}
+.attemptControls > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.attemptControls > :last-child {
+  white-space: nowrap;
+}
+
+.stepsTable {
+  min-width: 480px;
+  table-layout: fixed;
+}
+.stepsTable th:first-child {
+  width: 44%;
+}
+.stepsTable th:nth-child(2) {
+  width: 26%;
+}
+.stepsTable th:last-child {
+  width: 30%;
+}
+
+/* Bound history to the card's remaining height; each pane scrolls independently. */
+.historyStage {
+  flex: 1 1 auto;
+  min-height: 280px;
+  position: relative;
+}
+.historyStage > :global(.pf-v6-c-drawer) {
+  position: absolute;
+  inset: 0;
+}
+.historyStage :global(.pf-v6-c-drawer__main),
+.historyStage :global(.pf-v6-c-drawer__content),
+.historyStage :global(.pf-v6-c-drawer__panel),
+.historyStage :global(.pf-v6-c-drawer__panel-main) {
+  height: 100%;
+  min-height: 0;
+}
+.historyStage :global(.pf-v6-c-drawer__panel-main) {
+  display: flex;
+  flex-direction: column;
+}
+.historyDetails {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.historyTable {
+  overflow: auto;
+  height: 100%;
+}
+.historyTable table {
+  min-width: 800px;
+}
+
+.bundleIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm);
+}
+.bundleIdentity svg {
+  flex-shrink: 0;
 }

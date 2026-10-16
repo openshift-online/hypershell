@@ -198,16 +198,46 @@ export const messages = defineMessages({
     description:
       "Relative time since an end-to-end run started (minutes, hours, days, or just now).",
   },
+  e2eAttemptOption: {
+    id: "fleet.e2eAttemptOption",
+    defaultMessage: "{id} · {started}",
+    description: "Execution context e2eAttemptOption",
+  },
+  e2eAttempts: {
+    id: "fleet.e2eAttempts",
+    defaultMessage: "Test attempt",
+    description: "E2E execution panel e2eAttempts",
+  },
+  e2eAttemptShort: {
+    id: "fleet.e2eAttemptShort",
+    defaultMessage: "Attempt {id}",
+    description: "E2E execution panel e2eAttemptShort",
+  },
   e2eBackendUnavailable: {
     id: "fleet.e2e.backendUnavailable",
     defaultMessage: "Run details are unavailable right now.",
     description:
       "Degraded state shown when the e2e backend (Loki source) cannot be reached.",
   },
+  e2eBundleUnknown: {
+    id: "fleet.e2eBundleUnknown",
+    defaultMessage: "Bundle unavailable",
+    description: "E2E run bundle and target context.",
+  },
+  e2eCollapseLogs: {
+    id: "fleet.e2eCollapseLogs",
+    defaultMessage: "Collapse",
+    description: "E2E execution panel e2eCollapseLogs",
+  },
   e2eColumnAttempt: {
     id: "fleet.e2e.column.attempt",
     defaultMessage: "Attempt",
     description: "Recent-runs table column header for the run attempt id.",
+  },
+  e2eColumnBundle: {
+    id: "fleet.e2eColumnBundle",
+    defaultMessage: "Bundle",
+    description: "E2E run bundle and target context.",
   },
   e2eColumnDuration: {
     id: "fleet.e2e.column.duration",
@@ -235,6 +265,11 @@ export const messages = defineMessages({
     defaultMessage: "Step",
     description: "Steps table column header for the step name.",
   },
+  e2eColumnTarget: {
+    id: "fleet.e2eColumnTarget",
+    defaultMessage: "Target",
+    description: "E2E run bundle and target context.",
+  },
   e2eColumnVerdict: {
     id: "fleet.e2e.column.verdict",
     defaultMessage: "Verdict",
@@ -251,10 +286,51 @@ export const messages = defineMessages({
     defaultMessage: "{minutes}m {seconds}s",
     description: "Compact duration of a run or step, in minutes and seconds.",
   },
+  e2eExecutionTabs: {
+    id: "fleet.e2eExecutionTabs",
+    defaultMessage: "Test execution",
+    description: "E2E execution panel e2eExecutionTabs",
+  },
+  e2eExpandLogs: {
+    id: "fleet.e2eExpandLogs",
+    defaultMessage: "Expand",
+    description: "E2E execution panel e2eExpandLogs",
+  },
+  e2eFlow: {
+    id: "fleet.e2eFlow",
+    defaultMessage: "{from} → {to}",
+    description: "Execution context e2eFlow",
+  },
   e2eFollow: {
     id: "fleet.e2e.follow",
     defaultMessage: "Follow",
     description: "Button that resumes following (auto-scrolling) the log pane.",
+  },
+  e2eGateHistory: {
+    id: "fleet.e2eGateHistory",
+    defaultMessage: "View run history",
+    description: "E2E execution panel e2eGateHistory",
+  },
+  e2eGateNewAttempt: {
+    id: "fleet.e2eGateNewAttempt",
+    defaultMessage:
+      "A newer attempt is available. Select it above to follow it.",
+    description: "E2E execution panel e2eGateNewAttempt",
+  },
+  e2eGateNoRun: {
+    id: "fleet.e2eGateNoRun",
+    defaultMessage: "Waiting for a test run for this revision.",
+    description: "E2E execution panel e2eGateNoRun",
+  },
+  e2eGateNoTarget: {
+    id: "fleet.e2eGateNoTarget",
+    defaultMessage: "The exact verification revision is not available yet.",
+    description: "E2E execution panel e2eGateNoTarget",
+  },
+  e2eGateSummary: {
+    id: "fleet.e2eGateSummary",
+    defaultMessage: "Promotion gate",
+    description: "E2E execution panel e2eGateSummary",
   },
   e2eHistoryTruncated: {
     id: "fleet.e2e.historyTruncated",
@@ -337,11 +413,26 @@ export const messages = defineMessages({
     defaultMessage: "Pause",
     description: "Button that pauses following (auto-scrolling) the log pane.",
   },
+  e2eProgressTab: {
+    id: "fleet.e2eProgressTab",
+    defaultMessage: "Progress",
+    description: "E2E execution panel e2eProgressTab",
+  },
   e2eReportingIncomplete: {
     id: "fleet.e2e.reportingIncomplete",
     defaultMessage: "Reporting incomplete - no final result was recorded.",
     description:
       "Degraded state shown when a run has no terminal record (unknown verdict).",
+  },
+  e2eResizeDetails: {
+    id: "fleet.e2eResizeDetails",
+    defaultMessage: "Resize run details",
+    description: "Accessible label for the run history drawer splitter.",
+  },
+  e2eRetries: {
+    id: "fleet.e2eRetries",
+    defaultMessage: "Sync attempts: {count}",
+    description: "Execution context e2eRetries",
   },
   e2eRunDuration: {
     id: "fleet.e2e.runDuration",
@@ -357,6 +448,16 @@ export const messages = defineMessages({
     id: "fleet.e2e.runSelect",
     defaultMessage: "Open run {revision}, attempt {attempt}",
     description: "Accessible name for a recent-run selection link.",
+  },
+  e2eSearchLogs: {
+    id: "fleet.e2eSearchLogs",
+    defaultMessage: "Search logs",
+    description: "E2E execution panel e2eSearchLogs",
+  },
+  e2eSearchRuns: {
+    id: "fleet.e2eSearchRuns",
+    defaultMessage: "Search instances, revisions, or attempts",
+    description: "E2E execution panel e2eSearchRuns",
   },
   e2eSection: {
     id: "fleet.e2e.section",
@@ -415,10 +516,20 @@ export const messages = defineMessages({
     defaultMessage: "E2E Runs",
     description: "Tab label for the E2E run view.",
   },
+  e2eTargetLocation: {
+    id: "fleet.e2eTargetLocation",
+    defaultMessage: "{cluster} / {namespace}",
+    description: "Cluster and namespace of a test target.",
+  },
   e2eTestFailed: {
     id: "fleet.e2e.testFailed",
     defaultMessage: "This run failed.",
     description: "Degraded state shown when a run's verdict is failed.",
+  },
+  e2eTimestamps: {
+    id: "fleet.e2eTimestamps",
+    defaultMessage: "Timestamps",
+    description: "E2E execution panel e2eTimestamps",
   },
   e2eVerdictFailed: {
     id: "fleet.e2e.verdict.failed",
@@ -721,15 +832,49 @@ export const messages = defineMessages({
     defaultMessage: "{days}d {hours}h",
     description: "Compact time-in-phase duration on an Agent SDLC card.",
   },
+  sdlcAxisNow: {
+    id: "fleet.sdlc.axis.now",
+    defaultMessage: "now",
+    description: "Top label of the board's vertical time-in-phase axis.",
+  },
+  sdlcAxisTitle: {
+    id: "fleet.sdlc.axis.title",
+    defaultMessage: "Time in phase",
+    description: "Caption for the board's vertical time-in-phase axis.",
+  },
+  sdlcBackToEscalations: {
+    id: "fleet.sdlc.back.escalations",
+    defaultMessage: "Back to escalations",
+    description:
+      "Link in the card details panel that returns to the escalations drawer.",
+  },
   sdlcBoardEmpty: {
     id: "fleet.sdlc.board.empty",
     defaultMessage: "No work in progress.",
     description: "Shown when the Agent SDLC aging board has no cards.",
   },
+  sdlcBundleNoIssues: {
+    id: "fleet.sdlc.bundle.noIssues",
+    defaultMessage: "No tracked issues in this bundle.",
+    description:
+      "Shown when an expanded release bundle (or the Unreleased row) has no agent-funnel issues. The board tracks issues, not every PR or commit, so a bundle can ship work with no linked issue.",
+  },
   sdlcCardOpen: {
     id: "fleet.sdlc.card.open",
     defaultMessage: "Open issue #{number}: {title}",
     description: "Accessible name for an Agent SDLC card link to its issue.",
+  },
+  sdlcClusterChip: {
+    id: "fleet.sdlc.cluster.chip",
+    defaultMessage: "+{count} more ({from}-{to})",
+    description:
+      "Label for a collapsed cluster of near-same-age cards in a board column.",
+  },
+  sdlcClusterTitle: {
+    id: "fleet.sdlc.cluster.title",
+    defaultMessage:
+      "{count, plural, one {# item at a similar age} other {# items at a similar age}}",
+    description: "Header of the popover listing a collapsed cluster's cards.",
   },
   sdlcColumnAria: {
     id: "fleet.sdlc.column.aria",
@@ -742,6 +887,28 @@ export const messages = defineMessages({
     defaultMessage: "current",
     description:
       "Non-color text marker in the matrix for the bundle a hub cluster currently runs.",
+  },
+  sdlcDetailBundle: {
+    id: "fleet.sdlc.detail.bundle",
+    defaultMessage: "Bundle",
+    description:
+      "Term label for the bundle row in the shipped-issue details panel.",
+  },
+  sdlcDetailMerged: {
+    id: "fleet.sdlc.detail.merged",
+    defaultMessage: "Merged",
+    description:
+      "Term label for the merged row in the shipped-issue details panel.",
+  },
+  sdlcDetailPhase: {
+    id: "fleet.sdlc.detail.phase",
+    defaultMessage: "Phase",
+    description: "Term label for the phase row in the card details panel.",
+  },
+  sdlcDetailRework: {
+    id: "fleet.sdlc.detail.rework",
+    defaultMessage: "Rework",
+    description: "Term label for the rework row in the card details panel.",
   },
   sdlcEscalationBlocked: {
     id: "fleet.sdlc.escalation.blocked",
@@ -764,6 +931,11 @@ export const messages = defineMessages({
     description:
       "Escalation-lane bucket label for work past its service-level expectation.",
   },
+  sdlcFilterScope: {
+    id: "fleet.sdlc.filter.scope",
+    defaultMessage: "Scope",
+    description: "Accessible label for the scope filter toggle group.",
+  },
   sdlcHistoryEmpty: {
     id: "fleet.sdlc.history.empty",
     defaultMessage: "No label history.",
@@ -773,6 +945,11 @@ export const messages = defineMessages({
     id: "fleet.sdlc.history.title",
     defaultMessage: "Label history",
     description: "Heading for a card's reconstructed label-event history.",
+  },
+  sdlcIssueLabel: {
+    id: "fleet.sdlc.issue.label",
+    defaultMessage: "#{number} {title}",
+    description: "Issue reference combining its number and title.",
   },
   sdlcLaneCleared: {
     id: "fleet.sdlc.lane.cleared",
@@ -805,10 +982,21 @@ export const messages = defineMessages({
     defaultMessage: "merged {days, plural, one {# day} other {# days}} ago",
     description: "Relative merge timestamp for a shipped issue.",
   },
+  sdlcMergedBy: {
+    id: "fleet.sdlc.merged.by",
+    defaultMessage: "{ago} by {user}",
+    description: "Merge timestamp with the user who merged the closing PR.",
+  },
   sdlcMergedToday: {
     id: "fleet.sdlc.merged.today",
     defaultMessage: "merged today",
     description: "Relative merge timestamp for an issue merged today.",
+  },
+  sdlcNotificationsTitle: {
+    id: "fleet.sdlc.notifications.title",
+    defaultMessage: "Escalations",
+    description:
+      "Title of the escalations notification drawer and its bell trigger.",
   },
   sdlcPhaseCode: {
     id: "fleet.sdlc.phase.code",
@@ -845,21 +1033,58 @@ export const messages = defineMessages({
     defaultMessage: "Workable",
     description: "Agent SDLC phase column: ready to start.",
   },
-  sdlcReworkCritical: {
-    id: "fleet.sdlc.rework.critical",
-    defaultMessage: "One more rejection blocks this item.",
+  sdlcReworkBlocked: {
+    id: "fleet.sdlc.rework.blocked",
+    defaultMessage: "This item is blocked.",
     description:
-      "Non-color cue when a rework meter is one strike from blocking.",
+      "Non-color cue when an item has hit its rejection threshold and is blocked.",
+  },
+  sdlcReworkCount: {
+    id: "fleet.sdlc.rework.count",
+    defaultMessage: "x{count}",
+    description:
+      "Compact repeat-count badge on a collapsed reject loop in a card's label history.",
   },
   sdlcReworkLabel: {
     id: "fleet.sdlc.rework.label",
     defaultMessage: "{count} of {threshold} rejections",
     description: "Accessible label for the rework meter.",
   },
-  sdlcReworkWarning: {
-    id: "fleet.sdlc.rework.warning",
-    defaultMessage: "Approaching the block threshold.",
-    description: "Non-color cue when a rework meter nears its threshold.",
+  sdlcReworkRemaining: {
+    id: "fleet.sdlc.rework.remaining",
+    defaultMessage:
+      "{remaining, plural, one {# more rejection blocks this item.} other {# more rejections block this item.}}",
+    description:
+      "Non-color cue: how many more rejections until the item auto-blocks.",
+  },
+  sdlcReworkTooltip: {
+    id: "fleet.sdlc.rework.tooltip",
+    defaultMessage:
+      "Rework: {count} of {threshold} review rejections in this phase. The item is auto-blocked at {threshold}.",
+    description: "Tooltip explaining the rework meter and block threshold.",
+  },
+  sdlcScopeNoResults: {
+    id: "fleet.sdlc.scope.noResults",
+    defaultMessage: "No matching scopes",
+    description:
+      "Shown in the scope filter when the typeahead matches nothing.",
+  },
+  sdlcScopePlaceholder: {
+    id: "fleet.sdlc.scope.placeholder",
+    defaultMessage: "Filter by scope",
+    description: "Placeholder for the scope typeahead multi-select.",
+  },
+  sdlcScopeSelected: {
+    id: "fleet.sdlc.scope.selected",
+    defaultMessage:
+      "{count, plural, one {# scope selected} other {# scopes selected}}",
+    description:
+      "Scope typeahead placeholder summarising how many scopes are selected.",
+  },
+  sdlcSearchPlaceholder: {
+    id: "fleet.sdlc.search.placeholder",
+    defaultMessage: "Filter by number or title",
+    description: "Placeholder for the Agent SDLC issue search field.",
   },
   sdlcSection: {
     id: "fleet.sdlc.section",
@@ -870,6 +1095,19 @@ export const messages = defineMessages({
     id: "fleet.sdlc.sle.line",
     defaultMessage: "Service-level expectation",
     description: "Accessible label for a column's dashed SLE line.",
+  },
+  sdlcSleShort: {
+    id: "fleet.sdlc.sle.short",
+    defaultMessage: "SLE",
+    description:
+      "Short pill label for the dashed service-level-expectation line.",
+  },
+  sdlcSleTooltip: {
+    id: "fleet.sdlc.sle.tooltip",
+    defaultMessage:
+      "Service-level expectation: {duration}. The target time an item spends in this phase; items below the line are past SLE and escalate.",
+    description:
+      "Tooltip explaining the SLE line, including the target duration.",
   },
   sdlcTabAgent: {
     id: "fleet.sdlc.tab.agent",

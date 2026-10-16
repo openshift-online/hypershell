@@ -12,18 +12,46 @@
 // FIREWALL: no fleet identity here. Cluster, tenant, revision, run ids, and step ids
 // are all runtime data from /api/e2e/*.
 
+import type { PromotionData, ReleaseBundle } from "../../../domain/promotion";
+import { Identicon } from "../map/identicon";
+import { identiName } from "../../../domain/map/identiname";
 import {
+  Drawer,
+  DrawerContent,
+  DrawerContentBody,
+  DrawerPanelContent,
+  DrawerPanelBody,
+  DrawerHead,
+  DrawerActions,
+  DrawerCloseButton,
+  Title,
   Alert,
   Button,
   Content,
   Label,
   Stack,
   StackItem,
-  Title,
-  ToggleGroup,
-  ToggleGroupItem,
+  Tabs,
+  Tab,
+  TabTitleText,
+  FormSelect,
+  FormSelectOption,
+  SearchInput,
+  Checkbox,
+  Modal,
+  ModalBody,
+  ModalHeader,
+  ModalVariant,
 } from "@patternfly/react-core";
-import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
+import {
+  type ThProps,
+  Table,
+  Tbody,
+  Td,
+  Th,
+  Thead,
+  Tr,
+} from "@patternfly/react-table";
 import BanIcon from "@patternfly/react-icons/dist/esm/icons/ban-icon";
 import CheckCircleIcon from "@patternfly/react-icons/dist/esm/icons/check-circle-icon";
 import ExclamationCircleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-circle-icon";
@@ -35,7 +63,7 @@ import PlayIcon from "@patternfly/react-icons/dist/esm/icons/play-icon";
 import QuestionCircleIcon from "@patternfly/react-icons/dist/esm/icons/question-circle-icon";
 import type { SVGIconProps } from "@patternfly/react-icons/dist/esm/createIcon";
 import type { ComponentType } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IntlShape, MessageDescriptor } from "react-intl";
 import { FormattedMessage, useIntl } from "react-intl";
 
@@ -45,6 +73,8 @@ import {
   logsForStep,
   reduceRun,
   runDurationMs,
+  runBundle,
+  runTargetInstance,
   runsNewestFirst,
   MAX_DETAIL_LOG_LINES,
   type E2eRunDetail,
@@ -127,9 +157,11 @@ function resolveNowMs(nowMs: number | undefined): number {
 }
 
 export interface E2eRunViewProps {
+  readonly promotion?: PromotionData;
   readonly data: E2eRunsData;
   /** Reference instant for relative timestamps; injectable for deterministic tests. */
   readonly nowMs?: number;
+  readonly initialRunId?: string;
 }
 
 type IconComp = ComponentType<SVGIconProps>;
@@ -202,9 +234,10 @@ function stepStateVisual(state: E2eStepState): Visual {
 function StatusChip({ visual }: { visual: Visual }): React.ReactElement {
   const Icon = visual.icon;
   return (
-    <Label isCompact icon={<Icon style={{ color: visual.tone }} />}>
+    <span className={styles.inline}>
+      <Icon style={{ color: visual.tone }} aria-hidden />
       <FormattedMessage {...visual.message} />
-    </Label>
+    </span>
   );
 }
 
@@ -300,44 +333,122 @@ function useLiveRunDetail(
   return { detail, status };
 }
 
+// Sort source values, never localized display strings. Null durations sort last.
+function useTableSort<T>(
+  rows: readonly T[],
+  values: (row: T) => readonly (string | number | null)[],
+  initialIndex?: number,
+) {
+  const [sortBy, setSortBy] = useState<{
+    index?: number;
+    direction: "asc" | "desc";
+  }>({ index: initialIndex, direction: "desc" });
+  const sorted =
+    sortBy.index === undefined
+      ? rows
+      : [...rows].sort((a, b) => {
+          const av = values(a)[sortBy.index ?? 0] ?? null;
+          const bv = values(b)[sortBy.index ?? 0] ?? null;
+          if (av === null) return bv === null ? 0 : 1;
+          if (bv === null) return -1;
+          const comparison =
+            typeof av === "number" && typeof bv === "number"
+              ? av - bv
+              : String(av).localeCompare(String(bv));
+          return sortBy.direction === "asc" ? comparison : -comparison;
+        });
+  const column = (index: number): ThProps["sort"] => ({
+    sortBy,
+    columnIndex: index,
+    onSort: (_, index, direction) => {
+      setSortBy({ index, direction });
+    },
+  });
+  return { sorted, column };
+}
+
+function RunBundleIdentity({
+  bundle,
+}: {
+  bundle: ReleaseBundle | null;
+}): React.ReactElement {
+  return bundle?.digest ? (
+    <span className={styles.bundleIdentity} title={bundle.digest}>
+      <svg width={28} height={28} aria-hidden="true">
+        <Identicon seed={bundle.digest} x={0} y={0} size={28} />
+      </svg>
+      <span>
+        {bundle.version}
+        <small className={styles.instance}>{identiName(bundle.digest)}</small>
+      </span>
+    </span>
+  ) : (
+    <span>
+      <FormattedMessage {...messages.e2eBundleUnknown} />
+    </span>
+  );
+}
+
 function RunsTable({
   runs,
+  promotion,
   selectedId,
   onSelect,
   nowMs,
 }: {
+  promotion?: PromotionData;
   runs: readonly E2eRunSummary[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   nowMs: number;
 }): React.ReactElement {
   const intl = useIntl();
+  const { sorted, column } = useTableSort(
+    runs,
+    (run) => [
+      run.revision,
+      run.runId,
+      Date.parse(run.startedAt),
+      runDurationMs(run, nowMs),
+      run.verdict,
+      runBundle(run, promotion)?.version ?? null,
+      runTargetInstance(run, promotion) ?? run.cluster,
+    ],
+    2,
+  );
   return (
     <Table
+      gridBreakPoint=""
       aria-label={intl.formatMessage(messages.e2eRunsAria)}
       variant="compact"
     >
       <Thead>
         <Tr>
-          <Th>
+          <Th sort={column(5)}>
+            <FormattedMessage {...messages.e2eColumnBundle} />
+          </Th>
+          <Th sort={column(6)}>
+            <FormattedMessage {...messages.e2eColumnTarget} />
+          </Th>
+          <Th sort={column(0)}>
             <FormattedMessage {...messages.e2eColumnRevision} />
           </Th>
-          <Th>
+          <Th sort={column(1)}>
             <FormattedMessage {...messages.e2eColumnAttempt} />
           </Th>
-          <Th>
+          <Th sort={column(2)}>
             <FormattedMessage {...messages.e2eColumnStarted} />
           </Th>
-          <Th>
+          <Th sort={column(3)}>
             <FormattedMessage {...messages.e2eColumnDuration} />
           </Th>
-          <Th>
+          <Th sort={column(4)}>
             <FormattedMessage {...messages.e2eColumnVerdict} />
           </Th>
         </Tr>
       </Thead>
       <Tbody>
-        {runs.map((run) => {
+        {sorted.map((run) => {
           const selected = run.id === selectedId;
           return (
             <Tr
@@ -345,6 +456,20 @@ function RunsTable({
               isRowSelected={selected}
               className={selected ? styles.selectedRow : undefined}
             >
+              <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
+                <RunBundleIdentity bundle={runBundle(run, promotion)} />
+              </Td>
+              <Td dataLabel={intl.formatMessage(messages.e2eColumnTarget)}>
+                <span>{runTargetInstance(run, promotion) ?? run.cluster}</span>
+                <small className={styles.instance}>
+                  {runTargetInstance(run, promotion)
+                    ? intl.formatMessage(messages.e2eTargetLocation, {
+                        cluster: run.cluster,
+                        namespace: run.namespace,
+                      })
+                    : run.namespace}
+                </small>
+              </Td>
               <Td dataLabel={intl.formatMessage(messages.e2eColumnRevision)}>
                 <Button
                   variant="link"
@@ -358,12 +483,12 @@ function RunsTable({
                   })}
                 >
                   {run.revision !== ""
-                    ? run.revision
+                    ? run.revision.slice(0, 8)
                     : intl.formatMessage(messages.valueNone)}
                 </Button>
               </Td>
               <Td dataLabel={intl.formatMessage(messages.e2eColumnAttempt)}>
-                {run.runId}
+                <span title={run.runId}>{run.runId.slice(0, 8)}</span>
               </Td>
               <Td dataLabel={intl.formatMessage(messages.e2eColumnStarted)}>
                 {formatAgo(intl, run.startedAt, nowMs)}
@@ -401,26 +526,36 @@ function StepsTable({
   nowMs: number;
 }): React.ReactElement {
   const intl = useIntl();
+  const { sorted, column } = useTableSort(detail.steps, (step) => [
+    step.name || step.stepId,
+    step.state,
+    step.durationMs ??
+      (step.state === "running" && step.startedAt
+        ? nowMs - Date.parse(step.startedAt)
+        : null),
+  ]);
   return (
     <Table
+      gridBreakPoint=""
+      className={styles.stepsTable}
       aria-label={intl.formatMessage(messages.e2eStepsAria)}
       variant="compact"
     >
       <Thead>
         <Tr>
-          <Th>
+          <Th sort={column(0)}>
             <FormattedMessage {...messages.e2eColumnStep} />
           </Th>
-          <Th>
+          <Th sort={column(1)}>
             <FormattedMessage {...messages.e2eColumnState} />
           </Th>
-          <Th>
+          <Th sort={column(2)}>
             <FormattedMessage {...messages.e2eColumnDuration} />
           </Th>
         </Tr>
       </Thead>
       <Tbody>
-        {detail.steps.map((step) => {
+        {sorted.map((step) => {
           const dur =
             step.durationMs ??
             (step.state === "running" && step.startedAt !== null
@@ -434,6 +569,10 @@ function StepsTable({
                 )
               : null);
           const selected = step.stepId === selectedStepId;
+          const lastOutput =
+            step.state === "failed"
+              ? logsForStep(detail.logs, step.stepId).at(-1)?.message
+              : null;
           return (
             <Tr
               key={step.stepId}
@@ -448,8 +587,15 @@ function StepsTable({
                     onSelectStep(step.stepId);
                   }}
                 >
-                  {step.name !== "" ? step.name : step.stepId}
+                  {step.name !== ""
+                    ? step.name.replaceAll("-", " ")
+                    : step.stepId}
                 </Button>
+                {lastOutput ? (
+                  <small className={styles.failureOutput}>
+                    {lastOutput.slice(0, 180)}
+                  </small>
+                ) : null}
               </Td>
               <Td dataLabel={intl.formatMessage(messages.e2eColumnState)}>
                 <StatusChip visual={stepStateVisual(step.state)} />
@@ -476,6 +622,9 @@ function LogPane({
 }): React.ReactElement {
   const intl = useIntl();
   const [following, setFollowing] = useState(true);
+  const [search, setSearch] = useState("");
+  const [timestamps, setTimestamps] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
 
   const lines = useMemo(
@@ -486,38 +635,52 @@ function LogPane({
     [detail.logs, selectedStepId],
   );
   // Bounded rendering: only the most recent lines are ever in the DOM (E2E-LOG-12).
-  const rendered = lines.slice(-MAX_RENDERED_LOG_LINES);
+  const matches = lines.filter((line) =>
+    line.message.toLowerCase().includes(search.toLowerCase()),
+  );
+  const rendered = matches.slice(-MAX_RENDERED_LOG_LINES);
 
+  const lastSequence = rendered.at(-1)?.sequence;
   useEffect(() => {
     if (following && paneRef.current) {
       paneRef.current.scrollTop = paneRef.current.scrollHeight;
     }
-  }, [following, rendered.length]);
+  }, [following, lastSequence, selectedStepId, search]);
 
-  return (
+  const content = (
     <Stack hasGutter>
       <StackItem>
         <div className={styles.logControls}>
-          <ToggleGroup aria-label={intl.formatMessage(messages.e2eLogScope)}>
-            <ToggleGroupItem
-              text={intl.formatMessage(messages.e2eLogScopeRun)}
-              buttonId="e2e-log-run"
-              isSelected={selectedStepId === null}
-              onChange={() => {
-                onSelectScope(null);
-              }}
+          <FormSelect
+            value={selectedStepId ?? ""}
+            aria-label={intl.formatMessage(messages.e2eLogScope)}
+            onChange={(_, value) => {
+              onSelectScope(value || null);
+            }}
+          >
+            <FormSelectOption
+              value=""
+              label={intl.formatMessage(messages.e2eLogScopeRun)}
             />
-            {selectedStepId !== null ? (
-              <ToggleGroupItem
-                text={intl.formatMessage(messages.e2eLogScopeStep)}
-                buttonId="e2e-log-step"
-                isSelected
-                onChange={() => {
-                  onSelectScope(selectedStepId);
-                }}
+            {detail.steps.map((step) => (
+              <FormSelectOption
+                key={step.stepId}
+                value={step.stepId}
+                label={step.name || step.stepId}
               />
-            ) : null}
-          </ToggleGroup>
+            ))}
+          </FormSelect>
+          <SearchInput
+            value={search}
+            aria-label={intl.formatMessage(messages.e2eSearchLogs)}
+            placeholder={intl.formatMessage(messages.e2eSearchLogs)}
+            onChange={(_, value) => {
+              setSearch(value);
+            }}
+            onClear={() => {
+              setSearch("");
+            }}
+          />
           <Button
             variant="secondary"
             size="sm"
@@ -532,9 +695,30 @@ function LogPane({
               <FormattedMessage {...messages.e2eFollow} />
             )}
           </Button>
+          <Checkbox
+            id={`e2e-timestamps-${detail.runId}`}
+            label={intl.formatMessage(messages.e2eTimestamps)}
+            isChecked={timestamps}
+            onChange={(_, checked) => {
+              setTimestamps(checked);
+            }}
+          />
+          <Button
+            variant="link"
+            isInline
+            onClick={() => {
+              setExpanded(!expanded);
+            }}
+          >
+            <FormattedMessage
+              {...(expanded
+                ? messages.e2eCollapseLogs
+                : messages.e2eExpandLogs)}
+            />
+          </Button>
         </div>
       </StackItem>
-      {detail.logsTruncated ? (
+      {detail.logsTruncated || matches.length > MAX_RENDERED_LOG_LINES ? (
         <StackItem>
           <Alert
             variant="info"
@@ -562,7 +746,12 @@ function LogPane({
                 className={styles.logLine}
                 data-testid="e2e-log-line"
               >
-                <span className={styles.logTime}>{line.timestamp}</span>
+                {timestamps ? (
+                  <span className={styles.logTime}>{line.timestamp}</span>
+                ) : null}
+                {selectedStepId === null && line.stepId ? (
+                  <span className={styles.logStep}>{line.stepId}</span>
+                ) : null}
                 {/* Rendered as text: React escapes it, so record content cannot
                     inject markup (E2E-LOG-14). */}
                 {line.message}
@@ -573,6 +762,21 @@ function LogPane({
       </StackItem>
     </Stack>
   );
+  return expanded ? (
+    <Modal
+      isOpen
+      variant={ModalVariant.large}
+      onClose={() => {
+        setExpanded(false);
+      }}
+      aria-label={intl.formatMessage(messages.e2eLogPaneTitle)}
+    >
+      <ModalHeader title={intl.formatMessage(messages.e2eLogPaneTitle)} />
+      <ModalBody>{content}</ModalBody>
+    </Modal>
+  ) : (
+    content
+  );
 }
 
 /**
@@ -581,19 +785,32 @@ function LogPane({
  * loads the snapshot detail through the port (the stream's backfill baseline) and
  * folds live events onto it in the domain.
  */
-function SelectedRunPane({
+export function SelectedRunPane({
   runId,
-  nowMs,
+  nowMs: suppliedNowMs,
+  promotion,
 }: {
   runId: string;
-  nowMs: number;
+  nowMs?: number;
+  promotion?: PromotionData;
 }): React.ReactElement {
   const intl = useIntl();
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setClock(Date.now());
+    }, 1000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
+  const nowMs = suppliedNowMs ?? clock;
   const api = useFleetApi();
   const observability = useObservability();
   const [snapshot, setSnapshot] = useState<E2eRunDetail | null>(null);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string | number>("progress");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -635,26 +852,37 @@ function SelectedRunPane({
 
   return (
     <div className={styles.detail}>
-      <Title headingLevel="h3" size="md">
-        {detail.revision !== ""
-          ? detail.revision
-          : intl.formatMessage(messages.valueNone)}
-      </Title>
-      <Content component="small">
-        <FormattedMessage
-          {...messages.e2eSourceRevision}
-          values={{
-            revision:
-              detail.sourceRevision ?? intl.formatMessage(messages.valueNone),
-          }}
+      <div className={styles.runHeader}>
+        <RunBundleIdentity bundle={runBundle(detail, promotion)} />
+        <span>
+          {runTargetInstance(detail, promotion) ?? detail.cluster}
+          <small className={styles.instance}>{detail.namespace}</small>
+        </span>
+      </div>
+      <div className={styles.runHeader}>
+        <StatusChip
+          visual={
+            detail.verdict === "unknown" &&
+            streamState === "live" &&
+            detail.steps.some((step) => step.state === "running")
+              ? stepStateVisual("running")
+              : verdictVisual(detail.verdict)
+          }
         />
-      </Content>
+        <code title={detail.revision}>{detail.revision.slice(0, 8)}</code>
+        <span title={detail.runId}>
+          {intl.formatMessage(messages.e2eAttemptShort, {
+            id: detail.runId.slice(0, 8),
+          })}
+        </span>
+      </div>
 
       {/* The four degraded states, kept distinct (E2E-LOG-10). */}
       {backendUnavailable ? (
         <Alert
           variant="warning"
           isInline
+          isPlain
           title={<FormattedMessage {...messages.e2eBackendUnavailable} />}
         />
       ) : null}
@@ -694,62 +922,151 @@ function SelectedRunPane({
           }
         />
       ) : null}
-      {streamState === "live" ? (
-        <span className={styles.inline}>
-          <InProgressIcon style={{ color: TONE_COLOR.info }} aria-hidden />
-          <Content component="small">
-            <FormattedMessage {...messages.e2eLiveLabel} />
-          </Content>
-        </span>
-      ) : null}
-
-      <Content component="small">
-        {intl.formatMessage(messages.e2eRunDuration, {
-          duration: formatDuration(intl, runDurationMs(detail, nowMs)),
-        })}
-      </Content>
-
-      <Title headingLevel="h4" size="md">
-        <FormattedMessage {...messages.e2eStepsTitle} />
-      </Title>
-      {!detail.hasStructuredSteps ? (
-        <Content component="p">
+      <div className={styles.runHeader}>
+        {streamState === "live" ? (
           <span className={styles.inline}>
-            <OutlinedCircleIcon aria-hidden />
-            <FormattedMessage {...messages.e2eNoStructuredSteps} />
+            <InProgressIcon style={{ color: TONE_COLOR.info }} aria-hidden />
+            <small>
+              <FormattedMessage {...messages.e2eLiveLabel} />
+            </small>
           </span>
-        </Content>
-      ) : detail.steps.length === 0 ? (
-        <Content component="p">
-          <FormattedMessage {...messages.e2eNoSteps} />
-        </Content>
-      ) : (
-        <StepsTable
-          detail={detail}
-          selectedStepId={selectedStepId}
-          onSelectStep={setSelectedStepId}
-          nowMs={nowMs}
-        />
-      )}
+        ) : null}
 
-      <Title headingLevel="h4" size="md">
-        <FormattedMessage {...messages.e2eLogPaneTitle} />
-      </Title>
-      <LogPane
-        detail={detail}
-        selectedStepId={selectedStepId}
-        onSelectScope={setSelectedStepId}
-      />
+        <small>
+          <FormattedMessage
+            {...messages.e2eSourceRevision}
+            values={{
+              revision:
+                detail.sourceRevision?.slice(0, 8) ??
+                intl.formatMessage(messages.valueNone),
+            }}
+          />
+        </small>
+
+        <small>
+          {intl.formatMessage(messages.e2eRunDuration, {
+            duration: formatDuration(intl, runDurationMs(detail, nowMs)),
+          })}
+        </small>
+      </div>
+
+      <Tabs
+        activeKey={activeTab}
+        onSelect={(_, key) => {
+          setActiveTab(key);
+        }}
+        aria-label={intl.formatMessage(messages.e2eExecutionTabs)}
+      >
+        <Tab
+          eventKey="progress"
+          title={
+            <TabTitleText>
+              <FormattedMessage {...messages.e2eProgressTab} />
+            </TabTitleText>
+          }
+        >
+          <div className={styles.tabBody}>
+            {!detail.hasStructuredSteps ? (
+              <Content component="p">
+                <span className={styles.inline}>
+                  <OutlinedCircleIcon aria-hidden />
+                  <FormattedMessage {...messages.e2eNoStructuredSteps} />
+                </span>
+              </Content>
+            ) : detail.steps.length === 0 ? (
+              <Content component="p">
+                <FormattedMessage {...messages.e2eNoSteps} />
+              </Content>
+            ) : (
+              <StepsTable
+                detail={detail}
+                selectedStepId={selectedStepId}
+                onSelectStep={(id) => {
+                  setSelectedStepId(id);
+                  setActiveTab("logs");
+                }}
+                nowMs={nowMs}
+              />
+            )}
+          </div>
+        </Tab>
+        <Tab
+          eventKey="logs"
+          title={
+            <TabTitleText>
+              <FormattedMessage {...messages.e2eLogPaneTitle} />
+            </TabTitleText>
+          }
+        >
+          <div className={styles.tabBody}>
+            <LogPane
+              detail={detail}
+              selectedStepId={selectedStepId}
+              onSelectScope={setSelectedStepId}
+            />
+          </div>
+        </Tab>
+      </Tabs>
     </div>
   );
 }
 
 export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
   const { data } = props;
+  const intl = useIntl();
   const nowMs = resolveNowMs(props.nowMs);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    props.initialRunId ?? null,
+  );
+  const [isExpanded, setExpanded] = useState(props.initialRunId !== undefined);
+  const [inline, setInline] = useState(
+    () =>
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(min-width: 1600px)").matches,
+  );
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const headingRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1600px)");
+    const update = () => {
+      setInline(media.matches);
+    };
+    media.addEventListener("change", update);
+    return () => {
+      media.removeEventListener("change", update);
+    };
+  }, []);
+  const close = useCallback(() => {
+    setExpanded(false);
+    triggerRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (!isExpanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        !(event.target as HTMLElement).closest('[role="dialog"]')
+      )
+        close();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isExpanded, close]);
+  const [search, setSearch] = useState("");
 
-  const runs = useMemo(() => runsNewestFirst(data.runs), [data.runs]);
+  const runs = useMemo(
+    () =>
+      runsNewestFirst(data.runs).filter((run) =>
+        `${run.namespace} ${run.cluster} ${run.revision} ${run.runId} ${runTargetInstance(run, props.promotion) ?? ""} ${runBundle(run, props.promotion)?.version ?? ""}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+      ),
+    [data.runs, search, props.promotion],
+  );
 
   if (!data.enabled) {
     return (
@@ -772,34 +1089,89 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
           title={<FormattedMessage {...messages.e2eHistoryTruncated} />}
         />
       ) : null}
-      <div className={styles.split}>
-        <div>
-          {runs.length === 0 ? (
-            <Content component="p">
-              <FormattedMessage {...messages.e2eNoRuns} />
-            </Content>
-          ) : (
-            <RunsTable
-              runs={runs}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              nowMs={nowMs}
-            />
-          )}
-        </div>
-        <div>
-          {selectedId !== null ? (
-            <SelectedRunPane
-              key={selectedId}
-              runId={selectedId}
-              nowMs={nowMs}
-            />
-          ) : (
-            <Content component="p">
-              <FormattedMessage {...messages.e2eSelectRun} />
-            </Content>
-          )}
-        </div>
+      <SearchInput
+        value={search}
+        aria-label={intl.formatMessage(messages.e2eSearchRuns)}
+        placeholder={intl.formatMessage(messages.e2eSearchRuns)}
+        onChange={(_, value) => {
+          setSearch(value);
+        }}
+        onClear={() => {
+          setSearch("");
+        }}
+      />
+      <div className={styles.historyStage}>
+        <Drawer
+          isExpanded={isExpanded}
+          isInline={inline}
+          onExpand={() => {
+            headingRef.current?.focus();
+          }}
+        >
+          <DrawerContent
+            panelContent={
+              <DrawerPanelContent
+                isResizable={inline}
+                defaultSize="560px"
+                minSize="320px"
+                maxSize="100%"
+                resizeAriaLabel={intl.formatMessage(messages.e2eResizeDetails)}
+                focusTrap={{ enabled: isExpanded && !inline }}
+              >
+                <DrawerHead>
+                  <div ref={headingRef} tabIndex={-1}>
+                    <Title headingLevel="h3" size="lg">
+                      {intl.formatMessage(messages.e2eAttemptShort, {
+                        id:
+                          data.runs
+                            .find((run) => run.id === selectedId)
+                            ?.runId.slice(0, 8) ??
+                          selectedId ??
+                          "",
+                      })}
+                    </Title>
+                  </div>
+                  <DrawerActions>
+                    <DrawerCloseButton
+                      aria-label={intl.formatMessage(messages.drawerClose)}
+                      onClick={close}
+                    />
+                  </DrawerActions>
+                </DrawerHead>
+                <DrawerPanelBody className={styles.historyDetails}>
+                  {isExpanded && selectedId !== null ? (
+                    <SelectedRunPane
+                      key={selectedId}
+                      runId={selectedId}
+                      promotion={props.promotion}
+                      nowMs={nowMs}
+                    />
+                  ) : null}
+                </DrawerPanelBody>
+              </DrawerPanelContent>
+            }
+          >
+            <DrawerContentBody className={styles.historyTable}>
+              {runs.length === 0 ? (
+                <Content component="p">
+                  <FormattedMessage {...messages.e2eNoRuns} />
+                </Content>
+              ) : (
+                <RunsTable
+                  promotion={props.promotion}
+                  runs={runs}
+                  selectedId={selectedId}
+                  onSelect={(id) => {
+                    triggerRef.current = document.activeElement as HTMLElement;
+                    setSelectedId(id);
+                    setExpanded(true);
+                  }}
+                  nowMs={nowMs}
+                />
+              )}
+            </DrawerContentBody>
+          </DrawerContent>
+        </Drawer>
       </div>
     </div>
   );
