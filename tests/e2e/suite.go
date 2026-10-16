@@ -252,7 +252,7 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 	}
 
-	if s.gcTimingLease != nil && !(s.T().Failed() && s.driver.Name() == "openshift") {
+	if s.gcTimingLease != nil && (!s.T().Failed() || s.driver.Name() != "openshift") {
 		if err := s.gcTimingLease.Release(ctx); err != nil {
 			s.T().Errorf("restore namespace GC timing: %v", err)
 		}
@@ -311,6 +311,7 @@ func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
 		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
 		s.parallelStep("P2.5", "gateway-access-management", tagLong, (*E2ESuite).p2_5GatewayAccessManagement),
 		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
+		s.parallelStep("P2.7", "vault-credential-coverage", tagLong, (*E2ESuite).p2_7VaultCredentialCoverage),
 	}
 	if s.concurrency == 1 {
 		return canonical
@@ -332,6 +333,7 @@ func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
 	return []parallelSubtest{
 		canonical[0],
 		canonical[2],
+		canonical[6], // P2.7 vault-credential-coverage: not controller-sensitive
 		markControllerSensitive(canonical[4]),
 		markControllerSensitive(canonical[5]),
 		markControllerSensitive(canonical[1]),

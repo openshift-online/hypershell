@@ -118,41 +118,24 @@ func deployGatewayViaHelm(
 	return nil
 }
 
-// defaultCredentialDriverType returns the driver an omitted credential_driver
-// resolves to, selected per-deployment via GATEWAY_DEFAULT_CREDENTIAL_DRIVER.
+// effectiveCredentialDriver resolves an unspecified credential_driver to the flat
+// default, vault (HYPERSHELL-369). An explicit driver (non-empty Type) is returned
+// unchanged, so a user who asks for a specific backend (kek-db / kubernetes-secrets)
+// always gets it. Both a nil driver and an empty-type object (`credential_driver:
+// {}`) count as unspecified and resolve to vault, preserving any supplied overrides.
 //
-// It defaults to "kek-db", which preserves today's behavior on every cluster that
-// has not opted in - so dev, kind, CI and clusters without a provider Vault keep
-// working unchanged. hyp0 sets "vault" on its control-plane (in hypershell-gitops)
-// during the HYPERSHELL-369 rollout, so it is the first cluster to default new
-// gateways to Vault. This selector is TRANSITIONAL: once every cluster has a
-// provider Vault, Vault becomes the flat default and this knob is removed (see
-// openshell-gateway-credentials.spec.md).
-func defaultCredentialDriverType() string {
-	if os.Getenv("GATEWAY_DEFAULT_CREDENTIAL_DRIVER") == "vault" {
-		return "vault"
-	}
-	return "kek-db"
-}
-
-// effectiveCredentialDriver applies the deployment default to an unspecified
-// credential_driver. An explicit driver (non-empty Type) is returned unchanged,
-// so a user who asks for a specific backend always gets it. Both a nil driver and
-// an empty-type object (`credential_driver: {}`) count as unspecified and go
-// through the deployment-default selector, so an empty object cannot bypass the
-// staged rollout and resolve to vault on a kek-db cluster.
+// Prerequisite (see openshell-gateway-credentials.spec.md): every gateway-hosting
+// cluster must run its per-cluster Vault before this default takes effect; a cluster
+// without its Vault should pin new gateways to kek-db explicitly.
 func effectiveCredentialDriver(driver *CredentialDriverConfig) *CredentialDriverConfig {
 	if driver != nil && driver.Type != "" {
 		return driver
 	}
-	if defaultCredentialDriverType() == "vault" {
-		resolved := &CredentialDriverConfig{Type: "vault"}
-		if driver != nil {
-			resolved.Vault = driver.Vault // preserve any supplied overrides
-		}
-		return resolved
+	resolved := &CredentialDriverConfig{Type: "vault"}
+	if driver != nil {
+		resolved.Vault = driver.Vault // preserve any supplied overrides
 	}
-	return nil // kek-db: the chart provisions the KEK store when no driver is set
+	return resolved
 }
 
 // convertCredentialDriver converts gateway.CredentialDriverConfig to

@@ -304,6 +304,21 @@ func (s *E2ESuite) assertGatewayInfraDetails(t *testing.T, ns string) {
 	s.Assert().Zero(managedNetworkPolicies, "control plane must not create managed gateway NetworkPolicies")
 	s.Assert().True(caReady, "gateway CA Certificate Ready")
 	s.Assert().True(serverReady, "gateway server Certificate Ready")
+
+	// HYPERSHELL-369: no credential_driver -> the flat vault default, and both e2e
+	// environments stand up a stand-in Vault (scripts/cluster/vault.sh). Reaching this
+	// phase (provisioned + Running) already proves the two-stage fail-closed probes and
+	// serving-CA propagation succeeded; assert the wiring explicitly. Use a fresh context:
+	// the errgroup's ctx above is canceled once g.Wait() returns. See
+	// specs/platform/openshell-gateway-credentials.spec.md (End-to-End Vault Coverage).
+	vaultCtx := t.Context()
+	cfg, err := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(vaultCtx, "openshell-gateway-config", metav1.GetOptions{})
+	s.Require().NoError(err, "get gateway config ConfigMap")
+	s.Assert().Contains(cfg.Data["gateway.toml"], "[openshell.credential_drivers.vault]", "gateway.toml selects the vault credential driver")
+	_, caErr := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(vaultCtx, "openshell-gateway-vault-ca", metav1.GetOptions{})
+	s.Assert().NoError(caErr, "vault serving CA mirrored into the tenant namespace")
+	_, kekErr := s.clients.Kube.CoreV1().Secrets(ns).Get(vaultCtx, "openshell-gateway-credential-kek", metav1.GetOptions{})
+	s.Assert().True(apierrors.IsNotFound(kekErr), "no KEK secret is provisioned for a vault-backed gateway")
 }
 
 func validateGatewayDatabaseSecret(data map[string][]byte) error {
@@ -764,7 +779,6 @@ func setDeploymentReplicas(ctx context.Context, deployments typedappsv1.Deployme
 func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 	ctx := t.Context()
 
-	privilegedAPI := s.admin
 	privilegedLabel := "platform-admin"
 	// The primary gateway's creator owns it. Its owner binding authorizes PATCH,
 	// while platform:admin is intentionally inventory-only for gateway mutation.
@@ -772,7 +786,7 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 	unprivilegedLabel := "developer"
 	unprivilegedAPI := s.apiClientForCreds(t, s.devCreds())
 	s.Require().NoError(s.driver.AssignRealmRole(ctx, s.platformAdminCreds().Username, "platform:admin"), "grant platform:admin")
-	privilegedAPI = s.apiClientForCreds(t, s.platformAdminCreds())
+	privilegedAPI := s.apiClientForCreds(t, s.platformAdminCreds())
 
 	s.runner.Show("GET /users  # as %s, expect 403", unprivilegedLabel)
 	st, body, err := unprivilegedAPI.RawJSON(ctx, http.MethodGet, "/users", nil)
@@ -830,6 +844,11 @@ type gatewayCreateRequest struct {
 	Placement gatewayPlacementIntent `json:"placement"`
 	Route     string                 `json:"route"`
 	OIDC      string                 `json:"oidc,omitempty"`
+	// CredentialDriver is the JSON-encoded provider-credential driver selection
+	// (GatewayCreateRequest.credential_driver). Omitted resolves to the flat vault
+	// default; the vault-coverage phase sets it to point a gateway at an unreachable
+	// Vault to exercise fail-closed provisioning (HYPERSHELL-369).
+	CredentialDriver string `json:"credential_driver,omitempty"`
 }
 
 // gatewayCreateRequestForDriver builds the infra-specific create payload used by
@@ -840,6 +859,10 @@ func gatewayCreateRequestForDriver(name, driverName, oidc string) gatewayCreateR
 	if driverName == "kind" {
 		placement = gatewayPlacementIntent{Mode: "local-kind"}
 	}
+	// HYPERSHELL-369: no credential_driver -> the flat vault default. Both e2e environments
+	// stand up a stand-in Vault (scripts/cluster/vault.sh, run by the kind and openshift
+	// drivers), so the default resolves on either. The fail-closed scenario sets
+	// CredentialDriver explicitly (vault_phases.go).
 	return gatewayCreateRequest{
 		Name:      name,
 		Placement: placement,

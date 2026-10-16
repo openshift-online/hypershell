@@ -1260,6 +1260,12 @@ cluster_up() {
   fi
   create_bootstrap_secrets
   apply_cluster_rbac
+  # Stand up the stand-in gateway-provider Vault (HYPERSHELL-369) before the control plane
+  # deploys, so vault-default gateways resolve. One shared openshell-vault per cluster at
+  # the convention address - the production shape. Idempotent, so safe on the shared e2e
+  # cluster across PR environments.
+  header "Stand-in gateway-provider Vault (HYPERSHELL-369)"
+  CLUSTER_DRIVER=openshift VAULT_KUBECTL="oc" bash "${CLUSTER_SCRIPT_DIR}/vault.sh"
   apply_overlay
   restore_swaps_after_reconcile
   configure_oidc_from_routes

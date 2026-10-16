@@ -37,8 +37,10 @@ and coordinates the deletion requirements defined in:
   - per-gateway database and role cleanup on the gateway database server, and
     the `PostgreSQLDatabase` orphan signal.
 - [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)
-  - credential-namespace RBAC cleanup, and purge of the gateway's provider-credential
-    Vault KV path, with the `VaultCredentialPath` orphan signal.
+  - credential-namespace RBAC cleanup. Vault-backed provider credentials are not an
+    owned-resource class for deletion: they live at a flat, unguessable, un-listable KV
+    path and are left inert on delete (see that spec's Provider Credential Lifecycle on
+    Deletion).
 
 Where a per-resource spec already defines a resource's cleanup behavior, that
 spec remains authoritative for that resource. This spec defines the enumeration
@@ -98,16 +100,22 @@ resource classes is:
    controller.
 5. Any credential-namespace RBAC (Role and RoleBinding) the gateway created in a
    separate credential namespace.
-6. For a Vault-backed gateway, the provider secrets stored under the gateway's
-   Vault KV path (`secret/data/openshell/<tenant-namespace>/*` and its metadata) on
-   the per-cluster provider Vault, purged by authenticating as the gateway's own
-   identity before the ServiceAccount and namespace are removed (see
-   [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)).
 
 The enumeration SHALL be authoritative and SHALL NOT depend on the namespace
 delete cascade reaching a resource. Every out-of-namespace resource class SHALL
 be reconciled explicitly on the delete-event path, because the namespace cascade
 cannot reach it.
+
+A Vault-backed gateway's provider secrets are deliberately **not** in this
+enumeration. The OpenShell runtime stores them at a flat, hash-addressed KV path
+(`secret/data/openshell/provider-credentials/<hash>`) on the per-cluster provider
+Vault, and the opaque handles that name them live only in the gateway database, which
+is dropped above. The control plane therefore cannot enumerate them (the gateway
+identity is granted no `list` and the path is not per-namespace) and does not try: any
+remaining entries are unreferenced, un-listable, and at computationally-unguessable
+paths, so they are left inert rather than purged. See
+[`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)
+(Provider Credential Lifecycle on Deletion).
 
 #### Scenario: Normal deletion reclaims all owned resource classes
 
@@ -325,15 +333,17 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
   (recovery per the runbook in
   [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md))
 
-#### Scenario: Failed Vault KV purge is recorded as a VaultCredentialPath orphan
+#### Scenario: Vault-backed provider credentials are left inert, not orphan-signalled
 
-- GIVEN a Vault-backed Gateway delete whose KV purge cannot complete (the provider
-  Vault is unreachable, or the gateway identity is already gone)
-- WHEN the control plane returns the error for retry
-- THEN it SHALL record a durable, operator-visible `VaultCredentialPath` orphan
-  signal in the control-plane namespace naming the tenant namespace and the reason
-- AND the signal SHALL NOT contain any provider secret value
-- AND the delete SHALL NOT be reported complete while the KV path remains reclaimable
+- GIVEN a Vault-backed Gateway whose runtime stored provider secrets under
+  `secret/data/openshell/provider-credentials/*`
+- WHEN the control plane tears the gateway down
+- THEN it SHALL NOT attempt to enumerate-and-purge that KV path, because the gateway
+  identity is granted no `list`, the path is not per-namespace, and the naming handles
+  live only in the gateway database being dropped
+- AND it SHALL NOT record a `VaultCredentialPath` orphan, because inert (unreferenced,
+  un-listable, unguessable) entries are the expected steady-state outcome of a delete,
+  not an unreclaimed owned resource
 
 #### Scenario: Invalid stored identity does not silently orphan the client
 

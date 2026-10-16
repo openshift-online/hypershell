@@ -64,6 +64,9 @@ type GatewayHealthReconciler struct {
 	clientset     kubernetes.Interface
 	dynamicClient dynamic.Interface
 	grpcConn      *grpc.ClientConn
+	// vaultReachable probes whether a vault-backed gateway's provider Vault is
+	// reachable. A nil value uses gateway.ProbeVaultReachable; tests inject a stub.
+	vaultReachable func(ctx context.Context, clientset kubernetes.Interface, credentialDriverJSON string) error
 	// clusterID scopes the health sweep to this managed cluster's gateways. The
 	// list is filtered server-side so a control plane never stamps
 	// (Degraded/Running) a gateway owned by another cluster. Always set: it is
@@ -396,6 +399,23 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		h.clearDeploymentTimer(gatewayID)
 		h.clearRouteTimer(gatewayID)
 		desiredPhase, desiredStatus = string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy
+	}
+
+	// Vault-backed gateways additionally require their per-cluster Vault to be reachable
+	// to be Running. A Vault outage degrades the gateway (recoverable once Vault returns)
+	// and increments a dashboard-visible signal so the cause is distinguishable from
+	// other degradations. See openshell-gateway-credentials.spec.md (Fail Closed When
+	// Vault Is Unavailable -- At runtime).
+	if desiredPhase == string(gatewayhealth.PhaseRunning) && gateway.IsVaultBacked(gw.GetCredentialDriver()) {
+		reachable := h.vaultReachable
+		if reachable == nil {
+			reachable = gateway.ProbeVaultReachable
+		}
+		if err := reachable(ctx, h.clientset, gw.GetCredentialDriver()); err != nil {
+			log.Printf("WARN gateway health: %s: provider Vault unreachable: %v", gatewayID, err)
+			cpotel.RecordGatewayVaultUnreachable(ctx, h.clusterID)
+			desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), "Vault credential backend unreachable"
+		}
 	}
 
 	// When the current revision is healthy, converge the observed release to the

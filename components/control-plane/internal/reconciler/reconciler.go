@@ -325,6 +325,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					}
 				}
 			}
+			// Vault-backed provider credentials are NOT enumerate-and-purged on gateway
+			// delete: the OpenShell runtime stores them at the flat, hash-addressed
+			// secret/data/openshell/provider-credentials/ prefix (the gateway identity is
+			// granted no list, the paths are unguessable, and the naming handles live only
+			// in the gateway database, which is dropped below). Any entries the runtime did
+			// not delete during normal operation remain inert, unreachable dead storage,
+			// not exposed secret material. See openshell-gateway-credentials.spec.md
+			// (Provider Credential Lifecycle on Deletion).
 			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, r.helmClient, namespace, opts, credentialNamespaces...); err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway resources in %s: %w", namespace, err))
 			} else {
