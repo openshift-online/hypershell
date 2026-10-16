@@ -90,7 +90,8 @@ import RobotIcon from "@patternfly/react-icons/dist/esm/icons/robot-icon";
 import ShippingFastIcon from "@patternfly/react-icons/dist/esm/icons/shipping-fast-icon";
 import type { SVGIconProps } from "@patternfly/react-icons/dist/esm/createIcon";
 import type { ComponentType } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { IntlShape, MessageDescriptor } from "react-intl";
 import { FormattedMessage, useIntl } from "react-intl";
 
@@ -101,6 +102,7 @@ import {
   bundleRowExpandKey,
   bundleRowSeed,
   cardsInPhase,
+  computeCardFlights,
   ESCALATION_BLOCKED,
   ESCALATION_DUPLICATE,
   ESCALATION_NEEDS_INPUT,
@@ -112,6 +114,7 @@ import {
   type AgentSdlcCard,
   type AgentSdlcData,
   type AgentSdlcLabelEvent,
+  type CardFlight,
   type AgentSdlcPhase,
   type AgentSdlcPullRequest,
   type AgentSdlcRework,
@@ -124,6 +127,15 @@ import { TONE_COLOR } from "../map/colors";
 import { Identicon } from "../map/identicon";
 import { ReleaseTime } from "../map/release-time";
 import { identiName } from "../../../domain/map/identiname";
+import {
+  arcControl,
+  arcTravelVars,
+  DUST,
+  DUST_MS,
+  FLIGHT_MS,
+  prefersReducedMotion,
+} from "../shared/flight-motion";
+import motion from "../shared/flight-motion.module.css";
 import styles from "./agent-sdlc-view.module.css";
 
 export interface AgentSdlcViewProps {
@@ -537,6 +549,9 @@ function AgingCard({
     <div
       className={[styles.card, toneClass].filter(Boolean).join(" ")}
       style={{ top: `${String(top)}px`, height: `${String(height)}px` }}
+      // Queryable anchor so the flight overlay can measure this card's source/dest rect
+      // and clone it at 1:1 when its phase changes (SDLC-VIS-12b position anchors).
+      data-card-number={card.number}
     >
       {/* Time-anchor tab (Google-calendar style): marks that the card's TOP edge is
           its point in time on the aging axis. */}
@@ -824,7 +839,7 @@ function AgingColumn({
           </div>
         ) : null}
       </div>
-      <div className={styles.track} ref={trackRef}>
+      <div className={styles.track} ref={trackRef} data-phase-col={phase.key}>
         {sleRatio !== null ? (
           <>
             <div
@@ -1586,61 +1601,391 @@ function ShippedDetailPanel({
   );
 }
 
+/** A full-card phase-transition flight ready to render: the cloned card node plus the
+ *  measured source rect, the arc translate samples, and the landing burst point - all in
+ *  viewport coordinates so board/column scroll is handled for free (SDLC-VIS-12a/12b). */
+interface ActiveCardFlight {
+  /** Stable React key so a re-render never restarts an in-flight animation. */
+  readonly key: string;
+  readonly number: number;
+  /** A board card that flew into the Shipped matrix (no destination column to hold). */
+  readonly toShipped: boolean;
+  /** Source top-left (viewport px) - where the flying clone starts. */
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+  /** Arc translate keyframe samples (deltas from source to destination). */
+  readonly travelVars: Record<string, string>;
+  /** Landing burst centre (viewport px). */
+  readonly burstX: number;
+  readonly burstY: number;
+  /** A 1:1 detached clone of the real card element, positioned to fill the flight box. */
+  readonly clone: HTMLElement;
+}
+
+/** One captured board card: its live rect and a detached clone for a flying copy. */
+interface CapturedCard {
+  readonly rect: DOMRect;
+  readonly clone: HTMLElement;
+}
+
+/** Snapshot every rendered board card (rect + a 1:1 clone) so a later transition can
+ *  measure the source slot and fly the exact card, even once it has left the DOM. */
+function captureCards(board: HTMLElement | null): Map<number, CapturedCard> {
+  const out = new Map<number, CapturedCard>();
+  if (!board) {
+    return out;
+  }
+  board.querySelectorAll<HTMLElement>("[data-card-number]").forEach((el) => {
+    const n = Number(el.dataset.cardNumber);
+    if (!Number.isFinite(n)) {
+      return;
+    }
+    const clone = el.cloneNode(true) as HTMLElement;
+    // Neutralise the card's own absolute positioning + aging transition so the clone
+    // fills the flight box and never animates its `top` while airborne.
+    clone.style.position = "absolute";
+    clone.style.inset = "0";
+    clone.style.left = "0";
+    clone.style.top = "0";
+    clone.style.right = "0";
+    clone.style.width = "100%";
+    clone.style.height = "100%";
+    clone.style.margin = "0";
+    clone.style.transition = "none";
+    clone.removeAttribute("data-card-number");
+    clone.setAttribute("aria-hidden", "true");
+    out.set(n, { rect: el.getBoundingClientRect(), clone });
+  });
+  return out;
+}
+
+export interface BoardFlightsState {
+  readonly flights: readonly ActiveCardFlight[];
+  /** Numbers whose flight is still airborne to a destination COLUMN, so the board holds
+   *  (skips) them until the flying copy lands - the analogue of the map's holdSeedById.
+   *  Shipped flights are not held here (the card has already left the board). */
+  readonly heldNumbers: ReadonlySet<number>;
+}
+
+let cardFlightSeq = 0;
+
+/** Fallback flight-box size when no real card rect is measurable yet (jsdom, or a card
+ *  that was already held when its next transition arrived). */
+const FALLBACK_CARD_W = 200;
+const FALLBACK_CARD_H = 84;
+
 /**
- * Flies a ghost card from the board into the matrix when an issue ships (leaves the
- * board and appears in a matrix row). Best-effort and purely decorative: it reads
- * live element rects, respects prefers-reduced-motion, and no-ops if refs are unset.
+ * Turn the pure phase diff into renderable flights by measuring geometry: the source slot
+ * (the previous commit's rect), the destination slot (the new column slot, or the matrix
+ * landing for a ship hop), and the shared arc between them.
+ *
+ * Rects degrade gracefully through per-card then per-column anchors (SDLC-VIS-12b): the
+ * freshest card rect wins, then the last capture before the card was held, then the
+ * from/to column anchor. This keeps a flight correct even when the card is NOT in the DOM
+ * at transition time - a ship hop (card already in the matrix) or a chained transition
+ * that lands while an earlier flight still holds the card out of its column. A brand-new
+ * intake card has no source slot, so it flies down into its slot from the top of the board.
  */
-function useShipFlight(
+function buildCardFlights(
+  found: readonly CardFlight[],
+  prevCards: Map<number, CapturedCard>,
+  current: Map<number, CapturedCard>,
+  lastKnown: Map<number, CapturedCard>,
+  columnRects: Map<string, DOMRect>,
+  boardRect: DOMRect | null,
+  matrixRect: DOMRect | null,
+): ActiveCardFlight[] {
+  const active: ActiveCardFlight[] = [];
+  for (const cf of found) {
+    // A 1:1 card node to fly: freshest DOM copy, else the last capture before it was held.
+    // Clone it again so the flight owns its node (the base copy may also live in lastKnown
+    // and in an earlier still-airborne flight).
+    const base = (current.get(cf.number) ?? lastKnown.get(cf.number))?.clone;
+    if (!base) {
+      continue;
+    }
+    const clone = base.cloneNode(true) as HTMLElement;
+
+    // Card size: any real card rect we have seen; else a sensible default.
+    const cardRect =
+      prevCards.get(cf.number)?.rect ??
+      current.get(cf.number)?.rect ??
+      lastKnown.get(cf.number)?.rect ??
+      null;
+    const width = cardRect?.width ?? FALLBACK_CARD_W;
+    const height = cardRect?.height ?? FALLBACK_CARD_H;
+
+    // Source top-left: the slot the card just left, else its last-known slot, else the
+    // from-phase column anchor, else it flies down from the top of the board (intake).
+    const srcRect =
+      prevCards.get(cf.number)?.rect ??
+      lastKnown.get(cf.number)?.rect ??
+      (cf.fromPhase ? (columnRects.get(cf.fromPhase) ?? null) : null);
+    let srcLeft: number;
+    let srcTop: number;
+    if (srcRect) {
+      srcLeft = srcRect.left;
+      srcTop = srcRect.top;
+    } else if (boardRect) {
+      srcLeft = boardRect.left;
+      srcTop = boardRect.top;
+    } else {
+      continue;
+    }
+
+    // Destination top-left: the matrix landing for a ship hop, else the new column slot,
+    // else the to-phase column anchor (the card is held out of the DOM).
+    let dLeft: number;
+    let dTop: number;
+    if (cf.toShipped) {
+      if (!matrixRect) {
+        continue;
+      }
+      dLeft = matrixRect.left + 20;
+      dTop = matrixRect.top + 10;
+    } else {
+      const destRect =
+        current.get(cf.number)?.rect ?? columnRects.get(cf.toPhase);
+      if (!destRect) {
+        continue;
+      }
+      dLeft = destRect.left;
+      dTop = destRect.top;
+    }
+
+    const deltaX = dLeft - srcLeft;
+    const deltaY = dTop - srcTop;
+    const { cx, cy } = arcControl(0, 0, deltaX, deltaY);
+    active.push({
+      key: `card-flight-${String(cardFlightSeq++)}`,
+      number: cf.number,
+      toShipped: cf.toShipped,
+      left: srcLeft,
+      top: srcTop,
+      width,
+      height,
+      travelVars: arcTravelVars(0, 0, deltaX, deltaY, cx, cy),
+      burstX: dLeft + width / 2,
+      burstY: dTop + height / 2,
+      clone,
+    });
+  }
+  return active;
+}
+
+/** Snapshot each board column's track rect, keyed by phase, so a flight can fall back to a
+ *  column anchor when the card itself is not in the DOM (SDLC-VIS-12b position anchors). */
+function captureColumns(board: HTMLElement | null): Map<string, DOMRect> {
+  const out = new Map<string, DOMRect>();
+  if (!board) {
+    return out;
+  }
+  board.querySelectorAll<HTMLElement>("[data-phase-col]").forEach((el) => {
+    const key = el.dataset.phaseCol;
+    if (key) {
+      out.set(key, el.getBoundingClientRect());
+    }
+  });
+  return out;
+}
+
+/**
+ * Drives the board's full-card phase-transition flights (SDLC-VIS-12a/12b). On each
+ * server snapshot it diffs phases (computeCardFlights - pure, keyed on server phase, so
+ * the one-second continuous-aging re-render never triggers it), measures the source slot
+ * (captured on the previous commit) and the destination slot, and registers a flight that
+ * the BoardFlights overlay animates along the shared arc with the shared dust burst.
+ *
+ * Mirrors the map's useFlights registry discipline: stable keys, self-expiring timers held
+ * in a ref, and NO effect-cleanup cancellation, so an unrelated poll or the aging
+ * re-render landing mid-flight never restarts or strands a flight. Honours
+ * prefers-reduced-motion by launching nothing (cards snap).
+ */
+function useCardFlights(
   data: AgentSdlcData,
   boardRef: React.RefObject<HTMLDivElement | null>,
   matrixRef: React.RefObject<HTMLDivElement | null>,
-): void {
-  const prevBoard = useRef<Set<number> | null>(null);
+): BoardFlightsState {
+  const prevDataRef = useRef<AgentSdlcData | null>(null);
+  // The previous commit's captured cards, so a transition can read the source slot after
+  // React has already moved/removed the card in the new commit.
+  const lastRef = useRef<Map<number, CapturedCard>>(new Map());
+  // The most recent capture of EVERY card ever seen (not reset when a card is held), so a
+  // transition that lands while the card is held out of the DOM still has a source rect and
+  // a clone to fly (SDLC-VIS-12b).
+  const lastKnownRef = useRef<Map<number, CapturedCard>>(new Map());
+  const [flights, setFlights] = useState<readonly ActiveCardFlight[]>([]);
+  // Cull timers, held in a ref so they survive re-renders (browser timers are numbers).
+  const timers = useRef<Set<number>>(new Set());
+
+  // Clear timers ONLY on unmount - never per render - so an aging re-render or unrelated
+  // poll cannot clearTimeout a pending cull and strand a frozen flying clone (the same
+  // trap the map's useFlights documents).
   useEffect(() => {
-    const board = new Set(data.cards.map((c) => c.number));
-    const shippedNow = new Set(
-      data.matrix.rows.flatMap((r) => r.issues.map((i) => i.number)),
+    const pending = timers.current;
+    return () => {
+      pending.forEach((t) => {
+        window.clearTimeout(t);
+      });
+      pending.clear();
+    };
+  }, []);
+
+  // Keyed on the server snapshot [data] ONLY, so the one-second continuous-aging
+  // re-render (which changes the aged copy, never `data`) can neither trigger nor restart
+  // a flight (SDLC-VIS-12b). Over a poll interval a card's slot drifts well under a pixel
+  // (aging maps onto an hours-long scale), so the previous commit's source rect is an
+  // accurate launch point. useLayoutEffect (not useEffect) commits the hold before paint,
+  // so a landing card never flashes in its new column for a frame before the flight hides
+  // it.
+  useLayoutEffect(() => {
+    // Refresh the source snapshot and prior-data baseline FIRST (like the map's
+    // useFlights), so every early-return path still advances them for the next transition.
+    const prevData = prevDataRef.current;
+    const prevCards = lastRef.current;
+    const current = captureCards(boardRef.current);
+    const columnRects = captureColumns(boardRef.current);
+    lastRef.current = current;
+    prevDataRef.current = data;
+    // Merge (never delete) so a card held out of the DOM keeps its last-known capture.
+    const lastKnown = lastKnownRef.current;
+    for (const [n, cap] of current) {
+      lastKnown.set(n, cap);
+    }
+
+    if (
+      !prevData ||
+      prefersReducedMotion() ||
+      typeof document === "undefined"
+    ) {
+      return;
+    }
+    const found = computeCardFlights(prevData, data);
+    if (found.length === 0) {
+      return;
+    }
+    const active = buildCardFlights(
+      found,
+      prevCards,
+      current,
+      lastKnown,
+      columnRects,
+      boardRef.current?.getBoundingClientRect() ?? null,
+      matrixRef.current?.getBoundingClientRect() ?? null,
     );
-    const prev = prevBoard.current;
-    prevBoard.current = board;
-    if (prev === null) {
+    if (active.length === 0) {
       return;
     }
-    const reduce =
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduce || typeof document === "undefined") {
-      return;
-    }
-    const boardEl = boardRef.current;
-    const matrixEl = matrixRef.current;
-    if (!boardEl || !matrixEl) {
-      return;
-    }
-    const flew = [...prev].filter((n) => !board.has(n) && shippedNow.has(n));
-    if (flew.length === 0) {
-      return;
-    }
-    const from = boardEl.getBoundingClientRect();
-    const to = matrixEl.getBoundingClientRect();
-    const ghost = document.createElement("div");
-    ghost.className = styles.flight ?? "";
-    ghost.textContent = "→";
-    ghost.style.left = `${String(from.right - 60)}px`;
-    ghost.style.top = `${String(from.bottom - 40)}px`;
-    document.body.appendChild(ghost);
-    requestAnimationFrame(() => {
-      const dx = to.left + 20 - (from.right - 60);
-      const dy = to.top + 10 - (from.bottom - 40);
-      ghost.style.transform = `translate(${String(dx)}px, ${String(dy)}px) scale(0.6)`;
-      ghost.style.opacity = "0";
-    });
-    window.setTimeout(() => {
-      ghost.remove();
-    }, 700);
+
+    const keys = new Set(active.map((a) => a.key));
+    setFlights((cur) => [...cur, ...active]);
+    // Each flight self-expires via a tracked timer; this effect returns NO cleanup so a
+    // later commit cannot cancel an in-flight cull (mirrors the map's useFlights).
+    const track = timers.current;
+    const id = window.setTimeout(() => {
+      track.delete(id);
+      setFlights((cur) => cur.filter((a) => !keys.has(a.key)));
+    }, FLIGHT_MS + DUST_MS);
+    track.add(id);
   }, [data, boardRef, matrixRef]);
+
+  // A column-bound flight holds its destination card until the copy lands (no double
+  // render). Ship hops are excluded: the card has already left the board.
+  const heldNumbers = useMemo(() => {
+    const held = new Set<number>();
+    for (const fl of flights) {
+      if (!fl.toShipped) {
+        held.add(fl.number);
+      }
+    }
+    return held;
+  }, [flights]);
+
+  return { flights, heldNumbers };
+}
+
+/** Attaches a detached clone node into the flight box exactly once. */
+function attachClone(clone: HTMLElement): (el: HTMLDivElement | null) => void {
+  return (el) => {
+    if (!el || el.firstChild) {
+      return;
+    }
+    el.appendChild(clone);
+  };
+}
+
+/** The board flight overlay (SDLC-VIS-12a): for each active flight, a 1:1 clone of the
+ *  card flies along the shared arc from its old slot to its new one, landing with the
+ *  shared impact + dust burst. Rendered into document.body (like the old ship ghost) so a
+ *  transformed Drawer ancestor cannot clip or offset the fixed-position copies. */
+function BoardFlights({
+  flights,
+}: {
+  flights: readonly ActiveCardFlight[];
+}): React.ReactElement | null {
+  if (typeof document === "undefined" || flights.length === 0) {
+    return null;
+  }
+  return createPortal(
+    <div aria-hidden="true">
+      {flights.map((fl) => (
+        <div key={fl.key}>
+          <div
+            className={styles.flightClone}
+            data-card-flight={fl.number}
+            style={{
+              left: `${String(fl.left)}px`,
+              top: `${String(fl.top)}px`,
+              width: `${String(fl.width)}px`,
+              height: `${String(fl.height)}px`,
+            }}
+          >
+            <div className={motion.flightTravel} style={fl.travelVars}>
+              <div
+                className={motion.flightScaleCard}
+                style={{ height: "100%" }}
+              >
+                <div
+                  ref={attachClone(fl.clone)}
+                  style={{
+                    position: "relative",
+                    width: "100%",
+                    height: "100%",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+          <div
+            className={styles.flightBurst}
+            style={{
+              left: `${String(fl.burstX)}px`,
+              top: `${String(fl.burstY)}px`,
+            }}
+          >
+            <span
+              className={[styles.flightRing, motion.impactRing].join(" ")}
+            />
+            {DUST.map((p, i) => (
+              <span
+                key={i}
+                className={[styles.flightDust, motion.dust].join(" ")}
+                style={
+                  {
+                    "--dust-dx": p.dx,
+                    "--dust-dy": p.dy,
+                  } as React.CSSProperties
+                }
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>,
+    document.body,
+  );
 }
 
 /** The shared vertical time-in-phase axis to the left of the board: one scale that
@@ -1812,7 +2157,14 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
     route.sdlc.shippedVersion,
   );
   useHorizontalWheel(boardRef);
-  useShipFlight(data, boardRef, matrixRef);
+  // Full-card phase-transition flights: diff the server snapshot, fly the whole card
+  // between columns (and into the matrix on ship), and hold the destination until it lands
+  // (SDLC-VIS-12a/12b). Suppressed under prefers-reduced-motion (cards snap).
+  const { flights: cardFlights, heldNumbers } = useCardFlights(
+    data,
+    boardRef,
+    matrixRef,
+  );
 
   // Escape closes the side panel (card detail or escalations). An open select menu
   // handles its own Escape first (guarded on an open listbox), so it isn't swallowed.
@@ -1907,7 +2259,12 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
     }
     return true;
   };
-  const cards = agedCards.filter(matches);
+  // Hold a card out of its destination column while its flight is airborne, so the card
+  // is never shown twice (once resting, once flying); it reappears at its current aged slot
+  // when the flight lands (SDLC-VIS-12b).
+  const cards = agedCards.filter(
+    (c) => matches(c) && !heldNumbers.has(c.number),
+  );
 
   const livePanel: React.ReactNode =
     selected !== null ? (
@@ -2045,6 +2402,7 @@ export function AgentSdlcView(props: AgentSdlcViewProps): React.ReactElement {
                 ))}
               </div>
             </div>
+            <BoardFlights flights={cardFlights} />
             <div className={styles.bottom}>
               <div ref={matrixRef}>
                 <ShippedMatrix

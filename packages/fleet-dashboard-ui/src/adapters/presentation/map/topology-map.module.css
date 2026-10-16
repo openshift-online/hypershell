@@ -294,128 +294,15 @@
   }
 }
 
-/* --- promotion fly-in (headliner) ----------------------------------------
-   A copy of a promoted bundle's identicon arcs from the source node to the node it
-   lands on, then a puff of dust bursts at the landing site and the whole canvas gives
-   a short screen shake. */
-
-/* Flight TRAVEL: carries the bundle along the sampled bezier (11 points --f0..--f10
-   supplied by the overlay). Timing is LINEAR so the dense samples don't stutter; the
-   acceleration into the landing is baked into the samples' spacing. `both` freezes it on
-   the dest card until the overlay removes it. CSS-driven (not SMIL) so it starts on
-   mount. */
-.flightTravel {
-  animation: fly 0.9s linear both;
-}
-
-@keyframes fly {
-  0% {
-    transform: translate(var(--f0x), var(--f0y));
-  }
-  10% {
-    transform: translate(var(--f1x), var(--f1y));
-  }
-  20% {
-    transform: translate(var(--f2x), var(--f2y));
-  }
-  30% {
-    transform: translate(var(--f3x), var(--f3y));
-  }
-  40% {
-    transform: translate(var(--f4x), var(--f4y));
-  }
-  50% {
-    transform: translate(var(--f5x), var(--f5y));
-  }
-  60% {
-    transform: translate(var(--f6x), var(--f6y));
-  }
-  70% {
-    transform: translate(var(--f7x), var(--f7y));
-  }
-  80% {
-    transform: translate(var(--f8x), var(--f8y));
-  }
-  90% {
-    transform: translate(var(--f9x), var(--f9y));
-  }
-  100% {
-    transform: translate(var(--f10x), var(--f10y));
-  }
-}
-
-/* Flight SCALE: the bundle swells larger mid-arc (reads as nearer/airborne) then settles
-   to 1:1 as it lands on the dest card. Separate element from the travel so the two
-   transforms don't collide. The glow rides here so it grows with the glyph. */
-.flightScale {
-  transform-box: fill-box;
-  transform-origin: center;
-  filter: drop-shadow(0 3px 7px rgba(0, 0, 0, 0.6));
-  animation: fly-scale 0.9s ease-in-out both;
-}
-
-@keyframes fly-scale {
-  0% {
-    transform: scale(0.8);
-  }
-  45% {
-    transform: scale(1.55);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-/* Impact ring: a quick shockwave expanding from the landing point as the bundle hits. */
-.impactRing {
-  transform-box: fill-box;
-  transform-origin: center;
-  opacity: 0;
-  animation: impact-ring 0.5s ease-out 0.88s both;
-}
-
-@keyframes impact-ring {
-  0% {
-    opacity: 0.9;
-    transform: scale(0.2);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(2.6);
-  }
-}
-
-/* Dust specks: fired outward from the landing point as the bundle hits (delay ~matches
-   the flight duration). Direction per speck via --dust-dx/--dust-dy. */
-.dust {
-  transform-box: fill-box;
-  transform-origin: center;
-  opacity: 0;
-  animation: dust-burst 0.65s ease-out 0.88s both;
-}
-
-@keyframes dust-burst {
-  0% {
-    opacity: 0;
-    transform: translate(0, 0) scale(0.3);
-  }
-  12% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translate(var(--dust-dx, 0), var(--dust-dy, 0)) scale(1.1);
-  }
-}
+/* The promotion fly-in (the map's headliner) now lives in the shared flight-motion
+   primitive (../shared/flight-motion.module.css + .ts), reused by the Agent SDLC board
+   so both surfaces share one arc, dust burst, and timing (SDLC-VIS-12a). The map overlay
+   (flights.tsx) imports .flightTravel/.flightScale/.impactRing/.dust from there. */
 
 @media (prefers-reduced-motion: reduce) {
   .countPulse,
   .identShake,
   .sandShift,
-  .dust,
-  .impactRing,
-  .flightTravel,
-  .flightScale,
   .freightSlot,
   .freightDrop {
     animation: none;

@@ -6,29 +6,16 @@
 // bundle slotting home. Pure presentation: all timing/which-flights lives upstream.
 
 import type { NodeBox } from "../../../domain/map/layout";
+import { arcControl, arcTravelVars, DUST } from "../shared/flight-motion";
+import motion from "../shared/flight-motion.module.css";
 import { TONE_COLOR } from "./colors";
 import { Identicon } from "./identicon";
 import { f } from "./svg";
-import styles from "./topology-map.module.css";
 import type { ActiveFlight } from "./use-flights";
 
 const SIZE = 30;
 // Identicon center within its card: drawn at box.(x+11, y+11), size 30 -> +15 to centre.
 const ICON_CENTER = 26;
-// Number of arc samples handed to the travel keyframe. Denser = smoother curve; with
-// linear per-segment timing the acceleration comes from the non-uniform t spacing.
-const STEPS = 11;
-
-// Dust specks fired outward from the landing point (slight upward bias). Precomputed as
-// CSS-length strings so no number ever lands in a template literal (eslint).
-const DUST = Array.from({ length: 10 }, (_, i) => {
-  const a = (i / 10) * Math.PI * 2;
-  const reach = 18 + (i % 3) * 7;
-  return {
-    dx: (Math.cos(a) * reach).toFixed(1) + "px",
-    dy: (Math.sin(a) * reach - 5).toFixed(1) + "px",
-  };
-});
 
 interface FlightArcProps {
   readonly seed: string;
@@ -44,12 +31,6 @@ interface FlightArcProps {
   readonly ring: string;
 }
 
-/** Point on the quadratic bezier P0->C->P2 at parameter t in [0,1]. */
-function bezier(t: number, p0: number, c: number, p2: number): number {
-  const u = 1 - t;
-  return u * u * p0 + 2 * u * t * c + t * t * p2;
-}
-
 function FlightArc({
   seed,
   sx,
@@ -60,25 +41,17 @@ function FlightArc({
   cy,
   ring,
 }: FlightArcProps): React.ReactElement {
-  // Sample the arc at STEPS points for a CSS transform keyframe (not SMIL: a
-  // dynamically inserted <animateMotion begin=0> on a long-lived SVG starts in the past
-  // and snaps to its end). The t spacing is eased (t = p^1.7) so the bundle starts slow
-  // and ACCELERATES into the landing, while linear per-segment timing keeps the dense
-  // samples from stuttering - together a smooth "thrown through the air" arc.
-  const vars: Record<string, string> = {};
-  Array.from({ length: STEPS }, (_, i) => i).forEach((i) => {
-    const t = Math.pow(i / (STEPS - 1), 1.7);
-    vars["--f" + String(i) + "x"] = bezier(t, sx, cx, dx).toFixed(1) + "px";
-    vars["--f" + String(i) + "y"] = bezier(t, sy, cy, dy).toFixed(1) + "px";
-  });
+  // Sample the arc via the shared primitive (same math the board uses), in absolute SVG
+  // coords here.
+  const vars = arcTravelVars(sx, sy, dx, dy, cx, cy);
 
   return (
     <g aria-hidden="true">
       {/* Two nested groups so position and scale don't fight over `transform`: the OUTER
           group carries the identicon along the arc (translate keyframe); the INNER group
           swells it larger mid-flight then settles to 1:1 on the dest card (scale). */}
-      <g className={styles.flightTravel} style={vars}>
-        <g className={styles.flightScale}>
+      <g className={motion.flightTravel} style={vars}>
+        <g className={motion.flightScale}>
           <rect
             x={-SIZE / 2 - 3}
             y={-SIZE / 2 - 3}
@@ -96,7 +69,7 @@ function FlightArc({
       {/* dust + impact ring at the landing site, delayed (in CSS) until the arc lands. */}
       <g transform={`translate(${f(dx)} ${f(dy)})`}>
         <circle
-          className={styles.impactRing}
+          className={motion.impactRing}
           cx={0}
           cy={0}
           r={10}
@@ -107,7 +80,7 @@ function FlightArc({
         {DUST.map((p, i) => (
           <circle
             key={i}
-            className={styles.dust}
+            className={motion.dust}
             cx={0}
             cy={0}
             r={3}
@@ -132,20 +105,6 @@ export interface MapFlightsProps {
    *  from here into the first column, so the chain starts on-canvas at the change head
    *  (we can't fly it in from the off-canvas freight bar above). */
   readonly changeAnchor: { readonly x: number; readonly y: number };
-}
-
-/** Lofted arc control point for a source->dest hop (apex above the higher endpoint,
- *  taller for longer hops). */
-function arcControl(
-  sx: number,
-  sy: number,
-  dx: number,
-  dy: number,
-): { cx: number; cy: number } {
-  return {
-    cx: (sx + dx) / 2,
-    cy: Math.min(sy, dy) - Math.max(80, Math.abs(dx - sx) * 0.35),
-  };
 }
 
 export function MapFlights({
