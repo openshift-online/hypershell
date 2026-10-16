@@ -811,6 +811,10 @@ fi
 if [[ "$SKIP_CLEANUP" != "1" && "$LAUNCH_TUI" != "1" && -n "$SANDBOX_NAME" ]]; then
   echo ""
   dim "  Cleaning up sandbox..."
+  # Stop first: it shuts the sandbox down in order. A bare delete waits out the
+  # 30s pod grace period because the sandbox processes ignore SIGTERM.
+  show_cmd "${OPENSHELL} ${GW_FLAG} sandbox stop ${SANDBOX_NAME}"
+  "${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox stop "${SANDBOX_NAME}" 2>&1 || true
   show_cmd "${OPENSHELL} ${GW_FLAG} sandbox delete ${SANDBOX_NAME}"
   "${OPENSHELL}" -g "${GW_LOCAL_NAME}" sandbox delete "${SANDBOX_NAME}" 2>&1 || true
   dim "  Sandbox deleted"
@@ -962,6 +966,7 @@ except Exception:
 
   if [[ "$SKIP_CLEANUP" != "1" && "$DEV_SB_FOUND" == "true" ]]; then
     dim "  Cleaning up developer sandbox..."
+    "${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" sandbox stop "${DEV_SANDBOX}" 2>&1 || true
     "${OPENSHELL}" -g "${DEV_GW_LOCAL_NAME}" sandbox delete "${DEV_SANDBOX}" 2>&1 || true
   fi
 
